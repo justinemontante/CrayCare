@@ -12,9 +12,9 @@ class DashboardScreen extends StatelessWidget {
           children: [
             _buildGreeting(),
             _buildSectionHeader('Water Quality Overview'),
-            _buildGaugeGrid(),
+            _buildGaugeGrid(context),
             _buildSectionHeader('Physical Parameters'),
-            _buildWaterLevelGauge(),
+            _buildWaterLevelGauge(context),
             _buildQuickActionsHeader(),
             _buildQuickActions(),
             _buildTankStatusCard(),
@@ -130,7 +130,7 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildGaugeGrid() {
+  Widget _buildGaugeGrid(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
       child: Column(
@@ -140,11 +140,13 @@ class DashboardScreen extends StatelessWidget {
               Expanded(child: _buildGaugeCard(
                 title: 'Temperature', value: '26.4', unit: '\u00B0C', ideal: 'Ideal: 24.0 \u2013 30.0\u00B0C',
                 iconPath: 'assets/images/temperature.png', status: 'Optimal', statusColor: const Color(0xFF16a34a),
+                onTap: () => _showGaugeDetail(context, title: 'Temperature', value: '26.4', unit: '\u00B0C', status: 'Optimal', statusColor: const Color(0xFF16a34a), ideal: '24.0 \u2013 30.0\u00B0C', iconPath: 'assets/images/temperature.png'),
               )),
               const SizedBox(width: 10),
               Expanded(child: _buildGaugeCard(
                 title: 'pH Level', value: '7.8', unit: 'pH', ideal: 'Ideal: 7.0 \u2013 8.5',
                 iconPath: 'assets/images/pH.png', status: 'Optimal', statusColor: const Color(0xFF16a34a),
+                onTap: () => _showGaugeDetail(context, title: 'pH Level', value: '7.8', unit: 'pH', status: 'Optimal', statusColor: const Color(0xFF16a34a), ideal: '7.0 \u2013 8.5', iconPath: 'assets/images/pH.png'),
               )),
             ],
           ),
@@ -154,11 +156,13 @@ class DashboardScreen extends StatelessWidget {
               Expanded(child: _buildGaugeCard(
                 title: 'Dissolved O\u2082', value: '4.2', unit: 'mg/L', ideal: 'Ideal: >5.0 mg/L',
                 iconPath: 'assets/images/DO.png', status: 'Warning', statusColor: const Color(0xFFd97706),
+                onTap: () => _showGaugeDetail(context, title: 'Dissolved O\u2082', value: '4.2', unit: 'mg/L', status: 'Warning', statusColor: const Color(0xFFd97706), ideal: '>5.0 mg/L', iconPath: 'assets/images/DO.png'),
               )),
               const SizedBox(width: 10),
               Expanded(child: _buildGaugeCard(
                 title: 'Turbidity', value: '45', unit: 'NTU', ideal: 'Ideal: 0 \u2013 25 NTU',
                 iconPath: 'assets/images/Turbidity.png', status: 'Critical', statusColor: const Color(0xFFdc2626),
+                onTap: () => _showGaugeDetail(context, title: 'Turbidity', value: '45', unit: 'NTU', status: 'Critical', statusColor: const Color(0xFFdc2626), ideal: '0 \u2013 25 NTU', iconPath: 'assets/images/Turbidity.png'),
               )),
             ],
           ),
@@ -170,8 +174,11 @@ class DashboardScreen extends StatelessWidget {
   Widget _buildGaugeCard({
     required String title, required String value, required String unit, required String ideal,
     required String iconPath, required String status, required Color statusColor,
+    VoidCallback? onTap,
   }) {
-    return Container(
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
@@ -232,15 +239,17 @@ class DashboardScreen extends StatelessWidget {
           ),
         ],
       ),
+      ),
     );
   }
 
-  Widget _buildWaterLevelGauge() {
+  Widget _buildWaterLevelGauge(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14),
       child: _buildGaugeCard(
         title: 'Water Level', value: '95', unit: 'cm', ideal: 'Ideal: 80 \u2013 120 cm',
         iconPath: 'assets/images/waterLevel.png', status: 'Optimal', statusColor: const Color(0xFF16a34a),
+        onTap: () => _showGaugeDetail(context, title: 'Water Level', value: '95', unit: 'cm', status: 'Optimal', statusColor: const Color(0xFF16a34a), ideal: '80 \u2013 120 cm', iconPath: 'assets/images/waterLevel.png'),
       ),
     );
   }
@@ -470,7 +479,188 @@ class DashboardScreen extends StatelessWidget {
       ),
     );
   }
+
+  void _showGaugeDetail(BuildContext context, {
+    required String title,
+    required String value,
+    required String unit,
+    required String status,
+    required Color statusColor,
+    required String ideal,
+    required String iconPath,
+  }) {
+    final legends = _gaugeLegends[title] ?? [];
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Details', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF0B3C49))),
+                    GestureDetector(
+                      onTap: () => Navigator.pop(ctx),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text('View Graph', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF1FA5A5))),
+                          const SizedBox(width: 3),
+                          Icon(Icons.chevron_right, size: 11, color: const Color(0xFF1FA5A5)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Container(
+                      width: 36, height: 36,
+                      decoration: BoxDecoration(color: const Color(0xFF1FA5A5).withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.all(7),
+                      child: Image.asset(iconPath),
+                    ),
+                    const SizedBox(width: 10),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF0B3C49))),
+                        const SizedBox(height: 2),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: statusColor.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(status, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: statusColor, letterSpacing: 0.5)),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFf7f7f7),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Text(value, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w800, color: Color(0xFF0B3C49), height: 1)),
+                      const SizedBox(width: 4),
+                      Text(unit, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: const Color(0xFF0B3C49).withOpacity(0.4))),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Center(
+                  child: Text(ideal, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: const Color(0xFF0B3C49).withOpacity(0.5))),
+                ),
+                const SizedBox(height: 6),
+                ...legends.map((l) => Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFf9f9f9),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: 8, height: 8,
+                          margin: const EdgeInsets.only(top: 2),
+                          decoration: BoxDecoration(color: l.color, shape: BoxShape.circle),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(l.label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF0B3C49))),
+                              Text(l.range, style: TextStyle(fontSize: 9, color: const Color(0xFF0B3C49).withOpacity(0.75))),
+                              Text(l.desc, style: TextStyle(fontSize: 9, color: const Color(0xFF0B3C49).withOpacity(0.65), height: 1.3)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                )),
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    style: TextButton.styleFrom(
+                      backgroundColor: const Color(0xFF1FA5A5),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 9),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    child: const Text('Close', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 }
+
+class _LegendItem {
+  final String label;
+  final String range;
+  final String desc;
+  final Color color;
+  const _LegendItem(this.label, this.range, this.desc, this.color);
+}
+
+const Map<String, List<_LegendItem>> _gaugeLegends = {
+  'Temperature': [
+    _LegendItem('Normal', '24\u201330\u00B0C', 'Optimal range for crayfish growth and molting.', Color(0xFF52c283)),
+    _LegendItem('Warning', '20\u201323\u00B0C or 31\u201333\u00B0C', 'May slow metabolism and cause stress to crayfish.', Color(0xFFf59e0b)),
+    _LegendItem('Critical', 'below 20\u00B0C or above 33\u00B0C', 'Can cause death. Alert notification will be sent.', Color(0xFFE63946)),
+  ],
+  'pH Level': [
+    _LegendItem('Normal', '7.0\u20138.5', 'Ideal acidity for healthy molting and shell formation.', Color(0xFF52c283)),
+    _LegendItem('Warning', '6.5\u20136.9 or 8.6\u20139.0', 'May irritate gills and weaken immune system.', Color(0xFFf59e0b)),
+    _LegendItem('Critical', 'below 6.5 or above 9.0', 'Highly toxic. Can cause rapid death of crayfish.', Color(0xFFE63946)),
+  ],
+  'Dissolved O\u2082': [
+    _LegendItem('Normal', '5.0+ mg/L', 'Sufficient oxygen for active and healthy crayfish.', Color(0xFF52c283)),
+    _LegendItem('Low', '3.0\u20134.9 mg/L', 'Crayfish may become inactive and lose appetite.', Color(0xFFf59e0b)),
+    _LegendItem('Critical', 'below 3.0 mg/L', 'Dangerously low. Triggers aerator pump automatically.', Color(0xFFE63946)),
+  ],
+  'Turbidity': [
+    _LegendItem('Normal', '0\u201325 NTU', 'Clean water with good visibility and low bacteria risk.', Color(0xFF52c283)),
+    _LegendItem('Cloudy', '26\u201350 NTU', 'Suspended particles may clog gills over time.', Color(0xFFf59e0b)),
+    _LegendItem('Dirty', 'above 50 NTU', 'Severely dirty water. Triggers filtration alert immediately.', Color(0xFFE63946)),
+  ],
+  'Water Level': [
+    _LegendItem('Normal', '80\u2013120 cm', 'Ideal water level for crayfish growth and oxygen exchange.', Color(0xFF52c283)),
+    _LegendItem('Warning', '60\u201379 cm or 121\u2013140 cm', 'May affect water quality and circulation.', Color(0xFFf59e0b)),
+    _LegendItem('Critical', 'below 60 cm or above 140 cm', 'Extreme water level. Can stress or kill crayfish.', Color(0xFFE63946)),
+  ],
+};
 
 class _QuickActionData {
   final String name;
