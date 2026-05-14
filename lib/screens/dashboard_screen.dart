@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 class DashboardScreen extends StatelessWidget {
-  const DashboardScreen({super.key});
+  final VoidCallback? onViewGraph;
+
+  const DashboardScreen({super.key, this.onViewGraph});
 
   @override
   Widget build(BuildContext context) {
@@ -275,22 +277,23 @@ class DashboardScreen extends StatelessWidget {
       _QuickActionData('Trends', Icons.trending_up_rounded, null),
     ];
 
-    return SizedBox(
-      height: 56,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(14, 5, 14, 5),
-        itemCount: actions.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemBuilder: (context, index) {
-          final a = actions[index];
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
+      child: Row(
+        children: actions.map((a) {
           return Container(
+            margin: const EdgeInsets.only(right: 8),
             padding: const EdgeInsets.fromLTRB(6, 10, 10, 10),
             decoration: BoxDecoration(
-              color: const Color(0xFF1FA5A5).withOpacity(0.08),
-              border: Border.all(color: const Color(0xFF0B3C49).withOpacity(0.06)),
+              gradient: const LinearGradient(
+                colors: [Color(0xFFf8ffff), Color(0xFFf2fdfd), Color(0xFFe8fafa), Color(0xFFdaf4f5)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              border: Border.all(color: const Color(0xFF0B3C49).withValues(alpha: 0.06)),
               borderRadius: BorderRadius.circular(10),
-              boxShadow: [BoxShadow(color: const Color(0xFF0B3C49).withOpacity(0.15), blurRadius: 12, offset: const Offset(0, 4))],
+              boxShadow: [BoxShadow(color: const Color(0xFF0B3C49).withValues(alpha: 0.15), blurRadius: 12, offset: const Offset(0, 4))],
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -300,7 +303,7 @@ class DashboardScreen extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: Colors.white,
                     shape: BoxShape.circle,
-                    border: Border.all(color: const Color(0xFF1FA5A5).withOpacity(0.2), width: 1.5),
+                    border: Border.all(color: const Color(0xFF1FA5A5).withValues(alpha: 0.2), width: 1.5),
                   ),
                   child: Icon(a.icon, size: 12, color: const Color(0xFF1FA5A5)),
                 ),
@@ -319,7 +322,7 @@ class DashboardScreen extends StatelessWidget {
               ],
             ),
           );
-        },
+        }).toList(),
       ),
     );
   }
@@ -510,7 +513,10 @@ class DashboardScreen extends StatelessWidget {
                   children: [
                     const Text('Details', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF0B3C49))),
                     GestureDetector(
-                      onTap: () => Navigator.pop(ctx),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        onViewGraph?.call();
+                      },
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [

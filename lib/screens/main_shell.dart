@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dashboard_screen.dart';
+import 'analytics_screen.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -11,12 +12,16 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
 
-  static const List<Widget> _screens = [
-    DashboardScreen(),
-    PlaceholderScreen(label: 'Analytics'),
-    PlaceholderScreen(label: 'Tanks'),
-    PlaceholderScreen(label: 'Controls'),
-    PlaceholderScreen(label: 'Notifications'),
+  void _goToAnalytics() {
+    setState(() => _currentIndex = 1);
+  }
+
+  List<Widget> get _screens => [
+    DashboardScreen(onViewGraph: _goToAnalytics),
+    AnalyticsScreen(),
+    const PlaceholderScreen(label: 'Tanks'),
+    const PlaceholderScreen(label: 'Controls'),
+    const PlaceholderScreen(label: 'Notifications'),
   ];
 
   static const List<_NavItem> _navItems = [
