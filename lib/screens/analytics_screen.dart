@@ -11,6 +11,10 @@ class AnalyticsScreen extends StatefulWidget {
 class _AnalyticsScreenState extends State<AnalyticsScreen> {
   String _activeFilter = '24h';
   bool _showCustom = false;
+  String? _pressedFilterValue;
+  bool _isApplyPressed = false;
+  DateTime _customStartDate = DateTime.now().subtract(const Duration(days: 14));
+  DateTime _customEndDate = DateTime.now();
 
   final Map<String, List<double>> _data = {};
   final Map<String, List<String>> _labels = {};
@@ -28,7 +32,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     int pts;
     if (range == '24h') pts = 144;
     else if (range == '7d') pts = 7;
-    else pts = 10;
+    else if (range == 'custom') {
+      pts = _customEndDate.difference(_customStartDate).inDays + 1;
+      if (pts < 1) pts = 1;
+      if (pts > 365) pts = 365;
+    } else pts = 10;
 
     final now = DateTime.now();
     List<String> labels;
@@ -38,6 +46,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         final h = d.hour > 12 ? d.hour - 12 : (d.hour == 0 ? 12 : d.hour);
         final ampm = d.hour >= 12 ? 'PM' : 'AM';
         return '${h}:${d.minute.toString().padLeft(2, '0')} $ampm';
+      });
+    } else if (range == 'custom') {
+      labels = List.generate(pts, (i) {
+        final d = _customStartDate.add(Duration(days: i));
+        return _formatDate(d);
       });
     } else {
       labels = List.generate(pts, (i) {
@@ -169,39 +182,97 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   Widget _buildFilterBtn(String label, String value) {
-    final isActive = _activeFilter == value;
+    final isActive = value == 'custom' ? _showCustom : _activeFilter == value;
+    final isPressed = _pressedFilterValue == value;
+    Color bgColor;
+    Color borderColor;
+    Color textColor;
+    if (isActive) {
+      bgColor = isPressed ? const Color(0xFF178a8a) : const Color(0xFF1FA5A5);
+      borderColor = isPressed ? const Color(0xFF178a8a) : const Color(0xFF1FA5A5);
+      textColor = Colors.white;
+    } else {
+      bgColor = isPressed ? const Color(0xFF1FA5A5).withValues(alpha: 0.1) : Colors.white;
+      borderColor = const Color(0xFF0B3C49).withValues(alpha: 0.15);
+      textColor = isPressed
+          ? const Color(0xFF1FA5A5)
+          : const Color(0xFF0B3C49).withValues(alpha: 0.5);
+    }
     return Expanded(
-      child: GestureDetector(
-        onTap: () {
-          if (value == 'custom') {
-            setState(() => _showCustom = !_showCustom);
-          } else {
-            setState(() {
-              _activeFilter = value;
-              _showCustom = false;
-              _generateData(value);
-            });
-          }
-        },
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 3),
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          decoration: BoxDecoration(
-            color: isActive ? const Color(0xFF1FA5A5) : Colors.white,
-            border: Border.all(color: const Color(0xFF0B3C49).withValues(alpha: 0.15), width: 1.5),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 3),
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+          child: InkWell(
             borderRadius: BorderRadius.circular(10),
-          ),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 10, fontWeight: FontWeight.w700,
-              color: isActive ? Colors.white : const Color(0xFF0B3C49).withValues(alpha: 0.5),
+            onTapDown: (_) => setState(() => _pressedFilterValue = value),
+            onTapUp: (_) => setState(() => _pressedFilterValue = null),
+            onTapCancel: () => setState(() => _pressedFilterValue = null),
+            onTap: () {
+              if (value == 'custom') {
+                setState(() {
+                  _showCustom = !_showCustom;
+                  _activeFilter = '';
+                });
+              } else {
+                setState(() {
+                  _activeFilter = value;
+                  _showCustom = false;
+                  _generateData(value);
+                });
+              }
+            },
+            child: Ink(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              decoration: BoxDecoration(
+                color: bgColor,
+                border: Border.all(color: borderColor, width: 1.5),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                label,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 10, fontWeight: FontWeight.w700,
+                  color: textColor,
+                ),
+              ),
             ),
           ),
         ),
       ),
     );
+  }
+
+  String _formatDate(DateTime dt) {
+    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
+  }
+
+  Future<void> _pickDate(bool isStart) async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: isStart ? _customStartDate : _customEndDate,
+      firstDate: DateTime(2025),
+      lastDate: now,
+    );
+    if (picked != null) {
+      setState(() {
+        if (isStart) {
+          _customStartDate = picked;
+          if (_customStartDate.isAfter(_customEndDate)) {
+            _customEndDate = _customStartDate;
+          }
+        } else {
+          _customEndDate = picked;
+          if (_customEndDate.isBefore(_customStartDate)) {
+            _customStartDate = _customEndDate;
+          }
+        }
+      });
+    }
   }
 
   Widget _buildCustomDateRow() {
@@ -210,13 +281,20 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       child: Row(
         children: [
           Expanded(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              decoration: BoxDecoration(
-                border: Border.all(color: const Color(0xFF0B3C49).withValues(alpha: 0.15), width: 1.5),
-                borderRadius: BorderRadius.circular(10),
+            child: InkWell(
+              onTap: () => _pickDate(true),
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                decoration: BoxDecoration(
+                  border: Border.all(color: const Color(0xFF0B3C49).withValues(alpha: 0.15), width: 1.5),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  _formatDate(_customStartDate),
+                  style: const TextStyle(fontSize: 10, color: Color(0xFF0B3C49)),
+                ),
               ),
-              child: const Text('May 1, 2026', style: TextStyle(fontSize: 10, color: Color(0xFF0B3C49))),
             ),
           ),
           Padding(
@@ -224,25 +302,45 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             child: Text('to', style: TextStyle(fontSize: 10, color: const Color(0xFF0B3C49).withValues(alpha: 0.5))),
           ),
           Expanded(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              decoration: BoxDecoration(
-                border: Border.all(color: const Color(0xFF0B3C49).withValues(alpha: 0.15), width: 1.5),
-                borderRadius: BorderRadius.circular(10),
+            child: InkWell(
+              onTap: () => _pickDate(false),
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                decoration: BoxDecoration(
+                  border: Border.all(color: const Color(0xFF0B3C49).withValues(alpha: 0.15), width: 1.5),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  _formatDate(_customEndDate),
+                  style: const TextStyle(fontSize: 10, color: Color(0xFF0B3C49)),
+                ),
               ),
-              child: const Text('May 15, 2026', style: TextStyle(fontSize: 10, color: Color(0xFF0B3C49))),
             ),
           ),
           const SizedBox(width: 6),
-          GestureDetector(
-            onTap: () => _generateData('custom'),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: const Color(0xFF1FA5A5),
-                borderRadius: BorderRadius.circular(10),
+          Material(
+            color: Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTapDown: (_) => setState(() => _isApplyPressed = true),
+              onTapUp: (_) => setState(() => _isApplyPressed = false),
+              onTapCancel: () => setState(() => _isApplyPressed = false),
+              onTap: () {
+                _generateData('custom');
+                setState(() => _activeFilter = 'custom');
+              },
+              child: Ink(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: _isApplyPressed
+                      ? const Color(0xFF178a8a)
+                      : const Color(0xFF1FA5A5),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Text('Apply', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white)),
               ),
-              child: const Text('Apply', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white)),
             ),
           ),
         ],
@@ -371,6 +469,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       barrierDismissible: true,
       barrierColor: Colors.black.withValues(alpha: 0.4),
       builder: (ctx) {
+        bool _closePressed = false;
         return Dialog(
           insetPadding: const EdgeInsets.symmetric(horizontal: 20),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
@@ -383,13 +482,30 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text('$title ($unit)', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF0B3C49))),
-                    GestureDetector(
-                      onTap: () => Navigator.pop(ctx),
-                      child: Container(
-                        width: 30, height: 30,
-                        decoration: BoxDecoration(color: const Color(0xFF0B3C49).withValues(alpha: 0.08), shape: BoxShape.circle),
-                        child: const Icon(Icons.close, size: 13, color: Color(0xFF0B3C49)),
-                      ),
+                    StatefulBuilder(
+                      builder: (ctx2, setDialogState) {
+                        return Material(
+                          color: Colors.transparent,
+                          shape: const CircleBorder(),
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTapDown: (_) => setDialogState(() => _closePressed = true),
+                            onTapUp: (_) => setDialogState(() => _closePressed = false),
+                            onTapCancel: () => setDialogState(() => _closePressed = false),
+                            onTap: () => Navigator.pop(ctx),
+                            child: Container(
+                              width: 30, height: 30,
+                              decoration: BoxDecoration(
+                                color: _closePressed
+                                    ? const Color(0xFF0B3C49).withValues(alpha: 0.2)
+                                    : const Color(0xFF0B3C49).withValues(alpha: 0.08),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.close, size: 13, color: Color(0xFF0B3C49)),
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ],
                 ),
