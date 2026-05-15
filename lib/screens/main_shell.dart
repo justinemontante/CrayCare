@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dashboard_screen.dart';
 import 'analytics_screen.dart';
+import 'controls_screen.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -20,7 +21,7 @@ class _MainShellState extends State<MainShell> {
     DashboardScreen(onViewGraph: _goToAnalytics),
     AnalyticsScreen(),
     const PlaceholderScreen(label: 'Tanks'),
-    const PlaceholderScreen(label: 'Controls'),
+    const ControlsScreen(),
     const PlaceholderScreen(label: 'Notifications'),
   ];
 
