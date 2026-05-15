@@ -75,17 +75,41 @@ class _SplashScreenState extends State<SplashScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Image.asset('assets/images/logo.png', width: 150, height: 150),
+                  Image.asset(
+                    'assets/images/logo.png',
+                    width: 150,
+                    height: 150,
+                  ),
                   const SizedBox(height: 20),
                   const Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text('Cray', style: TextStyle(fontSize: 36, fontWeight: FontWeight.w800, color: Color(0xFF0B3C49))),
-                      Text('Care', style: TextStyle(fontSize: 36, fontWeight: FontWeight.w800, color: Color(0xFF1FA5A5))),
+                      Text(
+                        'Cray',
+                        style: TextStyle(
+                          fontSize: 36,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF0B3C49),
+                        ),
+                      ),
+                      Text(
+                        'Care',
+                        style: TextStyle(
+                          fontSize: 36,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF1FA5A5),
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 8),
-                  Text('Better Care, Better Crayfish', style: TextStyle(fontSize: 14, color: Color(0xFF0B3C49).withOpacity(0.8))),
+                  Text(
+                    'Better Care, Better Crayfish',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Color(0xFF0B3C49).withOpacity(0.8),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -95,7 +119,15 @@ class _SplashScreenState extends State<SplashScreen> {
               bottom: 60,
               child: Column(
                 children: [
-                  const Text('Loading...', textAlign: TextAlign.center, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF1FA5A5))),
+                  const Text(
+                    'Loading...',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF1FA5A5),
+                    ),
+                  ),
                   const SizedBox(height: 12),
                   Center(
                     child: SizedBox(
@@ -103,7 +135,9 @@ class _SplashScreenState extends State<SplashScreen> {
                       child: LinearProgressIndicator(
                         value: _progress,
                         backgroundColor: const Color(0xFFE0E0E0),
-                        valueColor: const AlwaysStoppedAnimation(Color(0xFF1FA5A5)),
+                        valueColor: const AlwaysStoppedAnimation(
+                          Color(0xFF1FA5A5),
+                        ),
                       ),
                     ),
                   ),

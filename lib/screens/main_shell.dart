@@ -42,11 +42,18 @@ class _MainShellState extends State<MainShell> {
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
             decoration: const BoxDecoration(
               gradient: LinearGradient(
-                colors: [Color(0xFFf8ffff), Color(0xFFf2fdfd), Color(0xFFe8fafa), Color(0xFFdaf4f5)],
+                colors: [
+                  Color(0xFFf8ffff),
+                  Color(0xFFf2fdfd),
+                  Color(0xFFe8fafa),
+                  Color(0xFFdaf4f5),
+                ],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
-              border: Border(bottom: BorderSide(color: Color(0x0f000000), width: 1)),
+              border: Border(
+                bottom: BorderSide(color: Color(0x0f000000), width: 1),
+              ),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -54,10 +61,30 @@ class _MainShellState extends State<MainShell> {
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Image.asset('assets/images/logo.png', width: 42, height: 42),
+                    Image.asset(
+                      'assets/images/logo.png',
+                      width: 42,
+                      height: 42,
+                    ),
                     const SizedBox(width: 6),
-                    const Text('Cray', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xFF0B3C49), letterSpacing: -0.3)),
-                    const Text('Care', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xFF1FA5A5), letterSpacing: -0.3)),
+                    const Text(
+                      'Cray',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF0B3C49),
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                    const Text(
+                      'Care',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF1FA5A5),
+                        letterSpacing: -0.3,
+                      ),
+                    ),
                   ],
                 ),
                 GestureDetector(
@@ -69,15 +96,17 @@ class _MainShellState extends State<MainShell> {
                       color: Color(0xFF1FA5A5),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.person, color: Colors.white, size: 20),
+                    child: const Icon(
+                      Icons.person,
+                      color: Colors.white,
+                      size: 20,
+                    ),
                   ),
                 ),
               ],
             ),
           ),
-          Expanded(
-            child: _screens[_currentIndex],
-          ),
+          Expanded(child: _screens[_currentIndex]),
           _buildBottomNav(),
         ],
       ),
@@ -89,41 +118,65 @@ class _MainShellState extends State<MainShell> {
       padding: const EdgeInsets.fromLTRB(8, 10, 8, 10),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.85),
-        boxShadow: const [BoxShadow(color: Color(0x0d000000), blurRadius: 20, offset: Offset(0, -4))],
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0d000000),
+            blurRadius: 20,
+            offset: Offset(0, -4),
+          ),
+        ],
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: List.generate(_navItems.length, (i) {
           final item = _navItems[i];
           final isActive = i == _currentIndex;
-          return GestureDetector(
-            onTap: () => setState(() => _currentIndex = i),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: isActive ? const Color(0x1F1FA5A5) : Colors.transparent,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(item.icon, size: 24, color: isActive ? const Color(0xFF1FA5A5) : const Color(0xFF0B3C49).withOpacity(0.3)),
-                  const SizedBox(height: 3),
-                  Text(
-                    item.label,
-                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: isActive ? const Color(0xFF1FA5A5) : const Color(0xFF0B3C49).withOpacity(0.4)),
-                  ),
-                  if (isActive)
-                    Container(
-                      margin: const EdgeInsets.only(top: 2),
-                      width: 24,
-                      height: 3,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF1FA5A5),
-                        borderRadius: BorderRadius.all(Radius.circular(3)),
+          return Expanded(
+            child: GestureDetector(
+              onTap: () => setState(() => _currentIndex = i),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                decoration: BoxDecoration(
+                  color: isActive
+                      ? const Color(0x1F1FA5A5)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      item.icon,
+                      size: 22,
+                      color: isActive
+                          ? const Color(0xFF1FA5A5)
+                          : const Color(0xFF0B3C49).withOpacity(0.3),
+                    ),
+                    const SizedBox(height: 2),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        item.label,
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w600,
+                          color: isActive
+                              ? const Color(0xFF1FA5A5)
+                              : const Color(0xFF0B3C49).withOpacity(0.4),
+                        ),
                       ),
                     ),
-                ],
+                    if (isActive)
+                      Container(
+                        margin: const EdgeInsets.only(top: 2),
+                        width: 20,
+                        height: 3,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF1FA5A5),
+                          borderRadius: BorderRadius.all(Radius.circular(3)),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
           );
@@ -142,7 +195,14 @@ class PlaceholderScreen extends StatelessWidget {
     return Container(
       color: Colors.white,
       child: Center(
-        child: Text(label, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Color(0xFF0B3C49))),
+        child: Text(
+          label,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF0B3C49),
+          ),
+        ),
       ),
     );
   }
