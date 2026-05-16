@@ -22,6 +22,8 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
   final _confirmPwCtrl = TextEditingController();
 
   bool _notifAllow = true;
+  bool _notifSound = true;
+  bool _notifVibration = true;
   bool _notifCritical = true;
   bool _notifFeeding = true;
   bool _notifSampling = false;
@@ -394,6 +396,10 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
       child: Column(
         children: [
           _buildToggle('Allow Notifications', _notifAllow, (v) => setState(() => _notifAllow = v ?? true)),
+          const SizedBox(height: 6),
+          _buildToggle('Allow Sound', _notifSound, (v) => setState(() => _notifSound = v ?? true)),
+          const SizedBox(height: 6),
+          _buildToggle('Allow Vibration', _notifVibration, (v) => setState(() => _notifVibration = v ?? true)),
           const SizedBox(height: 6),
           _buildToggle('Critical Water Warnings', _notifCritical, (v) => setState(() => _notifCritical = v ?? true)),
           const SizedBox(height: 6),

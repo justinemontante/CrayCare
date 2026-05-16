@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../theme/app_colors.dart';
 
 class TanksScreen extends StatefulWidget {
@@ -139,7 +140,7 @@ class _TanksScreenState extends State<TanksScreen> {
             child: GestureDetector(
               onTap: () => setState(() => _activeTab = i),
               child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 9),
+                padding: const EdgeInsets.symmetric(vertical: 14),
                 decoration: BoxDecoration(
                   color: isActive ? Colors.white : Colors.transparent,
                   borderRadius: BorderRadius.circular(11),
@@ -483,83 +484,87 @@ class _TanksScreenState extends State<TanksScreen> {
                     const SizedBox(height: 16),
                     const Text('Initialize Grow-Out Setup', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.dark)),
                     const SizedBox(height: 20),
-                    _buildFieldLabel('Initial Population'),
-                    const SizedBox(height: 6),
-                    TextField(
-                      decoration: InputDecoration(
-                        hintText: 'e.g. 68',
-                        filled: true,
-                        fillColor: Colors.white,
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide(color: AppColors.darkWith(0.12)),
+                      _buildFieldLabel('Initial Population'),
+                      const SizedBox(height: 6),
+                      TextField(
+                        decoration: InputDecoration(
+                          hintText: 'e.g. 68',
+                          filled: true,
+                          fillColor: Colors.white,
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide(color: AppColors.darkWith(0.12)),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+                          ),
                         ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
-                        ),
-                      ),
-                      keyboardType: TextInputType.number,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                       style: const TextStyle(fontSize: 14, color: AppColors.dark),
                     ),
                     const SizedBox(height: 14),
-                    _buildFieldLabel('Sample Count'),
-                    const SizedBox(height: 6),
-                    TextField(
-                      decoration: InputDecoration(
-                        hintText: 'e.g. 30',
-                        filled: true,
-                        fillColor: Colors.white,
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide(color: AppColors.darkWith(0.12)),
+                      _buildFieldLabel('Sample Count'),
+                      const SizedBox(height: 6),
+                      TextField(
+                        decoration: InputDecoration(
+                          hintText: 'e.g. 30',
+                          filled: true,
+                          fillColor: Colors.white,
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide(color: AppColors.darkWith(0.12)),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+                          ),
                         ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
-                        ),
-                      ),
-                      keyboardType: TextInputType.number,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                       style: const TextStyle(fontSize: 14, color: AppColors.dark),
                     ),
                     const SizedBox(height: 14),
-                    _buildFieldLabel('Total Sample Weight (g)'),
-                    const SizedBox(height: 6),
-                    TextField(
-                      decoration: InputDecoration(
-                        hintText: 'e.g. 45',
-                        filled: true,
-                        fillColor: Colors.white,
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide(color: AppColors.darkWith(0.12)),
+                      _buildFieldLabel('Total Sample Weight (g)'),
+                      const SizedBox(height: 6),
+                      TextField(
+                        decoration: InputDecoration(
+                          hintText: 'e.g. 45',
+                          filled: true,
+                          fillColor: Colors.white,
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide(color: AppColors.darkWith(0.12)),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+                          ),
                         ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
-                        ),
-                      ),
-                      keyboardType: TextInputType.number,
+                        keyboardType: TextInputType.numberWithOptions(decimal: true),
+                        inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$'))],
                       style: const TextStyle(fontSize: 14, color: AppColors.dark),
                     ),
                     const SizedBox(height: 14),
-                    _buildFieldLabel('Total Sample Length (cm)'),
-                    const SizedBox(height: 6),
-                    TextField(
-                      decoration: InputDecoration(
-                        hintText: 'e.g. 12',
-                        filled: true,
-                        fillColor: Colors.white,
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide(color: AppColors.darkWith(0.12)),
+                      _buildFieldLabel('Total Sample Length (cm)'),
+                      const SizedBox(height: 6),
+                      TextField(
+                        decoration: InputDecoration(
+                          hintText: 'e.g. 12',
+                          filled: true,
+                          fillColor: Colors.white,
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide(color: AppColors.darkWith(0.12)),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+                          ),
                         ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
-                        ),
-                      ),
-                      keyboardType: TextInputType.number,
+                        keyboardType: TextInputType.numberWithOptions(decimal: true),
+                        inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$'))],
                       style: const TextStyle(fontSize: 14, color: AppColors.dark),
                     ),
                     const SizedBox(height: 14),

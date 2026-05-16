@@ -207,17 +207,37 @@ class _LoginScreenState extends State<LoginScreen> {
                             Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Checkbox(
-                                  value: _rememberMe,
-                                  onChanged: (v) => setState(
-                                    () => _rememberMe = v ?? false,
+                                Theme(
+                                  data: Theme.of(context).copyWith(
+                                    checkboxTheme: CheckboxThemeData(
+                                      fillColor: WidgetStateProperty.resolveWith(
+                                        (states) {
+                                          if (states.contains(
+                                            WidgetState.selected,
+                                          )) {
+                                            return AppColors.primary;
+                                          }
+                                          return Colors.white;
+                                        },
+                                      ),
+                                      side: BorderSide(
+                                        color: Colors.grey.shade400,
+                                        width: 1.2,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius:
+                                            BorderRadius.circular(4),
+                                      ),
+                                    ),
                                   ),
-                                  activeColor: AppColors.primary,
-                                  materialTapTargetSize:
-                                      MaterialTapTargetSize.shrinkWrap,
-                                  visualDensity: VisualDensity.compact,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(4),
+                                  child: Checkbox(
+                                    value: _rememberMe,
+                                    onChanged: (v) => setState(
+                                      () => _rememberMe = v ?? false,
+                                    ),
+                                    materialTapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                    visualDensity: VisualDensity.compact,
                                   ),
                                 ),
                                 const SizedBox(width: 2),
