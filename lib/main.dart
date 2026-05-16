@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'theme/app_theme.dart';
 import 'screens/login_screen.dart';
 
 void main() {
@@ -16,10 +17,7 @@ class CrayCareApp extends StatelessWidget {
     return MaterialApp(
       title: 'CrayCare',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1FA5A5)),
-        useMaterial3: true,
-      ),
+      theme: AppTheme.light,
       home: const SplashScreen(),
     );
   }
@@ -107,7 +105,7 @@ class _SplashScreenState extends State<SplashScreen> {
                     'Better Care, Better Crayfish',
                     style: TextStyle(
                       fontSize: 14,
-                      color: Color(0xFF0B3C49).withOpacity(0.8),
+                      color: Color(0xFF0B3C49).withValues(alpha: 0.8),
                     ),
                   ),
                 ],

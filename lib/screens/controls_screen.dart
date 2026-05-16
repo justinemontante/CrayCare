@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import '../theme/app_colors.dart';
+import '../widgets/section_label.dart';
+import '../widgets/gradient_button.dart';
 
 class ControlsScreen extends StatefulWidget {
   const ControlsScreen({super.key});
@@ -130,13 +133,13 @@ class _ControlsScreenState extends State<ControlsScreen> {
   Color _modeColor(String mode) {
     switch (mode) {
       case 'on':
-        return const Color(0xFF1FA5A5);
+        return AppColors.primary;
       case 'auto':
-        return const Color(0xFFf59e0b);
+        return AppColors.warning;
       case 'off':
-        return const Color(0xFFE63946);
+        return AppColors.critical;
       default:
-        return const Color(0xFF0B3C49).withValues(alpha: 0.4);
+        return AppColors.darkWith(0.4);
     }
   }
 
@@ -165,7 +168,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildSectionLabel('Hardware Controls'),
+            const SectionLabel(label: 'Hardware Controls'),
             const SizedBox(height: 8),
             _buildFeederGroup(),
             const SizedBox(height: 10),
@@ -179,25 +182,14 @@ class _ControlsScreenState extends State<ControlsScreen> {
     );
   }
 
-  Widget _buildSectionLabel(String label) {
-    return Text(
-      label,
-      style: const TextStyle(
-        fontSize: 13,
-        fontWeight: FontWeight.w700,
-        color: Color(0xFF1FA5A5),
-      ),
-    );
-  }
-
   // ─── FEEDER GROUP ───────────────────────────────────────────
   Widget _buildFeederGroup() {
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
       decoration: BoxDecoration(
-        color: const Color(0xFF0B3C49).withValues(alpha: 0.03),
+        color: AppColors.darkWith(0.03),
         border: Border.all(
-          color: const Color(0xFF0B3C49).withValues(alpha: 0.08),
+          color: AppColors.darkWith(0.08),
         ),
         borderRadius: BorderRadius.circular(16),
       ),
@@ -209,14 +201,14 @@ class _ControlsScreenState extends State<ControlsScreen> {
             children: [
               Row(
                 children: [
-                  const Icon(Icons.egg_alt, size: 12, color: Color(0xFF1FA5A5)),
+                  const Icon(Icons.egg_alt, size: 12, color: AppColors.primary),
                   const SizedBox(width: 5),
                   Text(
                     'Auto Feeder',
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
-                      color: const Color(0xFF0B3C49).withValues(alpha: 0.6),
+                      color: AppColors.darkWith(0.6),
                     ),
                   ),
                 ],
@@ -229,23 +221,23 @@ class _ControlsScreenState extends State<ControlsScreen> {
                     vertical: 4,
                   ),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF1FA5A5).withValues(alpha: 0.1),
+                    color: AppColors.primaryWith(0.1),
                     border: Border.all(
-                      color: const Color(0xFF1FA5A5).withValues(alpha: 0.2),
+                      color: AppColors.primaryWith(0.2),
                     ),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.menu_book, size: 10, color: Color(0xFF1FA5A5)),
+                      Icon(Icons.menu_book, size: 10, color: AppColors.primary),
                       SizedBox(width: 4),
                       Text(
                         'Log',
                         style: TextStyle(
                           fontSize: 9,
                           fontWeight: FontWeight.w700,
-                          color: Color(0xFF1FA5A5),
+                          color: AppColors.primary,
                         ),
                       ),
                     ],
@@ -274,11 +266,11 @@ class _ControlsScreenState extends State<ControlsScreen> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: const Color(0xFF0B3C49).withValues(alpha: 0.1),
+          color: AppColors.darkWith(0.1),
         ),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF0B3C49).withValues(alpha: 0.07),
+            color: AppColors.darkWith(0.07),
             blurRadius: 12,
             offset: const Offset(0, 2),
           ),
@@ -296,13 +288,13 @@ class _ControlsScreenState extends State<ControlsScreen> {
                   width: 44,
                   height: 44,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF1FA5A5).withValues(alpha: 0.1),
+                    color: AppColors.primaryWith(0.1),
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: const Icon(
                     Icons.egg_alt,
                     size: 20,
-                    color: Color(0xFF1FA5A5),
+                    color: AppColors.primary,
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -312,7 +304,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
-                      color: Color(0xFF0B3C49),
+                      color: AppColors.dark,
                     ),
                   ),
                 ),
@@ -323,7 +315,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                       style: const TextStyle(
                         fontSize: 9,
                         fontWeight: FontWeight.w700,
-                        color: Color(0xFF1FA5A5),
+                        color: AppColors.primary,
                       ),
                     ),
                     const SizedBox(height: 3),
@@ -334,8 +326,8 @@ class _ControlsScreenState extends State<ControlsScreen> {
                         height: 22,
                         decoration: BoxDecoration(
                           color: _feederAuto
-                              ? const Color(0xFF1FA5A5)
-                              : const Color(0xFF0B3C49).withValues(alpha: 0.15),
+                              ? AppColors.primary
+                              : AppColors.darkWith(0.15),
                           borderRadius: BorderRadius.circular(22),
                         ),
                         child: AnimatedAlign(
@@ -367,25 +359,24 @@ class _ControlsScreenState extends State<ControlsScreen> {
           // Feed Now button
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14),
-            child: SizedBox(
-              width: double.infinity,
-              child: _ActionButton(
-                onTap: _feedNow,
-                child: const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.play_arrow, size: 14, color: Colors.white),
-                    SizedBox(width: 6),
-                    Text(
-                      'Feed Now',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
+            child: GradientButton(
+              onTap: _feedNow,
+              borderRadius: 10,
+              verticalPadding: 12,
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.play_arrow, size: 14, color: Colors.white),
+                  SizedBox(width: 6),
+                  Text(
+                    'Feed Now',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -398,11 +389,11 @@ class _ControlsScreenState extends State<ControlsScreen> {
                 width: 120,
                 height: 120,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF2D9F2D).withValues(alpha: 0.1),
+                  color: AppColors.successWith(0.1),
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFF2D9F2D).withValues(alpha: 0.2),
+                      color: AppColors.successWith(0.2),
                       blurRadius: 20,
                     ),
                   ],
@@ -424,14 +415,14 @@ class _ControlsScreenState extends State<ControlsScreen> {
                 // Grand total
                 Row(
                   children: [
-                    const Icon(Icons.egg, size: 12, color: Color(0xFF2d9f2d)),
+                    const Icon(Icons.egg, size: 12, color: AppColors.success),
                     const SizedBox(width: 6),
                     Text(
                       '$totalGrams g Total',
                       style: const TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
-                        color: Color(0xFF2d9f2d),
+                        color: AppColors.success,
                       ),
                     ),
                   ],
@@ -475,7 +466,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: const Color(0xFF0B3C49).withValues(alpha: 0.04),
+        color: AppColors.darkWith(0.04),
         borderRadius: BorderRadius.circular(14),
       ),
       child: Column(
@@ -485,14 +476,14 @@ class _ControlsScreenState extends State<ControlsScreen> {
             children: [
               Row(
                 children: [
-                  Icon(icon, size: 14, color: const Color(0xFF1FA5A5)),
+                  Icon(icon, size: 14, color: AppColors.primary),
                   const SizedBox(width: 6),
                   Text(
                     label,
                     style: const TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
-                      color: Color(0xFF0B3C49),
+                      color: AppColors.dark,
                     ),
                   ),
                 ],
@@ -503,7 +494,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                   vertical: 3,
                 ),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1FA5A5).withValues(alpha: 0.08),
+                  color: AppColors.primaryWith(0.08),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
@@ -511,7 +502,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                   style: const TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w800,
-                    color: Color(0xFF1FA5A5),
+                    color: AppColors.primary,
                   ),
                 ),
               ),
@@ -525,7 +516,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                 'No schedules set',
                 style: TextStyle(
                   fontSize: 10,
-                  color: const Color(0xFF0B3C49).withValues(alpha: 0.3),
+                  color: AppColors.darkWith(0.3),
                 ),
               ),
             )
@@ -546,23 +537,23 @@ class _ControlsScreenState extends State<ControlsScreen> {
 
     switch (status) {
       case 'completed':
-        bgColor = const Color(0xFF2d9f2d).withValues(alpha: 0.08);
+        bgColor = AppColors.success.withValues(alpha: 0.08);
         borderColor = Colors.transparent;
-        dotColor = const Color(0xFF2d9f2d);
+        dotColor = AppColors.success;
         statusLabel = 'Completed';
         statusIcon = Icons.check_circle;
         break;
       case 'pending':
-        bgColor = const Color(0xFFf59e0b).withValues(alpha: 0.1);
-        borderColor = const Color(0xFFf59e0b).withValues(alpha: 0.25);
-        dotColor = const Color(0xFFf59e0b);
+        bgColor = AppColors.warning.withValues(alpha: 0.1);
+        borderColor = AppColors.warning.withValues(alpha: 0.25);
+        dotColor = AppColors.warning;
         statusLabel = 'Pending';
         statusIcon = Icons.hourglass_bottom;
         break;
       default:
         bgColor = Colors.white;
-        borderColor = const Color(0xFF0B3C49).withValues(alpha: 0.08);
-        dotColor = const Color(0xFF1FA5A5).withValues(alpha: 0.5);
+        borderColor = AppColors.darkWith(0.08);
+        dotColor = AppColors.primaryWith(0.5);
         statusLabel = 'Upcoming';
         statusIcon = Icons.schedule;
         break;
@@ -586,18 +577,18 @@ class _ControlsScreenState extends State<ControlsScreen> {
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
-                color: const Color(0xFF0B3C49),
+                color: AppColors.dark,
                 decoration: status == 'completed'
                     ? TextDecoration.lineThrough
                     : null,
-                decorationColor: const Color(0xFF0B3C49).withValues(alpha: 0.3),
+                decorationColor: AppColors.darkWith(0.3),
               ),
             ),
           ),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
-              color: const Color(0xFF1FA5A5).withValues(alpha: 0.12),
+              color: AppColors.primaryWith(0.12),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Text(
@@ -605,7 +596,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
               style: const TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.w700,
-                color: Color(0xFF1FA5A5),
+                color: AppColors.primary,
               ),
             ),
           ),
@@ -614,10 +605,10 @@ class _ControlsScreenState extends State<ControlsScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
               color: status == 'completed'
-                  ? const Color(0xFF2d9f2d).withValues(alpha: 0.15)
+                  ? AppColors.success.withValues(alpha: 0.15)
                   : status == 'pending'
-                  ? const Color(0xFFf59e0b).withValues(alpha: 0.15)
-                  : const Color(0xFF0B3C49).withValues(alpha: 0.08),
+                  ? AppColors.warning.withValues(alpha: 0.15)
+                  : AppColors.darkWith(0.08),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Text(
@@ -626,10 +617,10 @@ class _ControlsScreenState extends State<ControlsScreen> {
                 fontSize: 9,
                 fontWeight: FontWeight.w700,
                 color: status == 'completed'
-                    ? const Color(0xFF2d9f2d)
+                    ? AppColors.success
                     : status == 'pending'
                     ? const Color(0xFFc97d08)
-                    : const Color(0xFF0B3C49).withValues(alpha: 0.5),
+                    : AppColors.darkWith(0.5),
               ),
             ),
           ),
@@ -646,7 +637,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 10),
             decoration: BoxDecoration(
               border: Border.all(
-                color: const Color(0xFF0B3C49).withValues(alpha: 0.15),
+                color: AppColors.darkWith(0.15),
               ),
               borderRadius: BorderRadius.circular(10),
             ),
@@ -656,15 +647,14 @@ class _ControlsScreenState extends State<ControlsScreen> {
                 hintText: 'HH:MM',
                 hintStyle: TextStyle(
                   fontSize: 11,
-                  color: const Color(0xFF0B3C49).withValues(alpha: 0.3),
+                  color: AppColors.darkWith(0.3),
                 ),
                 border: InputBorder.none,
                 contentPadding: const EdgeInsets.symmetric(vertical: 7),
               ),
               style: const TextStyle(
                 fontSize: 11,
-                fontFamily: 'Poppins',
-                color: Color(0xFF0B3C49),
+                color: AppColors.dark,
               ),
               keyboardType: TextInputType.datetime,
             ),
@@ -677,7 +667,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 8),
             decoration: BoxDecoration(
               border: Border.all(
-                color: const Color(0xFF0B3C49).withValues(alpha: 0.15),
+                color: AppColors.darkWith(0.15),
               ),
               borderRadius: BorderRadius.circular(10),
             ),
@@ -687,15 +677,14 @@ class _ControlsScreenState extends State<ControlsScreen> {
                 hintText: 'g',
                 hintStyle: TextStyle(
                   fontSize: 11,
-                  color: const Color(0xFF0B3C49).withValues(alpha: 0.3),
+                  color: AppColors.darkWith(0.3),
                 ),
                 border: InputBorder.none,
                 contentPadding: const EdgeInsets.symmetric(vertical: 7),
               ),
               style: const TextStyle(
                 fontSize: 11,
-                fontFamily: 'Poppins',
-                color: Color(0xFF0B3C49),
+                color: AppColors.dark,
               ),
               keyboardType: TextInputType.number,
             ),
@@ -707,7 +696,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
-              color: const Color(0xFF1FA5A5),
+              color: AppColors.primary,
               borderRadius: BorderRadius.circular(10),
             ),
             child: const Text(
@@ -730,9 +719,9 @@ class _ControlsScreenState extends State<ControlsScreen> {
       margin: const EdgeInsets.symmetric(horizontal: 14),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF1FA5A5).withValues(alpha: 0.06),
+        color: AppColors.primaryWith(0.06),
         border: Border.all(
-          color: const Color(0xFF1FA5A5).withValues(alpha: 0.15),
+          color: AppColors.primaryWith(0.15),
         ),
         borderRadius: BorderRadius.circular(16),
       ),
@@ -741,14 +730,14 @@ class _ControlsScreenState extends State<ControlsScreen> {
         children: [
           Row(
             children: [
-              const Icon(Icons.smart_toy, size: 18, color: Color(0xFF1FA5A5)),
+              const Icon(Icons.smart_toy, size: 18, color: AppColors.primary),
               const SizedBox(width: 8),
               const Text(
                 'AI Feeding Recommendation',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w700,
-                  color: Color(0xFF0B3C49),
+                  color: AppColors.dark,
                 ),
               ),
             ],
@@ -757,10 +746,10 @@ class _ControlsScreenState extends State<ControlsScreen> {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: const Color(0xFF1FA5A5).withValues(alpha: 0.08),
+              color: AppColors.primaryWith(0.08),
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: const Color(0xFF1FA5A5).withValues(alpha: 0.12),
+                color: AppColors.primaryWith(0.12),
               ),
             ),
             child: Column(
@@ -771,7 +760,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                     const Icon(
                       Icons.smart_toy,
                       size: 16,
-                      color: Color(0xFF1FA5A5),
+                      color: AppColors.primary,
                     ),
                     const SizedBox(width: 8),
                     Expanded(
@@ -782,7 +771,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                         style: const TextStyle(
                           fontSize: 12,
                           height: 1.5,
-                          color: Color(0xFF0B3C49),
+                          color: AppColors.dark,
                         ),
                       ),
                     ),
@@ -820,9 +809,9 @@ class _ControlsScreenState extends State<ControlsScreen> {
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
       decoration: BoxDecoration(
-        color: const Color(0xFF0B3C49).withValues(alpha: 0.03),
+        color: AppColors.darkWith(0.03),
         border: Border.all(
-          color: const Color(0xFF0B3C49).withValues(alpha: 0.08),
+          color: AppColors.darkWith(0.08),
         ),
         borderRadius: BorderRadius.circular(16),
       ),
@@ -834,14 +823,14 @@ class _ControlsScreenState extends State<ControlsScreen> {
             children: [
               Row(
                 children: [
-                  Icon(icon, size: 12, color: const Color(0xFF1FA5A5)),
+                  Icon(icon, size: 12, color: AppColors.primary),
                   const SizedBox(width: 5),
                   Text(
                     label,
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
-                      color: const Color(0xFF0B3C49).withValues(alpha: 0.6),
+                      color: AppColors.darkWith(0.6),
                     ),
                   ),
                 ],
@@ -859,23 +848,23 @@ class _ControlsScreenState extends State<ControlsScreen> {
                     vertical: 4,
                   ),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF1FA5A5).withValues(alpha: 0.1),
+                    color: AppColors.primaryWith(0.1),
                     border: Border.all(
-                      color: const Color(0xFF1FA5A5).withValues(alpha: 0.2),
+                      color: AppColors.primaryWith(0.2),
                     ),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.menu_book, size: 10, color: Color(0xFF1FA5A5)),
+                      Icon(Icons.menu_book, size: 10, color: AppColors.primary),
                       SizedBox(width: 4),
                       Text(
                         'Log',
                         style: TextStyle(
                           fontSize: 9,
                           fontWeight: FontWeight.w700,
-                          color: Color(0xFF1FA5A5),
+                          color: AppColors.primary,
                         ),
                       ),
                     ],
@@ -899,15 +888,15 @@ class _ControlsScreenState extends State<ControlsScreen> {
   Widget _buildHwCard(String deviceId, String title, String subtitle) {
     final mode = _hwModes[deviceId] ?? 'auto';
     final borderColor = mode == 'on'
-        ? const Color(0xFF1FA5A5).withValues(alpha: 0.4)
+        ? AppColors.primaryWith(0.4)
         : mode == 'auto'
-        ? const Color(0xFFf59e0b).withValues(alpha: 0.35)
-        : const Color(0xFF0B3C49).withValues(alpha: 0.1);
+        ? AppColors.warning.withValues(alpha: 0.35)
+        : AppColors.darkWith(0.1);
     final iconColor = mode == 'on'
-        ? const Color(0xFF1FA5A5)
+        ? AppColors.primary
         : mode == 'auto'
-        ? const Color(0xFFf59e0b)
-        : const Color(0xFF0B3C49).withValues(alpha: 0.4);
+        ? AppColors.warning
+        : AppColors.darkWith(0.4);
 
     return Material(
       color: Colors.transparent,
@@ -951,14 +940,14 @@ class _ControlsScreenState extends State<ControlsScreen> {
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
-                          color: Color(0xFF0B3C49),
+                          color: AppColors.dark,
                         ),
                       ),
                       Text(
                         subtitle,
                         style: TextStyle(
                           fontSize: 9,
-                          color: const Color(0xFF0B3C49).withValues(alpha: 0.4),
+                          color: AppColors.darkWith(0.4),
                         ),
                       ),
                     ],
@@ -978,7 +967,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
     return Container(
       padding: const EdgeInsets.all(2),
       decoration: BoxDecoration(
-        color: const Color(0xFF0B3C49).withValues(alpha: 0.06),
+        color: AppColors.darkWith(0.06),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Row(
@@ -1009,7 +998,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                   fontWeight: FontWeight.w700,
                   color: isActive
                       ? _modeColor(m)
-                      : const Color(0xFF0B3C49).withValues(alpha: 0.4),
+                      : AppColors.darkWith(0.4),
                 ),
               ),
             ),
@@ -1053,7 +1042,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                       const Icon(
                         Icons.menu_book,
                         size: 16,
-                        color: Color(0xFF1FA5A5),
+                        color: AppColors.primary,
                       ),
                       const SizedBox(width: 8),
                       const Text(
@@ -1061,7 +1050,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                         style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w800,
-                          color: Color(0xFF0B3C49),
+                          color: AppColors.dark,
                         ),
                       ),
                     ],
@@ -1100,8 +1089,8 @@ class _ControlsScreenState extends State<ControlsScreen> {
                                   height: 8,
                                   decoration: BoxDecoration(
                                     color: l.type == 'auto'
-                                        ? const Color(0xFFf59e0b)
-                                        : const Color(0xFF1FA5A5),
+                                        ? AppColors.warning
+                                        : AppColors.primary,
                                     shape: BoxShape.circle,
                                   ),
                                 ),
@@ -1116,7 +1105,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                                         style: const TextStyle(
                                           fontSize: 11,
                                           fontWeight: FontWeight.w700,
-                                          color: Color(0xFF0B3C49),
+                                          color: AppColors.dark,
                                         ),
                                       ),
                                       const SizedBox(height: 1),
@@ -1142,7 +1131,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                     child: TextButton(
                       onPressed: () => Navigator.pop(ctx),
                       style: TextButton.styleFrom(
-                        backgroundColor: const Color(0xFF1FA5A5),
+                        backgroundColor: AppColors.primary,
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 9),
                         shape: RoundedRectangleBorder(
@@ -1220,7 +1209,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                             child: Icon(
                               Icons.air,
                               size: 22,
-                              color: const Color(0xFF1FA5A5),
+                              color: AppColors.primary,
                             ),
                           ),
                           const SizedBox(width: 14),
@@ -1232,7 +1221,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                                 style: const TextStyle(
                                   fontSize: 15,
                                   fontWeight: FontWeight.w800,
-                                  color: Color(0xFF0B3C49),
+                                  color: AppColors.dark,
                                 ),
                               ),
                               Text(
@@ -1277,10 +1266,10 @@ class _ControlsScreenState extends State<ControlsScreen> {
                                 fontSize: 11,
                                 fontWeight: FontWeight.w700,
                                 color: mode == 'on'
-                                    ? const Color(0xFF1FA5A5)
+                                    ? AppColors.primary
                                     : mode == 'auto'
                                     ? const Color(0xFFc97d08)
-                                    : const Color(0xFFE63946),
+                                    : AppColors.critical,
                               ),
                             ),
                           ),
@@ -1318,7 +1307,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                             const Icon(
                               Icons.trending_up,
                               size: 14,
-                              color: Color(0xFF1FA5A5),
+                              color: AppColors.primary,
                             ),
                             const SizedBox(width: 8),
                             Text(
@@ -1335,7 +1324,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                               style: TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.w700,
-                                color: Color(0xFF0B3C49),
+                                color: AppColors.dark,
                               ),
                             ),
                           ],
@@ -1347,7 +1336,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                         style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w700,
-                          color: const Color(0xFF0B3C49).withValues(alpha: 0.4),
+                          color: AppColors.darkWith(0.4),
                           letterSpacing: 0.5,
                         ),
                       ),
@@ -1416,7 +1405,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                         style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w700,
-                          color: const Color(0xFF0B3C49).withValues(alpha: 0.4),
+                          color: AppColors.darkWith(0.4),
                           letterSpacing: 0.5,
                         ),
                       ),
@@ -1454,10 +1443,10 @@ class _ControlsScreenState extends State<ControlsScreen> {
                                       height: 8,
                                       decoration: BoxDecoration(
                                         color: l.type == 'on'
-                                            ? const Color(0xFF1FA5A5)
+                                            ? AppColors.primary
                                             : l.type == 'auto'
-                                            ? const Color(0xFFf59e0b)
-                                            : const Color(0xFFE63946),
+                                            ? AppColors.warning
+                                            : AppColors.critical,
                                         shape: BoxShape.circle,
                                       ),
                                     ),
@@ -1472,7 +1461,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                                             style: const TextStyle(
                                               fontSize: 11,
                                               fontWeight: FontWeight.w700,
-                                              color: Color(0xFF0B3C49),
+                                              color: AppColors.dark,
                                             ),
                                           ),
                                           const SizedBox(height: 1),
@@ -1498,7 +1487,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                         child: TextButton(
                           onPressed: () => Navigator.pop(ctx),
                           style: TextButton.styleFrom(
-                            backgroundColor: const Color(0xFF1FA5A5),
+                            backgroundColor: AppColors.primary,
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(vertical: 9),
                             shape: RoundedRectangleBorder(
@@ -1522,48 +1511,6 @@ class _ControlsScreenState extends State<ControlsScreen> {
           },
         );
       },
-    );
-  }
-}
-
-class _ActionButton extends StatefulWidget {
-  final VoidCallback? onTap;
-  final Widget child;
-  const _ActionButton({this.onTap, required this.child});
-
-  @override
-  State<_ActionButton> createState() => _ActionButtonState();
-}
-
-class _ActionButtonState extends State<_ActionButton> {
-  bool _pressed = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(10),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(10),
-        onTap: widget.onTap,
-        onTapDown: (_) => setState(() => _pressed = true),
-        onTapUp: (_) => setState(() => _pressed = false),
-        onTapCancel: () => setState(() => _pressed = false),
-        child: Ink(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          decoration: BoxDecoration(
-            gradient: _pressed
-                ? const LinearGradient(
-                    colors: [Color(0xFF09404d), Color(0xFF167a7a)],
-                  )
-                : const LinearGradient(
-                    colors: [Color(0xFF0B3C49), Color(0xFF1FA5A5)],
-                  ),
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: widget.child,
-        ),
-      ),
     );
   }
 }

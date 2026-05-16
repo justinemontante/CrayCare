@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../theme/app_colors.dart';
+import '../widgets/section_label.dart';
 
 class DashboardScreen extends StatelessWidget {
   final VoidCallback? onViewGraph;
@@ -13,9 +15,9 @@ class DashboardScreen extends StatelessWidget {
         child: Column(
           children: [
             _buildGreeting(),
-            _buildSectionHeader('Water Quality Overview'),
+            const SectionLabel(label: 'Water Quality Overview', showLiveData: true),
             _buildGaugeGrid(context),
-            _buildSectionHeader('Physical Parameters'),
+            const SectionLabel(label: 'Physical Parameters', showLiveData: true),
             _buildWaterLevelGauge(context),
             _buildQuickActionsHeader(),
             _buildQuickActions(),
@@ -36,7 +38,7 @@ class DashboardScreen extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF0B3C49).withOpacity(0.08),
+            color: AppColors.darkWith(0.08),
             blurRadius: 12,
             offset: const Offset(0, 2),
           ),
@@ -46,14 +48,9 @@ class DashboardScreen extends StatelessWidget {
         children: [
           Container(
             padding: const EdgeInsets.fromLTRB(12, 23, 20, 23),
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  Color(0xFFf8ffff),
-                  Color(0xFFf2fdfd),
-                  Color(0xFFe8fafa),
-                  Color(0xFFdaf4f5),
-                ],
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: AppColors.headerGradient,
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
@@ -64,7 +61,7 @@ class DashboardScreen extends StatelessWidget {
                   width: 3,
                   height: 50,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF1FA5A5),
+                    color: AppColors.primary,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -74,30 +71,30 @@ class DashboardScreen extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text(
+                      Text(
                         'Good Afternoon, Justine!',
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w700,
-                          color: Color(0xFF1e293b),
+                          color: AppColors.darkText,
                         ),
                       ),
                       const SizedBox(height: 3),
-                      const Text(
+                      Text(
                         'Monday, May 12, 2026',
                         style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w400,
-                          color: Color(0xFF94a3b8),
+                          color: AppColors.mutedText,
                         ),
                       ),
                       const SizedBox(height: 2),
-                      const Text(
+                      Text(
                         "Here's what's happening in your tank today.",
                         style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w500,
-                          color: Color(0xFF64748b),
+                          color: AppColors.subtitleText,
                         ),
                       ),
                     ],
@@ -118,8 +115,8 @@ class DashboardScreen extends StatelessWidget {
                     center: Alignment.bottomRight,
                     radius: 1.5,
                     colors: [
-                      const Color(0xFF1FA5A5).withOpacity(0.15),
-                      const Color(0xFF1FA5A5).withOpacity(0.0),
+                      AppColors.primaryWith(0.15),
+                      AppColors.primaryWith(0.0),
                     ],
                   ),
                 ),
@@ -142,48 +139,6 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildSectionHeader(String label) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF1FA5A5),
-            ),
-          ),
-          if (label != 'Quick Actions')
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 7,
-                  height: 7,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFF22c55e),
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 5),
-                const Text(
-                  'Live Data',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF1FA5A5),
-                  ),
-                ),
-              ],
-            ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildGaugeGrid(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
@@ -196,18 +151,18 @@ class DashboardScreen extends StatelessWidget {
                   title: 'Temperature',
                   value: '26.4',
                   unit: '\u00B0C',
-                  ideal: 'Ideal: 24.0 \u2013 30.0\u00B0C',
+                  ideal: 'Ideal: 25 \u2013 30\u00B0C',
                   iconPath: 'assets/images/temperature.png',
                   status: 'Optimal',
-                  statusColor: const Color(0xFF16a34a),
+                  statusColor: AppColors.successLight,
                   onTap: () => _showGaugeDetail(
                     context,
                     title: 'Temperature',
                     value: '26.4',
                     unit: '\u00B0C',
                     status: 'Optimal',
-                    statusColor: const Color(0xFF16a34a),
-                    ideal: '24.0 \u2013 30.0\u00B0C',
+                    statusColor: AppColors.successLight,
+                    ideal: '25 \u2013 30\u00B0C',
                     iconPath: 'assets/images/temperature.png',
                   ),
                 ),
@@ -221,14 +176,14 @@ class DashboardScreen extends StatelessWidget {
                   ideal: 'Ideal: 7.0 \u2013 8.5',
                   iconPath: 'assets/images/pH.png',
                   status: 'Optimal',
-                  statusColor: const Color(0xFF16a34a),
+                  statusColor: AppColors.successLight,
                   onTap: () => _showGaugeDetail(
                     context,
                     title: 'pH Level',
                     value: '7.8',
                     unit: 'pH',
                     status: 'Optimal',
-                    statusColor: const Color(0xFF16a34a),
+                    statusColor: AppColors.successLight,
                     ideal: '7.0 \u2013 8.5',
                     iconPath: 'assets/images/pH.png',
                   ),
@@ -247,14 +202,14 @@ class DashboardScreen extends StatelessWidget {
                   ideal: 'Ideal: >5.0 mg/L',
                   iconPath: 'assets/images/DO.png',
                   status: 'Warning',
-                  statusColor: const Color(0xFFd97706),
+                  statusColor: AppColors.warningDark,
                   onTap: () => _showGaugeDetail(
                     context,
                     title: 'Dissolved O\u2082',
                     value: '4.2',
                     unit: 'mg/L',
                     status: 'Warning',
-                    statusColor: const Color(0xFFd97706),
+                    statusColor: AppColors.warningDark,
                     ideal: '>5.0 mg/L',
                     iconPath: 'assets/images/DO.png',
                   ),
@@ -269,14 +224,14 @@ class DashboardScreen extends StatelessWidget {
                   ideal: 'Ideal: 0 \u2013 25 NTU',
                   iconPath: 'assets/images/Turbidity.png',
                   status: 'Critical',
-                  statusColor: const Color(0xFFdc2626),
+                  statusColor: AppColors.criticalDark,
                   onTap: () => _showGaugeDetail(
                     context,
                     title: 'Turbidity',
                     value: '45',
                     unit: 'NTU',
                     status: 'Critical',
-                    statusColor: const Color(0xFFdc2626),
+                    statusColor: AppColors.criticalDark,
                     ideal: '0 \u2013 25 NTU',
                     iconPath: 'assets/images/Turbidity.png',
                   ),
@@ -318,18 +273,18 @@ class DashboardScreen extends StatelessWidget {
         title: 'Water Level',
         value: '95',
         unit: 'cm',
-        ideal: 'Ideal: 80 \u2013 120 cm',
+        ideal: 'Ideal: 130 \u2013 180 cm',
         iconPath: 'assets/images/waterLevel.png',
         status: 'Optimal',
-        statusColor: const Color(0xFF16a34a),
+        statusColor: AppColors.successLight,
         onTap: () => _showGaugeDetail(
           context,
           title: 'Water Level',
           value: '95',
           unit: 'cm',
           status: 'Optimal',
-          statusColor: const Color(0xFF16a34a),
-          ideal: '80 \u2013 120 cm',
+          statusColor: AppColors.successLight,
+                  ideal: '130 \u2013 180 cm',
           iconPath: 'assets/images/waterLevel.png',
         ),
       ),
@@ -346,7 +301,7 @@ class DashboardScreen extends StatelessWidget {
             style: const TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w700,
-              color: Color(0xFF1FA5A5),
+              color: AppColors.primary,
             ),
           ),
         ],
@@ -384,12 +339,12 @@ class DashboardScreen extends StatelessWidget {
                 end: Alignment.bottomRight,
               ),
               border: Border.all(
-                color: const Color(0xFF0B3C49).withValues(alpha: 0.06),
+                color: AppColors.darkWith(0.06),
               ),
               borderRadius: BorderRadius.circular(10),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF0B3C49).withValues(alpha: 0.15),
+                  color: AppColors.darkWith(0.15),
                   blurRadius: 12,
                   offset: const Offset(0, 4),
                 ),
@@ -405,11 +360,11 @@ class DashboardScreen extends StatelessWidget {
                     color: Colors.white,
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: const Color(0xFF1FA5A5).withValues(alpha: 0.2),
+                      color: AppColors.primaryWith(0.2),
                       width: 1.5,
                     ),
                   ),
-                  child: Icon(a.icon, size: 12, color: const Color(0xFF1FA5A5)),
+                  child: Icon(a.icon, size: 12, color: AppColors.primary),
                 ),
                 const SizedBox(width: 8),
                 Column(
@@ -420,7 +375,7 @@ class DashboardScreen extends StatelessWidget {
                       style: const TextStyle(
                         fontSize: 9,
                         fontWeight: FontWeight.w700,
-                        color: Color(0xFF0B3C49),
+                        color: AppColors.dark,
                       ),
                     ),
                     if (a.status != null)
@@ -431,7 +386,7 @@ class DashboardScreen extends StatelessWidget {
                           style: const TextStyle(
                             fontSize: 6,
                             fontWeight: FontWeight.w600,
-                            color: Color(0xFF1FA5A5),
+                            color: AppColors.primary,
                           ),
                         ),
                       ),
@@ -452,10 +407,10 @@ class DashboardScreen extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF0B3C49).withOpacity(0.08)),
+        border: Border.all(color: AppColors.darkWith(0.08)),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF0B3C49).withOpacity(0.08),
+            color: AppColors.darkWith(0.08),
             blurRadius: 12,
             offset: const Offset(0, 2),
           ),
@@ -469,7 +424,7 @@ class DashboardScreen extends StatelessWidget {
               Icon(
                 Icons.inventory_2_outlined,
                 size: 18,
-                color: const Color(0xFF0B3C49).withOpacity(0.7),
+                color: AppColors.darkWith(0.7),
               ),
               const SizedBox(width: 6),
               const Text(
@@ -477,7 +432,7 @@ class DashboardScreen extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
-                  color: Color(0xFF0B3C49),
+                  color: AppColors.dark,
                 ),
               ),
             ],
@@ -540,14 +495,14 @@ class DashboardScreen extends StatelessWidget {
   Widget _buildStatColumn(IconData icon, String value, String label) {
     return Column(
       children: [
-        Icon(icon, size: 16, color: const Color(0xFF0B3C49).withOpacity(0.5)),
+        Icon(icon, size: 16, color: AppColors.darkWith(0.5)),
         const SizedBox(height: 4),
         Text(
           value,
           style: const TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.w800,
-            color: Color(0xFF0B3C49),
+            color: AppColors.dark,
           ),
         ),
         const SizedBox(height: 2),
@@ -556,7 +511,7 @@ class DashboardScreen extends StatelessWidget {
           style: TextStyle(
             fontSize: 8,
             fontWeight: FontWeight.w600,
-            color: const Color(0xFF0B3C49).withOpacity(0.6),
+            color: AppColors.darkWith(0.6),
             letterSpacing: 0.3,
           ),
         ),
@@ -568,7 +523,7 @@ class DashboardScreen extends StatelessWidget {
     return Container(
       width: 1,
       height: 40,
-      color: const Color(0xFF0B3C49).withOpacity(0.1),
+      color: AppColors.darkWith(0.1),
     );
   }
 
@@ -582,7 +537,7 @@ class DashboardScreen extends StatelessWidget {
             Icon(
               icon,
               size: 14,
-              color: const Color(0xFF0B3C49).withOpacity(0.5),
+              color: AppColors.darkWith(0.5),
             ),
             const SizedBox(width: 8),
             Text(
@@ -590,7 +545,7 @@ class DashboardScreen extends StatelessWidget {
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w500,
-                color: const Color(0xFF0B3C49).withOpacity(0.7),
+                color: AppColors.darkWith(0.7),
               ),
             ),
           ],
@@ -600,7 +555,7 @@ class DashboardScreen extends StatelessWidget {
           style: const TextStyle(
             fontSize: 11,
             fontWeight: FontWeight.w600,
-            color: Color(0xFF0B3C49),
+            color: AppColors.dark,
           ),
         ),
       ],
@@ -614,10 +569,10 @@ class DashboardScreen extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF0B3C49).withOpacity(0.08)),
+        border: Border.all(color: AppColors.darkWith(0.08)),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF0B3C49).withOpacity(0.08),
+            color: AppColors.darkWith(0.08),
             blurRadius: 12,
             offset: const Offset(0, 2),
           ),
@@ -631,7 +586,7 @@ class DashboardScreen extends StatelessWidget {
               Icon(
                 Icons.egg_rounded,
                 size: 18,
-                color: const Color(0xFF0B3C49).withOpacity(0.7),
+                color: AppColors.darkWith(0.7),
               ),
               const SizedBox(width: 6),
               const Text(
@@ -639,7 +594,7 @@ class DashboardScreen extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
-                  color: Color(0xFF0B3C49),
+                  color: AppColors.dark,
                 ),
               ),
             ],
@@ -653,7 +608,7 @@ class DashboardScreen extends StatelessWidget {
                     Icon(
                       Icons.schedule,
                       size: 20,
-                      color: const Color(0xFF0B3C49).withOpacity(0.5),
+                      color: AppColors.darkWith(0.5),
                     ),
                     const SizedBox(height: 6),
                     Text(
@@ -661,7 +616,7 @@ class DashboardScreen extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 9,
                         fontWeight: FontWeight.w700,
-                        color: const Color(0xFF0B3C49).withOpacity(0.5),
+                        color: AppColors.darkWith(0.5),
                         letterSpacing: 0.5,
                       ),
                     ),
@@ -671,7 +626,7 @@ class DashboardScreen extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w800,
-                        color: Color(0xFF0B3C49),
+                        color: AppColors.dark,
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -680,7 +635,7 @@ class DashboardScreen extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w500,
-                        color: Color(0xFF0B3C49),
+                        color: AppColors.dark,
                       ),
                     ),
                   ],
@@ -689,7 +644,7 @@ class DashboardScreen extends StatelessWidget {
               Container(
                 width: 1,
                 height: 60,
-                color: const Color(0xFF0B3C49).withOpacity(0.1),
+                color: AppColors.darkWith(0.1),
               ),
               Expanded(
                 child: Column(
@@ -697,7 +652,7 @@ class DashboardScreen extends StatelessWidget {
                     Icon(
                       Icons.calendar_month,
                       size: 20,
-                      color: const Color(0xFF0B3C49).withOpacity(0.5),
+                      color: AppColors.darkWith(0.5),
                     ),
                     const SizedBox(height: 6),
                     Text(
@@ -705,7 +660,7 @@ class DashboardScreen extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 9,
                         fontWeight: FontWeight.w700,
-                        color: const Color(0xFF0B3C49).withOpacity(0.5),
+                        color: AppColors.darkWith(0.5),
                         letterSpacing: 0.5,
                       ),
                     ),
@@ -715,7 +670,7 @@ class DashboardScreen extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w800,
-                        color: Color(0xFF0B3C49),
+                        color: AppColors.dark,
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -724,7 +679,7 @@ class DashboardScreen extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w500,
-                        color: Color(0xFF0B3C49),
+                        color: AppColors.dark,
                       ),
                     ),
                   ],
@@ -740,7 +695,7 @@ class DashboardScreen extends StatelessWidget {
                 Container(
                   height: 8,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF0B3C49).withOpacity(0.08),
+                    color: AppColors.darkWith(0.08),
                     borderRadius: BorderRadius.circular(6),
                   ),
                 ),
@@ -749,7 +704,7 @@ class DashboardScreen extends StatelessWidget {
                   child: Container(
                     height: 8,
                     decoration: BoxDecoration(
-                      color: const Color(0xFF1FA5A5),
+                      color: AppColors.primary,
                       borderRadius: BorderRadius.circular(6),
                     ),
                   ),
@@ -763,7 +718,7 @@ class DashboardScreen extends StatelessWidget {
             style: TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.w500,
-              color: Color(0xFF0B3C49),
+              color: AppColors.dark,
             ),
           ),
         ],
@@ -811,7 +766,7 @@ class DashboardScreen extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
-                        color: Color(0xFF0B3C49),
+                        color: AppColors.dark,
                       ),
                     ),
                     GestureDetector(
@@ -827,14 +782,14 @@ class DashboardScreen extends StatelessWidget {
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w700,
-                              color: Color(0xFF1FA5A5),
+                              color: AppColors.primary,
                             ),
                           ),
                           const SizedBox(width: 3),
                           Icon(
                             Icons.chevron_right,
                             size: 11,
-                            color: const Color(0xFF1FA5A5),
+                            color: AppColors.primary,
                           ),
                         ],
                       ),
@@ -848,7 +803,7 @@ class DashboardScreen extends StatelessWidget {
                       width: 36,
                       height: 36,
                       decoration: BoxDecoration(
-                        color: const Color(0xFF1FA5A5).withOpacity(0.1),
+                        color: AppColors.primaryWith(0.1),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       padding: const EdgeInsets.all(7),
@@ -863,7 +818,7 @@ class DashboardScreen extends StatelessWidget {
                           style: const TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w700,
-                            color: Color(0xFF0B3C49),
+                            color: AppColors.dark,
                           ),
                         ),
                         const SizedBox(height: 2),
@@ -873,7 +828,7 @@ class DashboardScreen extends StatelessWidget {
                             vertical: 2,
                           ),
                           decoration: BoxDecoration(
-                            color: statusColor.withOpacity(0.15),
+                            color: statusColor.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Text(
@@ -908,7 +863,7 @@ class DashboardScreen extends StatelessWidget {
                         style: const TextStyle(
                           fontSize: 32,
                           fontWeight: FontWeight.w800,
-                          color: Color(0xFF0B3C49),
+                          color: AppColors.dark,
                           height: 1,
                         ),
                       ),
@@ -918,7 +873,7 @@ class DashboardScreen extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
-                          color: const Color(0xFF0B3C49).withOpacity(0.4),
+                          color: AppColors.darkWith(0.4),
                         ),
                       ),
                     ],
@@ -931,7 +886,7 @@ class DashboardScreen extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w600,
-                      color: const Color(0xFF0B3C49).withOpacity(0.5),
+                      color: AppColors.darkWith(0.5),
                     ),
                   ),
                 ),
@@ -940,20 +895,20 @@ class DashboardScreen extends StatelessWidget {
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF1FA5A5).withOpacity(0.06),
+                      color: AppColors.primaryWith(0.06),
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.access_time, size: 10, color: const Color(0xFF1FA5A5).withOpacity(0.6)),
+                        Icon(Icons.access_time, size: 10, color: AppColors.primaryWith(0.6)),
                         const SizedBox(width: 4),
                         Text(
                           _formatTimestamp(DateTime.now()),
                           style: TextStyle(
                             fontSize: 9,
                             fontWeight: FontWeight.w500,
-                            color: const Color(0xFF0B3C49).withOpacity(0.5),
+                            color: AppColors.darkWith(0.5),
                           ),
                         ),
                       ],
@@ -992,7 +947,7 @@ class DashboardScreen extends StatelessWidget {
                                   style: const TextStyle(
                                     fontSize: 10,
                                     fontWeight: FontWeight.w700,
-                                    color: Color(0xFF0B3C49),
+                                    color: AppColors.dark,
                                   ),
                                 ),
                                 Text(
@@ -1001,7 +956,7 @@ class DashboardScreen extends StatelessWidget {
                                     fontSize: 9,
                                     color: const Color(
                                       0xFF0B3C49,
-                                    ).withOpacity(0.75),
+                                    ).withValues(alpha: 0.75),
                                   ),
                                 ),
                                 Text(
@@ -1010,7 +965,7 @@ class DashboardScreen extends StatelessWidget {
                                     fontSize: 9,
                                     color: const Color(
                                       0xFF0B3C49,
-                                    ).withOpacity(0.65),
+                                    ).withValues(alpha: 0.65),
                                     height: 1.3,
                                   ),
                                 ),
@@ -1027,7 +982,7 @@ class DashboardScreen extends StatelessWidget {
                   child: TextButton(
                     onPressed: () => Navigator.pop(ctx),
                     style: TextButton.styleFrom(
-                      backgroundColor: const Color(0xFF1FA5A5),
+                      backgroundColor: AppColors.primary,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 9),
                       shape: RoundedRectangleBorder(
@@ -1094,20 +1049,20 @@ class _GaugeCardState extends State<_GaugeCard> {
         child: Ink(
           decoration: BoxDecoration(
             color: _isPressed
-                ? const Color(0xFF0B3C49).withValues(alpha: 0.03)
+                ? AppColors.darkWith(0.03)
                 : Colors.white,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
               color: _isPressed
-                  ? const Color(0xFF0B3C49).withValues(alpha: 0.25)
-                  : const Color(0xFF0B3C49).withOpacity(0.15),
+                  ? AppColors.darkWith(0.25)
+                  : AppColors.darkWith(0.15),
               width: 1.5,
             ),
             boxShadow: [
               BoxShadow(
                 color: _isPressed
-                    ? const Color(0xFF0B3C49).withValues(alpha: 0.12)
-                    : const Color(0xFF0B3C49).withOpacity(0.08),
+                    ? AppColors.darkWith(0.12)
+                    : AppColors.darkWith(0.08),
                 blurRadius: _isPressed ? 8 : 12,
                 offset: const Offset(0, 2),
               ),
@@ -1118,7 +1073,7 @@ class _GaugeCardState extends State<_GaugeCard> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 decoration: BoxDecoration(
-                  color: widget.statusColor.withOpacity(0.18),
+                  color: widget.statusColor.withValues(alpha: 0.18),
                   borderRadius: const BorderRadius.vertical(
                     top: Radius.circular(18.5),
                   ),
@@ -1131,7 +1086,7 @@ class _GaugeCardState extends State<_GaugeCard> {
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
-                          color: Color(0xFF0B3C49),
+                          color: AppColors.dark,
                           letterSpacing: 0.3,
                         ),
                       ),
@@ -1142,7 +1097,7 @@ class _GaugeCardState extends State<_GaugeCard> {
                       height: 28,
                       padding: const EdgeInsets.all(5),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.8),
+                        color: Colors.white.withValues(alpha: 0.8),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Image.asset(widget.iconPath),
@@ -1160,7 +1115,7 @@ class _GaugeCardState extends State<_GaugeCard> {
                       style: const TextStyle(
                         fontSize: 26,
                         fontWeight: FontWeight.w800,
-                        color: Color(0xFF0B3C49),
+                        color: AppColors.dark,
                         height: 1,
                       ),
                     ),
@@ -1170,7 +1125,7 @@ class _GaugeCardState extends State<_GaugeCard> {
                       style: const TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
-                        color: Color(0xFF0B3C49),
+                        color: AppColors.dark,
                       ),
                     ),
                   ],
@@ -1180,7 +1135,7 @@ class _GaugeCardState extends State<_GaugeCard> {
                 margin: const EdgeInsets.symmetric(vertical: 8),
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                 decoration: BoxDecoration(
-                  color: widget.statusColor.withOpacity(0.18),
+                  color: widget.statusColor.withValues(alpha: 0.18),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Row(
@@ -1215,7 +1170,7 @@ class _GaugeCardState extends State<_GaugeCard> {
                   style: const TextStyle(
                     fontSize: 9,
                     fontWeight: FontWeight.w600,
-                    color: Color(0xFF0B3C49),
+                    color: AppColors.dark,
                   ),
                 ),
               ),
@@ -1239,21 +1194,21 @@ const Map<String, List<_LegendItem>> _gaugeLegends = {
   'Temperature': [
     _LegendItem(
       'Normal',
-      '24\u201330\u00B0C',
+      '25\u201330\u00B0C',
       'Optimal range for crayfish growth and molting.',
-      Color(0xFF52c283),
+      AppColors.success,
     ),
     _LegendItem(
       'Warning',
-      '20\u201323\u00B0C or 31\u201333\u00B0C',
+      '22\u201324\u00B0C or 31\u201333\u00B0C',
       'May slow metabolism and cause stress to crayfish.',
-      Color(0xFFf59e0b),
+      AppColors.warning,
     ),
     _LegendItem(
       'Critical',
-      'below 20\u00B0C or above 33\u00B0C',
+      'below 22\u00B0C or above 33\u00B0C',
       'Can cause death. Alert notification will be sent.',
-      Color(0xFFE63946),
+      AppColors.critical,
     ),
   ],
   'pH Level': [
@@ -1261,19 +1216,19 @@ const Map<String, List<_LegendItem>> _gaugeLegends = {
       'Normal',
       '7.0\u20138.5',
       'Ideal acidity for healthy molting and shell formation.',
-      Color(0xFF52c283),
+      AppColors.success,
     ),
     _LegendItem(
       'Warning',
       '6.5\u20136.9 or 8.6\u20139.0',
       'May irritate gills and weaken immune system.',
-      Color(0xFFf59e0b),
+      AppColors.warning,
     ),
     _LegendItem(
       'Critical',
       'below 6.5 or above 9.0',
       'Highly toxic. Can cause rapid death of crayfish.',
-      Color(0xFFE63946),
+      AppColors.critical,
     ),
   ],
   'Dissolved O\u2082': [
@@ -1281,19 +1236,19 @@ const Map<String, List<_LegendItem>> _gaugeLegends = {
       'Normal',
       '5.0+ mg/L',
       'Sufficient oxygen for active and healthy crayfish.',
-      Color(0xFF52c283),
+      AppColors.success,
     ),
     _LegendItem(
       'Low',
       '3.0\u20134.9 mg/L',
       'Crayfish may become inactive and lose appetite.',
-      Color(0xFFf59e0b),
+      AppColors.warning,
     ),
     _LegendItem(
       'Critical',
       'below 3.0 mg/L',
       'Dangerously low. Triggers aerator pump automatically.',
-      Color(0xFFE63946),
+      AppColors.critical,
     ),
   ],
   'Turbidity': [
@@ -1301,39 +1256,39 @@ const Map<String, List<_LegendItem>> _gaugeLegends = {
       'Normal',
       '0\u201325 NTU',
       'Clean water with good visibility and low bacteria risk.',
-      Color(0xFF52c283),
+      AppColors.success,
     ),
     _LegendItem(
       'Cloudy',
       '26\u201350 NTU',
       'Suspended particles may clog gills over time.',
-      Color(0xFFf59e0b),
+      AppColors.warning,
     ),
     _LegendItem(
       'Dirty',
       'above 50 NTU',
       'Severely dirty water. Triggers filtration alert immediately.',
-      Color(0xFFE63946),
+      AppColors.critical,
     ),
   ],
   'Water Level': [
     _LegendItem(
       'Normal',
-      '80\u2013120 cm',
-      'Ideal water level for crayfish growth and oxygen exchange.',
-      Color(0xFF52c283),
+      '130\u2013180 cm',
+      'Ideal pond depth for Australian Redclaw in tropical climate.',
+      AppColors.success,
     ),
     _LegendItem(
       'Warning',
-      '60\u201379 cm or 121\u2013140 cm',
+      '100\u2013129 cm or 181\u2013200 cm',
       'May affect water quality and circulation.',
-      Color(0xFFf59e0b),
+      AppColors.warning,
     ),
     _LegendItem(
       'Critical',
-      'below 60 cm or above 140 cm',
+      'below 100 cm or above 200 cm',
       'Extreme water level. Can stress or kill crayfish.',
-      Color(0xFFE63946),
+      AppColors.critical,
     ),
   ],
 };

@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import '../theme/app_colors.dart';
 
 class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
@@ -64,11 +65,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     _labels[range] = labels;
 
     final seeds = {
-      'temp': { 'min': 22.0, 'max': 32.0 },
+      'temp': { 'min': 24.0, 'max': 32.0 },
       'ph':   { 'min': 6.5,  'max': 9.0 },
       'do':   { 'min': 2.5,  'max': 7.0 },
       'turb': { 'min': 10.0, 'max': 70.0 },
-      'waterlevel': { 'min': 60.0, 'max': 140.0 },
+      'waterlevel': { 'min': 100.0, 'max': 200.0 },
     };
 
     seeds.forEach((key, bounds) {
@@ -91,8 +92,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     String text = 'Peak temperature reached ${peakTemp.toStringAsFixed(1)}°C. ';
     if (peakTurb > 50) text += 'Turbidity spiked to ${peakTurb.toStringAsFixed(0)} NTU — check filtration. ';
     if (minDo < 3.5) text += 'DO dropped to ${minDo.toStringAsFixed(1)} mg/L — aerator may have triggered. ';
-    if (minWl < 60) text += 'Water level dropped to ${minWl.toStringAsFixed(0)} cm — low water warning. ';
-    if (maxWl > 140) text += 'Water level peaked at ${maxWl.toStringAsFixed(0)} cm — flood risk.';
+    if (minWl < 100) text += 'Water level dropped to ${minWl.toStringAsFixed(0)} cm — low water warning. ';
+    if (maxWl > 200) text += 'Water level peaked at ${maxWl.toStringAsFixed(0)} cm — flood risk.';
 
     setState(() => _insight = text);
   }
@@ -150,19 +151,19 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFF1FA5A5).withValues(alpha: 0.08),
-        border: Border.all(color: const Color(0xFF1FA5A5).withValues(alpha: 0.2)),
+        color: AppColors.primaryWith(0.08),
+        border: Border.all(color: AppColors.primaryWith(0.2)),
         borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.lightbulb_outline, size: 16, color: const Color(0xFF1FA5A5)),
+          Icon(Icons.lightbulb_outline, size: 16, color: AppColors.primary),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               _insight,
-              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Color(0xFF0B3C49), height: 1.5),
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: AppColors.dark, height: 1.5),
             ),
           ),
         ],
@@ -188,15 +189,15 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     Color borderColor;
     Color textColor;
     if (isActive) {
-      bgColor = isPressed ? const Color(0xFF178a8a) : const Color(0xFF1FA5A5);
-      borderColor = isPressed ? const Color(0xFF178a8a) : const Color(0xFF1FA5A5);
+      bgColor = isPressed ? const Color(0xFF178a8a) : AppColors.primary;
+      borderColor = isPressed ? const Color(0xFF178a8a) : AppColors.primary;
       textColor = Colors.white;
     } else {
-      bgColor = isPressed ? const Color(0xFF1FA5A5).withValues(alpha: 0.1) : Colors.white;
-      borderColor = const Color(0xFF0B3C49).withValues(alpha: 0.15);
+      bgColor = isPressed ? AppColors.primaryWith(0.1) : Colors.white;
+      borderColor = AppColors.darkWith(0.15);
       textColor = isPressed
-          ? const Color(0xFF1FA5A5)
-          : const Color(0xFF0B3C49).withValues(alpha: 0.5);
+          ? AppColors.primary
+          : AppColors.darkWith(0.5);
     }
     return Expanded(
       child: Container(
@@ -287,19 +288,19 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                 decoration: BoxDecoration(
-                  border: Border.all(color: const Color(0xFF0B3C49).withValues(alpha: 0.15), width: 1.5),
+                  border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
                   _formatDate(_customStartDate),
-                  style: const TextStyle(fontSize: 10, color: Color(0xFF0B3C49)),
+                  style: const TextStyle(fontSize: 10, color: AppColors.dark),
                 ),
               ),
             ),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 6),
-            child: Text('to', style: TextStyle(fontSize: 10, color: const Color(0xFF0B3C49).withValues(alpha: 0.5))),
+            child: Text('to', style: TextStyle(fontSize: 10, color: AppColors.darkWith(0.5))),
           ),
           Expanded(
             child: InkWell(
@@ -308,12 +309,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                 decoration: BoxDecoration(
-                  border: Border.all(color: const Color(0xFF0B3C49).withValues(alpha: 0.15), width: 1.5),
+                  border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
                   _formatDate(_customEndDate),
-                  style: const TextStyle(fontSize: 10, color: Color(0xFF0B3C49)),
+                  style: const TextStyle(fontSize: 10, color: AppColors.dark),
                 ),
               ),
             ),
@@ -336,7 +337,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 decoration: BoxDecoration(
                   color: _isApplyPressed
                       ? const Color(0xFF178a8a)
-                      : const Color(0xFF1FA5A5),
+                      : AppColors.primary,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Text('Apply', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white)),
@@ -367,9 +368,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: Colors.white,
-            border: Border.all(color: const Color(0xFF0B3C49).withValues(alpha: 0.1), width: 1.5),
+            border: Border.all(color: AppColors.darkWith(0.1), width: 1.5),
             borderRadius: BorderRadius.circular(16),
-            boxShadow: [BoxShadow(color: const Color(0xFF0B3C49).withValues(alpha: 0.06), blurRadius: 10, offset: const Offset(0, 2))],
+            boxShadow: [BoxShadow(color: AppColors.darkWith(0.06), blurRadius: 10, offset: const Offset(0, 2))],
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -386,17 +387,17 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                         child: Image.asset(iconPath, width: 18, height: 18),
                       ),
                       const SizedBox(width: 6),
-                      Text(title, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF0B3C49))),
+                      Text(title, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.dark)),
                     ],
                   ),
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text('Min: $mn', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Color(0xFF1FA5A5))),
+                      Text('Min: $mn', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: AppColors.primary)),
                       const SizedBox(width: 6),
-                      Text('Avg: $avg', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Color(0xFF1FA5A5))),
+                      Text('Avg: $avg', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: AppColors.primary)),
                       const SizedBox(width: 6),
-                      Text('Max: $mx', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Color(0xFF1FA5A5))),
+                      Text('Max: $mx', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: AppColors.primary)),
                     ],
                   ),
                 ],
@@ -406,11 +407,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 height: 180,
                 width: double.infinity,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1FA5A5).withValues(alpha: 0.03),
+                  color: AppColors.primaryWith(0.03),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: data.isEmpty
-                    ? Center(child: Text('No data', style: TextStyle(fontSize: 10, color: const Color(0xFF0B3C49).withValues(alpha: 0.2))))
+                    ? Center(child: Text('No data', style: TextStyle(fontSize: 10, color: AppColors.darkWith(0.2))))
                     : _buildMiniChart(context, data, _colorFor(chartKey), title, unit),
               ),
             ],
@@ -435,12 +436,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   Color _colorFor(String key) {
     switch (key) {
-      case 'temp': return const Color(0xFFf59e0b);
-      case 'ph': return const Color(0xFF1FA5A5);
+      case 'temp': return AppColors.warning;
+      case 'ph': return AppColors.primary;
       case 'do': return const Color(0xFF52c283);
-      case 'turb': return const Color(0xFFE63946);
-      case 'waterlevel': return const Color(0xFF1FA5A5);
-      default: return const Color(0xFF1FA5A5);
+      case 'turb': return AppColors.critical;
+      case 'waterlevel': return AppColors.primary;
+      default: return AppColors.primary;
     }
   }
 
@@ -481,7 +482,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('$title ($unit)', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF0B3C49))),
+                    Text('$title ($unit)', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.dark)),
                     StatefulBuilder(
                       builder: (ctx2, setDialogState) {
                         return Material(
@@ -497,11 +498,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                               width: 30, height: 30,
                               decoration: BoxDecoration(
                                 color: _closePressed
-                                    ? const Color(0xFF0B3C49).withValues(alpha: 0.2)
-                                    : const Color(0xFF0B3C49).withValues(alpha: 0.08),
+                                    ? AppColors.darkWith(0.2)
+                                    : AppColors.darkWith(0.08),
                                 shape: BoxShape.circle,
                               ),
-                              child: const Icon(Icons.close, size: 13, color: Color(0xFF0B3C49)),
+                              child: const Icon(Icons.close, size: 13, color: AppColors.dark),
                             ),
                           ),
                         );
@@ -515,7 +516,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     height: 220,
                     width: double.infinity,
                     decoration: BoxDecoration(
-                      color: const Color(0xFF1FA5A5).withValues(alpha: 0.03),
+                      color: AppColors.primaryWith(0.03),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: ClipRRect(
@@ -535,10 +536,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     height: 220,
                     width: double.infinity,
                     decoration: BoxDecoration(
-                      color: const Color(0xFF1FA5A5).withValues(alpha: 0.03),
+                      color: AppColors.primaryWith(0.03),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Center(child: Text('No data available', style: TextStyle(fontSize: 11, color: const Color(0xFF0B3C49).withValues(alpha: 0.3)))),
+                    child: Center(child: Text('No data available', style: TextStyle(fontSize: 11, color: AppColors.darkWith(0.3)))),
                   ),
               ],
             ),
@@ -585,7 +586,7 @@ class _LineChartPainter extends CustomPainter {
 
     final maxVal = minVal + range;
     final textStyle = TextStyle(
-      color: const Color(0xFF0B3C49).withValues(alpha: 0.53),
+      color: AppColors.darkWith(0.53),
       fontSize: large ? 8 : 7,
       fontWeight: FontWeight.w500,
     );
@@ -593,7 +594,7 @@ class _LineChartPainter extends CustomPainter {
     // Y-axis grid lines + labels
     if (showAxis) {
       final gridPaint = Paint()
-        ..color = const Color(0xFF0B3C49).withValues(alpha: 0.05)
+        ..color = AppColors.darkWith(0.05)
         ..strokeWidth = 1;
 
       final tickCount = large ? 5 : 3;

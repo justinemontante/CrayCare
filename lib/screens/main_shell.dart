@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import '../theme/app_colors.dart';
+import '../widgets/settings_drawer.dart';
 import 'dashboard_screen.dart';
 import 'analytics_screen.dart';
 import 'controls_screen.dart';
+import 'tanks_screen.dart';
+import 'notifications_screen.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -12,6 +16,7 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
 
   void _goToAnalytics() {
     setState(() => _currentIndex = 1);
@@ -20,9 +25,9 @@ class _MainShellState extends State<MainShell> {
   List<Widget> get _screens => [
     DashboardScreen(onViewGraph: _goToAnalytics),
     AnalyticsScreen(),
-    const PlaceholderScreen(label: 'Tanks'),
+    const TanksScreen(),
     const ControlsScreen(),
-    const PlaceholderScreen(label: 'Notifications'),
+    const NotificationsScreen(),
   ];
 
   static const List<_NavItem> _navItems = [
@@ -36,6 +41,8 @@ class _MainShellState extends State<MainShell> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      key: _scaffoldKey,
+      endDrawer: const SettingsDrawer(),
       body: Column(
         children: [
           Container(
@@ -43,12 +50,7 @@ class _MainShellState extends State<MainShell> {
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
             decoration: const BoxDecoration(
               gradient: LinearGradient(
-                colors: [
-                  Color(0xFFf8ffff),
-                  Color(0xFFf2fdfd),
-                  Color(0xFFe8fafa),
-                  Color(0xFFdaf4f5),
-                ],
+                colors: AppColors.headerGradient,
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
@@ -73,7 +75,7 @@ class _MainShellState extends State<MainShell> {
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w800,
-                        color: Color(0xFF0B3C49),
+                        color: AppColors.dark,
                         letterSpacing: -0.3,
                       ),
                     ),
@@ -82,19 +84,19 @@ class _MainShellState extends State<MainShell> {
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w800,
-                        color: Color(0xFF1FA5A5),
+                        color: AppColors.primary,
                         letterSpacing: -0.3,
                       ),
                     ),
                   ],
                 ),
                 GestureDetector(
-                  onTap: () {},
+                  onTap: () => _scaffoldKey.currentState?.openEndDrawer(),
                   child: Container(
                     width: 34,
                     height: 34,
                     decoration: const BoxDecoration(
-                      color: Color(0xFF1FA5A5),
+                      color: AppColors.primary,
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(
@@ -118,7 +120,7 @@ class _MainShellState extends State<MainShell> {
     return Container(
       padding: const EdgeInsets.fromLTRB(8, 10, 8, 10),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.85),
+        color: AppColors.whiteWith(0.85),
         boxShadow: const [
           BoxShadow(
             color: Color(0x0d000000),
@@ -138,7 +140,7 @@ class _MainShellState extends State<MainShell> {
                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
                 decoration: BoxDecoration(
                   color: isActive
-                      ? const Color(0x1F1FA5A5)
+                      ? AppColors.primaryWith(0.12)
                       : Colors.transparent,
                   borderRadius: BorderRadius.circular(16),
                 ),
@@ -149,8 +151,8 @@ class _MainShellState extends State<MainShell> {
                       item.icon,
                       size: 22,
                       color: isActive
-                          ? const Color(0xFF1FA5A5)
-                          : const Color(0xFF0B3C49).withOpacity(0.3),
+                          ? AppColors.primary
+                          : AppColors.darkWith(0.3),
                     ),
                     const SizedBox(height: 2),
                     FittedBox(
@@ -161,8 +163,8 @@ class _MainShellState extends State<MainShell> {
                           fontSize: 9,
                           fontWeight: FontWeight.w600,
                           color: isActive
-                              ? const Color(0xFF1FA5A5)
-                              : const Color(0xFF0B3C49).withOpacity(0.4),
+                              ? AppColors.primary
+                              : AppColors.darkWith(0.4),
                         ),
                       ),
                     ),
@@ -172,7 +174,7 @@ class _MainShellState extends State<MainShell> {
                         width: 20,
                         height: 3,
                         decoration: const BoxDecoration(
-                          color: Color(0xFF1FA5A5),
+                          color: AppColors.primary,
                           borderRadius: BorderRadius.all(Radius.circular(3)),
                         ),
                       ),
@@ -201,7 +203,7 @@ class PlaceholderScreen extends StatelessWidget {
           style: const TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.w700,
-            color: Color(0xFF0B3C49),
+            color: AppColors.dark,
           ),
         ),
       ),

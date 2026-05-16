@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../theme/app_colors.dart';
+import '../widgets/gradient_button.dart';
 
 class VerifyScreen extends StatefulWidget {
   const VerifyScreen({super.key});
@@ -8,7 +10,10 @@ class VerifyScreen extends StatefulWidget {
 }
 
 class _VerifyScreenState extends State<VerifyScreen> {
-  final List<TextEditingController> _otpControllers = List.generate(6, (_) => TextEditingController());
+  final List<TextEditingController> _otpControllers = List.generate(
+    6,
+    (_) => TextEditingController(),
+  );
   final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
 
   @override
@@ -46,20 +51,29 @@ class _VerifyScreenState extends State<VerifyScreen> {
               padding: const EdgeInsets.fromLTRB(28, 50, 28, 40),
               child: Column(
                 children: [
-                  SizedBox(width: 130, child: Image.asset('assets/images/logo.png')),
+                  SizedBox(
+                    width: 130,
+                    child: Image.asset('assets/images/logo.png'),
+                  ),
                   const SizedBox(height: 8),
                   const Text(
                     'Verification',
-                    style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: Color(0xFF0B3C49)),
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.dark,
+                    ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     'Enter the 6-digit code sent to your email',
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 13, color: const Color(0xFF0B3C49).withOpacity(0.7)),
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: AppColors.darkWith(0.7),
+                    ),
                   ),
                   const SizedBox(height: 32),
-                  // OTP inputs
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: List.generate(6, (index) {
@@ -74,23 +88,34 @@ class _VerifyScreenState extends State<VerifyScreen> {
                             keyboardType: TextInputType.number,
                             textAlign: TextAlign.center,
                             maxLength: 1,
-                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: Color(0xFF0B3C49)),
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.dark,
+                            ),
                             decoration: InputDecoration(
                               counterText: '',
                               filled: true,
-                              fillColor: Colors.white.withOpacity(0.8),
+                              fillColor: AppColors.whiteWith(0.8),
                               contentPadding: EdgeInsets.zero,
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(10),
-                                borderSide: BorderSide(color: Colors.white.withOpacity(0.3)),
+                                borderSide: BorderSide(
+                                  color: AppColors.whiteWith(0.3),
+                                ),
                               ),
                               enabledBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(10),
-                                borderSide: BorderSide(color: Colors.white.withOpacity(0.3)),
+                                borderSide: BorderSide(
+                                  color: AppColors.whiteWith(0.3),
+                                ),
                               ),
                               focusedBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(10),
-                                borderSide: const BorderSide(color: Color(0xFF1FA5A5), width: 1.5),
+                                borderSide: const BorderSide(
+                                  color: AppColors.primary,
+                                  width: 1.5,
+                                ),
                               ),
                             ),
                             onChanged: (value) => _onOtpChange(index, value),
@@ -100,46 +125,49 @@ class _VerifyScreenState extends State<VerifyScreen> {
                     }),
                   ),
                   const SizedBox(height: 20),
-                  // Verify button
-                  SizedBox(
-                    width: double.infinity,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(14),
-                        boxShadow: [BoxShadow(color: const Color(0xFF1FA5A5).withOpacity(0.3), blurRadius: 16, offset: const Offset(0, 6))],
-                        gradient: const LinearGradient(colors: [Color(0xFF0B3C49), Color(0xFF1FA5A5)], begin: Alignment.topLeft, end: Alignment.bottomRight),
-                      ),
-                      child: ElevatedButton(
-                        onPressed: () {},
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.transparent,
-                          shadowColor: Colors.transparent,
-                          padding: const EdgeInsets.symmetric(vertical: 15),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                        ),
-                        child: const Text('Verify', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 0.5)),
+                  GradientButton(
+                    onTap: () {},
+                    child: const Text(
+                      'Verify',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                        letterSpacing: 0.5,
                       ),
                     ),
                   ),
                   const SizedBox(height: 20),
-                  // Resend
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text("Didn't receive code? ", style: TextStyle(fontSize: 13, color: const Color(0xFF0B3C49))),
+                      Text(
+                        "Didn't receive code? ",
+                        style: TextStyle(fontSize: 13, color: AppColors.dark),
+                      ),
                       GestureDetector(
                         onTap: () {},
-                        child: const Text('Resend', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF1FA5A5))),
+                        child: const Text(
+                          'Resend',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.primary,
+                          ),
+                        ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 16),
-                  // Back to Sign Up
                   GestureDetector(
                     onTap: () => Navigator.pop(context),
                     child: Text(
                       'Back to Sign Up',
-                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF0B3C49).withOpacity(0.8)),
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.darkWith(0.8),
+                      ),
                     ),
                   ),
                 ],
