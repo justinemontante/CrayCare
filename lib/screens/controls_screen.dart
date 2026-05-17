@@ -188,9 +188,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
       decoration: BoxDecoration(
         color: AppColors.darkWith(0.03),
-        border: Border.all(
-          color: AppColors.darkWith(0.08),
-        ),
+        border: Border.all(color: AppColors.darkWith(0.08)),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
@@ -222,9 +220,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                   ),
                   decoration: BoxDecoration(
                     color: AppColors.primaryWith(0.1),
-                    border: Border.all(
-                      color: AppColors.primaryWith(0.2),
-                    ),
+                    border: Border.all(color: AppColors.primaryWith(0.2)),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: const Row(
@@ -265,9 +261,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: AppColors.darkWith(0.1),
-        ),
+        border: Border.all(color: AppColors.darkWith(0.1)),
         boxShadow: [
           BoxShadow(
             color: AppColors.darkWith(0.07),
@@ -514,10 +508,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
               padding: const EdgeInsets.all(8),
               child: Text(
                 'No schedules set',
-                style: TextStyle(
-                  fontSize: 10,
-                  color: AppColors.darkWith(0.3),
-                ),
+                style: TextStyle(fontSize: 10, color: AppColors.darkWith(0.3)),
               ),
             )
           else
@@ -636,9 +627,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 10),
             decoration: BoxDecoration(
-              border: Border.all(
-                color: AppColors.darkWith(0.15),
-              ),
+              border: Border.all(color: AppColors.darkWith(0.15)),
               borderRadius: BorderRadius.circular(10),
             ),
             child: TextField(
@@ -652,10 +641,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                 border: InputBorder.none,
                 contentPadding: const EdgeInsets.symmetric(vertical: 7),
               ),
-              style: const TextStyle(
-                fontSize: 11,
-                color: AppColors.dark,
-              ),
+              style: const TextStyle(fontSize: 11, color: AppColors.dark),
               keyboardType: TextInputType.datetime,
             ),
           ),
@@ -666,9 +652,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 8),
             decoration: BoxDecoration(
-              border: Border.all(
-                color: AppColors.darkWith(0.15),
-              ),
+              border: Border.all(color: AppColors.darkWith(0.15)),
               borderRadius: BorderRadius.circular(10),
             ),
             child: TextField(
@@ -682,10 +666,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                 border: InputBorder.none,
                 contentPadding: const EdgeInsets.symmetric(vertical: 7),
               ),
-              style: const TextStyle(
-                fontSize: 11,
-                color: AppColors.dark,
-              ),
+              style: const TextStyle(fontSize: 11, color: AppColors.dark),
               keyboardType: TextInputType.number,
             ),
           ),
@@ -720,9 +701,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.primaryWith(0.06),
-        border: Border.all(
-          color: AppColors.primaryWith(0.15),
-        ),
+        border: Border.all(color: AppColors.primaryWith(0.15)),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
@@ -748,9 +727,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
             decoration: BoxDecoration(
               color: AppColors.primaryWith(0.08),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: AppColors.primaryWith(0.12),
-              ),
+              border: Border.all(color: AppColors.primaryWith(0.12)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -810,9 +787,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
       decoration: BoxDecoration(
         color: AppColors.darkWith(0.03),
-        border: Border.all(
-          color: AppColors.darkWith(0.08),
-        ),
+        border: Border.all(color: AppColors.darkWith(0.08)),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
@@ -849,9 +824,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                   ),
                   decoration: BoxDecoration(
                     color: AppColors.primaryWith(0.1),
-                    border: Border.all(
-                      color: AppColors.primaryWith(0.2),
-                    ),
+                    border: Border.all(color: AppColors.primaryWith(0.2)),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: const Row(
@@ -996,9 +969,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                 style: TextStyle(
                   fontSize: 9,
                   fontWeight: FontWeight.w700,
-                  color: isActive
-                      ? _modeColor(m)
-                      : AppColors.darkWith(0.4),
+                  color: isActive ? _modeColor(m) : AppColors.darkWith(0.4),
                 ),
               ),
             ),

@@ -473,6 +473,26 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
     final selIdx = _selectedIndices[chartKey];
 
+    String statusLabel = '';
+    Color statusColor = Colors.transparent;
+    Color statusBg = Colors.transparent;
+    if (data.isNotEmpty) {
+      final lastVal = data.last;
+      if (lastVal > thresholds['max']! || lastVal < thresholds['min']!) {
+        statusLabel = 'Critical';
+        statusColor = AppColors.critical;
+        statusBg = AppColors.criticalWith(0.12);
+      } else if (criticalCount > 0) {
+        statusLabel = 'Warning';
+        statusColor = AppColors.warning;
+        statusBg = AppColors.warningWith(0.15);
+      } else {
+        statusLabel = 'Normal';
+        statusColor = AppColors.success;
+        statusBg = AppColors.successWith(0.12);
+      }
+    }
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: GestureDetector(
@@ -525,6 +545,37 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                       ),
                     ],
                   ),
+                  if (data.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: statusBg,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: BoxDecoration(
+                              color: statusColor,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            statusLabel,
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                              color: statusColor,
+                              letterSpacing: 0.3,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                 ],
               ),
               const SizedBox(height: 8),
