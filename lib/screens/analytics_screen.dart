@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
+import '../services/settings_service.dart';
 
 class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
@@ -32,6 +33,17 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   void initState() {
     super.initState();
     _generateData('24h');
+    SettingsService.instance.addListener(_onSettingsChanged);
+  }
+
+  @override
+  void dispose() {
+    SettingsService.instance.removeListener(_onSettingsChanged);
+    super.dispose();
+  }
+
+  void _onSettingsChanged() {
+    if (mounted) setState(() {});
   }
 
   void _generateData(String range) {
@@ -695,20 +707,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   Map<String, double> _thresholdsFor(String key) {
-    switch (key) {
-      case 'temp':
-        return {'min': 25.0, 'max': 30.0};
-      case 'ph':
-        return {'min': 6.5, 'max': 8.5};
-      case 'do':
-        return {'min': 3.5, 'max': 999.0};
-      case 'turb':
-        return {'min': 0.0, 'max': 50.0};
-      case 'waterlevel':
-        return {'min': 130.0, 'max': 180.0};
-      default:
-        return {'min': 0.0, 'max': 999.0};
-    }
+    final range = SettingsService.instance.currentRanges[key];
+    if (range != null) return range;
+    return {'min': 0.0, 'max': 999.0};
   }
 
   Widget _buildStatsFooter(

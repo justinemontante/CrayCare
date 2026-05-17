@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../screens/login_screen.dart';
+import '../models/crayfish_stage.dart';
+import '../services/settings_service.dart';
 
 class SettingsDrawer extends StatefulWidget {
   const SettingsDrawer({super.key});
@@ -29,7 +31,14 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
   bool _notifSampling = false;
 
   @override
+  void initState() {
+    super.initState();
+    SettingsService.instance.addListener(_onSettingsChange);
+  }
+
+  @override
   void dispose() {
+    SettingsService.instance.removeListener(_onSettingsChange);
     _pageController.dispose();
     _nameCtrl.dispose();
     _emailCtrl.dispose();
@@ -38,6 +47,8 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
     _confirmPwCtrl.dispose();
     super.dispose();
   }
+
+  void _onSettingsChange() => setState(() {});
 
   void _goTo(int page) {
     _nameCtrl.text = _profileName;
@@ -140,6 +151,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
                   _buildEditProfile(),
                   _buildChangePassword(),
                   _buildNotifSettings(),
+                  _buildStageSettings(),
                 ],
               ),
             ),
@@ -178,6 +190,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
       case 1: return 'Edit Profile';
       case 2: return 'Change Password';
       case 3: return 'Notifications';
+      case 4: return 'Crayfish Stage';
       default: return '';
     }
   }
@@ -198,6 +211,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
             const SizedBox(height: 8),
             _buildMenuSection('Preferences', [
               _buildMenuItem('Notifications', Icons.notifications, AppColors.warning, chevron: true, onTap: () => _goTo(3)),
+              _buildMenuItem('Crayfish Stage', Icons.pets, AppColors.primary, chevron: true, onTap: () => _goTo(4)),
             ]),
             const SizedBox(height: 8),
             _buildMenuItem('Logout', Icons.logout, AppColors.critical, onTap: _showLogoutSheet),
@@ -287,6 +301,180 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildStageSettings() {
+    final svc = SettingsService.instance;
+    final sensors = ['temp', 'ph', 'do', 'turb', 'waterlevel'];
+    return Container(
+      color: const Color(0xFFf7f7f7),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [BoxShadow(color: AppColors.darkWith(0.05), blurRadius: 6)],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Current Stage', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.dark)),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    value: svc.currentStage,
+                    decoration: InputDecoration(
+                      filled: true,
+                      fillColor: AppColors.darkWith(0.04),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                    ),
+                    items: CrayfishStage.all.map((s) => DropdownMenuItem(value: s.name, child: Text('${s.label} — ${s.description}'))).toList(),
+                    onChanged: (v) {
+                      if (v != null) svc.setCurrentStage(v);
+                    },
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [BoxShadow(color: AppColors.darkWith(0.05), blurRadius: 6)],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Ideal Ranges — ${svc.currentStageObj.label}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.dark)),
+                  const SizedBox(height: 8),
+                  ...sensors.map((key) {
+                    final range = svc.currentRanges[key] ?? {'min': 0.0, 'max': 0.0};
+                    final info = sensorInfo[key]!;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Material(
+                        color: Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () => _showRangeEditor(key, info.label, info.unit, range['min']!, range['max']!),
+                          child: Ink(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: AppColors.darkWith(0.03),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(info.label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.dark)),
+                                ),
+                                Text(
+                                  '${range['min']!.toStringAsFixed(1)} – ${range['max']! >= 999 ? '\u221E' : range['max']!.toStringAsFixed(1)} ${info.unit}',
+                                  style: TextStyle(fontSize: 11, color: AppColors.darkWith(0.6)),
+                                ),
+                                const SizedBox(width: 4),
+                                Icon(Icons.edit, size: 12, color: AppColors.darkWith(0.3)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  SettingsService.instance.resetToDefaults();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Ranges reset to defaults'), duration: Duration(seconds: 2)),
+                  );
+                },
+                icon: const Icon(Icons.refresh, size: 14),
+                label: const Text('Reset to Defaults', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.darkWith(0.5),
+                  side: BorderSide(color: AppColors.darkWith(0.15)),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showRangeEditor(String key, String label, String unit, double currentMin, double currentMax) {
+    final minCtrl = TextEditingController(text: currentMin.toStringAsFixed(1));
+    final maxCtrl = TextEditingController(text: currentMax >= 999 ? '' : currentMax.toStringAsFixed(1));
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: minCtrl,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: 'Min ($unit)',
+                labelStyle: TextStyle(fontSize: 11, color: AppColors.darkWith(0.5)),
+                filled: true,
+                fillColor: AppColors.darkWith(0.04),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: maxCtrl,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: 'Max ($unit)',
+                labelStyle: TextStyle(fontSize: 11, color: AppColors.darkWith(0.5)),
+                filled: true,
+                fillColor: AppColors.darkWith(0.04),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Cancel', style: TextStyle(fontSize: 12, color: AppColors.darkWith(0.5))),
+          ),
+          TextButton(
+            onPressed: () {
+              final min = double.tryParse(minCtrl.text) ?? currentMin;
+              final max = double.tryParse(maxCtrl.text) ?? (currentMax >= 999 ? 999.0 : currentMax);
+              SettingsService.instance.updateRange(
+                SettingsService.instance.currentStage,
+                key,
+                min,
+                max,
+              );
+              Navigator.pop(ctx);
+            },
+            child: const Text('Save', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.primary)),
+          ),
+        ],
       ),
     );
   }
