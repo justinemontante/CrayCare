@@ -355,10 +355,25 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     required String chartKey,
   }) {
     final data = _getData(chartKey, _activeFilter);
-    final avg = data.isEmpty ? '--' : _calc(data, (d) => d.reduce((a, b) => a + b) / d.length).toStringAsFixed(1);
+    final labels = _labels[_activeFilter] ?? [];
     final mn = data.isEmpty ? '--' : _calc(data, (d) => d.reduce(min)).toStringAsFixed(1);
     final mx = data.isEmpty ? '--' : _calc(data, (d) => d.reduce(max)).toStringAsFixed(1);
+    final cur = data.isEmpty ? '--' : data.last.toStringAsFixed(1);
+    final curLabel = labels.isNotEmpty ? labels.last : '';
     final unit = _unitFor(chartKey);
+
+    int minIdx = -1, maxIdx = -1;
+    if (data.isNotEmpty) {
+      final minVal = data.reduce(min);
+      final maxVal = data.reduce(max);
+      minIdx = data.indexOf(minVal);
+      maxIdx = data.indexOf(maxVal);
+    }
+    final minLabel = (minIdx >= 0 && minIdx < labels.length) ? labels[minIdx] : '';
+    final maxLabel = (maxIdx >= 0 && maxIdx < labels.length) ? labels[maxIdx] : '';
+
+    final thresholds = _thresholdsFor(chartKey);
+    final criticalCount = data.where((v) => v < thresholds['min']! || v > thresholds['max']!).length;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -390,16 +405,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                       Text(title, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.dark)),
                     ],
                   ),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text('Min: $mn', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: AppColors.primary)),
-                      const SizedBox(width: 6),
-                      Text('Avg: $avg', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: AppColors.primary)),
-                      const SizedBox(width: 6),
-                      Text('Max: $mx', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: AppColors.primary)),
-                    ],
-                  ),
                 ],
               ),
               const SizedBox(height: 8),
@@ -412,16 +417,20 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 ),
                 child: data.isEmpty
                     ? Center(child: Text('No data', style: TextStyle(fontSize: 10, color: AppColors.darkWith(0.2))))
-                    : _buildMiniChart(context, data, _colorFor(chartKey), title, unit),
-              ),
-            ],
+                    : _buildMiniChart(context, data, _colorFor(chartKey), title, unit, chartKey: chartKey),
+                ),
+                if (data.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  _buildStatsFooter(cur, curLabel, mn, mx, minLabel, maxLabel, criticalCount, chartKey, unit),
+                ],
+              ],
           ),
         ),
       ),
     );
   }
 
-  Widget _buildMiniChart(BuildContext context, List<double> data, Color color, String title, String unit) {
+  Widget _buildMiniChart(BuildContext context, List<double> data, Color color, String title, String unit, {required String chartKey}) {
     if (data.isEmpty) return const SizedBox.shrink();
     final labels = _labels[_activeFilter] ?? [];
 
@@ -431,6 +440,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       unit: unit,
       labels: labels,
       height: 180,
+      thresholdMin: _thresholdsFor(chartKey)['min'],
+      thresholdMax: _thresholdsFor(chartKey)['max'],
     );
   }
 
@@ -456,6 +467,79 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     }
   }
 
+  Map<String, double> _thresholdsFor(String key) {
+    switch (key) {
+      case 'temp': return {'min': 25.0, 'max': 30.0};
+      case 'ph': return {'min': 6.5, 'max': 8.5};
+      case 'do': return {'min': 3.5, 'max': 999.0};
+      case 'turb': return {'min': 0.0, 'max': 50.0};
+      case 'waterlevel': return {'min': 130.0, 'max': 180.0};
+      default: return {'min': 0.0, 'max': 999.0};
+    }
+  }
+
+  Widget _buildStatsFooter(String cur, String curLabel, String mn, String mx, String minLabel, String maxLabel, int criticalCount, String chartKey, String unit) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppColors.primaryWith(0.04),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.darkWith(0.06)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(child: _buildStatRow(Icons.arrow_downward, 'Min: $mn $unit', minLabel, AppColors.success)),
+              const SizedBox(width: 6),
+              Expanded(child: _buildStatRow(Icons.arrow_upward, 'Max: $mx $unit', maxLabel, AppColors.warning)),
+              const SizedBox(width: 6),
+              Expanded(child: _buildStatRow(Icons.sensors, 'Now: $cur $unit', curLabel, AppColors.primary)),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, size: 11, color: criticalCount > 0 ? AppColors.critical : AppColors.success),
+              const SizedBox(width: 4),
+              Flexible(
+                child: Text(
+                  criticalCount > 0
+                      ? '$criticalCount critical point${criticalCount > 1 ? 's' : ''}'
+                      : 'No critical points',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: criticalCount > 0 ? AppColors.critical : AppColors.success,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatRow(IconData icon, String value, String label, Color color) {
+    return Row(
+      children: [
+        Icon(icon, size: 11, color: color),
+        const SizedBox(width: 3),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(value, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.dark), overflow: TextOverflow.ellipsis),
+              Text(label, style: TextStyle(fontSize: 8, color: AppColors.darkWith(0.5)), overflow: TextOverflow.ellipsis),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   void _showChartModal(BuildContext context, {
     required String title,
     required String chartKey,
@@ -464,6 +548,21 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     final data = _getData(chartKey, _activeFilter);
     final labels = _labels[_activeFilter] ?? [];
     final color = _colorFor(chartKey);
+
+    int minIdx = -1, maxIdx = -1;
+    final mn = data.isEmpty ? '--' : data.reduce(min).toStringAsFixed(1);
+    final mx = data.isEmpty ? '--' : data.reduce(max).toStringAsFixed(1);
+    if (data.isNotEmpty) {
+      final minVal = data.reduce(min);
+      final maxVal = data.reduce(max);
+      minIdx = data.indexOf(minVal);
+      maxIdx = data.indexOf(maxVal);
+    }
+    final minLabel = (minIdx >= 0 && minIdx < labels.length) ? labels[minIdx] : '';
+    final maxLabel = (maxIdx >= 0 && maxIdx < labels.length) ? labels[maxIdx] : '';
+
+    final thresholds = _thresholdsFor(chartKey);
+    final criticalCount = data.where((v) => v < thresholds['min']! || v > thresholds['max']!).length;
 
     showDialog(
       context: context,
@@ -510,7 +609,54 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppColors.primaryWith(0.04),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.arrow_downward, size: 10, color: AppColors.success),
+                            const SizedBox(width: 3),
+                            Flexible(child: Text('$mn $unit', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.dark))),
+                            const SizedBox(width: 2),
+                            Text(minLabel, style: TextStyle(fontSize: 8, color: AppColors.darkWith(0.5)), overflow: TextOverflow.ellipsis),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.arrow_upward, size: 10, color: AppColors.warning),
+                            const SizedBox(width: 3),
+                            Flexible(child: Text('$mx $unit', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.dark))),
+                            const SizedBox(width: 2),
+                            Text(maxLabel, style: TextStyle(fontSize: 8, color: AppColors.darkWith(0.5)), overflow: TextOverflow.ellipsis),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: criticalCount > 0 ? AppColors.criticalWith(0.1) : AppColors.successWith(0.1),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          criticalCount > 0 ? '$criticalCount critical' : 'OK',
+                          style: TextStyle(fontSize: 8, fontWeight: FontWeight.w700, color: criticalCount > 0 ? AppColors.critical : AppColors.success),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
                 if (data.isNotEmpty && labels.isNotEmpty)
                   Container(
                     height: 220,
@@ -528,6 +674,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                         labels: labels,
                         large: true,
                         height: 220,
+                        thresholdMin: _thresholdsFor(chartKey)['min'],
+                        thresholdMax: _thresholdsFor(chartKey)['max'],
                       ),
                     ),
                   )
@@ -560,6 +708,8 @@ class _LineChartPainter extends CustomPainter {
   final bool showAxis;
   final bool large;
   final int? selectedIndex;
+  final double? thresholdMin;
+  final double? thresholdMax;
 
   _LineChartPainter(this.data, this.minVal, this.range, this.color, {
     this.labels,
@@ -567,6 +717,8 @@ class _LineChartPainter extends CustomPainter {
     this.showAxis = false,
     this.large = false,
     this.selectedIndex,
+    this.thresholdMin,
+    this.thresholdMax,
   });
 
   @override
@@ -668,27 +820,22 @@ class _LineChartPainter extends CustomPainter {
     // Dots
     final dotPaint = Paint()..color = color;
     final dotBorder = Paint()..color = Colors.white;
-    final dotStep = large ? 1 : (data.length > 50 ? data.length ~/ 15 : 1);
+    final dotStep = 1;
 
     for (int i = 0; i < data.length; i += dotStep) {
       final x = padL + i * stepX;
       final y = padT + chartH - ((data[i] - minVal) / range) * chartH;
-      canvas.drawCircle(Offset(x, y), large ? 3 : 2.5, dotBorder);
-      canvas.drawCircle(Offset(x, y), large ? 2 : 1.5, dotPaint);
+      canvas.drawCircle(Offset(x, y), 3, dotBorder);
+      canvas.drawCircle(Offset(x, y), 2, dotPaint);
     }
 
-    // Selected point highlight
+    // Selected point highlight (web style: white dot, colored border)
     if (selectedIndex != null && selectedIndex! >= 0 && selectedIndex! < data.length) {
       final sx = padL + selectedIndex! * stepX;
       final sy = padT + chartH - ((data[selectedIndex!] - minVal) / range) * chartH;
-      final linePaint = Paint()
-        ..color = color.withValues(alpha: 0.3)
-        ..strokeWidth = 1;
-      canvas.drawLine(Offset(sx, padT), Offset(sx, padT + chartH), linePaint);
-      final hlSize = (large ? 3.0 : 2.5) + 3;
-      canvas.drawCircle(Offset(sx, sy), hlSize, Paint()..color = Colors.white);
-      canvas.drawCircle(Offset(sx, sy), hlSize - 1, Paint()..color = color);
-      canvas.drawCircle(Offset(sx, sy), hlSize - 2, Paint()..color = Colors.white);
+      final r = 5.0;
+      canvas.drawCircle(Offset(sx, sy), r, Paint()..color = Colors.white);
+      canvas.drawCircle(Offset(sx, sy), r, Paint()..color = color..style = PaintingStyle.stroke..strokeWidth = 2.5);
     }
   }
 
@@ -724,6 +871,8 @@ class _ChartWithTooltip extends StatefulWidget {
   final List<String>? labels;
   final bool large;
   final double height;
+  final double? thresholdMin;
+  final double? thresholdMax;
 
   const _ChartWithTooltip({
     required this.data,
@@ -732,6 +881,8 @@ class _ChartWithTooltip extends StatefulWidget {
     this.labels,
     this.large = false,
     required this.height,
+    this.thresholdMin,
+    this.thresholdMax,
   });
 
   @override
@@ -785,6 +936,8 @@ class _ChartWithTooltipState extends State<_ChartWithTooltip> {
                   showAxis: true,
                   large: widget.large,
                   selectedIndex: _selectedIndex,
+                  thresholdMin: widget.thresholdMin,
+                  thresholdMax: widget.thresholdMax,
                 ),
                 size: Size(constraints.maxWidth, widget.height),
               ),
@@ -807,18 +960,17 @@ class _ChartWithTooltipState extends State<_ChartWithTooltip> {
         ? widget.labels![index]
         : '';
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: widget.color.withValues(alpha: 0.12),
+        color: const Color(0xFF0B3C49),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: widget.color.withValues(alpha: 0.25)),
       ),
       child: Text(
         '$label: ${val.toStringAsFixed(1)} ${widget.unit}',
-        style: TextStyle(
+        style: const TextStyle(
           fontSize: 9,
           fontWeight: FontWeight.w600,
-          color: widget.color,
+          color: Colors.white,
         ),
       ),
     );
