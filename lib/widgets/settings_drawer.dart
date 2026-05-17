@@ -326,18 +326,27 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
                 children: [
                   const Text('Current Stage', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.dark)),
                   const SizedBox(height: 8),
-                  DropdownButtonFormField<String>(
-                    value: svc.currentStage,
-                    decoration: InputDecoration(
-                      filled: true,
-                      fillColor: AppColors.darkWith(0.04),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppColors.darkWith(0.04),
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    items: CrayfishStage.all.map((s) => DropdownMenuItem(value: s.name, child: Text('${s.label} — ${s.description}'))).toList(),
-                    onChanged: (v) {
-                      if (v != null) svc.setCurrentStage(v);
-                    },
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: svc.currentStage,
+                        isExpanded: true,
+                        icon: const Icon(Icons.expand_more, size: 18),
+                        style: const TextStyle(fontSize: 13, color: AppColors.dark),
+                        items: CrayfishStage.all.map((s) => DropdownMenuItem(
+                          value: s.name,
+                          child: Text(s.label, overflow: TextOverflow.ellipsis),
+                        )).toList(),
+                        onChanged: (v) {
+                          if (v != null) svc.setCurrentStage(v);
+                        },
+                      ),
+                    ),
                   ),
                 ],
               ),
