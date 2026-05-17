@@ -16,7 +16,6 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
   String _profileName = 'Justine';
   String _profileEmail = 'justine@craycare.com';
 
-  final _pageController = PageController();
   final _nameCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
   final _currentPwCtrl = TextEditingController();
@@ -39,7 +38,6 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
   @override
   void dispose() {
     SettingsService.instance.removeListener(_onSettingsChange);
-    _pageController.dispose();
     _nameCtrl.dispose();
     _emailCtrl.dispose();
     _currentPwCtrl.dispose();
@@ -53,7 +51,6 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
   void _goTo(int page) {
     _nameCtrl.text = _profileName;
     _emailCtrl.text = _profileEmail;
-    _pageController.animateToPage(page, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
     setState(() => _currentPage = page);
   }
 
@@ -61,7 +58,6 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
     if (_currentPage == 0) {
       Navigator.of(context).pop();
     } else {
-      _pageController.animateToPage(0, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
       setState(() => _currentPage = 0);
     }
   }
@@ -143,16 +139,15 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
           children: [
             _buildHeader(),
             Expanded(
-              child: PageView(
-                controller: _pageController,
-                physics: const NeverScrollableScrollPhysics(),
-                children: [
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 200),
+                child: [
                   _buildMainMenu(),
                   _buildEditProfile(),
                   _buildChangePassword(),
                   _buildNotifSettings(),
                   _buildStageSettings(),
-                ],
+                ][_currentPage],
               ),
             ),
           ],
@@ -403,22 +398,33 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
               ),
             ),
             const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () {
+            Material(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(12),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                splashColor: AppColors.darkWith(0.08),
+                highlightColor: AppColors.darkWith(0.04),
+                onTap: () {
                   SettingsService.instance.resetToDefaults();
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Ranges reset to defaults'), duration: Duration(seconds: 2)),
                   );
                 },
-                icon: const Icon(Icons.refresh, size: 14),
-                label: const Text('Reset to Defaults', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.darkWith(0.5),
-                  side: BorderSide(color: AppColors.darkWith(0.15)),
+                child: Container(
                   padding: const EdgeInsets.symmetric(vertical: 10),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: AppColors.darkWith(0.12)),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.refresh, size: 14, color: AppColors.darkWith(0.5)),
+                      const SizedBox(width: 6),
+                      Text('Reset to Defaults', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.5))),
+                    ],
+                  ),
                 ),
               ),
             ),
