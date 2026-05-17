@@ -786,6 +786,75 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
+  Widget _buildModalCriticalList(List<_CriticalItem> items, String unit) {
+    return Container(
+      height: 220,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppColors.critical.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.critical.withValues(alpha: 0.15)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, size: 12, color: AppColors.critical),
+              const SizedBox(width: 4),
+              Text(
+                'Critical Points (${items.length})',
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.critical,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: items.reversed.map(
+                  (c) => Padding(
+                    padding: const EdgeInsets.only(bottom: 3),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 6, height: 6,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: c.isAboveMax ? AppColors.critical : AppColors.warning,
+                          ),
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          '${c.value.toStringAsFixed(1)} $unit',
+                          style: const TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.dark,
+                          ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          c.label,
+                          style: TextStyle(fontSize: 8, color: AppColors.darkWith(0.5)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ).toList(),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showChartModal(
     BuildContext context, {
     required String title,
@@ -817,6 +886,21 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     final criticalCount = data
         .where((v) => v < thresholds['min']! || v > thresholds['max']!)
         .length;
+    final criticalItems = <_CriticalItem>[];
+    if (criticalCount > 0) {
+      for (int i = 0; i < data.length; i++) {
+        final v = data[i];
+        if (v < thresholds['min']! || v > thresholds['max']!) {
+          criticalItems.add(
+            _CriticalItem(
+              value: v,
+              label: i < labels.length ? labels[i] : '',
+              isAboveMax: v > thresholds['max']!,
+            ),
+          );
+        }
+      }
+    }
     final cur = data.isEmpty ? '--' : data.last.toStringAsFixed(1);
     final curLabel = labels.isNotEmpty ? labels.last : '';
 
@@ -827,6 +911,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       builder: (ctx) {
         bool closePressed = false;
         int? modalSelectedIndex;
+        bool modalShowCritical = false;
         return StatefulBuilder(
           builder: (ctx2, setDialogState) {
             return Dialog(
@@ -840,16 +925,28 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
+                        if (modalShowCritical)
+                          GestureDetector(
+                            onTap: () => setDialogState(
+                                () => modalShowCritical = false),
+                            child: Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: Icon(Icons.arrow_back,
+                                  size: 16, color: AppColors.dark),
+                            ),
+                          ),
                         Text(
-                          '$title ($unit)',
+                          modalShowCritical
+                              ? 'Critical Points'
+                              : '$title ($unit)',
                           style: const TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w700,
                             color: AppColors.dark,
                           ),
                         ),
+                        const Spacer(),
                         Material(
                           color: Colors.transparent,
                           shape: const CircleBorder(),
@@ -882,137 +979,147 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                       ],
                     ),
                     const SizedBox(height: 10),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.primaryWith(0.04),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Column(
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: GestureDetector(
-                                  onTap: minIdx >= 0
-                                      ? () => setDialogState(
-                                          () => modalSelectedIndex = minIdx,
-                                        )
-                                      : null,
-                                  child: _buildStatRow(
-                                    Icons.arrow_downward,
-                                    'Min: $mn $unit',
-                                    minLabel,
-                                    AppColors.success,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: GestureDetector(
-                                  onTap: maxIdx >= 0
-                                      ? () => setDialogState(
-                                          () => modalSelectedIndex = maxIdx,
-                                        )
-                                      : null,
-                                  child: _buildStatRow(
-                                    Icons.arrow_upward,
-                                    'Max: $mx $unit',
-                                    maxLabel,
-                                    AppColors.warning,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: GestureDetector(
-                                  onTap: nowIdx >= 0
-                                      ? () => setDialogState(
-                                          () => modalSelectedIndex = nowIdx,
-                                        )
-                                      : null,
-                                  child: _buildStatRow(
-                                    Icons.sensors,
-                                    'Now: $cur $unit',
-                                    curLabel,
-                                    AppColors.primary,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.warning_amber_rounded,
-                                size: 11,
-                                color: criticalCount > 0
-                                    ? AppColors.critical
-                                    : AppColors.success,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                criticalCount > 0
-                                    ? '$criticalCount critical point${criticalCount > 1 ? 's' : ''}'
-                                    : 'No critical points',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w600,
-                                  color: criticalCount > 0
-                                      ? AppColors.critical
-                                      : AppColors.success,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    if (data.isNotEmpty && labels.isNotEmpty)
+                    if (modalShowCritical)
+                      _buildModalCriticalList(criticalItems, unit)
+                    else ...[
                       Container(
-                        height: 220,
-                        width: double.infinity,
-                        decoration: BoxDecoration(
-                          color: AppColors.primaryWith(0.03),
-                          borderRadius: BorderRadius.circular(8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 8,
                         ),
-                        child: _ChartWithTooltip(
-                          data: data,
-                          color: color,
-                          unit: unit,
-                          labels: labels,
-                          large: true,
+                        decoration: BoxDecoration(
+                          color: AppColors.primaryWith(0.04),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Column(
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: GestureDetector(
+                                    onTap: minIdx >= 0
+                                        ? () => setDialogState(
+                                            () => modalSelectedIndex = minIdx,
+                                          )
+                                        : null,
+                                    child: _buildStatRow(
+                                      Icons.arrow_downward,
+                                      'Min: $mn $unit',
+                                      minLabel,
+                                      AppColors.success,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: GestureDetector(
+                                    onTap: maxIdx >= 0
+                                        ? () => setDialogState(
+                                            () => modalSelectedIndex = maxIdx,
+                                          )
+                                        : null,
+                                    child: _buildStatRow(
+                                      Icons.arrow_upward,
+                                      'Max: $mx $unit',
+                                      maxLabel,
+                                      AppColors.warning,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: GestureDetector(
+                                    onTap: nowIdx >= 0
+                                        ? () => setDialogState(
+                                            () => modalSelectedIndex = nowIdx,
+                                          )
+                                        : null,
+                                    child: _buildStatRow(
+                                      Icons.sensors,
+                                      'Now: $cur $unit',
+                                      curLabel,
+                                      AppColors.primary,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            GestureDetector(
+                              onTap: criticalCount > 0
+                                  ? () => setDialogState(
+                                      () => modalShowCritical = true)
+                                  : null,
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.warning_amber_rounded,
+                                    size: 11,
+                                    color: criticalCount > 0
+                                        ? AppColors.critical
+                                        : AppColors.success,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    criticalCount > 0
+                                        ? '$criticalCount critical point${criticalCount > 1 ? 's' : ''}  \u203A'
+                                        : 'No critical points',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                      color: criticalCount > 0
+                                          ? AppColors.critical
+                                          : AppColors.success,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      if (data.isNotEmpty && labels.isNotEmpty)
+                        Container(
                           height: 220,
-                          selectedIndex: modalSelectedIndex,
-                          onSelectedIndexChanged: (idx) =>
-                              setDialogState(() => modalSelectedIndex = idx),
-                          thresholdMin: _thresholdsFor(chartKey)['min'],
-                          thresholdMax: _thresholdsFor(chartKey)['max'],
-                        ),
-                      )
-                    else
-                      Container(
-                        height: 220,
-                        width: double.infinity,
-                        decoration: BoxDecoration(
-                          color: AppColors.primaryWith(0.03),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Center(
-                          child: Text(
-                            'No data available',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: AppColors.darkWith(0.3),
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            color: AppColors.primaryWith(0.03),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: _ChartWithTooltip(
+                            data: data,
+                            color: color,
+                            unit: unit,
+                            labels: labels,
+                            large: true,
+                            height: 220,
+                            selectedIndex: modalSelectedIndex,
+                            onSelectedIndexChanged: (idx) =>
+                                setDialogState(() => modalSelectedIndex = idx),
+                            thresholdMin: _thresholdsFor(chartKey)['min'],
+                            thresholdMax: _thresholdsFor(chartKey)['max'],
+                          ),
+                        )
+                      else
+                        Container(
+                          height: 220,
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            color: AppColors.primaryWith(0.03),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Center(
+                            child: Text(
+                              'No data available',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: AppColors.darkWith(0.3),
+                              ),
                             ),
                           ),
                         ),
-                      ),
+                    ],
                   ],
                 ),
               ),
@@ -1078,7 +1185,7 @@ class _LineChartPainter extends CustomPainter {
         ..color = AppColors.darkWith(0.05)
         ..strokeWidth = 1;
 
-      final tickCount = large ? 5 : 3;
+      final tickCount = 5;
       for (int i = 0; i <= tickCount; i++) {
         final y = padT + (chartH * i / tickCount);
         canvas.drawLine(
@@ -1359,6 +1466,17 @@ class _ChartWithTooltipState extends State<_ChartWithTooltip> {
       ),
     );
   }
+}
+
+class _CriticalItem {
+  final double value;
+  final String label;
+  final bool isAboveMax;
+  const _CriticalItem({
+    required this.value,
+    required this.label,
+    required this.isAboveMax,
+  });
 }
 
 class _XLabel {
