@@ -832,49 +832,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     required String chartKey,
     required String unit,
   }) {
-    final data = _getData(chartKey, _activeFilter);
-    final labels = _labels[_activeFilter] ?? [];
-    final color = _colorFor(chartKey);
-
-    int minIdx = -1, maxIdx = -1;
-    final mn = data.isEmpty ? '--' : data.reduce(min).toStringAsFixed(1);
-    final mx = data.isEmpty ? '--' : data.reduce(max).toStringAsFixed(1);
-    if (data.isNotEmpty) {
-      final minVal = data.reduce(min);
-      final maxVal = data.reduce(max);
-      minIdx = data.indexOf(minVal);
-      maxIdx = data.indexOf(maxVal);
-    }
-    final nowIdx = data.length - 1;
-    final minLabel = (minIdx >= 0 && minIdx < labels.length)
-        ? labels[minIdx]
-        : '';
-    final maxLabel = (maxIdx >= 0 && maxIdx < labels.length)
-        ? labels[maxIdx]
-        : '';
-
-    final thresholds = _thresholdsFor(chartKey);
-    final criticalCount = data
-        .where((v) => v < thresholds['min']! || v > thresholds['max']!)
-        .length;
-    final criticalItems = <_CriticalItem>[];
-    if (criticalCount > 0) {
-      for (int i = 0; i < data.length; i++) {
-        final v = data[i];
-        if (v < thresholds['min']! || v > thresholds['max']!) {
-          criticalItems.add(
-            _CriticalItem(
-              value: v,
-              label: i < labels.length ? labels[i] : '',
-              isAboveMax: v > thresholds['max']!,
-            ),
-          );
-        }
-      }
-    }
-    final cur = data.isEmpty ? '--' : data.last.toStringAsFixed(1);
-    final curLabel = labels.isNotEmpty ? labels.last : '';
-
     showDialog(
       context: context,
       barrierDismissible: true,
@@ -883,252 +840,292 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         bool closePressed = false;
         int? modalSelectedIndex;
         bool modalShowCritical = false;
-        return StatefulBuilder(
-          builder: (ctx2, setDialogState) {
-            return Dialog(
-              insetPadding: const EdgeInsets.symmetric(horizontal: 20),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(24),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
+
+        return ListenableBuilder(
+          listenable: Listenable.merge([
+            SensorService.instance,
+            SettingsService.instance,
+          ]),
+          builder: (context, child) {
+            final data = _getData(chartKey, _activeFilter);
+            final labels = _labels[_activeFilter] ?? [];
+            final color = _colorFor(chartKey);
+
+            int minIdx = -1, maxIdx = -1;
+            final mn = data.isEmpty ? '--' : data.reduce(min).toStringAsFixed(1);
+            final mx = data.isEmpty ? '--' : data.reduce(max).toStringAsFixed(1);
+            if (data.isNotEmpty) {
+              final minVal = data.reduce(min);
+              final maxVal = data.reduce(max);
+              minIdx = data.indexOf(minVal);
+              maxIdx = data.indexOf(maxVal);
+            }
+            final nowIdx = data.length - 1;
+            final minLabel = (minIdx >= 0 && minIdx < labels.length) ? labels[minIdx] : '';
+            final maxLabel = (maxIdx >= 0 && maxIdx < labels.length) ? labels[maxIdx] : '';
+
+            final thresholds = _thresholdsFor(chartKey);
+            final criticalCount = data
+                .where((v) => v < thresholds['min']! || v > thresholds['max']!)
+                .length;
+            final criticalItems = <_CriticalItem>[];
+            if (criticalCount > 0) {
+              for (int i = 0; i < data.length; i++) {
+                final v = data[i];
+                if (v < thresholds['min']! || v > thresholds['max']!) {
+                  criticalItems.add(
+                    _CriticalItem(
+                      value: v,
+                      label: i < labels.length ? labels[i] : '',
+                      isAboveMax: v > thresholds['max']!,
+                    ),
+                  );
+                }
+              }
+            }
+            final cur = data.isEmpty ? '--' : data.last.toStringAsFixed(1);
+            final curLabel = labels.isNotEmpty ? labels.last : '';
+
+            return StatefulBuilder(
+              builder: (ctx2, setDialogState) {
+                return Dialog(
+                  insetPadding: const EdgeInsets.symmetric(horizontal: 20),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        if (modalShowCritical)
-                          GestureDetector(
-                            onTap: () => setDialogState(
-                                () => modalShowCritical = false),
-                            child: const Padding(
-                              padding: EdgeInsets.only(right: 8),
-                              child: Icon(Icons.arrow_back,
-                                  size: 16, color: AppColors.dark),
-                            ),
-                          ),
-                        Text(
-                          modalShowCritical
-                              ? 'Critical Points'
-                              : '$title ($unit)',
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.dark,
-                          ),
-                        ),
-                        const Spacer(),
-                        Material(
-                          color: Colors.transparent,
-                          shape: const CircleBorder(),
-                          child: InkWell(
-                            customBorder: const CircleBorder(),
-                            onTapDown: (_) =>
-                                setDialogState(() => closePressed = true),
-                            onTapUp: (_) =>
-                                setDialogState(() => closePressed = false),
-                            onTapCancel: () =>
-                                setDialogState(() => closePressed = false),
-                            onTap: () => Navigator.pop(ctx),
-                            child: Container(
-                              width: 30,
-                              height: 30,
-                              decoration: BoxDecoration(
-                                color: closePressed
-                                    ? AppColors.darkWith(0.2)
-                                    : AppColors.darkWith(0.08),
-                                shape: BoxShape.circle,
+                        Row(
+                          children: [
+                            if (modalShowCritical)
+                              GestureDetector(
+                                onTap: () => setDialogState(() => modalShowCritical = false),
+                                child: const Padding(
+                                  padding: EdgeInsets.only(right: 8),
+                                  child: Icon(Icons.arrow_back, size: 16, color: AppColors.dark),
+                                ),
                               ),
-                              child: const Icon(
-                                Icons.close,
-                                size: 13,
+                            Text(
+                              modalShowCritical ? 'Critical Points' : '$title ($unit)',
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
                                 color: AppColors.dark,
                               ),
                             ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    if (modalShowCritical)
-                      _buildModalCriticalList(criticalItems, unit)
-                    else ...[
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.primaryWith(0.04),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Column(
-                          children: [
-                            if (_activeFilter == 'live')
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: _buildStatRow(
-                                      Icons.sensors,
-                                      'Now: $cur $unit',
-                                      'Real-time Streaming',
-                                      AppColors.primary,
-                                    ),
+                            const Spacer(),
+                            Material(
+                              color: Colors.transparent,
+                              shape: const CircleBorder(),
+                              child: InkWell(
+                                customBorder: const CircleBorder(),
+                                onTapDown: (_) => setDialogState(() => closePressed = true),
+                                onTapUp: (_) => setDialogState(() => closePressed = false),
+                                onTapCancel: () => setDialogState(() => closePressed = false),
+                                onTap: () => Navigator.pop(ctx),
+                                child: Container(
+                                  width: 30,
+                                  height: 30,
+                                  decoration: BoxDecoration(
+                                    color: closePressed
+                                        ? AppColors.darkWith(0.2)
+                                        : AppColors.darkWith(0.08),
+                                    shape: BoxShape.circle,
                                   ),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: AppColors.primaryWith(0.1),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: const Text(
-                                      'LIVE DATA',
-                                      style: TextStyle(
-                                        fontSize: 8,
-                                        fontWeight: FontWeight.w800,
-                                        color: AppColors.primary,
-                                        letterSpacing: 0.5,
-                                      ),
-                                    ),
+                                  child: const Icon(
+                                    Icons.close,
+                                    size: 13,
+                                    color: AppColors.dark,
                                   ),
-                                ],
-                              )
-                            else ...[
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: GestureDetector(
-                                      onTap: minIdx >= 0
-                                          ? () => setDialogState(
-                                                () => modalSelectedIndex = minIdx,
-                                              )
-                                          : null,
-                                      child: _buildStatRow(
-                                        Icons.arrow_downward,
-                                        'Min: $mn $unit',
-                                        minLabel,
-                                        AppColors.success,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Expanded(
-                                    child: GestureDetector(
-                                      onTap: maxIdx >= 0
-                                          ? () => setDialogState(
-                                                () => modalSelectedIndex = maxIdx,
-                                              )
-                                          : null,
-                                      child: _buildStatRow(
-                                        Icons.arrow_upward,
-                                        'Max: $mx $unit',
-                                        maxLabel,
-                                        AppColors.warning,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Expanded(
-                                    child: GestureDetector(
-                                      onTap: nowIdx >= 0
-                                          ? () => setDialogState(
-                                                () => modalSelectedIndex = nowIdx,
-                                              )
-                                          : null,
-                                      child: _buildStatRow(
-                                        Icons.sensors,
-                                        'Now: $cur $unit',
-                                        curLabel,
-                                        AppColors.primary,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 6),
-                              GestureDetector(
-                                onTap: criticalCount > 0
-                                    ? () => setDialogState(
-                                        () => modalShowCritical = true)
-                                    : null,
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      Icons.warning_amber_rounded,
-                                      size: 11,
-                                      color: criticalCount > 0
-                                          ? AppColors.critical
-                                          : AppColors.success,
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      criticalCount > 0
-                                          ? '$criticalCount critical point${criticalCount > 1 ? 's' : ''}  \u203A'
-                                          : 'No critical points',
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w600,
-                                        color: criticalCount > 0
-                                            ? AppColors.critical
-                                            : AppColors.success,
-                                      ),
-                                    ),
-                                  ],
                                 ),
                               ),
-                            ],
+                            ),
                           ],
                         ),
-                      ),
-                      const SizedBox(height: 12),
-                      if (data.isNotEmpty && labels.isNotEmpty)
-                        Container(
-                          height: 220,
-                          width: double.infinity,
-                          decoration: BoxDecoration(
-                            color: AppColors.primaryWith(0.03),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: AnalyticsLineChart(
-                            data: data,
-                            color: _colorFor(chartKey),
-                            unit: unit,
-                            labels: labels,
-                            large: true,
-                            height: 220,
-                            selectedIndex: modalSelectedIndex,
-                            onSelectedIndexChanged: (idx) =>
-                                setDialogState(() => modalSelectedIndex = idx),
-                            thresholdMin: thresholds['min'],
-                            thresholdMax: thresholds['max'],
-                            isLive: _activeFilter == 'live',
-                          ),
-                        )
-                      else
-                        Container(
-                          height: 220,
-                          width: double.infinity,
-                          decoration: BoxDecoration(
-                            color: AppColors.primaryWith(0.03),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Center(
-                            child: Text(
-                              'No data available',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: AppColors.darkWith(0.3),
-                              ),
+                        const SizedBox(height: 10),
+                        if (modalShowCritical)
+                          _buildModalCriticalList(criticalItems, unit)
+                        else ...[
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.primaryWith(0.04),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Column(
+                              children: [
+                                if (_activeFilter == 'live')
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: _buildStatRow(
+                                          Icons.sensors,
+                                          'Now: $cur $unit',
+                                          'Real-time Streaming',
+                                          AppColors.primary,
+                                        ),
+                                      ),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 4,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.primaryWith(0.1),
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        child: const Text(
+                                          'LIVE DATA',
+                                          style: TextStyle(
+                                            fontSize: 8,
+                                            fontWeight: FontWeight.w800,
+                                            color: AppColors.primary,
+                                            letterSpacing: 0.5,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                else ...[
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: GestureDetector(
+                                          onTap: minIdx >= 0
+                                              ? () => setDialogState(
+                                                    () => modalSelectedIndex = minIdx,
+                                                  )
+                                              : null,
+                                          child: _buildStatRow(
+                                            Icons.arrow_downward,
+                                            'Min: $mn $unit',
+                                            minLabel,
+                                            AppColors.success,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Expanded(
+                                        child: GestureDetector(
+                                          onTap: maxIdx >= 0
+                                              ? () => setDialogState(
+                                                    () => modalSelectedIndex = maxIdx,
+                                                  )
+                                              : null,
+                                          child: _buildStatRow(
+                                            Icons.arrow_upward,
+                                            'Max: $mx $unit',
+                                            maxLabel,
+                                            AppColors.warning,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Expanded(
+                                        child: GestureDetector(
+                                          onTap: nowIdx >= 0
+                                              ? () => setDialogState(
+                                                    () => modalSelectedIndex = nowIdx,
+                                                  )
+                                              : null,
+                                          child: _buildStatRow(
+                                            Icons.sensors,
+                                            'Now: $cur $unit',
+                                            curLabel,
+                                            AppColors.primary,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  GestureDetector(
+                                    onTap: criticalCount > 0
+                                        ? () => setDialogState(() => modalShowCritical = true)
+                                        : null,
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.warning_amber_rounded,
+                                          size: 11,
+                                          color: criticalCount > 0
+                                              ? AppColors.critical
+                                              : AppColors.success,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          criticalCount > 0
+                                              ? '$criticalCount critical point${criticalCount > 1 ? 's' : ''}  \u203A'
+                                              : 'No critical points',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w600,
+                                            color: criticalCount > 0
+                                                ? AppColors.critical
+                                                : AppColors.success,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
                           ),
-                        ),
-                    ],
-                  ],
-                ),
-              ),
+                          const SizedBox(height: 12),
+                          if (data.isNotEmpty && labels.isNotEmpty)
+                            Container(
+                              height: 220,
+                              width: double.infinity,
+                              decoration: BoxDecoration(
+                                color: AppColors.primaryWith(0.03),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: AnalyticsLineChart(
+                                data: data,
+                                color: color,
+                                unit: unit,
+                                labels: labels,
+                                large: true,
+                                height: 220,
+                                selectedIndex: modalSelectedIndex,
+                                onSelectedIndexChanged: (idx) =>
+                                    setDialogState(() => modalSelectedIndex = idx),
+                                thresholdMin: thresholds['min'],
+                                thresholdMax: thresholds['max'],
+                                isLive: _activeFilter == 'live',
+                              ),
+                            )
+                          else
+                            Container(
+                              height: 220,
+                              width: double.infinity,
+                              decoration: BoxDecoration(
+                                color: AppColors.primaryWith(0.03),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  'No data available',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: AppColors.darkWith(0.3),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ],
+                    ),
+                  ),
+                );
+              },
             );
           },
         );

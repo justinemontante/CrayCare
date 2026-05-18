@@ -193,11 +193,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   statusColor: _getStatusColor('temp', temp),
                   onTap: () => _showGaugeDetail(
                     context,
+                    sensorKey: 'temp',
                     title: 'Temperature',
-                    value: temp.toStringAsFixed(1),
                     unit: '\u00B0C',
-                    status: _getStatus('temp', temp),
-                    statusColor: _getStatusColor('temp', temp),
                     ideal: '25 \u2013 30\u00B0C',
                     iconPath: 'assets/images/temperature.png',
                   ),
@@ -215,11 +213,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   statusColor: _getStatusColor('ph', ph),
                   onTap: () => _showGaugeDetail(
                     context,
+                    sensorKey: 'ph',
                     title: 'pH Level',
-                    value: ph.toStringAsFixed(1),
                     unit: 'pH',
-                    status: _getStatus('ph', ph),
-                    statusColor: _getStatusColor('ph', ph),
                     ideal: '7.0 \u2013 8.5',
                     iconPath: 'assets/images/pH.png',
                   ),
@@ -241,11 +237,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   statusColor: _getStatusColor('do', dO2),
                   onTap: () => _showGaugeDetail(
                     context,
+                    sensorKey: 'do',
                     title: 'Dissolved O\u2082',
-                    value: dO2.toStringAsFixed(1),
                     unit: 'mg/L',
-                    status: _getStatus('do', dO2),
-                    statusColor: _getStatusColor('do', dO2),
                     ideal: '>5.0 mg/L',
                     iconPath: 'assets/images/DO.png',
                   ),
@@ -263,11 +257,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   statusColor: _getStatusColor('turb', turb),
                   onTap: () => _showGaugeDetail(
                     context,
+                    sensorKey: 'turb',
                     title: 'Turbidity',
-                    value: turb.toStringAsFixed(0),
                     unit: 'NTU',
-                    status: _getStatus('turb', turb),
-                    statusColor: _getStatusColor('turb', turb),
                     ideal: '0 \u2013 25 NTU',
                     iconPath: 'assets/images/Turbidity.png',
                   ),
@@ -333,11 +325,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         statusColor: _getStatusColor('waterlevel', wl),
         onTap: () => _showGaugeDetail(
           context,
+          sensorKey: 'waterlevel',
           title: 'Water Level',
-          value: wl.toStringAsFixed(0),
           unit: 'cm',
-          status: _getStatus('waterlevel', wl),
-          statusColor: _getStatusColor('waterlevel', wl),
           ideal: '130 \u2013 180 cm',
           iconPath: 'assets/images/waterLevel.png',
         ),
@@ -764,11 +754,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   void _showGaugeDetail(
     BuildContext context, {
+    required String sensorKey,
     required String title,
-    required String value,
     required String unit,
-    required String status,
-    required Color statusColor,
     required String ideal,
     required String iconPath,
   }) {
@@ -781,263 +769,278 @@ class _DashboardScreenState extends State<DashboardScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        return ListenableBuilder(
+          listenable: Listenable.merge([
+            SensorService.instance,
+            SettingsService.instance,
+          ]),
+          builder: (context, child) {
+            final value = SensorService.instance.getLatestValue(sensorKey);
+            final status = _getStatus(sensorKey, value);
+            final statusColor = _getStatusColor(sensorKey, value);
+            final formattedValue = sensorKey == 'turb' || sensorKey == 'waterlevel'
+                ? value.toStringAsFixed(0)
+                : value.toStringAsFixed(1);
+
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Details',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.dark,
-                      ),
-                    ),
-                    GestureDetector(
-                      onTap: () {
-                        Navigator.pop(ctx);
-                        widget.onViewGraph?.call();
-                      },
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Text(
-                            'View Graph',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.primary,
-                            ),
-                          ),
-                          const SizedBox(width: 3),
-                          const Icon(
-                            Icons.chevron_right,
-                            size: 11,
-                            color: AppColors.primary,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Container(
-                      width: 36,
-                      height: 36,
-                      decoration: BoxDecoration(
-                        color: AppColors.primaryWith(0.1),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      padding: const EdgeInsets.all(7),
-                      child: Image.asset(iconPath),
-                    ),
-                    const SizedBox(width: 10),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          title,
-                          style: const TextStyle(
-                            fontSize: 13,
+                        const Text(
+                          'Details',
+                          style: TextStyle(
+                            fontSize: 14,
                             fontWeight: FontWeight.w700,
                             color: AppColors.dark,
                           ),
                         ),
-                        const SizedBox(height: 2),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: statusColor.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            status,
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              color: statusColor,
-                              letterSpacing: 0.5,
-                            ),
+                        GestureDetector(
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            widget.onViewGraph?.call();
+                          },
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Text(
+                                'View Graph',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                              const SizedBox(width: 3),
+                              const Icon(
+                                Icons.chevron_right,
+                                size: 11,
+                                color: AppColors.primary,
+                              ),
+                            ],
                           ),
                         ),
                       ],
                     ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFf7f7f7),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.baseline,
-                    textBaseline: TextBaseline.alphabetic,
-                    children: [
-                      Text(
-                        value,
-                        style: const TextStyle(
-                          fontSize: 32,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.dark,
-                          height: 1,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        unit,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.darkWith(0.4),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Center(
-                  child: Text(
-                    ideal,
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.darkWith(0.5),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Center(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.primaryWith(0.06),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
+                    const SizedBox(height: 8),
+                    Row(
                       children: [
-                        Icon(
-                          Icons.access_time,
-                          size: 10,
-                          color: AppColors.primaryWith(0.6),
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          _formatTimestamp(DateTime.now()),
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w500,
-                            color: AppColors.darkWith(0.5),
+                        Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: AppColors.primaryWith(0.1),
+                            borderRadius: BorderRadius.circular(10),
                           ),
+                          padding: const EdgeInsets.all(7),
+                          child: Image.asset(iconPath),
+                        ),
+                        const SizedBox(width: 10),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.dark,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: statusColor.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                status,
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: statusColor,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                ...legends.map(
-                  (l) => Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Container(
-                      padding: const EdgeInsets.all(8),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFf9f9f9),
-                        borderRadius: BorderRadius.circular(8),
+                        color: const Color(0xFFf7f7f7),
+                        borderRadius: BorderRadius.circular(12),
                       ),
                       child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        textBaseline: TextBaseline.alphabetic,
                         children: [
-                          Container(
-                            width: 8,
-                            height: 8,
-                            margin: const EdgeInsets.only(top: 2),
-                            decoration: BoxDecoration(
-                              color: l.color,
-                              shape: BoxShape.circle,
+                          Text(
+                            formattedValue,
+                            style: const TextStyle(
+                              fontSize: 32,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.dark,
+                              height: 1,
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  l.label,
-                                  style: const TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w700,
-                                    color: AppColors.dark,
-                                  ),
-                                ),
-                                Text(
-                                  l.range,
-                                  style: TextStyle(
-                                    fontSize: 9,
-                                    color: const Color(
-                                      0xFF0B3C49,
-                                    ).withValues(alpha: 0.75),
-                                  ),
-                                ),
-                                Text(
-                                  l.desc,
-                                  style: TextStyle(
-                                    fontSize: 9,
-                                    color: const Color(
-                                      0xFF0B3C49,
-                                    ).withValues(alpha: 0.65),
-                                    height: 1.3,
-                                  ),
-                                ),
-                              ],
+                          const SizedBox(width: 4),
+                          Text(
+                            unit,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.darkWith(0.4),
                             ),
                           ),
                         ],
                       ),
                     ),
-                  ),
-                ),
-                SizedBox(
-                  width: double.infinity,
-                  child: TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    style: TextButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 9),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
+                    const SizedBox(height: 4),
+                    Center(
+                      child: Text(
+                        ideal,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.darkWith(0.5),
+                        ),
                       ),
                     ),
-                    child: const Text(
-                      'Close',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
+                    const SizedBox(height: 6),
+                    Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.primaryWith(0.06),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.access_time,
+                              size: 10,
+                              color: AppColors.primaryWith(0.6),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              _formatTimestamp(SensorService.instance.lastUpdated),
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w500,
+                                color: AppColors.darkWith(0.5),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
+                    const SizedBox(height: 6),
+                    ...legends.map(
+                      (l) => Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFf9f9f9),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                width: 8,
+                                height: 8,
+                                margin: const EdgeInsets.only(top: 2),
+                                decoration: BoxDecoration(
+                                  color: l.color,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      l.label,
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w700,
+                                        color: AppColors.dark,
+                                      ),
+                                    ),
+                                    Text(
+                                      l.range,
+                                      style: TextStyle(
+                                        fontSize: 9,
+                                        color: const Color(
+                                          0xFF0B3C49,
+                                        ).withValues(alpha: 0.75),
+                                      ),
+                                    ),
+                                    Text(
+                                      l.desc,
+                                      style: TextStyle(
+                                        fontSize: 9,
+                                        color: const Color(
+                                          0xFF0B3C49,
+                                        ).withValues(alpha: 0.65),
+                                        height: 1.3,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    SizedBox(
+                      width: double.infinity,
+                      child: TextButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        style: TextButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 9),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        child: const Text(
+                          'Close',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
     );
@@ -1046,7 +1049,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String _formatTimestamp(DateTime dt) {
     final h = dt.hour > 12 ? dt.hour - 12 : (dt.hour == 0 ? 12 : dt.hour);
     final ampm = dt.hour >= 12 ? 'PM' : 'AM';
-    return 'Captured: $h:${dt.minute.toString().padLeft(2, '0')} $ampm';
+    final m = dt.minute.toString().padLeft(2, '0');
+    final s = dt.second.toString().padLeft(2, '0');
+    return 'Captured: $h:$m:$s $ampm';
   }
 }
 
