@@ -14,9 +14,8 @@ class TanksScreen extends StatefulWidget {
 class _TanksScreenState extends State<TanksScreen> {
   int _activeTab = 0;
 
-  bool _hasSetup = true; // Set to true since we have initial data in TankService
-  double _avgWeight = 45.2;
-  double _avgLength = 12.8;
+  bool _hasSetup =
+      true; // Set to true since we have initial data in TankService
   DateTime _lastEdited = DateTime.now();
 
   @override
@@ -135,9 +134,15 @@ class _TanksScreenState extends State<TanksScreen> {
 
   Widget _buildTabBar() {
     final tabs = [
-      (_activeTab == 0 ? Icons.inventory_2 : Icons.inventory_2_outlined, 'Inventory'),
+      (
+        _activeTab == 0 ? Icons.inventory_2 : Icons.inventory_2_outlined,
+        'Inventory',
+      ),
       (_activeTab == 1 ? Icons.speed : Icons.speed_outlined, 'Sampling'),
-      (_activeTab == 2 ? Icons.trending_up : Icons.trending_up_outlined, 'Trends'),
+      (
+        _activeTab == 2 ? Icons.trending_up : Icons.trending_up_outlined,
+        'Trends',
+      ),
     ];
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 0, 12, 14),
@@ -158,20 +163,34 @@ class _TanksScreenState extends State<TanksScreen> {
                   color: isActive ? Colors.white : Colors.transparent,
                   borderRadius: BorderRadius.circular(11),
                   boxShadow: isActive
-                      ? [BoxShadow(color: AppColors.primaryWith(0.12), blurRadius: 8, offset: const Offset(0, 2))]
+                      ? [
+                          BoxShadow(
+                            color: AppColors.primaryWith(0.12),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ]
                       : null,
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(tabs[i].$1, size: 12, color: isActive ? AppColors.primary : AppColors.darkWith(0.45)),
+                    Icon(
+                      tabs[i].$1,
+                      size: 12,
+                      color: isActive
+                          ? AppColors.primary
+                          : AppColors.darkWith(0.45),
+                    ),
                     const SizedBox(width: 5),
                     Text(
                       tabs[i].$2,
                       style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w600,
-                        color: isActive ? AppColors.primary : AppColors.darkWith(0.45),
+                        color: isActive
+                            ? AppColors.primary
+                            : AppColors.darkWith(0.45),
                       ),
                     ),
                   ],
@@ -210,13 +229,26 @@ class _TanksScreenState extends State<TanksScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.inventory_2_outlined, size: 56, color: AppColors.darkWith(0.15)),
+            Icon(
+              Icons.inventory_2_outlined,
+              size: 56,
+              color: AppColors.darkWith(0.15),
+            ),
             const SizedBox(height: 16),
-            Text('No Grow-Out Setup Yet', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.darkWith(0.7))),
+            Text(
+              'No Grow-Out Setup Yet',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: AppColors.darkWith(0.7),
+              ),
+            ),
             const SizedBox(height: 8),
-            Text('Initialize your grow-out to start tracking crayfish growth and survival.',
+            Text(
+              'Initialize your grow-out to start tracking crayfish growth and survival.',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12, color: AppColors.darkWith(0.4))),
+              style: TextStyle(fontSize: 12, color: AppColors.darkWith(0.4)),
+            ),
             const SizedBox(height: 20),
             ElevatedButton.icon(
               onPressed: () => _showInitModal(),
@@ -225,8 +257,13 @@ class _TanksScreenState extends State<TanksScreen> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
           ],
@@ -238,6 +275,14 @@ class _TanksScreenState extends State<TanksScreen> {
   Widget _buildSurvivalCard() {
     final service = TankService.instance;
     final survivalPct = service.survivalRate;
+
+    Color statusColor = AppColors.success;
+    if (survivalPct < 70) {
+      statusColor = AppColors.critical;
+    } else if (survivalPct < 85) {
+      statusColor = AppColors.warning;
+    }
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -249,7 +294,7 @@ class _TanksScreenState extends State<TanksScreen> {
             color: AppColors.darkWith(0.06),
             blurRadius: 12,
             offset: const Offset(0, 2),
-          )
+          ),
         ],
       ),
       child: Column(
@@ -260,30 +305,52 @@ class _TanksScreenState extends State<TanksScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Survival Rate',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.darkWith(0.5),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: statusColor.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        'SURVIVAL RATE',
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w800,
+                          color: statusColor,
+                          letterSpacing: 0.5,
+                        ),
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 10),
+                    const Text(
+                      'Stocking Health',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                        color: AppColors.dark,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
                     Text(
-                      '${survivalPct.toStringAsFixed(1)}%',
-                      style: const TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.success,
+                      'Overall survival performance based on initial stocking data.',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.darkWith(0.5),
+                        height: 1.4,
                       ),
                     ),
                   ],
                 ),
               ),
-              _buildDonutChart(survivalPct / 100),
+              const SizedBox(width: 12),
+              _buildDonutChart(survivalPct / 100, statusColor),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 18),
           Row(
             children: [
               _buildStatItem(Icons.numbers, '${service.liveCount}', 'LIVE'),
@@ -301,20 +368,20 @@ class _TanksScreenState extends State<TanksScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           const Divider(height: 1),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           Row(
             children: [
               _buildStatItem(
                 Icons.monitor_weight_outlined,
-                '${_avgWeight.toStringAsFixed(1)} g',
+                '${service.initialWeight.toStringAsFixed(1)} g',
                 'AVG WEIGHT',
               ),
               _buildStatDivider(),
               _buildStatItem(
                 Icons.straighten_outlined,
-                '${_avgLength.toStringAsFixed(1)} cm',
+                '${service.initialLength.toStringAsFixed(1)} cm',
                 'AVG LENGTH',
               ),
             ],
@@ -324,23 +391,34 @@ class _TanksScreenState extends State<TanksScreen> {
     );
   }
 
-  Widget _buildDonutChart(double fraction) {
-    return SizedBox(
-      width: 72,
-      height: 72,
+  Widget _buildDonutChart(double fraction, Color color) {
+    return Container(
+      width: 100,
+      height: 100,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.15),
+            blurRadius: 12,
+            spreadRadius: 2,
+          ),
+        ],
+      ),
       child: CustomPaint(
         painter: _DonutPainter(
           fraction: fraction,
-          color: AppColors.success,
-          bgColor: AppColors.successWith(0.15),
+          color: color,
+          bgColor: color.withValues(alpha: 0.12),
         ),
         child: Center(
           child: Text(
             '${(fraction * 100).toStringAsFixed(0)}%',
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w800,
-              color: AppColors.success,
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w900,
+              color: color,
+              height: 1,
             ),
           ),
         ),
@@ -512,7 +590,11 @@ class _TanksScreenState extends State<TanksScreen> {
             '${stockingDate.month}/${stockingDate.day}/${stockingDate.year}',
           ),
           const SizedBox(height: 8),
-          _buildInfoRow(Icons.hourglass_bottom, 'Days in Culture', '$days days'),
+          _buildInfoRow(
+            Icons.hourglass_bottom,
+            'Days in Culture',
+            '$days days',
+          ),
           const SizedBox(height: 8),
           _buildInfoRow(
             Icons.history,
@@ -535,10 +617,7 @@ class _TanksScreenState extends State<TanksScreen> {
             const SizedBox(width: 8),
             Text(
               label,
-              style: TextStyle(
-                fontSize: 11,
-                color: AppColors.darkWith(0.7),
-              ),
+              style: TextStyle(fontSize: 11, color: AppColors.darkWith(0.7)),
             ),
           ],
         ),
@@ -674,8 +753,8 @@ class _TanksScreenState extends State<TanksScreen> {
       builder: (ctx) {
         int initialPop = initialCount;
         int sampleCountValue = 30;
-        double avgWeightValue = _avgWeight;
-        double avgLengthValue = _avgLength;
+        double avgWeightValue = TankService.instance.initialWeight;
+        double avgLengthValue = TankService.instance.initialLength;
         DateTime currentStockingDate = stockingDate;
 
         return StatefulBuilder(
@@ -733,7 +812,9 @@ class _TanksScreenState extends State<TanksScreen> {
                         decoration: BoxDecoration(
                           color: AppColors.primaryWith(0.08),
                           borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: AppColors.primaryWith(0.15)),
+                          border: Border.all(
+                            color: AppColors.primaryWith(0.15),
+                          ),
                         ),
                         child: Row(
                           children: [
@@ -782,7 +863,9 @@ class _TanksScreenState extends State<TanksScreen> {
                       _buildFieldLabel('Initial Population'),
                       const SizedBox(height: 6),
                       TextField(
-                        onChanged: (val) => setDialogState(() => initialPop = int.tryParse(val) ?? initialCount),
+                        onChanged: (val) => setDialogState(
+                          () => initialPop = int.tryParse(val) ?? initialCount,
+                        ),
                         decoration: InputDecoration(
                           hintText: 'e.g. $initialCount',
                           filled: true,
@@ -814,7 +897,9 @@ class _TanksScreenState extends State<TanksScreen> {
                       _buildFieldLabel('Sample Count'),
                       const SizedBox(height: 6),
                       TextField(
-                        onChanged: (val) => setDialogState(() => sampleCountValue = int.tryParse(val) ?? 30),
+                        onChanged: (val) => setDialogState(
+                          () => sampleCountValue = int.tryParse(val) ?? 30,
+                        ),
                         decoration: InputDecoration(
                           hintText: 'e.g. 30',
                           filled: true,
@@ -846,7 +931,9 @@ class _TanksScreenState extends State<TanksScreen> {
                       _buildFieldLabel('Total Sample Weight (g)'),
                       const SizedBox(height: 6),
                       TextField(
-                        onChanged: (val) => setDialogState(() => avgWeightValue = double.tryParse(val) ?? 45.0),
+                        onChanged: (val) => setDialogState(
+                          () => avgWeightValue = double.tryParse(val) ?? 45.0,
+                        ),
                         decoration: InputDecoration(
                           hintText: 'e.g. 45',
                           filled: true,
@@ -882,7 +969,9 @@ class _TanksScreenState extends State<TanksScreen> {
                       _buildFieldLabel('Total Sample Length (cm)'),
                       const SizedBox(height: 6),
                       TextField(
-                        onChanged: (val) => setDialogState(() => avgLengthValue = double.tryParse(val) ?? 12.0),
+                        onChanged: (val) => setDialogState(
+                          () => avgLengthValue = double.tryParse(val) ?? 12.0,
+                        ),
                         decoration: InputDecoration(
                           hintText: 'e.g. 12',
                           filled: true,
@@ -986,8 +1075,6 @@ class _TanksScreenState extends State<TanksScreen> {
                             );
                             setState(() {
                               _hasSetup = true;
-                              _avgWeight = avgWeightValue;
-                              _avgLength = avgLengthValue;
                             });
                             Navigator.pop(ctx);
                           },
@@ -1141,7 +1228,8 @@ class _TanksScreenState extends State<TanksScreen> {
   }
 
   void _showEditModal() {
-    final initialCount = TankService.instance.initialCount;
+    final service = TankService.instance;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -1150,80 +1238,192 @@ class _TanksScreenState extends State<TanksScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) {
-        return SafeArea(
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(
-              20,
-              10,
-              20,
-              MediaQuery.of(ctx).viewInsets.bottom + 20,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 36,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
+        int editInitial = service.initialCount;
+        int editSample = service.sampleCount;
+        double editWeight = service.initialWeight;
+        double editLength = service.initialLength;
+
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  10,
+                  20,
+                  MediaQuery.of(ctx).viewInsets.bottom + 20,
                 ),
-                const SizedBox(height: 12),
-                const Text(
-                  'Edit Initial Stock',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.dark,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  decoration: const InputDecoration(labelText: 'Initial Population'),
-                  controller: TextEditingController(text: '$initialCount'),
-                  keyboardType: TextInputType.number,
-                  style: const TextStyle(fontSize: 14, color: AppColors.dark),
-                  onSubmitted: (val) {
-                    final n = int.tryParse(val);
-                    if (n != null) {
-                      TankService.instance.updateInitialCount(n);
-                      Navigator.pop(ctx);
-                    }
-                  },
-                ),
-                const SizedBox(height: 10),
-                const TextField(
-                  decoration: InputDecoration(labelText: 'Reason for edit'),
-                  style: TextStyle(fontSize: 14, color: AppColors.dark),
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 36,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade300,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
                       ),
-                    ),
-                    child: const Text(
-                      'Save Changes',
-                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
-                    ),
+                      const SizedBox(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Edit Grow-Out Setup',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.dark,
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            icon: const Icon(
+                              Icons.close,
+                              size: 20,
+                              color: AppColors.dark,
+                            ),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      _buildFieldLabel('Initial Population'),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: TextEditingController(text: '$editInitial'),
+                        onChanged: (val) =>
+                            editInitial = int.tryParse(val) ?? editInitial,
+                        decoration: _editInputDecoration('e.g. 68'),
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: AppColors.dark,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      _buildFieldLabel('Initial Sample Count'),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: TextEditingController(text: '$editSample'),
+                        onChanged: (val) =>
+                            editSample = int.tryParse(val) ?? editSample,
+                        decoration: _editInputDecoration('e.g. 30'),
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: AppColors.dark,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      _buildFieldLabel('Initial Total Weight (g)'),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: TextEditingController(text: '$editWeight'),
+                        onChanged: (val) =>
+                            editWeight = double.tryParse(val) ?? editWeight,
+                        decoration: _editInputDecoration('e.g. 45.2'),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(
+                            RegExp(r'^\d*\.?\d*$'),
+                          ),
+                        ],
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: AppColors.dark,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      _buildFieldLabel('Initial Total Length (cm)'),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: TextEditingController(text: '$editLength'),
+                        onChanged: (val) =>
+                            editLength = double.tryParse(val) ?? editLength,
+                        decoration: _editInputDecoration('e.g. 12.8'),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(
+                            RegExp(r'^\d*\.?\d*$'),
+                          ),
+                        ],
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: AppColors.dark,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: () {
+                            service.updateInitialCount(editInitial);
+                            service.updateBaselineSampling(
+                              sampleCount: editSample,
+                              weight: editWeight,
+                              length: editLength,
+                            );
+                            Navigator.pop(ctx);
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: const Text(
+                            'Save Changes',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
                   ),
                 ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
+    );
+  }
+
+  InputDecoration _editInputDecoration(String hint) {
+    return InputDecoration(
+      hintText: hint,
+      filled: true,
+      fillColor: Colors.white,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: AppColors.darkWith(0.12)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+      ),
     );
   }
 
@@ -1296,8 +1496,10 @@ class _TanksScreenState extends State<TanksScreen> {
                           child: Column(
                             children: logs.map((l) {
                               Color typeColor = AppColors.primary;
-                              if (l.type == 'mortality') typeColor = AppColors.critical;
-                              if (l.type == 'edit') typeColor = AppColors.warning;
+                              if (l.type == 'mortality')
+                                typeColor = AppColors.critical;
+                              if (l.type == 'edit')
+                                typeColor = AppColors.warning;
 
                               return Container(
                                 margin: const EdgeInsets.only(bottom: 8),
@@ -1389,7 +1591,11 @@ class _DonutPainter extends CustomPainter {
   final Color color;
   final Color bgColor;
 
-  _DonutPainter({required this.fraction, required this.color, required this.bgColor});
+  _DonutPainter({
+    required this.fraction,
+    required this.color,
+    required this.bgColor,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1409,7 +1615,13 @@ class _DonutPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = strokeWidth
       ..strokeCap = StrokeCap.round;
-    canvas.drawArc(Rect.fromCircle(center: center, radius: radius), -pi / 2, 2 * pi * fraction, false, fgPaint);
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      -pi / 2,
+      2 * pi * fraction,
+      false,
+      fgPaint,
+    );
   }
 
   @override

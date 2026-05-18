@@ -41,6 +41,12 @@ class TankService extends ChangeNotifier {
   int _initialCount = 68;
   int _mortality = 5;
   DateTime _stockingDate = DateTime.now().subtract(const Duration(days: 45));
+  
+  // Baseline Sampling Data
+  int _sampleCount = 30;
+  double _initialWeight = 45.2;
+  double _initialLength = 12.8;
+
   final List<TankActivity> _activities = [];
 
   int get initialCount => _initialCount;
@@ -49,6 +55,11 @@ class TankService extends ChangeNotifier {
   double get survivalRate => _initialCount == 0 ? 0 : (liveCount / _initialCount * 100);
   DateTime get stockingDate => _stockingDate;
   int get daysInCulture => DateTime.now().difference(_stockingDate).inDays;
+  
+  int get sampleCount => _sampleCount;
+  double get initialWeight => _initialWeight;
+  double get initialLength => _initialLength;
+
   List<TankActivity> get activities => List.unmodifiable(_activities.reversed);
 
   void updateInitialCount(int val) {
@@ -57,9 +68,9 @@ class TankService extends ChangeNotifier {
     notifyListeners();
   }
 
-  void addMortality(int val) {
+  void addMortality(int val, {DateTime? date}) {
     _mortality += val;
-    _addActivity('Recorded mortality of $val crayfish (Total: $_mortality)', 'mortality');
+    _addActivity('Recorded mortality of $val crayfish (Total: $_mortality)', 'mortality', customDate: date);
     notifyListeners();
   }
 
@@ -70,17 +81,29 @@ class TankService extends ChangeNotifier {
     notifyListeners();
   }
 
+  void updateBaselineSampling({int? sampleCount, double? weight, double? length}) {
+    if (sampleCount != null) _sampleCount = sampleCount;
+    if (weight != null) _initialWeight = weight;
+    if (length != null) _initialLength = length;
+    _addActivity('Updated baseline sampling data', 'edit');
+    notifyListeners();
+  }
+
   void initializeGrowOut(int initial, int sampleCount, double weight, double length, DateTime date) {
     _initialCount = initial;
     _mortality = 0;
     _stockingDate = date;
+    _sampleCount = sampleCount;
+    _initialWeight = weight;
+    _initialLength = length;
+    
     _activities.clear();
-    _addActivity('Initialized grow-out with $initial population', 'init');
+    _addActivity('Initialized grow-out with $initial population', 'init', customDate: date);
     notifyListeners();
   }
 
-  void _addActivity(String action, String type) {
-    final now = DateTime.now();
+  void _addActivity(String action, String type, {DateTime? customDate}) {
+    final now = customDate ?? DateTime.now();
     final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     final dateStr = '${months[now.month - 1]} ${now.day}, ${now.year}';
     final h = now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour);
