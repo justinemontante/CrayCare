@@ -761,11 +761,16 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             Row(
               children: [
                 Expanded(
-                  child: _buildStatRow(
-                    Icons.sensors,
-                    'Now: $cur $unit',
-                    'Real-time Streaming',
-                    AppColors.primary,
+                  child: GestureDetector(
+                    onTap: nowIdx >= 0
+                        ? () => onSelectIndex?.call(nowIdx)
+                        : null,
+                    child: _buildStatRow(
+                      Icons.sensors,
+                      'Now: $cur $unit',
+                      'Real-time Streaming',
+                      AppColors.primary,
+                    ),
                   ),
                 ),
                 Container(
@@ -1194,6 +1199,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: AnalyticsLineChart(
+                                key: ValueKey(modalSelectedIndex),
                                 data: data,
                                 color: color,
                                 unit: unit,
