@@ -194,7 +194,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
     return Container(
       color: const Color(0xFFf7f7f7),
       child: SingleChildScrollView(
-        padding: const EdgeInsets.only(top: 4),
+        padding: const EdgeInsets.only(top: 0),
         child: Column(
           children: [
             _buildProfileCard(),
@@ -218,7 +218,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
 
   Widget _buildProfileCard() {
     return Container(
-      margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      margin: const EdgeInsets.fromLTRB(12, 4, 12, 0),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,

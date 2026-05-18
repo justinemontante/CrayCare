@@ -13,10 +13,11 @@ class TanksScreen extends StatefulWidget {
 
 class _TanksScreenState extends State<TanksScreen> {
   int _activeTab = 0;
-
-  bool _hasSetup =
-      true; // Set to true since we have initial data in TankService
+  final bool _hasSetup = true;
   DateTime _lastEdited = DateTime.now();
+  final _sampleCountController = TextEditingController();
+  final _sampleWeightController = TextEditingController();
+  final _sampleLengthController = TextEditingController();
 
   @override
   void initState() {
@@ -26,6 +27,9 @@ class _TanksScreenState extends State<TanksScreen> {
 
   @override
   void dispose() {
+    _sampleCountController.dispose();
+    _sampleWeightController.dispose();
+    _sampleLengthController.dispose();
     TankService.instance.removeListener(_refreshUI);
     super.dispose();
   }
@@ -106,7 +110,7 @@ class _TanksScreenState extends State<TanksScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Tank \u2014 Grow-out',
+                      'Tank — Grow-out',
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
@@ -635,54 +639,614 @@ class _TanksScreenState extends State<TanksScreen> {
 
   Widget _buildSamplingTab() {
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildNextSamplingPanel(),
+          const SizedBox(height: 16),
+          _buildStepper(),
+          const SizedBox(height: 16),
+          _buildGrowthOverviewPanel(),
+          const SizedBox(height: 16),
+          _buildSamplingFormPanel(),
+          const SizedBox(height: 16),
+          _buildGrowthStagePanel(),
+          const SizedBox(height: 16),
+          _buildSamplingHistoryPanel(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStepper() {
+    final int currentDay = (TankService.instance.daysInCulture % 7) + 1;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+      decoration: BoxDecoration(
+        color: AppColors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.faintBorder),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: List.generate(7, (index) {
+              final day = index + 1;
+              final isActive = day == currentDay;
+              final isPast = day < currentDay;
+              final isConnected = index < 6;
+
+              return Expanded(
+                child: Row(
+                  children: [
+                    Column(
+                      children: [
+                        Container(
+                          width: 28,
+                          height: 28,
+                          decoration: BoxDecoration(
+                            color: isActive
+                                ? AppColors.primary
+                                : (isPast
+                                      ? AppColors.primary
+                                      : AppColors.lightBg),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Center(
+                            child: Text(
+                              '$day',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: isActive || isPast
+                                    ? Colors.white
+                                    : AppColors.darkWith(0.5),
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (isConnected)
+                      Expanded(
+                        child: Container(
+                          height: 2,
+                          color: isPast || day < currentDay
+                              ? AppColors.primary
+                              : AppColors.lightBg,
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            }),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            currentDay == 7
+                ? 'Sampling Day!'
+                : 'Day $currentDay of 7-day Cycle',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: currentDay == 7 ? AppColors.primary : AppColors.dark,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showGrowthStageReferenceModal() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Growth Classification Reference',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.dark,
+                  ),
+                ),
+                const Text(
+                  'Based on Average Body Length (ABL) and Average Body Weight (ABW)',
+                  style: TextStyle(fontSize: 12, color: AppColors.subtitleText),
+                ),
+                const SizedBox(height: 16),
+                Table(
+                  border: TableBorder.all(color: AppColors.faintBorder),
+                  columnWidths: const {
+                    0: FlexColumnWidth(2),
+                    1: FlexColumnWidth(1.5),
+                    2: FlexColumnWidth(1.5),
+                  },
+                  children: const [
+                    TableRow(
+                      children: [
+                        Padding(
+                          padding: EdgeInsets.all(8),
+                          child: Text(
+                            'Stage',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        Padding(
+                          padding: EdgeInsets.all(8),
+                          child: Text(
+                            'Length',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        Padding(
+                          padding: EdgeInsets.all(8),
+                          child: Text(
+                            'Weight',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ],
+                    ),
+                    TableRow(
+                      children: [
+                        Padding(
+                          padding: EdgeInsets.all(8),
+                          child: Text('Juvenile'),
+                        ),
+                        Padding(
+                          padding: EdgeInsets.all(8),
+                          child: Text('2 – 4 cm'),
+                        ),
+                        Padding(
+                          padding: EdgeInsets.all(8),
+                          child: Text('1 – 5 g'),
+                        ),
+                      ],
+                    ),
+                    TableRow(
+                      children: [
+                        Padding(
+                          padding: EdgeInsets.all(8),
+                          child: Text('Early Grow-out'),
+                        ),
+                        Padding(
+                          padding: EdgeInsets.all(8),
+                          child: Text('4 – 6 cm'),
+                        ),
+                        Padding(
+                          padding: EdgeInsets.all(8),
+                          child: Text('5 – 15 g'),
+                        ),
+                      ],
+                    ),
+                    TableRow(
+                      children: [
+                        Padding(
+                          padding: EdgeInsets.all(8),
+                          child: Text('Mid Grow-out'),
+                        ),
+                        Padding(
+                          padding: EdgeInsets.all(8),
+                          child: Text('6 – 8 cm'),
+                        ),
+                        Padding(
+                          padding: EdgeInsets.all(8),
+                          child: Text('15 – 30 g'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: AppColors.white,
+                    ),
+                    child: const Text('Close'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildGrowthStagePanel() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.faintBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Growth Stage',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+              ),
+              Row(
+                children: [
+                  Text(
+                    'Mid Grow-out',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w900,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: _showGrowthStageReferenceModal,
+                    child: const Icon(
+                      Icons.info_outline,
+                      size: 16,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Container(
+            height: 8,
+            decoration: BoxDecoration(
+              color: AppColors.lightBg,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: FractionallySizedBox(
+              widthFactor: 0.6,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: AppColors.primary,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Juvenile', style: TextStyle(fontSize: 10)),
+              Text('Market', style: TextStyle(fontSize: 10)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNextSamplingPanel() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.faintBorder),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.darkWith(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.primaryWith(0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(
+              Icons.calendar_today,
+              color: AppColors.primary,
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: 16),
+          const Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Next Sampling',
+                style: TextStyle(fontSize: 12, color: AppColors.subtitleText),
+              ),
+              Text(
+                '3 days remaining',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.dark,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGrowthOverviewPanel() {
+    final history = TankService.instance.samplingHistory;
+    final latest = history.isNotEmpty ? history.last : null;
+    final initialW = TankService.instance.initialWeight;
+    final initialL = TankService.instance.initialLength;
+
+    final latestW = latest?.abw ?? initialW;
+    final latestL = latest?.avgLength ?? initialL;
+
+    final diffW = latestW - initialW;
+    final diffL = latestL - initialL;
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.faintBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Growth Overview',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+              ),
+              TextButton(
+                onPressed: () {},
+                child: const Text(
+                  'View Details',
+                  style: TextStyle(color: AppColors.primary),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildGrowthColumn(
+                'Initial',
+                TankService.instance.stockingDate,
+                initialW,
+                initialL,
+              ),
+              _buildGrowthColumn(
+                'Latest',
+                latest?.date ?? TankService.instance.stockingDate,
+                latestW,
+                latestL,
+              ),
+              _buildGrowthDiffColumn('Growth', diffW, diffL),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGrowthColumn(
+    String title,
+    DateTime date,
+    double weight,
+    double length,
+  ) {
+    return Expanded(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Sampling',
-            style: TextStyle(
-              fontSize: 13,
+            title,
+            style: const TextStyle(
+              fontSize: 10,
               fontWeight: FontWeight.w700,
               color: AppColors.primary,
             ),
           ),
-          const SizedBox(height: 10),
           Text(
-            'Record weekly sampling data to track growth performance.',
-            style: TextStyle(fontSize: 11, color: AppColors.darkWith(0.5)),
+            '${date.month}/${date.day}',
+            style: const TextStyle(fontSize: 9, color: AppColors.subtitleText),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${weight.toStringAsFixed(1)}g',
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+          ),
+          Text(
+            '${length.toStringAsFixed(1)}cm',
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGrowthDiffColumn(String title, double diffW, double diffL) {
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: AppColors.primary,
+            ),
+          ),
+          const SizedBox(height: 18),
+          Text(
+            '${diffW >= 0 ? '+' : ''}${diffW.toStringAsFixed(1)}g',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: diffW >= 0 ? AppColors.success : AppColors.critical,
+            ),
+          ),
+          Text(
+            '${diffL >= 0 ? '+' : ''}${diffL.toStringAsFixed(1)}cm',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: diffL >= 0 ? AppColors.success : AppColors.critical,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSamplingFormPanel() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.faintBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Weekly Sampling',
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 16),
-          Center(
-            child: Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: AppColors.primaryWith(0.05),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppColors.primaryWith(0.15)),
+          _buildSamplingInput(
+            'Sample Count',
+            'e.g. 10',
+            _sampleCountController,
+          ),
+          _buildSamplingInput(
+            'Total Weight (g)',
+            'e.g. 150',
+            _sampleWeightController,
+          ),
+          _buildSamplingInput(
+            'Total Length (cm)',
+            'e.g. 60',
+            _sampleLengthController,
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () {
+                final count = int.tryParse(_sampleCountController.text);
+                final weight = double.tryParse(_sampleWeightController.text);
+                final length = double.tryParse(_sampleLengthController.text);
+
+                if (count != null &&
+                    weight != null &&
+                    length != null &&
+                    count > 0 &&
+                    weight > 0 &&
+                    length > 0) {
+                  TankService.instance.addSamplingEntry(count, weight, length);
+                  _sampleCountController.clear();
+                  _sampleWeightController.clear();
+                  _sampleLengthController.clear();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Sampling results recorded!')),
+                  );
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
-              child: Column(
-                children: [
-                  Icon(
-                    Icons.biotech_outlined,
-                    size: 40,
-                    color: AppColors.primaryWith(0.4),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Sampling module coming soon',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.darkWith(0.6),
-                    ),
-                  ),
-                ],
+              child: const Text(
+                'Compute Results',
+                style: TextStyle(fontWeight: FontWeight.w700),
               ),
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSamplingInput(
+    String label,
+    String hint,
+    TextEditingController controller,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 6),
+        TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          inputFormatters: [
+            FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$')),
+          ],
+          decoration: InputDecoration(
+            hintText: hint,
+            filled: true,
+            fillColor: AppColors.lightBg,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 12,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide.none,
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+      ],
     );
   }
 
@@ -739,9 +1303,131 @@ class _TanksScreenState extends State<TanksScreen> {
     );
   }
 
+  Widget _buildSamplingHistoryPanel() {
+    return ListenableBuilder(
+      listenable: TankService.instance,
+      builder: (context, child) {
+        final history = TankService.instance.samplingHistory;
+        return Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: AppColors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: AppColors.faintBorder),
+          ),
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Sampling History',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+                  ),
+                  if (history.isNotEmpty)
+                    TextButton(
+                      onPressed: () {},
+                      child: const Text(
+                        'View All',
+                        style: TextStyle(color: AppColors.primary),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (history.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Text(
+                    'No sampling history yet.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppColors.subtitleText,
+                    ),
+                  ),
+                )
+              else
+                Column(
+                  children: history.take(3).map((entry) {
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _buildHistoryItem(
+                        'Sampling',
+                        '${entry.date.month}/${entry.date.day}/${entry.date.year}',
+                        '${entry.abw.toStringAsFixed(1)}g',
+                        '${entry.avgLength.toStringAsFixed(1)}cm',
+                        entry.sampleSize,
+                      ),
+                    );
+                  }).toList(),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildHistoryItem(
+    String title,
+    String date,
+    String weight,
+    String length,
+    int samples,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.lightBg,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+              Text(
+                date,
+                style: const TextStyle(
+                  fontSize: 10,
+                  color: AppColors.subtitleText,
+                ),
+              ),
+            ],
+          ),
+          Text(
+            '$weight | $length | $samples samples',
+            style: const TextStyle(fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // =========================================================
+  // MODALS / BOTTOM SHEETS IMPLEMENTATION
+  // =========================================================
+
   void _showInitModal() {
-    final stockingDate = TankService.instance.stockingDate;
-    final initialCount = TankService.instance.initialCount;
+    _showSetupForm(isEdit: false);
+  }
+
+  void _showEditModal() {
+    _showSetupForm(isEdit: true);
+  }
+
+  void _showSetupForm({required bool isEdit}) {
+    final countCtrl = TextEditingController(
+      text: isEdit ? '${TankService.instance.initialCount}' : '',
+    );
+    final weightCtrl = TextEditingController(
+      text: isEdit ? '${TankService.instance.initialWeight}' : '',
+    );
+    final lengthCtrl = TextEditingController(
+      text: isEdit ? '${TankService.instance.initialLength}' : '',
+    );
 
     showModalBottomSheet(
       context: context,
@@ -751,494 +1437,91 @@ class _TanksScreenState extends State<TanksScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) {
-        int initialPop = initialCount;
-        int sampleCountValue = 30;
-        double avgWeightValue = TankService.instance.initialWeight;
-        double avgLengthValue = TankService.instance.initialLength;
-        DateTime currentStockingDate = stockingDate;
-
-        return StatefulBuilder(
-          builder: (ctx, setDialogState) {
-            return SafeArea(
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(
-                  20,
-                  10,
-                  20,
-                  MediaQuery.of(ctx).viewInsets.bottom + 20,
-                ),
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Center(
-                        child: Container(
-                          width: 36,
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade300,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
-                            'Initialize Grow-Out',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.dark,
-                            ),
-                          ),
-                          IconButton(
-                            onPressed: () => Navigator.pop(ctx),
-                            icon: const Icon(
-                              Icons.close,
-                              size: 20,
-                              color: AppColors.dark,
-                            ),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: AppColors.primaryWith(0.08),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: AppColors.primaryWith(0.15),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 40,
-                              height: 40,
-                              decoration: BoxDecoration(
-                                color: AppColors.primaryWith(0.12),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: const Icon(
-                                Icons.inventory_2,
-                                color: AppColors.primary,
-                                size: 20,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            const Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Setup Inventory',
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w700,
-                                      color: AppColors.dark,
-                                    ),
-                                  ),
-                                  Text(
-                                    'Set your initial population and baseline measurements.',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w500,
-                                      color: AppColors.dark,
-                                      height: 1.3,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      _buildFieldLabel('Initial Population'),
-                      const SizedBox(height: 6),
-                      TextField(
-                        onChanged: (val) => setDialogState(
-                          () => initialPop = int.tryParse(val) ?? initialCount,
-                        ),
-                        decoration: InputDecoration(
-                          hintText: 'e.g. $initialCount',
-                          filled: true,
-                          fillColor: Colors.white,
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: BorderSide(
-                              color: AppColors.darkWith(0.12),
-                            ),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: const BorderSide(
-                              color: AppColors.primary,
-                              width: 1.5,
-                            ),
-                          ),
-                        ),
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [
-                          FilteringTextInputFormatter.digitsOnly,
-                        ],
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: AppColors.dark,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      _buildFieldLabel('Sample Count'),
-                      const SizedBox(height: 6),
-                      TextField(
-                        onChanged: (val) => setDialogState(
-                          () => sampleCountValue = int.tryParse(val) ?? 30,
-                        ),
-                        decoration: InputDecoration(
-                          hintText: 'e.g. 30',
-                          filled: true,
-                          fillColor: Colors.white,
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: BorderSide(
-                              color: AppColors.darkWith(0.12),
-                            ),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: const BorderSide(
-                              color: AppColors.primary,
-                              width: 1.5,
-                            ),
-                          ),
-                        ),
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [
-                          FilteringTextInputFormatter.digitsOnly,
-                        ],
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: AppColors.dark,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      _buildFieldLabel('Total Sample Weight (g)'),
-                      const SizedBox(height: 6),
-                      TextField(
-                        onChanged: (val) => setDialogState(
-                          () => avgWeightValue = double.tryParse(val) ?? 45.0,
-                        ),
-                        decoration: InputDecoration(
-                          hintText: 'e.g. 45',
-                          filled: true,
-                          fillColor: Colors.white,
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: BorderSide(
-                              color: AppColors.darkWith(0.12),
-                            ),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: const BorderSide(
-                              color: AppColors.primary,
-                              width: 1.5,
-                            ),
-                          ),
-                        ),
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        inputFormatters: [
-                          FilteringTextInputFormatter.allow(
-                            RegExp(r'^\d*\.?\d*$'),
-                          ),
-                        ],
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: AppColors.dark,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      _buildFieldLabel('Total Sample Length (cm)'),
-                      const SizedBox(height: 6),
-                      TextField(
-                        onChanged: (val) => setDialogState(
-                          () => avgLengthValue = double.tryParse(val) ?? 12.0,
-                        ),
-                        decoration: InputDecoration(
-                          hintText: 'e.g. 12',
-                          filled: true,
-                          fillColor: Colors.white,
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: BorderSide(
-                              color: AppColors.darkWith(0.12),
-                            ),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: const BorderSide(
-                              color: AppColors.primary,
-                              width: 1.5,
-                            ),
-                          ),
-                        ),
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        inputFormatters: [
-                          FilteringTextInputFormatter.allow(
-                            RegExp(r'^\d*\.?\d*$'),
-                          ),
-                        ],
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: AppColors.dark,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      _buildFieldLabel('Stocking Date'),
-                      const SizedBox(height: 6),
-                      TextField(
-                        controller: TextEditingController(
-                          text:
-                              '${currentStockingDate.month}/${currentStockingDate.day}/${currentStockingDate.year}',
-                        ),
-                        decoration: InputDecoration(
-                          hintText: 'MM/DD/YYYY',
-                          filled: true,
-                          fillColor: Colors.white,
-                          suffixIcon: const Icon(
-                            Icons.calendar_today,
-                            size: 16,
-                            color: AppColors.primary,
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: BorderSide(
-                              color: AppColors.darkWith(0.12),
-                            ),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: const BorderSide(
-                              color: AppColors.primary,
-                              width: 1.5,
-                            ),
-                          ),
-                        ),
-                        readOnly: true,
-                        onTap: () async {
-                          final picked = await showDatePicker(
-                            context: context,
-                            initialDate: currentStockingDate,
-                            firstDate: DateTime(2024),
-                            lastDate: DateTime.now(),
-                            builder: (context, child) {
-                              return Theme(
-                                data: Theme.of(context).copyWith(
-                                  colorScheme: const ColorScheme.light(
-                                    primary: AppColors.primary,
-                                  ),
-                                ),
-                                child: child!,
-                              );
-                            },
-                          );
-                          if (picked != null) {
-                            setDialogState(() => currentStockingDate = picked);
-                          }
-                        },
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: AppColors.dark,
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: () {
-                            TankService.instance.initializeGrowOut(
-                              initialPop,
-                              sampleCountValue,
-                              avgWeightValue,
-                              avgLengthValue,
-                              currentStockingDate,
-                            );
-                            setState(() {
-                              _hasSetup = true;
-                            });
-                            Navigator.pop(ctx);
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          child: const Text(
-                            'Initialize',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                    ],
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(ctx).viewInsets.bottom,
+            left: 20,
+            right: 20,
+            top: 20,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.darkWith(0.1),
+                    borderRadius: BorderRadius.circular(2),
                   ),
                 ),
               ),
-            );
-          },
+              const SizedBox(height: 20),
+              Text(
+                isEdit ? 'Edit Grow-Out Setup' : 'Initialize Grow-Out',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.dark,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Enter the initial stocking details for this tank.',
+                style: TextStyle(fontSize: 12, color: AppColors.darkWith(0.5)),
+              ),
+              const SizedBox(height: 20),
+              _buildModalInput('Initial Stock Count', 'e.g. 1000', countCtrl),
+              _buildModalInput('Average Weight (g)', 'e.g. 2.5', weightCtrl),
+              _buildModalInput('Average Length (cm)', 'e.g. 3.0', lengthCtrl),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    // TankService.instance.updateSetup(
+                    //   int.parse(countCtrl.text),
+                    //   double.parse(weightCtrl.text),
+                    //   double.parse(lengthCtrl.text)
+                    // );
+
+                    Navigator.pop(ctx);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          isEdit ? 'Setup updated!' : 'Setup initialized!',
+                        ),
+                      ),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text(
+                    'Save Setup',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
         );
       },
-    );
-  }
-
-  Widget _buildFieldLabel(String text) {
-    return Text(
-      text,
-      style: const TextStyle(
-        fontSize: 12,
-        fontWeight: FontWeight.w600,
-        color: AppColors.dark,
-      ),
     );
   }
 
   void _showMortalityModal() {
-    int count = 1;
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setDialogState) {
-            return SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Center(
-                      child: Container(
-                        width: 36,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade300,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    const Text(
-                      'Log Mortality',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.dark,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.remove_circle_outline),
-                          color: AppColors.critical,
-                          onPressed: count > 1
-                              ? () => setDialogState(() => count--)
-                              : null,
-                        ),
-                        SizedBox(
-                          width: 80,
-                          child: TextField(
-                            controller: TextEditingController(text: '$count')
-                              ..selection = TextSelection.collapsed(offset: '$count'.length),
-                            keyboardType: TextInputType.number,
-                            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                            textAlign: TextAlign.center,
-                            onChanged: (val) {
-                              final parsed = int.tryParse(val);
-                              if (parsed != null && parsed > 0) {
-                                setDialogState(() => count = parsed);
-                              }
-                            },
-                            decoration: InputDecoration(
-                              contentPadding: const EdgeInsets.symmetric(vertical: 8),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(10),
-                                borderSide: BorderSide(color: AppColors.darkWith(0.15)),
-                              ),
-                            ),
-                            style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.dark,
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.add_circle_outline),
-                          color: AppColors.critical,
-                          onPressed: () => setDialogState(() => count++),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: () {
-                          TankService.instance.addMortality(count);
-                          Navigator.pop(ctx);
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.critical,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        child: const Text(
-                          'Record Mortality',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  void _showEditModal() {
-    final service = TankService.instance;
+    final countCtrl = TextEditingController();
 
     showModalBottomSheet(
       context: context,
@@ -1248,350 +1531,249 @@ class _TanksScreenState extends State<TanksScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) {
-        int editInitial = service.initialCount;
-        int editSample = service.sampleCount;
-        double editWeight = service.initialWeight;
-        double editLength = service.initialLength;
-
-        return StatefulBuilder(
-          builder: (ctx, setDialogState) {
-            return SafeArea(
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(
-                  20,
-                  10,
-                  20,
-                  MediaQuery.of(ctx).viewInsets.bottom + 20,
-                ),
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Center(
-                        child: Container(
-                          width: 36,
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade300,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
-                            'Edit Grow-Out Setup',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.dark,
-                            ),
-                          ),
-                          IconButton(
-                            onPressed: () => Navigator.pop(ctx),
-                            icon: const Icon(
-                              Icons.close,
-                              size: 20,
-                              color: AppColors.dark,
-                            ),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 20),
-                      _buildFieldLabel('Initial Population'),
-                      const SizedBox(height: 6),
-                      TextField(
-                        controller: TextEditingController(text: '$editInitial'),
-                        onChanged: (val) =>
-                            editInitial = int.tryParse(val) ?? editInitial,
-                        decoration: _editInputDecoration('e.g. 68'),
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [
-                          FilteringTextInputFormatter.digitsOnly,
-                        ],
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: AppColors.dark,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      _buildFieldLabel('Initial Sample Count'),
-                      const SizedBox(height: 6),
-                      TextField(
-                        controller: TextEditingController(text: '$editSample'),
-                        onChanged: (val) =>
-                            editSample = int.tryParse(val) ?? editSample,
-                        decoration: _editInputDecoration('e.g. 30'),
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [
-                          FilteringTextInputFormatter.digitsOnly,
-                        ],
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: AppColors.dark,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      _buildFieldLabel('Initial Total Weight (g)'),
-                      const SizedBox(height: 6),
-                      TextField(
-                        controller: TextEditingController(text: '$editWeight'),
-                        onChanged: (val) =>
-                            editWeight = double.tryParse(val) ?? editWeight,
-                        decoration: _editInputDecoration('e.g. 45.2'),
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        inputFormatters: [
-                          FilteringTextInputFormatter.allow(
-                            RegExp(r'^\d*\.?\d*$'),
-                          ),
-                        ],
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: AppColors.dark,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      _buildFieldLabel('Initial Total Length (cm)'),
-                      const SizedBox(height: 6),
-                      TextField(
-                        controller: TextEditingController(text: '$editLength'),
-                        onChanged: (val) =>
-                            editLength = double.tryParse(val) ?? editLength,
-                        decoration: _editInputDecoration('e.g. 12.8'),
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        inputFormatters: [
-                          FilteringTextInputFormatter.allow(
-                            RegExp(r'^\d*\.?\d*$'),
-                          ),
-                        ],
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: AppColors.dark,
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: () {
-                            service.updateInitialCount(editInitial);
-                            service.updateBaselineSampling(
-                              sampleCount: editSample,
-                              weight: editWeight,
-                              length: editLength,
-                            );
-                            Navigator.pop(ctx);
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          child: const Text(
-                            'Save Changes',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                    ],
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(ctx).viewInsets.bottom,
+            left: 20,
+            right: 20,
+            top: 20,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.darkWith(0.1),
+                    borderRadius: BorderRadius.circular(2),
                   ),
                 ),
               ),
-            );
-          },
+              const SizedBox(height: 20),
+              const Text(
+                'Log Mortality',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.critical,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Record the number of dead crayfish found in the tank.',
+                style: TextStyle(fontSize: 12, color: AppColors.darkWith(0.5)),
+              ),
+              const SizedBox(height: 20),
+              _buildModalInput('Number of Dead Crayfish', 'e.g. 5', countCtrl),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    if (countCtrl.text.isNotEmpty) {
+                      // TankService.instance.addMortality(int.parse(countCtrl.text));
+
+                      Navigator.pop(ctx);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Mortality successfully logged.'),
+                        ),
+                      );
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.critical,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text(
+                    'Confirm Logging',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
         );
       },
-    );
-  }
-
-  InputDecoration _editInputDecoration(String hint) {
-    return InputDecoration(
-      hintText: hint,
-      filled: true,
-      fillColor: Colors.white,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
-        borderSide: BorderSide(color: AppColors.darkWith(0.12)),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
-        borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
-      ),
     );
   }
 
   void _showLogsModal() {
     showModalBottomSheet(
       context: context,
-      isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) {
-        return ListenableBuilder(
-          listenable: TankService.instance,
-          builder: (context, child) {
-            final logs = TankService.instance.activities;
-            return SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
+        return Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.darkWith(0.1),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'Activity Logs',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.dark,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: ListView(
+                  shrinkWrap: true,
                   children: [
-                    Center(
-                      child: Container(
-                        width: 36,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade300,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
+                    _buildLogItem(
+                      Icons.water_drop,
+                      'Water changed',
+                      'Today, 8:00 AM',
+                      AppColors.primary,
                     ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.menu_book,
-                          size: 16,
-                          color: AppColors.warning,
-                        ),
-                        const SizedBox(width: 8),
-                        const Text(
-                          'Grow-Out Activity Log',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.dark,
-                          ),
-                        ),
-                      ],
+                    _buildLogItem(
+                      Icons.restaurant,
+                      'Fed 500g pellets',
+                      'Yesterday, 6:00 PM',
+                      AppColors.success,
                     ),
-                    const SizedBox(height: 16),
-                    if (logs.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.all(20),
-                        child: Center(
-                          child: Text(
-                            'No activity recorded yet.',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: AppColors.mutedText,
-                            ),
-                          ),
-                        ),
-                      )
-                    else
-                      Flexible(
-                        child: SingleChildScrollView(
-                          child: Column(
-                            children: logs.map((l) {
-                              Color typeColor = AppColors.primary;
-                              if (l.type == 'mortality')
-                                typeColor = AppColors.critical;
-                              if (l.type == 'edit')
-                                typeColor = AppColors.warning;
-
-                              return Container(
-                                margin: const EdgeInsets.only(bottom: 8),
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFf7f7f7),
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(
-                                    color: AppColors.darkWith(0.05),
-                                  ),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      width: 8,
-                                      height: 8,
-                                      decoration: BoxDecoration(
-                                        color: typeColor,
-                                        shape: BoxShape.circle,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            l.action,
-                                            style: const TextStyle(
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.w700,
-                                              color: AppColors.dark,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 2),
-                                          Text(
-                                            '${l.date} \u2022 ${l.time}',
-                                            style: TextStyle(
-                                              fontSize: 9,
-                                              color: AppColors.darkWith(0.5),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            }).toList(),
-                          ),
-                        ),
-                      ),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: TextButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        style: TextButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        child: const Text(
-                          'Close',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
+                    _buildLogItem(
+                      Icons.warning,
+                      'Mortality: 2 recorded',
+                      'Yesterday, 8:00 AM',
+                      AppColors.critical,
                     ),
                   ],
                 ),
               ),
-            );
-          },
+              SizedBox(
+                width: double.infinity,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Close'),
+                ),
+              ),
+            ],
+          ),
         );
       },
+    );
+  }
+
+  Widget _buildModalInput(
+    String label,
+    String hint,
+    TextEditingController controller,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: controller,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: InputDecoration(
+              hintText: hint,
+              filled: true,
+              fillColor: AppColors.darkWith(0.03),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 14,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: AppColors.darkWith(0.1)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: AppColors.darkWith(0.1)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppColors.primary),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLogItem(
+    IconData icon,
+    String title,
+    String subtitle,
+    Color color,
+  ) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.darkWith(0.02),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.darkWith(0.05)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, size: 18, color: color),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
+                ),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: AppColors.darkWith(0.5),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

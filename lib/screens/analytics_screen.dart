@@ -5,7 +5,6 @@ import '../theme/app_colors.dart';
 import '../services/settings_service.dart';
 import '../services/sensor_service.dart';
 import '../widgets/analytics/analytics_charts.dart';
-import '../widgets/analytics/insight_card.dart';
 import '../widgets/analytics/filter_selector.dart';
 
 class AnalyticsScreen extends StatefulWidget {
@@ -25,7 +24,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   final Map<String, List<double>> _data = {};
   final Map<String, List<String>> _labels = {};
   final Map<String, int?> _selectedIndices = {};
-  String _insight = 'Loading insights...';
 
   final _rng = Random(42);
 
@@ -56,8 +54,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     if (_activeFilter == 'live' && mounted) {
       setState(() {
         final now = DateTime.now();
-        final timeStr = "${now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour)}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')} ${now.hour >= 12 ? 'PM' : 'AM'}";
-        
+        final timeStr =
+            "${now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour)}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')} ${now.hour >= 12 ? 'PM' : 'AM'}";
+
         final labels = _labels['live']!;
         if (labels.isNotEmpty) labels.removeAt(0);
         labels.add(timeStr);
@@ -65,8 +64,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         SensorService.instance.seeds.keys.forEach((key) {
           _data['$key-live'] = List.from(SensorService.instance.getData(key));
         });
-        
-        _updateInsight('live');
       });
     }
   }
@@ -95,7 +92,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         final ampm = d.hour >= 12 ? 'PM' : 'AM';
         return '${h}:${d.minute.toString().padLeft(2, '0')}:${d.second.toString().padLeft(2, '0')} $ampm';
       });
-      
+
       SensorService.instance.seeds.keys.forEach((key) {
         _data['$key-live'] = List.from(SensorService.instance.getData(key));
       });
@@ -151,41 +148,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         });
       });
     }
-
-    _updateInsight(range);
-  }
-
-  void _updateInsight(String range) {
-    final d = _getData('temp', range);
-    final peakTemp = d.isEmpty ? 0.0 : d.reduce(max);
-    final peakTurb = _getData('turb', range).isEmpty
-        ? 0.0
-        : _getData('turb', range).reduce(max);
-    final minDo = _getData('do', range).isEmpty
-        ? 0.0
-        : _getData('do', range).reduce(min);
-    final minWl = _getData('waterlevel', range).isEmpty
-        ? 0.0
-        : _getData('waterlevel', range).reduce(min);
-    final maxWl = _getData('waterlevel', range).isEmpty
-        ? 0.0
-        : _getData('waterlevel', range).reduce(max);
-
-    String text = 'Peak temperature reached ${peakTemp.toStringAsFixed(1)}°C. ';
-    if (peakTurb > 50)
-      text +=
-          'Turbidity spiked to ${peakTurb.toStringAsFixed(0)} NTU — check filtration. ';
-    if (minDo < 3.5)
-      text +=
-          'DO dropped to ${minDo.toStringAsFixed(1)} mg/L — aerator may have triggered. ';
-    if (minWl < 100)
-      text +=
-          'Water level dropped to ${minWl.toStringAsFixed(0)} cm — low water warning. ';
-    if (maxWl > 200)
-      text +=
-          'Water level peaked at ${maxWl.toStringAsFixed(0)} cm — flood risk.';
-
-    setState(() => _insight = text);
   }
 
   List<double> _getData(String key, String range) {
@@ -201,64 +163,161 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     return Container(
       color: Colors.white,
       child: SingleChildScrollView(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            InsightCard(insight: _insight),
+            _buildHeader(),
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: FilterSelector(
+                activeFilter: _activeFilter,
+                showCustom: _showCustom,
+                onFilterChanged: (val) {
+                  // 1. I-update agad ang button state para smooth ang animation
+                  setState(() {
+                    _activeFilter = val;
+                    _showCustom = false;
+                  });
+
+                  // 2. I-delay ng konti (100ms) bago i-load ang mabigat na charts
+                  Future.delayed(const Duration(milliseconds: 100), () {
+                    if (mounted) {
+                      setState(() {
+                        _generateData(val);
+                      });
+                    }
+                  });
+                },
+                onToggleCustom: () {
+                  setState(() {
+                    _showCustom = !_showCustom;
+                    _activeFilter = '';
+                  });
+                },
+              ),
+            ),
+            if (_showCustom)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: _buildCustomDateRow(),
+              ),
             const SizedBox(height: 10),
-            FilterSelector(
-              activeFilter: _activeFilter,
-              showCustom: _showCustom,
-              onFilterChanged: (val) {
-                setState(() {
-                  _activeFilter = val;
-                  _showCustom = false;
-                  _generateData(val);
-                });
-              },
-              onToggleCustom: () {
-                setState(() {
-                  _showCustom = !_showCustom;
-                  _activeFilter = '';
-                });
-              },
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Column(
+                children: [
+                  _buildChartCard(
+                    context,
+                    title: 'Temperature',
+                    iconPath: 'assets/images/temperature.png',
+                    chartKey: 'temp',
+                  ),
+                  _buildChartCard(
+                    context,
+                    title: 'pH Level',
+                    iconPath: 'assets/images/pH.png',
+                    chartKey: 'ph',
+                  ),
+                  _buildChartCard(
+                    context,
+                    title: 'Dissolved O\u2082',
+                    iconPath: 'assets/images/DO.png',
+                    chartKey: 'do',
+                  ),
+                  _buildChartCard(
+                    context,
+                    title: 'Turbidity',
+                    iconPath: 'assets/images/Turbidity.png',
+                    chartKey: 'turb',
+                  ),
+                  _buildChartCard(
+                    context,
+                    title: 'Water Level',
+                    iconPath: 'assets/images/waterLevel.png',
+                    chartKey: 'waterlevel',
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ),
             ),
-            if (_showCustom) _buildCustomDateRow(),
-            const SizedBox(height: 10),
-            _buildChartCard(
-              context,
-              title: 'Temperature',
-              iconPath: 'assets/images/temperature.png',
-              chartKey: 'temp',
-            ),
-            _buildChartCard(
-              context,
-              title: 'pH Level',
-              iconPath: 'assets/images/pH.png',
-              chartKey: 'ph',
-            ),
-            _buildChartCard(
-              context,
-              title: 'Dissolved O\u2082',
-              iconPath: 'assets/images/DO.png',
-              chartKey: 'do',
-            ),
-            _buildChartCard(
-              context,
-              title: 'Turbidity',
-              iconPath: 'assets/images/Turbidity.png',
-              chartKey: 'turb',
-            ),
-            _buildChartCard(
-              context,
-              title: 'Water Level',
-              iconPath: 'assets/images/waterLevel.png',
-              chartKey: 'waterlevel',
-            ),
-            const SizedBox(height: 16),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: AppColors.headerGradient,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.darkWith(0.08),
+            blurRadius: 12,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        children: [
+          Positioned(
+            right: 0,
+            bottom: 0,
+            width: 150,
+            height: 90,
+            child: Image.asset(
+              'assets/images/analytics_image.png',
+              fit: BoxFit.contain,
+              alignment: Alignment.bottomRight,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 20, 12, 20),
+            child: Row(
+              children: [
+                Container(
+                  width: 3,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Analytics',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.dark,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Data Trends & Insights',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.darkWith(0.5),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -368,8 +427,17 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               onTapUp: (_) => setState(() => _isApplyPressed = false),
               onTapCancel: () => setState(() => _isApplyPressed = false),
               onTap: () {
-                _generateData('custom');
+                // 1. I-update agad para mag-kulay yung Custom tab
                 setState(() => _activeFilter = 'custom');
+
+                // 2. I-delay ng 100ms ang pag load ng charts
+                Future.delayed(const Duration(milliseconds: 100), () {
+                  if (mounted) {
+                    setState(() {
+                      _generateData('custom');
+                    });
+                  }
+                });
               },
               child: Ink(
                 padding: const EdgeInsets.symmetric(
@@ -523,7 +591,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   ),
                   if (data.isNotEmpty)
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
                       decoration: BoxDecoration(
                         color: statusBg,
                         borderRadius: BorderRadius.circular(20),
@@ -671,7 +742,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }) {
     final isLive = _activeFilter == 'live';
     final isShortRange = _activeFilter == 'live' || _activeFilter == '24h';
-    
+
     double avg = 0.0;
     if (data.isNotEmpty) {
       avg = data.reduce((a, b) => a + b) / data.length;
@@ -698,7 +769,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: AppColors.primaryWith(0.1),
                     borderRadius: BorderRadius.circular(8),
@@ -720,7 +794,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               children: [
                 Expanded(
                   child: GestureDetector(
-                    onTap: minIdx >= 0 ? () => onSelectIndex?.call(minIdx) : null,
+                    onTap: minIdx >= 0
+                        ? () => onSelectIndex?.call(minIdx)
+                        : null,
                     child: _buildStatRow(
                       Icons.arrow_downward,
                       'Min: $mn $unit',
@@ -732,7 +808,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 const SizedBox(width: 6),
                 Expanded(
                   child: GestureDetector(
-                    onTap: maxIdx >= 0 ? () => onSelectIndex?.call(maxIdx) : null,
+                    onTap: maxIdx >= 0
+                        ? () => onSelectIndex?.call(maxIdx)
+                        : null,
                     child: _buildStatRow(
                       Icons.arrow_upward,
                       'Max: $mx $unit',
@@ -745,7 +823,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 Expanded(
                   child: isShortRange
                       ? GestureDetector(
-                          onTap: nowIdx >= 0 ? () => onSelectIndex?.call(nowIdx) : null,
+                          onTap: nowIdx >= 0
+                              ? () => onSelectIndex?.call(nowIdx)
+                              : null,
                           child: _buildStatRow(
                             Icons.sensors,
                             'Now: $cur $unit',
@@ -852,8 +932,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             final color = _colorFor(chartKey);
 
             int minIdx = -1, maxIdx = -1;
-            final mn = data.isEmpty ? '--' : data.reduce(min).toStringAsFixed(1);
-            final mx = data.isEmpty ? '--' : data.reduce(max).toStringAsFixed(1);
+            final mn = data.isEmpty
+                ? '--'
+                : data.reduce(min).toStringAsFixed(1);
+            final mx = data.isEmpty
+                ? '--'
+                : data.reduce(max).toStringAsFixed(1);
             if (data.isNotEmpty) {
               final minVal = data.reduce(min);
               final maxVal = data.reduce(max);
@@ -861,8 +945,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               maxIdx = data.indexOf(maxVal);
             }
             final nowIdx = data.length - 1;
-            final minLabel = (minIdx >= 0 && minIdx < labels.length) ? labels[minIdx] : '';
-            final maxLabel = (maxIdx >= 0 && maxIdx < labels.length) ? labels[maxIdx] : '';
+            final minLabel = (minIdx >= 0 && minIdx < labels.length)
+                ? labels[minIdx]
+                : '';
+            final maxLabel = (maxIdx >= 0 && maxIdx < labels.length)
+                ? labels[maxIdx]
+                : '';
 
             final thresholds = _thresholdsFor(chartKey);
             final criticalCount = data
@@ -902,14 +990,22 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                           children: [
                             if (modalShowCritical)
                               GestureDetector(
-                                onTap: () => setDialogState(() => modalShowCritical = false),
+                                onTap: () => setDialogState(
+                                  () => modalShowCritical = false,
+                                ),
                                 child: const Padding(
                                   padding: EdgeInsets.only(right: 8),
-                                  child: Icon(Icons.arrow_back, size: 16, color: AppColors.dark),
+                                  child: Icon(
+                                    Icons.arrow_back,
+                                    size: 16,
+                                    color: AppColors.dark,
+                                  ),
                                 ),
                               ),
                             Text(
-                              modalShowCritical ? 'Critical Points' : '$title ($unit)',
+                              modalShowCritical
+                                  ? 'Critical Points'
+                                  : '$title ($unit)',
                               style: const TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w700,
@@ -922,9 +1018,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                               shape: const CircleBorder(),
                               child: InkWell(
                                 customBorder: const CircleBorder(),
-                                onTapDown: (_) => setDialogState(() => closePressed = true),
-                                onTapUp: (_) => setDialogState(() => closePressed = false),
-                                onTapCancel: () => setDialogState(() => closePressed = false),
+                                onTapDown: (_) =>
+                                    setDialogState(() => closePressed = true),
+                                onTapUp: (_) =>
+                                    setDialogState(() => closePressed = false),
+                                onTapCancel: () =>
+                                    setDialogState(() => closePressed = false),
                                 onTap: () => Navigator.pop(ctx),
                                 child: Container(
                                   width: 30,
@@ -978,7 +1077,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                         ),
                                         decoration: BoxDecoration(
                                           color: AppColors.primaryWith(0.1),
-                                          borderRadius: BorderRadius.circular(8),
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
                                         ),
                                         child: const Text(
                                           'LIVE DATA',
@@ -999,8 +1100,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                         child: GestureDetector(
                                           onTap: minIdx >= 0
                                               ? () => setDialogState(
-                                                    () => modalSelectedIndex = minIdx,
-                                                  )
+                                                  () => modalSelectedIndex =
+                                                      minIdx,
+                                                )
                                               : null,
                                           child: _buildStatRow(
                                             Icons.arrow_downward,
@@ -1015,8 +1117,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                         child: GestureDetector(
                                           onTap: maxIdx >= 0
                                               ? () => setDialogState(
-                                                    () => modalSelectedIndex = maxIdx,
-                                                  )
+                                                  () => modalSelectedIndex =
+                                                      maxIdx,
+                                                )
                                               : null,
                                           child: _buildStatRow(
                                             Icons.arrow_upward,
@@ -1031,8 +1134,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                         child: GestureDetector(
                                           onTap: nowIdx >= 0
                                               ? () => setDialogState(
-                                                    () => modalSelectedIndex = nowIdx,
-                                                  )
+                                                  () => modalSelectedIndex =
+                                                      nowIdx,
+                                                )
                                               : null,
                                           child: _buildStatRow(
                                             Icons.sensors,
@@ -1047,7 +1151,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                   const SizedBox(height: 6),
                                   GestureDetector(
                                     onTap: criticalCount > 0
-                                        ? () => setDialogState(() => modalShowCritical = true)
+                                        ? () => setDialogState(
+                                            () => modalShowCritical = true,
+                                          )
                                         : null,
                                     child: Row(
                                       children: [
@@ -1095,8 +1201,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                 large: true,
                                 height: 220,
                                 selectedIndex: modalSelectedIndex,
-                                onSelectedIndexChanged: (idx) =>
-                                    setDialogState(() => modalSelectedIndex = idx),
+                                onSelectedIndexChanged: (idx) => setDialogState(
+                                  () => modalSelectedIndex = idx,
+                                ),
                                 thresholdMin: thresholds['min'],
                                 thresholdMax: thresholds['max'],
                                 isLive: _activeFilter == 'live',
@@ -1147,7 +1254,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         children: [
           Row(
             children: [
-              const Icon(Icons.warning_amber_rounded, size: 12, color: AppColors.critical),
+              const Icon(
+                Icons.warning_amber_rounded,
+                size: 12,
+                color: AppColors.critical,
+              ),
               const SizedBox(width: 4),
               Text(
                 'Critical Points (${items.length})',
@@ -1164,36 +1275,44 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
-                children: items.reversed.map(
-                  (c) => Padding(
-                    padding: const EdgeInsets.only(bottom: 3),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 6, height: 6,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: c.isAboveMax ? AppColors.critical : AppColors.warning,
-                          ),
+                children: items.reversed
+                    .map(
+                      (c) => Padding(
+                        padding: const EdgeInsets.only(bottom: 3),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: c.isAboveMax
+                                    ? AppColors.critical
+                                    : AppColors.warning,
+                              ),
+                            ),
+                            const SizedBox(width: 5),
+                            Text(
+                              '${c.value.toStringAsFixed(1)} $unit',
+                              style: const TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.dark,
+                              ),
+                            ),
+                            const Spacer(),
+                            Text(
+                              c.label,
+                              style: TextStyle(
+                                fontSize: 8,
+                                color: AppColors.darkWith(0.5),
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 5),
-                        Text(
-                          '${c.value.toStringAsFixed(1)} $unit',
-                          style: const TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.dark,
-                          ),
-                        ),
-                        const Spacer(),
-                        Text(
-                          c.label,
-                          style: TextStyle(fontSize: 8, color: AppColors.darkWith(0.5)),
-                        ),
-                      ],
-                    ),
-                  ),
-                ).toList(),
+                      ),
+                    )
+                    .toList(),
               ),
             ),
           ),
@@ -1222,7 +1341,8 @@ class _LiveJumpButton extends StatefulWidget {
   State<_LiveJumpButton> createState() => _LiveJumpButtonState();
 }
 
-class _LiveJumpButtonState extends State<_LiveJumpButton> with SingleTickerProviderStateMixin {
+class _LiveJumpButtonState extends State<_LiveJumpButton>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
 
   @override
@@ -1252,7 +1372,9 @@ class _LiveJumpButtonState extends State<_LiveJumpButton> with SingleTickerProvi
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
             color: AppColors.primary.withValues(alpha: 0.1),
-            border: Border.all(color: AppColors.primary.withValues(alpha: 0.25)),
+            border: Border.all(
+              color: AppColors.primary.withValues(alpha: 0.25),
+            ),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Row(
@@ -1265,11 +1387,15 @@ class _LiveJumpButtonState extends State<_LiveJumpButton> with SingleTickerProvi
                     width: 6,
                     height: 6,
                     decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.5 + (0.5 * _controller.value)),
+                      color: AppColors.primary.withValues(
+                        alpha: 0.5 + (0.5 * _controller.value),
+                      ),
                       shape: BoxShape.circle,
                       boxShadow: [
                         BoxShadow(
-                          color: AppColors.primary.withValues(alpha: 0.3 * _controller.value),
+                          color: AppColors.primary.withValues(
+                            alpha: 0.3 * _controller.value,
+                          ),
                           blurRadius: 4,
                           spreadRadius: 1,
                         ),

@@ -1,10 +1,32 @@
 import 'package:flutter/foundation.dart';
 
+class SamplingEntry {
+  final DateTime date;
+  final double abw;
+  final double avgLength;
+  final int sampleSize;
+  final double totalWeight;
+  final double totalLength;
+  final double biomass;
+  final int liveCount;
+
+  SamplingEntry({
+    required this.date,
+    required this.abw,
+    required this.avgLength,
+    required this.sampleSize,
+    required this.totalWeight,
+    required this.totalLength,
+    required this.biomass,
+    required this.liveCount,
+  });
+}
+
 class TankActivity {
   final String action;
   final String date;
   final String time;
-  final String type; // 'init', 'mortality', 'edit'
+  final String type; // 'init', 'mortality', 'edit', 'sampling'
 
   TankActivity({
     required this.action,
@@ -17,24 +39,11 @@ class TankActivity {
 class TankService extends ChangeNotifier {
   static final TankService instance = TankService._();
   TankService._() {
-    // Add some initial history
     _activities.add(TankActivity(
       action: 'Initialized grow-out with 68 population',
       date: 'May 12, 2026',
       time: '08:00 AM',
       type: 'init',
-    ));
-    _activities.add(TankActivity(
-      action: 'Recorded mortality of 2 crayfish',
-      date: 'May 15, 2026',
-      time: '02:30 PM',
-      type: 'mortality',
-    ));
-    _activities.add(TankActivity(
-      action: 'Recorded mortality of 3 crayfish',
-      date: 'May 17, 2026',
-      time: '09:15 AM',
-      type: 'mortality',
     ));
   }
 
@@ -47,6 +56,7 @@ class TankService extends ChangeNotifier {
   double _initialWeight = 45.2;
   double _initialLength = 12.8;
 
+  final List<SamplingEntry> _samplingHistory = [];
   final List<TankActivity> _activities = [];
 
   int get initialCount => _initialCount;
@@ -60,7 +70,26 @@ class TankService extends ChangeNotifier {
   double get initialWeight => _initialWeight;
   double get initialLength => _initialLength;
 
+  List<SamplingEntry> get samplingHistory => List.unmodifiable(_samplingHistory);
   List<TankActivity> get activities => List.unmodifiable(_activities.reversed);
+
+  void addSamplingEntry(int count, double weight, double length) {
+    final abw = weight / count;
+    final avgLength = length / count;
+    final entry = SamplingEntry(
+      date: DateTime.now(),
+      abw: abw,
+      avgLength: avgLength,
+      sampleSize: count,
+      totalWeight: weight,
+      totalLength: length,
+      biomass: liveCount * abw,
+      liveCount: liveCount,
+    );
+    _samplingHistory.add(entry);
+    _addActivity('Recorded sampling: ${abw.toStringAsFixed(2)}g ABW', 'sampling');
+    notifyListeners();
+  }
 
   void updateInitialCount(int val) {
     _initialCount = val;
@@ -97,6 +126,7 @@ class TankService extends ChangeNotifier {
     _initialWeight = weight;
     _initialLength = length;
     
+    _samplingHistory.clear();
     _activities.clear();
     _addActivity('Initialized grow-out with $initial population', 'init', customDate: date);
     notifyListeners();

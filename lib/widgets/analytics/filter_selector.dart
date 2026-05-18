@@ -38,11 +38,16 @@ class _FilterSelectorState extends State<FilterSelector> {
       ),
       child: Row(
         children: filters.map((f) {
-          final isActive = f.$2 == 'custom' ? widget.showCustom : widget.activeFilter == f.$2;
+          final isActive = f.$2 == 'custom'
+              ? widget.showCustom
+              : widget.activeFilter == f.$2;
+
           final color = isActive ? AppColors.primary : AppColors.darkWith(0.45);
-          
+
           return Expanded(
             child: GestureDetector(
+              behavior: HitTestBehavior
+                  .opaque, // Para madaling ma-click kahit sa empty spaces
               onTap: () {
                 if (f.$2 == 'custom') {
                   widget.onToggleCustom();
@@ -51,34 +56,43 @@ class _FilterSelectorState extends State<FilterSelector> {
                 }
               },
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
+                duration: const Duration(
+                  milliseconds: 250,
+                ), // Medyo hinabaan for smoothness
+                curve: Curves
+                    .easeInOut, // Nag-add ng curve para malambot ang transition
                 padding: const EdgeInsets.symmetric(vertical: 10),
                 decoration: BoxDecoration(
                   color: isActive ? Colors.white : Colors.transparent,
                   borderRadius: BorderRadius.circular(11),
-                  boxShadow: isActive
-                      ? [
-                          BoxShadow(
-                            color: AppColors.primaryWith(0.12),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          )
-                        ]
-                      : null,
+                  // FIX: Gumamit ng Colors.transparent imbes na null
+                  boxShadow: [
+                    BoxShadow(
+                      color: isActive
+                          ? AppColors.primaryWith(0.12)
+                          : Colors.transparent, // Ito ang nagpapa-smooth
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(f.$3, size: 11, color: color),
                     const SizedBox(width: 4),
-                    Text(
-                      f.$1,
-                      textAlign: TextAlign.center,
+                    // Bonus: Animated style para pati kulay ng text ay smooth magpalit
+                    AnimatedDefaultTextStyle(
+                      duration: const Duration(milliseconds: 250),
                       style: TextStyle(
                         fontSize: 9,
                         fontWeight: FontWeight.w700,
                         color: color,
+                        fontFamily: DefaultTextStyle.of(
+                          context,
+                        ).style.fontFamily, // i-retain ang font mo
                       ),
+                      child: Text(f.$1, textAlign: TextAlign.center),
                     ),
                   ],
                 ),
