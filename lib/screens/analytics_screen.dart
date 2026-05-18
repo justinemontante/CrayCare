@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../services/settings_service.dart';
+import '../services/sensor_service.dart';
 import '../widgets/analytics/analytics_charts.dart';
 import '../widgets/analytics/insight_card.dart';
 import '../widgets/analytics/filter_selector.dart';
@@ -15,7 +16,7 @@ class AnalyticsScreen extends StatefulWidget {
 }
 
 class _AnalyticsScreenState extends State<AnalyticsScreen> {
-  String _activeFilter = '24h';
+  String _activeFilter = 'live';
   bool _showCustom = false;
   bool _isApplyPressed = false;
   DateTime _customStartDate = DateTime.now().subtract(const Duration(days: 14));
@@ -27,7 +28,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   String _insight = 'Loading insights...';
 
   final _rng = Random(42);
-  Timer? _liveTimer;
 
   void _onChartSelectionChanged(String chartKey, int? index) {
     setState(() => _selectedIndices[chartKey] = index);
@@ -36,13 +36,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   @override
   void initState() {
     super.initState();
-    _generateData('24h');
+    _generateData('live');
     SettingsService.instance.addListener(_onSettingsChanged);
+    SensorService.instance.addListener(_onSensorDataChanged);
   }
 
   @override
   void dispose() {
-    _liveTimer?.cancel();
+    SensorService.instance.removeListener(_onSensorDataChanged);
     SettingsService.instance.removeListener(_onSettingsChanged);
     super.dispose();
   }
@@ -51,54 +52,30 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     if (mounted) setState(() {});
   }
 
-  void _startLiveUpdates() {
-    _liveTimer?.cancel();
-    _liveTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
-      if (_activeFilter == 'live' && mounted) {
-        _pushNewLiveData();
-      } else {
-        timer.cancel();
-      }
-    });
-  }
+  void _onSensorDataChanged() {
+    if (_activeFilter == 'live' && mounted) {
+      setState(() {
+        final now = DateTime.now();
+        final timeStr = "${now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour)}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')} ${now.hour >= 12 ? 'PM' : 'AM'}";
+        
+        final labels = _labels['live']!;
+        if (labels.isNotEmpty) labels.removeAt(0);
+        labels.add(timeStr);
 
-  void _pushNewLiveData() {
-    final now = DateTime.now();
-    final timeStr = "${now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour)}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')} ${now.hour >= 12 ? 'PM' : 'AM'}";
-
-    setState(() {
-      final labels = _labels['live']!;
-      if (labels.isNotEmpty) labels.removeAt(0);
-      labels.add(timeStr);
-
-      final seeds = {
-        'temp': {'min': 24.0, 'max': 32.0},
-        'ph': {'min': 6.5, 'max': 9.0},
-        'do': {'min': 2.5, 'max': 7.0},
-        'turb': {'min': 10.0, 'max': 70.0},
-        'waterlevel': {'min': 100.0, 'max': 200.0},
-      };
-
-      seeds.forEach((key, bounds) {
-        final data = _data['$key-live']!;
-        if (data.isNotEmpty) {
-          data.removeAt(0);
-          final lastVal = data.last;
-          double newVal = lastVal + (_rng.nextDouble() - 0.5) * 0.5;
-          newVal = newVal.clamp(bounds['min']!, bounds['max']!);
-          data.add(newVal);
-        }
+        SensorService.instance.seeds.keys.forEach((key) {
+          _data['$key-live'] = List.from(SensorService.instance.getData(key));
+        });
+        
+        _updateInsight('live');
       });
-
-      _updateInsight('live');
-    });
+    }
   }
 
   void _generateData(String range) {
     int pts;
-    if (range == 'live')
+    if (range == 'live') {
       pts = 60;
-    else if (range == '24h')
+    } else if (range == '24h')
       pts = 144;
     else if (range == '7d')
       pts = 7;
@@ -117,6 +94,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         final h = d.hour > 12 ? d.hour - 12 : (d.hour == 0 ? 12 : d.hour);
         final ampm = d.hour >= 12 ? 'PM' : 'AM';
         return '${h}:${d.minute.toString().padLeft(2, '0')}:${d.second.toString().padLeft(2, '0')} $ampm';
+      });
+      
+      SensorService.instance.seeds.keys.forEach((key) {
+        _data['$key-live'] = List.from(SensorService.instance.getData(key));
       });
     } else if (range == '24h') {
       labels = List.generate(pts, (i) {
@@ -154,28 +135,24 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
     _labels[range] = labels;
 
-    final seeds = {
-      'temp': {'min': 24.0, 'max': 32.0},
-      'ph': {'min': 6.5, 'max': 9.0},
-      'do': {'min': 2.5, 'max': 7.0},
-      'turb': {'min': 10.0, 'max': 70.0},
-      'waterlevel': {'min': 100.0, 'max': 200.0},
-    };
+    if (range != 'live') {
+      final seeds = {
+        'temp': {'min': 24.0, 'max': 32.0},
+        'ph': {'min': 6.5, 'max': 9.0},
+        'do': {'min': 2.5, 'max': 7.0},
+        'turb': {'min': 10.0, 'max': 70.0},
+        'waterlevel': {'min': 100.0, 'max': 200.0},
+      };
 
-    seeds.forEach((key, bounds) {
-      _data['$key-$range'] = List.generate(pts, (_) {
-        return (bounds['min']! +
-            _rng.nextDouble() * (bounds['max']! - bounds['min']!));
+      seeds.forEach((key, bounds) {
+        _data['$key-$range'] = List.generate(pts, (_) {
+          return (bounds['min']! +
+              _rng.nextDouble() * (bounds['max']! - bounds['min']!));
+        });
       });
-    });
+    }
 
     _updateInsight(range);
-
-    if (range == 'live') {
-      _startLiveUpdates();
-    } else {
-      _liveTimer?.cancel();
-    }
   }
 
   void _updateInsight(String range) {
@@ -1117,7 +1094,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                           ),
                           child: AnalyticsLineChart(
                             data: data,
-                            color: color,
+                            color: _colorFor(chartKey),
                             unit: unit,
                             labels: labels,
                             large: true,

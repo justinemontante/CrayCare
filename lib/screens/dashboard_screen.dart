@@ -1,11 +1,36 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../widgets/section_label.dart';
+import '../services/sensor_service.dart';
+import '../services/settings_service.dart';
 
-class DashboardScreen extends StatelessWidget {
+class DashboardScreen extends StatefulWidget {
   final VoidCallback? onViewGraph;
 
   const DashboardScreen({super.key, this.onViewGraph});
+
+  @override
+  State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends State<DashboardScreen> {
+  @override
+  void initState() {
+    super.initState();
+    SensorService.instance.addListener(_refreshUI);
+    SettingsService.instance.addListener(_refreshUI);
+  }
+
+  @override
+  void dispose() {
+    SensorService.instance.removeListener(_refreshUI);
+    SettingsService.instance.removeListener(_refreshUI);
+    super.dispose();
+  }
+
+  void _refreshUI() {
+    if (mounted) setState(() {});
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -15,9 +40,15 @@ class DashboardScreen extends StatelessWidget {
         child: Column(
           children: [
             _buildGreeting(),
-            const SectionLabel(label: 'Water Quality Overview', showLiveData: true),
+            const SectionLabel(
+              label: 'Water Quality Overview',
+              showLiveData: true,
+            ),
             _buildGaugeGrid(context),
-            const SectionLabel(label: 'Physical Parameters', showLiveData: true),
+            const SectionLabel(
+              label: 'Physical Parameters',
+              showLiveData: true,
+            ),
             _buildWaterLevelGauge(context),
             _buildQuickActionsHeader(),
             _buildQuickActions(),
@@ -71,7 +102,7 @@ class DashboardScreen extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
+                      const Text(
                         'Good Afternoon, Justine!',
                         style: TextStyle(
                           fontSize: 14,
@@ -80,7 +111,7 @@ class DashboardScreen extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 3),
-                      Text(
+                      const Text(
                         'Monday, May 12, 2026',
                         style: TextStyle(
                           fontSize: 10,
@@ -140,6 +171,11 @@ class DashboardScreen extends StatelessWidget {
   }
 
   Widget _buildGaugeGrid(BuildContext context) {
+    final temp = SensorService.instance.getLatestValue('temp');
+    final ph = SensorService.instance.getLatestValue('ph');
+    final dO2 = SensorService.instance.getLatestValue('do');
+    final turb = SensorService.instance.getLatestValue('turb');
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
       child: Column(
@@ -149,19 +185,19 @@ class DashboardScreen extends StatelessWidget {
               Expanded(
                 child: _buildGaugeCard(
                   title: 'Temperature',
-                  value: '26.4',
+                  value: temp.toStringAsFixed(1),
                   unit: '\u00B0C',
                   ideal: 'Ideal: 25 \u2013 30\u00B0C',
                   iconPath: 'assets/images/temperature.png',
-                  status: 'Optimal',
-                  statusColor: AppColors.successLight,
+                  status: _getStatus('temp', temp),
+                  statusColor: _getStatusColor('temp', temp),
                   onTap: () => _showGaugeDetail(
                     context,
                     title: 'Temperature',
-                    value: '26.4',
+                    value: temp.toStringAsFixed(1),
                     unit: '\u00B0C',
-                    status: 'Optimal',
-                    statusColor: AppColors.successLight,
+                    status: _getStatus('temp', temp),
+                    statusColor: _getStatusColor('temp', temp),
                     ideal: '25 \u2013 30\u00B0C',
                     iconPath: 'assets/images/temperature.png',
                   ),
@@ -171,19 +207,19 @@ class DashboardScreen extends StatelessWidget {
               Expanded(
                 child: _buildGaugeCard(
                   title: 'pH Level',
-                  value: '7.8',
+                  value: ph.toStringAsFixed(1),
                   unit: 'pH',
                   ideal: 'Ideal: 7.0 \u2013 8.5',
                   iconPath: 'assets/images/pH.png',
-                  status: 'Optimal',
-                  statusColor: AppColors.successLight,
+                  status: _getStatus('ph', ph),
+                  statusColor: _getStatusColor('ph', ph),
                   onTap: () => _showGaugeDetail(
                     context,
                     title: 'pH Level',
-                    value: '7.8',
+                    value: ph.toStringAsFixed(1),
                     unit: 'pH',
-                    status: 'Optimal',
-                    statusColor: AppColors.successLight,
+                    status: _getStatus('ph', ph),
+                    statusColor: _getStatusColor('ph', ph),
                     ideal: '7.0 \u2013 8.5',
                     iconPath: 'assets/images/pH.png',
                   ),
@@ -197,19 +233,19 @@ class DashboardScreen extends StatelessWidget {
               Expanded(
                 child: _buildGaugeCard(
                   title: 'Dissolved O\u2082',
-                  value: '4.2',
+                  value: dO2.toStringAsFixed(1),
                   unit: 'mg/L',
                   ideal: 'Ideal: >5.0 mg/L',
                   iconPath: 'assets/images/DO.png',
-                  status: 'Warning',
-                  statusColor: AppColors.warningDark,
+                  status: _getStatus('do', dO2),
+                  statusColor: _getStatusColor('do', dO2),
                   onTap: () => _showGaugeDetail(
                     context,
                     title: 'Dissolved O\u2082',
-                    value: '4.2',
+                    value: dO2.toStringAsFixed(1),
                     unit: 'mg/L',
-                    status: 'Warning',
-                    statusColor: AppColors.warningDark,
+                    status: _getStatus('do', dO2),
+                    statusColor: _getStatusColor('do', dO2),
                     ideal: '>5.0 mg/L',
                     iconPath: 'assets/images/DO.png',
                   ),
@@ -219,19 +255,19 @@ class DashboardScreen extends StatelessWidget {
               Expanded(
                 child: _buildGaugeCard(
                   title: 'Turbidity',
-                  value: '45',
+                  value: turb.toStringAsFixed(0),
                   unit: 'NTU',
                   ideal: 'Ideal: 0 \u2013 25 NTU',
                   iconPath: 'assets/images/Turbidity.png',
-                  status: 'Critical',
-                  statusColor: AppColors.criticalDark,
+                  status: _getStatus('turb', turb),
+                  statusColor: _getStatusColor('turb', turb),
                   onTap: () => _showGaugeDetail(
                     context,
                     title: 'Turbidity',
-                    value: '45',
+                    value: turb.toStringAsFixed(0),
                     unit: 'NTU',
-                    status: 'Critical',
-                    statusColor: AppColors.criticalDark,
+                    status: _getStatus('turb', turb),
+                    statusColor: _getStatusColor('turb', turb),
                     ideal: '0 \u2013 25 NTU',
                     iconPath: 'assets/images/Turbidity.png',
                   ),
@@ -242,6 +278,23 @@ class DashboardScreen extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  String _getStatus(String key, double val) {
+    final range = SettingsService.instance.currentRanges[key];
+    if (range == null) return 'Normal';
+    if (val < range['min']! || val > range['max']!) return 'Critical';
+    final padding = (range['max']! - range['min']!) * 0.1;
+    if (val < range['min']! + padding || val > range['max']! - padding)
+      return 'Warning';
+    return 'Optimal';
+  }
+
+  Color _getStatusColor(String key, double val) {
+    final status = _getStatus(key, val);
+    if (status == 'Critical') return AppColors.critical;
+    if (status == 'Warning') return AppColors.warning;
+    return AppColors.successLight;
   }
 
   Widget _buildGaugeCard({
@@ -267,24 +320,25 @@ class DashboardScreen extends StatelessWidget {
   }
 
   Widget _buildWaterLevelGauge(BuildContext context) {
+    final wl = SensorService.instance.getLatestValue('waterlevel');
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14),
       child: _buildGaugeCard(
         title: 'Water Level',
-        value: '95',
+        value: wl.toStringAsFixed(0),
         unit: 'cm',
         ideal: 'Ideal: 130 \u2013 180 cm',
         iconPath: 'assets/images/waterLevel.png',
-        status: 'Optimal',
-        statusColor: AppColors.successLight,
+        status: _getStatus('waterlevel', wl),
+        statusColor: _getStatusColor('waterlevel', wl),
         onTap: () => _showGaugeDetail(
           context,
           title: 'Water Level',
-          value: '95',
+          value: wl.toStringAsFixed(0),
           unit: 'cm',
-          status: 'Optimal',
-          statusColor: AppColors.successLight,
-                  ideal: '130 \u2013 180 cm',
+          status: _getStatus('waterlevel', wl),
+          statusColor: _getStatusColor('waterlevel', wl),
+          ideal: '130 \u2013 180 cm',
           iconPath: 'assets/images/waterLevel.png',
         ),
       ),
@@ -296,9 +350,9 @@ class DashboardScreen extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(14, 6, 14, 4),
       child: Row(
         children: [
-          Text(
+          const Text(
             'Quick Actions',
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w700,
               color: AppColors.primary,
@@ -338,9 +392,7 @@ class DashboardScreen extends StatelessWidget {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
-              border: Border.all(
-                color: AppColors.darkWith(0.06),
-              ),
+              border: Border.all(color: AppColors.darkWith(0.06)),
               borderRadius: BorderRadius.circular(10),
               boxShadow: [
                 BoxShadow(
@@ -520,11 +572,7 @@ class DashboardScreen extends StatelessWidget {
   }
 
   Widget _buildStatDivider() {
-    return Container(
-      width: 1,
-      height: 40,
-      color: AppColors.darkWith(0.1),
-    );
+    return Container(width: 1, height: 40, color: AppColors.darkWith(0.1));
   }
 
   Widget _buildDetailRow(IconData icon, String label, String value) {
@@ -534,11 +582,7 @@ class DashboardScreen extends StatelessWidget {
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              icon,
-              size: 14,
-              color: AppColors.darkWith(0.5),
-            ),
+            Icon(icon, size: 14, color: AppColors.darkWith(0.5)),
             const SizedBox(width: 8),
             Text(
               label,
@@ -583,11 +627,7 @@ class DashboardScreen extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(
-                Icons.egg_rounded,
-                size: 18,
-                color: AppColors.darkWith(0.7),
-              ),
+              Icon(Icons.egg_rounded, size: 18, color: AppColors.darkWith(0.7)),
               const SizedBox(width: 6),
               const Text(
                 'Feeding Schedule',
@@ -641,11 +681,7 @@ class DashboardScreen extends StatelessWidget {
                   ],
                 ),
               ),
-              Container(
-                width: 1,
-                height: 60,
-                color: AppColors.darkWith(0.1),
-              ),
+              Container(width: 1, height: 60, color: AppColors.darkWith(0.1)),
               Expanded(
                 child: Column(
                   children: [
@@ -726,12 +762,6 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 
-  String _formatTimestamp(DateTime dt) {
-    final h = dt.hour > 12 ? dt.hour - 12 : (dt.hour == 0 ? 12 : dt.hour);
-    final ampm = dt.hour >= 12 ? 'PM' : 'AM';
-    return 'Captured: $h:${dt.minute.toString().padLeft(2, '0')} $ampm';
-  }
-
   void _showGaugeDetail(
     BuildContext context, {
     required String title,
@@ -772,7 +802,7 @@ class DashboardScreen extends StatelessWidget {
                     GestureDetector(
                       onTap: () {
                         Navigator.pop(ctx);
-                        onViewGraph?.call();
+                        widget.onViewGraph?.call();
                       },
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -786,7 +816,7 @@ class DashboardScreen extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(width: 3),
-                          Icon(
+                          const Icon(
                             Icons.chevron_right,
                             size: 11,
                             color: AppColors.primary,
@@ -893,7 +923,10 @@ class DashboardScreen extends StatelessWidget {
                 const SizedBox(height: 6),
                 Center(
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 3,
+                    ),
                     decoration: BoxDecoration(
                       color: AppColors.primaryWith(0.06),
                       borderRadius: BorderRadius.circular(6),
@@ -901,7 +934,11 @@ class DashboardScreen extends StatelessWidget {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.access_time, size: 10, color: AppColors.primaryWith(0.6)),
+                        Icon(
+                          Icons.access_time,
+                          size: 10,
+                          color: AppColors.primaryWith(0.6),
+                        ),
                         const SizedBox(width: 4),
                         Text(
                           _formatTimestamp(DateTime.now()),
@@ -1005,6 +1042,12 @@ class DashboardScreen extends StatelessWidget {
       },
     );
   }
+
+  String _formatTimestamp(DateTime dt) {
+    final h = dt.hour > 12 ? dt.hour - 12 : (dt.hour == 0 ? 12 : dt.hour);
+    final ampm = dt.hour >= 12 ? 'PM' : 'AM';
+    return 'Captured: $h:${dt.minute.toString().padLeft(2, '0')} $ampm';
+  }
 }
 
 class _GaugeCard extends StatefulWidget {
@@ -1048,9 +1091,7 @@ class _GaugeCardState extends State<_GaugeCard> {
         onTapCancel: () => setState(() => _isPressed = false),
         child: Ink(
           decoration: BoxDecoration(
-            color: _isPressed
-                ? AppColors.darkWith(0.03)
-                : Colors.white,
+            color: _isPressed ? AppColors.darkWith(0.03) : Colors.white,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
               color: _isPressed
@@ -1071,7 +1112,10 @@ class _GaugeCardState extends State<_GaugeCard> {
           child: Column(
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
                 decoration: BoxDecoration(
                   color: widget.statusColor.withValues(alpha: 0.18),
                   borderRadius: const BorderRadius.vertical(
@@ -1133,7 +1177,10 @@ class _GaugeCardState extends State<_GaugeCard> {
               ),
               Container(
                 margin: const EdgeInsets.symmetric(vertical: 8),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: widget.statusColor.withValues(alpha: 0.18),
                   borderRadius: BorderRadius.circular(20),
