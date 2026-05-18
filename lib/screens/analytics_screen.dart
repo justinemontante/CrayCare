@@ -272,7 +272,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             right: 0,
             bottom: 0,
             width: 150,
-            height: 90,
+            height: 120,
             child: Image.asset(
               'assets/images/analytics_image.png',
               fit: BoxFit.contain,
