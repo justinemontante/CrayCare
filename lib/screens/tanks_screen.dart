@@ -1167,17 +1167,27 @@ class _TanksScreenState extends State<TanksScreen> {
                               ? () => setDialogState(() => count--)
                               : null,
                         ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 24,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            border: Border.all(color: AppColors.darkWith(0.15)),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            '$count',
+                        SizedBox(
+                          width: 80,
+                          child: TextField(
+                            controller: TextEditingController(text: '$count')
+                              ..selection = TextSelection.collapsed(offset: '$count'.length),
+                            keyboardType: TextInputType.number,
+                            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                            textAlign: TextAlign.center,
+                            onChanged: (val) {
+                              final parsed = int.tryParse(val);
+                              if (parsed != null && parsed > 0) {
+                                setDialogState(() => count = parsed);
+                              }
+                            },
+                            decoration: InputDecoration(
+                              contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: BorderSide(color: AppColors.darkWith(0.15)),
+                              ),
+                            ),
                             style: const TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.w800,
