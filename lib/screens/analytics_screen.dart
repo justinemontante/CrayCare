@@ -6,6 +6,7 @@ import '../services/settings_service.dart';
 import '../services/sensor_service.dart';
 import '../widgets/analytics/analytics_charts.dart';
 import '../widgets/analytics/filter_selector.dart';
+import '../widgets/analytics/movable_ai_logo.dart';
 
 class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
@@ -160,89 +161,258 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: Colors.white,
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildHeader(),
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: FilterSelector(
-                activeFilter: _activeFilter,
-                showCustom: _showCustom,
-                onFilterChanged: (val) {
-                  // 1. I-update agad ang button state para smooth ang animation
-                  setState(() {
-                    _activeFilter = val;
-                    _showCustom = false;
-                  });
-
-                  // 2. I-delay ng konti (100ms) bago i-load ang mabigat na charts
-                  Future.delayed(const Duration(milliseconds: 100), () {
-                    if (mounted) {
+    return Stack(
+      children: [
+        Container(
+          color: Colors.white,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildHeader(),
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: FilterSelector(
+                    activeFilter: _activeFilter,
+                    showCustom: _showCustom,
+                    onFilterChanged: (val) {
+                      // 1. I-update agad ang button state para smooth ang animation
                       setState(() {
-                        _generateData(val);
+                        _activeFilter = val;
+                        _showCustom = false;
                       });
-                    }
-                  });
-                },
-                onToggleCustom: () {
-                  setState(() {
-                    _showCustom = !_showCustom;
-                    _activeFilter = '';
-                  });
-                },
-              ),
+
+                      // 2. I-delay ng konti (100ms) bago i-load ang mabigat na charts
+                      Future.delayed(const Duration(milliseconds: 100), () {
+                        if (mounted) {
+                          setState(() {
+                            _generateData(val);
+                          });
+                        }
+                      });
+                    },
+                    onToggleCustom: () {
+                      setState(() {
+                        _showCustom = !_showCustom;
+                        _activeFilter = '';
+                      });
+                    },
+                  ),
+                ),
+                if (_showCustom)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: _buildCustomDateRow(),
+                  ),
+                const SizedBox(height: 10),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Column(
+                    children: [
+                      _buildChartCard(
+                        context,
+                        title: 'Temperature',
+                        iconPath: 'assets/images/temperature.png',
+                        chartKey: 'temp',
+                      ),
+                      _buildChartCard(
+                        context,
+                        title: 'pH Level',
+                        iconPath: 'assets/images/pH.png',
+                        chartKey: 'ph',
+                      ),
+                      _buildChartCard(
+                        context,
+                        title: 'Dissolved O\u2082',
+                        iconPath: 'assets/images/DO.png',
+                        chartKey: 'do',
+                      ),
+                      _buildChartCard(
+                        context,
+                        title: 'Turbidity',
+                        iconPath: 'assets/images/Turbidity.png',
+                        chartKey: 'turb',
+                      ),
+                      _buildChartCard(
+                        context,
+                        title: 'Water Level',
+                        iconPath: 'assets/images/waterLevel.png',
+                        chartKey: 'waterlevel',
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            if (_showCustom)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: _buildCustomDateRow(),
+          ),
+        ),
+        const MovableAiLogo(),
+      ],
+    );
+  }
+
+  void _showAIInsights() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => _buildAIInsightsSheet(),
+    );
+  }
+
+  Widget _buildAIInsightsSheet() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(28),
+          topRight: Radius.circular(28),
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.auto_awesome,
+                  color: AppColors.primary,
+                  size: 20,
+                ),
               ),
-            const SizedBox(height: 10),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Column(
+              const SizedBox(width: 12),
+              const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildChartCard(
-                    context,
-                    title: 'Temperature',
-                    iconPath: 'assets/images/temperature.png',
-                    chartKey: 'temp',
+                  Text(
+                    'CrayAI Insights',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.dark,
+                    ),
                   ),
-                  _buildChartCard(
-                    context,
-                    title: 'pH Level',
-                    iconPath: 'assets/images/pH.png',
-                    chartKey: 'ph',
+                  Text(
+                    'Smart recommendations for your tank',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
-                  _buildChartCard(
-                    context,
-                    title: 'Dissolved O\u2082',
-                    iconPath: 'assets/images/DO.png',
-                    chartKey: 'do',
-                  ),
-                  _buildChartCard(
-                    context,
-                    title: 'Turbidity',
-                    iconPath: 'assets/images/Turbidity.png',
-                    chartKey: 'turb',
-                  ),
-                  _buildChartCard(
-                    context,
-                    title: 'Water Level',
-                    iconPath: 'assets/images/waterLevel.png',
-                    chartKey: 'waterlevel',
-                  ),
-                  const SizedBox(height: 16),
                 ],
               ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          _buildInsightItem(
+            'Temperature',
+            'Currently stable at 28.5\u00B0C. AI predicts no stress for the next 4 hours.',
+            Icons.thermostat,
+            AppColors.warning,
+          ),
+          _buildInsightItem(
+            'pH Level',
+            'pH is at 7.2. Optimal for molting. Keep water parameters consistent.',
+            Icons.science,
+            AppColors.primary,
+          ),
+          _buildInsightItem(
+            'Dissolved O\u2082',
+            'Oxygen levels are high. Aeration system is performing efficiently.',
+            Icons.air,
+            const Color(0xFF52c283),
+          ),
+          _buildInsightItem(
+            'Turbidity',
+            'Water clarity is slightly low. Consider checking the filtration sponge.',
+            Icons.water,
+            AppColors.critical,
+          ),
+          _buildInsightItem(
+            'Water Level',
+            'Level is 150cm. Sufficient for adult crayfish population.',
+            Icons.height,
+            AppColors.primary,
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () => Navigator.pop(context),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.dark,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                elevation: 0,
+              ),
+              child: const Text(
+                'Got it, thanks!',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.5,
+                ),
+              ),
             ),
-          ],
-        ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInsightItem(
+    String title,
+    String desc,
+    IconData icon,
+    Color color,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: color),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.dark,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  desc,
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: AppColors.darkWith(0.6),
+                    height: 1.4,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

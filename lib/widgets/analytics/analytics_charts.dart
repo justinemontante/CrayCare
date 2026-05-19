@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import '../../theme/app_colors.dart';
 
 class AnalyticsLineChart extends StatefulWidget {
@@ -85,10 +86,20 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart> with SingleTick
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        return GestureDetector(
-          onPanStart: (details) => _selectPoint(details.localPosition),
-          onPanUpdate: (details) => _selectPoint(details.localPosition),
-          onPanEnd: (_) {},
+        return RawGestureDetector(
+          behavior: HitTestBehavior.opaque,
+          gestures: {
+            PanGestureRecognizer:
+                GestureRecognizerFactoryWithHandlers<PanGestureRecognizer>(
+              () => PanGestureRecognizer(),
+              (instance) {
+                instance.onStart =
+                    (details) => _selectPoint(details.localPosition);
+                instance.onUpdate =
+                    (details) => _selectPoint(details.localPosition);
+              },
+            ),
+          },
           child: Stack(
             children: [
               AnimatedBuilder(
