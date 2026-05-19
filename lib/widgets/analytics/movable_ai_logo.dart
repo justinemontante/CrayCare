@@ -12,7 +12,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
     with SingleTickerProviderStateMixin {
   Offset _position = const Offset(300, 500);
   late AnimationController _pulseController;
-  final double _logoSize = 46.0;
+  final double _logoSize = 60.0;
 
   @override
   void initState() {
@@ -232,22 +232,22 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                         boxShadow: [
                           BoxShadow(
                             color: AppColors.primary.withValues(
-                              alpha: 0.3 * _pulseController.value,
+                              alpha: 0.35 * _pulseController.value,
                             ),
-                            blurRadius: 12,
-                            spreadRadius: 4 * _pulseController.value,
+                            blurRadius: 15,
+                            spreadRadius: 6 * _pulseController.value,
                           ),
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.12),
-                            blurRadius: 8,
-                            offset: const Offset(0, 3),
+                            color: Colors.black.withValues(alpha: 0.15),
+                            blurRadius: 10,
+                            offset: const Offset(0, 5),
                           ),
                         ],
                         border: Border.all(
                           color: AppColors.primary.withValues(
-                            alpha: 0.2 + (0.3 * _pulseController.value),
+                            alpha: 0.25 + (0.35 * _pulseController.value),
                           ),
-                          width: 1.5,
+                          width: 2.0,
                         ),
                       ),
                       child: ClipOval(

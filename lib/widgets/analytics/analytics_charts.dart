@@ -89,9 +89,9 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart> with SingleTick
         return RawGestureDetector(
           behavior: HitTestBehavior.opaque,
           gestures: {
-            PanGestureRecognizer:
-                GestureRecognizerFactoryWithHandlers<PanGestureRecognizer>(
-              () => PanGestureRecognizer(),
+            HorizontalDragGestureRecognizer:
+                GestureRecognizerFactoryWithHandlers<HorizontalDragGestureRecognizer>(
+              () => HorizontalDragGestureRecognizer(),
               (instance) {
                 instance.onStart =
                     (details) => _selectPoint(details.localPosition);
@@ -335,11 +335,21 @@ class _LineChartPainter extends CustomPainter {
       final sx = padL + selectedIndex! * stepX;
       final sy =
           padT + chartH - ((data[selectedIndex!] - minVal) / range) * chartH;
-      // Vertical line
+      // Vertical dashed line (hyphens style)
       final linePaint = Paint()
-        ..color = color.withValues(alpha: 0.35)
+        ..color = color.withValues(alpha: 0.6)
         ..strokeWidth = 1.2;
-      canvas.drawLine(Offset(sx, padT), Offset(sx, padT + chartH), linePaint);
+      
+      double dashHeight = 4, dashSpace = 3;
+      double startY = padT;
+      while (startY < padT + chartH) {
+        canvas.drawLine(
+          Offset(sx, startY),
+          Offset(sx, min(startY + dashHeight, padT + chartH)),
+          linePaint,
+        );
+        startY += dashHeight + dashSpace;
+      }
       // Selected point dot (web style)
       canvas.drawCircle(Offset(sx, sy), 5, Paint()..color = Colors.white);
       canvas.drawCircle(

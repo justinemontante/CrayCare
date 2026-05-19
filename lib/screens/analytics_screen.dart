@@ -675,6 +675,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         .length;
 
     final selIdx = _selectedIndices[chartKey];
+    String displayCur = cur;
+    String displayLabel = curLabel;
+    String curPrefix = 'Now';
 
     String statusLabel = '';
     Color statusColor = Colors.transparent;
@@ -830,8 +833,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               if (data.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 _buildStatsFooter(
-                  cur,
-                  curLabel,
+                  displayCur,
+                  displayLabel,
                   mn,
                   mx,
                   minLabel,
@@ -845,6 +848,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   nowIdx: nowIdx,
                   onSelectIndex: (idx) =>
                       _onChartSelectionChanged(chartKey, idx),
+                  curPrefix: curPrefix,
                 ),
               ],
             ],
@@ -909,6 +913,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     int maxIdx = -1,
     int nowIdx = -1,
     ValueChanged<int>? onSelectIndex,
+    String curPrefix = 'Now',
   }) {
     final isLive = _activeFilter == 'live';
     final isShortRange = _activeFilter == 'live' || _activeFilter == '24h';
@@ -937,8 +942,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                         : null,
                     child: _buildStatRow(
                       Icons.sensors,
-                      'Now: $cur $unit',
-                      'Real-time Streaming',
+                      '$curPrefix: $cur $unit',
+                      curPrefix == 'Now' ? 'Real-time Streaming' : curLabel,
                       AppColors.primary,
                     ),
                   ),
@@ -952,9 +957,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     color: AppColors.primaryWith(0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Text(
-                    'LIVE DATA',
-                    style: TextStyle(
+                  child: Text(
+                    curPrefix == 'Now' ? 'LIVE DATA' : 'SELECTED',
+                    style: const TextStyle(
                       fontSize: 8,
                       fontWeight: FontWeight.w800,
                       color: AppColors.primary,
@@ -1003,7 +1008,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                               : null,
                           child: _buildStatRow(
                             Icons.sensors,
-                            'Now: $cur $unit',
+                            '$curPrefix: $cur $unit',
                             curLabel,
                             AppColors.primary,
                           ),
@@ -1151,6 +1156,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
             return StatefulBuilder(
               builder: (ctx2, setDialogState) {
+                String modalDisplayCur = cur;
+                String modalDisplayLabel = curLabel;
+                String modalCurPrefix = 'Now';
+
                 return Dialog(
                   insetPadding: const EdgeInsets.symmetric(horizontal: 20),
                   shape: RoundedRectangleBorder(
@@ -1238,11 +1247,21 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                   Row(
                                     children: [
                                       Expanded(
-                                        child: _buildStatRow(
-                                          Icons.sensors,
-                                          'Now: $cur $unit',
-                                          'Real-time Streaming',
-                                          AppColors.primary,
+                                        child: GestureDetector(
+                                          onTap: nowIdx >= 0
+                                              ? () => setDialogState(
+                                                  () => modalSelectedIndex =
+                                                      nowIdx,
+                                                )
+                                              : null,
+                                          child: _buildStatRow(
+                                            Icons.sensors,
+                                            '$modalCurPrefix: $modalDisplayCur $unit',
+                                            modalCurPrefix == 'Now'
+                                                ? 'Real-time Streaming'
+                                                : modalDisplayLabel,
+                                            AppColors.primary,
+                                          ),
                                         ),
                                       ),
                                       Container(
@@ -1256,9 +1275,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                             8,
                                           ),
                                         ),
-                                        child: const Text(
-                                          'LIVE DATA',
-                                          style: TextStyle(
+                                        child: Text(
+                                          modalCurPrefix == 'Now'
+                                              ? 'LIVE DATA'
+                                              : 'SELECTED',
+                                          style: const TextStyle(
                                             fontSize: 8,
                                             fontWeight: FontWeight.w800,
                                             color: AppColors.primary,
@@ -1315,8 +1336,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                               : null,
                                           child: _buildStatRow(
                                             Icons.sensors,
-                                            'Now: $cur $unit',
-                                            curLabel,
+                                            '$modalCurPrefix: $modalDisplayCur $unit',
+                                            modalDisplayLabel,
                                             AppColors.primary,
                                           ),
                                         ),
@@ -1369,7 +1390,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: AnalyticsLineChart(
-                                key: ValueKey(modalSelectedIndex),
                                 data: data,
                                 color: color,
                                 unit: unit,
