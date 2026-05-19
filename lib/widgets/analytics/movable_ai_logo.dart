@@ -193,72 +193,77 @@ class _MovableAiLogoState extends State<MovableAiLogo>
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
-    
-    // Initial position logic (sa kanang ibaba)
-    if (!_isInitialized) {
-      _position = Offset(size.width - _logoSize - 20, size.height - 200);
-      _isInitialized = true;
-    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxW = constraints.maxWidth - _logoSize - 16;
+        final maxH = constraints.maxHeight - _logoSize - 16;
+        const minW = 16.0;
+        const minH = 16.0;
 
-    final maxW = size.width - _logoSize - 16;
-    final maxH = size.height - _logoSize - 100; // Offset para sa bottom nav
-    const minW = 16.0;
-    const minH = 100.0; // Offset para sa header
+        if (!_isInitialized) {
+          _position = Offset(maxW, maxH - 40);
+          _isInitialized = true;
+        }
 
-    return Positioned(
-      left: _position.dx,
-      top: _position.dy,
-      child: GestureDetector(
-        onPanUpdate: (details) {
-          setState(() {
-            _position = Offset(
-              (_position.dx + details.delta.dx).clamp(minW, maxW),
-              (_position.dy + details.delta.dy).clamp(minH, maxH),
-            );
-          });
-        },
-        onTap: _showAIInsights,
-        child: AnimatedBuilder(
-          animation: _pulseController,
-          builder: (context, child) {
-            return Container(
-              width: _logoSize,
-              height: _logoSize,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white,
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.primary.withValues(
-                      alpha: 0.3 * _pulseController.value,
-                    ),
-                    blurRadius: 12,
-                    spreadRadius: 4 * _pulseController.value,
-                  ),
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.12),
-                    blurRadius: 8,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
-                border: Border.all(
-                  color: AppColors.primary.withValues(
-                    alpha: 0.2 + (0.3 * _pulseController.value),
-                  ),
-                  width: 1.5,
+        return Stack(
+          children: [
+            Positioned(
+              left: _position.dx,
+              top: _position.dy,
+              child: GestureDetector(
+                onPanUpdate: (details) {
+                  setState(() {
+                    _position = Offset(
+                      (_position.dx + details.delta.dx).clamp(minW, maxW),
+                      (_position.dy + details.delta.dy).clamp(minH, maxH),
+                    );
+                  });
+                },
+                onTap: _showAIInsights,
+                child: AnimatedBuilder(
+                  animation: _pulseController,
+                  builder: (context, child) {
+                    return Container(
+                      width: _logoSize,
+                      height: _logoSize,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.white,
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.primary.withValues(
+                              alpha: 0.3 * _pulseController.value,
+                            ),
+                            blurRadius: 12,
+                            spreadRadius: 4 * _pulseController.value,
+                          ),
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.12),
+                            blurRadius: 8,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
+                        border: Border.all(
+                          color: AppColors.primary.withValues(
+                            alpha: 0.2 + (0.3 * _pulseController.value),
+                          ),
+                          width: 1.5,
+                        ),
+                      ),
+                      child: ClipOval(
+                        child: Image.asset(
+                          'assets/images/AI_InsightLogo.png',
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ),
-              child: ClipOval(
-                child: Image.asset(
-                  'assets/images/AI_InsightLogo.png',
-                  fit: BoxFit.cover,
-                ),
-              ),
-            );
-          },
-        ),
-      ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
