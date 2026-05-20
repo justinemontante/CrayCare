@@ -50,9 +50,14 @@ class _MainShellState extends State<MainShell> {
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
             decoration: const BoxDecoration(
               gradient: LinearGradient(
-                colors: AppColors.headerGradient,
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFFF8FFFF), // #f8ffff
+                  Color(0xFFF2FDFD), // #f2fdfd
+                  Color(0xFFE8FAFA), // #e8fafa
+                  Color(0xFFDAF4F5), // #daf4f5
+                ],
               ),
               border: Border(
                 bottom: BorderSide(color: Color(0x0f000000), width: 1),

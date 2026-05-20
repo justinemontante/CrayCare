@@ -256,7 +256,7 @@ class GrowthOverviewPanel extends StatelessWidget {
         children: [
           const Text(
             'Growth Overview',
-            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppColors.dark),
           ),
           const SizedBox(height: 16),
           // First Row: Initial and Latest
@@ -267,7 +267,8 @@ class GrowthOverviewPanel extends StatelessWidget {
                 _formatDate(service.stockingDate),
                 initialW,
                 initialL,
-                AppColors.primary.withValues(alpha: 0.08),
+                AppColors.primaryWith(0.08),
+                AppColors.primary,
                 'Avg Weight',
                 'Avg Length',
               ),
@@ -277,7 +278,8 @@ class GrowthOverviewPanel extends StatelessWidget {
                 latest != null ? _formatDate(latest.date) : _formatDate(service.stockingDate),
                 latestW,
                 latestL,
-                const Color(0xFF52c283).withValues(alpha: 0.08),
+                AppColors.successWith(0.08),
+                AppColors.success,
                 'Avg Weight',
                 'Avg Length',
               ),
@@ -296,7 +298,8 @@ class GrowthOverviewPanel extends StatelessWidget {
     String subTitle,
     double weight,
     double length,
-    Color headerColor,
+    Color bgColor,
+    Color accentColor,
     String weightLabel,
     String lengthLabel,
   ) {
@@ -304,9 +307,9 @@ class GrowthOverviewPanel extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          color: AppColors.dark.withValues(alpha: 0.02),
+          color: bgColor,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.dark.withValues(alpha: 0.05)),
+          border: Border.all(color: accentColor.withValues(alpha: 0.1)),
         ),
         child: Column(
           children: [
@@ -315,7 +318,7 @@ class GrowthOverviewPanel extends StatelessWidget {
               style: TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.w800,
-                color: AppColors.darkWith(0.7),
+                color: accentColor,
               ),
             ),
             const SizedBox(height: 4),
@@ -342,9 +345,9 @@ class GrowthOverviewPanel extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        color: AppColors.warning.withValues(alpha: 0.08),
+        color: AppColors.warningWith(0.08),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.warning.withValues(alpha: 0.2)),
+        border: Border.all(color: AppColors.warningWith(0.2)),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -368,7 +371,7 @@ class GrowthOverviewPanel extends StatelessWidget {
   Widget _buildGrowthMetric(String label, String value, bool isPos) {
     return Column(
       children: [
-        Text(label, style: TextStyle(fontSize: 8, color: AppColors.darkWith(0.5))),
+        Text('$label:', style: TextStyle(fontSize: 8, color: AppColors.darkWith(0.5))),
         Text(
           value,
           style: TextStyle(

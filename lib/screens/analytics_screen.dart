@@ -422,9 +422,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       margin: const EdgeInsets.fromLTRB(12, 12, 12, 8),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: AppColors.headerGradient,
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
+          colors: [
+            Color(0xFFF8FFFF), // #f8ffff
+            Color(0xFFF2FDFD), // #f2fdfd
+            Color(0xFFE8FAFA), // #e8fafa
+            Color(0xFFDAF4F5), // #daf4f5
+          ],
         ),
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
