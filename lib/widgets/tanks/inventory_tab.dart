@@ -25,17 +25,17 @@ class InventoryTab extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!hasSetup) return _buildEmptyState();
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), // Reduced top padding
       child: Column(
         children: [
           _buildSurvivalCard(),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8), // Reduced
           _buildWarningBanner(),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8), // Reduced
           _buildActionButtons(),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8), // Reduced
           _buildInfoCard(),
-          const SizedBox(height: 24),
+          const SizedBox(height: 12), // Reduced
         ],
       ),
     );

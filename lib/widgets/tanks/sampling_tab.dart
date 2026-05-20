@@ -20,19 +20,20 @@ class SamplingTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), // Reduced top padding to 8
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const NextSamplingPanel(),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           const GrowthOverviewPanel(),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           const SamplingFormPanel(),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           GrowthStagePanel(onInfoTap: onShowGrowthStageReferenceModal),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           const SamplingHistoryPanel(),
+          const SizedBox(height: 12),
         ],
       ),
     );
@@ -47,22 +48,21 @@ class NextSamplingPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final service = TankService.instance;
-    // For demonstration, let's assume a 7-day cycle
     final daysInCycle = 7;
     final currentDay = (service.daysInCulture % daysInCycle) + 1;
     final daysRemaining = daysInCycle - currentDay;
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16), // Reduced internal padding
       decoration: BoxDecoration(
         color: AppColors.white,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(20), // Reduced corner radius
         border: Border.all(color: AppColors.faintBorder),
         boxShadow: [
           BoxShadow(
-            color: AppColors.darkWith(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
+            color: AppColors.darkWith(0.04),
+            blurRadius: 10, // Reduced blur
+            offset: const Offset(0, 2), // Reduced offset
           ),
         ],
       ),
@@ -71,7 +71,7 @@ class NextSamplingPanel extends StatelessWidget {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(10),
+                padding: const EdgeInsets.all(8), // Reduced padding
                 decoration: BoxDecoration(
                   color: AppColors.primaryWith(0.1),
                   borderRadius: BorderRadius.circular(12),
@@ -95,6 +95,7 @@ class NextSamplingPanel extends StatelessWidget {
                         color: daysRemaining == 0 ? AppColors.critical : AppColors.dark,
                       ),
                     ),
+                    const SizedBox(height: 2),
                     Text(
                       'Due on ${_formatDate(DateTime.now().add(Duration(days: daysRemaining)))}',
                       style: TextStyle(
@@ -106,19 +107,26 @@ class NextSamplingPanel extends StatelessWidget {
                   ],
                 ),
               ),
-              Text(
-                'Week ${((currentDay - 1) / 7).floor() + 1}',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.darkWith(0.5),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), // Reduced padding
+                decoration: BoxDecoration(
+                  color: AppColors.lightBg,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  'Week ${((currentDay - 1) / 7).floor() + 1}',
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.darkWith(0.6),
+                  ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12), // Reduced spacing
           const Divider(height: 1, thickness: 1),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12), // Reduced spacing
           _buildStepTracker(currentDay, daysInCycle),
         ],
       ),
@@ -211,7 +219,7 @@ class NextSamplingPanel extends StatelessWidget {
   }
 }
 
-/// A widget that displays the "Growth Overview" with three key metrics.
+/// A widget that displays the "Growth Overview" with three mini cards.
 class GrowthOverviewPanel extends StatelessWidget {
   const GrowthOverviewPanel({super.key});
 
@@ -230,54 +238,126 @@ class GrowthOverviewPanel extends StatelessWidget {
     final diffL = latestL - initialL;
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: AppColors.white,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: AppColors.faintBorder),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.darkWith(0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          const Text(
+            'Growth Overview',
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 16),
+          // First Row: Initial and Latest
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
-                'Growth Overview',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+              _buildMiniCard(
+                'Initial Baseline',
+                _formatDate(service.stockingDate),
+                initialW,
+                initialL,
+                AppColors.primary.withValues(alpha: 0.08),
+                'Avg Weight',
+                'Avg Length',
               ),
-              TextButton(
-                onPressed: () {},
-                child: const Text(
-                  'View Details',
-                  style: TextStyle(color: AppColors.primary, fontSize: 11),
-                ),
+              const SizedBox(width: 12),
+              _buildMiniCard(
+                'Latest Sampling',
+                latest != null ? _formatDate(latest.date) : _formatDate(service.stockingDate),
+                latestW,
+                latestL,
+                const Color(0xFF52c283).withValues(alpha: 0.08),
+                'Avg Weight',
+                'Avg Length',
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
+          // Second Row: Growth (Full Width)
+          _buildGrowthFullCard(diffW, diffL),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMiniCard(
+    String title,
+    String subTitle,
+    double weight,
+    double length,
+    Color headerColor,
+    String weightLabel,
+    String lengthLabel,
+  ) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppColors.dark.withValues(alpha: 0.02),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.dark.withValues(alpha: 0.05)),
+        ),
+        child: Column(
+          children: [
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+                color: AppColors.darkWith(0.7),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              subTitle,
+              style: TextStyle(
+                fontSize: 9,
+                color: AppColors.darkWith(0.5),
+              ),
+            ),
+            const SizedBox(height: 12),
+            _buildDataRow(weightLabel, '${weight.toStringAsFixed(1)} g'),
+            _buildDataRow(lengthLabel, '${length.toStringAsFixed(1)} cm'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGrowthFullCard(double weight, double length) {
+    final isPosW = weight >= 0;
+    final isPosL = length >= 0;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: AppColors.warning.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.warning.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Text(
+            'Net Growth',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.warningDark),
+          ),
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildMiniCard(
-                'Initial',
-                '${service.stockingDate.month}/${service.stockingDate.day}',
-                initialW,
-                initialL,
-                AppColors.primaryWith(0.1),
-              ),
-              const SizedBox(width: 8),
-              _buildMiniCard(
-                'Latest',
-                latest != null
-                    ? '${latest.date.month}/${latest.date.day}'
-                    : '${service.stockingDate.month}/${service.stockingDate.day}',
-                latestW,
-                latestL,
-                AppColors.successWith(0.1),
-              ),
-              const SizedBox(width: 8),
-              _buildGrowthDiffCard(diffW, diffL),
+              _buildGrowthMetric('Avg Weight', '${isPosW ? '+' : ''}${weight.toStringAsFixed(1)} g', isPosW),
+              const SizedBox(width: 16),
+              _buildGrowthMetric('Avg Length', '${isPosL ? '+' : ''}${length.toStringAsFixed(1)} cm', isPosL),
             ],
           ),
         ],
@@ -285,88 +365,41 @@ class GrowthOverviewPanel extends StatelessWidget {
     );
   }
 
-  Widget _buildMiniCard(String title, String date, double weight, double length, Color bgColor) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: bgColor,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppColors.faintBorder),
+  Widget _buildGrowthMetric(String label, String value, bool isPos) {
+    return Column(
+      children: [
+        Text(label, style: TextStyle(fontSize: 8, color: AppColors.darkWith(0.5))),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w900,
+            color: isPos ? AppColors.success : AppColors.critical,
+          ),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: TextStyle(
-                fontSize: 9,
-                fontWeight: FontWeight.w700,
-                color: AppColors.dark,
-              ),
-            ),
-            Text(
-              date,
-              style: TextStyle(
-                fontSize: 8,
-                color: AppColors.darkWith(0.5),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '${weight.toStringAsFixed(1)}g',
-              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
-            ),
-            Text(
-              '${length.toStringAsFixed(1)}cm',
-              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
-            ),
-          ],
-        ),
+      ],
+    );
+  }
+
+  Widget _buildDataRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.6))),
+          Text(value, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
+        ],
       ),
     );
   }
 
-  Widget _buildGrowthDiffCard(double diffW, double diffL) {
-    final isPositiveW = diffW >= 0;
-    final isPositiveL = diffL >= 0;
-
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: AppColors.warningWith(0.1),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppColors.faintBorder),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Growth',
-              style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 14),
-            Text(
-              '${isPositiveW ? '+' : ''}${diffW.toStringAsFixed(1)}g',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
-                color: isPositiveW ? AppColors.success : AppColors.critical,
-              ),
-            ),
-            Text(
-              '${isPositiveL ? '+' : ''}${diffL.toStringAsFixed(1)}cm',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
-                color: isPositiveL ? AppColors.success : AppColors.critical,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+  String _formatDate(DateTime date) {
+    final months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+    return '${months[date.month - 1]} ${date.day}, ${date.year}';
   }
 }
 
@@ -519,19 +552,40 @@ class GrowthStagePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final stages = [
-      {'name': 'Juvenile', 'threshold': '5g'},
-      {'name': 'Early', 'threshold': '15g'},
-      {'name': 'Mid', 'threshold': '30g'},
-      {'name': 'Late', 'threshold': '50g'},
-      {'name': 'Market', 'threshold': '100g'},
+      {'name': 'Juvenile', 'threshold': 5.0},
+      {'name': 'Early Grow-out', 'threshold': 15.0},
+      {'name': 'Mid Grow-out', 'threshold': 30.0},
+      {'name': 'Late Grow-out', 'threshold': 50.0},
+      {'name': 'Market Size', 'threshold': 100.0},
     ];
 
+    // Calculate current progress based on ABW
+    final history = TankService.instance.samplingHistory;
+    final currentAbw = history.isNotEmpty ? history.last.abw : TankService.instance.initialWeight;
+    
+    // Find active stage index
+    int activeIndex = 0;
+    for (int i = 0; i < stages.length; i++) {
+      if (currentAbw >= (stages[i]['threshold'] as double)) {
+        activeIndex = i;
+      }
+    }
+
+    final double progress = (activeIndex + 1) / stages.length;
+
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: AppColors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.darkWith(0.08)),
+        border: Border.all(color: AppColors.faintBorder),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.darkWith(0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -539,57 +593,110 @@ class GrowthStagePanel extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
-                'Growth Stage',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Growth Stage',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppColors.dark),
+                  ),
+                  Text(
+                    'Current: ${stages[activeIndex]['name']}',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ],
               ),
               GestureDetector(
                 onTap: onInfoTap,
-                child: const Icon(Icons.info_outline, size: 16, color: AppColors.primary),
+                child: const Icon(
+                  Icons.info_outline,
+                  size: 16,
+                  color: AppColors.primary,
+                ),
               ),
             ],
           ),
           const SizedBox(height: 20),
+          // Polished Progress Bar
           Stack(
-            alignment: Alignment.centerLeft,
+            clipBehavior: Clip.none,
             children: [
+              // Background track
               Container(
                 height: 8,
                 decoration: BoxDecoration(
-                  color: AppColors.lightBg,
-                  borderRadius: BorderRadius.circular(4),
+                  color: AppColors.darkWith(0.06),
+                  borderRadius: BorderRadius.circular(10),
                 ),
               ),
-              FractionallySizedBox(
-                widthFactor: 0.5,
-                child: Container(
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: AppColors.primary,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                ),
+              // Animated Gradient Fill
+              TweenAnimationBuilder<double>(
+                tween: Tween<double>(begin: 0, end: progress),
+                duration: const Duration(milliseconds: 1000),
+                curve: Curves.easeOutCubic,
+                builder: (context, value, child) {
+                  return FractionallySizedBox(
+                    widthFactor: value,
+                    child: Container(
+                      height: 8,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF52c283), AppColors.primary],
+                        ),
+                        borderRadius: BorderRadius.circular(10),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.primaryWith(0.2),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
               ),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: List.generate(stages.length, (i) => Container(
-                  width: 12, height: 12,
-                  decoration: BoxDecoration(
-                    color: i <= 2 ? AppColors.primary : AppColors.lightBg,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: AppColors.white, width: 2),
-                  ),
-                )),
+              // Step Markers (Ticks)
+              Positioned.fill(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: List.generate(stages.length, (i) {
+                    final isActive = i <= activeIndex;
+                    return Container(
+                      width: 2,
+                      height: 8,
+                      color: isActive ? Colors.white.withValues(alpha: 0.5) : Colors.transparent,
+                    );
+                  }),
+                ),
               ),
             ],
           ),
           const SizedBox(height: 12),
+          // Stage Labels
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: stages.map((s) => Text(
-              s['name']!,
-              style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.5)),
-            )).toList(),
+            children: List.generate(stages.length, (i) {
+              final isActive = i == activeIndex;
+              final isReached = i <= activeIndex;
+              return Expanded(
+                child: Text(
+                  stages[i]['name'] as String,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 8,
+                    fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
+                    color: isActive 
+                        ? AppColors.primary 
+                        : (isReached ? AppColors.darkWith(0.7) : AppColors.darkWith(0.3)),
+                  ),
+                ),
+              );
+            }),
           ),
         ],
       ),
@@ -606,39 +713,35 @@ class SamplingHistoryPanel extends StatelessWidget {
     final history = TankService.instance.samplingHistory;
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: AppColors.white,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: AppColors.faintBorder),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.darkWith(0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Sampling History',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
-              ),
-              if (history.isNotEmpty)
-                TextButton(
-                  onPressed: () {},
-                  child: const Text(
-                    'View All',
-                    style: TextStyle(color: AppColors.primary, fontSize: 11),
-                  ),
-                ),
-            ],
+          const Text(
+            'Sampling History',
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppColors.dark),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
           if (history.isEmpty)
-            const Padding(
-              padding: EdgeInsets.all(12),
-              child: Text(
-                'No sampling history yet.',
-                style: TextStyle(fontSize: 12, color: AppColors.subtitleText),
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Text(
+                  'No sampling history yet.',
+                  style: TextStyle(fontSize: 12, color: AppColors.darkWith(0.4)),
+                ),
               ),
             )
           else
@@ -646,41 +749,45 @@ class SamplingHistoryPanel extends StatelessWidget {
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: history.length,
-              separatorBuilder: (context, index) => const SizedBox(height: 8),
+              separatorBuilder: (context, index) => const SizedBox(height: 10),
               itemBuilder: (context, index) {
                 final entry = history[index];
                 return Container(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                   decoration: BoxDecoration(
-                    color: AppColors.lightBg,
+                    color: AppColors.darkWith(0.02),
                     borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.darkWith(0.05)),
                   ),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Sampling',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.dark,
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: AppColors.primaryWith(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.history_rounded, size: 16, color: AppColors.primary),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${entry.date.month}/${entry.date.day}/${entry.date.year}',
+                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.dark),
                             ),
-                          ),
-                          Text(
-                            '${entry.date.month}/${entry.date.day}/${entry.date.year}',
-                            style: TextStyle(
-                              fontSize: 9,
-                              color: AppColors.darkWith(0.5),
+                            Text(
+                              '${entry.sampleSize} samples recorded',
+                              style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.5)),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                       Text(
-                        '${entry.abw.toStringAsFixed(1)}g | ${entry.avgLength.toStringAsFixed(1)}cm | ${entry.sampleSize} samples',
-                        style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w500),
+                        '${entry.abw.toStringAsFixed(1)}g | ${entry.avgLength.toStringAsFixed(1)}cm',
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.primary),
                       ),
                     ],
                   ),
