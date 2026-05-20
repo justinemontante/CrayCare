@@ -32,11 +32,12 @@ class AppColors {
   static const List<Color> primaryGradientDark = [gradientStartDark, gradientEndDark];
 
   // Header gradient
-  static const Color headerStart = Color(0xFFf8ffff);
-  static const Color headerMid = Color(0xFFf2fdfd);
-  static const Color headerMid2 = Color(0xFFe8fafa);
-  static const Color headerEnd = Color(0xFFdaf4f5);
-  static const List<Color> headerGradient = [headerStart, headerMid, headerMid2, headerEnd];
+  static const Color headerStart = Color(0xFF1FA5A5); // Represents rgba(31, 165, 165, 1)
+  static const Color headerEnd = Color(0xFF52C283); // Represents rgba(82, 194, 131, 1)
+  static const List<Color> headerGradient = [
+    Color(0x0F1FA5A5), // 0.06 opacity
+    Color(0x0A52C283), // 0.04 opacity
+  ];
 
   // Opacity helpers
   static Color primaryWith(double opacity) => primary.withValues(alpha: opacity);

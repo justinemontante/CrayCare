@@ -749,17 +749,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                           color: AppColors.dark,
                         ),
                       ),
-                      if (_activeFilter == '24h') ...[
-                        const SizedBox(width: 8),
-                        _LiveJumpButton(
-                          onTap: () {
-                            setState(() {
-                              _activeFilter = 'live';
-                              _generateData('live');
-                            });
-                          },
-                        ),
-                      ],
+                      if (_activeFilter == '24h') ...[const SizedBox(width: 8)],
                     ],
                   ),
                   if (data.isNotEmpty)
@@ -1527,93 +1517,4 @@ class _CriticalItem {
     required this.label,
     required this.isAboveMax,
   });
-}
-
-class _LiveJumpButton extends StatefulWidget {
-  final VoidCallback onTap;
-  const _LiveJumpButton({required this.onTap});
-
-  @override
-  State<_LiveJumpButton> createState() => _LiveJumpButtonState();
-}
-
-class _LiveJumpButtonState extends State<_LiveJumpButton>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1200),
-    )..repeat(reverse: true);
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(8),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(8),
-        onTap: widget.onTap,
-        child: Ink(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: AppColors.primary.withValues(alpha: 0.1),
-            border: Border.all(
-              color: AppColors.primary.withValues(alpha: 0.25),
-            ),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              AnimatedBuilder(
-                animation: _controller,
-                builder: (context, child) {
-                  return Container(
-                    width: 6,
-                    height: 6,
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(
-                        alpha: 0.5 + (0.5 * _controller.value),
-                      ),
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.primary.withValues(
-                            alpha: 0.3 * _controller.value,
-                          ),
-                          blurRadius: 4,
-                          spreadRadius: 1,
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(width: 5),
-              const Text(
-                'VIEW LIVE',
-                style: TextStyle(
-                  fontSize: 8,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.primary,
-                  letterSpacing: 0.3,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }

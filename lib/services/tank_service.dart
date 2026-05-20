@@ -39,18 +39,20 @@ class TankActivity {
 class TankService extends ChangeNotifier {
   static final TankService instance = TankService._();
   TankService._() {
-    _activities.add(TankActivity(
-      action: 'Initialized grow-out with 68 population',
-      date: 'May 12, 2026',
-      time: '08:00 AM',
-      type: 'init',
-    ));
+    _activities.add(
+      TankActivity(
+        action: 'Initialized grow-out with 68 population',
+        date: 'May 12, 2026',
+        time: '08:00 AM',
+        type: 'init',
+      ),
+    );
   }
 
   int _initialCount = 68;
   int _mortality = 5;
   DateTime _stockingDate = DateTime.now().subtract(const Duration(days: 45));
-  
+
   // Baseline Sampling Data
   int _sampleCount = 30;
   double _initialWeight = 45.2;
@@ -62,15 +64,17 @@ class TankService extends ChangeNotifier {
   int get initialCount => _initialCount;
   int get mortality => _mortality;
   int get liveCount => _initialCount - _mortality;
-  double get survivalRate => _initialCount == 0 ? 0 : (liveCount / _initialCount * 100);
+  double get survivalRate =>
+      _initialCount == 0 ? 0 : (liveCount / _initialCount * 100);
   DateTime get stockingDate => _stockingDate;
   int get daysInCulture => DateTime.now().difference(_stockingDate).inDays;
-  
+
   int get sampleCount => _sampleCount;
   double get initialWeight => _initialWeight;
   double get initialLength => _initialLength;
 
-  List<SamplingEntry> get samplingHistory => List.unmodifiable(_samplingHistory);
+  List<SamplingEntry> get samplingHistory =>
+      List.unmodifiable(_samplingHistory);
   List<TankActivity> get activities => List.unmodifiable(_activities.reversed);
 
   void addSamplingEntry(int count, double weight, double length) {
@@ -87,7 +91,10 @@ class TankService extends ChangeNotifier {
       liveCount: liveCount,
     );
     _samplingHistory.add(entry);
-    _addActivity('Recorded sampling: ${abw.toStringAsFixed(2)}g ABW', 'sampling');
+    _addActivity(
+      'Recorded sampling: ${abw.toStringAsFixed(2)}g ABW',
+      'sampling',
+    );
     notifyListeners();
   }
 
@@ -99,7 +106,11 @@ class TankService extends ChangeNotifier {
 
   void addMortality(int val, {DateTime? date}) {
     _mortality += val;
-    _addActivity('Recorded mortality of $val crayfish (Total: $_mortality)', 'mortality', customDate: date);
+    _addActivity(
+      'Recorded mortality of $val crayfish (Total: $_mortality)',
+      'mortality',
+      customDate: date,
+    );
     notifyListeners();
   }
 
@@ -110,7 +121,11 @@ class TankService extends ChangeNotifier {
     notifyListeners();
   }
 
-  void updateBaselineSampling({int? sampleCount, double? weight, double? length}) {
+  void updateBaselineSampling({
+    int? sampleCount,
+    double? weight,
+    double? length,
+  }) {
     if (sampleCount != null) _sampleCount = sampleCount;
     if (weight != null) _initialWeight = weight;
     if (length != null) _initialLength = length;
@@ -118,33 +133,53 @@ class TankService extends ChangeNotifier {
     notifyListeners();
   }
 
-  void initializeGrowOut(int initial, int sampleCount, double weight, double length, DateTime date) {
+  void initializeGrowOut(
+    int initial,
+    int sampleCount,
+    double weight,
+    double length,
+    DateTime date,
+  ) {
     _initialCount = initial;
     _mortality = 0;
     _stockingDate = date;
     _sampleCount = sampleCount;
     _initialWeight = weight;
     _initialLength = length;
-    
+
     _samplingHistory.clear();
     _activities.clear();
-    _addActivity('Initialized grow-out with $initial population', 'init', customDate: date);
+    _addActivity(
+      'Initialized grow-out with $initial population',
+      'init',
+      customDate: date,
+    );
     notifyListeners();
   }
 
   void _addActivity(String action, String type, {DateTime? customDate}) {
     final now = customDate ?? DateTime.now();
-    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
     final dateStr = '${months[now.month - 1]} ${now.day}, ${now.year}';
     final h = now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour);
     final ampm = now.hour >= 12 ? 'PM' : 'AM';
     final timeStr = '$h:${now.minute.toString().padLeft(2, '0')} $ampm';
-    
-    _activities.add(TankActivity(
-      action: action,
-      date: dateStr,
-      time: timeStr,
-      type: type,
-    ));
+
+    _activities.add(
+      TankActivity(action: action, date: dateStr, time: timeStr, type: type),
+    );
   }
 }
