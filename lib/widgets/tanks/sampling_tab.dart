@@ -555,11 +555,10 @@ class GrowthStagePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final stages = [
-      {'name': 'Juvenile', 'threshold': 5.0},
-      {'name': 'Early Grow-out', 'threshold': 15.0},
-      {'name': 'Mid Grow-out', 'threshold': 30.0},
-      {'name': 'Late Grow-out', 'threshold': 50.0},
-      {'name': 'Market Size', 'threshold': 100.0},
+      {'name': 'Early Juvenile', 'lower': 0.0},
+      {'name': 'Advanced Juvenile', 'lower': 5.0},
+      {'name': 'Grow-out Phase', 'lower': 15.0},
+      {'name': 'Market Size', 'lower': 50.0},
     ];
 
     // Calculate current progress based on ABW
@@ -569,7 +568,7 @@ class GrowthStagePanel extends StatelessWidget {
     // Find active stage index
     int activeIndex = 0;
     for (int i = 0; i < stages.length; i++) {
-      if (currentAbw >= (stages[i]['threshold'] as double)) {
+      if (currentAbw >= (stages[i]['lower'] as double)) {
         activeIndex = i;
       }
     }

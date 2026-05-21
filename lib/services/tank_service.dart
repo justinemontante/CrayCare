@@ -1,5 +1,20 @@
 import 'package:flutter/foundation.dart';
 
+enum GrowthStage {
+  earlyJuvenile('Early Juvenile', '1-5g', '2-4cm', 'Nursery / Initial Stocking', 'SRAC Pub 244'),
+  advancedJuvenile('Advanced Juvenile', '5-15g', '4-6cm', 'Pre-Grow-out', 'Queensland Gov'),
+  growOut('Grow-out Phase', '15-50g', '6-10cm', 'Active Growth', 'FAO / SRAC'),
+  marketSize('Market Size / Adult', '50-120g+', '10cm+', 'Harvest / Broodstock', 'Queensland Gov / SRAC');
+
+  final String label;
+  final String weightRange;
+  final String lengthRange;
+  final String subPhase;
+  final String source;
+
+  const GrowthStage(this.label, this.weightRange, this.lengthRange, this.subPhase, this.source);
+}
+
 class SamplingEntry {
   final DateTime date;
   final double abw;
@@ -76,6 +91,15 @@ class TankService extends ChangeNotifier {
   List<SamplingEntry> get samplingHistory =>
       List.unmodifiable(_samplingHistory);
   List<TankActivity> get activities => List.unmodifiable(_activities.reversed);
+
+  GrowthStage get currentGrowthStage {
+    final latest = _samplingHistory.isNotEmpty ? _samplingHistory.last : null;
+    final abw = latest?.abw ?? _initialWeight;
+    if (abw < 5) return GrowthStage.earlyJuvenile;
+    if (abw < 15) return GrowthStage.advancedJuvenile;
+    if (abw < 50) return GrowthStage.growOut;
+    return GrowthStage.marketSize;
+  }
 
   void addSamplingEntry(int count, double weight, double length) {
     final abw = weight / count;

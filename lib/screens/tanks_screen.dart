@@ -236,86 +236,101 @@ class _TanksScreenState extends State<TanksScreen> {
       builder: (ctx) {
         return SafeArea(
           child: Padding(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Center(
                   child: Container(
-                    width: 36,
+                    width: 40,
                     height: 4,
                     decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
+                      color: AppColors.dark.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 24),
                 const Text(
                   'Growth Classification Reference',
                   style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
                     color: AppColors.dark,
+                    letterSpacing: -0.2,
                   ),
                 ),
-                const Text(
-                  'Based on Average Body Length (ABL) and Average Body Weight (ABW)',
-                  style: TextStyle(fontSize: 12, color: AppColors.subtitleText),
+                const SizedBox(height: 4),
+                Text(
+                  'Based on SRAC Publication No. 244 and Queensland Government Guidelines.',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.dark.withValues(alpha: 0.5),
+                    height: 1.4,
+                  ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 24),
                 Table(
-                  border: TableBorder.all(color: AppColors.darkWith(0.1)),
+                  border: TableBorder.all(
+                    color: AppColors.dark.withValues(alpha: 0.08),
+                    width: 1,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                   columnWidths: const {
-                    0: FlexColumnWidth(2),
+                    0: FlexColumnWidth(2.2),
                     1: FlexColumnWidth(1.5),
                     2: FlexColumnWidth(1.5),
                   },
                   children: [
                     TableRow(
-                      decoration: const BoxDecoration(color: Color(0xFFF2FDFD)),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.05),
+                      ),
                       children: const [
                         Padding(
-                          padding: EdgeInsets.all(8),
+                          padding: EdgeInsets.all(12),
                           child: Text(
-                            'Stage',
+                            'STAGE',
                             style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 9,
+                              letterSpacing: 0.5,
                             ),
                           ),
                         ),
                         Padding(
-                          padding: EdgeInsets.all(8),
+                          padding: EdgeInsets.all(12),
                           child: Text(
-                            'Length',
+                            'LENGTH',
                             style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 9,
+                              letterSpacing: 0.5,
                             ),
                           ),
                         ),
                         Padding(
-                          padding: EdgeInsets.all(8),
+                          padding: EdgeInsets.all(12),
                           child: Text(
-                            'Weight',
+                            'WEIGHT',
                             style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 9,
+                              letterSpacing: 0.5,
                             ),
                           ),
                         ),
                       ],
                     ),
-                    _buildTableRow('Juvenile', '2 – 4 cm', '1 – 5 g'),
-                    _buildTableRow('Early Grow-out', '4 – 6 cm', '5 – 15 g'),
-                    _buildTableRow('Mid Grow-out', '6 – 8 cm', '15 – 30 g'),
-                    _buildTableRow('Late Grow-out', '8 – 10 cm', '30 – 50 g'),
-                    _buildTableRow('Market Size', '> 10 cm', '> 50 g'),
+                    _buildTableRow('Early Juvenile', '2 – 4 cm', '1 – 5 g'),
+                    _buildTableRow('Advanced Juvenile', '4 – 6 cm', '5 – 15 g'),
+                    _buildTableRow('Grow-out Phase', '6 – 10 cm', '15 – 50 g'),
+                    _buildTableRow('Market Size / Adult', '> 10 cm', '50 g +'),
                   ],
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 32),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
@@ -323,8 +338,16 @@ class _TanksScreenState extends State<TanksScreen> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       foregroundColor: AppColors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
                     ),
-                    child: const Text('Close'),
+                    child: const Text(
+                      'Close Reference',
+                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                    ),
                   ),
                 ),
               ],
@@ -339,16 +362,25 @@ class _TanksScreenState extends State<TanksScreen> {
     return TableRow(
       children: [
         Padding(
-          padding: const EdgeInsets.all(8),
-          child: Text(stage, style: const TextStyle(fontSize: 11)),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          child: Text(
+            stage,
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.dark),
+          ),
         ),
         Padding(
-          padding: const EdgeInsets.all(8),
-          child: Text(length, style: const TextStyle(fontSize: 11)),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          child: Text(
+            length,
+            style: TextStyle(fontSize: 10, color: AppColors.dark.withValues(alpha: 0.7)),
+          ),
         ),
         Padding(
-          padding: const EdgeInsets.all(8),
-          child: Text(weight, style: const TextStyle(fontSize: 11)),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          child: Text(
+            weight,
+            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.primary),
+          ),
         ),
       ],
     );
