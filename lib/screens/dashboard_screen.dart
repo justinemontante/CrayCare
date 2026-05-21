@@ -40,18 +40,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: Column(
           children: [
             _buildGreeting(),
-            const SectionLabel(
-              label: 'Water Quality Overview',
-              showLiveData: true,
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 4),
+              child: SectionLabel(
+                label: 'Water Quality Overview',
+                showLiveData: true,
+              ),
             ),
             _buildGaugeGrid(context),
-            const SectionLabel(
-              label: 'Physical Parameters',
-              showLiveData: true,
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 4),
+              child: SectionLabel(
+                label: 'Physical Parameter',
+                showLiveData: true,
+              ),
             ),
             _buildWaterLevelGauge(context),
+            const SizedBox(height: 12),
             _buildQuickActionsHeader(),
             _buildQuickActions(),
+            const SizedBox(height: 12),
             _buildTankStatusCard(),
             _buildFeedingScheduleCard(),
             const SizedBox(height: 32),
@@ -182,7 +190,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final turb = SensorService.instance.getLatestValue('turb');
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 14),
       child: Column(
         children: [
           Row(
@@ -206,7 +214,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 12),
               Expanded(
                 child: _buildGaugeCard(
                   title: 'pH Level',
@@ -228,7 +236,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           Row(
             children: [
               Expanded(
@@ -250,7 +258,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 12),
               Expanded(
                 child: _buildGaugeCard(
                   title: 'Turbidity',
@@ -774,7 +782,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
             final value = SensorService.instance.getLatestValue(sensorKey);
             final status = _getStatus(sensorKey, value);
             final statusColor = _getStatusColor(sensorKey, value);
-            final formattedValue = sensorKey == 'turb' || sensorKey == 'waterlevel'
+            final formattedValue =
+                sensorKey == 'turb' || sensorKey == 'waterlevel'
                 ? value.toStringAsFixed(0)
                 : value.toStringAsFixed(1);
 
@@ -938,7 +947,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              _formatTimestamp(SensorService.instance.lastUpdated),
+                              _formatTimestamp(
+                                SensorService.instance.lastUpdated,
+                              ),
                               style: TextStyle(
                                 fontSize: 9,
                                 fontWeight: FontWeight.w500,
@@ -1081,148 +1092,145 @@ class _GaugeCardState extends State<_GaugeCard> {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(20),
-      child: InkWell(
+    return Container(
+      decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
-        onTap: widget.onTap,
-        onTapDown: (_) => setState(() => _isPressed = true),
-        onTapUp: (_) => setState(() => _isPressed = false),
-        onTapCancel: () => setState(() => _isPressed = false),
-        child: Ink(
-          decoration: BoxDecoration(
-            color: _isPressed ? AppColors.darkWith(0.03) : Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: _isPressed
-                  ? AppColors.darkWith(0.25)
-                  : AppColors.darkWith(0.15),
-              width: 1.5,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: _isPressed
-                    ? AppColors.darkWith(0.12)
-                    : AppColors.darkWith(0.08),
-                blurRadius: _isPressed ? 8 : 12,
-                offset: const Offset(0, 2),
-              ),
-            ],
+        boxShadow: [
+          BoxShadow(
+            color: _isPressed
+                ? AppColors.darkWith(0.16)
+                : AppColors.darkWith(0.12),
+            blurRadius: _isPressed ? 10 : 16,
+            offset: const Offset(0, 4),
           ),
-          child: Column(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 10,
-                ),
-                decoration: BoxDecoration(
-                  color: widget.statusColor.withValues(alpha: 0.18),
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(18.5),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        widget.title,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.dark,
-                          letterSpacing: 0.3,
+        ],
+      ),
+      child: Material(
+        color: _isPressed ? AppColors.darkWith(0.03) : const Color(0xFFFCFCFC),
+        borderRadius: BorderRadius.circular(20),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: widget.onTap,
+          onTapDown: (_) => setState(() => _isPressed = true),
+          onTapUp: (_) => setState(() => _isPressed = false),
+          onTapCancel: () => setState(() => _isPressed = false),
+          child: Ink(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: _isPressed
+                    ? AppColors.darkWith(0.25)
+                    : AppColors.darkWith(0.15),
+                width: 1.5,
+              ),
+            ),
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 32,
+                        height: 32,
+                        padding: const EdgeInsets.all(7),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Image.asset(widget.iconPath),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          widget.title,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.dark,
+                            letterSpacing: -0.2,
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 6),
-                    Container(
-                      width: 28,
-                      height: 28,
-                      padding: const EdgeInsets.all(5),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.8),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Image.asset(widget.iconPath),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.only(top: 6, bottom: 2),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      widget.value,
-                      style: const TextStyle(
-                        fontSize: 26,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.dark,
-                        height: 1,
-                      ),
-                    ),
-                    const SizedBox(width: 3),
-                    Text(
-                      widget.unit,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.dark,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                margin: const EdgeInsets.symmetric(vertical: 8),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: widget.statusColor.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 7,
-                      height: 7,
-                      decoration: BoxDecoration(
-                        color: widget.statusColor,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 5),
-                    Text(
-                      widget.status,
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: widget.statusColor,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
-                child: Text(
-                  widget.ideal,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 9,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.dark,
+                    ],
                   ),
                 ),
-              ),
-            ],
+                Padding(
+                  padding: const EdgeInsets.only(top: 10, bottom: 2),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Text(
+                        widget.value,
+                        style: const TextStyle(
+                          fontSize: 26,
+                          fontWeight: FontWeight.w900,
+                          color: AppColors.dark,
+                          height: 1,
+                        ),
+                      ),
+                      const SizedBox(width: 3),
+                      Text(
+                        widget.unit,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.dark.withValues(alpha: 0.5),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  margin: const EdgeInsets.symmetric(vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: widget.statusColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          color: widget.statusColor,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        widget.status,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: widget.statusColor,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+                  child: Text(
+                    widget.ideal,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.dark.withValues(alpha: 0.5),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1243,19 +1251,19 @@ const Map<String, List<_LegendItem>> _gaugeLegends = {
     _LegendItem(
       'Normal',
       '25\u201330\u00B0C',
-      'Optimal range for crayfish growth and molting.',
+      'Optimal range for crayfish growth.',
       AppColors.success,
     ),
     _LegendItem(
       'Warning',
       '22\u201324\u00B0C or 31\u201333\u00B0C',
-      'May slow metabolism and cause stress to crayfish.',
+      'Metabolic stress risk.',
       AppColors.warning,
     ),
     _LegendItem(
       'Critical',
       'below 22\u00B0C or above 33\u00B0C',
-      'Can cause death. Alert notification will be sent.',
+      'Immediate death risk.',
       AppColors.critical,
     ),
   ],
@@ -1263,19 +1271,19 @@ const Map<String, List<_LegendItem>> _gaugeLegends = {
     _LegendItem(
       'Normal',
       '7.0\u20138.5',
-      'Ideal acidity for healthy molting and shell formation.',
+      'Ideal for shell formation.',
       AppColors.success,
     ),
     _LegendItem(
       'Warning',
       '6.5\u20136.9 or 8.6\u20139.0',
-      'May irritate gills and weaken immune system.',
+      'Irritates gills.',
       AppColors.warning,
     ),
     _LegendItem(
       'Critical',
       'below 6.5 or above 9.0',
-      'Highly toxic. Can cause rapid death of crayfish.',
+      'Highly toxic.',
       AppColors.critical,
     ),
   ],
@@ -1283,39 +1291,34 @@ const Map<String, List<_LegendItem>> _gaugeLegends = {
     _LegendItem(
       'Normal',
       '5.0+ mg/L',
-      'Sufficient oxygen for active and healthy crayfish.',
+      'Healthy oxygen levels.',
       AppColors.success,
     ),
     _LegendItem(
       'Low',
       '3.0\u20134.9 mg/L',
-      'Crayfish may become inactive and lose appetite.',
+      'Loss of appetite.',
       AppColors.warning,
     ),
     _LegendItem(
       'Critical',
       'below 3.0 mg/L',
-      'Dangerously low. Triggers aerator pump automatically.',
+      'Dangerously low.',
       AppColors.critical,
     ),
   ],
   'Turbidity': [
-    _LegendItem(
-      'Normal',
-      '0\u201325 NTU',
-      'Clean water with good visibility and low bacteria risk.',
-      AppColors.success,
-    ),
+    _LegendItem('Normal', '0\u201325 NTU', 'Clean water.', AppColors.success),
     _LegendItem(
       'Cloudy',
       '26\u201350 NTU',
-      'Suspended particles may clog gills over time.',
+      'Risk of bacteria.',
       AppColors.warning,
     ),
     _LegendItem(
       'Dirty',
       'above 50 NTU',
-      'Severely dirty water. Triggers filtration alert immediately.',
+      'Severe contamination.',
       AppColors.critical,
     ),
   ],
@@ -1323,19 +1326,19 @@ const Map<String, List<_LegendItem>> _gaugeLegends = {
     _LegendItem(
       'Normal',
       '130\u2013180 cm',
-      'Ideal pond depth for Australian Redclaw in tropical climate.',
+      'Ideal pond depth.',
       AppColors.success,
     ),
     _LegendItem(
       'Warning',
       '100\u2013129 cm or 181\u2013200 cm',
-      'May affect water quality and circulation.',
+      'Poor circulation.',
       AppColors.warning,
     ),
     _LegendItem(
       'Critical',
       'below 100 cm or above 200 cm',
-      'Extreme water level. Can stress or kill crayfish.',
+      'Life-threatening.',
       AppColors.critical,
     ),
   ],
