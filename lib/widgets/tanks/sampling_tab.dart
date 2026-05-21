@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../theme/app_colors.dart';
 import '../../services/tank_service.dart';
+import '../../models/crayfish_stage.dart';
 
 class SamplingTab extends StatelessWidget {
   final TextEditingController sampleCountController;
@@ -470,42 +471,30 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
           const SizedBox(height: 8),
           SizedBox(
             width: double.infinity,
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(colors: AppColors.primaryGradient),
-                borderRadius: BorderRadius.circular(14),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.primaryWith(0.3),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: ElevatedButton(
-                onPressed: () {
-                  final count = int.tryParse(_countController.text);
-                  final weight = double.tryParse(_weightController.text);
-                  final length = double.tryParse(_lengthController.text);
+            child: ElevatedButton(
+              onPressed: () {
+                final count = int.tryParse(_countController.text);
+                final weight = double.tryParse(_weightController.text);
+                final length = double.tryParse(_lengthController.text);
 
-                  if (count != null && weight != null && length != null && count > 0 && weight > 0 && length > 0) {
-                    TankService.instance.addSamplingEntry(count, weight, length);
-                    _countController.clear();
-                    _weightController.clear();
-                    _lengthController.clear();
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sampling results recorded!')));
-                  }
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.transparent,
-                  shadowColor: Colors.transparent,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                ),
-                child: const Text(
-                  'Compute Results',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
-                ),
+                if (count != null && weight != null && length != null && count > 0 && weight > 0 && length > 0) {
+                  TankService.instance.addSamplingEntry(count, weight, length);
+                  _countController.clear();
+                  _weightController.clear();
+                  _lengthController.clear();
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sampling results recorded!')));
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                elevation: 0,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: const Text(
+                'Compute Results',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
               ),
             ),
           ),
@@ -554,12 +543,7 @@ class GrowthStagePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final stages = [
-      {'name': 'Early Juvenile', 'lower': 0.0},
-      {'name': 'Advanced Juvenile', 'lower': 5.0},
-      {'name': 'Grow-out Phase', 'lower': 15.0},
-      {'name': 'Market Size', 'lower': 50.0},
-    ];
+    final stages = CrayfishStage.all;
 
     // Calculate current progress based on ABW
     final history = TankService.instance.samplingHistory;
@@ -568,7 +552,7 @@ class GrowthStagePanel extends StatelessWidget {
     // Find active stage index
     int activeIndex = 0;
     for (int i = 0; i < stages.length; i++) {
-      if (currentAbw >= (stages[i]['lower'] as double)) {
+      if (currentAbw >= stages[i].threshold) {
         activeIndex = i;
       }
     }
@@ -603,7 +587,7 @@ class GrowthStagePanel extends StatelessWidget {
                     style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppColors.dark),
                   ),
                   Text(
-                    'Current: ${stages[activeIndex]['name']}',
+                    'Current: ${stages[activeIndex].label}',
                     style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w600,
@@ -687,7 +671,7 @@ class GrowthStagePanel extends StatelessWidget {
               final isReached = i <= activeIndex;
               return Expanded(
                 child: Text(
-                  stages[i]['name'] as String,
+                  stages[i].label,
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 8,

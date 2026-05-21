@@ -8,14 +8,14 @@ class SettingsService extends ChangeNotifier {
   SettingsService._();
 
   bool _initialized = false;
-  String _currentStage = 'growout';
+  String _currentStage = 'growout_phase';
   late Map<String, Map<String, Map<String, double>>> _stageRanges;
 
   String get currentStage => _currentStage;
   CrayfishStage get currentStageObj => CrayfishStage.fromName(_currentStage);
 
   Map<String, Map<String, double>> get currentRanges =>
-      _stageRanges[_currentStage] ?? defaultStageRanges['growout']!;
+      _stageRanges[_currentStage] ?? defaultStageRanges['growout_phase']!;
 
   Map<String, Map<String, Map<String, double>>> get allRanges => _stageRanges;
 
@@ -74,7 +74,7 @@ class SettingsService extends ChangeNotifier {
   }
 
   Future<void> resetToDefaults() async {
-    _currentStage = 'growout';
+    _currentStage = 'growout_phase';
     for (final s in CrayfishStage.all) {
       _stageRanges[s.name] = {};
       for (final e in defaultStageRanges[s.name]!.entries) {
@@ -83,7 +83,7 @@ class SettingsService extends ChangeNotifier {
     }
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('currentStage', 'growout');
+    await prefs.setString('currentStage', 'growout_phase');
     await prefs.remove('stageRanges');
   }
 

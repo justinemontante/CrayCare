@@ -353,24 +353,34 @@ class _ControlsScreenState extends State<ControlsScreen> {
           // Feed Now button
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14),
-            child: GradientButton(
-              onTap: _feedNow,
-              borderRadius: 10,
-              verticalPadding: 12,
-              child: const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.play_arrow, size: 14, color: Colors.white),
-                  SizedBox(width: 6),
-                  Text(
-                    'Feed Now',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                    ),
+            child: SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _feedNow,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                ],
+                ),
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.play_arrow, size: 14, color: Colors.white),
+                    SizedBox(width: 6),
+                    Text(
+                      'Feed Now',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

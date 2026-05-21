@@ -65,7 +65,9 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
   void _saveProfile() {
     setState(() {
       _profileName = _nameCtrl.text.isNotEmpty ? _nameCtrl.text : _profileName;
-      _profileEmail = _emailCtrl.text.isNotEmpty ? _emailCtrl.text : _profileEmail;
+      _profileEmail = _emailCtrl.text.isNotEmpty
+          ? _emailCtrl.text
+          : _profileEmail;
     });
     _back();
   }
@@ -74,7 +76,10 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
     if (_newPwCtrl.text.isNotEmpty && _newPwCtrl.text == _confirmPwCtrl.text) {
       _back();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Password updated'), duration: Duration(seconds: 2)),
+        const SnackBar(
+          content: Text('Password updated'),
+          duration: Duration(seconds: 2),
+        ),
       );
     }
   }
@@ -83,7 +88,9 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
       builder: (ctx) {
         return SafeArea(
           child: Padding(
@@ -91,11 +98,28 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Container(width: 36, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+                Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
                 const SizedBox(height: 16),
-                const Text('Logout', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.dark)),
+                const Text(
+                  'Logout',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.dark,
+                  ),
+                ),
                 const SizedBox(height: 8),
-                const Text('Are you sure you want to logout?', style: TextStyle(fontSize: 12, color: AppColors.dark)),
+                const Text(
+                  'Are you sure you want to logout?',
+                  style: TextStyle(fontSize: 12, color: AppColors.dark),
+                ),
                 const SizedBox(height: 20),
                 SizedBox(
                   width: double.infinity,
@@ -112,15 +136,30 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
                       backgroundColor: AppColors.critical,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
-                    child: const Text('Yes, Logout', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+                    child: const Text(
+                      'Yes, Logout',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 8),
                 TextButton(
                   onPressed: () => Navigator.of(ctx).pop(),
-                  child: const Text('Cancel', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.dark)),
+                  child: const Text(
+                    'Cancel',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.dark,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -133,32 +172,42 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
   @override
   Widget build(BuildContext context) {
     return Drawer(
-      width: MediaQuery.of(context).size.width * 0.85,
-      child: SafeArea(
-        child: Column(
-          children: [
-            _buildHeader(),
-            Expanded(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 200),
-                child: [
-                  _buildMainMenu(),
-                  _buildEditProfile(),
-                  _buildChangePassword(),
-                  _buildNotifSettings(),
-                  _buildStageSettings(),
-                ][_currentPage],
-              ),
+      width: MediaQuery.of(context).size.width,
+      child: Column(
+        children: [
+          Container(
+            height: MediaQuery.of(context).padding.top,
+            color: Colors.white,
+          ),
+          _buildHeader(),
+          Expanded(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              switchInCurve: Curves.easeIn,
+              switchOutCurve: Curves.easeOut,
+              layoutBuilder: (child, List<Widget> previousChildren) {
+                return Stack(
+                  alignment: Alignment.topCenter,
+                  children: [...previousChildren, if (child != null) child],
+                );
+              },
+              child: [
+                _buildMainMenu(),
+                _buildEditProfile(),
+                _buildChangePassword(),
+                _buildNotifSettings(),
+                _buildStageSettings(),
+              ][_currentPage],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildHeader() {
     return Container(
-      padding: const EdgeInsets.fromLTRB(8, 8, 16, 8),
+      padding: const EdgeInsets.fromLTRB(4, 8, 16, 8),
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border(bottom: BorderSide(color: AppColors.darkWith(0.07))),
@@ -169,11 +218,17 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
             icon: const Icon(Icons.arrow_back, size: 20),
             color: AppColors.dark,
             onPressed: _back,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
           ),
           const SizedBox(width: 4),
           Text(
             _currentPage == 0 ? 'Profile & Settings' : _pageTitle,
-            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.dark),
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: AppColors.dark,
+            ),
           ),
         ],
       ),
@@ -182,11 +237,16 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
 
   String get _pageTitle {
     switch (_currentPage) {
-      case 1: return 'Edit Profile';
-      case 2: return 'Change Password';
-      case 3: return 'Notifications';
-      case 4: return 'Crayfish Stage';
-      default: return '';
+      case 1:
+        return 'Edit Profile';
+      case 2:
+        return 'Change Password';
+      case 3:
+        return 'Notifications';
+      case 4:
+        return 'Crayfish Stage';
+      default:
+        return '';
     }
   }
 
@@ -194,22 +254,51 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
     return Container(
       color: const Color(0xFFf7f7f7),
       child: SingleChildScrollView(
-        padding: const EdgeInsets.only(top: 0),
         child: Column(
           children: [
             _buildProfileCard(),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             _buildMenuSection('Account', [
-              _buildMenuItem('Edit Profile', Icons.person, AppColors.primary, chevron: true, onTap: () => _goTo(1)),
-              _buildMenuItem('Change Password', Icons.lock, AppColors.primary, chevron: true, onTap: () => _goTo(2)),
+              _buildMenuItem(
+                'Edit Profile',
+                Icons.person,
+                AppColors.primary,
+                chevron: true,
+                onTap: () => _goTo(1),
+              ),
+              _buildMenuItem(
+                'Change Password',
+                Icons.lock,
+                AppColors.primary,
+                chevron: true,
+                onTap: () => _goTo(2),
+              ),
             ]),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             _buildMenuSection('Preferences', [
-              _buildMenuItem('Notifications', Icons.notifications, AppColors.warning, chevron: true, onTap: () => _goTo(3)),
-              _buildMenuItem('Crayfish Stage', Icons.pets, AppColors.primary, chevron: true, onTap: () => _goTo(4)),
+              _buildMenuItem(
+                'Notifications',
+                Icons.notifications,
+                AppColors.warning,
+                chevron: true,
+                onTap: () => _goTo(3),
+              ),
+              _buildMenuItem(
+                'Crayfish Stage',
+                Icons.pets,
+                AppColors.primary,
+                chevron: true,
+                onTap: () => _goTo(4),
+              ),
             ]),
-            const SizedBox(height: 8),
-            _buildMenuItem('Logout', Icons.logout, AppColors.critical, onTap: _showLogoutSheet),
+            const SizedBox(height: 10),
+            _buildMenuItem(
+              'Logout',
+              Icons.logout,
+              AppColors.critical,
+              onTap: _showLogoutSheet,
+            ),
+            const SizedBox(height: 24),
           ],
         ),
       ),
@@ -218,28 +307,54 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
 
   Widget _buildProfileCard() {
     return Container(
-      margin: const EdgeInsets.fromLTRB(12, 4, 12, 0),
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [BoxShadow(color: AppColors.darkWith(0.06), blurRadius: 10, offset: const Offset(0, 2))],
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.darkWith(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+        border: Border.all(color: AppColors.darkWith(0.05)),
       ),
       child: Row(
         children: [
           Container(
-            width: 52, height: 52,
-            decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
-            child: const Icon(Icons.person, color: Colors.white, size: 28),
+            width: 48,
+            height: 48,
+            decoration: const BoxDecoration(
+              color: AppColors.primary,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.person, color: Colors.white, size: 26),
           ),
           const SizedBox(width: 14),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(_profileName, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.dark)),
-              const SizedBox(height: 2),
-              Text(_profileEmail, style: TextStyle(fontSize: 11, color: AppColors.darkWith(0.5))),
-            ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _profileName,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.dark,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _profileEmail,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: AppColors.darkWith(0.5),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -251,47 +366,74 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-          child: Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.4), letterSpacing: 0.3)),
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              color: AppColors.darkWith(0.4),
+              letterSpacing: 0.5,
+            ),
+          ),
         ),
         ...items,
       ],
     );
   }
 
-  Widget _buildMenuItem(String label, IconData icon, Color color, {bool chevron = false, VoidCallback? onTap}) {
+  Widget _buildMenuItem(
+    String label,
+    IconData icon,
+    Color color, {
+    bool chevron = false,
+    VoidCallback? onTap,
+  }) {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.darkWith(0.04)),
+      ),
       child: Material(
         color: Colors.transparent,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         child: InkWell(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(16),
           onTap: onTap,
-          child: Ink(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(14),
-            ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Row(
               children: [
                 Container(
-                  width: 32, height: 32,
-                  decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(10)),
-                  child: Icon(icon, size: 16, color: color),
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(icon, size: 18, color: color),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 14),
                 Expanded(
                   child: Text(
                     label,
                     style: TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w600,
-                      color: label == 'Logout' ? AppColors.critical : AppColors.dark,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: label == 'Logout'
+                          ? AppColors.critical
+                          : AppColors.dark,
                     ),
                   ),
                 ),
-                if (chevron) Icon(Icons.chevron_right, size: 16, color: AppColors.darkWith(0.3)),
+                if (chevron)
+                  Icon(
+                    Icons.chevron_right,
+                    size: 18,
+                    color: AppColors.darkWith(0.2),
+                  ),
               ],
             ),
           ),
@@ -305,180 +447,352 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
     final sensors = ['temp', 'ph', 'do', 'turb', 'waterlevel'];
     return Container(
       color: const Color(0xFFf7f7f7),
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [BoxShadow(color: AppColors.darkWith(0.05), blurRadius: 6)],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Current Stage', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.dark)),
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: AppColors.darkWith(0.04),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: svc.currentStage,
-                        isExpanded: true,
-                        icon: const Icon(Icons.expand_more, size: 18),
-                        style: const TextStyle(fontSize: 13, color: AppColors.dark),
-                        items: CrayfishStage.all.map((s) => DropdownMenuItem(
-                          value: s.name,
-                          child: Text(s.label, overflow: TextOverflow.ellipsis),
-                        )).toList(),
-                        onChanged: (v) {
-                          if (v != null) svc.setCurrentStage(v);
-                        },
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.darkWith(0.03),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+              border: Border.all(color: AppColors.darkWith(0.05)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: AppColors.primaryWith(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.psychology_outlined,
+                        size: 16,
+                        color: AppColors.primary,
                       ),
                     ),
+                    const SizedBox(width: 10),
+                    const Text(
+                      'Growth Stage',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.dark,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(
+                    color: AppColors.darkWith(0.02),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppColors.darkWith(0.06)),
                   ),
-                ],
-              ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: svc.currentStage,
+                      isExpanded: true,
+                      icon: const Icon(
+                        Icons.keyboard_arrow_down_rounded,
+                        color: AppColors.dark,
+                        size: 18,
+                      ),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.dark,
+                      ),
+                      items: CrayfishStage.all
+                          .map(
+                            (s) => DropdownMenuItem(
+                              value: s.name,
+                              child: Text(s.label),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (v) {
+                        if (v != null) svc.setCurrentStage(v);
+                      },
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 8,
+                    horizontal: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.primaryWith(0.05),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    svc.currentStageObj.description,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [BoxShadow(color: AppColors.darkWith(0.05), blurRadius: 6)],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Ideal Ranges — ${svc.currentStageObj.label}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.dark)),
-                  const SizedBox(height: 8),
-                  ...sensors.map((key) {
-                    final range = svc.currentRanges[key] ?? {'min': 0.0, 'max': 0.0};
-                    final info = sensorInfo[key]!;
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: Material(
-                        color: Colors.transparent,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'THRESHOLD PARAMETERS (${svc.currentStageObj.label.toUpperCase()})',
+            style: TextStyle(
+              fontSize: 9,
+              fontWeight: FontWeight.w900,
+              color: AppColors.darkWith(0.4),
+              letterSpacing: 0.8,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Expanded(
+            child: Column(
+              children: sensors.map((key) {
+                final range =
+                    svc.currentRanges[key] ?? {'min': 0.0, 'max': 0.0};
+                final info = sensorInfo[key]!;
+                return Expanded(
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.darkWith(0.04)),
+                    ),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
                         borderRadius: BorderRadius.circular(12),
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(12),
-                          onTap: () => _showRangeEditor(key, info.label, info.unit, range['min']!, range['max']!),
-                          child: Ink(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                            decoration: BoxDecoration(
-                              color: AppColors.darkWith(0.03),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Text(info.label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.dark)),
+                        onTap: () => _showRangeEditor(
+                          key,
+                          info.label,
+                          info.unit,
+                          range['min']!,
+                          range['max']!,
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(6),
+                                decoration: BoxDecoration(
+                                  color: _getSensorColor(
+                                    key,
+                                  ).withValues(alpha: 0.08),
+                                  borderRadius: BorderRadius.circular(8),
                                 ),
-                                Text(
-                                  '${range['min']!.toStringAsFixed(1)} – ${range['max']! >= 999 ? '\u221E' : range['max']!.toStringAsFixed(1)} ${info.unit}',
-                                  style: TextStyle(fontSize: 11, color: AppColors.darkWith(0.6)),
+                                child: Image.asset(
+                                  _getSensorIconPath(key),
+                                  width: 18,
+                                  height: 18,
+                                  fit: BoxFit.contain,
                                 ),
-                                const SizedBox(width: 4),
-                                Icon(Icons.edit, size: 12, color: AppColors.darkWith(0.3)),
-                              ],
-                            ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  info.label,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.dark,
+                                  ),
+                                ),
+                              ),
+                              Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    '${range['min']!.toStringAsFixed(1)} \u2013 ${range['max']! >= 999 ? '\u221E' : range['max']!.toStringAsFixed(1)}',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w900,
+                                      color: AppColors.dark,
+                                    ),
+                                  ),
+                                  Text(
+                                    info.unit,
+                                    style: TextStyle(
+                                      fontSize: 8,
+                                      fontWeight: FontWeight.w800,
+                                      color: AppColors.primaryWith(0.6),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
                         ),
                       ),
-                    );
-                  }),
-                ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: TextButton.icon(
+              onPressed: () {
+                SettingsService.instance.resetToDefaults();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Ranges reset to defaults'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.refresh_rounded, size: 14),
+              label: const Text(
+                'Reset to Defaults',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 11),
+              ),
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.darkWith(0.4),
+                padding: const EdgeInsets.symmetric(vertical: 8),
               ),
             ),
-            const SizedBox(height: 8),
-            Material(
-              color: Colors.transparent,
-              borderRadius: BorderRadius.circular(12),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(12),
-                splashColor: AppColors.darkWith(0.08),
-                highlightColor: AppColors.darkWith(0.04),
-                onTap: () {
-                  SettingsService.instance.resetToDefaults();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Ranges reset to defaults'), duration: Duration(seconds: 2)),
-                  );
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: AppColors.darkWith(0.12)),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.refresh, size: 14, color: AppColors.darkWith(0.5)),
-                      const SizedBox(width: 6),
-                      Text('Reset to Defaults', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.5))),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
-  void _showRangeEditor(String key, String label, String unit, double currentMin, double currentMax) {
+  String _getSensorIconPath(String key) {
+    switch (key) {
+      case 'temp':
+        return 'assets/images/temperature.png';
+      case 'ph':
+        return 'assets/images/pH.png';
+      case 'do':
+        return 'assets/images/DO.png';
+      case 'turb':
+        return 'assets/images/Turbidity.png';
+      case 'waterlevel':
+        return 'assets/images/waterLevel.png';
+      default:
+        return 'assets/images/logo.png';
+    }
+  }
+
+  Color _getSensorColor(String key) {
+    switch (key) {
+      case 'temp':
+        return const Color(0xFFF59E0B);
+      case 'ph':
+        return const Color(0xFF8B5CF6);
+      case 'do':
+        return const Color(0xFF3B82F6);
+      case 'turb':
+        return const Color(0xFF64748B);
+      case 'waterlevel':
+        return AppColors.primary;
+      default:
+        return AppColors.primary;
+    }
+  }
+
+  void _showRangeEditor(
+    String key,
+    String label,
+    String unit,
+    double currentMin,
+    double currentMax,
+  ) {
     final minCtrl = TextEditingController(text: currentMin.toStringAsFixed(1));
-    final maxCtrl = TextEditingController(text: currentMax >= 999 ? '' : currentMax.toStringAsFixed(1));
+    final maxCtrl = TextEditingController(
+      text: currentMax >= 999 ? '' : currentMax.toStringAsFixed(1),
+    );
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: Row(
           children: [
-            TextField(
-              controller: minCtrl,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(
-                labelText: 'Min ($unit)',
-                labelStyle: TextStyle(fontSize: 11, color: AppColors.darkWith(0.5)),
-                filled: true,
-                fillColor: AppColors.darkWith(0.04),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: _getSensorColor(key).withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Image.asset(
+                _getSensorIconPath(key),
+                width: 20,
+                height: 20,
+                fit: BoxFit.contain,
               ),
             ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: maxCtrl,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(
-                labelText: 'Max ($unit)',
-                labelStyle: TextStyle(fontSize: 11, color: AppColors.darkWith(0.5)),
-                filled: true,
-                fillColor: AppColors.darkWith(0.04),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+            const SizedBox(width: 12),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w900,
+                color: AppColors.dark,
               ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Adjust the ideal range for this stage.',
+              style: TextStyle(fontSize: 11, color: AppColors.darkWith(0.5)),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(child: _buildModalField('Minimum', minCtrl, unit)),
+                const SizedBox(width: 12),
+                Expanded(child: _buildModalField('Maximum', maxCtrl, unit)),
+              ],
             ),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: Text('Cancel', style: TextStyle(fontSize: 12, color: AppColors.darkWith(0.5))),
+            child: Text(
+              'Cancel',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: AppColors.darkWith(0.4),
+              ),
+            ),
           ),
-          TextButton(
+          ElevatedButton(
             onPressed: () {
               final min = double.tryParse(minCtrl.text) ?? currentMin;
-              final max = double.tryParse(maxCtrl.text) ?? (currentMax >= 999 ? 999.0 : currentMax);
+              final max =
+                  double.tryParse(maxCtrl.text) ??
+                  (currentMax >= 999 ? 999.0 : currentMax);
               SettingsService.instance.updateRange(
                 SettingsService.instance.currentStage,
                 key,
@@ -487,10 +801,67 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
               );
               Navigator.pop(ctx);
             },
-            child: const Text('Save', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.primary)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            child: const Text(
+              'Update',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildModalField(
+    String label,
+    TextEditingController ctrl,
+    String unit,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+            color: AppColors.dark,
+          ),
+        ),
+        const SizedBox(height: 6),
+        TextField(
+          controller: ctrl,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900),
+          decoration: InputDecoration(
+            suffixText: unit,
+            suffixStyle: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: AppColors.darkWith(0.4),
+            ),
+            filled: true,
+            fillColor: AppColors.darkWith(0.04),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 14,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -501,34 +872,60 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
       child: Column(
         children: [
           Container(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [BoxShadow(color: AppColors.darkWith(0.05), blurRadius: 6)],
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.darkWith(0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+              border: Border.all(color: AppColors.darkWith(0.05)),
             ),
             child: Column(
               children: [
-                const SizedBox(height: 4),
-                Container(
-                  width: 64, height: 64,
-                  decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
-                  child: const Icon(Icons.person, color: Colors.white, size: 32),
+                Stack(
+                  alignment: Alignment.bottomRight,
+                  children: [
+                    Container(
+                      width: 80,
+                      height: 80,
+                      decoration: BoxDecoration(
+                        color: AppColors.primaryWith(0.1),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: AppColors.primaryWith(0.2),
+                          width: 2,
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.person,
+                        color: AppColors.primary,
+                        size: 40,
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: const BoxDecoration(
+                        color: AppColors.primary,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.camera_alt,
+                        color: Colors.white,
+                        size: 14,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 4),
-                GestureDetector(
-                  onTap: () {},
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                    decoration: BoxDecoration(color: AppColors.primaryWith(0.1), borderRadius: BorderRadius.circular(20)),
-                    child: const Text('Change Photo', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.primary)),
-                  ),
-                ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 24),
                 _buildField('Full Name', _nameCtrl),
-                const SizedBox(height: 12),
-                _buildField('Email', _emailCtrl),
                 const SizedBox(height: 16),
+                _buildField('Email Address', _emailCtrl),
+                const SizedBox(height: 24),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
@@ -536,10 +933,19 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
                     ),
-                    child: const Text('Save', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                    child: const Text(
+                      'Save Changes',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -557,20 +963,41 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
       child: Column(
         children: [
           Container(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [BoxShadow(color: AppColors.darkWith(0.05), blurRadius: 6)],
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.darkWith(0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+              border: Border.all(color: AppColors.darkWith(0.05)),
             ),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                const Text(
+                  'Your password must be at least 8 characters long.',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: AppColors.dark,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 20),
                 _buildField('Current Password', _currentPwCtrl, obscure: true),
-                const SizedBox(height: 12),
-                _buildField('New Password', _newPwCtrl, obscure: true),
-                const SizedBox(height: 12),
-                _buildField('Confirm Password', _confirmPwCtrl, obscure: true),
                 const SizedBox(height: 16),
+                _buildField('New Password', _newPwCtrl, obscure: true),
+                const SizedBox(height: 16),
+                _buildField(
+                  'Confirm New Password',
+                  _confirmPwCtrl,
+                  obscure: true,
+                ),
+                const SizedBox(height: 24),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
@@ -578,10 +1005,19 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
                     ),
-                    child: const Text('Update Password', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                    child: const Text(
+                      'Update Password',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -598,27 +1034,62 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
       padding: const EdgeInsets.all(12),
       child: Column(
         children: [
-          _buildToggle('Allow Notifications', _notifAllow, (v) => setState(() => _notifAllow = v ?? true)),
+          _buildToggle(
+            'Allow Notifications',
+            _notifAllow,
+            (v) => setState(() => _notifAllow = v ?? true),
+          ),
           const SizedBox(height: 6),
-          _buildToggle('Allow Sound', _notifSound, (v) => setState(() => _notifSound = v ?? true)),
+          _buildToggle(
+            'Allow Sound',
+            _notifSound,
+            (v) => setState(() => _notifSound = v ?? true),
+          ),
           const SizedBox(height: 6),
-          _buildToggle('Allow Vibration', _notifVibration, (v) => setState(() => _notifVibration = v ?? true)),
+          _buildToggle(
+            'Allow Vibration',
+            _notifVibration,
+            (v) => setState(() => _notifVibration = v ?? true),
+          ),
           const SizedBox(height: 6),
-          _buildToggle('Critical Water Warnings', _notifCritical, (v) => setState(() => _notifCritical = v ?? true)),
+          _buildToggle(
+            'Critical Water Warnings',
+            _notifCritical,
+            (v) => setState(() => _notifCritical = v ?? true),
+          ),
           const SizedBox(height: 6),
-          _buildToggle('Feeding Confirmations', _notifFeeding, (v) => setState(() => _notifFeeding = v ?? true)),
+          _buildToggle(
+            'Feeding Confirmations',
+            _notifFeeding,
+            (v) => setState(() => _notifFeeding = v ?? true),
+          ),
           const SizedBox(height: 6),
-          _buildToggle('Sampling Reminders', _notifSampling, (v) => setState(() => _notifSampling = v ?? false)),
+          _buildToggle(
+            'Sampling Reminders',
+            _notifSampling,
+            (v) => setState(() => _notifSampling = v ?? false),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildField(String label, TextEditingController ctrl, {bool obscure = false}) {
+  Widget _buildField(
+    String label,
+    TextEditingController ctrl, {
+    bool obscure = false,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.6))),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: AppColors.darkWith(0.6),
+          ),
+        ),
         const SizedBox(height: 6),
         TextField(
           controller: ctrl,
@@ -627,7 +1098,10 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
           decoration: InputDecoration(
             filled: true,
             fillColor: AppColors.darkWith(0.04),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 10,
+            ),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
               borderSide: BorderSide(color: AppColors.darkWith(0.12)),
@@ -656,7 +1130,14 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: AppColors.dark)),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: AppColors.dark,
+            ),
+          ),
           Switch(
             value: value,
             onChanged: onChanged,
