@@ -446,232 +446,187 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
     final svc = SettingsService.instance;
     final sensors = ['temp', 'ph', 'do', 'turb', 'waterlevel'];
     return Container(
-      color: const Color(0xFFf7f7f7),
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+      color: const Color(0xFFF9FAFB),
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 12),
+            child: Text(
+              'Selecting a stage automatically updates the ideal sensor thresholds for your crayfish\'s development.',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w500,
+                color: AppColors.dark.withValues(alpha: 0.6),
+                height: 1.4,
+              ),
+            ),
+          ),
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: AppColors.dark.withValues(alpha: 0.05)),
               boxShadow: [
                 BoxShadow(
-                  color: AppColors.darkWith(0.03),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
+                  color: AppColors.dark.withValues(alpha: 0.03),
+                  blurRadius: 15,
+                  offset: const Offset(0, 4),
+                )
               ],
-              border: Border.all(color: AppColors.darkWith(0.05)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: AppColors.primaryWith(0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Icon(
-                        Icons.psychology_outlined,
-                        size: 16,
-                        color: AppColors.primary,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    const Text(
-                      'Growth Stage',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.dark,
-                      ),
-                    ),
-                  ],
+                const Text(
+                  'Current Growth Stage',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.dark, letterSpacing: 0.5),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 12),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
                   decoration: BoxDecoration(
-                    color: AppColors.darkWith(0.02),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppColors.darkWith(0.06)),
+                    color: AppColors.dark.withValues(alpha: 0.03),
+                    borderRadius: BorderRadius.circular(14),
                   ),
                   child: DropdownButtonHideUnderline(
                     child: DropdownButton<String>(
                       value: svc.currentStage,
                       isExpanded: true,
-                      icon: const Icon(
-                        Icons.keyboard_arrow_down_rounded,
-                        color: AppColors.dark,
-                        size: 18,
-                      ),
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.dark,
-                      ),
-                      items: CrayfishStage.all
-                          .map(
-                            (s) => DropdownMenuItem(
-                              value: s.name,
-                              child: Text(s.label),
-                            ),
-                          )
-                          .toList(),
+                      icon: const Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.primary, size: 20),
+                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.dark),
+                      dropdownColor: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      items: CrayfishStage.all.map((s) => DropdownMenuItem(
+                        value: s.name,
+                        child: Text(s.label),
+                      )).toList(),
                       onChanged: (v) {
                         if (v != null) svc.setCurrentStage(v);
                       },
                     ),
                   ),
                 ),
-                const SizedBox(height: 8),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 8,
-                    horizontal: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.primaryWith(0.05),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    svc.currentStageObj.description,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.primary,
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.info_outline_rounded, size: 12, color: AppColors.primary),
+                    const SizedBox(width: 6),
+                    Text(
+                      svc.currentStageObj.description,
+                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.primary),
                     ),
-                  ),
+                  ],
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 12),
-          Text(
-            'THRESHOLD PARAMETERS (${svc.currentStageObj.label.toUpperCase()})',
-            style: TextStyle(
-              fontSize: 9,
-              fontWeight: FontWeight.w900,
-              color: AppColors.darkWith(0.4),
-              letterSpacing: 0.8,
+          const SizedBox(height: 20),
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 10),
+            child: Text(
+              'THRESHOLD PARAMETERS',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w900,
+                color: AppColors.dark.withValues(alpha: 0.4),
+                letterSpacing: 1.2,
+              ),
             ),
           ),
-          const SizedBox(height: 6),
           Expanded(
-            child: Column(
-              children: sensors.map((key) {
-                final range =
-                    svc.currentRanges[key] ?? {'min': 0.0, 'max': 0.0};
+            child: ListView.builder(
+              padding: EdgeInsets.zero,
+              itemCount: sensors.length,
+              physics: const NeverScrollableScrollPhysics(),
+              itemBuilder: (context, index) {
+                final key = sensors[index];
+                final range = svc.currentRanges[key] ?? {'min': 0.0, 'max': 0.0};
                 final info = sensorInfo[key]!;
-                return Expanded(
-                  child: Container(
-                    margin: const EdgeInsets.only(bottom: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.darkWith(0.04)),
-                    ),
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(12),
-                        onTap: () => _showRangeEditor(
-                          key,
-                          info.label,
-                          info.unit,
-                          range['min']!,
-                          range['max']!,
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          child: Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(6),
-                                decoration: BoxDecoration(
-                                  color: _getSensorColor(
-                                    key,
-                                  ).withValues(alpha: 0.08),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Image.asset(
-                                  _getSensorIconPath(key),
-                                  width: 18,
-                                  height: 18,
-                                  fit: BoxFit.contain,
-                                ),
+                return Container(
+                  height: 60,
+                  margin: const EdgeInsets.only(bottom: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: AppColors.dark.withValues(alpha: 0.04)),
+                  ),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(14),
+                      onTap: () => _showRangeEditor(key, info.label, info.unit, range['min']!, range['max']!),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: AppColors.dark.withValues(alpha: 0.03),
+                                borderRadius: BorderRadius.circular(10),
                               ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  info.label,
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
-                                    color: AppColors.dark,
-                                  ),
-                                ),
-                              ),
-                              Column(
+                              child: Image.asset(_getSensorIconPath(key), width: 20, height: 20, fit: BoxFit.contain),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
-                                crossAxisAlignment: CrossAxisAlignment.end,
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
+                                  Text(info.label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.dark)),
                                   Text(
-                                    '${range['min']!.toStringAsFixed(1)} \u2013 ${range['max']! >= 999 ? '\u221E' : range['max']!.toStringAsFixed(1)}',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w900,
-                                      color: AppColors.dark,
-                                    ),
-                                  ),
-                                  Text(
-                                    info.unit,
-                                    style: TextStyle(
-                                      fontSize: 8,
-                                      fontWeight: FontWeight.w800,
-                                      color: AppColors.primaryWith(0.6),
-                                    ),
+                                    'Standard Range',
+                                    style: TextStyle(fontSize: 9, color: AppColors.dark.withValues(alpha: 0.4), fontWeight: FontWeight.w600),
                                   ),
                                 ],
                               ),
-                            ],
-                          ),
+                            ),
+                            Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  '${range['min']!.toStringAsFixed(1)} \u2013 ${range['max']! >= 999 ? '\u221E' : range['max']!.toStringAsFixed(1)}',
+                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: AppColors.primary),
+                                ),
+                                Text(
+                                  info.unit,
+                                  style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800, color: AppColors.dark.withValues(alpha: 0.3)),
+                                ),
+                              ],
+                            ),
+                          ],
                         ),
                       ),
                     ),
                   ),
                 );
-              }).toList(),
+              },
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
             child: TextButton.icon(
               onPressed: () {
                 SettingsService.instance.resetToDefaults();
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Ranges reset to defaults'),
-                    duration: Duration(seconds: 2),
-                  ),
+                  const SnackBar(content: Text('Ranges reset to defaults'), duration: Duration(seconds: 2)),
                 );
               },
-              icon: const Icon(Icons.refresh_rounded, size: 14),
-              label: const Text(
-                'Reset to Defaults',
-                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 11),
+              icon: const Icon(Icons.refresh_rounded, size: 14, color: AppColors.dark),
+              label: Text(
+                'RESET TO DEFAULTS',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 10, color: AppColors.dark.withValues(alpha: 0.5), letterSpacing: 0.5),
               ),
               style: TextButton.styleFrom(
-                foregroundColor: AppColors.darkWith(0.4),
-                padding: const EdgeInsets.symmetric(vertical: 8),
+                backgroundColor: AppColors.dark.withValues(alpha: 0.03),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
           ),
@@ -1031,45 +986,49 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
   Widget _buildNotifSettings() {
     return Container(
       color: const Color(0xFFf7f7f7),
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        children: [
-          _buildToggle(
-            'Allow Notifications',
-            _notifAllow,
-            (v) => setState(() => _notifAllow = v ?? true),
-          ),
-          const SizedBox(height: 6),
-          _buildToggle(
-            'Allow Sound',
-            _notifSound,
-            (v) => setState(() => _notifSound = v ?? true),
-          ),
-          const SizedBox(height: 6),
-          _buildToggle(
-            'Allow Vibration',
-            _notifVibration,
-            (v) => setState(() => _notifVibration = v ?? true),
-          ),
-          const SizedBox(height: 6),
-          _buildToggle(
-            'Critical Water Warnings',
-            _notifCritical,
-            (v) => setState(() => _notifCritical = v ?? true),
-          ),
-          const SizedBox(height: 6),
-          _buildToggle(
-            'Feeding Confirmations',
-            _notifFeeding,
-            (v) => setState(() => _notifFeeding = v ?? true),
-          ),
-          const SizedBox(height: 6),
-          _buildToggle(
-            'Sampling Reminders',
-            _notifSampling,
-            (v) => setState(() => _notifSampling = v ?? false),
-          ),
-        ],
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildMenuSection('General Settings', [
+              _buildToggle(
+                'Notification Sound',
+                'Play sound for incoming alerts',
+                _notifSound,
+                (v) => setState(() => _notifSound = v ?? true),
+              ),
+              _buildToggle(
+                'Vibration',
+                'Vibrate on important updates',
+                _notifVibration,
+                (v) => setState(() => _notifVibration = v ?? true),
+              ),
+            ]),
+            const SizedBox(height: 12),
+            _buildMenuSection('Alerts & Reminders', [
+              _buildToggle(
+                'Water Quality Alerts',
+                'Critical alerts for all water parameters',
+                _notifCritical,
+                (v) => setState(() => _notifCritical = v ?? true),
+              ),
+              _buildToggle(
+                'Feeding Reminders',
+                'Confirmations for daily feeding',
+                _notifFeeding,
+                (v) => setState(() => _notifFeeding = v ?? true),
+              ),
+              _buildToggle(
+                'Sampling Schedule',
+                'Weekly growth tracking reminders',
+                _notifSampling,
+                (v) => setState(() => _notifSampling = v ?? false),
+              ),
+            ]),
+            const SizedBox(height: 24),
+          ],
+        ),
       ),
     );
   }
@@ -1120,30 +1079,59 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
     );
   }
 
-  Widget _buildToggle(String label, bool value, ValueChanged<bool?> onChanged) {
+  Widget _buildToggle(
+    String label,
+    String subtitle,
+    bool value,
+    ValueChanged<bool?> onChanged,
+  ) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+      margin: const EdgeInsets.only(bottom: 6),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.darkWith(0.04)),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              color: AppColors.dark,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.dark,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.darkWith(0.4),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-          Switch(
-            value: value,
-            onChanged: onChanged,
-            activeThumbColor: AppColors.primary,
-          ),
-        ],
+            Transform.scale(
+              scale: 0.8,
+              child: Switch(
+                value: value,
+                onChanged: onChanged,
+                activeColor: AppColors.primary,
+                activeTrackColor: AppColors.primaryWith(0.2),
+                inactiveTrackColor: AppColors.darkWith(0.1),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
