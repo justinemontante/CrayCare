@@ -89,12 +89,12 @@ class _TanksScreenState extends State<TanksScreen> {
             Color(0xFFDAF4F5), // #daf4f5
           ],
         ),
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: AppColors.darkWith(0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+            color: AppColors.primary.withValues(alpha: 0.1),
+            blurRadius: 15,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -113,15 +113,15 @@ class _TanksScreenState extends State<TanksScreen> {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 20, 12, 20),
+            padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
             child: Row(
               children: [
                 Container(
-                  width: 3,
-                  height: 40,
+                  width: 4,
+                  height: 42,
                   decoration: BoxDecoration(
                     color: AppColors.primary,
-                    borderRadius: BorderRadius.circular(2),
+                    borderRadius: BorderRadius.circular(4),
                   ),
                 ),
                 const SizedBox(width: 14),
@@ -131,18 +131,19 @@ class _TanksScreenState extends State<TanksScreen> {
                     const Text(
                       'Tank — Grow-out',
                       style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
                         color: AppColors.dark,
+                        letterSpacing: -0.2,
                       ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       'Crayfish Growth Tracker',
                       style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w500,
-                        color: AppColors.darkWith(0.5),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.dark.withValues(alpha: 0.5),
                       ),
                     ),
                   ],
@@ -168,11 +169,11 @@ class _TanksScreenState extends State<TanksScreen> {
       ),
     ];
     return Container(
-      margin: const EdgeInsets.fromLTRB(12, 0, 12, 14),
-      padding: const EdgeInsets.all(4),
+      margin: const EdgeInsets.fromLTRB(12, 4, 12, 14),
+      padding: const EdgeInsets.all(5),
       decoration: BoxDecoration(
-        color: AppColors.darkWith(0.04),
-        borderRadius: BorderRadius.circular(14),
+        color: AppColors.dark.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
         children: List.generate(tabs.length, (i) {
@@ -180,16 +181,17 @@ class _TanksScreenState extends State<TanksScreen> {
           return Expanded(
             child: GestureDetector(
               onTap: () => setState(() => _activeTab = i),
+              // BINalik natin sa regular na Container para walang frame drops
               child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 14),
+                padding: const EdgeInsets.symmetric(vertical: 12),
                 decoration: BoxDecoration(
                   color: isActive ? Colors.white : Colors.transparent,
-                  borderRadius: BorderRadius.circular(11),
+                  borderRadius: BorderRadius.circular(12),
                   boxShadow: isActive
                       ? [
                           BoxShadow(
-                            color: AppColors.primaryWith(0.12),
-                            blurRadius: 8,
+                            color: AppColors.dark.withValues(alpha: 0.05),
+                            blurRadius: 10,
                             offset: const Offset(0, 2),
                           ),
                         ]
@@ -200,20 +202,20 @@ class _TanksScreenState extends State<TanksScreen> {
                   children: [
                     Icon(
                       tabs[i].$1,
-                      size: 12,
+                      size: 14,
                       color: isActive
                           ? AppColors.primary
-                          : AppColors.darkWith(0.45),
+                          : AppColors.dark.withValues(alpha: 0.4),
                     ),
-                    const SizedBox(width: 5),
+                    const SizedBox(width: 6),
                     Text(
                       tabs[i].$2,
                       style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
                         color: isActive
                             ? AppColors.primary
-                            : AppColors.darkWith(0.45),
+                            : AppColors.dark.withValues(alpha: 0.4),
                       ),
                     ),
                   ],
@@ -232,7 +234,7 @@ class _TanksScreenState extends State<TanksScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (ctx) {
         return SafeArea(
@@ -245,91 +247,98 @@ class _TanksScreenState extends State<TanksScreen> {
                 Center(
                   child: Container(
                     width: 40,
-                    height: 4,
+                    height: 5,
                     decoration: BoxDecoration(
                       color: AppColors.dark.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(2),
+                      borderRadius: BorderRadius.circular(4),
                     ),
                   ),
                 ),
                 const SizedBox(height: 24),
                 const Text(
-                  'Growth Classification Reference',
+                  'Growth Classification',
                   style: TextStyle(
-                    fontSize: 17,
+                    fontSize: 18,
                     fontWeight: FontWeight.w900,
                     color: AppColors.dark,
                     letterSpacing: -0.2,
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 6),
                 Text(
-                  'Based on SRAC Publication No. 244 and Queensland Government Guidelines.',
+                  'Based on SRAC Publication No. 244 & Queensland Guidelines.',
                   style: TextStyle(
-                    fontSize: 11,
+                    fontSize: 12,
                     fontWeight: FontWeight.w500,
                     color: AppColors.dark.withValues(alpha: 0.5),
                     height: 1.4,
                   ),
                 ),
                 const SizedBox(height: 24),
-                Table(
-                  border: TableBorder.all(
-                    color: AppColors.dark.withValues(alpha: 0.08),
-                    width: 1,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  columnWidths: const {
-                    0: FlexColumnWidth(2.2),
-                    1: FlexColumnWidth(1.5),
-                    2: FlexColumnWidth(1.5),
-                  },
-                  children: [
-                    TableRow(
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.05),
-                      ),
-                      children: const [
-                        Padding(
-                          padding: EdgeInsets.all(12),
-                          child: Text(
-                            'STAGE',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 9,
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-                        ),
-                        Padding(
-                          padding: EdgeInsets.all(12),
-                          child: Text(
-                            'LENGTH',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 9,
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-                        ),
-                        Padding(
-                          padding: EdgeInsets.all(12),
-                          child: Text(
-                            'WEIGHT',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 9,
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-                        ),
-                      ],
+                // MODERN CLEAN TABLE
+                Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: AppColors.dark.withValues(alpha: 0.08),
                     ),
-                    _buildTableRow('Early Juvenile', '2 – 4 cm', '1 – 5 g'),
-                    _buildTableRow('Advanced Juvenile', '4 – 6 cm', '5 – 15 g'),
-                    _buildTableRow('Grow-out Phase', '6 – 10 cm', '15 – 50 g'),
-                    _buildTableRow('Market Size / Adult', '> 10 cm', '50 g +'),
-                  ],
+                    color: Colors.white,
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.06),
+                          borderRadius: const BorderRadius.vertical(
+                            top: Radius.circular(15),
+                          ),
+                        ),
+                        child: const Row(
+                          children: [
+                            Expanded(
+                              flex: 2,
+                              child: Text('STAGE', style: _tableHeaderStyle),
+                            ),
+                            Expanded(
+                              child: Text('LENGTH', style: _tableHeaderStyle),
+                            ),
+                            Expanded(
+                              child: Text('WEIGHT', style: _tableHeaderStyle),
+                            ),
+                          ],
+                        ),
+                      ),
+                      _buildTableRow(
+                        'Early Juvenile',
+                        '2–4 cm',
+                        '1–5 g',
+                        isStriped: false,
+                      ),
+                      _buildTableRow(
+                        'Advanced Juvenile',
+                        '4–6 cm',
+                        '5–15 g',
+                        isStriped: true,
+                      ),
+                      _buildTableRow(
+                        'Grow-out Phase',
+                        '6–10 cm',
+                        '15–50 g',
+                        isStriped: false,
+                      ),
+                      _buildTableRow(
+                        'Market Size',
+                        '> 10 cm',
+                        '50 g +',
+                        isStriped: true,
+                        isLast: true,
+                      ),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 32),
                 SizedBox(
@@ -337,8 +346,8 @@ class _TanksScreenState extends State<TanksScreen> {
                   child: ElevatedButton(
                     onPressed: () => Navigator.pop(ctx),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: AppColors.white,
+                      backgroundColor: AppColors.dark,
+                      foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       elevation: 0,
                       shape: RoundedRectangleBorder(
@@ -346,10 +355,10 @@ class _TanksScreenState extends State<TanksScreen> {
                       ),
                     ),
                     child: const Text(
-                      'Close Reference',
+                      'Got it, thanks!',
                       style: TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
                       ),
                     ),
                   ),
@@ -362,52 +371,70 @@ class _TanksScreenState extends State<TanksScreen> {
     );
   }
 
-  TableRow _buildTableRow(String stage, String length, String weight) {
-    return TableRow(
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-          child: Text(
-            stage,
-            style: const TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: AppColors.dark,
+  static const _tableHeaderStyle = TextStyle(
+    fontSize: 9,
+    fontWeight: FontWeight.w800,
+    color: AppColors.primary,
+    letterSpacing: 0.8,
+  );
+
+  Widget _buildTableRow(
+    String stage,
+    String length,
+    String weight, {
+    required bool isStriped,
+    bool isLast = false,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: isStriped
+            ? AppColors.dark.withValues(alpha: 0.02)
+            : Colors.white,
+        borderRadius: isLast
+            ? const BorderRadius.vertical(bottom: Radius.circular(15))
+            : null,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 2,
+            child: Text(
+              stage,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: AppColors.dark,
+              ),
             ),
           ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-          child: Text(
-            length,
-            style: TextStyle(
-              fontSize: 10,
-              color: AppColors.dark.withValues(alpha: 0.7),
+          Expanded(
+            child: Text(
+              length,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: AppColors.dark.withValues(alpha: 0.6),
+              ),
             ),
           ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-          child: Text(
-            weight,
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              color: AppColors.primary,
+          Expanded(
+            child: Text(
+              weight,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                color: AppColors.primary,
+              ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
-  void _showInitModal() {
-    _showSetupForm(isEdit: false);
-  }
-
-  void _showEditModal() {
-    _showSetupForm(isEdit: true);
-  }
+  void _showInitModal() => _showSetupForm(isEdit: false);
+  void _showEditModal() => _showSetupForm(isEdit: true);
 
   void _showSetupForm({required bool isEdit}) {
     final countCtrl = TextEditingController(
@@ -425,15 +452,15 @@ class _TanksScreenState extends State<TanksScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (ctx) {
         return Padding(
           padding: EdgeInsets.only(
             bottom: MediaQuery.of(ctx).viewInsets.bottom,
-            left: 20,
-            right: 20,
-            top: 20,
+            left: 24,
+            right: 24,
+            top: 16,
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -442,68 +469,71 @@ class _TanksScreenState extends State<TanksScreen> {
               Center(
                 child: Container(
                   width: 40,
-                  height: 4,
+                  height: 5,
                   decoration: BoxDecoration(
-                    color: AppColors.darkWith(0.1),
-                    borderRadius: BorderRadius.circular(2),
+                    color: AppColors.dark.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(4),
                   ),
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 24),
               Text(
                 isEdit ? 'Edit Grow-Out Setup' : 'Initialize Grow-Out',
                 style: const TextStyle(
                   fontSize: 18,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w900,
                   color: AppColors.dark,
                 ),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 6),
               Text(
                 'Enter the initial stocking details for this tank.',
-                style: TextStyle(fontSize: 12, color: AppColors.darkWith(0.5)),
+                style: TextStyle(
+                  fontSize: 12,
+                  color: AppColors.dark.withValues(alpha: 0.5),
+                ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 24),
               _buildModalInput('Initial Stock Count', 'e.g. 1000', countCtrl),
               _buildModalInput('Average Weight (g)', 'e.g. 2.5', weightCtrl),
               _buildModalInput('Average Length (cm)', 'e.g. 3.0', lengthCtrl),
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: () {
-                    // TankService.instance.updateSetup(
-                    //   int.parse(countCtrl.text),
-                    //   double.parse(weightCtrl.text),
-                    //   double.parse(lengthCtrl.text)
-                    // );
-
                     Navigator.pop(ctx);
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text(
                           isEdit ? 'Setup updated!' : 'Setup initialized!',
                         ),
+                        behavior: SnackBarBehavior.floating,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                       ),
                     );
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(14),
                     ),
+                    elevation: 0,
                   ),
                   child: const Text(
                     'Save Setup',
                     style: TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
+                      fontSize: 13,
                     ),
                   ),
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 24),
             ],
           ),
         );
@@ -519,15 +549,15 @@ class _TanksScreenState extends State<TanksScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (ctx) {
         return Padding(
           padding: EdgeInsets.only(
             bottom: MediaQuery.of(ctx).viewInsets.bottom,
-            left: 20,
-            right: 20,
-            top: 20,
+            left: 24,
+            right: 24,
+            top: 16,
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -536,62 +566,70 @@ class _TanksScreenState extends State<TanksScreen> {
               Center(
                 child: Container(
                   width: 40,
-                  height: 4,
+                  height: 5,
                   decoration: BoxDecoration(
-                    color: AppColors.darkWith(0.1),
-                    borderRadius: BorderRadius.circular(2),
+                    color: AppColors.dark.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(4),
                   ),
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 24),
               const Text(
                 'Log Mortality',
                 style: TextStyle(
                   fontSize: 18,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w900,
                   color: AppColors.critical,
                 ),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 6),
               Text(
                 'Record the number of dead crayfish found in the tank.',
-                style: TextStyle(fontSize: 12, color: AppColors.darkWith(0.5)),
+                style: TextStyle(
+                  fontSize: 12,
+                  color: AppColors.dark.withValues(alpha: 0.5),
+                ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 24),
               _buildModalInput('Number of Dead Crayfish', 'e.g. 5', countCtrl),
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: () {
                     if (countCtrl.text.isNotEmpty) {
-                      // TankService.instance.addMortality(int.parse(countCtrl.text));
-
                       Navigator.pop(ctx);
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Mortality successfully logged.'),
+                        SnackBar(
+                          content: const Text('Mortality successfully logged.'),
+                          behavior: SnackBarBehavior.floating,
+                          backgroundColor: AppColors.critical,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
                         ),
                       );
                     }
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.critical,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(14),
                     ),
+                    elevation: 0,
                   ),
                   child: const Text(
                     'Confirm Logging',
                     style: TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
+                      fontSize: 13,
                     ),
                   ),
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 24),
             ],
           ),
         );
@@ -604,11 +642,11 @@ class _TanksScreenState extends State<TanksScreen> {
       context: context,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (ctx) {
         return Padding(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -616,23 +654,23 @@ class _TanksScreenState extends State<TanksScreen> {
               Center(
                 child: Container(
                   width: 40,
-                  height: 4,
+                  height: 5,
                   decoration: BoxDecoration(
-                    color: AppColors.darkWith(0.1),
-                    borderRadius: BorderRadius.circular(2),
+                    color: AppColors.dark.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(4),
                   ),
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 24),
               const Text(
                 'Activity Logs',
                 style: TextStyle(
                   fontSize: 18,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w900,
                   color: AppColors.dark,
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 20),
               Expanded(
                 child: ListView(
                   shrinkWrap: true,
@@ -650,7 +688,7 @@ class _TanksScreenState extends State<TanksScreen> {
                       AppColors.success,
                     ),
                     _buildLogItem(
-                      Icons.warning,
+                      Icons.warning_amber_rounded,
                       'Mortality: 2 recorded',
                       'Yesterday, 8:00 AM',
                       AppColors.critical,
@@ -658,11 +696,24 @@ class _TanksScreenState extends State<TanksScreen> {
                   ],
                 ),
               ),
+              const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,
                 child: TextButton(
                   onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Close'),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text(
+                    'Close',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.dark,
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -678,37 +729,44 @@ class _TanksScreenState extends State<TanksScreen> {
     TextEditingController controller,
   ) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.only(bottom: 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             label,
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: AppColors.dark,
+            ),
           ),
           const SizedBox(height: 8),
           TextField(
             controller: controller,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
             decoration: InputDecoration(
               hintText: hint,
+              hintStyle: TextStyle(
+                color: AppColors.dark.withValues(alpha: 0.3),
+              ),
               filled: true,
-              fillColor: AppColors.darkWith(0.03),
+              fillColor: AppColors.dark.withValues(alpha: 0.03),
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 16,
-                vertical: 14,
+                vertical: 16,
               ),
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: AppColors.darkWith(0.1)),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: AppColors.darkWith(0.1)),
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide.none,
               ),
               focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppColors.primary),
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(
+                  color: AppColors.primary,
+                  width: 1.5,
+                ),
               ),
             ),
           ),
@@ -724,24 +782,31 @@ class _TanksScreenState extends State<TanksScreen> {
     Color color,
   ) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.darkWith(0.02),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.darkWith(0.05)),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.dark.withValues(alpha: 0.06)),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.dark.withValues(alpha: 0.02),
+            blurRadius: 5,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(8),
+            padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               color: color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(icon, size: 18, color: color),
+            child: Icon(icon, size: 20, color: color),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -751,13 +816,16 @@ class _TanksScreenState extends State<TanksScreen> {
                   style: const TextStyle(
                     fontWeight: FontWeight.w700,
                     fontSize: 13,
+                    color: AppColors.dark,
                   ),
                 ),
+                const SizedBox(height: 2),
                 Text(
                   subtitle,
                   style: TextStyle(
-                    fontSize: 11,
-                    color: AppColors.darkWith(0.5),
+                    fontSize: 10,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.dark.withValues(alpha: 0.5),
                   ),
                 ),
               ],

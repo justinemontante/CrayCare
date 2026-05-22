@@ -25,17 +25,17 @@ class InventoryTab extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!hasSetup) return _buildEmptyState();
     return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), // Reduced top padding
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       child: Column(
         children: [
           _buildSurvivalCard(),
-          const SizedBox(height: 8), // Reduced
+          const SizedBox(height: 12),
           _buildWarningBanner(),
-          const SizedBox(height: 8), // Reduced
+          const SizedBox(height: 12),
           _buildActionButtons(),
-          const SizedBox(height: 8), // Reduced
+          const SizedBox(height: 12),
           _buildInfoCard(),
-          const SizedBox(height: 12), // Reduced
+          const SizedBox(height: 20),
         ],
       ),
     );
@@ -43,45 +43,78 @@ class InventoryTab extends StatelessWidget {
 
   Widget _buildEmptyState() {
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(40),
+      child: Container(
+        margin: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(32),
+        decoration: BoxDecoration(
+          color: AppColors.primary.withValues(alpha: 0.03),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: AppColors.primary.withValues(alpha: 0.15),
+            width: 2,
+            strokeAlign: BorderSide.strokeAlignOutside,
+          ),
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.inventory_2_outlined,
-              size: 56,
-              color: AppColors.darkWith(0.15),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.primary.withValues(alpha: 0.1),
+                    blurRadius: 15,
+                    offset: const Offset(0, 5),
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.inventory_2_rounded,
+                size: 40,
+                color: AppColors.primary,
+              ),
             ),
-            const SizedBox(height: 16),
-            Text(
-              'No Grow-Out Setup Yet',
+            const SizedBox(height: 20),
+            const Text(
+              'No Grow-Out Setup',
               style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: AppColors.darkWith(0.7),
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: AppColors.dark,
               ),
             ),
             const SizedBox(height: 8),
             Text(
               'Initialize your grow-out to start tracking crayfish growth and survival.',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12, color: AppColors.darkWith(0.4)),
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: AppColors.dark.withValues(alpha: 0.5),
+                height: 1.4,
+              ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 28),
             ElevatedButton.icon(
               onPressed: onShowInitModal,
-              icon: const Icon(Icons.add, size: 16),
-              label: const Text('Initialize Grow-Out Setup'),
+              icon: const Icon(Icons.add_rounded, size: 18),
+              label: const Text(
+                'Initialize Setup',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+              ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 12,
+                  horizontal: 24,
+                  vertical: 14,
                 ),
+                elevation: 0,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(14),
                 ),
               ),
             ),
@@ -103,16 +136,16 @@ class InventoryTab extends StatelessWidget {
     }
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.darkWith(0.08)),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.dark.withValues(alpha: 0.05)),
         boxShadow: [
           BoxShadow(
-            color: AppColors.darkWith(0.06),
-            blurRadius: 12,
-            offset: const Offset(0, 2),
+            color: AppColors.dark.withValues(alpha: 0.04),
+            blurRadius: 20,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -139,7 +172,7 @@ class InventoryTab extends StatelessWidget {
                           fontSize: 9,
                           fontWeight: FontWeight.w800,
                           color: statusColor,
-                          letterSpacing: 0.5,
+                          letterSpacing: 0.8,
                         ),
                       ),
                     ),
@@ -147,59 +180,69 @@ class InventoryTab extends StatelessWidget {
                     const Text(
                       'Stocking Health',
                       style: TextStyle(
-                        fontSize: 18,
+                        fontSize: 20,
                         fontWeight: FontWeight.w900,
                         color: AppColors.dark,
+                        letterSpacing: -0.3,
                       ),
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 4),
                     Text(
                       'Overall survival performance based on initial stocking data.',
                       style: TextStyle(
-                        fontSize: 10,
+                        fontSize: 11,
                         fontWeight: FontWeight.w500,
-                        color: AppColors.darkWith(0.5),
+                        color: AppColors.dark.withValues(alpha: 0.5),
                         height: 1.4,
                       ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 16),
               _buildDonutChart(survivalPct / 100, statusColor),
             ],
           ),
-          const SizedBox(height: 18),
-          Row(
-            children: [
-              _buildStatItem(Icons.numbers, '${service.liveCount}', 'LIVE'),
-              _buildStatDivider(),
-              _buildStatItem(
-                Icons.pie_chart_outline,
-                '${service.initialCount}',
-                'INITIAL',
-              ),
-              _buildStatDivider(),
-              _buildStatItem(
-                Icons.favorite_border,
-                '${service.mortality}',
-                'MORTALITY',
-              ),
-            ],
+          const SizedBox(height: 24),
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            decoration: BoxDecoration(
+              color: AppColors.dark.withValues(alpha: 0.02),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Row(
+              children: [
+                _buildStatItem(
+                  Icons.water_drop_rounded,
+                  '${service.liveCount}',
+                  'LIVE',
+                ),
+                _buildStatDivider(),
+                _buildStatItem(
+                  Icons.apps_rounded,
+                  '${service.initialCount}',
+                  'INITIAL',
+                ),
+                _buildStatDivider(),
+                _buildStatItem(
+                  Icons.warning_rounded,
+                  '${service.mortality}',
+                  'DEAD',
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 12),
-          const Divider(height: 1),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
           Row(
             children: [
               _buildStatItem(
-                Icons.monitor_weight_outlined,
+                Icons.monitor_weight_rounded,
                 '${service.initialWeight.toStringAsFixed(1)} g',
                 'AVG WEIGHT',
               ),
               _buildStatDivider(),
               _buildStatItem(
-                Icons.straighten_outlined,
+                Icons.straighten_rounded,
                 '${service.initialLength.toStringAsFixed(1)} cm',
                 'AVG LENGTH',
               ),
@@ -219,7 +262,7 @@ class InventoryTab extends StatelessWidget {
         boxShadow: [
           BoxShadow(
             color: color.withValues(alpha: 0.15),
-            blurRadius: 12,
+            blurRadius: 20,
             spreadRadius: 2,
           ),
         ],
@@ -228,7 +271,7 @@ class InventoryTab extends StatelessWidget {
         painter: _DonutPainter(
           fraction: fraction,
           color: color,
-          bgColor: color.withValues(alpha: 0.12),
+          bgColor: color.withValues(alpha: 0.1),
         ),
         child: Center(
           child: Text(
@@ -237,7 +280,7 @@ class InventoryTab extends StatelessWidget {
               fontSize: 22,
               fontWeight: FontWeight.w900,
               color: color,
-              height: 1,
+              letterSpacing: -0.5,
             ),
           ),
         ),
@@ -249,23 +292,24 @@ class InventoryTab extends StatelessWidget {
     return Expanded(
       child: Column(
         children: [
-          Icon(icon, size: 14, color: AppColors.darkWith(0.5)),
-          const SizedBox(height: 4),
+          Icon(icon, size: 16, color: AppColors.dark.withValues(alpha: 0.4)),
+          const SizedBox(height: 6),
           Text(
             value,
             style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w800,
+              fontSize: 15,
+              fontWeight: FontWeight.w900,
               color: AppColors.dark,
             ),
           ),
+          const SizedBox(height: 2),
           Text(
             label,
             style: TextStyle(
               fontSize: 8,
-              fontWeight: FontWeight.w600,
-              color: AppColors.darkWith(0.5),
-              letterSpacing: 0.3,
+              fontWeight: FontWeight.w800,
+              color: AppColors.dark.withValues(alpha: 0.5),
+              letterSpacing: 0.5,
             ),
           ),
         ],
@@ -274,7 +318,11 @@ class InventoryTab extends StatelessWidget {
   }
 
   Widget _buildStatDivider() {
-    return Container(width: 1, height: 36, color: AppColors.darkWith(0.08));
+    return Container(
+      width: 1,
+      height: 40,
+      color: AppColors.dark.withValues(alpha: 0.08),
+    );
   }
 
   Widget _buildWarningBanner() {
@@ -282,36 +330,58 @@ class InventoryTab extends StatelessWidget {
     if (survivalPct >= 85) return const SizedBox.shrink();
     final isCritical = survivalPct < 70;
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
         color: isCritical
-            ? AppColors.criticalWith(0.1)
-            : AppColors.warningWith(0.1),
+            ? AppColors.critical.withValues(alpha: 0.05)
+            : AppColors.warning.withValues(alpha: 0.05),
         border: Border.all(
           color: isCritical
-              ? AppColors.criticalWith(0.25)
-              : AppColors.warningWith(0.25),
+              ? AppColors.critical.withValues(alpha: 0.3)
+              : AppColors.warning.withValues(alpha: 0.3),
         ),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(
-            isCritical ? Icons.warning : Icons.info_outline,
-            size: 16,
+            isCritical ? Icons.error_rounded : Icons.warning_rounded,
+            size: 18,
             color: isCritical ? AppColors.critical : AppColors.warning,
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 10),
           Expanded(
-            child: Text(
-              isCritical
-                  ? 'Critical: Survival dropped below 70%. Immediate action required.'
-                  : 'Warning: Survival below 85%. Consider reviewing water quality and feeding.',
-              style: TextStyle(
-                fontSize: 11,
-                color: isCritical ? AppColors.critical : AppColors.warningDark,
-                height: 1.3,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isCritical
+                      ? 'Critical Survival Level'
+                      : 'Low Survival Warning',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: isCritical
+                        ? AppColors.critical
+                        : AppColors.warningDark,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  isCritical
+                      ? 'Survival dropped below 70%. Immediate water testing and action required.'
+                      : 'Survival below 85%. Consider reviewing water quality parameters and feeding rates.',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: isCritical
+                        ? AppColors.critical.withValues(alpha: 0.8)
+                        : AppColors.warningDark.withValues(alpha: 0.8),
+                    height: 1.4,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -325,25 +395,25 @@ class InventoryTab extends StatelessWidget {
         Expanded(
           child: _buildActionBtn(
             'Log Mortality',
-            Icons.warning_rounded,
+            Icons.healing_rounded,
             AppColors.critical,
             onShowMortalityModal,
           ),
         ),
-        const SizedBox(width: 6),
+        const SizedBox(width: 8),
         Expanded(
           child: _buildActionBtn(
             'Edit Setup',
-            Icons.edit_outlined,
+            Icons.edit_rounded,
             AppColors.primary,
             onShowEditModal,
           ),
         ),
-        const SizedBox(width: 6),
+        const SizedBox(width: 8),
         Expanded(
           child: _buildActionBtn(
             'View Logs',
-            Icons.menu_book,
+            Icons.receipt_long_rounded,
             AppColors.warning,
             onShowLogsModal,
           ),
@@ -360,27 +430,35 @@ class InventoryTab extends StatelessWidget {
   ) {
     return Material(
       color: Colors.transparent,
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(14),
       child: InkWell(
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(14),
         onTap: onTap,
         child: Ink(
-          padding: const EdgeInsets.symmetric(vertical: 10),
+          padding: const EdgeInsets.symmetric(vertical: 14),
           decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.1),
-            border: Border.all(color: color.withValues(alpha: 0.25)),
-            borderRadius: BorderRadius.circular(10),
+            color: Colors.white,
+            border: Border.all(color: color.withValues(alpha: 0.3)),
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: [
+              BoxShadow(
+                color: color.withValues(alpha: 0.05),
+                blurRadius: 10,
+                offset: const Offset(0, 2),
+              ),
+            ],
           ),
           child: Column(
             children: [
-              Icon(icon, size: 16, color: color),
-              const SizedBox(height: 4),
+              Icon(icon, size: 20, color: color),
+              const SizedBox(height: 6),
               Text(
                 label,
                 style: TextStyle(
-                  fontSize: 9,
-                  fontWeight: FontWeight.w700,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
                   color: color,
+                  letterSpacing: -0.2,
                 ),
               ),
             ],
@@ -395,28 +473,34 @@ class InventoryTab extends StatelessWidget {
     final stockingDate = service.stockingDate;
     final days = service.daysInCulture;
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.darkWith(0.03),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.darkWith(0.08)),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.dark.withValues(alpha: 0.05)),
       ),
       child: Column(
         children: [
           _buildInfoRow(
-            Icons.calendar_today,
+            Icons.calendar_month_rounded,
             'Stocking Date',
             '${stockingDate.month}/${stockingDate.day}/${stockingDate.year}',
           ),
-          const SizedBox(height: 8),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 10),
+            child: Divider(height: 1),
+          ),
           _buildInfoRow(
-            Icons.hourglass_bottom,
+            Icons.timelapse_rounded,
             'Days in Culture',
             '$days days',
           ),
-          const SizedBox(height: 8),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 10),
+            child: Divider(height: 1),
+          ),
           _buildInfoRow(
-            Icons.history,
+            Icons.history_rounded,
             'Last Edited',
             '${lastEdited.month}/${lastEdited.day}/${lastEdited.year}',
           ),
@@ -432,19 +516,34 @@ class InventoryTab extends StatelessWidget {
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 14, color: AppColors.darkWith(0.5)),
-            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: AppColors.dark.withValues(alpha: 0.04),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                icon,
+                size: 14,
+                color: AppColors.dark.withValues(alpha: 0.6),
+              ),
+            ),
+            const SizedBox(width: 10),
             Text(
               label,
-              style: TextStyle(fontSize: 11, color: AppColors.darkWith(0.7)),
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: AppColors.dark.withValues(alpha: 0.7),
+              ),
             ),
           ],
         ),
         Text(
           value,
           style: const TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
             color: AppColors.dark,
           ),
         ),
@@ -468,7 +567,7 @@ class _DonutPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     final radius = min(size.width / 2, size.height / 2);
-    const strokeWidth = 8.0;
+    const strokeWidth = 10.0; // Pinalaki ng konti ang stroke
 
     final bgPaint = Paint()
       ..color = bgColor

@@ -177,13 +177,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     activeFilter: _activeFilter,
                     showCustom: _showCustom,
                     onFilterChanged: (val) {
-                      // 1. I-update agad ang button state para smooth ang animation
                       setState(() {
                         _activeFilter = val;
                         _showCustom = false;
                       });
-
-                      // 2. I-delay ng konti (100ms) bago i-load ang mabigat na charts
                       Future.delayed(const Duration(milliseconds: 100), () {
                         if (mounted) {
                           setState(() {
@@ -279,15 +276,15 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(8),
+                padding: const EdgeInsets.all(4),
                 decoration: BoxDecoration(
                   color: AppColors.primary.withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
-                  Icons.auto_awesome,
-                  color: AppColors.primary,
-                  size: 20,
+                child: Image.asset(
+                  'assets/images/AI_InsightLogo.png',
+                  width: 24,
+                  height: 24,
                 ),
               ),
               const SizedBox(width: 12),
@@ -318,31 +315,31 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           _buildInsightItem(
             'Temperature',
             'Currently stable at 28.5\u00B0C. AI predicts no stress for the next 4 hours.',
-            Icons.thermostat,
+            'assets/images/temperature.png',
             AppColors.warning,
           ),
           _buildInsightItem(
             'pH Level',
             'pH is at 7.2. Optimal for molting. Keep water parameters consistent.',
-            Icons.science,
+            'assets/images/pH.png',
             AppColors.primary,
           ),
           _buildInsightItem(
             'Dissolved O\u2082',
             'Oxygen levels are high. Aeration system is performing efficiently.',
-            Icons.air,
+            'assets/images/DO.png',
             const Color(0xFF52c283),
           ),
           _buildInsightItem(
             'Turbidity',
             'Water clarity is slightly low. Consider checking the filtration sponge.',
-            Icons.water,
+            'assets/images/Turbidity.png',
             AppColors.critical,
           ),
           _buildInsightItem(
             'Water Level',
             'Level is 150cm. Sufficient for adult crayfish population.',
-            Icons.height,
+            'assets/images/waterLevel.png',
             AppColors.primary,
           ),
           const SizedBox(height: 12),
@@ -377,7 +374,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   Widget _buildInsightItem(
     String title,
     String desc,
-    IconData icon,
+    String iconPath,
     Color color,
   ) {
     return Padding(
@@ -385,7 +382,17 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 18, color: color),
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: ColorFiltered(
+              colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
+              child: Image.asset(iconPath, width: 18, height: 18),
+            ),
+          ),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
@@ -602,10 +609,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               onTapUp: (_) => setState(() => _isApplyPressed = false),
               onTapCancel: () => setState(() => _isApplyPressed = false),
               onTap: () {
-                // 1. I-update agad para mag-kulay yung Custom tab
                 setState(() => _activeFilter = 'custom');
-
-                // 2. I-delay ng 100ms ang pag load ng charts
                 Future.delayed(const Duration(milliseconds: 100), () {
                   if (mounted) {
                     setState(() {

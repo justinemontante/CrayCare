@@ -47,7 +47,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
     return [
       {
         'title': 'Temperature',
-        'icon': Icons.thermostat,
+        'iconPath': 'assets/icons/temperature.png',
         'color': AppColors.warning,
         'status': 'Warning',
         'statusColor': AppColors.warning,
@@ -60,7 +60,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
       },
       {
         'title': 'pH Level',
-        'icon': Icons.science,
+        'iconPath': 'assets/icons/pH.png',
         'color': AppColors.primary,
         'status': 'Stable',
         'statusColor': AppColors.success,
@@ -71,7 +71,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
       },
       {
         'title': 'Dissolved Oxygen',
-        'icon': Icons.air,
+        'iconPath': 'assets/icons/DO.png',
         'color': const Color(0xFF52c283),
         'status': 'Stable',
         'statusColor': AppColors.success,
@@ -82,7 +82,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
       },
       {
         'title': 'Turbidity',
-        'icon': Icons.water,
+        'iconPath': 'assets/icons/Turbidity.png',
         'color': AppColors.critical,
         'status': 'Action Needed',
         'statusColor': AppColors.critical,
@@ -98,7 +98,6 @@ class _MovableAiLogoState extends State<MovableAiLogo>
 
   Widget _buildAIInsightsSheet(BuildContext ctx) {
     return Container(
-      // Max height para hindi sumagad sa pinaka-top ng screen
       constraints: BoxConstraints(
         maxHeight: MediaQuery.of(context).size.height * 0.85,
       ),
@@ -116,16 +115,22 @@ class _MovableAiLogoState extends State<MovableAiLogo>
           // HEADER NG BOTTOM SHEET
           Row(
             children: [
+              // PINALITAN NATIN YUNG ICON NG IMAGE.ASSET PARA SA CRAY AI LOGO
               Container(
-                padding: const EdgeInsets.all(8),
+                width: 36,
+                height: 36,
                 decoration: BoxDecoration(
                   color: AppColors.primary.withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
-                  Icons.auto_awesome,
-                  color: AppColors.primary,
-                  size: 20,
+                child: ClipOval(
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Image.asset(
+                      'assets/images/AI_InsightLogo.png',
+                      fit: BoxFit.contain,
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(width: 12),
@@ -216,7 +221,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                     final item = mlData[index];
                     return _buildSmartInsightCard(
                       title: item['title'],
-                      icon: item['icon'],
+                      iconPath: item['iconPath'],
                       iconColor: item['color'],
                       status: item['status'],
                       statusColor: item['statusColor'],
@@ -234,10 +239,9 @@ class _MovableAiLogoState extends State<MovableAiLogo>
     );
   }
 
-  // BAGONG WIDGET PARA SA INSIGHT, PREDICTION, RECO BOX
   Widget _buildSmartInsightCard({
     required String title,
-    required IconData icon,
+    required String iconPath,
     required Color iconColor,
     required String status,
     required Color statusColor,
@@ -269,7 +273,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
           // TITLE AND STATUS ROW
           Row(
             children: [
-              Icon(icon, size: 18, color: iconColor),
+              Image.asset(iconPath, width: 22, height: 22),
               const SizedBox(width: 8),
               Text(
                 title,
@@ -319,14 +323,14 @@ class _MovableAiLogoState extends State<MovableAiLogo>
             prediction,
             Icons.trending_up,
             const Color(0xFF8E44AD),
-          ), // Violet for ML
+          ),
           const SizedBox(height: 10),
           _buildDetailRow(
             'Recommendation',
             recommendation,
             Icons.build_circle_outlined,
             const Color(0xFFE67E22),
-          ), // Orange for Action
+          ),
         ],
       ),
     );
@@ -416,29 +420,23 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                         color: Colors.white,
                         boxShadow: [
                           BoxShadow(
-                            color: AppColors.primary.withValues(
-                              alpha: 0.35 * _pulseController.value,
-                            ),
-                            blurRadius: 15,
-                            spreadRadius: 6 * _pulseController.value,
-                          ),
-                          BoxShadow(
                             color: Colors.black.withValues(alpha: 0.15),
                             blurRadius: 10,
-                            offset: const Offset(0, 5),
+                            offset: const Offset(0, 4),
                           ),
                         ],
                         border: Border.all(
-                          color: AppColors.primary.withValues(
-                            alpha: 0.25 + (0.35 * _pulseController.value),
-                          ),
-                          width: 2.0,
+                          color: AppColors.primary.withValues(alpha: 0.2),
+                          width: 1.5,
                         ),
                       ),
                       child: ClipOval(
-                        child: Image.asset(
-                          'assets/images/AI_InsightLogo.png',
-                          fit: BoxFit.cover,
+                        child: Padding(
+                          padding: const EdgeInsets.all(4),
+                          child: Image.asset(
+                            'assets/images/AI_InsightLogo.png',
+                            fit: BoxFit.cover,
+                          ),
                         ),
                       ),
                     );
