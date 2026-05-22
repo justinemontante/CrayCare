@@ -378,20 +378,16 @@ class _LineChartPainter extends CustomPainter {
   List<_XLabel> _getXLabels() {
     if (labels == null || labels!.isEmpty) return [];
     final count = data.length;
-    if (count <= 1) return [_XLabel(labels![0], 0)];
-    if (count <= 6) {
+    if (count <= 8) {
       return List.generate(count, (i) => _XLabel(labels![i], i));
     }
-    final step = count > 48 ? count ~/ 7 : (count ~/ 6).clamp(1, count - 1);
-    return [
-      0,
-      step,
-      step * 2,
-      step * 3,
-      step * 4,
-      step * 5,
-      count - 1,
-    ].where((i) => i < count).map((i) => _XLabel(labels![i], i)).toList();
+    
+    // Divide the data range into 7 intervals (8 labels)
+    final step = (count - 1) / 7;
+    return List.generate(8, (i) {
+      final index = (i * step).round().clamp(0, count - 1);
+      return _XLabel(labels![index], index);
+    });
   }
 
   @override
