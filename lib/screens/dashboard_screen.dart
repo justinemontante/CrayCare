@@ -14,6 +14,8 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
+  final ScrollController _quickActionsController = ScrollController();
+
   @override
   void initState() {
     super.initState();
@@ -23,6 +25,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   void dispose() {
+    _quickActionsController.dispose();
     SensorService.instance.removeListener(_refreshUI);
     SettingsService.instance.removeListener(_refreshUI);
     super.dispose();
@@ -39,12 +42,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: SingleChildScrollView(
         child: Column(
           children: [
-            _buildGreeting(),
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                _buildGreeting(),
+                Positioned(
+                  bottom: -20, 
+                  right: 12, 
+                  child: _buildLiveTag(),
+                ),
+              ],
+            ),
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 4),
               child: SectionLabel(
                 label: 'Water Quality Overview',
-                showLiveData: true,
+                showLiveData: false,
+                icon: Icons.water_drop_outlined,
               ),
             ),
             _buildGaugeGrid(context),
@@ -52,15 +66,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
               padding: EdgeInsets.symmetric(horizontal: 4),
               child: SectionLabel(
                 label: 'Physical Parameter',
-                showLiveData: true,
+                showLiveData: false,
+                icon: Icons.analytics_outlined,
               ),
             ),
             _buildWaterLevelGauge(context),
             const SizedBox(height: 12),
             _buildQuickActionsHeader(),
             _buildQuickActions(),
-            const SizedBox(height: 12),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 4),
+              child: SectionLabel(
+                label: 'Monitoring & Inventory',
+                showLiveData: false,
+                icon: Icons.inventory_2_outlined,
+              ),
+            ),
             _buildTankStatusCard(),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 4),
+              child: SectionLabel(
+                label: 'Operational Schedule',
+                showLiveData: false,
+                icon: Icons.event_note_outlined,
+              ),
+            ),
             _buildFeedingScheduleCard(),
             const SizedBox(height: 32),
           ],
@@ -92,10 +122,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  Color(0xFFF8FFFF), // #f8ffff
-                  Color(0xFFF2FDFD), // #f2fdfd
-                  Color(0xFFE8FAFA), // #e8fafa
-                  Color(0xFFDAF4F5), // #daf4f5
+                  Color(0xFFF8FFFF),
+                  Color(0xFFF2FDFD),
+                  Color(0xFFE8FAFA),
+                  Color(0xFFDAF4F5),
                 ],
               ),
             ),
@@ -148,26 +178,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ),
           Positioned(
-            bottom: 0,
-            right: 0,
-            width: 200,
-            height: 150,
-            child: IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: RadialGradient(
-                    center: Alignment.bottomRight,
-                    radius: 1.5,
-                    colors: [
-                      AppColors.primaryWith(0.15),
-                      AppColors.primaryWith(0.0),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-          Positioned(
             top: 0,
             bottom: 0,
             right: 0,
@@ -179,6 +189,67 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildLiveTag() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+        border: Border.all(color: const Color(0xFF22c55e).withValues(alpha: 0.1)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              _buildMiniGraphBar(4),
+              _buildMiniGraphBar(7),
+              _buildMiniGraphBar(5),
+            ],
+          ),
+          const SizedBox(width: 6),
+          Container(
+            width: 5,
+            height: 5,
+            decoration: const BoxDecoration(
+              color: Color(0xFF22c55e),
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 4),
+          const Text(
+            'LIVE',
+            style: TextStyle(
+              fontSize: 8,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF22c55e),
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMiniGraphBar(double height) {
+    return Container(
+      width: 2,
+      height: height,
+      margin: const EdgeInsets.symmetric(horizontal: 0.5),
+      decoration: BoxDecoration(
+        color: const Color(0xFF22c55e).withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(1),
       ),
     );
   }
@@ -350,15 +421,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildQuickActionsHeader() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 6, 14, 4),
+      padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Text(
-            'Quick Actions',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: AppColors.primary,
+          const Expanded(
+            child: SectionLabel(
+              label: 'Quick Actions',
+              showLiveData: false,
+              icon: Icons.bolt_outlined,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(right: 18, top: 4),
+            child: GestureDetector(
+              onTap: () {
+                if (_quickActionsController.hasClients) {
+                  _quickActionsController.animateTo(
+                    _quickActionsController.offset + 150,
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeInOut,
+                  );
+                }
+              },
+              child: Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.chevron_right,
+                  size: 16,
+                  color: AppColors.primary,
+                ),
+              ),
             ),
           ),
         ],
@@ -368,31 +465,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildQuickActions() {
     final actions = [
-      _QuickActionData('Aerator', Icons.air, ''),
-      _QuickActionData('Pump', Icons.water_drop, ''),
-      _QuickActionData('Feed Now', Icons.egg_rounded, ''),
-      _QuickActionData('Inventory', Icons.inventory_2_outlined, null),
-      _QuickActionData('Sampling', Icons.speed_rounded, null),
+      _QuickActionData('Aerator', Icons.air, 'Active'),
+      _QuickActionData('Pump', Icons.water_drop, 'Idle'),
+      _QuickActionData('Feed', Icons.egg_rounded, 'Auto'),
+      _QuickActionData('Stock', Icons.inventory_2_outlined, null),
+      _QuickActionData('Test', Icons.speed_rounded, null),
       _QuickActionData('Trends', Icons.trending_up_rounded, null),
     ];
 
     return SingleChildScrollView(
+      controller: _quickActionsController,
       scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       child: Row(
         children: actions.map((a) {
           return Container(
-            margin: const EdgeInsets.only(right: 8),
-            padding: const EdgeInsets.fromLTRB(6, 10, 10, 10),
+            margin: const EdgeInsets.only(right: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
-              color: const Color(0xFFe8fafa),
-              border: Border.all(color: AppColors.darkWith(0.06)),
-              borderRadius: BorderRadius.circular(10),
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: AppColors.darkWith(0.1)),
               boxShadow: [
                 BoxShadow(
-                  color: AppColors.darkWith(0.15),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
+                  color: AppColors.darkWith(0.06),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
                 ),
               ],
             ),
@@ -400,40 +498,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  width: 26,
-                  height: 26,
+                  padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: AppColors.primaryWith(0.1),
                     shape: BoxShape.circle,
-                    border: Border.all(
-                      color: AppColors.primaryWith(0.2),
-                      width: 1.5,
-                    ),
                   ),
-                  child: Icon(a.icon, size: 12, color: AppColors.primary),
+                  child: Icon(a.icon, size: 16, color: AppColors.primary),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 10),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       a.name,
                       style: const TextStyle(
-                        fontSize: 9,
+                        fontSize: 11,
                         fontWeight: FontWeight.w700,
                         color: AppColors.dark,
                       ),
                     ),
                     if (a.status != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 1),
-                        child: Text(
-                          a.status!.isEmpty ? '--' : a.status!,
-                          style: const TextStyle(
-                            fontSize: 6,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.primary,
-                          ),
+                      Text(
+                        a.status!,
+                        style: TextStyle(
+                          fontSize: 8,
+                          fontWeight: FontWeight.w600,
+                          color: a.status == 'Active'
+                              ? AppColors.success
+                              : AppColors.darkWith(0.4),
                         ),
                       ),
                   ],
@@ -448,90 +540,100 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildTankStatusCard() {
     return Container(
-      margin: const EdgeInsets.fromLTRB(14, 12, 14, 0),
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.fromLTRB(14, 4, 14, 0),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.darkWith(0.08)),
+        color: const Color(0xFFFCFCFC),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: AppColors.darkWith(0.08),
-            blurRadius: 12,
-            offset: const Offset(0, 2),
+            color: AppColors.darkWith(0.12),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(
-                Icons.inventory_2_outlined,
-                size: 18,
-                color: AppColors.darkWith(0.7),
-              ),
-              const SizedBox(width: 6),
-              const Text(
-                'Tank Status',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.dark,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.inventory_2_outlined,
+                  size: 18,
+                  color: AppColors.primary,
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: _buildStatColumn(Icons.numbers, '63', 'LIVE COUNT'),
-              ),
-              _buildStatDivider(),
-              Expanded(
-                child: _buildStatColumn(
-                  Icons.shield_outlined,
-                  '92.6%',
-                  'SURVIVAL',
+                const SizedBox(width: 10),
+                const Text(
+                  'Tank Status',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.dark,
+                  ),
                 ),
-              ),
-              _buildStatDivider(),
-              Expanded(
-                child: _buildStatColumn(
-                  Icons.pie_chart_outline,
-                  '68',
-                  'INITIAL',
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _buildStatColumn(Icons.numbers, '63', 'LIVE COUNT'),
                 ),
-              ),
-              _buildStatDivider(),
-              Expanded(
-                child: _buildStatColumn(
-                  Icons.favorite_border,
-                  '5',
-                  'MORTALITY',
+                Expanded(
+                  child: _buildStatColumn(
+                    Icons.shield_outlined,
+                    '92.6%',
+                    'SURVIVAL',
+                  ),
                 ),
+                Expanded(
+                  child: _buildStatColumn(
+                    Icons.pie_chart_outline,
+                    '68',
+                    'INITIAL',
+                  ),
+                ),
+                Expanded(
+                  child: _buildStatColumn(
+                    Icons.favorite_border,
+                    '5',
+                    'MORTALITY',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: AppColors.darkWith(0.02),
+              borderRadius: const BorderRadius.vertical(
+                bottom: Radius.circular(20),
               ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          const Divider(height: 1, color: Color(0x150B3C49)),
-          const SizedBox(height: 12),
-          _buildDetailRow(Icons.hourglass_bottom, 'Days in Culture', '45'),
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 8),
-            child: Divider(height: 1, color: Color(0x150B3C49)),
-          ),
-          _buildDetailRow(Icons.history, 'Last Sampling', 'May 12, 2026'),
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 8),
-            child: Divider(height: 1, color: Color(0x150B3C49)),
-          ),
-          _buildDetailRow(
-            Icons.calendar_today,
-            'Next Sampling',
-            'May 19, 2026',
+            ),
+            child: Column(
+              children: [
+                _buildDetailRow(
+                  Icons.hourglass_bottom,
+                  'Days in Culture',
+                  '45',
+                ),
+                const SizedBox(height: 8),
+                _buildDetailRow(Icons.history, 'Last Sampling', 'May 12, 2026'),
+                const SizedBox(height: 8),
+                _buildDetailRow(
+                  Icons.calendar_today,
+                  'Next Sampling',
+                  'May 19, 2026',
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -602,17 +704,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildFeedingScheduleCard() {
     return Container(
-      margin: const EdgeInsets.fromLTRB(14, 12, 14, 0),
+      margin: const EdgeInsets.fromLTRB(14, 4, 14, 0),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.darkWith(0.08)),
+        color: const Color(0xFFFCFCFC),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: AppColors.darkWith(0.08),
-            blurRadius: 12,
-            offset: const Offset(0, 2),
+            color: AppColors.darkWith(0.12),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -621,7 +723,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         children: [
           Row(
             children: [
-              Icon(Icons.egg_rounded, size: 18, color: AppColors.darkWith(0.7)),
+              Icon(Icons.egg_rounded, size: 18, color: AppColors.primary),
               const SizedBox(width: 6),
               const Text(
                 'Feeding Schedule',
@@ -1100,7 +1202,7 @@ class _GaugeCardState extends State<_GaugeCard> {
             color: _isPressed
                 ? AppColors.darkWith(0.16)
                 : AppColors.darkWith(0.12),
-            blurRadius: _isPressed ? 10 : 16,
+            blurRadius: 16,
             offset: const Offset(0, 4),
           ),
         ],

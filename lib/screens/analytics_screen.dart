@@ -911,7 +911,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     String curPrefix = 'Now',
   }) {
     final isLive = _activeFilter == 'live';
-    final isShortRange = _activeFilter == 'live' || _activeFilter == '24h';
+    final isShortRange = _activeFilter == 'live';
 
     double avg = 0.0;
     if (data.isNotEmpty) {
@@ -940,25 +940,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                       '$curPrefix: $cur $unit',
                       curPrefix == 'Now' ? 'Real-time Streaming' : curLabel,
                       AppColors.primary,
-                    ),
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.primaryWith(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    curPrefix == 'Now' ? 'LIVE DATA' : 'SELECTED',
-                    style: const TextStyle(
-                      fontSize: 8,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.primary,
-                      letterSpacing: 0.5,
                     ),
                   ),
                 ),
@@ -1256,29 +1237,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                                 ? 'Real-time Streaming'
                                                 : modalDisplayLabel,
                                             AppColors.primary,
-                                          ),
-                                        ),
-                                      ),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 4,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: AppColors.primaryWith(0.1),
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          modalCurPrefix == 'Now'
-                                              ? 'LIVE DATA'
-                                              : 'SELECTED',
-                                          style: const TextStyle(
-                                            fontSize: 8,
-                                            fontWeight: FontWeight.w800,
-                                            color: AppColors.primary,
-                                            letterSpacing: 0.5,
                                           ),
                                         ),
                                       ),

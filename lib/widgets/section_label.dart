@@ -4,11 +4,13 @@ import '../theme/app_colors.dart';
 class SectionLabel extends StatelessWidget {
   final String label;
   final bool showLiveData;
+  final IconData? icon;
 
   const SectionLabel({
     super.key,
     required this.label,
     this.showLiveData = false,
+    this.icon,
   });
 
   @override
@@ -18,13 +20,26 @@ class SectionLabel extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: AppColors.primary,
-            ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[
+                Icon(
+                  icon,
+                  size: 16,
+                  color: AppColors.primary,
+                ),
+                const SizedBox(width: 8),
+              ],
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.primary,
+                ),
+              ),
+            ],
           ),
           if (showLiveData)
             Row(

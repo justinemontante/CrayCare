@@ -63,7 +63,8 @@ class _TanksScreenState extends State<TanksScreen> {
                   sampleCountController: _sampleCountController,
                   sampleWeightController: _sampleWeightController,
                   sampleLengthController: _sampleLengthController,
-                  onShowGrowthStageReferenceModal: _showGrowthStageReferenceModal,
+                  onShowGrowthStageReferenceModal:
+                      _showGrowthStageReferenceModal,
                 ),
                 const TrendsTab(),
               ],
@@ -346,7 +347,10 @@ class _TanksScreenState extends State<TanksScreen> {
                     ),
                     child: const Text(
                       'Close Reference',
-                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                      ),
                     ),
                   ),
                 ),
@@ -365,21 +369,32 @@ class _TanksScreenState extends State<TanksScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
           child: Text(
             stage,
-            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.dark),
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: AppColors.dark,
+            ),
           ),
         ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
           child: Text(
             length,
-            style: TextStyle(fontSize: 10, color: AppColors.dark.withValues(alpha: 0.7)),
+            style: TextStyle(
+              fontSize: 10,
+              color: AppColors.dark.withValues(alpha: 0.7),
+            ),
           ),
         ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
           child: Text(
             weight,
-            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.primary),
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: AppColors.primary,
+            ),
           ),
         ),
       ],
