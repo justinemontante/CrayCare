@@ -47,31 +47,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
               children: [
                 _buildGreeting(),
                 Positioned(bottom: -20, right: 12, child: _buildLiveTag()),
-                Positioned(
-                  top: 20,
-                  right: 16,
-                  child: GestureDetector(
-                    onTap: _showAlertsModal,
-                    child: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.1),
-                            blurRadius: 8,
-                          ),
-                        ],
-                      ),
-                      child: const Icon(
-                        Icons.notifications_active_rounded,
-                        size: 20,
-                        color: AppColors.critical,
-                      ),
-                    ),
-                  ),
-                ),
               ],
             ),
             const Padding(

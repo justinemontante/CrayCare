@@ -106,9 +106,23 @@ class _TrendsTabState extends State<TrendsTab> {
           SizedBox(
             height: 200,
             child: data.length > 1
-                ? CustomPaint(
-                    painter: _LineChartPainter(data, AppColors.primary),
-                    child: Container(),
+                ? Column(
+                    children: [
+                      Expanded(
+                        child: CustomPaint(
+                          painter: _LineChartPainter(data, AppColors.primary),
+                          child: Container(),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Initial', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: AppColors.primary)),
+                          Text('W${data.length - 1}', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: AppColors.darkWith(0.5))),
+                        ],
+                      ),
+                    ],
                   )
                 : Center(
                     child: Text(
