@@ -188,7 +188,6 @@ class InventoryTab extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    // Maliit na black/dark explanation label
                     Text(
                       'Current monitoring status of your survival rates and growth parameters.',
                       style: TextStyle(
@@ -201,77 +200,47 @@ class InventoryTab extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(width: 8),
               _buildDonutChart(survivalPct / 100, statusColor),
             ],
           ),
           const SizedBox(height: 16),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Initial Tank Setup Data',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                color: AppColors.primary,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          // 3 rows x 2 columns
           Column(
             children: [
-              // Row 1: Initial Population & Sample Count
               Row(
                 children: [
-                  Expanded(
-                    child: _buildMetricCard(
-                      Icons.numbers,
-                      'Initial Population',
-                      '${service.initialCount}',
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _buildMetricCard(
-                      Icons.analytics_rounded,
-                      'Sample Count',
-                      '${service.sampleCount}',
-                    ),
-                  ),
+                  Expanded(child: _buildMetricCard(Icons.numbers, 'Population', '${service.initialCount}', 'Initial tank setup data')),
+
+                  const SizedBox(width: 6),
+                  Expanded(child: _buildMetricCard(Icons.analytics_rounded, 'Sample Count', '${service.sampleCount}', 'Initial tank setup data')),
                 ],
               ),
-              const SizedBox(height: 10),
-              // Row 2: Total Weight & Total Length (with Avg subtitles)
+              const SizedBox(height: 6),
               Row(
                 children: [
-                  Expanded(
-                    child: _buildMetricCard(
-                      Icons.scale_rounded,
-                      'Total Weight',
-                      '${(service.initialWeight * service.sampleCount).toStringAsFixed(1)} g',
-                      subtitle:
-                          'Avg: ${service.initialWeight.toStringAsFixed(1)} g',
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _buildMetricCard(
-                      Icons.straighten_rounded,
-                      'Total Length',
-                      '${(service.initialLength * service.sampleCount).toStringAsFixed(1)} cm',
-                      subtitle:
-                          'Avg: ${service.initialLength.toStringAsFixed(1)} cm',
-                    ),
-                  ),
+                  Expanded(child: _buildMetricCard(Icons.monitor_weight_rounded, 'Total Weight', '${(service.initialWeight * service.sampleCount).toStringAsFixed(1)} g', 'Avg: ${service.initialWeight.toStringAsFixed(1)} g')),
+                  const SizedBox(width: 6),
+                  Expanded(child: _buildMetricCard(Icons.straighten_rounded, 'Total Length', '${(service.initialLength * service.sampleCount).toStringAsFixed(1)} cm', 'Avg: ${service.initialLength.toStringAsFixed(1)} cm')),
                 ],
               ),
-              const SizedBox(height: 10),
-              // Row 3: Alive & Mortality
+              const SizedBox(height: 6),
               Row(
                 children: [
-                  Expanded(
-                    child: _buildMetricCard(
-                      Icons.favorite_rounded,
-                      'Alive',
-                      '${service.liveCount}',
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _buildMetricCard(
-                      Icons.heart_broken_rounded,
-                      'Mortality',
-                      '${service.mortality}',
-                    ),
-                  ),
+                  Expanded(child: _buildMetricCard(Icons.favorite_rounded, 'Alive', '${service.liveCount}', 'Current population')),
+                  const SizedBox(width: 6),
+                  Expanded(child: _buildMetricCard(Icons.warning_rounded, 'Mortality', '${service.mortality}', 'Total lost')),
                 ],
               ),
             ],
@@ -284,11 +253,11 @@ class InventoryTab extends StatelessWidget {
   Widget _buildMetricCard(
     IconData icon,
     String title,
-    String value, {
-    String? subtitle,
-  }) {
+    String value,
+    String subtitle,
+  ) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
@@ -317,7 +286,7 @@ class InventoryTab extends StatelessWidget {
                     fontWeight: FontWeight.w800,
                     color: AppColors.dark,
                   ),
-                  overflow: TextOverflow.ellipsis,
+                  maxLines: 2,
                 ),
               ),
             ],
@@ -331,17 +300,17 @@ class InventoryTab extends StatelessWidget {
               color: AppColors.primary,
             ),
           ),
-          if (subtitle != null && subtitle.isNotEmpty) ...[
-            const SizedBox(height: 2),
-            Text(
-              subtitle,
-              style: TextStyle(
-                fontSize: 8,
-                fontWeight: FontWeight.w600,
-                color: AppColors.dark.withValues(alpha: 0.5),
-              ),
+          const SizedBox(height: 2),
+          Text(
+            subtitle,
+            style: TextStyle(
+              fontSize: 8,
+              fontWeight: FontWeight.w600,
+              color: AppColors.dark.withValues(alpha: 0.5),
             ),
-          ],
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
         ],
       ),
     );

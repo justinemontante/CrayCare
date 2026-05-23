@@ -47,6 +47,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
               children: [
                 _buildGreeting(),
                 Positioned(bottom: -20, right: 12, child: _buildLiveTag()),
+                Positioned(
+                  top: 20,
+                  right: 16,
+                  child: GestureDetector(
+                    onTap: _showAlertsModal,
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.1),
+                            blurRadius: 8,
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.notifications_active_rounded,
+                        size: 20,
+                        color: AppColors.critical,
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
             const Padding(
@@ -1150,6 +1175,132 @@ class _DashboardScreenState extends State<DashboardScreen> {
           },
         );
       },
+    );
+  }
+
+  void _showAlertsModal() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: AppColors.dark.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                const Text(
+                  'Tank Alerts',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    color: AppColors.dark,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ListView(
+                  shrinkWrap: true,
+                  children: [
+                    _buildAlertItem(
+                      Icons.error_rounded,
+                      'Low DO Level',
+                      'Critical',
+                      AppColors.critical,
+                    ),
+                    _buildAlertItem(
+                      Icons.warning_rounded,
+                      'High Temperature',
+                      'Warning',
+                      AppColors.warning,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    style: TextButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text(
+                      'Close',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildAlertItem(
+    IconData icon,
+    String title,
+    String status,
+    Color color,
+  ) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 12,
+                  color: AppColors.dark,
+                ),
+              ),
+              Text(
+                status,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 

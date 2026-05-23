@@ -442,8 +442,12 @@ class _TanksScreenState extends State<TanksScreen> {
     final sampleCountCtrl = TextEditingController(
       text: isEdit ? '${TankService.instance.sampleCount}' : '',
     );
-    final totalWeightCtrl = TextEditingController();
-    final totalLengthCtrl = TextEditingController();
+    final totalWeightCtrl = TextEditingController(
+      text: isEdit ? '${(TankService.instance.initialWeight * TankService.instance.sampleCount).toStringAsFixed(1)}' : '',
+    );
+    final totalLengthCtrl = TextEditingController(
+      text: isEdit ? '${(TankService.instance.initialLength * TankService.instance.sampleCount).toStringAsFixed(1)}' : '',
+    );
 
     showModalBottomSheet(
       context: context,
@@ -513,13 +517,36 @@ class _TanksScreenState extends State<TanksScreen> {
                   width: double.infinity,
                   child: ElevatedButton(
                     onPressed: () {
-                      final count = int.tryParse(countCtrl.text) ?? 0;
-                      final sampleCount =
-                          int.tryParse(sampleCountCtrl.text) ?? 0;
-                      final totalWeight =
-                          double.tryParse(totalWeightCtrl.text) ?? 0.0;
-                      final totalLength =
-                          double.tryParse(totalLengthCtrl.text) ?? 0.0;
+                      final count = int.tryParse(countCtrl.text) ?? -1;
+                      final sampleCount = int.tryParse(sampleCountCtrl.text) ?? -1;
+                      final totalWeight = double.tryParse(totalWeightCtrl.text) ?? -1.0;
+                      final totalLength = double.tryParse(totalLengthCtrl.text) ?? -1.0;
+
+                      if (countCtrl.text.isEmpty ||
+                          sampleCountCtrl.text.isEmpty ||
+                          totalWeightCtrl.text.isEmpty ||
+                          totalLengthCtrl.text.isEmpty ||
+                          count < 0 ||
+                          sampleCount < 0 ||
+                          totalWeight < 0 ||
+                          totalLength < 0) {
+                        showDialog(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('Missing or Invalid Input'),
+                            content: const Text(
+                              'Please fill all fields with positive values.',
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(ctx),
+                                child: const Text('OK'),
+                              ),
+                            ],
+                          ),
+                        );
+                        return;
+                      }
 
                       if (count > 0 && sampleCount > 0) {
                         TankService.instance.initializeGrowOut(
@@ -530,15 +557,19 @@ class _TanksScreenState extends State<TanksScreen> {
                           DateTime.now(),
                         );
                         Navigator.pop(ctx);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
+                        showDialog(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('Success'),
                             content: Text(
                               isEdit ? 'Setup updated!' : 'Setup initialized!',
                             ),
-                            behavior: SnackBarBehavior.floating,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(ctx),
+                                child: const Text('OK'),
+                              ),
+                            ],
                           ),
                         );
                       }
