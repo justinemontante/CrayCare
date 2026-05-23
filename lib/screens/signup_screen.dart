@@ -22,6 +22,7 @@ class _SignupScreenState extends State<SignupScreen> {
   void _signUp() async {
     try {
       await _authService.signUp(
+        _nameController.text, // <-- Dinagdag yung nameController dito
         _emailController.text,
         _passwordController.text,
       );

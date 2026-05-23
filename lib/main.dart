@@ -1,10 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_core/firebase_core.dart'; // The core Firebase plugin
+import 'package:firebase_auth/firebase_auth.dart'; // Added for checking auth state
+
 import 'theme/app_theme.dart';
 import 'screens/login_screen.dart';
+import 'screens/main_shell.dart'; // Import the MainShell for routing
 import 'services/settings_service.dart';
-import 'package:firebase_core/firebase_core.dart'; // The core Firebase plugin
 import 'firebase_options.dart'; // Generated configuration file
 
 void main() async {
@@ -46,6 +49,8 @@ class _SplashScreenState extends State<SplashScreen> {
   void _animateProgress() async {
     const totalSteps = 100;
     const stepDuration = Duration(milliseconds: 30);
+
+    // 1. Progress bar animation
     for (int i = 1; i <= totalSteps; i++) {
       await Future.delayed(stepDuration);
       if (!mounted) return;
@@ -53,11 +58,25 @@ class _SplashScreenState extends State<SplashScreen> {
         _progress = i / totalSteps;
       });
     }
+
     if (!mounted) return;
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
-    );
+
+    // 2. Check Firebase Auth State (Persistent Login)
+    User? currentUser = FirebaseAuth.instance.currentUser;
+
+    if (currentUser != null) {
+      // Kung naka-login na, deretso sa Dashboard (MainShell)
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const MainShell()),
+      );
+    } else {
+      // Kung walang naka-login, punta sa LoginScreen
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+      );
+    }
   }
 
   @override

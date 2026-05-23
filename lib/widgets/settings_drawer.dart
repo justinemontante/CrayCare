@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart'; // Para ma-logout din ng tuluyan ang Google account
 import '../theme/app_colors.dart';
 import '../screens/login_screen.dart';
 import '../models/crayfish_stage.dart';
@@ -13,8 +15,10 @@ class SettingsDrawer extends StatefulWidget {
 
 class _SettingsDrawerState extends State<SettingsDrawer> {
   int _currentPage = 0;
-  String _profileName = 'Justine';
-  String _profileEmail = 'justine@craycare.com';
+
+  // Default values habang naglo-load
+  String _profileName = 'Loading...';
+  String _profileEmail = 'Loading...';
 
   final _nameCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
@@ -33,6 +37,18 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
   void initState() {
     super.initState();
     SettingsService.instance.addListener(_onSettingsChange);
+    _loadUserData(); // Kunin ang user data pagkakasimula ng drawer
+  }
+
+  // FUNCTION PARA KUNIN ANG DATA SA FIREBASE
+  void _loadUserData() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      setState(() {
+        _profileName = user.displayName ?? 'CrayCare User';
+        _profileEmail = user.email ?? 'No email linked';
+      });
+    }
   }
 
   @override
@@ -62,14 +78,29 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
     }
   }
 
-  void _saveProfile() {
+  void _saveProfile() async {
+    // I-update ang pangalan sa Firebase kung binago ng user
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null &&
+        _nameCtrl.text.isNotEmpty &&
+        _nameCtrl.text != _profileName) {
+      await user.updateDisplayName(_nameCtrl.text);
+    }
+
     setState(() {
       _profileName = _nameCtrl.text.isNotEmpty ? _nameCtrl.text : _profileName;
       _profileEmail = _emailCtrl.text.isNotEmpty
           ? _emailCtrl.text
           : _profileEmail;
     });
+
     _back();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Profile updated successfully!')),
+      );
+    }
   }
 
   void _changePassword() {
@@ -124,13 +155,34 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: () {
-                      Navigator.of(ctx).pop();
-                      Navigator.of(context).pop();
-                      Navigator.of(context).pushAndRemoveUntil(
-                        MaterialPageRoute(builder: (_) => const LoginScreen()),
-                        (route) => false,
-                      );
+                    // UPDATED LOGOUT FUNCTIONALITY
+                    onPressed: () async {
+                      try {
+                        // 1. Sign out sa Google at Firebase
+                        await GoogleSignIn().signOut();
+                        await FirebaseAuth.instance.signOut();
+
+                        if (!ctx.mounted) return;
+
+                        // 2. I-close ang bottom sheet
+                        Navigator.of(ctx).pop();
+
+                        // 3. I-close ang drawer
+                        Navigator.of(context).pop();
+
+                        // 4. Bumalik sa Login Screen at burahin ang history para di ma-back
+                        Navigator.of(context).pushAndRemoveUntil(
+                          MaterialPageRoute(
+                            builder: (_) => const LoginScreen(),
+                          ),
+                          (route) => false,
+                        );
+                      } catch (e) {
+                        if (!ctx.mounted) return;
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          SnackBar(content: Text('Error logging out: $e')),
+                        );
+                      }
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.critical,
@@ -474,7 +526,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
                   color: AppColors.dark.withValues(alpha: 0.03),
                   blurRadius: 15,
                   offset: const Offset(0, 4),
-                )
+                ),
               ],
             ),
             child: Column(
@@ -482,7 +534,12 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
               children: [
                 const Text(
                   'Current Growth Stage',
-                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.dark, letterSpacing: 0.5),
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.dark,
+                    letterSpacing: 0.5,
+                  ),
                 ),
                 const SizedBox(height: 12),
                 Container(
@@ -495,14 +552,26 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
                     child: DropdownButton<String>(
                       value: svc.currentStage,
                       isExpanded: true,
-                      icon: const Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.primary, size: 20),
-                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.dark),
+                      icon: const Icon(
+                        Icons.keyboard_arrow_down_rounded,
+                        color: AppColors.primary,
+                        size: 20,
+                      ),
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.dark,
+                      ),
                       dropdownColor: Colors.white,
                       borderRadius: BorderRadius.circular(16),
-                      items: CrayfishStage.all.map((s) => DropdownMenuItem(
-                        value: s.name,
-                        child: Text(s.label),
-                      )).toList(),
+                      items: CrayfishStage.all
+                          .map(
+                            (s) => DropdownMenuItem(
+                              value: s.name,
+                              child: Text(s.label),
+                            ),
+                          )
+                          .toList(),
                       onChanged: (v) {
                         if (v != null) svc.setCurrentStage(v);
                       },
@@ -513,11 +582,19 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.info_outline_rounded, size: 12, color: AppColors.primary),
+                    const Icon(
+                      Icons.info_outline_rounded,
+                      size: 12,
+                      color: AppColors.primary,
+                    ),
                     const SizedBox(width: 6),
                     Text(
                       svc.currentStageObj.description,
-                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.primary),
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.primary,
+                      ),
                     ),
                   ],
                 ),
@@ -544,7 +621,8 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
               physics: const NeverScrollableScrollPhysics(),
               itemBuilder: (context, index) {
                 final key = sensors[index];
-                final range = svc.currentRanges[key] ?? {'min': 0.0, 'max': 0.0};
+                final range =
+                    svc.currentRanges[key] ?? {'min': 0.0, 'max': 0.0};
                 final info = sensorInfo[key]!;
                 return Container(
                   height: 60,
@@ -552,13 +630,21 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: AppColors.dark.withValues(alpha: 0.04)),
+                    border: Border.all(
+                      color: AppColors.dark.withValues(alpha: 0.04),
+                    ),
                   ),
                   child: Material(
                     color: Colors.transparent,
                     child: InkWell(
                       borderRadius: BorderRadius.circular(14),
-                      onTap: () => _showRangeEditor(key, info.label, info.unit, range['min']!, range['max']!),
+                      onTap: () => _showRangeEditor(
+                        key,
+                        info.label,
+                        info.unit,
+                        range['min']!,
+                        range['max']!,
+                      ),
                       child: Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 14),
                         child: Row(
@@ -569,7 +655,12 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
                                 color: AppColors.dark.withValues(alpha: 0.03),
                                 borderRadius: BorderRadius.circular(10),
                               ),
-                              child: Image.asset(_getSensorIconPath(key), width: 20, height: 20, fit: BoxFit.contain),
+                              child: Image.asset(
+                                _getSensorIconPath(key),
+                                width: 20,
+                                height: 20,
+                                fit: BoxFit.contain,
+                              ),
                             ),
                             const SizedBox(width: 14),
                             Expanded(
@@ -577,10 +668,23 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(info.label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.dark)),
+                                  Text(
+                                    info.label,
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w800,
+                                      color: AppColors.dark,
+                                    ),
+                                  ),
                                   Text(
                                     'Standard Range',
-                                    style: TextStyle(fontSize: 9, color: AppColors.dark.withValues(alpha: 0.4), fontWeight: FontWeight.w600),
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      color: AppColors.dark.withValues(
+                                        alpha: 0.4,
+                                      ),
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -591,11 +695,21 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
                               children: [
                                 Text(
                                   '${range['min']!.toStringAsFixed(1)} \u2013 ${range['max']! >= 999 ? '\u221E' : range['max']!.toStringAsFixed(1)}',
-                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: AppColors.primary),
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w900,
+                                    color: AppColors.primary,
+                                  ),
                                 ),
                                 Text(
                                   info.unit,
-                                  style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800, color: AppColors.dark.withValues(alpha: 0.3)),
+                                  style: TextStyle(
+                                    fontSize: 8,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppColors.dark.withValues(
+                                      alpha: 0.3,
+                                    ),
+                                  ),
                                 ),
                               ],
                             ),
@@ -615,18 +729,32 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
               onPressed: () {
                 SettingsService.instance.resetToDefaults();
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Ranges reset to defaults'), duration: Duration(seconds: 2)),
+                  const SnackBar(
+                    content: Text('Ranges reset to defaults'),
+                    duration: Duration(seconds: 2),
+                  ),
                 );
               },
-              icon: const Icon(Icons.refresh_rounded, size: 14, color: AppColors.dark),
+              icon: const Icon(
+                Icons.refresh_rounded,
+                size: 14,
+                color: AppColors.dark,
+              ),
               label: Text(
                 'RESET TO DEFAULTS',
-                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 10, color: AppColors.dark.withValues(alpha: 0.5), letterSpacing: 0.5),
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 10,
+                  color: AppColors.dark.withValues(alpha: 0.5),
+                  letterSpacing: 0.5,
+                ),
               ),
               style: TextButton.styleFrom(
                 backgroundColor: AppColors.dark.withValues(alpha: 0.03),
                 padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
           ),

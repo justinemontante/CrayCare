@@ -5,55 +5,84 @@ class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final GoogleSignIn _googleSignIn = GoogleSignIn();
 
-  // Stream to track auth state
+  // Auth state stream
   Stream<User?> get user => _auth.authStateChanges();
 
-  // Sign Up
-  Future<User?> signUp(String email, String password) async {
+  // SIGN UP (In-update para isama ang Name at Email Verification)
+  Future<User?> signUp(String name, String email, String password) async {
     try {
       UserCredential result = await _auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
-      return result.user;
-    } catch (e) {
-      throw e;
+
+      User? user = result.user;
+
+      if (user != null) {
+        // I-save ang Full Name sa Firebase Profile
+        await user.updateDisplayName(name);
+
+        // Mag-send ng Verification Email
+        if (!user.emailVerified) {
+          await user.sendEmailVerification();
+        }
+      }
+
+      return user;
+    } on FirebaseAuthException catch (e) {
+      throw Exception(e.message);
     }
   }
 
-  // Log In
+  // SIGN IN
   Future<User?> signIn(String email, String password) async {
     try {
       UserCredential result = await _auth.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
+
       return result.user;
-    } catch (e) {
-      throw e;
+    } on FirebaseAuthException catch (e) {
+      throw Exception(e.message);
     }
   }
 
-  // Google Sign In
+  // GOOGLE SIGN IN
   Future<User?> signInWithGoogle() async {
     try {
+      // Open Google popup
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
-      if (googleUser == null) return null; // User cancelled
 
-      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
-      final AuthCredential credential = GoogleAuthProvider.credential(
+      // User cancelled
+      if (googleUser == null) {
+        return null;
+      }
+
+      // Get auth details
+      final GoogleSignInAuthentication googleAuth =
+          await googleUser.authentication;
+
+      // Create credential
+      final credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
       );
 
-      final UserCredential result = await _auth.signInWithCredential(credential);
-      return result.user;
+      // Sign in to Firebase
+      UserCredential userCredential = await _auth.signInWithCredential(
+        credential,
+      );
+
+      return userCredential.user;
+    } on FirebaseAuthException catch (e) {
+      throw Exception(e.message);
     } catch (e) {
-      throw e;
+      throw Exception(e.toString());
     }
   }
 
-  // Sign Out
+  // SIGN OUT
   Future<void> signOut() async {
     await _googleSignIn.signOut();
     await _auth.signOut();
