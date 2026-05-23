@@ -3,6 +3,7 @@ import '../theme/app_colors.dart';
 import '../widgets/gradient_button.dart';
 import 'signup_screen.dart';
 import 'main_shell.dart';
+import '../services/auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -16,6 +17,22 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _rememberMe = false;
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _authService = AuthService();
+
+  void _signIn() async {
+    try {
+      await _authService.signIn(_emailController.text, _passwordController.text);
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const MainShell()),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
+    }
+  }
 
   @override
   void dispose() {
@@ -210,23 +227,23 @@ class _LoginScreenState extends State<LoginScreen> {
                                 Theme(
                                   data: Theme.of(context).copyWith(
                                     checkboxTheme: CheckboxThemeData(
-                                      fillColor: WidgetStateProperty.resolveWith(
-                                        (states) {
-                                          if (states.contains(
-                                            WidgetState.selected,
-                                          )) {
-                                            return AppColors.primary;
-                                          }
-                                          return Colors.white;
-                                        },
-                                      ),
+                                      fillColor:
+                                          WidgetStateProperty.resolveWith((
+                                            states,
+                                          ) {
+                                            if (states.contains(
+                                              WidgetState.selected,
+                                            )) {
+                                              return AppColors.primary;
+                                            }
+                                            return Colors.white;
+                                          }),
                                       side: BorderSide(
                                         color: Colors.grey.shade400,
                                         width: 1.2,
                                       ),
                                       shape: RoundedRectangleBorder(
-                                        borderRadius:
-                                            BorderRadius.circular(4),
+                                        borderRadius: BorderRadius.circular(4),
                                       ),
                                     ),
                                   ),
@@ -265,12 +282,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         const SizedBox(height: 18),
                         GradientButton(
-                          onTap: () => Navigator.pushReplacement(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const MainShell(),
-                            ),
-                          ),
+                          onTap: _signIn,
                           child: const Text(
                             'Sign In',
                             style: TextStyle(
@@ -332,12 +344,23 @@ class _LoginScreenState extends State<LoginScreen> {
                         SizedBox(
                           width: double.infinity,
                           child: OutlinedButton(
-                            onPressed: () {},
+                            onPressed: () async {
+                              try {
+                                await _authService.signInWithGoogle();
+                                if (!mounted) return;
+                                Navigator.pushReplacement(
+                                  context,
+                                  MaterialPageRoute(builder: (_) => const MainShell()),
+                                );
+                              } catch (e) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text(e.toString())),
+                                );
+                              }
+                            },
                             style: OutlinedButton.styleFrom(
                               backgroundColor: AppColors.whiteWith(0.8),
-                              side: BorderSide(
-                                color: AppColors.whiteWith(0.3),
-                              ),
+                              side: BorderSide(color: AppColors.whiteWith(0.3)),
                               padding: const EdgeInsets.symmetric(vertical: 14),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(14),
@@ -364,6 +387,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                           ),
                         ),
+
                         const SizedBox(height: 24),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,

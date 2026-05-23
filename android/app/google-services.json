@@ -1,0 +1,55 @@
+{
+  "project_info": {
+    "project_number": "937626111574",
+    "firebase_url": "https://craycare-8436c-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "craycare-8436c",
+    "storage_bucket": "craycare-8436c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:937626111574:android:5376b3897ae7d28eebf5f7",
+        "android_client_info": {
+          "package_name": "com.example.craycare"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "937626111574-3mo4bvfs8rmus8rgjf9nla9fkpn7cs6h.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.craycare",
+            "certificate_hash": "dad186c91df24f4e85d3cdb79de66085edcd6472"
+          }
+        },
+        {
+          "client_id": "937626111574-aqqt0g7a23e4s8suppid47jfqha9ntvi.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBIidS1Y6wysetztz1pSSIWlHTcaQFeAE4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "937626111574-aqqt0g7a23e4s8suppid47jfqha9ntvi.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "937626111574-mt95q0fnik4o3su9gj0absindg08pieg.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.craycare"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

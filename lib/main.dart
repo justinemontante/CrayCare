@@ -4,9 +4,12 @@ import 'package:flutter/services.dart';
 import 'theme/app_theme.dart';
 import 'screens/login_screen.dart';
 import 'services/settings_service.dart';
+import 'package:firebase_core/firebase_core.dart'; // The core Firebase plugin
+import 'firebase_options.dart'; // Generated configuration file
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await SettingsService.instance.init();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   runApp(const CrayCareApp());

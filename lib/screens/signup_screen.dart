@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../widgets/gradient_button.dart';
 import 'verify_screen.dart';
+import '../services/auth_service.dart';
+import 'main_shell.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -15,6 +17,25 @@ class _SignupScreenState extends State<SignupScreen> {
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _authService = AuthService();
+
+  void _signUp() async {
+    try {
+      await _authService.signUp(
+        _emailController.text,
+        _passwordController.text,
+      );
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const VerifyScreen()),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
 
   @override
   void dispose() {
@@ -255,12 +276,7 @@ class _SignupScreenState extends State<SignupScreen> {
                       ),
                       const SizedBox(height: 18),
                       GradientButton(
-                        onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const VerifyScreen(),
-                          ),
-                        ),
+                        onTap: _signUp,
                         child: const Text(
                           'Sign Up',
                           style: TextStyle(
@@ -320,7 +336,22 @@ class _SignupScreenState extends State<SignupScreen> {
                       SizedBox(
                         width: double.infinity,
                         child: OutlinedButton(
-                          onPressed: () {},
+                          onPressed: () async {
+                            try {
+                              await _authService.signInWithGoogle();
+                              if (!mounted) return;
+                              Navigator.pushReplacement(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const MainShell(),
+                                ),
+                              );
+                            } catch (e) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text(e.toString())),
+                              );
+                            }
+                          },
                           style: OutlinedButton.styleFrom(
                             backgroundColor: AppColors.whiteWith(0.8),
                             side: BorderSide(color: AppColors.whiteWith(0.3)),
