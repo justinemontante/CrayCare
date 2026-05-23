@@ -5,6 +5,53 @@ import '../widgets/tanks/inventory_tab.dart';
 import '../widgets/tanks/sampling_tab.dart';
 import '../widgets/tanks/trends_tab.dart';
 
+// Helper for beautiful snackbars
+void showBeautifulSnackbar(
+  BuildContext context,
+  String message,
+  bool isSuccess,
+) {
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.2),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              isSuccess
+                  ? Icons.check_circle_rounded
+                  : Icons.warning_amber_rounded,
+              color: Colors.white,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 13,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ],
+      ),
+      backgroundColor: isSuccess ? AppColors.success : AppColors.critical,
+      behavior: SnackBarBehavior.floating,
+      margin: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 10,
+      duration: const Duration(seconds: 3),
+    ),
+  );
+}
+
 class TanksScreen extends StatefulWidget {
   const TanksScreen({super.key});
 
@@ -180,7 +227,6 @@ class _TanksScreenState extends State<TanksScreen> {
           return Expanded(
             child: GestureDetector(
               onTap: () => setState(() => _activeTab = i),
-              // BINalik natin sa regular na Container para walang frame drops
               child: Container(
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 decoration: BoxDecoration(
@@ -274,7 +320,6 @@ class _TanksScreenState extends State<TanksScreen> {
                   ),
                 ),
                 const SizedBox(height: 24),
-                // MODERN CLEAN TABLE
                 Container(
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(16),
@@ -442,12 +487,8 @@ class _TanksScreenState extends State<TanksScreen> {
     final sampleCountCtrl = TextEditingController(
       text: isEdit ? '${TankService.instance.sampleCount}' : '',
     );
-    final totalWeightCtrl = TextEditingController(
-      text: isEdit ? '${(TankService.instance.initialWeight * TankService.instance.sampleCount).toStringAsFixed(1)}' : '',
-    );
-    final totalLengthCtrl = TextEditingController(
-      text: isEdit ? '${(TankService.instance.initialLength * TankService.instance.sampleCount).toStringAsFixed(1)}' : '',
-    );
+    final totalWeightCtrl = TextEditingController();
+    final totalLengthCtrl = TextEditingController();
 
     showModalBottomSheet(
       context: context,
@@ -478,9 +519,9 @@ class _TanksScreenState extends State<TanksScreen> {
                   ),
                 ),
                 const SizedBox(height: 24),
-                const Text(
-                  'Grow-Out Initialization',
-                  style: TextStyle(
+                Text(
+                  isEdit ? 'Edit Initialization' : 'Grow-Out Initialization',
+                  style: const TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w900,
                     color: AppColors.dark,
@@ -517,36 +558,13 @@ class _TanksScreenState extends State<TanksScreen> {
                   width: double.infinity,
                   child: ElevatedButton(
                     onPressed: () {
-                      final count = int.tryParse(countCtrl.text) ?? -1;
-                      final sampleCount = int.tryParse(sampleCountCtrl.text) ?? -1;
-                      final totalWeight = double.tryParse(totalWeightCtrl.text) ?? -1.0;
-                      final totalLength = double.tryParse(totalLengthCtrl.text) ?? -1.0;
-
-                      if (countCtrl.text.isEmpty ||
-                          sampleCountCtrl.text.isEmpty ||
-                          totalWeightCtrl.text.isEmpty ||
-                          totalLengthCtrl.text.isEmpty ||
-                          count < 0 ||
-                          sampleCount < 0 ||
-                          totalWeight < 0 ||
-                          totalLength < 0) {
-                        showDialog(
-                          context: context,
-                          builder: (ctx) => AlertDialog(
-                            title: const Text('Missing or Invalid Input'),
-                            content: const Text(
-                              'Please fill all fields with positive values.',
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(ctx),
-                                child: const Text('OK'),
-                              ),
-                            ],
-                          ),
-                        );
-                        return;
-                      }
+                      final count = int.tryParse(countCtrl.text) ?? 0;
+                      final sampleCount =
+                          int.tryParse(sampleCountCtrl.text) ?? 0;
+                      final totalWeight =
+                          double.tryParse(totalWeightCtrl.text) ?? 0.0;
+                      final totalLength =
+                          double.tryParse(totalLengthCtrl.text) ?? 0.0;
 
                       if (count > 0 && sampleCount > 0) {
                         TankService.instance.initializeGrowOut(
@@ -557,20 +575,12 @@ class _TanksScreenState extends State<TanksScreen> {
                           DateTime.now(),
                         );
                         Navigator.pop(ctx);
-                        showDialog(
-                          context: context,
-                          builder: (ctx) => AlertDialog(
-                            title: const Text('Success'),
-                            content: Text(
-                              isEdit ? 'Setup updated!' : 'Setup initialized!',
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(ctx),
-                                child: const Text('OK'),
-                              ),
-                            ],
-                          ),
+                        showBeautifulSnackbar(
+                          context,
+                          isEdit
+                              ? 'Setup beautifully updated!'
+                              : 'Grow-out successfully initialized!',
+                          true,
                         );
                       }
                     },
@@ -582,9 +592,9 @@ class _TanksScreenState extends State<TanksScreen> {
                       ),
                       elevation: 0,
                     ),
-                    child: const Text(
-                      'Initialize Grow-Out',
-                      style: TextStyle(
+                    child: Text(
+                      isEdit ? 'Update Initialization' : 'Initialize Grow-Out',
+                      style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
                         fontSize: 13,
@@ -609,63 +619,77 @@ class _TanksScreenState extends State<TanksScreen> {
   ) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, color: AppColors.primary, size: 18),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 12,
-                    color: AppColors.dark,
-                  ),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.primary,
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    fontSize: 9,
-                    color: AppColors.dark.withValues(alpha: 0.5),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          SizedBox(
-            width: 80,
-            child: TextField(
-              controller: controller,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              textAlign: TextAlign.right,
-              style: const TextStyle(
-                fontWeight: FontWeight.w900,
-                color: AppColors.primary,
+                child: Icon(icon, color: Colors.white, size: 16),
               ),
-              decoration: InputDecoration(
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: AppColors.dark.withValues(alpha: 0.5), width: 1.5),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12,
+                        color: AppColors.dark,
+                      ),
+                    ),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: AppColors.dark.withValues(alpha: 0.5),
+                      ),
+                    ),
+                  ],
                 ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: AppColors.dark.withValues(alpha: 0.5), width: 1.5),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: controller,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            style: const TextStyle(
+              fontWeight: FontWeight.w900,
+              color: AppColors.primary,
+            ),
+            decoration: InputDecoration(
+              hintText: '0',
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 14,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: AppColors.dark.withValues(alpha: 0.5),
+                  width: 1.5,
                 ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: AppColors.primary, width: 2),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: AppColors.dark.withValues(alpha: 0.5),
+                  width: 1.5,
+                ),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(
+                  color: AppColors.primary,
+                  width: 2,
                 ),
               ),
             ),
@@ -731,17 +755,14 @@ class _TanksScreenState extends State<TanksScreen> {
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: () {
-                    if (countCtrl.text.isNotEmpty) {
+                    final mortalityVal = int.tryParse(countCtrl.text);
+                    if (mortalityVal != null && mortalityVal > 0) {
+                      TankService.instance.addMortality(mortalityVal);
                       Navigator.pop(ctx);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: const Text('Mortality successfully logged.'),
-                          behavior: SnackBarBehavior.floating,
-                          backgroundColor: AppColors.critical,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
+                      showBeautifulSnackbar(
+                        context,
+                        'Mortality of $mortalityVal successfully logged.',
+                        false,
                       );
                     }
                   },

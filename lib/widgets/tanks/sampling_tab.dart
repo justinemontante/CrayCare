@@ -4,6 +4,53 @@ import '../../theme/app_colors.dart';
 import '../../services/tank_service.dart';
 import '../../models/crayfish_stage.dart';
 
+// Copying helper to use within sampling UI
+void showBeautifulSnackbar(
+  BuildContext context,
+  String message,
+  bool isSuccess,
+) {
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.2),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              isSuccess
+                  ? Icons.check_circle_rounded
+                  : Icons.warning_amber_rounded,
+              color: Colors.white,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 13,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ],
+      ),
+      backgroundColor: isSuccess ? AppColors.success : AppColors.critical,
+      behavior: SnackBarBehavior.floating,
+      margin: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 10,
+      duration: const Duration(seconds: 3),
+    ),
+  );
+}
+
 class SamplingTab extends StatelessWidget {
   final TextEditingController sampleCountController;
   final TextEditingController sampleWeightController;
@@ -22,7 +69,7 @@ class SamplingTab extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!TankService.instance.isInitialized) return _buildEmptyState();
     return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), // Reduced top padding to 8
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -104,8 +151,6 @@ class SamplingTab extends StatelessWidget {
   }
 }
 
-/// A widget that displays the "Next Sampling" information,
-/// including a countdown and a 7-day progress stepper.
 class NextSamplingPanel extends StatelessWidget {
   const NextSamplingPanel({super.key});
 
@@ -117,16 +162,16 @@ class NextSamplingPanel extends StatelessWidget {
     final daysRemaining = daysInCycle - currentDay;
 
     return Container(
-      padding: const EdgeInsets.all(16), // Reduced internal padding
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.white,
-        borderRadius: BorderRadius.circular(20), // Reduced corner radius
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(color: AppColors.faintBorder),
         boxShadow: [
           BoxShadow(
             color: AppColors.darkWith(0.04),
-            blurRadius: 10, // Reduced blur
-            offset: const Offset(0, 2), // Reduced offset
+            blurRadius: 10,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
@@ -135,7 +180,7 @@ class NextSamplingPanel extends StatelessWidget {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(8), // Reduced padding
+                padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
                   color: AppColors.primaryWith(0.1),
                   borderRadius: BorderRadius.circular(12),
@@ -152,11 +197,15 @@ class NextSamplingPanel extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      daysRemaining == 0 ? 'Sampling Day!' : '$daysRemaining days remaining',
+                      daysRemaining == 0
+                          ? 'Sampling Day!'
+                          : '$daysRemaining days remaining',
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w800,
-                        color: daysRemaining == 0 ? AppColors.critical : AppColors.dark,
+                        color: daysRemaining == 0
+                            ? AppColors.critical
+                            : AppColors.dark,
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -172,7 +221,7 @@ class NextSamplingPanel extends StatelessWidget {
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), // Reduced padding
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
                   color: AppColors.lightBg,
                   borderRadius: BorderRadius.circular(6),
@@ -188,9 +237,9 @@ class NextSamplingPanel extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 12), // Reduced spacing
+          const SizedBox(height: 12),
           const Divider(height: 1, thickness: 1),
-          const SizedBox(height: 12), // Reduced spacing
+          const SizedBox(height: 12),
           _buildStepTracker(currentDay, daysInCycle),
         ],
       ),
@@ -199,8 +248,18 @@ class NextSamplingPanel extends StatelessWidget {
 
   String _formatDate(DateTime date) {
     final months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return '${months[date.month - 1]} ${date.day}, ${date.year}';
   }
@@ -265,7 +324,7 @@ class NextSamplingPanel extends StatelessWidget {
                   color: AppColors.warningWith(0.2),
                   blurRadius: 6,
                   spreadRadius: 1,
-                )
+                ),
               ]
             : null,
       ),
@@ -283,7 +342,6 @@ class NextSamplingPanel extends StatelessWidget {
   }
 }
 
-/// A widget that displays the "Growth Overview" with three mini cards.
 class GrowthOverviewPanel extends StatelessWidget {
   const GrowthOverviewPanel({super.key});
 
@@ -320,10 +378,13 @@ class GrowthOverviewPanel extends StatelessWidget {
         children: [
           const Text(
             'Growth Overview',
-            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppColors.dark),
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+              color: AppColors.dark,
+            ),
           ),
           const SizedBox(height: 16),
-          // First Row: Initial and Latest
           Row(
             children: [
               _buildMiniCard(
@@ -339,7 +400,9 @@ class GrowthOverviewPanel extends StatelessWidget {
               const SizedBox(width: 12),
               _buildMiniCard(
                 'Latest Sampling',
-                latest != null ? _formatDate(latest.date) : _formatDate(service.stockingDate),
+                latest != null
+                    ? _formatDate(latest.date)
+                    : _formatDate(service.stockingDate),
                 latestW,
                 latestL,
                 AppColors.successWith(0.08),
@@ -350,7 +413,6 @@ class GrowthOverviewPanel extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          // Second Row: Growth (Full Width)
           _buildGrowthFullCard(diffW, diffL),
         ],
       ),
@@ -388,10 +450,7 @@ class GrowthOverviewPanel extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               subTitle,
-              style: TextStyle(
-                fontSize: 9,
-                color: AppColors.darkWith(0.5),
-              ),
+              style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.5)),
             ),
             const SizedBox(height: 12),
             _buildDataRow(weightLabel, '${weight.toStringAsFixed(1)} g'),
@@ -418,13 +477,25 @@ class GrowthOverviewPanel extends StatelessWidget {
         children: [
           const Text(
             'Net Growth',
-            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.warningDark),
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: AppColors.warningDark,
+            ),
           ),
           Row(
             children: [
-              _buildGrowthMetric('Avg Weight', '${isPosW ? '+' : ''}${weight.toStringAsFixed(1)} g', isPosW),
+              _buildGrowthMetric(
+                'Avg Weight',
+                '${isPosW ? '+' : ''}${weight.toStringAsFixed(1)} g',
+                isPosW,
+              ),
               const SizedBox(width: 16),
-              _buildGrowthMetric('Avg Length', '${isPosL ? '+' : ''}${length.toStringAsFixed(1)} cm', isPosL),
+              _buildGrowthMetric(
+                'Avg Length',
+                '${isPosL ? '+' : ''}${length.toStringAsFixed(1)} cm',
+                isPosL,
+              ),
             ],
           ),
         ],
@@ -435,7 +506,10 @@ class GrowthOverviewPanel extends StatelessWidget {
   Widget _buildGrowthMetric(String label, String value, bool isPos) {
     return Column(
       children: [
-        Text('$label:', style: TextStyle(fontSize: 8, color: AppColors.darkWith(0.5))),
+        Text(
+          '$label:',
+          style: TextStyle(fontSize: 8, color: AppColors.darkWith(0.5)),
+        ),
         Text(
           value,
           style: TextStyle(
@@ -454,8 +528,14 @@ class GrowthOverviewPanel extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.6))),
-          Text(value, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
+          Text(
+            label,
+            style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.6)),
+          ),
+          Text(
+            value,
+            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800),
+          ),
         ],
       ),
     );
@@ -463,14 +543,23 @@ class GrowthOverviewPanel extends StatelessWidget {
 
   String _formatDate(DateTime date) {
     final months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return '${months[date.month - 1]} ${date.day}, ${date.year}';
   }
 }
 
-/// A widget that displays the "Weekly Sampling" form.
 class SamplingFormPanel extends StatefulWidget {
   const SamplingFormPanel({super.key});
 
@@ -514,21 +603,38 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
                 onPressed: () {},
                 child: const Text(
                   'Edit',
-                  style: TextStyle(color: AppColors.primary, fontSize: 11, fontWeight: FontWeight.w700),
+                  style: TextStyle(
+                    color: AppColors.primary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 12),
-          // Input fields in a Row with absolutely uniform width
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(child: _buildInputCard('Sample Count', '10', _countController)),
+              Expanded(
+                child: _buildInputCard('Sample Count', '10', _countController),
+              ),
               const SizedBox(width: 8),
-              Expanded(child: _buildInputCard('Total Weight (g)', '150', _weightController)),
+              Expanded(
+                child: _buildInputCard(
+                  'Total Weight (g)',
+                  '150',
+                  _weightController,
+                ),
+              ),
               const SizedBox(width: 8),
-              Expanded(child: _buildInputCard('Total Length (cm)', '60', _lengthController)),
+              Expanded(
+                child: _buildInputCard(
+                  'Total Length (cm)',
+                  '60',
+                  _lengthController,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 8),
@@ -540,12 +646,21 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
                 final weight = double.tryParse(_weightController.text);
                 final length = double.tryParse(_lengthController.text);
 
-                if (count != null && weight != null && length != null && count > 0 && weight > 0 && length > 0) {
+                if (count != null &&
+                    weight != null &&
+                    length != null &&
+                    count > 0 &&
+                    weight > 0 &&
+                    length > 0) {
                   TankService.instance.addSamplingEntry(count, weight, length);
                   _countController.clear();
                   _weightController.clear();
                   _lengthController.clear();
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sampling results recorded!')));
+                  showBeautifulSnackbar(
+                    context,
+                    'Sampling successfully recorded & computed!',
+                    true,
+                  );
                 }
               },
               style: ElevatedButton.styleFrom(
@@ -553,7 +668,9 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 elevation: 0,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
               child: const Text(
                 'Compute Results',
@@ -566,7 +683,11 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
     );
   }
 
-  Widget _buildInputCard(String label, String hint, TextEditingController controller) {
+  Widget _buildInputCard(
+    String label,
+    String hint,
+    TextEditingController controller,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
@@ -588,8 +709,14 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
             hintText: hint,
             filled: true,
             fillColor: AppColors.lightBg,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 8,
+              vertical: 8,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
             hintStyle: TextStyle(fontSize: 12, color: AppColors.darkWith(0.3)),
           ),
           style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
@@ -599,7 +726,6 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
   }
 }
 
-/// A widget that displays the "Growth Stage" progress bar.
 class GrowthStagePanel extends StatelessWidget {
   final VoidCallback onInfoTap;
   const GrowthStagePanel({super.key, required this.onInfoTap});
@@ -607,17 +733,14 @@ class GrowthStagePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final stages = CrayfishStage.all;
-
-    // Calculate current progress based on ABW
     final history = TankService.instance.samplingHistory;
-    final currentAbw = history.isNotEmpty ? history.last.abw : TankService.instance.initialWeight;
-    
-    // Find active stage index
+    final currentAbw = history.isNotEmpty
+        ? history.last.abw
+        : TankService.instance.initialWeight;
+
     int activeIndex = 0;
     for (int i = 0; i < stages.length; i++) {
-      if (currentAbw >= stages[i].threshold) {
-        activeIndex = i;
-      }
+      if (currentAbw >= stages[i].threshold) activeIndex = i;
     }
 
     final double progress = (activeIndex + 1) / stages.length;
@@ -647,11 +770,15 @@ class GrowthStagePanel extends StatelessWidget {
                 children: [
                   const Text(
                     'Growth Stage',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppColors.dark),
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.dark,
+                    ),
                   ),
                   Text(
                     'Current: ${stages[activeIndex].label}',
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w600,
                       color: AppColors.primary,
@@ -670,11 +797,9 @@ class GrowthStagePanel extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 20),
-          // Polished Progress Bar
           Stack(
             clipBehavior: Clip.none,
             children: [
-              // Background track
               Container(
                 height: 8,
                 decoration: BoxDecoration(
@@ -682,7 +807,6 @@ class GrowthStagePanel extends StatelessWidget {
                   borderRadius: BorderRadius.circular(10),
                 ),
               ),
-              // Animated Gradient Fill
               TweenAnimationBuilder<double>(
                 tween: Tween<double>(begin: 0, end: progress),
                 duration: const Duration(milliseconds: 1000),
@@ -709,7 +833,6 @@ class GrowthStagePanel extends StatelessWidget {
                   );
                 },
               ),
-              // Step Markers (Ticks)
               Positioned.fill(
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -718,7 +841,9 @@ class GrowthStagePanel extends StatelessWidget {
                     return Container(
                       width: 2,
                       height: 8,
-                      color: isActive ? Colors.white.withValues(alpha: 0.5) : Colors.transparent,
+                      color: isActive
+                          ? Colors.white.withValues(alpha: 0.5)
+                          : Colors.transparent,
                     );
                   }),
                 ),
@@ -726,7 +851,6 @@ class GrowthStagePanel extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          // Stage Labels
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: List.generate(stages.length, (i) {
@@ -739,9 +863,11 @@ class GrowthStagePanel extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 8,
                     fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
-                    color: isActive 
-                        ? AppColors.primary 
-                        : (isReached ? AppColors.darkWith(0.7) : AppColors.darkWith(0.3)),
+                    color: isActive
+                        ? AppColors.primary
+                        : (isReached
+                              ? AppColors.darkWith(0.7)
+                              : AppColors.darkWith(0.3)),
                   ),
                 ),
               );
@@ -753,7 +879,6 @@ class GrowthStagePanel extends StatelessWidget {
   }
 }
 
-/// A widget that displays the "Sampling History" list.
 class SamplingHistoryPanel extends StatelessWidget {
   const SamplingHistoryPanel({super.key});
 
@@ -780,7 +905,11 @@ class SamplingHistoryPanel extends StatelessWidget {
         children: [
           const Text(
             'Sampling History',
-            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppColors.dark),
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+              color: AppColors.dark,
+            ),
           ),
           const SizedBox(height: 16),
           if (history.isEmpty)
@@ -789,7 +918,10 @@ class SamplingHistoryPanel extends StatelessWidget {
                 padding: const EdgeInsets.all(20),
                 child: Text(
                   'No sampling history yet.',
-                  style: TextStyle(fontSize: 12, color: AppColors.darkWith(0.4)),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: AppColors.darkWith(0.4),
+                  ),
                 ),
               ),
             )
@@ -802,7 +934,10 @@ class SamplingHistoryPanel extends StatelessWidget {
               itemBuilder: (context, index) {
                 final entry = history[index];
                 return Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
                   decoration: BoxDecoration(
                     color: AppColors.darkWith(0.02),
                     borderRadius: BorderRadius.circular(12),
@@ -816,7 +951,11 @@ class SamplingHistoryPanel extends StatelessWidget {
                           color: AppColors.primaryWith(0.1),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: const Icon(Icons.history_rounded, size: 16, color: AppColors.primary),
+                        child: const Icon(
+                          Icons.history_rounded,
+                          size: 16,
+                          color: AppColors.primary,
+                        ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -825,18 +964,29 @@ class SamplingHistoryPanel extends StatelessWidget {
                           children: [
                             Text(
                               '${entry.date.month}/${entry.date.day}/${entry.date.year}',
-                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.dark),
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.dark,
+                              ),
                             ),
                             Text(
                               '${entry.sampleSize} samples recorded',
-                              style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.5)),
+                              style: TextStyle(
+                                fontSize: 9,
+                                color: AppColors.darkWith(0.5),
+                              ),
                             ),
                           ],
                         ),
                       ),
                       Text(
                         '${entry.abw.toStringAsFixed(1)}g | ${entry.avgLength.toStringAsFixed(1)}cm',
-                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.primary),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.primary,
+                        ),
                       ),
                     ],
                   ),

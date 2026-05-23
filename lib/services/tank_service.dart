@@ -1,10 +1,28 @@
 import 'package:flutter/foundation.dart';
 
 enum GrowthStage {
-  earlyJuvenile('Early Juvenile', '1-5g', '2-4cm', 'Nursery / Initial Stocking', 'SRAC Pub 244'),
-  advancedJuvenile('Advanced Juvenile', '5-15g', '4-6cm', 'Pre-Grow-out', 'Queensland Gov'),
+  earlyJuvenile(
+    'Early Juvenile',
+    '1-5g',
+    '2-4cm',
+    'Nursery / Initial Stocking',
+    'SRAC Pub 244',
+  ),
+  advancedJuvenile(
+    'Advanced Juvenile',
+    '5-15g',
+    '4-6cm',
+    'Pre-Grow-out',
+    'Queensland Gov',
+  ),
   growOut('Grow-out Phase', '15-50g', '6-10cm', 'Active Growth', 'FAO / SRAC'),
-  marketSize('Market Size / Adult', '50-120g+', '10cm+', 'Harvest / Broodstock', 'Queensland Gov / SRAC');
+  marketSize(
+    'Market Size / Adult',
+    '50-120g+',
+    '10cm+',
+    'Harvest / Broodstock',
+    'Queensland Gov / SRAC',
+  );
 
   final String label;
   final String weightRange;
@@ -12,7 +30,13 @@ enum GrowthStage {
   final String subPhase;
   final String source;
 
-  const GrowthStage(this.label, this.weightRange, this.lengthRange, this.subPhase, this.source);
+  const GrowthStage(
+    this.label,
+    this.weightRange,
+    this.lengthRange,
+    this.subPhase,
+    this.source,
+  );
 }
 
 class SamplingEntry {
@@ -68,6 +92,9 @@ class TankService extends ChangeNotifier {
   final List<SamplingEntry> _samplingHistory = [];
   final List<TankActivity> _activities = [];
 
+  // Track mortality entries for the graph in Trends tab
+  List<double> _mortalityHistory = [];
+
   bool get isInitialized => _isInitialized;
   int get initialCount => _initialCount;
   int get mortality => _mortality;
@@ -84,6 +111,7 @@ class TankService extends ChangeNotifier {
   List<SamplingEntry> get samplingHistory =>
       List.unmodifiable(_samplingHistory);
   List<TankActivity> get activities => List.unmodifiable(_activities.reversed);
+  List<double> get mortalityHistory => List.unmodifiable(_mortalityHistory);
 
   GrowthStage get currentGrowthStage {
     final latest = _samplingHistory.isNotEmpty ? _samplingHistory.last : null;
@@ -123,6 +151,7 @@ class TankService extends ChangeNotifier {
 
   void addMortality(int val, {DateTime? date}) {
     _mortality += val;
+    _mortalityHistory.add(val.toDouble()); // Push new point for the graph!
     _addActivity(
       'Recorded mortality of $val crayfish (Total: $_mortality)',
       'mortality',
@@ -138,18 +167,6 @@ class TankService extends ChangeNotifier {
     notifyListeners();
   }
 
-  void updateBaselineSampling({
-    int? sampleCount,
-    double? weight,
-    double? length,
-  }) {
-    if (sampleCount != null) _sampleCount = sampleCount;
-    if (weight != null) _initialWeight = weight;
-    if (length != null) _initialLength = length;
-    _addActivity('Updated baseline sampling data', 'edit');
-    notifyListeners();
-  }
-
   void clearSession() {
     _initialCount = 0;
     _mortality = 0;
@@ -160,6 +177,7 @@ class TankService extends ChangeNotifier {
     _initialLength = 0.0;
     _samplingHistory.clear();
     _activities.clear();
+    _mortalityHistory.clear();
     notifyListeners();
   }
 
@@ -174,13 +192,15 @@ class TankService extends ChangeNotifier {
     _mortality = 0;
     _stockingDate = date;
     _sampleCount = sampleCount;
-    // Auto-compute averages
+    // Computes average beautifully
     _initialWeight = sampleCount > 0 ? (totalWeight / sampleCount) : 0.0;
     _initialLength = sampleCount > 0 ? (totalLength / sampleCount) : 0.0;
     _isInitialized = true;
 
     _samplingHistory.clear();
     _activities.clear();
+    _mortalityHistory = [0.0]; // Set base initial as zero mortalities
+
     _addActivity(
       'Initialized grow-out with $initial population',
       'init',

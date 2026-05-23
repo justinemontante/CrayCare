@@ -11,11 +11,31 @@ class TrendsTab extends StatefulWidget {
 }
 
 class _TrendsTabState extends State<TrendsTab> {
-  String _activeMetric = 'ABW'; // ABW or ABL
+  String _activeMetric = 'ABW';
+
+  @override
+  void initState() {
+    super.initState();
+    // Nakikinig sa TankService para mag-update ang UI pag may new data
+    TankService.instance.addListener(_handleUpdate);
+  }
+
+  @override
+  void dispose() {
+    TankService.instance.removeListener(_handleUpdate);
+    super.dispose();
+  }
+
+  void _handleUpdate() {
+    if (mounted) setState(() {});
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (!TankService.instance.isInitialized) return _buildEmptyState();
+
     return SingleChildScrollView(
+      key: const ValueKey('trends_content'),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       child: Column(
         children: [
@@ -27,9 +47,58 @@ class _TrendsTabState extends State<TrendsTab> {
     );
   }
 
+  Widget _buildEmptyState() {
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(32),
+        decoration: BoxDecoration(
+          color: AppColors.primary.withValues(alpha: 0.03),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: AppColors.primary.withValues(alpha: 0.15),
+            width: 2,
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.trending_up_rounded,
+              size: 40,
+              color: AppColors.primary,
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'No Trend Data',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: AppColors.dark,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Initialize the tank inventory to visualize live growth and mortality trends.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: AppColors.dark.withValues(alpha: 0.5),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildMortalityChartContainer() {
-    // Simulated mortality data per week
-    final mortalityData = [2.0, 1.0, 0.0, 3.0, 1.0, 2.0, 0.0];
+    final service = TankService.instance;
+    // Siguraduhin na may laman kahit 0.0 para sa graph
+    final mortalityData = service.mortalityHistory.isEmpty
+        ? [0.0]
+        : service.mortalityHistory;
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -44,14 +113,43 @@ class _TrendsTabState extends State<TrendsTab> {
             alignment: Alignment.centerLeft,
             child: Text(
               'Mortality Trend',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppColors.dark),
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+                color: AppColors.dark,
+              ),
             ),
           ),
           const SizedBox(height: 24),
           SizedBox(
             height: 160,
-            child: CustomPaint(
-              painter: _BarChartPainter(mortalityData, AppColors.critical),
+            child: Column(
+              children: [
+                Expanded(
+                  child: CustomPaint(
+                    painter: _BarChartPainter(
+                      mortalityData,
+                      AppColors.critical,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: mortalityData.length == 1
+                      ? MainAxisAlignment.center
+                      : MainAxisAlignment.spaceBetween,
+                  children: List.generate(
+                    mortalityData.length,
+                    (i) => Text(
+                      i == 0 ? 'Init' : 'W$i',
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: AppColors.darkWith(0.4),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -62,8 +160,7 @@ class _TrendsTabState extends State<TrendsTab> {
   Widget _buildChartContainer() {
     final service = TankService.instance;
     final history = service.samplingHistory;
-    
-    // Create data points starting with baseline, followed by sampling history
+
     final data = <double>[];
     if (_activeMetric == 'ABW') {
       data.add(service.initialWeight);
@@ -72,6 +169,10 @@ class _TrendsTabState extends State<TrendsTab> {
       data.add(service.initialLength);
       data.addAll(history.map((e) => e.avgLength));
     }
+
+    final maxVal = data.reduce(max);
+    final minVal = data.reduce(min);
+    final unit = _activeMetric == 'ABW' ? 'g' : 'cm';
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -90,12 +191,20 @@ class _TrendsTabState extends State<TrendsTab> {
                 children: [
                   const Text(
                     'Growth Trend',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppColors.dark),
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.dark,
+                    ),
                   ),
-                  const SizedBox(height: 2),
                   Text(
-                    _activeMetric == 'ABW' ? 'Average Body Weight' : 'Average Body Length',
-                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.dark.withValues(alpha: 0.5)),
+                    _activeMetric == 'ABW'
+                        ? 'Average Weight'
+                        : 'Average Length',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: AppColors.darkWith(0.5),
+                    ),
                   ),
                 ],
               ),
@@ -105,47 +214,61 @@ class _TrendsTabState extends State<TrendsTab> {
           const SizedBox(height: 24),
           SizedBox(
             height: 200,
-            child: data.length > 1
-                ? Column(
+            child: Row(
+              children: [
+                Column(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      '${maxVal.toStringAsFixed(1)} $unit',
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: AppColors.darkWith(0.4),
+                      ),
+                    ),
+                    Text(
+                      '${((maxVal + minVal) / 2).toStringAsFixed(1)} $unit',
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: AppColors.darkWith(0.4),
+                      ),
+                    ),
+                    Text(
+                      '${minVal.toStringAsFixed(1)} $unit',
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: AppColors.darkWith(0.4),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
                     children: [
                       Expanded(
                         child: CustomPaint(
                           painter: _LineChartPainter(data, AppColors.primary),
-                          child: Container(),
                         ),
                       ),
                       const SizedBox(height: 8),
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('Initial', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: AppColors.primary)),
-                          Text('W${data.length - 1}', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: AppColors.darkWith(0.5))),
-                        ],
+                        mainAxisAlignment: data.length == 1
+                            ? MainAxisAlignment.center
+                            : MainAxisAlignment.spaceBetween,
+                        children: List.generate(
+                          data.length,
+                          (i) => Text(
+                            i == 0 ? 'Init' : 'W$i',
+                            style: TextStyle(
+                              fontSize: 9,
+                              color: AppColors.darkWith(0.4),
+                            ),
+                          ),
+                        ),
                       ),
                     ],
-                  )
-                : Center(
-                    child: Text(
-                      'Not enough sampling data.',
-                      style: TextStyle(color: AppColors.darkWith(0.4)),
-                    ),
                   ),
-          ),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: AppColors.success.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.show_chart, size: 16, color: AppColors.success),
-                const SizedBox(width: 8),
-                Text(
-                  'Weekly Growth Rate: +5.2 g/week',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.success),
                 ),
               ],
             ),
@@ -158,12 +281,12 @@ class _TrendsTabState extends State<TrendsTab> {
   Widget _buildToggle() {
     return Container(
       padding: const EdgeInsets.all(2),
-      decoration: BoxDecoration(color: AppColors.darkWith(0.05), borderRadius: BorderRadius.circular(10)),
+      decoration: BoxDecoration(
+        color: AppColors.darkWith(0.05),
+        borderRadius: BorderRadius.circular(10),
+      ),
       child: Row(
-        children: [
-          _toggleBtn('ABW', 'ABW'),
-          _toggleBtn('ABL', 'ABL'),
-        ],
+        children: [_toggleBtn('ABW', 'ABW'), _toggleBtn('ABL', 'ABL')],
       ),
     );
   }
@@ -199,20 +322,31 @@ class _LineChartPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     if (data.isEmpty) return;
-    final paint = Paint()..color = color..strokeWidth = 3..style = PaintingStyle.stroke..strokeCap = StrokeCap.round;
-    final path = Path();
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 3
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    final dotPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
     final maxVal = data.reduce(max);
     final minVal = data.reduce(min);
-    final range = maxVal - minVal;
-    
-    final xStep = size.width / (data.length - 1);
-    
+    final range = (maxVal - minVal) == 0 ? 1.0 : (maxVal - minVal);
+
+    final xStep = data.length > 1 ? size.width / (data.length - 1) : 0.0;
+    final path = Path();
+
     for (int i = 0; i < data.length; i++) {
-      final x = i * xStep;
-      final y = size.height - ((data[i] - minVal) / (range == 0 ? 1 : range) * size.height);
-      if (i == 0) path.moveTo(x, y); else path.lineTo(x, y);
+      final x = data.length == 1 ? size.width / 2 : i * xStep;
+      final y = size.height - ((data[i] - minVal) / range * size.height);
+      if (i == 0)
+        path.moveTo(x, y);
+      else
+        path.lineTo(x, y);
+      canvas.drawCircle(Offset(x, y), 5, dotPaint);
     }
-    canvas.drawPath(path, paint);
+    if (data.length > 1) canvas.drawPath(path, paint);
   }
 
   @override
@@ -227,17 +361,24 @@ class _BarChartPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     if (data.isEmpty) return;
-    final maxVal = data.reduce(max);
-    final barWidth = size.width / (data.length * 1.5);
-    final gap = barWidth * 0.5;
-    
-    final paint = Paint()..color = color.withValues(alpha: 0.6)..style = PaintingStyle.fill;
-    
+    final maxVal = data.reduce(max) == 0 ? 1.0 : data.reduce(max);
+    final barWidth = size.width / (data.length * 2);
+    final paint = Paint()
+      ..color = color.withValues(alpha: 0.6)
+      ..style = PaintingStyle.fill;
+
     for (int i = 0; i < data.length; i++) {
-      final x = i * (barWidth + gap);
-      final barHeight = (data[i] / (maxVal == 0 ? 1 : maxVal)) * size.height;
-      final rect = Rect.fromLTWH(x, size.height - barHeight, barWidth, barHeight);
-      canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(4)), paint);
+      final x = data.length == 1
+          ? (size.width / 2) - (barWidth / 2)
+          : i * (barWidth * 2);
+      final barHeight = (data[i] / maxVal) * size.height;
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(x, size.height - barHeight, barWidth, barHeight),
+          const Radius.circular(4),
+        ),
+        paint,
+      );
     }
   }
 
