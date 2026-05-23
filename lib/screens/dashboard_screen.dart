@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart'; // Added for Firebase integration
 import '../theme/app_colors.dart';
 import '../widgets/section_label.dart';
 import '../services/sensor_service.dart';
@@ -33,6 +34,62 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   void _refreshUI() {
     if (mounted) setState(() {});
+  }
+
+  // LOGIC PARA KUNIN ANG FIRST NAME LANG NG NAKA-LOGIN
+  String _getFirstName() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null &&
+        user.displayName != null &&
+        user.displayName!.isNotEmpty) {
+      // I-split ang pangalan gamit ang space, tapos kunin ang pinakaunang salita
+      return user.displayName!.trim().split(' ').first;
+    }
+    return 'Farmer'; // Fallback kapag walang pangalan
+  }
+
+  // DYNAMIC GREETING DEPENDE SA ORAS NGAYON
+  String _getGreetingTime() {
+    final hour = DateTime.now().hour;
+    if (hour < 12) {
+      return 'Good Morning';
+    } else if (hour < 18) {
+      return 'Good Afternoon';
+    } else {
+      return 'Good Evening';
+    }
+  }
+
+  // DYNAMIC DATE FORMATTER (Para hindi hardcoded ang May 12, 2026)
+  String _getFormattedDate() {
+    final now = DateTime.now();
+    final weekdays = [
+      'Sunday',
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+    ];
+    final months = [
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ];
+
+    final weekday = weekdays[now.weekday % 7];
+    final month = months[now.month - 1];
+    return '$weekday, $month ${now.day}, ${now.year}';
   }
 
   @override
@@ -141,18 +198,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text(
-                        'Good Afternoon, Justine!',
-                        style: TextStyle(
+                      // GREETING NAME CONNECTED TO FIREBASE (FIRST NAME ONLY)
+                      Text(
+                        '${_getGreetingTime()}, ${_getFirstName()}!',
+                        style: const TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w700,
                           color: AppColors.darkText,
                         ),
                       ),
                       const SizedBox(height: 3),
-                      const Text(
-                        'Monday, May 12, 2026',
-                        style: TextStyle(
+                      // DYNAMIC DATE BASED ON PHONE TIME
+                      Text(
+                        _getFormattedDate(),
+                        style: const TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w400,
                           color: AppColors.mutedText,

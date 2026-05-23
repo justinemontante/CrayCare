@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:google_sign_in/google_sign_in.dart'; // Para ma-logout din ng tuluyan ang Google account
+import 'package:google_sign_in/google_sign_in.dart';
 import '../theme/app_colors.dart';
 import '../screens/login_screen.dart';
 import '../models/crayfish_stage.dart';
@@ -15,8 +15,6 @@ class SettingsDrawer extends StatefulWidget {
 
 class _SettingsDrawerState extends State<SettingsDrawer> {
   int _currentPage = 0;
-
-  // Default values habang naglo-load
   String _profileName = 'Loading...';
   String _profileEmail = 'Loading...';
 
@@ -37,10 +35,9 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
   void initState() {
     super.initState();
     SettingsService.instance.addListener(_onSettingsChange);
-    _loadUserData(); // Kunin ang user data pagkakasimula ng drawer
+    _loadUserData();
   }
 
-  // FUNCTION PARA KUNIN ANG DATA SA FIREBASE
   void _loadUserData() {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
@@ -78,8 +75,79 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
     }
   }
 
+  // MODAL DIALOG KAPAG UPDATED SUCCESSFULLY
+  void _showSuccessModal() {
+    showDialog(
+      context: context,
+      barrierDismissible: false, // Kailangan pindutin ang button para masara
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF22c55e).withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.check_circle_rounded,
+                color: Color(0xFF22c55e),
+                size: 50,
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Updated Successfully!',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+                color: AppColors.dark,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Your profile details have been saved to your account.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12,
+                color: AppColors.dark.withValues(alpha: 0.6),
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(ctx); // I-close ang modal
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text(
+                  'Awesome',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _saveProfile() async {
-    // I-update ang pangalan sa Firebase kung binago ng user
     final user = FirebaseAuth.instance.currentUser;
     if (user != null &&
         _nameCtrl.text.isNotEmpty &&
@@ -89,17 +157,13 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
 
     setState(() {
       _profileName = _nameCtrl.text.isNotEmpty ? _nameCtrl.text : _profileName;
-      _profileEmail = _emailCtrl.text.isNotEmpty
-          ? _emailCtrl.text
-          : _profileEmail;
     });
 
-    _back();
+    _back(); // Bumalik muna sa Main Menu
 
+    // Ipakita ang Success Modal pagka-save!
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Profile updated successfully!')),
-      );
+      _showSuccessModal();
     }
   }
 
@@ -155,22 +219,16 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    // UPDATED LOGOUT FUNCTIONALITY
                     onPressed: () async {
                       try {
-                        // 1. Sign out sa Google at Firebase
                         await GoogleSignIn().signOut();
                         await FirebaseAuth.instance.signOut();
 
                         if (!ctx.mounted) return;
 
-                        // 2. I-close ang bottom sheet
                         Navigator.of(ctx).pop();
-
-                        // 3. I-close ang drawer
                         Navigator.of(context).pop();
 
-                        // 4. Bumalik sa Login Screen at burahin ang history para di ma-back
                         Navigator.of(context).pushAndRemoveUntil(
                           MaterialPageRoute(
                             builder: (_) => const LoginScreen(),
@@ -1007,7 +1065,10 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
                 const SizedBox(height: 24),
                 _buildField('Full Name', _nameCtrl),
                 const SizedBox(height: 16),
-                _buildField('Email Address', _emailCtrl),
+
+                // GINAWANG FALSE ANG ENABLED PARA HINDI MA-EDIT ANG EMAIL!
+                _buildField('Email Address', _emailCtrl, enabled: false),
+
                 const SizedBox(height: 24),
                 SizedBox(
                   width: double.infinity,
@@ -1161,10 +1222,12 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
     );
   }
 
+  // IN-UPDATE ITONG HELPER PARA SUPORTAHAN ANG READ-ONLY/DISABLED STATE
   Widget _buildField(
     String label,
     TextEditingController ctrl, {
     bool obscure = false,
+    bool enabled = true, // Added enabled flag
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1181,10 +1244,18 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
         TextField(
           controller: ctrl,
           obscureText: obscure,
-          style: const TextStyle(fontSize: 13, color: AppColors.dark),
+          enabled: enabled, // Bind here
+          style: TextStyle(
+            fontSize: 13,
+            color: enabled
+                ? AppColors.dark
+                : AppColors.dark.withValues(alpha: 0.5), // fade kung disabled
+          ),
           decoration: InputDecoration(
             filled: true,
-            fillColor: AppColors.darkWith(0.04),
+            fillColor: enabled
+                ? AppColors.darkWith(0.04)
+                : AppColors.darkWith(0.02), // darker kung disabled
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 12,
               vertical: 10,
@@ -1196,6 +1267,11 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
               borderSide: BorderSide(color: AppColors.darkWith(0.12)),
+            ),
+            disabledBorder: OutlineInputBorder(
+              // Added border for disabled state
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(color: AppColors.darkWith(0.06)),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),

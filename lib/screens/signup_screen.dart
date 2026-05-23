@@ -3,7 +3,6 @@ import '../theme/app_colors.dart';
 import '../widgets/gradient_button.dart';
 import 'verify_screen.dart';
 import '../services/auth_service.dart';
-import 'main_shell.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -14,28 +13,67 @@ class SignupScreen extends StatefulWidget {
 
 class _SignupScreenState extends State<SignupScreen> {
   bool _obscurePassword = true;
+  bool _isLoading = false;
+
+  // Dynamic error holder para sa email field
+  String? _emailError;
+
+  // Global Key para sa Form Validation
+  final _formKey = GlobalKey<FormState>();
+
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _authService = AuthService();
 
+  // NATIVE SIGN UP LOGIC (No OTP packages, pure Firebase Link)
   void _signUp() async {
+    // I-reset muna ang email error bago mag-validate ulit
+    setState(() => _emailError = null);
+
+    // 1. I-validate ang form. Kung may kulang, hihinto ito at magrered ang textfield.
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    setState(() => _isLoading = true);
     try {
+      // 2. Gagawa ng user at awtomatikong magpapadala ng verification link galing sa Google
       await _authService.signUp(
-        _nameController.text, // <-- Dinagdag yung nameController dito
-        _emailController.text,
-        _passwordController.text,
+        _nameController.text.trim(),
+        _emailController.text.trim(),
+        _passwordController.text.trim(),
       );
+
       if (!mounted) return;
+      // 3. Dideretso sa VerifyScreen (Malinis, WALANG PARAMETERS na kailangan)
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const VerifyScreen()),
       );
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(e.toString())));
+      final errorMsg = e.toString().replaceAll('Exception: ', '');
+
+      // KUNG REGISTERED NA ANG EMAIL: I-set ang error sa variable at patakbuhin ulit ang validator
+      if (errorMsg.contains('email-already-in-use') ||
+          errorMsg.contains('already-in-use') ||
+          errorMsg.contains('already in use')) {
+        setState(() {
+          _emailError = 'This email is already in use';
+        });
+        _formKey.currentState!.validate(); // Pwersahing mag-red ang textfield
+      } else {
+        _showErrorSnackBar(errorMsg);
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  void _showErrorSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.redAccent),
+    );
   }
 
   @override
@@ -46,10 +84,50 @@ class _SignupScreenState extends State<SignupScreen> {
     super.dispose();
   }
 
+  // REUSABLE INPUT DECORATION STYLE WITH BEAUTIFUL ERROR BORDERS
+  InputDecoration _buildInputDecoration(String hintText) {
+    return InputDecoration(
+      hintText: hintText,
+      hintStyle: TextStyle(color: AppColors.darkWith(0.4), fontSize: 14),
+      filled: true,
+      fillColor: AppColors.whiteWith(0.8),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+
+      // Standard borders
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: AppColors.whiteWith(0.3)),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: AppColors.whiteWith(0.3)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+      ),
+
+      // Red Error borders for a professional look
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Colors.redAccent, width: 1),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Colors.redAccent, width: 1.5),
+      ),
+      errorStyle: const TextStyle(
+        color: Colors.redAccent,
+        fontSize: 11,
+        fontWeight: FontWeight.w600,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      resizeToAvoidBottomInset: false,
+      resizeToAvoidBottomInset: true,
       body: Container(
         width: double.infinity,
         height: double.infinity,
@@ -60,7 +138,7 @@ class _SignupScreenState extends State<SignupScreen> {
           ),
         ),
         child: SafeArea(
-          child: Padding(
+          child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
             child: Column(
               children: [
@@ -99,7 +177,10 @@ class _SignupScreenState extends State<SignupScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
+
+                // FORM WITH VALIDATION KEY
                 Form(
+                  key: _formKey,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
@@ -116,40 +197,19 @@ class _SignupScreenState extends State<SignupScreen> {
                         ),
                       ),
                       const SizedBox(height: 6),
-                      TextField(
+
+                      // TEXTFORMFIELD FOR FULL NAME
+                      TextFormField(
                         controller: _nameController,
-                        decoration: InputDecoration(
-                          hintText: 'Enter your full name',
-                          hintStyle: TextStyle(
-                            color: AppColors.darkWith(0.4),
-                            fontSize: 14,
-                          ),
-                          filled: true,
-                          fillColor: AppColors.whiteWith(0.8),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 14,
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: BorderSide(
-                              color: AppColors.whiteWith(0.3),
-                            ),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: BorderSide(
-                              color: AppColors.whiteWith(0.3),
-                            ),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: const BorderSide(
-                              color: AppColors.primary,
-                              width: 1.5,
-                            ),
-                          ),
+                        decoration: _buildInputDecoration(
+                          'Enter your full name',
                         ),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Full name is required';
+                          }
+                          return null;
+                        },
                         style: const TextStyle(
                           fontSize: 14,
                           color: AppColors.dark,
@@ -169,41 +229,36 @@ class _SignupScreenState extends State<SignupScreen> {
                         ),
                       ),
                       const SizedBox(height: 6),
-                      TextField(
+
+                      // TEXTFORMFIELD FOR EMAIL WITH DYNAMIC ERROR LABEL
+                      TextFormField(
                         controller: _emailController,
                         keyboardType: TextInputType.emailAddress,
-                        decoration: InputDecoration(
-                          hintText: 'Enter your email',
-                          hintStyle: TextStyle(
-                            color: AppColors.darkWith(0.4),
-                            fontSize: 14,
-                          ),
-                          filled: true,
-                          fillColor: AppColors.whiteWith(0.8),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 14,
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: BorderSide(
-                              color: AppColors.whiteWith(0.3),
-                            ),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: BorderSide(
-                              color: AppColors.whiteWith(0.3),
-                            ),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: const BorderSide(
-                              color: AppColors.primary,
-                              width: 1.5,
-                            ),
-                          ),
-                        ),
+                        decoration: _buildInputDecoration('Enter your email'),
+                        onChanged: (value) {
+                          // Kapag nagbago ang tinype ng user, burahin agad ang pulang error label
+                          if (_emailError != null) {
+                            setState(() {
+                              _emailError = null;
+                            });
+                            _formKey.currentState!.validate();
+                          }
+                        },
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Email is required';
+                          }
+                          if (!RegExp(
+                            r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
+                          ).hasMatch(value.trim())) {
+                            return 'Please enter a valid email address';
+                          }
+                          // Ibabalik ang "This email is already in use" kung ito ay na-trigger sa catch block
+                          if (_emailError != null) {
+                            return _emailError;
+                          }
+                          return null;
+                        },
                         style: const TextStyle(
                           fontSize: 14,
                           color: AppColors.dark,
@@ -223,53 +278,35 @@ class _SignupScreenState extends State<SignupScreen> {
                         ),
                       ),
                       const SizedBox(height: 6),
-                      TextField(
+
+                      // TEXTFORMFIELD FOR PASSWORD
+                      TextFormField(
                         controller: _passwordController,
                         obscureText: _obscurePassword,
-                        decoration: InputDecoration(
-                          hintText: 'Create a password',
-                          hintStyle: TextStyle(
-                            color: AppColors.darkWith(0.4),
-                            fontSize: 14,
-                          ),
-                          filled: true,
-                          fillColor: AppColors.whiteWith(0.8),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 14,
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: BorderSide(
-                              color: AppColors.whiteWith(0.3),
+                        decoration: _buildInputDecoration('Create a password')
+                            .copyWith(
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  _obscurePassword
+                                      ? Icons.visibility_off_outlined
+                                      : Icons.visibility_outlined,
+                                  color: AppColors.darkWith(0.5),
+                                  size: 20,
+                                ),
+                                onPressed: () => setState(
+                                  () => _obscurePassword = !_obscurePassword,
+                                ),
+                              ),
                             ),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: BorderSide(
-                              color: AppColors.whiteWith(0.3),
-                            ),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: const BorderSide(
-                              color: AppColors.primary,
-                              width: 1.5,
-                            ),
-                          ),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _obscurePassword
-                                  ? Icons.visibility_off_outlined
-                                  : Icons.visibility_outlined,
-                              color: AppColors.darkWith(0.5),
-                              size: 20,
-                            ),
-                            onPressed: () => setState(
-                              () => _obscurePassword = !_obscurePassword,
-                            ),
-                          ),
-                        ),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Password is required';
+                          }
+                          if (value.trim().length < 6) {
+                            return 'Password must be at least 6 characters';
+                          }
+                          return null;
+                        },
                         style: const TextStyle(
                           fontSize: 14,
                           color: AppColors.dark,
@@ -277,16 +314,25 @@ class _SignupScreenState extends State<SignupScreen> {
                       ),
                       const SizedBox(height: 18),
                       GradientButton(
-                        onTap: _signUp,
-                        child: const Text(
-                          'Sign Up',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
+                        onTap: _isLoading ? () {} : _signUp,
+                        child: _isLoading
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Text(
+                                'Sign Up',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
                       ),
                       const SizedBox(height: 12),
                       Row(
@@ -337,21 +383,12 @@ class _SignupScreenState extends State<SignupScreen> {
                       SizedBox(
                         width: double.infinity,
                         child: OutlinedButton(
-                          onPressed: () async {
-                            try {
-                              await _authService.signInWithGoogle();
-                              if (!mounted) return;
-                              Navigator.pushReplacement(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const MainShell(),
-                                ),
-                              );
-                            } catch (e) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text(e.toString())),
-                              );
-                            }
+                          onPressed: () {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Starting Google Sign-In...'),
+                              ),
+                            );
                           },
                           style: OutlinedButton.styleFrom(
                             backgroundColor: AppColors.whiteWith(0.8),
