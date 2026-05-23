@@ -56,6 +56,12 @@ class _VerifyScreenState extends State<VerifyScreen> {
     });
   }
 
+  // Helper function para i-format ang timer bilang 00:SS (e.g., 00:45)
+  String _formatTimer(int seconds) {
+    final s = seconds.toString().padLeft(2, '0');
+    return '00:$s';
+  }
+
   // NATIVE FIREBASE RESEND LINK
   void _resendVerificationLink() async {
     if (!_isResendEnabled) return;
@@ -81,7 +87,7 @@ class _VerifyScreenState extends State<VerifyScreen> {
     setState(() => _isLoading = true);
     try {
       await _currentUser
-          ?.reload(); // I-reload ang Firebase session para makuha ang pinakabagong status
+          ?.reload(); // I-reload ang Firebase session para makuha ang latest status
       final freshUser = FirebaseAuth.instance.currentUser;
 
       if (freshUser != null && freshUser.emailVerified) {
@@ -100,7 +106,7 @@ class _VerifyScreenState extends State<VerifyScreen> {
     }
   }
 
-  // LOGOUT (Kapag binura ang temporary unverified account at bumalik)
+  // LOGOUT (Babalik sa Signup Screen)
   void _logout() async {
     try {
       _timer?.cancel();
@@ -218,8 +224,6 @@ class _VerifyScreenState extends State<VerifyScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final fullName = _currentUser?.displayName ?? 'User';
-    final firstName = fullName.trim().split(' ').first;
     final emailAddress = _currentUser?.email ?? 'your email';
 
     return Scaffold(
@@ -242,39 +246,7 @@ class _VerifyScreenState extends State<VerifyScreen> {
                     width: 130,
                     child: Image.asset('assets/images/logo.png'),
                   ),
-                  const SizedBox(height: 16),
-
-                  Text(
-                    'Welcome, $firstName!',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.primary,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // MAGANDANG EMAIL ILLUSTRATIVE ICON
-                  Container(
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: AppColors.whiteWith(0.8),
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.darkWith(0.08),
-                          blurRadius: 16,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: const Icon(
-                      Icons.mark_email_unread_rounded,
-                      size: 72,
-                      color: AppColors.primary,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 32),
 
                   const Text(
                     'Verify your email',
@@ -284,14 +256,69 @@ class _VerifyScreenState extends State<VerifyScreen> {
                       color: AppColors.dark,
                     ),
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 12),
+
                   Text(
-                    'We sent a secure verification link to:\n$emailAddress\n\nPlease check your inbox (and Spam folder) and click the link to activate your account.',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
+                    'We sent a secure verification link to:',
+                    style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w500,
-                      color: AppColors.dark,
+                      color: AppColors.dark.withValues(alpha: 0.6),
+                    ),
+                  ),
+
+                  // ✉️ MAGANDANG HORIZONTAL EMAIL BOX KATULAD NG SCREENSHOT
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.symmetric(
+                      vertical: 16,
+                      horizontal: 4,
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 14,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.darkWith(
+                        0.04,
+                      ), // Soft grey/blue background
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: AppColors.darkWith(0.05)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment:
+                          MainAxisAlignment.center, // Centered content
+                      children: [
+                        const Icon(
+                          Icons.mail_outline_rounded,
+                          color: AppColors.primary,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 10),
+                        Flexible(
+                          child: Text(
+                            emailAddress,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.dark,
+                            ),
+                            overflow: TextOverflow
+                                .ellipsis, // Bawas lagpas sa maliliit na screen
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 8),
+                  Text(
+                    'Please check your inbox (and Spam folder)\nand click the link to activate your account.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.dark.withValues(alpha: 0.7),
                       height: 1.5,
                     ),
                   ),
@@ -328,7 +355,7 @@ class _VerifyScreenState extends State<VerifyScreen> {
                         style: TextStyle(fontSize: 13, color: AppColors.dark),
                       ),
 
-                      // TIMER CONTROLLED RESEND
+                      // TIMER CONTROLLED RESEND (00:XX format)
                       _isResendEnabled
                           ? GestureDetector(
                               onTap: _resendVerificationLink,
@@ -342,7 +369,7 @@ class _VerifyScreenState extends State<VerifyScreen> {
                               ),
                             )
                           : Text(
-                              'Resend in ${_countdownStart}s',
+                              'Resend in ${_formatTimer(_countdownStart)}', // Displays as 00:XX
                               style: TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.w700,
@@ -353,15 +380,27 @@ class _VerifyScreenState extends State<VerifyScreen> {
                   ),
                   const SizedBox(height: 24),
 
+                  // BACK TO SIGN UP
                   GestureDetector(
                     onTap: _logout,
-                    child: Text(
-                      'Back to Sign Up',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.darkWith(0.8),
-                      ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.arrow_back_rounded,
+                          size: 14,
+                          color: AppColors.primary,
+                        ),
+                        SizedBox(width: 6),
+                        Text(
+                          'Back to Sign Up',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
