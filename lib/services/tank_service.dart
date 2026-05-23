@@ -53,29 +53,22 @@ class TankActivity {
 
 class TankService extends ChangeNotifier {
   static final TankService instance = TankService._();
-  TankService._() {
-    _activities.add(
-      TankActivity(
-        action: 'Initialized grow-out with 68 population',
-        date: 'May 12, 2026',
-        time: '08:00 AM',
-        type: 'init',
-      ),
-    );
-  }
+  TankService._();
 
-  int _initialCount = 68;
-  int _mortality = 5;
-  DateTime _stockingDate = DateTime.now().subtract(const Duration(days: 45));
+  int _initialCount = 0;
+  int _mortality = 0;
+  bool _isInitialized = false;
+  DateTime _stockingDate = DateTime.now();
 
   // Baseline Sampling Data
-  int _sampleCount = 30;
-  double _initialWeight = 45.2;
-  double _initialLength = 12.8;
+  int _sampleCount = 0;
+  double _initialWeight = 0.0;
+  double _initialLength = 0.0;
 
   final List<SamplingEntry> _samplingHistory = [];
   final List<TankActivity> _activities = [];
 
+  bool get isInitialized => _isInitialized;
   int get initialCount => _initialCount;
   int get mortality => _mortality;
   int get liveCount => _initialCount - _mortality;
@@ -157,19 +150,34 @@ class TankService extends ChangeNotifier {
     notifyListeners();
   }
 
+  void clearSession() {
+    _initialCount = 0;
+    _mortality = 0;
+    _isInitialized = false;
+    _stockingDate = DateTime.now();
+    _sampleCount = 0;
+    _initialWeight = 0.0;
+    _initialLength = 0.0;
+    _samplingHistory.clear();
+    _activities.clear();
+    notifyListeners();
+  }
+
   void initializeGrowOut(
     int initial,
     int sampleCount,
-    double weight,
-    double length,
+    double totalWeight,
+    double totalLength,
     DateTime date,
   ) {
     _initialCount = initial;
     _mortality = 0;
     _stockingDate = date;
     _sampleCount = sampleCount;
-    _initialWeight = weight;
-    _initialLength = length;
+    // Auto-compute averages
+    _initialWeight = sampleCount > 0 ? (totalWeight / sampleCount) : 0.0;
+    _initialLength = sampleCount > 0 ? (totalLength / sampleCount) : 0.0;
+    _isInitialized = true;
 
     _samplingHistory.clear();
     _activities.clear();

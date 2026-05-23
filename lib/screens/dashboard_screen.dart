@@ -46,11 +46,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               clipBehavior: Clip.none,
               children: [
                 _buildGreeting(),
-                Positioned(
-                  bottom: -20, 
-                  right: 12, 
-                  child: _buildLiveTag(),
-                ),
+                Positioned(bottom: -20, right: 12, child: _buildLiveTag()),
               ],
             ),
             const Padding(
@@ -206,7 +202,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
             offset: const Offset(0, 2),
           ),
         ],
-        border: Border.all(color: const Color(0xFF22c55e).withValues(alpha: 0.1)),
+        border: Border.all(
+          color: const Color(0xFF22c55e).withValues(alpha: 0.1),
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

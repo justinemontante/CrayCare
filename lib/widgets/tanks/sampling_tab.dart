@@ -20,6 +20,7 @@ class SamplingTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!TankService.instance.isInitialized) return _buildEmptyState();
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), // Reduced top padding to 8
       child: Column(
@@ -36,6 +37,68 @@ class SamplingTab extends StatelessWidget {
           const SamplingHistoryPanel(),
           const SizedBox(height: 12),
         ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(32),
+        decoration: BoxDecoration(
+          color: AppColors.primary.withValues(alpha: 0.03),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: AppColors.primary.withValues(alpha: 0.15),
+            width: 2,
+            strokeAlign: BorderSide.strokeAlignOutside,
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.primary.withValues(alpha: 0.1),
+                    blurRadius: 15,
+                    offset: const Offset(0, 5),
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.speed_rounded,
+                size: 40,
+                color: AppColors.primary,
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Sampling Restricted',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: AppColors.dark,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'You must initialize your tank inventory first before you can record sampling data.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: AppColors.dark.withValues(alpha: 0.5),
+                height: 1.4,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

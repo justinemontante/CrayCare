@@ -23,19 +23,19 @@ class InventoryTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!hasSetup) return _buildEmptyState();
+    if (!TankService.instance.isInitialized) return _buildEmptyState();
     return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
       child: Column(
         children: [
-          _buildSurvivalCard(),
-          const SizedBox(height: 12),
+          _buildSurvivalCard(context),
+          const SizedBox(height: 8),
           _buildWarningBanner(),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           _buildActionButtons(),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           _buildInfoCard(),
-          const SizedBox(height: 20),
+          const SizedBox(height: 10),
         ],
       ),
     );
@@ -79,7 +79,7 @@ class InventoryTab extends StatelessWidget {
             ),
             const SizedBox(height: 20),
             const Text(
-              'No Grow-Out Setup',
+              'No Records Found',
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w800,
@@ -102,7 +102,7 @@ class InventoryTab extends StatelessWidget {
               onPressed: onShowInitModal,
               icon: const Icon(Icons.add_rounded, size: 18),
               label: const Text(
-                'Initialize Setup',
+                'Initialize Inventory',
                 style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
               ),
               style: ElevatedButton.styleFrom(
@@ -124,7 +124,7 @@ class InventoryTab extends StatelessWidget {
     );
   }
 
-  Widget _buildSurvivalCard() {
+  Widget _buildSurvivalCard(BuildContext context) {
     final service = TankService.instance;
     final survivalPct = service.survivalRate;
 
@@ -136,7 +136,7 @@ class InventoryTab extends StatelessWidget {
     }
 
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
@@ -152,6 +152,7 @@ class InventoryTab extends StatelessWidget {
       child: Column(
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
                 child: Column(
@@ -176,78 +177,171 @@ class InventoryTab extends StatelessWidget {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 6),
                     const Text(
                       'Stocking Health',
                       style: TextStyle(
-                        fontSize: 20,
+                        fontSize: 18,
                         fontWeight: FontWeight.w900,
                         color: AppColors.dark,
                         letterSpacing: -0.3,
                       ),
                     ),
                     const SizedBox(height: 4),
+                    // Maliit na black/dark explanation label
                     Text(
-                      'Overall survival performance based on initial stocking data.',
+                      'Current monitoring status of your survival rates and growth parameters.',
                       style: TextStyle(
-                        fontSize: 11,
+                        fontSize: 10,
                         fontWeight: FontWeight.w500,
-                        color: AppColors.dark.withValues(alpha: 0.5),
-                        height: 1.4,
+                        color: AppColors.dark.withValues(alpha: 0.6),
+                        height: 1.3,
                       ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 8),
               _buildDonutChart(survivalPct / 100, statusColor),
             ],
           ),
-          const SizedBox(height: 24),
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 14),
-            decoration: BoxDecoration(
-              color: AppColors.dark.withValues(alpha: 0.02),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Row(
-              children: [
-                _buildStatItem(
-                  Icons.water_drop_rounded,
-                  '${service.liveCount}',
-                  'LIVE',
-                ),
-                _buildStatDivider(),
-                _buildStatItem(
-                  Icons.apps_rounded,
-                  '${service.initialCount}',
-                  'INITIAL',
-                ),
-                _buildStatDivider(),
-                _buildStatItem(
-                  Icons.warning_rounded,
-                  '${service.mortality}',
-                  'DEAD',
-                ),
-              ],
-            ),
-          ),
           const SizedBox(height: 16),
-          Row(
+          Column(
             children: [
-              _buildStatItem(
-                Icons.monitor_weight_rounded,
-                '${service.initialWeight.toStringAsFixed(1)} g',
-                'AVG WEIGHT',
+              // Row 1: Initial Population & Sample Count
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildMetricCard(
+                      Icons.numbers,
+                      'Initial Population',
+                      '${service.initialCount}',
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _buildMetricCard(
+                      Icons.analytics_rounded,
+                      'Sample Count',
+                      '${service.sampleCount}',
+                    ),
+                  ),
+                ],
               ),
-              _buildStatDivider(),
-              _buildStatItem(
-                Icons.straighten_rounded,
-                '${service.initialLength.toStringAsFixed(1)} cm',
-                'AVG LENGTH',
+              const SizedBox(height: 10),
+              // Row 2: Total Weight & Total Length (with Avg subtitles)
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildMetricCard(
+                      Icons.scale_rounded,
+                      'Total Weight',
+                      '${(service.initialWeight * service.sampleCount).toStringAsFixed(1)} g',
+                      subtitle:
+                          'Avg: ${service.initialWeight.toStringAsFixed(1)} g',
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _buildMetricCard(
+                      Icons.straighten_rounded,
+                      'Total Length',
+                      '${(service.initialLength * service.sampleCount).toStringAsFixed(1)} cm',
+                      subtitle:
+                          'Avg: ${service.initialLength.toStringAsFixed(1)} cm',
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              // Row 3: Alive & Mortality
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildMetricCard(
+                      Icons.favorite_rounded,
+                      'Alive',
+                      '${service.liveCount}',
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _buildMetricCard(
+                      Icons.heart_broken_rounded,
+                      'Mortality',
+                      '${service.mortality}',
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMetricCard(
+    IconData icon,
+    String title,
+    String value, {
+    String? subtitle,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.dark.withValues(alpha: 0.1)),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.dark.withValues(alpha: 0.06),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: AppColors.primary),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.dark,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+              color: AppColors.primary,
+            ),
+          ),
+          if (subtitle != null && subtitle.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              subtitle,
+              style: TextStyle(
+                fontSize: 8,
+                fontWeight: FontWeight.w600,
+                color: AppColors.dark.withValues(alpha: 0.5),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -288,47 +382,13 @@ class InventoryTab extends StatelessWidget {
     );
   }
 
-  Widget _buildStatItem(IconData icon, String value, String label) {
-    return Expanded(
-      child: Column(
-        children: [
-          Icon(icon, size: 16, color: AppColors.dark.withValues(alpha: 0.4)),
-          const SizedBox(height: 6),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w900,
-              color: AppColors.dark,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 8,
-              fontWeight: FontWeight.w800,
-              color: AppColors.dark.withValues(alpha: 0.5),
-              letterSpacing: 0.5,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatDivider() {
-    return Container(
-      width: 1,
-      height: 40,
-      color: AppColors.dark.withValues(alpha: 0.08),
-    );
-  }
-
   Widget _buildWarningBanner() {
     final survivalPct = TankService.instance.survivalRate;
     if (survivalPct >= 85) return const SizedBox.shrink();
     final isCritical = survivalPct < 70;
+
+    final warningTextColor = AppColors.warning;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
@@ -362,9 +422,7 @@ class InventoryTab extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w800,
-                    color: isCritical
-                        ? AppColors.critical
-                        : AppColors.warningDark,
+                    color: isCritical ? AppColors.critical : warningTextColor,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -377,7 +435,7 @@ class InventoryTab extends StatelessWidget {
                     fontWeight: FontWeight.w500,
                     color: isCritical
                         ? AppColors.critical.withValues(alpha: 0.8)
-                        : AppColors.warningDark.withValues(alpha: 0.8),
+                        : warningTextColor.withValues(alpha: 0.8),
                     height: 1.4,
                   ),
                 ),
@@ -428,40 +486,45 @@ class InventoryTab extends StatelessWidget {
     Color color,
     VoidCallback onTap,
   ) {
-    return Material(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(14),
-      child: InkWell(
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        onTap: onTap,
-        child: Ink(
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            border: Border.all(color: color.withValues(alpha: 0.3)),
-            borderRadius: BorderRadius.circular(14),
-            boxShadow: [
-              BoxShadow(
-                color: color.withValues(alpha: 0.05),
-                blurRadius: 10,
-                offset: const Offset(0, 2),
-              ),
-            ],
+        border: Border.all(color: color.withValues(alpha: 0.15)),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
           ),
-          child: Column(
-            children: [
-              Icon(icon, size: 20, color: color),
-              const SizedBox(height: 6),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w800,
-                  color: color,
-                  letterSpacing: -0.2,
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 20, color: color),
+                const SizedBox(height: 6),
+                Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    color: color,
+                    letterSpacing: -0.2,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -567,7 +630,7 @@ class _DonutPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     final radius = min(size.width / 2, size.height / 2);
-    const strokeWidth = 10.0; // Pinalaki ng konti ang stroke
+    const strokeWidth = 10.0;
 
     final bgPaint = Paint()
       ..color = bgColor

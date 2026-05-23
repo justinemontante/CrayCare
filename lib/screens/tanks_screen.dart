@@ -14,7 +14,6 @@ class TanksScreen extends StatefulWidget {
 
 class _TanksScreenState extends State<TanksScreen> {
   int _activeTab = 0;
-  final bool _hasSetup = true;
   DateTime _lastEdited = DateTime.now();
   final _sampleCountController = TextEditingController();
   final _sampleWeightController = TextEditingController();
@@ -56,7 +55,7 @@ class _TanksScreenState extends State<TanksScreen> {
                   onShowMortalityModal: _showMortalityModal,
                   onShowEditModal: _showEditModal,
                   onShowLogsModal: _showLogsModal,
-                  hasSetup: _hasSetup,
+                  hasSetup: TankService.instance.isInitialized,
                   lastEdited: _lastEdited,
                 ),
                 SamplingTab(
@@ -440,12 +439,11 @@ class _TanksScreenState extends State<TanksScreen> {
     final countCtrl = TextEditingController(
       text: isEdit ? '${TankService.instance.initialCount}' : '',
     );
-    final weightCtrl = TextEditingController(
-      text: isEdit ? '${TankService.instance.initialWeight}' : '',
+    final sampleCountCtrl = TextEditingController(
+      text: isEdit ? '${TankService.instance.sampleCount}' : '',
     );
-    final lengthCtrl = TextEditingController(
-      text: isEdit ? '${TankService.instance.initialLength}' : '',
-    );
+    final totalWeightCtrl = TextEditingController();
+    final totalLengthCtrl = TextEditingController();
 
     showModalBottomSheet(
       context: context,
@@ -458,86 +456,191 @@ class _TanksScreenState extends State<TanksScreen> {
         return Padding(
           padding: EdgeInsets.only(
             bottom: MediaQuery.of(ctx).viewInsets.bottom,
-            left: 24,
-            right: 24,
-            top: 16,
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    color: AppColors.dark.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(4),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: AppColors.dark.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 24),
-              Text(
-                isEdit ? 'Edit Grow-Out Setup' : 'Initialize Grow-Out',
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
-                  color: AppColors.dark,
+                const SizedBox(height: 24),
+                const Text(
+                  'Grow-Out Initialization',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                    color: AppColors.dark,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Enter the initial stocking details for this tank.',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: AppColors.dark.withValues(alpha: 0.5),
+                const SizedBox(height: 24),
+                _buildInfoCard(
+                  Icons.people_alt_rounded,
+                  'Initial Population',
+                  'Total stock count upon start',
+                  countCtrl,
                 ),
-              ),
-              const SizedBox(height: 24),
-              _buildModalInput('Initial Stock Count', 'e.g. 1000', countCtrl),
-              _buildModalInput('Average Weight (g)', 'e.g. 2.5', weightCtrl),
-              _buildModalInput('Average Length (cm)', 'e.g. 3.0', lengthCtrl),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          isEdit ? 'Setup updated!' : 'Setup initialized!',
-                        ),
-                        behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
+                _buildInfoCard(
+                  Icons.analytics_rounded,
+                  'Sample Count',
+                  'Number of crayfish sampled',
+                  sampleCountCtrl,
+                ),
+                _buildInfoCard(
+                  Icons.scale_rounded,
+                  'Total Weight (g)',
+                  'Sum weight of sampled group',
+                  totalWeightCtrl,
+                ),
+                _buildInfoCard(
+                  Icons.straighten_rounded,
+                  'Total Length (cm)',
+                  'Sum length of sampled group',
+                  totalLengthCtrl,
+                ),
+
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      final count = int.tryParse(countCtrl.text) ?? 0;
+                      final sampleCount =
+                          int.tryParse(sampleCountCtrl.text) ?? 0;
+                      final totalWeight =
+                          double.tryParse(totalWeightCtrl.text) ?? 0.0;
+                      final totalLength =
+                          double.tryParse(totalLengthCtrl.text) ?? 0.0;
+
+                      if (count > 0 && sampleCount > 0) {
+                        TankService.instance.initializeGrowOut(
+                          count,
+                          sampleCount,
+                          totalWeight,
+                          totalLength,
+                          DateTime.now(),
+                        );
+                        Navigator.pop(ctx);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              isEdit ? 'Setup updated!' : 'Setup initialized!',
+                            ),
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        );
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
                       ),
-                    );
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
+                      elevation: 0,
                     ),
-                    elevation: 0,
-                  ),
-                  child: const Text(
-                    'Save Setup',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
+                    child: const Text(
+                      'Initialize Grow-Out',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 24),
-            ],
+                const SizedBox(height: 24),
+              ],
+            ),
           ),
         );
       },
+    );
+  }
+
+  Widget _buildInfoCard(
+    IconData icon,
+    String title,
+    String subtitle,
+    TextEditingController controller,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: AppColors.primary, size: 18),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12,
+                    color: AppColors.dark,
+                  ),
+                ),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 9,
+                    color: AppColors.dark.withValues(alpha: 0.5),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          SizedBox(
+            width: 80,
+            child: TextField(
+              controller: controller,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              textAlign: TextAlign.right,
+              style: const TextStyle(
+                fontWeight: FontWeight.w900,
+                color: AppColors.primary,
+              ),
+              decoration: InputDecoration(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: AppColors.dark.withValues(alpha: 0.5), width: 1.5),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: AppColors.dark.withValues(alpha: 0.5), width: 1.5),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: AppColors.primary, width: 2),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -751,21 +854,29 @@ class _TanksScreenState extends State<TanksScreen> {
               hintStyle: TextStyle(
                 color: AppColors.dark.withValues(alpha: 0.3),
               ),
-              filled: true,
-              fillColor: AppColors.dark.withValues(alpha: 0.03),
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 16,
-                vertical: 16,
+                vertical: 14,
               ),
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide.none,
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: AppColors.dark.withValues(alpha: 0.5),
+                  width: 1.5,
+                ),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: AppColors.dark.withValues(alpha: 0.5),
+                  width: 1.5,
+                ),
               ),
               focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(12),
                 borderSide: const BorderSide(
                   color: AppColors.primary,
-                  width: 1.5,
+                  width: 2,
                 ),
               ),
             ),
