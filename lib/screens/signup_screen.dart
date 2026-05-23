@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../theme/app_colors.dart';
 import '../widgets/gradient_button.dart';
 import 'verify_screen.dart';
+import 'main_shell.dart';
 import '../services/auth_service.dart';
 
 class SignupScreen extends StatefulWidget {
@@ -58,10 +60,28 @@ class _SignupScreenState extends State<SignupScreen> {
       if (errorMsg.contains('email-already-in-use') ||
           errorMsg.contains('already-in-use') ||
           errorMsg.contains('already in use')) {
+        // Subukan mag-sign in — baka hindi pa verified
+        try {
+          await _authService.signIn(
+            _emailController.text.trim(),
+            _passwordController.text.trim(),
+          );
+
+          final user = FirebaseAuth.instance.currentUser;
+          if (user != null && !user.emailVerified) {
+            await user.sendEmailVerification();
+            if (!mounted) return;
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => const VerifyScreen()),
+            );
+            return;
+          }
+        } catch (_) {}
+
         setState(() {
-          _emailError = 'This email is already in use';
-          _autovalidateMode =
-              AutovalidateMode.onUserInteraction; // I-on ang pula
+          _emailError = 'This email is already registered. Try signing in instead.';
+          _autovalidateMode = AutovalidateMode.onUserInteraction;
         });
         _formKey.currentState!.validate();
       } else {
@@ -84,7 +104,10 @@ class _SignupScreenState extends State<SignupScreen> {
       final user = await _authService.signInWithGoogle();
       if (user != null) {
         if (!mounted) return;
-        _showErrorSnackBar('Sign up with Google successful!');
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const MainShell()),
+        );
       }
     } catch (e) {
       _showErrorSnackBar(e.toString().replaceAll('Exception: ', ''));

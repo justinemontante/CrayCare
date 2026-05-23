@@ -10,6 +10,7 @@ import 'screens/login_screen.dart';
 import 'screens/main_shell.dart'; // Import the MainShell for routing
 import 'services/settings_service.dart';
 import 'firebase_options.dart'; // Generated configuration file
+import 'screens/verify_screen.dart';
 
 // 2. BINAGO: Dinagdag itong class na ito para ma-bypass ang SSL/Handshake errors sa devices
 class MyHttpOverrides extends HttpOverrides {
@@ -79,13 +80,30 @@ class _SplashScreenState extends State<SplashScreen> {
     User? currentUser = FirebaseAuth.instance.currentUser;
 
     if (currentUser != null) {
-      // Kung naka-login na, deretso sa Dashboard (MainShell)
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const MainShell()),
-      );
+      await currentUser.reload();
+      final freshUser = FirebaseAuth.instance.currentUser;
+
+      if (freshUser != null && freshUser.emailVerified) {
+        // Verified: deretso sa Dashboard
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const MainShell()),
+        );
+      } else if (freshUser != null && !freshUser.emailVerified) {
+        // May account pero hindi naka-verify: pumunta sa VerifyScreen
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const VerifyScreen()),
+        );
+      } else {
+        // User deleted or invalid: LoginScreen
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+        );
+      }
     } else {
-      // Kung walang naka-login, punta sa LoginScreen
+      // Walang naka-login
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const LoginScreen()),

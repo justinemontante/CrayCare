@@ -42,7 +42,14 @@ class AuthService {
         password: password,
       );
 
-      return result.user;
+      User? user = result.user;
+
+      if (user != null && !user.emailVerified) {
+        await _auth.signOut();
+        throw Exception('Please verify your email first. A verification link was sent to your inbox.');
+      }
+
+      return user;
     } on FirebaseAuthException catch (e) {
       throw Exception(e.message);
     }

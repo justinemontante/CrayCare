@@ -349,7 +349,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 14),
           // Feed Now button
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -360,21 +360,21 @@ class _ControlsScreenState extends State<ControlsScreen> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
                   elevation: 0,
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                 ),
                 child: const Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.play_arrow, size: 14, color: Colors.white),
-                    SizedBox(width: 6),
+                    Icon(Icons.play_arrow, size: 16, color: Colors.white),
+                    SizedBox(width: 8),
                     Text(
                       'Feed Now',
                       style: TextStyle(
-                        fontSize: 13,
+                        fontSize: 14,
                         fontWeight: FontWeight.w700,
                         color: Colors.white,
                       ),
@@ -384,7 +384,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 14),
           // Feeder image
           Center(
             child: Padding(
@@ -431,7 +431,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 12),
                 // Morning
                 _buildSchedulePeriod(
                   'Morning',
@@ -439,7 +439,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                   morning,
                   morningGrams,
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 12),
                 // Afternoon
                 _buildSchedulePeriod(
                   'Afternoon',
@@ -447,7 +447,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                   afternoon,
                   afternoonGrams,
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 12),
                 // Add row
                 _buildAddScheduleRow(),
               ],

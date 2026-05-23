@@ -17,6 +17,7 @@ class VerifyScreen extends StatefulWidget {
 class _VerifyScreenState extends State<VerifyScreen> {
   final User? _currentUser = FirebaseAuth.instance.currentUser;
   bool _isLoading = false;
+  bool _isVerified = false;
 
   // COUNTDOWN TIMER VARIABLES
   Timer? _timer;
@@ -32,7 +33,18 @@ class _VerifyScreenState extends State<VerifyScreen> {
   @override
   void dispose() {
     _timer?.cancel();
+    if (!_isVerified) {
+      _deleteUnverifiedAccount();
+    }
     super.dispose();
+  }
+
+  void _deleteUnverifiedAccount() async {
+    try {
+      await _currentUser?.delete();
+    } catch (_) {
+      // Account already deleted or token expired
+    }
   }
 
   void _startTimer() {
@@ -181,6 +193,7 @@ class _VerifyScreenState extends State<VerifyScreen> {
                     child: ElevatedButton(
                       onPressed: () {
                         _timer?.cancel();
+                        _isVerified = true;
                         Navigator.pop(context); // Close Modal
                         Navigator.pushReplacement(
                           context,
@@ -226,8 +239,15 @@ class _VerifyScreenState extends State<VerifyScreen> {
   Widget build(BuildContext context) {
     final emailAddress = _currentUser?.email ?? 'your email';
 
-    return Scaffold(
-      body: Container(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) {
+          _logout();
+        }
+      },
+      child: Scaffold(
+        body: Container(
         width: double.infinity,
         height: double.infinity,
         decoration: const BoxDecoration(
@@ -299,12 +319,10 @@ class _VerifyScreenState extends State<VerifyScreen> {
                           child: Text(
                             emailAddress,
                             style: const TextStyle(
-                              fontSize: 14,
+                              fontSize: 12,
                               fontWeight: FontWeight.w700,
                               color: AppColors.dark,
                             ),
-                            overflow: TextOverflow
-                                .ellipsis, // Bawas lagpas sa maliliit na screen
                           ),
                         ),
                       ],
@@ -409,6 +427,7 @@ class _VerifyScreenState extends State<VerifyScreen> {
           ),
         ),
       ),
+    ),
     );
   }
 }
