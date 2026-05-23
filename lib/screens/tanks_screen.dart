@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../theme/app_colors.dart';
 import '../services/tank_service.dart';
 import '../widgets/tanks/inventory_tab.dart';
@@ -661,6 +662,9 @@ class _TanksScreenState extends State<TanksScreen> {
           TextField(
             controller: controller,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$')),
+            ],
             style: const TextStyle(
               fontWeight: FontWeight.w900,
               color: AppColors.primary,
@@ -900,6 +904,9 @@ class _TanksScreenState extends State<TanksScreen> {
           TextField(
             controller: controller,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$')),
+            ],
             style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
             decoration: InputDecoration(
               hintText: hint,
