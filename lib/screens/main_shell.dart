@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
-import '../widgets/settings_drawer.dart';
 import 'dashboard_screen.dart';
 import 'analytics_screen.dart';
 import 'controls_screen.dart';
 import 'tanks_screen.dart';
 import 'notifications_screen.dart';
+import 'settings_screen.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -42,7 +42,6 @@ class _MainShellState extends State<MainShell> {
   Widget build(BuildContext context) {
     return Scaffold(
       key: _scaffoldKey,
-      endDrawer: const SettingsDrawer(),
       body: Column(
         children: [
           Container(
@@ -96,7 +95,12 @@ class _MainShellState extends State<MainShell> {
                   ],
                 ),
                 GestureDetector(
-                  onTap: () => _scaffoldKey.currentState?.openEndDrawer(),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const SettingsScreen(),
+                    ),
+                  ),
                   child: Container(
                     width: 34,
                     height: 34,

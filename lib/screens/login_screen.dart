@@ -133,44 +133,106 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   // PASSWORD RESET DIRECTLY
-  void _resetPasswordDirectly() async {
-    final email = _emailController.text.trim();
+  void _forgotPassword() {
+    final emailCtl = TextEditingController(text: _emailController.text.trim());
+    final formKey = GlobalKey<FormState>();
+    bool isLoading = false;
 
-    if (email.isEmpty) {
-      setState(() {
-        _emailResetError = 'Email address is required to reset your password.';
-        _autovalidateMode = AutovalidateMode.onUserInteraction;
-      });
-      _emailKey.currentState!.validate();
-      return;
-    }
-
-    if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email)) {
-      setState(() {
-        _emailResetError = 'Please enter a valid email address first.';
-        _autovalidateMode = AutovalidateMode.onUserInteraction;
-      });
-      _emailKey.currentState!.validate();
-      return;
-    }
-
-    setState(() {
-      _isResetLoading = true;
-      _emailResetError = null;
-      _loginError = null;
-    });
-    _emailKey.currentState!.validate();
-
-    try {
-      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
-      _showSuccessSnackBar('Password reset link successfully sent to $email!');
-    } catch (e) {
-      _showErrorSnackBar(
-        'Error: ${e.toString().replaceAll('Exception: ', '')}',
-      );
-    } finally {
-      if (mounted) setState(() => _isResetLoading = false);
-    }
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Text(
+            'Reset Password',
+            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+          ),
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Enter your email address and we\'ll send you a password reset link.',
+                  style: TextStyle(fontSize: 13),
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: emailCtl,
+                  keyboardType: TextInputType.emailAddress,
+                  enabled: !isLoading,
+                  decoration: InputDecoration(
+                    hintText: 'Email address',
+                    filled: true,
+                    fillColor: AppColors.whiteWith(0.8),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  validator: (val) {
+                    if (val == null || val.trim().isEmpty) {
+                      return 'Email is required';
+                    }
+                    if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$')
+                        .hasMatch(val.trim())) {
+                      return 'Enter a valid email';
+                    }
+                    return null;
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isLoading ? null : () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: isLoading
+                  ? null
+                  : () async {
+                      if (!formKey.currentState!.validate()) return;
+                      setDialogState(() => isLoading = true);
+                      try {
+                        await FirebaseAuth.instance
+                            .sendPasswordResetEmail(email: emailCtl.text.trim());
+                        if (!ctx.mounted) return;
+                        Navigator.pop(ctx);
+                        _showSuccessSnackBar(
+                          'Password reset link sent to ${emailCtl.text.trim()}!',
+                        );
+                      } catch (e) {
+                        setDialogState(() => isLoading = false);
+                        _showErrorSnackBar(
+                          e.toString().replaceAll('Exception: ', ''),
+                        );
+                      }
+                    },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              child: isLoading
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Text('Send Reset Link'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _showErrorSnackBar(String message) {
@@ -457,7 +519,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               GestureDetector(
                                 onTap: _anyLoading
                                     ? null
-                                    : _resetPasswordDirectly,
+                                    : _forgotPassword,
                                 child: const Text(
                                   'Forgot password?',
                                   style: TextStyle(

@@ -1,0 +1,327 @@
+import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import '../theme/app_colors.dart';
+import 'login_screen.dart';
+import '../services/settings_service.dart';
+import '../widgets/settings/settings_menu.dart';
+import '../widgets/settings/profile_edit_form.dart';
+import '../widgets/settings/change_password_form.dart';
+import '../widgets/settings/notif_settings.dart';
+import '../widgets/settings/stage_settings.dart';
+import '../widgets/settings/logout_sheet.dart';
+
+class SettingsScreen extends StatefulWidget {
+  const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  int _currentPage = 0;
+  String _profileName = 'Loading...';
+  String _profileEmail = 'Loading...';
+
+  final _nameCtrl = TextEditingController();
+  final _emailCtrl = TextEditingController();
+  final _currentPwCtrl = TextEditingController();
+  final _newPwCtrl = TextEditingController();
+  final _confirmPwCtrl = TextEditingController();
+
+  bool _notifSound = true;
+  bool _notifVibration = true;
+  bool _notifCritical = true;
+  bool _notifFeeding = true;
+  bool _notifSampling = false;
+
+  @override
+  void initState() {
+    super.initState();
+    SettingsService.instance.addListener(_onSettingsChange);
+    _loadUserData();
+  }
+
+  void _loadUserData() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      setState(() {
+        _profileName = user.displayName ?? 'CrayCare User';
+        _profileEmail = user.email ?? 'No email linked';
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    SettingsService.instance.removeListener(_onSettingsChange);
+    _nameCtrl.dispose();
+    _emailCtrl.dispose();
+    _currentPwCtrl.dispose();
+    _newPwCtrl.dispose();
+    _confirmPwCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onSettingsChange() => setState(() {});
+
+  void _goTo(int page) {
+    _nameCtrl.text = _profileName;
+    _emailCtrl.text = _profileEmail;
+    setState(() => _currentPage = page);
+  }
+
+  void _back() {
+    if (_currentPage == 0) {
+      Navigator.of(context).pop();
+    } else {
+      setState(() => _currentPage = 0);
+    }
+  }
+
+  void _showSuccessModal() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF22c55e).withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.check_circle_rounded,
+                color: Color(0xFF22c55e),
+                size: 50,
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Updated Successfully!',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+                color: AppColors.dark,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Your profile details have been saved to your account.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12,
+                color: AppColors.dark.withValues(alpha: 0.6),
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Navigator.pop(ctx),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text(
+                  'Awesome',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _saveProfile() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null &&
+        _nameCtrl.text.isNotEmpty &&
+        _nameCtrl.text != _profileName) {
+      await user.updateDisplayName(_nameCtrl.text);
+    }
+
+    setState(() {
+      _profileName = _nameCtrl.text.isNotEmpty ? _nameCtrl.text : _profileName;
+    });
+
+    _back();
+
+    if (mounted) {
+      _showSuccessModal();
+    }
+  }
+
+  void _changePassword() {
+    if (_newPwCtrl.text.isNotEmpty && _newPwCtrl.text == _confirmPwCtrl.text) {
+      _back();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Password updated'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  void _showLogoutSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => LogoutSheet(
+        onLogout: () async {
+          try {
+            await GoogleSignIn().signOut();
+            await FirebaseAuth.instance.signOut();
+            if (!ctx.mounted) return;
+            Navigator.of(ctx).pop();
+            Navigator.of(context).pop();
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute(builder: (_) => const LoginScreen()),
+              (route) => false,
+            );
+          } catch (e) {
+            if (!ctx.mounted) return;
+            ScaffoldMessenger.of(ctx).showSnackBar(
+              SnackBar(content: Text('Error logging out: $e')),
+            );
+          }
+        },
+      ),
+    );
+  }
+
+  String get _pageTitle {
+    switch (_currentPage) {
+      case 1:
+        return 'Edit Profile';
+      case 2:
+        return 'Change Password';
+      case 3:
+        return 'Notifications';
+      case 4:
+        return 'Crayfish Stage';
+      default:
+        return '';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Column(
+        children: [
+          Container(
+            height: MediaQuery.of(context).padding.top,
+            color: Colors.white,
+          ),
+          _buildHeader(),
+          Expanded(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              switchInCurve: Curves.easeIn,
+              switchOutCurve: Curves.easeOut,
+              layoutBuilder: (child, List<Widget> previousChildren) {
+                return Stack(
+                  alignment: Alignment.topCenter,
+                  children: [...previousChildren, if (child != null) child],
+                );
+              },
+              child: [
+                SettingsMenu(
+                  key: const ValueKey('menu'),
+                  profileName: _profileName,
+                  profileEmail: _profileEmail,
+                  onGoTo: _goTo,
+                  onLogout: _showLogoutSheet,
+                ),
+                ProfileEditForm(
+                  key: const ValueKey('edit-profile'),
+                  nameCtrl: _nameCtrl,
+                  emailCtrl: _emailCtrl,
+                  onSave: _saveProfile,
+                ),
+                ChangePasswordForm(
+                  key: const ValueKey('change-password'),
+                  currentPwCtrl: _currentPwCtrl,
+                  newPwCtrl: _newPwCtrl,
+                  confirmPwCtrl: _confirmPwCtrl,
+                  onChangePassword: _changePassword,
+                ),
+                NotifSettings(
+                  key: const ValueKey('notifications'),
+                  notifSound: _notifSound,
+                  notifVibration: _notifVibration,
+                  notifCritical: _notifCritical,
+                  notifFeeding: _notifFeeding,
+                  notifSampling: _notifSampling,
+                  onNotifSoundChanged: (v) =>
+                      setState(() => _notifSound = v ?? true),
+                  onNotifVibrationChanged: (v) =>
+                      setState(() => _notifVibration = v ?? true),
+                  onNotifCriticalChanged: (v) =>
+                      setState(() => _notifCritical = v ?? true),
+                  onNotifFeedingChanged: (v) =>
+                      setState(() => _notifFeeding = v ?? true),
+                  onNotifSamplingChanged: (v) =>
+                      setState(() => _notifSampling = v ?? false),
+                ),
+                StageSettings(
+                  key: const ValueKey('stage-settings'),
+                ),
+              ][_currentPage],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(4, 8, 16, 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: AppColors.darkWith(0.07))),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(Icons.arrow_back, size: 20),
+            color: AppColors.dark,
+            onPressed: _back,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            _currentPage == 0 ? 'Profile & Settings' : _pageTitle,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: AppColors.dark,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
