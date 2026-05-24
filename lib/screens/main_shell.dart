@@ -1,5 +1,9 @@
+import 'dart:convert';
+import 'dart:typed_data'; // Para sa Uint8List
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../theme/app_colors.dart';
+import '../services/database_service.dart';
 import 'dashboard_screen.dart';
 import 'analytics_screen.dart';
 import 'controls_screen.dart';
@@ -17,12 +21,34 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
   final _scaffoldKey = GlobalKey<ScaffoldState>();
+  Uint8List? _photoBytes; // Cached decoded bytes — iwas base64Decode kada rebuild
+
+  // Isang beses lang mag-decode — para smooth ang tab switching
+  void _setPhoto(String url) {
+    _photoBytes = base64Decode(url.split(',').last);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPhoto();
+  }
+
+  Future<void> _loadPhoto() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    final data = await DatabaseService.instance.getUserProfile(user.uid);
+    if (data != null && data['photoUrl'] != null && mounted) {
+      setState(() => _setPhoto(data['photoUrl'] as String));
+    }
+  }
 
   void _goToAnalytics() {
     setState(() => _currentIndex = 1);
   }
 
-  List<Widget> get _screens => [
+  // Isang beses lang i-create para iwas reload sa tab switch
+  late final List<Widget> _screens = [
     DashboardScreen(onViewGraph: _goToAnalytics),
     AnalyticsScreen(),
     const TanksScreen(),
@@ -95,30 +121,49 @@ class _MainShellState extends State<MainShell> {
                   ],
                 ),
                 GestureDetector(
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const SettingsScreen(),
-                    ),
-                  ),
+                  onTap: () async {
+                    final result = await Navigator.push<String>(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const SettingsScreen(),
+                      ),
+                    );
+                    // Diretso lang — gamitin ang result galing settings para iwas reload
+                    if (result != null && mounted) {
+                      setState(() => _setPhoto(result));
+                    }
+                  },
                   child: Container(
                     width: 34,
                     height: 34,
-                    decoration: const BoxDecoration(
-                      color: AppColors.primary,
+                    decoration: BoxDecoration(
+                      color: _photoBytes == null ? AppColors.primary : null,
                       shape: BoxShape.circle,
+                      image: _photoBytes != null
+                          ? DecorationImage(
+                              image: MemoryImage(_photoBytes!),
+                              fit: BoxFit.cover,
+                            )
+                          : null,
                     ),
-                    child: const Icon(
-                      Icons.person,
-                      color: Colors.white,
-                      size: 20,
-                    ),
+                    child: _photoBytes == null
+                        ? const Icon(
+                            Icons.person,
+                            color: Colors.white,
+                            size: 20,
+                          )
+                        : null,
                   ),
                 ),
               ],
             ),
           ),
-          Expanded(child: _screens[_currentIndex]),
+          Expanded(
+            child: IndexedStack(
+              index: _currentIndex,
+              children: _screens,
+            ),
+          ),
           _buildBottomNav(),
         ],
       ),

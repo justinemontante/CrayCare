@@ -1,3 +1,4 @@
+import 'dart:convert'; // Para ma-decode ang base64 image
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
 
@@ -5,12 +6,16 @@ class ProfileEditForm extends StatelessWidget {
   final TextEditingController nameCtrl;
   final TextEditingController emailCtrl;
   final VoidCallback onSave;
+  final VoidCallback? onTapCamera; // Para pag pindot sa camera icon
+  final String? photoUrl; // URL ng profile picture para sa preview
 
   const ProfileEditForm({
     super.key,
     required this.nameCtrl,
     required this.emailCtrl,
     required this.onSave,
+    this.onTapCamera,
+    this.photoUrl,
   });
 
   @override
@@ -36,39 +41,52 @@ class ProfileEditForm extends StatelessWidget {
             ),
             child: Column(
               children: [
-                Stack(
-                  alignment: Alignment.bottomRight,
-                  children: [
-                    Container(
-                      width: 80,
-                      height: 80,
-                      decoration: BoxDecoration(
-                        color: AppColors.primaryWith(0.1),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: AppColors.primaryWith(0.2),
-                          width: 2,
+                GestureDetector(
+                  onTap: onTapCamera, // Clickable na — pindutin para magpalit ng picture
+                  child: Stack(
+                    alignment: Alignment.bottomRight,
+                    children: [
+                      Container(
+                        width: 80,
+                        height: 80,
+                        decoration: BoxDecoration(
+                          color: photoUrl == null ? AppColors.primaryWith(0.1) : null,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: AppColors.primaryWith(0.2),
+                            width: 2,
+                          ),
+                          image: photoUrl != null
+                              ? DecorationImage(
+                                  image: MemoryImage(
+                                    base64Decode(photoUrl!.split(',').last),
+                                  ),
+                                  fit: BoxFit.cover,
+                                )
+                              : null,
+                        ),
+                        child: photoUrl == null
+                            ? const Icon(
+                                Icons.person,
+                                color: AppColors.primary,
+                                size: 40,
+                              )
+                            : null,
+                      ),
+                      Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: const BoxDecoration(
+                          color: AppColors.primary,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.camera_alt,
+                          color: Colors.white,
+                          size: 14,
                         ),
                       ),
-                      child: const Icon(
-                        Icons.person,
-                        color: AppColors.primary,
-                        size: 40,
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: const BoxDecoration(
-                        color: AppColors.primary,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.camera_alt,
-                        color: Colors.white,
-                        size: 14,
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 24),
                 _buildField('Full Name', nameCtrl),

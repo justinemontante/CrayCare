@@ -10,6 +10,8 @@ import '../widgets/settings/change_password_form.dart';
 import '../widgets/settings/notif_settings.dart';
 import '../widgets/settings/stage_settings.dart';
 import '../widgets/settings/logout_sheet.dart';
+import '../services/database_service.dart';
+import '../services/storage_service.dart'; // Para sa pag-pick ng profile picture
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -22,6 +24,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   int _currentPage = 0;
   String _profileName = 'Loading...';
   String _profileEmail = 'Loading...';
+  String? _photoUrl; // URL ng profile picture galing RTDB
 
   final _nameCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
@@ -49,6 +52,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _profileName = user.displayName ?? 'CrayCare User';
         _profileEmail = user.email ?? 'No email linked';
       });
+      // Kunin ang photoUrl galing RTDB
+      _loadPhotoFromRTDB(user.uid);
+    }
+  }
+
+  Future<void> _loadPhotoFromRTDB(String uid) async {
+    final data = await DatabaseService.instance.getUserProfile(uid);
+    if (data != null && data['photoUrl'] != null && mounted) {
+      setState(() => _photoUrl = data['photoUrl'] as String);
     }
   }
 
@@ -73,7 +85,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _back() {
     if (_currentPage == 0) {
-      Navigator.of(context).pop();
+      Navigator.of(context).pop(_photoUrl); // Ibalik ang photoUrl para iwas reload
     } else {
       setState(() => _currentPage = 0);
     }
@@ -114,7 +126,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Your profile details have been saved to your account.',
+              'Your profile name has been saved!',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 12,
@@ -126,7 +138,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: () => Navigator.pop(ctx),
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _back();
+                },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
@@ -137,7 +152,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
                 child: const Text(
-                  'Awesome',
+                  'Done',
                   style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
                 ),
               ),
@@ -148,19 +163,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Future<void> _pickAndUploadPicture() async {
+    try {
+      // Pumili ng picture at i-convert sa base64
+      final url = await StorageService.instance.pickAndConvertToBase64();
+      if (url != null && mounted) {
+        // I-save ang URL sa RTDB
+        final user = FirebaseAuth.instance.currentUser!;
+        await DatabaseService.instance.saveUserProfile(
+          uid: user.uid,
+          name: _profileName,
+          email: user.email ?? '',
+          photoUrl: url,
+        );
+        // I-update agad ang preview sa avatar
+        setState(() => _photoUrl = url);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Profile picture updated!')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    }
+  }
+
   void _saveProfile() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null &&
         _nameCtrl.text.isNotEmpty &&
         _nameCtrl.text != _profileName) {
       await user.updateDisplayName(_nameCtrl.text);
+      // Masesave din sa Realtime Database for permanent record
+      await DatabaseService.instance.saveUserProfile(
+        uid: user.uid,
+        name: _nameCtrl.text,
+        email: user.email ?? '',
+      );
     }
 
     setState(() {
       _profileName = _nameCtrl.text.isNotEmpty ? _nameCtrl.text : _profileName;
     });
-
-    _back();
 
     if (mounted) {
       _showSuccessModal();
@@ -200,9 +249,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             );
           } catch (e) {
             if (!ctx.mounted) return;
-            ScaffoldMessenger.of(ctx).showSnackBar(
-              SnackBar(content: Text('Error logging out: $e')),
-            );
+            ScaffoldMessenger.of(
+              ctx,
+            ).showSnackBar(SnackBar(content: Text('Error logging out: $e')));
           }
         },
       ),
@@ -252,12 +301,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   profileEmail: _profileEmail,
                   onGoTo: _goTo,
                   onLogout: _showLogoutSheet,
+                  photoUrl: _photoUrl,
                 ),
                 ProfileEditForm(
                   key: const ValueKey('edit-profile'),
                   nameCtrl: _nameCtrl,
                   emailCtrl: _emailCtrl,
                   onSave: _saveProfile,
+                  onTapCamera: _pickAndUploadPicture,
+                  photoUrl: _photoUrl,
                 ),
                 ChangePasswordForm(
                   key: const ValueKey('change-password'),
@@ -284,9 +336,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onNotifSamplingChanged: (v) =>
                       setState(() => _notifSampling = v ?? false),
                 ),
-                StageSettings(
-                  key: const ValueKey('stage-settings'),
-                ),
+                StageSettings(key: const ValueKey('stage-settings')),
               ][_currentPage],
             ),
           ),

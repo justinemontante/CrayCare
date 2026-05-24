@@ -1,9 +1,11 @@
+import 'dart:convert'; // Para ma-decode ang base64 image
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
 
 class SettingsMenu extends StatelessWidget {
   final String profileName;
   final String profileEmail;
+  final String? photoUrl; // Profile picture (base64 o URL)
   final void Function(int page) onGoTo;
   final VoidCallback onLogout;
 
@@ -11,6 +13,7 @@ class SettingsMenu extends StatelessWidget {
     super.key,
     required this.profileName,
     required this.profileEmail,
+    this.photoUrl,
     required this.onGoTo,
     required this.onLogout,
   });
@@ -92,11 +95,21 @@ class SettingsMenu extends StatelessWidget {
           Container(
             width: 48,
             height: 48,
-            decoration: const BoxDecoration(
-              color: AppColors.primary,
+            decoration: BoxDecoration(
+              color: photoUrl == null ? AppColors.primary : null,
               shape: BoxShape.circle,
+              image: photoUrl != null
+                  ? DecorationImage(
+                      image: MemoryImage(
+                        base64Decode(photoUrl!.split(',').last),
+                      ),
+                      fit: BoxFit.cover,
+                    )
+                  : null,
             ),
-            child: const Icon(Icons.person, color: Colors.white, size: 26),
+            child: photoUrl == null
+                ? const Icon(Icons.person, color: Colors.white, size: 26)
+                : null,
           ),
           const SizedBox(width: 14),
           Expanded(

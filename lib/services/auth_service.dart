@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'database_service.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -26,6 +27,12 @@ class AuthService {
         if (!user.emailVerified) {
           await user.sendEmailVerification();
         }
+        // Save profile to RTDB for a record
+        await DatabaseService.instance.saveUserProfile(
+          uid: user.uid,
+          name: name,
+          email: email,
+        );
       }
 
       return user;
@@ -46,9 +53,18 @@ class AuthService {
 
       if (user != null && !user.emailVerified) {
         await _auth.signOut();
-        throw Exception('Please verify your email first. A verification link was sent to your inbox.');
+        throw Exception(
+          'Please verify your email first. A verification link was sent to your inbox.',
+        );
       }
-
+      // Para sa mga existing users — i-save sa RTDB kung wala pa record
+      if (user != null && user.emailVerified) {
+        await DatabaseService.instance.saveUserProfile(
+          uid: user.uid,
+          name: user.displayName ?? 'CrayCare User',
+          email: user.email ?? '',
+        );
+      }
       return user;
     } on FirebaseAuthException catch (e) {
       throw Exception(e.message);
@@ -80,6 +96,16 @@ class AuthService {
       UserCredential userCredential = await _auth.signInWithCredential(
         credential,
       );
+
+      // I-save sa RTDB ang Google user profile
+      final user = userCredential.user;
+      if (user != null) {
+        await DatabaseService.instance.saveUserProfile(
+          uid: user.uid,
+          name: user.displayName ?? 'Google User',
+          email: user.email ?? '',
+        );
+      }
 
       return userCredential.user;
     } on FirebaseAuthException catch (e) {
