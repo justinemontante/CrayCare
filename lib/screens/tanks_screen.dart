@@ -809,7 +809,7 @@ class _TanksScreenState extends State<TanksScreen> {
                       showBeautifulSnackbar(
                         context,
                         'Mortality of $mortalityVal successfully logged.',
-                        false,
+                        true,
                       );
                     }
                   },
@@ -840,6 +840,8 @@ class _TanksScreenState extends State<TanksScreen> {
   }
 
   void _showLogsModal() {
+    final activities = TankService.instance.activities.toList();
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.white,
@@ -847,78 +849,205 @@ class _TanksScreenState extends State<TanksScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (ctx) {
-        return Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    color: AppColors.dark.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(4),
+        final halfHeight = MediaQuery.of(context).size.height * 0.5;
+        return SizedBox(
+          height: halfHeight,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: AppColors.dark.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                'Activity Logs',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
-                  color: AppColors.dark,
-                ),
-              ),
-              const SizedBox(height: 20),
-              Expanded(
-                child: ListView(
-                  shrinkWrap: true,
+                const SizedBox(height: 20),
+                Row(
                   children: [
-                    _buildLogItem(
-                      Icons.water_drop,
-                      'Water changed',
-                      'Today, 8:00 AM',
-                      AppColors.primary,
+                    const Text(
+                      'Activity Logs',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                        color: AppColors.dark,
+                      ),
                     ),
-                    _buildLogItem(
-                      Icons.restaurant,
-                      'Fed 500g pellets',
-                      'Yesterday, 6:00 PM',
-                      AppColors.success,
-                    ),
-                    _buildLogItem(
-                      Icons.warning_amber_rounded,
-                      'Mortality: 2 recorded',
-                      'Yesterday, 8:00 AM',
-                      AppColors.critical,
+                    const Spacer(),
+                    Text(
+                      '${activities.length} entries',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.dark.withValues(alpha: 0.4),
+                      ),
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                const SizedBox(height: 16),
+                if (activities.isEmpty)
+                  const Expanded(
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.receipt_long_rounded,
+                            size: 40,
+                          ),
+                          SizedBox(height: 12),
+                          Text(
+                            'No logs yet',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  Expanded(
+                    child: ListView.separated(
+                      itemCount: activities.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 6),
+                      itemBuilder: (_, i) {
+                        final act = activities[i];
+                        final isMortality = act.type == 'mortality';
+
+                        IconData icon;
+                        Color color;
+                        switch (act.type) {
+                          case 'init':
+                            icon = Icons.inventory_2_rounded;
+                            color = AppColors.primary;
+                            break;
+                          case 'mortality':
+                            icon = Icons.warning_rounded;
+                            color = AppColors.critical;
+                            break;
+                          case 'edit':
+                            icon = Icons.edit_rounded;
+                            color = AppColors.warning;
+                            break;
+                          case 'sampling':
+                            icon = Icons.biotech_rounded;
+                            color = AppColors.success;
+                            break;
+                          default:
+                            icon = Icons.circle_rounded;
+                            color = AppColors.darkWith(0.3);
+                        }
+
+                        return Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: isMortality
+                                ? AppColors.criticalWith(0.04)
+                                : AppColors.primaryWith(0.04),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isMortality
+                                  ? AppColors.criticalWith(0.15)
+                                  : AppColors.darkWith(0.06),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 36,
+                                height: 36,
+                                decoration: BoxDecoration(
+                                  color: color.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Icon(icon, size: 18, color: color),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      act.action,
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.dark,
+                                      ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      '${act.date} · ${act.time}',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w500,
+                                        color: AppColors.dark.withValues(alpha: 0.4),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: color.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  act.type == 'init'
+                                      ? 'Initialization'
+                                      : act.type[0].toUpperCase() +
+                                          act.type.substring(1),
+                                  style: TextStyle(
+                                    fontSize: 8,
+                                    fontWeight: FontWeight.w700,
+                                    color: color,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
                     ),
                   ),
-                  child: const Text(
-                    'Close',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.dark,
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: const Text(
+                      'Close',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         );
       },
