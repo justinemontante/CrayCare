@@ -132,14 +132,13 @@ class _MainShellState extends State<MainShell> {
                         builder: (_) => SettingsScreen(initialPhotoUrl: _photoUrl),
                       ),
                     );
-                    // Diretso lang — gamitin ang result galing settings para iwas reload
                     if (result != null && mounted) {
                       setState(() => _setPhoto(result));
                     }
                   },
                   child: Container(
-                    width: 34,
-                    height: 34,
+                    width: 42,
+                    height: 42,
                     decoration: BoxDecoration(
                       color: _photoBytes == null ? AppColors.primary : null,
                       shape: BoxShape.circle,
@@ -173,6 +172,7 @@ class _MainShellState extends State<MainShell> {
       ),
     );
   }
+
 
   Widget _buildBottomNav() {
     return Container(
