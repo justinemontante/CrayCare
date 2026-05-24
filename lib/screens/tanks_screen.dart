@@ -488,8 +488,16 @@ class _TanksScreenState extends State<TanksScreen> {
     final sampleCountCtrl = TextEditingController(
       text: isEdit ? '${TankService.instance.sampleCount}' : '',
     );
-    final totalWeightCtrl = TextEditingController();
-    final totalLengthCtrl = TextEditingController();
+    final totalWeightCtrl = TextEditingController(
+      text: isEdit
+          ? (TankService.instance.initialWeight * TankService.instance.sampleCount).toStringAsFixed(1)
+          : '',
+    );
+    final totalLengthCtrl = TextEditingController(
+      text: isEdit
+          ? (TankService.instance.initialLength * TankService.instance.sampleCount).toStringAsFixed(1)
+          : '',
+    );
 
     showModalBottomSheet(
       context: context,

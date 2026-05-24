@@ -686,7 +686,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     final selIdx = _selectedIndices[chartKey];
     String displayCur = cur;
     String displayLabel = curLabel;
-    String curPrefix = 'Now';
+    String curPrefix = _activeFilter == 'live' ? 'Live' : 'Avg';
 
     String statusLabel = '';
     Color statusColor = Colors.transparent;
@@ -942,7 +942,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     child: _buildStatRow(
                       Icons.sensors,
                       '$curPrefix: $cur $unit',
-                      curPrefix == 'Now' ? 'Real-time Streaming' : curLabel,
+                      curPrefix == 'Live' ? 'Real-time Streaming' : curLabel,
                       AppColors.primary,
                     ),
                   ),
@@ -1138,7 +1138,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               builder: (ctx2, setDialogState) {
                 String modalDisplayCur = cur;
                 String modalDisplayLabel = curLabel;
-                String modalCurPrefix = 'Now';
+                String modalCurPrefix = _activeFilter == 'live' ? 'Live' : 'Avg';
 
                 return Dialog(
                   insetPadding: const EdgeInsets.symmetric(horizontal: 20),
@@ -1237,7 +1237,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                           child: _buildStatRow(
                                             Icons.sensors,
                                             '$modalCurPrefix: $modalDisplayCur $unit',
-                                            modalCurPrefix == 'Now'
+                                            modalCurPrefix == 'Live'
                                                 ? 'Real-time Streaming'
                                                 : modalDisplayLabel,
                                             AppColors.primary,
