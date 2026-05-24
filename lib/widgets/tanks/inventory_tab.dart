@@ -136,7 +136,7 @@ class InventoryTab extends StatelessWidget {
     }
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
+      padding: const EdgeInsets.fromLTRB(14, 18, 14, 14),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
@@ -221,26 +221,26 @@ class InventoryTab extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  Expanded(child: _buildMetricCard(Icons.numbers, 'Population', '${service.initialCount}', 'Initial tank setup data')),
+                  Expanded(child: _buildMetricCard(Image.asset('assets/images/InitialPopulation.png', width: 20, height: 20), 'Initial Population', '${service.initialCount}', 'Total stock at start', onTap: () => _showMetricDetail(context, 'Initial Population', service.initialCount.toString(), 'Total stock at start', 'assets/images/InitialPopulation.png', 'During grow-out initialization, ${service.initialCount} crayfish were placed in the tank on ${service.stockingDate.month}/${service.stockingDate.day}/${service.stockingDate.year}. This serves as the baseline for all monitoring and survival rate calculations.', Icons.people_alt_rounded))),
 
                   const SizedBox(width: 6),
-                  Expanded(child: _buildMetricCard(Icons.analytics_rounded, 'Sample Count', '${service.sampleCount}', 'Initial tank setup data')),
+                  Expanded(child: _buildMetricCard(Image.asset('assets/images/SampleCount.png', width: 20, height: 20), 'Sample Count', '${service.sampleCount}', 'Crayfish in sample', onTap: () => _showMetricDetail(context, 'Sample Count', service.sampleCount.toString(), 'Crayfish in sample', 'assets/images/SampleCount.png', 'During initialization, ${service.sampleCount} crayfish were taken and measured to determine the average weight and length per crayfish. This sample represents the entire population.', Icons.analytics_rounded))),
                 ],
               ),
               const SizedBox(height: 6),
               Row(
                 children: [
-                  Expanded(child: _buildMetricCard(Icons.monitor_weight_rounded, 'Total Weight', '${(service.initialWeight * service.sampleCount).toStringAsFixed(1)} g', 'Avg: ${service.initialWeight.toStringAsFixed(1)} g')),
+                  Expanded(child: _buildMetricCard(Image.asset('assets/images/TotalWeight.png', width: 20, height: 20), 'Total Weight', '${(service.initialWeight * service.sampleCount).toStringAsFixed(1)} g', 'Avg: ${service.initialWeight.toStringAsFixed(1)} g/crayfish', onTap: () => _showMetricDetail(context, 'Total Weight', '${(service.initialWeight * service.sampleCount).toStringAsFixed(1)} g', 'Avg: ${service.initialWeight.toStringAsFixed(1)} g/crayfish', 'assets/images/TotalWeight.png', 'Total weight of ${service.sampleCount} samples taken during initialization. Average weight per crayfish: ${service.initialWeight.toStringAsFixed(1)} g. This is the baseline for growth monitoring.', Icons.monitor_weight_rounded))),
                   const SizedBox(width: 6),
-                  Expanded(child: _buildMetricCard(Icons.straighten_rounded, 'Total Length', '${(service.initialLength * service.sampleCount).toStringAsFixed(1)} cm', 'Avg: ${service.initialLength.toStringAsFixed(1)} cm')),
+                  Expanded(child: _buildMetricCard(Image.asset('assets/images/TotalLength.png', width: 20, height: 20), 'Total Length', '${(service.initialLength * service.sampleCount).toStringAsFixed(1)} cm', 'Avg: ${service.initialLength.toStringAsFixed(1)} cm/crayfish', onTap: () => _showMetricDetail(context, 'Total Length', '${(service.initialLength * service.sampleCount).toStringAsFixed(1)} cm', 'Avg: ${service.initialLength.toStringAsFixed(1)} cm/crayfish', 'assets/images/TotalLength.png', 'Total length of ${service.sampleCount} samples taken during initialization. Average length per crayfish: ${service.initialLength.toStringAsFixed(1)} cm. This is the baseline for growth monitoring.', Icons.straighten_rounded))),
                 ],
               ),
               const SizedBox(height: 6),
               Row(
                 children: [
-                  Expanded(child: _buildMetricCard(Icons.favorite_rounded, 'Alive', '${service.liveCount}', 'Current population')),
+                  Expanded(child: _buildMetricCard(Image.asset('assets/images/Alive.png', width: 20, height: 20), 'Alive', '${service.liveCount}', 'Currently alive', onTap: () => _showMetricDetail(context, 'Alive', service.liveCount.toString(), 'Currently alive', 'assets/images/Alive.png', 'Out of ${service.initialCount} crayfish initially stocked, ${service.liveCount} are still alive. Survival rate: ${service.survivalRate.toStringAsFixed(1)}%.', Icons.favorite_rounded))),
                   const SizedBox(width: 6),
-                  Expanded(child: _buildMetricCard(Icons.warning_rounded, 'Mortality', '${service.mortality}', 'Total lost')),
+                  Expanded(child: _buildMetricCard(Image.asset('assets/images/Mortality.png', width: 20, height: 20), 'Mortality', '${service.mortality}', 'Total deaths', onTap: () => _showMetricDetail(context, 'Mortality', service.mortality.toString(), 'Total deaths', 'assets/images/Mortality.png', 'Out of ${service.initialCount} crayfish initially stocked, ${service.mortality} have died. Survival rate: ${service.survivalRate.toStringAsFixed(1)}%.', Icons.warning_rounded))),
                 ],
               ),
             ],
@@ -250,69 +250,195 @@ class InventoryTab extends StatelessWidget {
     );
   }
 
-  Widget _buildMetricCard(
-    IconData icon,
+  void _showMetricDetail(
+    BuildContext context,
     String title,
     String value,
     String subtitle,
+    String iconPath,
+    String description,
+    IconData fallbackIcon,
   ) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierColor: Colors.black.withValues(alpha: 0.4),
+      builder: (ctx) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Image.asset(iconPath, width: 28, height: 28),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.dark,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.w900,
+                  color: AppColors.primary,
+                  height: 1.1,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.dark.withValues(alpha: 0.5),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.05),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  description,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.dark.withValues(alpha: 0.7),
+                    height: 1.4,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: const Text(
+                    'Close',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMetricCard(
+    Widget iconWidget,
+    String title,
+    String value,
+    String subtitle, {
+    VoidCallback? onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 76),
+      padding: const EdgeInsets.fromLTRB(8, 10, 10, 10),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.dark.withValues(alpha: 0.1)),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.dark.withValues(alpha: 0.08)),
         boxShadow: [
           BoxShadow(
-            color: AppColors.dark.withValues(alpha: 0.06),
+            color: AppColors.dark.withValues(alpha: 0.05),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
         children: [
-          Row(
-            children: [
-              Icon(icon, size: 16, color: AppColors.primary),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
+          Container(
+            width: 32,
+            height: 32,
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: iconWidget,
+          ),
+          const SizedBox(width: 2),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
                   title,
                   style: const TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w800,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
                     color: AppColors.dark,
                   ),
-                  maxLines: 2,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w900,
-              color: AppColors.primary,
+                const SizedBox(height: 1),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                    color: AppColors.primary,
+                    height: 1.1,
+                  ),
+                ),
+                const SizedBox(height: 1),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 8,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.dark.withValues(alpha: 0.45),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
             ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            subtitle,
-            style: TextStyle(
-              fontSize: 8,
-              fontWeight: FontWeight.w600,
-              color: AppColors.dark.withValues(alpha: 0.5),
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
+    ),
     );
   }
 
@@ -467,13 +593,13 @@ class InventoryTab extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(icon, size: 12, color: color),
-                const SizedBox(width: 4),
+          const SizedBox(width: 2),
                 Flexible(
                   child: Text(
                     label,
@@ -574,7 +700,7 @@ class InventoryTab extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(icon, size: 14, color: AppColors.darkWith(0.5)),
-            const SizedBox(width: 8),
+          const SizedBox(width: 4),
             Text(
               label,
               style: TextStyle(

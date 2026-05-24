@@ -6,7 +6,7 @@ import '../services/sensor_service.dart';
 import '../services/settings_service.dart';
 
 class DashboardScreen extends StatefulWidget {
-  final VoidCallback? onViewGraph;
+  final ValueChanged<String>? onViewGraph;
 
   const DashboardScreen({super.key, this.onViewGraph});
 
@@ -967,7 +967,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         GestureDetector(
                           onTap: () {
                             Navigator.pop(ctx);
-                            widget.onViewGraph?.call();
+                            widget.onViewGraph?.call(sensorKey);
                           },
                           child: Row(
                             mainAxisSize: MainAxisSize.min,

@@ -12,10 +12,10 @@ class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
 
   @override
-  State<AnalyticsScreen> createState() => _AnalyticsScreenState();
+  AnalyticsScreenState createState() => AnalyticsScreenState();
 }
 
-class _AnalyticsScreenState extends State<AnalyticsScreen> {
+class AnalyticsScreenState extends State<AnalyticsScreen> {
   String _activeFilter = 'live';
   bool _showCustom = false;
   bool _isApplyPressed = false;
@@ -25,6 +25,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   final Map<String, List<double>> _data = {};
   final Map<String, List<String>> _labels = {};
   final Map<String, int?> _selectedIndices = {};
+  late final Map<String, GlobalKey> _chartCardKeys;
+  late final ScrollController _scrollController;
 
   final _rng = Random(42);
 
@@ -35,6 +37,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   @override
   void initState() {
     super.initState();
+    _chartCardKeys = {
+      'temp': GlobalKey(),
+      'ph': GlobalKey(),
+      'do': GlobalKey(),
+      'turb': GlobalKey(),
+      'waterlevel': GlobalKey(),
+    };
+    _scrollController = ScrollController();
     _generateData('live');
     SettingsService.instance.addListener(_onSettingsChanged);
     SensorService.instance.addListener(_onSensorDataChanged);
@@ -42,6 +52,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   @override
   void dispose() {
+    _scrollController.dispose();
     SensorService.instance.removeListener(_onSensorDataChanged);
     SettingsService.instance.removeListener(_onSettingsChanged);
     super.dispose();
@@ -166,6 +177,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         Container(
           color: Colors.white,
           child: SingleChildScrollView(
+            controller: _scrollController,
             padding: const EdgeInsets.all(0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -207,35 +219,50 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   child: Column(
                     children: [
-                      _buildChartCard(
-                        context,
-                        title: 'Temperature',
-                        iconPath: 'assets/images/temperature.png',
-                        chartKey: 'temp',
+                      KeyedSubtree(
+                        key: _chartCardKeys['temp'],
+                        child: _buildChartCard(
+                          context,
+                          title: 'Temperature',
+                          iconPath: 'assets/images/temperature.png',
+                          chartKey: 'temp',
+                        ),
                       ),
-                      _buildChartCard(
-                        context,
-                        title: 'pH Level',
-                        iconPath: 'assets/images/pH.png',
-                        chartKey: 'ph',
+                      KeyedSubtree(
+                        key: _chartCardKeys['ph'],
+                        child: _buildChartCard(
+                          context,
+                          title: 'pH Level',
+                          iconPath: 'assets/images/pH.png',
+                          chartKey: 'ph',
+                        ),
                       ),
-                      _buildChartCard(
-                        context,
-                        title: 'Dissolved O\u2082',
-                        iconPath: 'assets/images/DO.png',
-                        chartKey: 'do',
+                      KeyedSubtree(
+                        key: _chartCardKeys['do'],
+                        child: _buildChartCard(
+                          context,
+                          title: 'Dissolved O\u2082',
+                          iconPath: 'assets/images/DO.png',
+                          chartKey: 'do',
+                        ),
                       ),
-                      _buildChartCard(
-                        context,
-                        title: 'Turbidity',
-                        iconPath: 'assets/images/Turbidity.png',
-                        chartKey: 'turb',
+                      KeyedSubtree(
+                        key: _chartCardKeys['turb'],
+                        child: _buildChartCard(
+                          context,
+                          title: 'Turbidity',
+                          iconPath: 'assets/images/Turbidity.png',
+                          chartKey: 'turb',
+                        ),
                       ),
-                      _buildChartCard(
-                        context,
-                        title: 'Water Level',
-                        iconPath: 'assets/images/waterLevel.png',
-                        chartKey: 'waterlevel',
+                      KeyedSubtree(
+                        key: _chartCardKeys['waterlevel'],
+                        child: _buildChartCard(
+                          context,
+                          title: 'Water Level',
+                          iconPath: 'assets/images/waterLevel.png',
+                          chartKey: 'waterlevel',
+                        ),
                       ),
                       const SizedBox(height: 16),
                     ],
@@ -1064,6 +1091,19 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         ),
       ],
     );
+  }
+
+  void scrollToChart(String chartKey) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final key = _chartCardKeys[chartKey];
+      if (key?.currentContext == null) return;
+      Scrollable.ensureVisible(
+        key!.currentContext!,
+        alignment: 0.5,
+        duration: const Duration(milliseconds: 400),
+        curve: Curves.easeInOut,
+      );
+    });
   }
 
   void _showChartModal(

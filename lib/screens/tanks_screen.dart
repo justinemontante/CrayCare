@@ -17,7 +17,8 @@ void showBeautifulSnackbar(
       content: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(8),
+            width: 36,
+            height: 36,
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.2),
               shape: BoxShape.circle,
@@ -32,22 +33,52 @@ void showBeautifulSnackbar(
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(
-              message,
-              style: const TextStyle(
-                fontWeight: FontWeight.w700,
-                fontSize: 13,
-                color: Colors.white,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  isSuccess ? 'Success' : 'Error',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                    color: Colors.white,
+                  ),
+                ),
+                Text(
+                  message,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w500,
+                    fontSize: 11,
+                    color: Colors.white.withValues(alpha: 0.9),
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(
+              Icons.close_rounded,
+              color: Colors.white,
+              size: 16,
             ),
           ),
         ],
       ),
-      backgroundColor: isSuccess ? AppColors.success : AppColors.critical,
+      backgroundColor: isSuccess ? const Color(0xFF059669) : const Color(0xFFDC2626),
       behavior: SnackBarBehavior.floating,
-      margin: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      elevation: 10,
+      elevation: 12,
       duration: const Duration(seconds: 3),
     ),
   );
@@ -538,25 +569,25 @@ class _TanksScreenState extends State<TanksScreen> {
                 ),
                 const SizedBox(height: 24),
                 _buildInfoCard(
-                  Icons.people_alt_rounded,
+                  Image.asset('assets/images/InitialPopulation.png', width: 24, height: 24),
                   'Initial Population',
                   'Total stock count upon start',
                   countCtrl,
                 ),
                 _buildInfoCard(
-                  Icons.analytics_rounded,
+                  Image.asset('assets/images/SampleCount.png', width: 24, height: 24),
                   'Sample Count',
                   'Number of crayfish sampled',
                   sampleCountCtrl,
                 ),
                 _buildInfoCard(
-                  Icons.scale_rounded,
+                  Image.asset('assets/images/TotalWeight.png', width: 24, height: 24),
                   'Total Weight (g)',
                   'Sum weight of sampled group',
                   totalWeightCtrl,
                 ),
                 _buildInfoCard(
-                  Icons.straighten_rounded,
+                  Image.asset('assets/images/TotalLength.png', width: 24, height: 24),
                   'Total Length (cm)',
                   'Sum length of sampled group',
                   totalLengthCtrl,
@@ -621,87 +652,91 @@ class _TanksScreenState extends State<TanksScreen> {
   }
 
   Widget _buildInfoCard(
-    IconData icon,
+    Widget iconWidget,
     String title,
     String subtitle,
     TextEditingController controller,
   ) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
           Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: AppColors.primary,
+                  color: AppColors.primary.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(icon, color: Colors.white, size: 16),
+                child: iconWidget,
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 12,
-                        color: AppColors.dark,
-                      ),
+              const SizedBox(width: 10),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
+                      color: AppColors.dark,
                     ),
-                    Text(
-                      subtitle,
-                      style: TextStyle(
-                        fontSize: 9,
-                        color: AppColors.dark.withValues(alpha: 0.5),
-                      ),
+                  ),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 9,
+                      color: AppColors.dark.withValues(alpha: 0.5),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: controller,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: [
-              FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$')),
-            ],
-            style: const TextStyle(
-              fontWeight: FontWeight.w900,
-              color: AppColors.primary,
-            ),
-            decoration: InputDecoration(
-              hintText: '0',
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 14,
+          const Spacer(),
+          SizedBox(
+            width: 100,
+            child: TextField(
+              controller: controller,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$')),
+              ],
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontWeight: FontWeight.w900,
+                fontSize: 14,
+                color: AppColors.primary,
               ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(
-                  color: AppColors.dark.withValues(alpha: 0.5),
-                  width: 1.5,
+              decoration: InputDecoration(
+                hintText: '0',
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
                 ),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(
-                  color: AppColors.dark.withValues(alpha: 0.5),
-                  width: 1.5,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide(
+                    color: AppColors.dark.withValues(alpha: 0.3),
+                    width: 1.5,
+                  ),
                 ),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(
-                  color: AppColors.primary,
-                  width: 2,
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide(
+                    color: AppColors.dark.withValues(alpha: 0.3),
+                    width: 1.5,
+                  ),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(
+                    color: AppColors.primary,
+                    width: 1.5,
+                  ),
                 ),
               ),
             ),
