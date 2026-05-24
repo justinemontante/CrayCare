@@ -141,10 +141,8 @@ class _TanksScreenState extends State<TanksScreen> {
                   sampleCountController: _sampleCountController,
                   sampleWeightController: _sampleWeightController,
                   sampleLengthController: _sampleLengthController,
-                  onShowGrowthStageReferenceModal:
-                      _showGrowthStageReferenceModal,
                 ),
-                const TrendsTab(),
+                TrendsTab(onInfoTap: _showGrowthStageReferenceModal),
               ],
             ),
           ),
@@ -538,114 +536,172 @@ class _TanksScreenState extends State<TanksScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (ctx) {
-        return Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(ctx).viewInsets.bottom,
-          ),
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      color: AppColors.dark.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  isEdit ? 'Edit Initialization' : 'Grow-Out Initialization',
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w900,
-                    color: AppColors.dark,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                _buildInfoCard(
-                  Image.asset('assets/images/InitialPopulation.png', width: 24, height: 24),
-                  'Initial Population',
-                  'Total stock count upon start',
-                  countCtrl,
-                ),
-                _buildInfoCard(
-                  Image.asset('assets/images/SampleCount.png', width: 24, height: 24),
-                  'Sample Count',
-                  'Number of crayfish sampled',
-                  sampleCountCtrl,
-                ),
-                _buildInfoCard(
-                  Image.asset('assets/images/TotalWeight.png', width: 24, height: 24),
-                  'Total Weight (g)',
-                  'Sum weight of sampled group',
-                  totalWeightCtrl,
-                ),
-                _buildInfoCard(
-                  Image.asset('assets/images/TotalLength.png', width: 24, height: 24),
-                  'Total Length (cm)',
-                  'Sum length of sampled group',
-                  totalLengthCtrl,
-                ),
+        return StatefulBuilder(
+          builder: (ctx, setLocalState) {
+            String? validateSample() {
+              final pop = int.tryParse(countCtrl.text) ?? 0;
+              final sample = int.tryParse(sampleCountCtrl.text) ?? 0;
+              if (sample > 0 && pop > 0 && sample > pop) {
+                return 'Sample count ($sample) exceeds population ($pop).';
+              }
+              return null;
+            }
 
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      final count = int.tryParse(countCtrl.text) ?? 0;
-                      final sampleCount =
-                          int.tryParse(sampleCountCtrl.text) ?? 0;
-                      final totalWeight =
-                          double.tryParse(totalWeightCtrl.text) ?? 0.0;
-                      final totalLength =
-                          double.tryParse(totalLengthCtrl.text) ?? 0.0;
+            final sampleError = validateSample();
 
-                      if (count > 0 && sampleCount > 0) {
-                        TankService.instance.initializeGrowOut(
-                          count,
-                          sampleCount,
-                          totalWeight,
-                          totalLength,
-                          DateTime.now(),
-                        );
-                        Navigator.pop(ctx);
-                        showBeautifulSnackbar(
-                          context,
-                          isEdit
-                              ? 'Setup beautifully updated!'
-                              : 'Grow-out successfully initialized!',
-                          true,
-                        );
-                      }
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      elevation: 0,
-                    ),
-                    child: Text(
-                      isEdit ? 'Update Initialization' : 'Initialize Grow-Out',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
+            void revalidate() {
+              setLocalState(() {});
+            }
+
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(ctx).viewInsets.bottom,
+              ),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: AppColors.dark.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
                       ),
                     ),
-                  ),
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        Icons.tune_rounded,
+                        size: 22,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                        const SizedBox(width: 12),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              isEdit ? 'Edit Initialization' : 'Grow-Out Initialization',
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w900,
+                                color: AppColors.dark,
+                              ),
+                            ),
+                            Text(
+                              isEdit ? 'Update your tank setup data' : 'Set up your tank for the first time',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                                color: AppColors.dark.withValues(alpha: 0.5),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    _buildInfoCard(
+                      Image.asset('assets/images/InitialPopulation.png', width: 24, height: 24),
+                      'Initial Population',
+                      'Total stock count upon start',
+                      countCtrl,
+                      onChanged: revalidate,
+                    ),
+                    _buildInfoCard(
+                      Image.asset('assets/images/SampleCount.png', width: 24, height: 24),
+                      'Sample Count',
+                      'Number of crayfish sampled',
+                      sampleCountCtrl,
+                      errorText: sampleError,
+                      onChanged: revalidate,
+                    ),
+                    _buildInfoCard(
+                      Image.asset('assets/images/TotalWeight.png', width: 24, height: 24),
+                      'Total Weight (g)',
+                      'Sum weight of sampled group',
+                      totalWeightCtrl,
+                    ),
+                    _buildInfoCard(
+                      Image.asset('assets/images/TotalLength.png', width: 24, height: 24),
+                      'Total Length (cm)',
+                      'Sum length of sampled group',
+                      totalLengthCtrl,
+                    ),
+
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: sampleError != null
+                            ? null
+                            : () {
+                                final count = int.tryParse(countCtrl.text) ?? 0;
+                                final sampleCount =
+                                    int.tryParse(sampleCountCtrl.text) ?? 0;
+                                final totalWeight =
+                                    double.tryParse(totalWeightCtrl.text) ?? 0.0;
+                                final totalLength =
+                                    double.tryParse(totalLengthCtrl.text) ?? 0.0;
+
+                                if (count > 0 && sampleCount > 0) {
+                                  TankService.instance.initializeGrowOut(
+                                    count,
+                                    sampleCount,
+                                    totalWeight,
+                                    totalLength,
+                                    DateTime.now(),
+                                  );
+                                  Navigator.pop(ctx);
+                                  showBeautifulSnackbar(
+                                    context,
+                                    isEdit
+                                        ? 'Setup beautifully updated!'
+                                        : 'Grow-out successfully initialized!',
+                                    true,
+                                  );
+                                }
+                              },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: sampleError != null
+                              ? AppColors.dark.withValues(alpha: 0.2)
+                              : AppColors.primary,
+                          foregroundColor: sampleError != null
+                              ? Colors.white.withValues(alpha: 0.4)
+                              : Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          elevation: 0,
+                        ),
+                        child: Text(
+                          isEdit ? 'Update Initialization' : 'Initialize Grow-Out',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
                 ),
-                const SizedBox(height: 24),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
     );
@@ -655,92 +711,139 @@ class _TanksScreenState extends State<TanksScreen> {
     Widget iconWidget,
     String title,
     String subtitle,
-    TextEditingController controller,
-  ) {
+    TextEditingController controller, {
+    String? errorText,
+    VoidCallback? onChanged,
+  }) {
+    final hasError = errorText != null;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: iconWidget,
-              ),
-              const SizedBox(width: 10),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 12,
-                      color: AppColors.dark,
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: hasError
+                          ? AppColors.critical.withValues(alpha: 0.12)
+                          : AppColors.primary.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: iconWidget,
+                  ),
+                  const SizedBox(width: 10),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        title,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 12,
+                          color: hasError ? AppColors.critical : AppColors.dark,
+                        ),
+                      ),
+                      Text(
+                        subtitle,
+                        style: TextStyle(
+                          fontSize: 9,
+                          color: hasError
+                              ? AppColors.critical.withValues(alpha: 0.6)
+                              : AppColors.dark.withValues(alpha: 0.5),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const Spacer(),
+              SizedBox(
+                width: 100,
+                child: TextField(
+                  controller: controller,
+                  onChanged: (_) => onChanged?.call(),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$')),
+                  ],
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 14,
+                    color: hasError ? AppColors.critical : AppColors.primary,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: '0',
+                    hintStyle: TextStyle(
+                      color: hasError
+                          ? AppColors.critical.withValues(alpha: 0.3)
+                          : AppColors.dark.withValues(alpha: 0.2),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(
+                        color: hasError
+                            ? AppColors.critical.withValues(alpha: 0.6)
+                            : AppColors.dark.withValues(alpha: 0.3),
+                        width: 1.5,
+                      ),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(
+                        color: hasError
+                            ? AppColors.critical.withValues(alpha: 0.6)
+                            : AppColors.dark.withValues(alpha: 0.3),
+                        width: 1.5,
+                      ),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(
+                        color: hasError ? AppColors.critical : AppColors.primary,
+                        width: 1.5,
+                      ),
                     ),
                   ),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      fontSize: 9,
-                      color: AppColors.dark.withValues(alpha: 0.5),
+                ),
+              ),
+            ],
+          ),
+          if (hasError)
+            Padding(
+              padding: const EdgeInsets.only(top: 6, left: 4),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.error_outline_rounded,
+                    size: 12,
+                    color: AppColors.critical.withValues(alpha: 0.8),
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      errorText,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.critical.withValues(alpha: 0.8),
+                        height: 1.3,
+                      ),
                     ),
                   ),
                 ],
               ),
-            ],
-          ),
-          const Spacer(),
-          SizedBox(
-            width: 100,
-            child: TextField(
-              controller: controller,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$')),
-              ],
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontWeight: FontWeight.w900,
-                fontSize: 14,
-                color: AppColors.primary,
-              ),
-              decoration: InputDecoration(
-                hintText: '0',
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
-                ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: BorderSide(
-                    color: AppColors.dark.withValues(alpha: 0.3),
-                    width: 1.5,
-                  ),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: BorderSide(
-                    color: AppColors.dark.withValues(alpha: 0.3),
-                    width: 1.5,
-                  ),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(
-                    color: AppColors.primary,
-                    width: 1.5,
-                  ),
-                ),
-              ),
             ),
-          ),
         ],
       ),
     );
@@ -748,6 +851,7 @@ class _TanksScreenState extends State<TanksScreen> {
 
   void _showMortalityModal() {
     final countCtrl = TextEditingController();
+    final liveCount = TankService.instance.liveCount;
 
     showModalBottomSheet(
       context: context,
@@ -757,83 +861,158 @@ class _TanksScreenState extends State<TanksScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (ctx) {
-        return Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(ctx).viewInsets.bottom,
-            left: 24,
-            right: 24,
-            top: 16,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    color: AppColors.dark.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                ),
+        return StatefulBuilder(
+          builder: (ctx, setLocalState) {
+            final mortalityVal = int.tryParse(countCtrl.text) ?? 0;
+            final String? errorText = mortalityVal > liveCount
+                ? 'Cannot exceed current live count ($liveCount).'
+                : null;
+
+            void revalidate() => setLocalState(() {});
+
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(ctx).viewInsets.bottom,
+                left: 24,
+                right: 24,
+                top: 16,
               ),
-              const SizedBox(height: 24),
-              const Text(
-                'Log Mortality',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
-                  color: AppColors.critical,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Record the number of dead crayfish found in the tank.',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: AppColors.dark.withValues(alpha: 0.5),
-                ),
-              ),
-              const SizedBox(height: 24),
-              _buildModalInput('Number of Dead Crayfish', 'e.g. 5', countCtrl),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    final mortalityVal = int.tryParse(countCtrl.text);
-                    if (mortalityVal != null && mortalityVal > 0) {
-                      TankService.instance.addMortality(mortalityVal);
-                      Navigator.pop(ctx);
-                      showBeautifulSnackbar(
-                        context,
-                        'Mortality of $mortalityVal successfully logged.',
-                        true,
-                      );
-                    }
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.critical,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: AppColors.dark.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
                     ),
-                    elevation: 0,
                   ),
-                  child: const Text(
-                    'Confirm Logging',
+                  const SizedBox(height: 24),
+                  const Text(
+                    'Log Mortality',
                     style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      color: AppColors.critical,
                     ),
                   ),
-                ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Record the number of dead crayfish found in the tank.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppColors.dark.withValues(alpha: 0.5),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.06),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.favorite_rounded,
+                          size: 14,
+                          color: AppColors.primary,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Live count: $liveCount',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _buildModalInput(
+                    'Number of Dead Crayfish',
+                    'e.g. 5',
+                    countCtrl,
+                    hasError: errorText != null,
+                    onChanged: revalidate,
+                  ),
+                  if (errorText != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12, left: 4),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: AppColors.critical.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Icon(
+                              Icons.error_outline_rounded,
+                              size: 14,
+                              color: AppColors.critical,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            errorText,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.critical.withValues(alpha: 0.85),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: errorText == null && mortalityVal > 0
+                          ? () {
+                              TankService.instance.addMortality(mortalityVal);
+                              Navigator.pop(ctx);
+                              showBeautifulSnackbar(
+                                context,
+                                'Mortality of $mortalityVal successfully logged.',
+                                true,
+                              );
+                            }
+                          : null,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: errorText != null
+                            ? AppColors.dark.withValues(alpha: 0.2)
+                            : AppColors.critical,
+                        foregroundColor: errorText != null
+                            ? Colors.white.withValues(alpha: 0.4)
+                            : Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        elevation: 0,
+                      ),
+                      child: const Text(
+                        'Confirm Logging',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                ],
               ),
-              const SizedBox(height: 24),
-            ],
-          ),
+            );
+          },
         );
       },
     );
@@ -1057,8 +1236,10 @@ class _TanksScreenState extends State<TanksScreen> {
   Widget _buildModalInput(
     String label,
     String hint,
-    TextEditingController controller,
-  ) {
+    TextEditingController controller, {
+    bool hasError = false,
+    VoidCallback? onChanged,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 20),
       child: Column(
@@ -1066,24 +1247,31 @@ class _TanksScreenState extends State<TanksScreen> {
         children: [
           Text(
             label,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w700,
-              color: AppColors.dark,
+              color: hasError ? AppColors.critical : AppColors.dark,
             ),
           ),
           const SizedBox(height: 8),
           TextField(
             controller: controller,
+            onChanged: (_) => onChanged?.call(),
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             inputFormatters: [
               FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$')),
             ],
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: hasError ? AppColors.critical : AppColors.dark,
+            ),
             decoration: InputDecoration(
               hintText: hint,
               hintStyle: TextStyle(
-                color: AppColors.dark.withValues(alpha: 0.3),
+                color: hasError
+                    ? AppColors.critical.withValues(alpha: 0.3)
+                    : AppColors.dark.withValues(alpha: 0.3),
               ),
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 16,
@@ -1092,85 +1280,28 @@ class _TanksScreenState extends State<TanksScreen> {
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide(
-                  color: AppColors.dark.withValues(alpha: 0.5),
+                  color: hasError
+                      ? AppColors.critical.withValues(alpha: 0.6)
+                      : AppColors.dark.withValues(alpha: 0.5),
                   width: 1.5,
                 ),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide(
-                  color: AppColors.dark.withValues(alpha: 0.5),
+                  color: hasError
+                      ? AppColors.critical.withValues(alpha: 0.6)
+                      : AppColors.dark.withValues(alpha: 0.5),
                   width: 1.5,
                 ),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(
-                  color: AppColors.primary,
+                borderSide: BorderSide(
+                  color: hasError ? AppColors.critical : AppColors.primary,
                   width: 2,
                 ),
               ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLogItem(
-    IconData icon,
-    String title,
-    String subtitle,
-    Color color,
-  ) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.dark.withValues(alpha: 0.06)),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.dark.withValues(alpha: 0.02),
-            blurRadius: 5,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, size: 20, color: color),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                    color: AppColors.dark,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w500,
-                    color: AppColors.dark.withValues(alpha: 0.5),
-                  ),
-                ),
-              ],
             ),
           ),
         ],

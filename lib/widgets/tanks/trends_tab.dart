@@ -2,9 +2,11 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
 import '../../services/tank_service.dart';
+import 'sampling_tab.dart';
 
 class TrendsTab extends StatefulWidget {
-  const TrendsTab({super.key});
+  final VoidCallback? onInfoTap;
+  const TrendsTab({super.key, this.onInfoTap});
 
   @override
   State<TrendsTab> createState() => _TrendsTabState();
@@ -42,6 +44,8 @@ class _TrendsTabState extends State<TrendsTab> {
           _buildChartContainer(),
           const SizedBox(height: 16),
           _buildMortalityChartContainer(),
+          const SizedBox(height: 16),
+          GrowthStagePanel(onInfoTap: widget.onInfoTap ?? () {}),
         ],
       ),
     );
