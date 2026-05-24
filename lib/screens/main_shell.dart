@@ -21,10 +21,12 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
   final _scaffoldKey = GlobalKey<ScaffoldState>();
+  String? _photoUrl; // Original base64 URL — para ipasa sa SettingsScreen
   Uint8List? _photoBytes; // Cached decoded bytes — iwas base64Decode kada rebuild
 
   // Isang beses lang mag-decode — para smooth ang tab switching
   void _setPhoto(String url) {
+    _photoUrl = url;
     _photoBytes = base64Decode(url.split(',').last);
   }
 
@@ -125,7 +127,7 @@ class _MainShellState extends State<MainShell> {
                     final result = await Navigator.push<String>(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => const SettingsScreen(),
+                        builder: (_) => SettingsScreen(initialPhotoUrl: _photoUrl),
                       ),
                     );
                     // Diretso lang — gamitin ang result galing settings para iwas reload

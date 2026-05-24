@@ -14,7 +14,9 @@ import '../services/database_service.dart';
 import '../services/storage_service.dart'; // Para sa pag-pick ng profile picture
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  final String? initialPhotoUrl; // Ipasa mula MainShell para iwas reload
+
+  const SettingsScreen({super.key, this.initialPhotoUrl});
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -52,8 +54,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _profileName = user.displayName ?? 'CrayCare User';
         _profileEmail = user.email ?? 'No email linked';
       });
-      // Kunin ang photoUrl galing RTDB
-      _loadPhotoFromRTDB(user.uid);
+      // Kung may initialPhotoUrl mula MainShell, gamitin na diretso
+      if (widget.initialPhotoUrl != null) {
+        setState(() => _photoUrl = widget.initialPhotoUrl);
+      } else {
+        _loadPhotoFromRTDB(user.uid);
+      }
     }
   }
 

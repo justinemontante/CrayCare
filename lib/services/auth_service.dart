@@ -27,7 +27,7 @@ class AuthService {
         if (!user.emailVerified) {
           await user.sendEmailVerification();
         }
-        // Save profile to RTDB for a record
+        // Save profile to RTDB for a record (preserve existing photoUrl kung mayron)
         await DatabaseService.instance.saveUserProfile(
           uid: user.uid,
           name: name,
@@ -57,12 +57,14 @@ class AuthService {
           'Please verify your email first. A verification link was sent to your inbox.',
         );
       }
-      // Para sa mga existing users — i-save sa RTDB kung wala pa record
+      // Para sa mga existing users — i-save sa RTDB (preserve photoUrl)
       if (user != null && user.emailVerified) {
+        final existing = await DatabaseService.instance.getUserProfile(user.uid);
         await DatabaseService.instance.saveUserProfile(
           uid: user.uid,
           name: user.displayName ?? 'CrayCare User',
           email: user.email ?? '',
+          photoUrl: existing?['photoUrl'] as String?,
         );
       }
       return user;
@@ -100,10 +102,13 @@ class AuthService {
       // I-save sa RTDB ang Google user profile
       final user = userCredential.user;
       if (user != null) {
+        // Kunin muna ang existing profile para hindi mawala ang photoUrl
+        final existing = await DatabaseService.instance.getUserProfile(user.uid);
         await DatabaseService.instance.saveUserProfile(
           uid: user.uid,
           name: user.displayName ?? 'Google User',
           email: user.email ?? '',
+          photoUrl: existing?['photoUrl'] as String?,
         );
       }
 
