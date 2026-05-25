@@ -229,7 +229,7 @@ class NextSamplingPanel extends StatelessWidget {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 1),
+                    const SizedBox(height: 4),
                     Text(
                       daysRemaining == 0
                           ? 'Sampling Day!'
@@ -268,11 +268,13 @@ class NextSamplingPanel extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    _formatDate(DateTime.now().add(Duration(days: daysRemaining))),
+                    'Scheduled: ${daysRemaining == 0 ? "Today" : _formatDate(DateTime.now().add(Duration(days: daysRemaining)))}',
                     style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w600,
-                      color: AppColors.darkWith(0.5),
+                      color: daysRemaining == 0
+                          ? AppColors.critical
+                          : AppColors.darkWith(0.5),
                     ),
                   ),
                 ],
@@ -564,8 +566,9 @@ class GrowthOverviewPanel extends StatelessWidget {
         Text(
           label,
           style: TextStyle(fontSize: 8, color: AppColors.darkWith(0.5)),
-        ),
-        Text(
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
           value,
           style: TextStyle(
             fontSize: 12,
