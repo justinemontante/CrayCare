@@ -73,7 +73,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
         if (labels.isNotEmpty) labels.removeAt(0);
         labels.add(timeStr);
 
-        SensorService.instance.seeds.keys.forEach((key) {
+        SensorService.sensorKeys.forEach((key) {
           _data['$key-live'] = List.from(SensorService.instance.getData(key));
         });
       });
@@ -105,7 +105,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
         return '${h}:${d.minute.toString().padLeft(2, '0')}:${d.second.toString().padLeft(2, '0')} $ampm';
       });
 
-      SensorService.instance.seeds.keys.forEach((key) {
+      SensorService.sensorKeys.forEach((key) {
         _data['$key-live'] = List.from(SensorService.instance.getData(key));
       });
     } else if (range == '24h') {

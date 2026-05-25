@@ -414,20 +414,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   String _getStatus(String key, double val) {
-    final range = SettingsService.instance.currentRanges[key];
-    if (range == null) return 'Normal';
-    if (val < range['min']! || val > range['max']!) return 'Critical';
-    final padding = (range['max']! - range['min']!) * 0.1;
-    if (val < range['min']! + padding || val > range['max']! - padding)
-      return 'Warning';
-    return 'Optimal';
+    final zone = SensorService.instance.getZone(key);
+    return zone;
   }
 
   Color _getStatusColor(String key, double val) {
-    final status = _getStatus(key, val);
-    if (status == 'Critical') return AppColors.critical;
-    if (status == 'Warning') return AppColors.warning;
-    return AppColors.successLight;
+    final zone = SensorService.instance.getZone(key);
+    if (zone == 'SENSOR ERROR' || zone == 'PLACEHOLDER') {
+      return AppColors.mutedText;
+    }
+    if (zone == 'CRITICAL LOW' || zone == 'CRITICAL HIGH' || zone == 'NO WATER') {
+      return AppColors.critical;
+    }
+    if (zone == 'WARNING' || zone == 'HIGH TURBIDITY') {
+      return AppColors.warning;
+    }
+    if (zone == 'OPTIMAL' || zone == 'CLEAR WATER') {
+      return AppColors.successLight;
+    }
+    return AppColors.darkWith(0.4);
   }
 
   Widget _buildGaugeCard({

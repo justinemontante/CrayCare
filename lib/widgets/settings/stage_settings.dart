@@ -127,17 +127,26 @@ class _StageSettingsState extends State<StageSettings> {
     if (mounted) setState(() => _saving = true);
     try {
       final svc = SettingsService.instance;
-      await DatabaseService.instance.saveGrowthStageConfig(
-        currentStage: svc.currentStage,
-        allRanges: svc.allRanges,
-        changedKey: changedKey,
-      );
+
+      await Future.wait([
+        DatabaseService.instance.saveGrowthStageConfig(
+          currentStage: svc.currentStage,
+          allRanges: svc.allRanges,
+          changedKey: changedKey,
+        ),
+        DatabaseService.instance.saveSensorThresholds(
+          currentStage: svc.currentStage,
+          currentRanges: svc.currentRanges,
+          changedKey: changedKey,
+        ),
+      ]);
+
       if (!mounted) return;
       setState(() => _saving = false);
       if (showMessage) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('All stage thresholds synced to Firebase'),
+            content: Text('Thresholds synced to Firebase'),
             duration: Duration(seconds: 2),
           ),
         );

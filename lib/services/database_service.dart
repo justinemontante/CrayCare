@@ -76,4 +76,69 @@ class DatabaseService {
           onTimeout: () => throw TimeoutException('Firebase write timed out'),
         );
   }
+
+  // ─── Sensor Readings ────────────────────────────────────────────
+
+  DatabaseReference get _sensorLatestRef => _db.child('sensor_readings/latest');
+  DatabaseReference get _sensorHistoryRef => _db.child('sensor_readings/history');
+  DatabaseReference get _sensorConfigRef => _db.child('sensor_readings/config');
+
+  Future<Map<String, dynamic>?> getLatestReadings() async {
+    final snapshot = await _sensorLatestRef.get().timeout(
+      const Duration(seconds: 10),
+      onTimeout: () => throw TimeoutException('Firebase read timed out'),
+    );
+    if (snapshot.exists && snapshot.value != null) {
+      return Map<String, dynamic>.from(snapshot.value as Map);
+    }
+    return null;
+  }
+
+  Stream<DatabaseEvent> get latestReadingsStream => _sensorLatestRef.onValue;
+
+  Future<void> saveSensorThresholds({
+    required String currentStage,
+    required Map<String, Map<String, double>> currentRanges,
+    String? changedKey,
+  }) async {
+    final user = FirebaseAuth.instance.currentUser;
+    await _sensorConfigRef.update({
+      'currentStage': currentStage,
+      'ranges': {
+        for (final e in currentRanges.entries)
+          e.key: {'min': e.value['min'], 'max': e.value['max']},
+      },
+      'updatedAt': ServerValue.timestamp,
+      'updatedBy': user?.uid ?? 'unknown-user',
+      'source': 'flutter-app',
+      if (changedKey != null) 'lastChangedSensor': changedKey,
+    }).timeout(
+      const Duration(seconds: 10),
+      onTimeout: () => throw TimeoutException('Firebase write timed out'),
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getSensorHistory({
+    int limit = 100,
+    String orderBy = 'timestamp',
+  }) async {
+    final snapshot = await _sensorHistoryRef
+        .orderByChild(orderBy)
+        .limitToLast(limit)
+        .get()
+        .timeout(
+          const Duration(seconds: 15),
+          onTimeout: () => throw TimeoutException('Firebase history read timed out'),
+        );
+    if (!snapshot.exists || snapshot.value == null) return [];
+    final raw = Map<String, dynamic>.from(snapshot.value as Map);
+    final list = <Map<String, dynamic>>[];
+    raw.forEach((key, value) {
+      if (value is Map) {
+        list.add(Map<String, dynamic>.from(value));
+      }
+    });
+    list.sort((a, b) => (b['timestamp'] ?? 0).compareTo(a['timestamp'] ?? 0));
+    return list;
+  }
 }

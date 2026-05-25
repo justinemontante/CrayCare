@@ -1,59 +1,97 @@
-import 'package:flutter/foundation.dart';
 import 'dart:async';
-import 'dart:math';
+import 'package:flutter/foundation.dart';
+import 'package:firebase_database/firebase_database.dart';
 
 class SensorService extends ChangeNotifier {
   static final SensorService instance = SensorService._();
   SensorService._() {
-    _generateInitialData();
-    _startLiveUpdates();
+    _initFirebaseListener();
   }
 
-  final _rng = Random(42);
-  final Map<String, List<double>> _data = {};
-  Timer? _liveTimer;
+  static const List<String> sensorKeys = [
+    'temp', 'ph', 'do', 'turb', 'waterlevel'
+  ];
 
-  // Configuration for sensors
-  final Map<String, Map<String, double>> seeds = {
-    'temp': {'min': 24.0, 'max': 32.0},
-    'ph': {'min': 6.5, 'max': 9.0},
-    'do': {'min': 2.5, 'max': 7.0},
-    'turb': {'min': 10.0, 'max': 70.0},
-    'waterlevel': {'min': 100.0, 'max': 200.0},
-  };
+  StreamSubscription<DatabaseEvent>? _subscription;
+  final DatabaseReference _latestRef = FirebaseDatabase.instance.ref('sensor_readings/latest');
 
-  void _generateInitialData() {
-    seeds.forEach((key, bounds) {
-      _data[key] = List.generate(60, (_) {
-        return bounds['min']! +
-            _rng.nextDouble() * (bounds['max']! - bounds['min']!);
-      });
+  final Map<String, List<double>> _history = {};
+  final Map<String, double> _latest = {};
+  final Map<String, String> _zones = {};
+
+  bool _deviceOnline = false;
+  String _overallStatus = 'UNKNOWN';
+  DateTime _lastUpdated = DateTime.now();
+
+  DateTime get lastUpdated => _lastUpdated;
+  bool get deviceOnline => _deviceOnline;
+  String get overallStatus => _overallStatus;
+  String getZone(String key) => _zones[key] ?? 'UNKNOWN';
+
+  void _initFirebaseListener() {
+    _subscription?.cancel();
+    _subscription = _latestRef.onValue.listen((event) {
+      if (event.snapshot.value == null) return;
+      _parseAndUpdate(Map<String, dynamic>.from(event.snapshot.value as Map));
+    }, onError: (error) {
+      debugPrint('[SensorService] Firebase stream error: $error');
     });
   }
 
-  void _startLiveUpdates() {
-    _liveTimer?.cancel();
-    _liveTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
-      _pushNewData();
-    });
-  }
+  void _parseAndUpdate(Map<String, dynamic> data) {
+    _deviceOnline = data['deviceOnline'] == true;
 
-  DateTime lastUpdated = DateTime.now();
+    _overallStatus = (data['overallStatus'] as String?) ?? 'UNKNOWN';
 
-  void _pushNewData() {
-    seeds.forEach((key, bounds) {
-      final list = _data[key]!;
-      list.removeAt(0);
-      final lastVal = list.last;
-      // Increased fluctuation for visible changes
-      double newVal = lastVal + (_rng.nextDouble() - 0.5) * 3.0;
-      newVal = newVal.clamp(bounds['min']!, bounds['max']!);
-      list.add(newVal);
-    });
-    lastUpdated = DateTime.now();
+    _zones['temp'] = (data['temperatureZone'] as String?) ?? 'UNKNOWN';
+    _zones['turb'] = (data['turbidityZone'] as String?) ?? 'UNKNOWN';
+    _zones['do'] = (data['dissolvedOxygenZone'] as String?) ?? 'UNKNOWN';
+    _zones['ph'] = (data['phZone'] as String?) ?? 'UNKNOWN';
+    _zones['waterlevel'] = (data['waterLevelZone'] as String?) ?? 'UNKNOWN';
+
+    final tempRaw = _toDouble(data['temperature']);
+    final turbRaw = _toDouble(data['turbidityQuality']);
+    final doRaw = _toDouble(data['dissolvedOxygen']);
+    final phRaw = _toDouble(data['phLevel']);
+    final wlRaw = _toDouble(data['waterLevelPercent']);
+
+    _updateSensor('temp', tempRaw);
+    _updateSensor('turb', turbRaw);
+    _updateSensor('do', doRaw);
+    _updateSensor('ph', phRaw);
+    _updateSensor('waterlevel', wlRaw);
+
+    _lastUpdated = DateTime.now();
     notifyListeners();
   }
 
-  List<double> getData(String key) => _data[key] ?? [];
-  double getLatestValue(String key) => _data[key]?.last ?? 0.0;
+  void _updateSensor(String key, double? value) {
+    if (value == null || value < 0) return;
+
+    _latest[key] = value;
+
+    if (_history[key] == null) _history[key] = [];
+
+    _history[key]!.add(value);
+    if (_history[key]!.length > 60) {
+      _history[key]!.removeAt(0);
+    }
+  }
+
+  double _toDouble(dynamic v) {
+    if (v is int) return v.toDouble();
+    if (v is double) return v;
+    if (v is num) return v.toDouble();
+    return -1;
+  }
+
+  double getLatestValue(String key) => _latest[key] ?? 0.0;
+
+  List<double> getData(String key) => _history[key] ?? [];
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
+  }
 }
