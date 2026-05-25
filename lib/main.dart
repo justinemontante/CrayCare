@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io'; // 1. BINAGO: Dinagdag para sa HttpOverrides
+import 'dart:io'; // For HttpOverrides
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart'; // The core Firebase plugin
@@ -12,7 +12,7 @@ import 'services/settings_service.dart';
 import 'firebase_options.dart'; // Generated configuration file
 import 'screens/verify_screen.dart';
 
-// 2. BINAGO: Dinagdag itong class na ito para ma-bypass ang SSL/Handshake errors sa devices
+// 2. Dinagdag itong class na ito para ma-bypass ang SSL/Handshake errors sa devices
 class MyHttpOverrides extends HttpOverrides {
   @override
   HttpClient createHttpClient(SecurityContext? context) {
@@ -23,7 +23,7 @@ class MyHttpOverrides extends HttpOverrides {
 }
 
 void main() async {
-  // 3. BINAGO: In-initialize ang HttpOverrides bago mag-start ang app
+  //  In-initialize ang HttpOverrides bago mag-start ang app
   HttpOverrides.global = MyHttpOverrides();
 
   WidgetsFlutterBinding.ensureInitialized();

@@ -66,10 +66,12 @@ class SamplingTab extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!TankService.instance.isInitialized) return _buildEmptyState();
     return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          _buildSectionHeader(),
+          const SizedBox(height: 8),
           const NextSamplingPanel(),
           const SizedBox(height: 12),
           const GrowthOverviewPanel(),
@@ -78,6 +80,34 @@ class SamplingTab extends StatelessWidget {
           const SizedBox(height: 12),
           const SamplingHistoryPanel(),
           const SizedBox(height: 12),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader() {
+    return Padding(
+      padding: const EdgeInsets.only(left: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Growth Sampling',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+              color: AppColors.dark,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'Weigh & measure to compute ABW and ABL.',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w500,
+              color: AppColors.dark.withValues(alpha: 0.5),
+            ),
+          ),
         ],
       ),
     );
@@ -159,82 +189,99 @@ class NextSamplingPanel extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.white,
+        color: const Color(0xFFFCFCFC),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.faintBorder),
+        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: AppColors.darkWith(0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
+            color: AppColors.darkWith(0.12),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
       child: Column(
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: AppColors.primaryWith(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  Icons.calendar_today,
-                  color: AppColors.primary,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.calendar_today,
+                          color: daysRemaining == 0
+                              ? AppColors.critical
+                              : AppColors.primary,
+                          size: 12,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Next sampling:',
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.darkWith(0.45),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 1),
                     Text(
                       daysRemaining == 0
                           ? 'Sampling Day!'
                           : '$daysRemaining days remaining',
                       style: TextStyle(
-                        fontSize: 14,
+                        fontSize: 12,
                         fontWeight: FontWeight.w800,
                         color: daysRemaining == 0
                             ? AppColors.critical
                             : AppColors.dark,
                       ),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Due on ${_formatDate(DateTime.now().add(Duration(days: daysRemaining)))}',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w500,
-                        color: AppColors.darkWith(0.5),
-                      ),
-                    ),
                   ],
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: AppColors.lightBg,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  'Week ${((currentDay - 1) / 7).floor() + 1}',
-                  style: TextStyle(
-                    fontSize: 9,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.darkWith(0.6),
+              const SizedBox(width: 16),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      'Week ${((currentDay - 1) / 7).floor() + 1}',
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.primary,
+                      ),
+                    ),
                   ),
-                ),
+                  Text(
+                    _formatDate(DateTime.now().add(Duration(days: daysRemaining))),
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.darkWith(0.5),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          const Divider(height: 1, thickness: 1),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
+          Divider(height: 1, thickness: 1, color: AppColors.faintBorder),
+          const SizedBox(height: 14),
           _buildStepTracker(currentDay, daysInCycle),
         ],
       ),
@@ -357,14 +404,14 @@ class GrowthOverviewPanel extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: AppColors.white,
+        color: const Color(0xFFFCFCFC),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.faintBorder),
+        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: AppColors.darkWith(0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
+            color: AppColors.darkWith(0.12),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -387,10 +434,7 @@ class GrowthOverviewPanel extends StatelessWidget {
                 _formatDate(service.stockingDate),
                 initialW,
                 initialL,
-                AppColors.primaryWith(0.08),
-                AppColors.primary,
-                'Avg Weight',
-                'Avg Length',
+                false,
               ),
               const SizedBox(width: 12),
               _buildMiniCard(
@@ -400,10 +444,7 @@ class GrowthOverviewPanel extends StatelessWidget {
                     : _formatDate(service.stockingDate),
                 latestW,
                 latestL,
-                AppColors.successWith(0.08),
-                AppColors.success,
-                'Avg Weight',
-                'Avg Length',
+                true,
               ),
             ],
           ),
@@ -419,18 +460,22 @@ class GrowthOverviewPanel extends StatelessWidget {
     String subTitle,
     double weight,
     double length,
-    Color bgColor,
-    Color accentColor,
-    String weightLabel,
-    String lengthLabel,
+    bool isLatest,
   ) {
     return Expanded(
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          color: bgColor,
+          color: Colors.white,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: accentColor.withValues(alpha: 0.1)),
+          border: Border.all(color: AppColors.dark.withValues(alpha: 0.06)),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.darkWith(0.06),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
         child: Column(
           children: [
@@ -439,7 +484,7 @@ class GrowthOverviewPanel extends StatelessWidget {
               style: TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.w800,
-                color: accentColor,
+                color: isLatest ? AppColors.primary : AppColors.darkWith(0.5),
               ),
             ),
             const SizedBox(height: 4),
@@ -448,8 +493,8 @@ class GrowthOverviewPanel extends StatelessWidget {
               style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.5)),
             ),
             const SizedBox(height: 12),
-            _buildDataRow(weightLabel, '${weight.toStringAsFixed(1)} g'),
-            _buildDataRow(lengthLabel, '${length.toStringAsFixed(1)} cm'),
+            _buildDataRow('Avg Weight', '${weight.toStringAsFixed(1)} g'),
+            _buildDataRow('Avg Length', '${length.toStringAsFixed(1)} cm'),
           ],
         ),
       ),
@@ -461,11 +506,18 @@ class GrowthOverviewPanel extends StatelessWidget {
     final isPosL = length >= 0;
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: AppColors.warningWith(0.08),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.warningWith(0.2)),
+        border: Border.all(color: AppColors.dark.withValues(alpha: 0.06)),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.darkWith(0.06),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -475,23 +527,30 @@ class GrowthOverviewPanel extends StatelessWidget {
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w800,
-              color: AppColors.warningDark,
+              color: AppColors.dark,
             ),
           ),
-          Row(
-            children: [
-              _buildGrowthMetric(
-                'Avg Weight',
-                '${isPosW ? '+' : ''}${weight.toStringAsFixed(1)} g',
-                isPosW,
-              ),
-              const SizedBox(width: 16),
-              _buildGrowthMetric(
-                'Avg Length',
-                '${isPosL ? '+' : ''}${length.toStringAsFixed(1)} cm',
-                isPosL,
-              ),
-            ],
+          IntrinsicHeight(
+            child: Row(
+              children: [
+                _buildGrowthMetric(
+                  'Weight',
+                  '${isPosW ? '+' : ''}${weight.toStringAsFixed(1)}g',
+                  isPosW,
+                ),
+                const SizedBox(width: 10),
+                Container(
+                  width: 1,
+                  color: AppColors.darkWith(0.25),
+                ),
+                const SizedBox(width: 10),
+                _buildGrowthMetric(
+                  'Length',
+                  '${isPosL ? '+' : ''}${length.toStringAsFixed(1)}cm',
+                  isPosL,
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -500,9 +559,10 @@ class GrowthOverviewPanel extends StatelessWidget {
 
   Widget _buildGrowthMetric(String label, String value, bool isPos) {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         Text(
-          '$label:',
+          label,
           style: TextStyle(fontSize: 8, color: AppColors.darkWith(0.5)),
         ),
         Text(
@@ -642,9 +702,16 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.white,
+        color: const Color(0xFFFCFCFC),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.faintBorder),
+        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.darkWith(0.12),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -821,6 +888,13 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
                   ? AppColors.darkWith(0.08)
                   : AppColors.darkWith(0.04)),
         ),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.darkWith(0.06),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         children: [
@@ -1199,15 +1273,18 @@ class SamplingHistoryPanel extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: isLatest
-            ? AppColors.primaryWith(0.04)
-            : Colors.white,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: isLatest
-              ? AppColors.primaryWith(0.2)
-              : AppColors.darkWith(0.06),
+          color: AppColors.dark.withValues(alpha: 0.06),
         ),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.darkWith(0.06),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1311,14 +1388,14 @@ class SamplingHistoryPanel extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.white,
+        color: const Color(0xFFFCFCFC),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.faintBorder),
+        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: AppColors.darkWith(0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
+            color: AppColors.darkWith(0.12),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
