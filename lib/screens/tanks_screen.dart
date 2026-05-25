@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../theme/app_colors.dart';
+import '../models/crayfish_stage.dart';
 import '../services/tank_service.dart';
 import '../widgets/tanks/inventory_tab.dart';
 import '../widgets/tanks/sampling_tab.dart';
@@ -304,6 +305,7 @@ class _TanksScreenState extends State<TanksScreen> {
   }
 
   void _showGrowthStageReferenceModal() {
+    final scrollCtrl = ScrollController();
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -350,68 +352,78 @@ class _TanksScreenState extends State<TanksScreen> {
                   ),
                 ),
                 const SizedBox(height: 24),
-                Container(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: AppColors.dark.withValues(alpha: 0.08),
-                    ),
-                    color: Colors.white,
-                  ),
-                  child: Column(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 12,
+                SizedBox(
+                  width: double.infinity,
+                  child: Scrollbar(
+                    controller: scrollCtrl,
+                    thumbVisibility: true,
+                    child: SingleChildScrollView(
+                      controller: scrollCtrl,
+                      scrollDirection: Axis.horizontal,
+                      child: Container(
+                        constraints: BoxConstraints(
+                          minWidth: MediaQuery.of(context).size.width - 40,
                         ),
                         decoration: BoxDecoration(
-                          color: AppColors.primary.withValues(alpha: 0.06),
-                          borderRadius: const BorderRadius.vertical(
-                            top: Radius.circular(15),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: AppColors.dark.withValues(alpha: 0.08),
                           ),
+                          color: Colors.white,
                         ),
-                        child: const Row(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            Expanded(
-                              flex: 2,
-                              child: Text('STAGE', style: _tableHeaderStyle),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary.withValues(alpha: 0.06),
+                                borderRadius: const BorderRadius.vertical(
+                                  top: Radius.circular(15),
+                                ),
+                              ),
+                              child: const Row(
+                                children: [
+                                  SizedBox(width: 16),
+                                  SizedBox(
+                                    width: 130,
+                                    child: Text('Growth Stage', style: _tableHeaderStyle),
+                                  ),
+                                  SizedBox(width: 24),
+                                  SizedBox(
+                                    width: 160,
+                                    child: Text('Average Length (cm)', style: _tableHeaderStyle),
+                                  ),
+                                  SizedBox(width: 24),
+                                  SizedBox(
+                                    width: 160,
+                                    child: Text('Average Weight (g)', style: _tableHeaderStyle),
+                                  ),
+                                  SizedBox(width: 24),
+                                  SizedBox(
+                                    width: 220,
+                                    child: Text('System Classification', style: _tableHeaderStyle),
+                                  ),
+                                  SizedBox(width: 16),
+                                ],
+                              ),
                             ),
-                            Expanded(
-                              child: Text('LENGTH', style: _tableHeaderStyle),
-                            ),
-                            Expanded(
-                              child: Text('WEIGHT', style: _tableHeaderStyle),
-                            ),
+                            for (var i = 0; i < CrayfishStage.all.length; i++)
+                              _buildTableRow(
+                                CrayfishStage.all[i].label,
+                                CrayfishStage.all[i].lengthRange,
+                                CrayfishStage.all[i].weightRange,
+                                CrayfishStage.all[i].description,
+                                isStriped: i.isOdd,
+                                isLast: i == CrayfishStage.all.length - 1,
+                              ),
                           ],
                         ),
                       ),
-                      _buildTableRow(
-                        'Early Juvenile',
-                        '2–4 cm',
-                        '1–5 g',
-                        isStriped: false,
-                      ),
-                      _buildTableRow(
-                        'Advanced Juvenile',
-                        '4–6 cm',
-                        '5–15 g',
-                        isStriped: true,
-                      ),
-                      _buildTableRow(
-                        'Grow-out Phase',
-                        '6–10 cm',
-                        '15–50 g',
-                        isStriped: false,
-                      ),
-                      _buildTableRow(
-                        'Market Size',
-                        '> 10 cm',
-                        '50 g +',
-                        isStriped: true,
-                        isLast: true,
-                      ),
-                    ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: 32),
@@ -442,7 +454,7 @@ class _TanksScreenState extends State<TanksScreen> {
           ),
         );
       },
-    );
+    ).whenComplete(() => scrollCtrl.dispose());
   }
 
   static const _tableHeaderStyle = TextStyle(
@@ -455,7 +467,8 @@ class _TanksScreenState extends State<TanksScreen> {
   Widget _buildTableRow(
     String stage,
     String length,
-    String weight, {
+    String weight,
+    String classification, {
     required bool isStriped,
     bool isLast = false,
   }) {
@@ -471,8 +484,9 @@ class _TanksScreenState extends State<TanksScreen> {
       ),
       child: Row(
         children: [
-          Expanded(
-            flex: 2,
+          const SizedBox(width: 16),
+          SizedBox(
+            width: 130,
             child: Text(
               stage,
               style: const TextStyle(
@@ -482,26 +496,43 @@ class _TanksScreenState extends State<TanksScreen> {
               ),
             ),
           ),
-          Expanded(
+          const SizedBox(width: 24),
+          SizedBox(
+            width: 160,
             child: Text(
               length,
-              style: TextStyle(
-                fontSize: 11,
+              style: const TextStyle(
+                fontSize: 12,
                 fontWeight: FontWeight.w600,
-                color: AppColors.dark.withValues(alpha: 0.6),
+                color: AppColors.dark,
               ),
             ),
           ),
-          Expanded(
+          const SizedBox(width: 24),
+          SizedBox(
+            width: 160,
             child: Text(
               weight,
               style: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
-                color: AppColors.primary,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: AppColors.dark,
               ),
             ),
           ),
+          const SizedBox(width: 24),
+          SizedBox(
+            width: 220,
+            child: Text(
+              classification,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: AppColors.dark.withValues(alpha: 0.55),
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
         ],
       ),
     );

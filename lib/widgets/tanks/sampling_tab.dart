@@ -1113,7 +1113,7 @@ class GrowthStagePanel extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: List.generate(stages.length, (i) {
-              final isActive = i == activeIndex;
+              final isThisActive = i == activeIndex;
               final isReached = i <= activeIndex;
               return Expanded(
                 child: Text(
@@ -1121,8 +1121,8 @@ class GrowthStagePanel extends StatelessWidget {
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 8,
-                    fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
-                    color: isActive
+                    fontWeight: isThisActive ? FontWeight.w800 : FontWeight.w600,
+                    color: isThisActive
                         ? AppColors.primary
                         : (isReached
                               ? AppColors.darkWith(0.7)
@@ -1132,6 +1132,7 @@ class GrowthStagePanel extends StatelessWidget {
               );
             }),
           ),
+          const SizedBox(height: 16),
         ],
       ),
     );
