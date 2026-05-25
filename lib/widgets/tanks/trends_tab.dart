@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:fl_chart/fl_chart.dart';
 import '../../theme/app_colors.dart';
 import '../../services/tank_service.dart';
 import 'sampling_tab.dart';
@@ -14,12 +15,31 @@ class TrendsTab extends StatefulWidget {
 
 class _TrendsTabState extends State<TrendsTab> {
   String _activeMetric = 'ABW';
+  bool _sampleLoaded = false;
 
   @override
   void initState() {
     super.initState();
-    // Nakikinig sa TankService para mag-update ang UI pag may new data
     TankService.instance.addListener(_handleUpdate);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadSampleData());
+  }
+
+  void _loadSampleData() {
+    if (_sampleLoaded) return;
+    _sampleLoaded = true;
+    final service = TankService.instance;
+    if (service.mortalityHistory.isNotEmpty) return;
+    final now = DateTime.now();
+    service.addMortality(2, date: now.subtract(const Duration(days: 10)));
+    service.addMortality(0, date: now.subtract(const Duration(days: 9)));
+    service.addMortality(4, date: now.subtract(const Duration(days: 8)));
+    service.addMortality(1, date: now.subtract(const Duration(days: 7)));
+    service.addMortality(6, date: now.subtract(const Duration(days: 6)));
+    service.addMortality(3, date: now.subtract(const Duration(days: 5)));
+    service.addMortality(5, date: now.subtract(const Duration(days: 4)));
+    service.addMortality(2, date: now.subtract(const Duration(days: 3)));
+    service.addMortality(3, date: now.subtract(const Duration(days: 2)));
+    service.addMortality(1, date: now.subtract(const Duration(days: 1)));
   }
 
   @override
@@ -67,7 +87,7 @@ class _TrendsTabState extends State<TrendsTab> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
+            Icon(
               Icons.trending_up_rounded,
               size: 40,
               color: AppColors.primary,
@@ -97,77 +117,6 @@ class _TrendsTabState extends State<TrendsTab> {
     );
   }
 
-  Widget _buildMortalityChartContainer() {
-    final service = TankService.instance;
-    // Siguraduhin na may laman kahit 0.0 para sa graph
-    final mortalityData = service.mortalityHistory.isEmpty
-        ? [0.0]
-        : service.mortalityHistory;
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFCFCFC),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.darkWith(0.12),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          const Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              'Mortality Trend',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w800,
-                color: AppColors.dark,
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
-          SizedBox(
-            height: 160,
-            child: Column(
-              children: [
-                Expanded(
-                  child: CustomPaint(
-                    painter: _BarChartPainter(
-                      mortalityData,
-                      AppColors.critical,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: mortalityData.length == 1
-                      ? MainAxisAlignment.center
-                      : MainAxisAlignment.spaceBetween,
-                  children: List.generate(
-                    mortalityData.length,
-                    (i) => Text(
-                      i == 0 ? 'Init' : 'W$i',
-                      style: TextStyle(
-                        fontSize: 9,
-                        color: AppColors.darkWith(0.4),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildChartContainer() {
     final service = TankService.instance;
     final history = service.samplingHistory;
@@ -181,9 +130,14 @@ class _TrendsTabState extends State<TrendsTab> {
       data.addAll(history.map((e) => e.avgLength));
     }
 
-    final maxVal = data.reduce(max);
-    final minVal = data.reduce(min);
     final unit = _activeMetric == 'ABW' ? 'g' : 'cm';
+    final isAbw = _activeMetric == 'ABW';
+    final lineColor = isAbw ? AppColors.primary : const Color(0xFFf59e0b);
+
+    final labels = List.generate(
+      data.length,
+      (i) => i == 0 ? 'Initial' : 'Week $i',
+    );
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -216,9 +170,7 @@ class _TrendsTabState extends State<TrendsTab> {
                     ),
                   ),
                   Text(
-                    _activeMetric == 'ABW'
-                        ? 'Average Weight'
-                        : 'Average Length',
+                    isAbw ? 'Average Weight' : 'Average Length',
                     style: TextStyle(
                       fontSize: 10,
                       color: AppColors.darkWith(0.5),
@@ -232,68 +184,531 @@ class _TrendsTabState extends State<TrendsTab> {
           const SizedBox(height: 24),
           SizedBox(
             height: 200,
-            child: Row(
-              children: [
-                Column(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            child: data.length == 1
+                ? Center(
+                    child: Text(
+                      '${data[0].toStringAsFixed(1)} $unit',
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.w800,
+                        color: lineColor,
+                      ),
+                    ),
+                  )
+                : _buildLineChart(data, lineColor, unit, labels),
+          ),
+          const SizedBox(height: 12),
+          _buildGrowthFooter(data, unit),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLineChart(
+      List<double> data, Color color, String unit, List<String> labels) {
+    final spots = data
+        .asMap()
+        .entries
+        .map((e) => FlSpot(e.key.toDouble(), e.value))
+        .toList();
+
+    return LineChart(
+      LineChartData(
+        minX: 0,
+        maxX: (data.length - 1).toDouble(),
+        minY: 0,
+        maxY: (data.reduce(max) * 1.15).ceilToDouble(),
+        gridData: FlGridData(
+          show: true,
+          drawVerticalLine: false,
+          horizontalInterval: ((data.reduce(max) * 1.15).ceilToDouble()) / 3,
+          getDrawingHorizontalLine: (value) => FlLine(
+            color: AppColors.darkWith(0.04),
+            strokeWidth: 1,
+          ),
+        ),
+        titlesData: FlTitlesData(
+          topTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          rightTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              interval: 1,
+              getTitlesWidget: (value, meta) {
+                final i = value.toInt();
+                if (i >= 0 && i < labels.length) {
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      labels[i],
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: AppColors.darkWith(0.4),
+                      ),
+                    ),
+                  );
+                }
+                return const SizedBox.shrink();
+              },
+            ),
+          ),
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 40,
+              getTitlesWidget: (value, meta) {
+                if (value == meta.min || value == meta.max) {
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: Text(
+                      '${value.toStringAsFixed(1)} $unit',
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: AppColors.darkWith(0.4),
+                      ),
+                    ),
+                  );
+                }
+                final mid = (meta.max + meta.min) / 2;
+                if ((value - mid).abs() < 0.5) {
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: Text(
+                      '${value.toStringAsFixed(1)} $unit',
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: AppColors.darkWith(0.4),
+                      ),
+                    ),
+                  );
+                }
+                return const SizedBox.shrink();
+              },
+            ),
+          ),
+        ),
+        borderData: FlBorderData(show: false),
+        lineTouchData: LineTouchData(
+          enabled: true,
+          touchTooltipData: LineTouchTooltipData(
+            getTooltipItems: (touchedSpots) {
+              return touchedSpots.map((spot) {
+                final i = spot.spotIndex;
+                return LineTooltipItem(
+                  '${spot.y.toStringAsFixed(1)} $unit',
+                  TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
                   children: [
-                    Text(
-                      '${maxVal.toStringAsFixed(1)} $unit',
+                    TextSpan(
+                      text: '\n${labels[i]}',
                       style: TextStyle(
-                        fontSize: 9,
-                        color: AppColors.darkWith(0.4),
-                      ),
-                    ),
-                    Text(
-                      '${((maxVal + minVal) / 2).toStringAsFixed(1)} $unit',
-                      style: TextStyle(
-                        fontSize: 9,
-                        color: AppColors.darkWith(0.4),
-                      ),
-                    ),
-                    Text(
-                      '${minVal.toStringAsFixed(1)} $unit',
-                      style: TextStyle(
-                        fontSize: 9,
-                        color: AppColors.darkWith(0.4),
+                        color: Colors.white.withValues(alpha: 0.7),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ],
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    children: [
-                      Expanded(
-                        child: CustomPaint(
-                          painter: _LineChartPainter(data, AppColors.primary),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: data.length == 1
-                            ? MainAxisAlignment.center
-                            : MainAxisAlignment.spaceBetween,
-                        children: List.generate(
-                          data.length,
-                          (i) => Text(
-                            i == 0 ? 'Init' : 'W$i',
-                            style: TextStyle(
-                              fontSize: 9,
-                              color: AppColors.darkWith(0.4),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+                );
+              }).toList();
+            },
+          ),
+        ),
+        lineBarsData: [
+          LineChartBarData(
+            spots: spots,
+            isCurved: true,
+            curveSmoothness: 0.3,
+            color: color,
+            barWidth: 2.5,
+            isStrokeCapRound: true,
+            dotData: FlDotData(
+              show: true,
+              getDotPainter: (spot, percent, barData, index) =>
+                  FlDotCirclePainter(
+                radius: 4,
+                color: color,
+                strokeWidth: 2,
+                strokeColor: Colors.white,
+              ),
+            ),
+            belowBarData: BarAreaData(
+              show: true,
+              color: color.withValues(alpha: 0.13),
             ),
           ),
         ],
       ),
     );
+  }
+
+  Widget _buildGrowthFooter(List<double> data, String unit) {
+    if (data.length < 2) {
+      return Row(
+        children: [
+          Icon(Icons.info_outline_rounded,
+              size: 12, color: AppColors.darkWith(0.35)),
+          const SizedBox(width: 4),
+          Text(
+            'Keep sampling to track growth',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w500,
+              color: AppColors.darkWith(0.45),
+            ),
+          ),
+        ],
+      );
+    }
+
+    final firstVal = data.first;
+    final lastVal = data.last;
+    final gain = lastVal - firstVal;
+    final weekly = gain / (data.length - 1);
+
+    return Row(
+      children: [
+        if (data.length == 2) ...[
+          Text(
+            'Total gain: ',
+            style: TextStyle(
+              fontSize: 10,
+              color: AppColors.darkWith(0.45),
+            ),
+          ),
+          Text(
+            '+${gain.toStringAsFixed(2)} $unit',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: gain >= 0 ? const Color(0xFF1FA5A5) : AppColors.critical,
+            ),
+          ),
+        ] else ...[
+          Text(
+            'Total gain: ',
+            style: TextStyle(
+              fontSize: 10,
+              color: AppColors.darkWith(0.45),
+            ),
+          ),
+          Text(
+            '+${gain.toStringAsFixed(2)} $unit',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: gain >= 0 ? const Color(0xFF1FA5A5) : AppColors.critical,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Text(
+            'Avg weekly: ',
+            style: TextStyle(
+              fontSize: 10,
+              color: AppColors.darkWith(0.45),
+            ),
+          ),
+          Text(
+            '+${weekly.toStringAsFixed(2)} $unit',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: weekly >= 0
+                  ? const Color(0xFF1FA5A5)
+                  : AppColors.critical,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildMortalityChartContainer() {
+    final service = TankService.instance;
+    final entries = service.mortalityHistory;
+    final totalMort = service.totalMortality;
+
+    // Group entries by date para iwas multiple bars sa same day
+    final dailyMap = <DateTime, int>{};
+    for (final e in entries) {
+      final day = DateTime(e.date.year, e.date.month, e.date.day);
+      dailyMap[day] = (dailyMap[day] ?? 0) + e.count;
+    }
+    final dailyEntries = dailyMap.entries
+        .map((e) => MortalityEntry(date: e.key, count: e.value))
+        .toList()
+      ..sort((a, b) => a.date.compareTo(b.date));
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFCFCFC),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.darkWith(0.12),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Mortality Trend',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+                color: AppColors.dark,
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          SizedBox(
+            height: 180,
+            child: dailyEntries.isEmpty
+                ? Center(
+                    child: Text(
+                      'No mortality data',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppColors.darkWith(0.4),
+                      ),
+                    ),
+                  )
+                : _buildMortalityLineChart(dailyEntries),
+          ),
+          const SizedBox(height: 12),
+          _buildMortalityFooter(service, entries, totalMort),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMortalityFooter(
+      TankService service, List<MortalityEntry> entries, int totalMort) {
+    final survRate = service.survivalRate;
+    final dailyAvg = service.dailyAverageMortality;
+
+    return Column(
+      children: [
+        Row(
+          children: [
+            Icon(
+              totalMort > 0
+                  ? Icons.warning_amber_rounded
+                  : Icons.check_circle_outline_rounded,
+              size: 12,
+              color: totalMort > 0
+                  ? AppColors.critical
+                  : const Color(0xFF52C283),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              totalMort > 0
+                  ? '$totalMort total mortality'
+                  : 'No mortality',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                color: totalMort > 0
+                    ? AppColors.critical
+                    : const Color(0xFF52C283),
+              ),
+            ),
+          ],
+        ),
+        if (entries.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              _statChip(
+                'Survival',
+                '${survRate.toStringAsFixed(1)}%',
+                survRate > 80
+                    ? const Color(0xFF52C283)
+                    : survRate > 50
+                        ? const Color(0xFFf59e0b)
+                        : AppColors.critical,
+              ),
+              const SizedBox(width: 12),
+              _statChip(
+                'Daily avg',
+                '${dailyAvg.toStringAsFixed(2)}/day',
+                AppColors.darkWith(0.6),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _statChip(String label, String value, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '$label: ',
+            style: TextStyle(
+              fontSize: 9,
+              color: AppColors.darkWith(0.5),
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 9,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMortalityLineChart(List<MortalityEntry> entries) {
+    if (entries.isEmpty) return const SizedBox.shrink();
+
+    final maxVal = entries.map((e) => e.count.toDouble()).reduce(max);
+    final effectiveMax = maxVal == 0 ? 1.0 : maxVal;
+
+    final labels = entries.map((e) => _formatMortDate(e.date)).toList();
+
+    final rawStep = (effectiveMax / 4).ceilToDouble();
+    final step = rawStep < 1 ? 1.0 : rawStep;
+    final chartMaxY = step * 4;
+    final yLabels = [0.0, step, step * 2, step * 3, step * 4];
+
+    return BarChart(
+      BarChartData(
+        alignment: BarChartAlignment.spaceAround,
+        maxY: chartMaxY,
+        minY: 0,
+        gridData: const FlGridData(show: false),
+        titlesData: FlTitlesData(
+          topTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          rightTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              getTitlesWidget: (value, meta) {
+                final i = value.toInt();
+                if (i >= 0 && i < labels.length) {
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      labels[i],
+                      style: TextStyle(
+                        fontSize: 8,
+                        color: AppColors.darkWith(0.4),
+                      ),
+                    ),
+                  );
+                }
+                return const SizedBox.shrink();
+              },
+            ),
+          ),
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 24,
+              interval: step,
+              getTitlesWidget: (value, meta) {
+                final v = value.toInt();
+                if (yLabels.contains(value)) {
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: Text(
+                      '$v',
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: AppColors.darkWith(0.4),
+                      ),
+                    ),
+                  );
+                }
+                return const SizedBox.shrink();
+              },
+            ),
+          ),
+        ),
+        borderData: FlBorderData(show: false),
+        barTouchData: BarTouchData(
+          enabled: true,
+          touchTooltipData: BarTouchTooltipData(
+            getTooltipItem: (group, groupIndex, rod, rodIndex) {
+              final val = rod.toY;
+              final date = labels[group.x];
+              return BarTooltipItem(
+                '${val.toInt()} ${val == 1 ? 'mortality' : 'mortalities'}',
+                TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12,
+                ),
+                children: [
+                  TextSpan(
+                    text: '\n$date',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.7),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+        barGroups: List.generate(entries.length, (i) {
+          final val = entries[i].count;
+          return BarChartGroupData(
+            x: i,
+            barRods: [
+              BarChartRodData(
+                toY: val.toDouble(),
+                color: val > 0 ? AppColors.critical : const Color(0xFF52C283),
+                width: 20,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(4),
+                  topRight: Radius.circular(4),
+                ),
+              ),
+            ],
+          );
+        }),
+      ),
+    );
+  }
+
+  String _formatMortDate(DateTime date) {
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return '${months[date.month - 1]} ${date.day}';
   }
 
   Widget _buildToggle() {
@@ -330,76 +745,4 @@ class _TrendsTabState extends State<TrendsTab> {
       ),
     );
   }
-}
-
-class _LineChartPainter extends CustomPainter {
-  final List<double> data;
-  final Color color;
-  _LineChartPainter(this.data, this.color);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (data.isEmpty) return;
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = 3
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-    final dotPaint = Paint()
-      ..color = color
-      ..style = PaintingStyle.fill;
-    final maxVal = data.reduce(max);
-    final minVal = data.reduce(min);
-    final range = (maxVal - minVal) == 0 ? 1.0 : (maxVal - minVal);
-
-    final xStep = data.length > 1 ? size.width / (data.length - 1) : 0.0;
-    final path = Path();
-
-    for (int i = 0; i < data.length; i++) {
-      final x = data.length == 1 ? size.width / 2 : i * xStep;
-      final y = size.height - ((data[i] - minVal) / range * size.height);
-      if (i == 0)
-        path.moveTo(x, y);
-      else
-        path.lineTo(x, y);
-      canvas.drawCircle(Offset(x, y), 5, dotPaint);
-    }
-    if (data.length > 1) canvas.drawPath(path, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _LineChartPainter oldDelegate) => true;
-}
-
-class _BarChartPainter extends CustomPainter {
-  final List<double> data;
-  final Color color;
-  _BarChartPainter(this.data, this.color);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (data.isEmpty) return;
-    final maxVal = data.reduce(max) == 0 ? 1.0 : data.reduce(max);
-    final barWidth = size.width / (data.length * 2);
-    final paint = Paint()
-      ..color = color.withValues(alpha: 0.6)
-      ..style = PaintingStyle.fill;
-
-    for (int i = 0; i < data.length; i++) {
-      final x = data.length == 1
-          ? (size.width / 2) - (barWidth / 2)
-          : i * (barWidth * 2);
-      final barHeight = (data[i] / maxVal) * size.height;
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(x, size.height - barHeight, barWidth, barHeight),
-          const Radius.circular(4),
-        ),
-        paint,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _BarChartPainter oldDelegate) => true;
 }

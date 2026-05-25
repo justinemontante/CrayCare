@@ -75,6 +75,12 @@ class TankActivity {
   });
 }
 
+class MortalityEntry {
+  final DateTime date;
+  final int count;
+  MortalityEntry({required this.date, required this.count});
+}
+
 class TankService extends ChangeNotifier {
   static final TankService instance = TankService._();
   TankService._();
@@ -93,7 +99,7 @@ class TankService extends ChangeNotifier {
   final List<TankActivity> _activities = [];
 
   // Track mortality entries for the graph in Trends tab
-  List<double> _mortalityHistory = [];
+  List<MortalityEntry> _mortalityHistory = [];
 
   bool get isInitialized => _isInitialized;
   int get initialCount => _initialCount;
@@ -111,7 +117,46 @@ class TankService extends ChangeNotifier {
   List<SamplingEntry> get samplingHistory =>
       List.unmodifiable(_samplingHistory);
   List<TankActivity> get activities => List.unmodifiable(_activities.reversed);
-  List<double> get mortalityHistory => List.unmodifiable(_mortalityHistory);
+  List<MortalityEntry> get mortalityHistory {
+    try {
+      return List.unmodifiable(_mortalityHistory);
+    } catch (_) {
+      _mortalityHistory = [];
+      return const [];
+    }
+  }
+
+  int get totalMortality {
+    try {
+      return _mortalityHistory.fold(0, (sum, e) => sum + e.count);
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  double get dailyAverageMortality {
+    try {
+      if (_mortalityHistory.isEmpty) return 0;
+      final firstDate = _mortalityHistory.first.date;
+      final days = DateTime.now().difference(firstDate).inDays;
+      if (days < 1) return _mortalityHistory.fold(0, (s, e) => s + e.count).toDouble();
+      return _mortalityHistory.fold(0, (s, e) => s + e.count) / days;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  List<int> get cumulativeMortality {
+    try {
+      var running = 0;
+      return _mortalityHistory.map((e) {
+        running += e.count;
+        return running;
+      }).toList();
+    } catch (_) {
+      return [];
+    }
+  }
 
   GrowthStage get currentGrowthStage {
     final latest = _samplingHistory.isNotEmpty ? _samplingHistory.last : null;
@@ -151,7 +196,10 @@ class TankService extends ChangeNotifier {
 
   void addMortality(int val, {DateTime? date}) {
     _mortality += val;
-    _mortalityHistory.add(val.toDouble()); // Push new point for the graph!
+    _mortalityHistory.add(MortalityEntry(
+      date: date ?? DateTime.now(),
+      count: val,
+    ));
     _addActivity(
       'Recorded mortality of $val crayfish (Total: $_mortality)',
       'mortality',
@@ -198,8 +246,8 @@ class TankService extends ChangeNotifier {
     _isInitialized = true;
 
     _samplingHistory.clear();
+    _mortalityHistory.clear();
     _activities.clear();
-    _mortalityHistory = [0.0]; // Set base initial as zero mortalities
 
     _addActivity(
       'Initialized grow-out with $initial population',

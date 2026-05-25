@@ -74,7 +74,9 @@ void showBeautifulSnackbar(
           ),
         ],
       ),
-      backgroundColor: isSuccess ? const Color(0xFF059669) : const Color(0xFFDC2626),
+      backgroundColor: isSuccess
+          ? const Color(0xFF059669)
+          : const Color(0xFFDC2626),
       behavior: SnackBarBehavior.floating,
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -380,7 +382,9 @@ class _TanksScreenState extends State<TanksScreen> {
                                 vertical: 12,
                               ),
                               decoration: BoxDecoration(
-                                color: AppColors.primary.withValues(alpha: 0.06),
+                                color: AppColors.primary.withValues(
+                                  alpha: 0.06,
+                                ),
                                 borderRadius: const BorderRadius.vertical(
                                   top: Radius.circular(15),
                                 ),
@@ -390,22 +394,34 @@ class _TanksScreenState extends State<TanksScreen> {
                                   SizedBox(width: 16),
                                   SizedBox(
                                     width: 130,
-                                    child: Text('Growth Stage', style: _tableHeaderStyle),
+                                    child: Text(
+                                      'Growth Stage',
+                                      style: _tableHeaderStyle,
+                                    ),
                                   ),
                                   SizedBox(width: 24),
                                   SizedBox(
                                     width: 160,
-                                    child: Text('Average Length (cm)', style: _tableHeaderStyle),
+                                    child: Text(
+                                      'Average Length (cm)',
+                                      style: _tableHeaderStyle,
+                                    ),
                                   ),
                                   SizedBox(width: 24),
                                   SizedBox(
                                     width: 160,
-                                    child: Text('Average Weight (g)', style: _tableHeaderStyle),
+                                    child: Text(
+                                      'Average Weight (g)',
+                                      style: _tableHeaderStyle,
+                                    ),
                                   ),
                                   SizedBox(width: 24),
                                   SizedBox(
                                     width: 220,
-                                    child: Text('System Classification', style: _tableHeaderStyle),
+                                    child: Text(
+                                      'System Classification',
+                                      style: _tableHeaderStyle,
+                                    ),
                                   ),
                                   SizedBox(width: 16),
                                 ],
@@ -550,12 +566,16 @@ class _TanksScreenState extends State<TanksScreen> {
     );
     final totalWeightCtrl = TextEditingController(
       text: isEdit
-          ? (TankService.instance.initialWeight * TankService.instance.sampleCount).toStringAsFixed(1)
+          ? (TankService.instance.initialWeight *
+                    TankService.instance.sampleCount)
+                .toStringAsFixed(1)
           : '',
     );
     final totalLengthCtrl = TextEditingController(
       text: isEdit
-          ? (TankService.instance.initialLength * TankService.instance.sampleCount).toStringAsFixed(1)
+          ? (TankService.instance.initialLength *
+                    TankService.instance.sampleCount)
+                .toStringAsFixed(1)
           : '',
     );
 
@@ -606,25 +626,27 @@ class _TanksScreenState extends State<TanksScreen> {
                     const SizedBox(height: 20),
                     Row(
                       children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(
-                        Icons.tune_rounded,
-                        size: 22,
-                        color: AppColors.primary,
-                      ),
-                    ),
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            Icons.tune_rounded,
+                            size: 22,
+                            color: AppColors.primary,
+                          ),
+                        ),
                         const SizedBox(width: 12),
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              isEdit ? 'Edit Initialization' : 'Grow-Out Initialization',
+                              isEdit
+                                  ? 'Edit Initialization'
+                                  : 'Grow-Out Initialization',
                               style: const TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.w900,
@@ -632,7 +654,9 @@ class _TanksScreenState extends State<TanksScreen> {
                               ),
                             ),
                             Text(
-                              isEdit ? 'Update your tank setup data' : 'Set up your tank for the first time',
+                              isEdit
+                                  ? 'Update your tank setup data'
+                                  : 'Set up your tank for the first time',
                               style: TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.w500,
@@ -645,14 +669,22 @@ class _TanksScreenState extends State<TanksScreen> {
                     ),
                     const SizedBox(height: 24),
                     _buildInfoCard(
-                      Image.asset('assets/images/InitialPopulation.png', width: 24, height: 24),
+                      Image.asset(
+                        'assets/images/InitialPopulation.png',
+                        width: 24,
+                        height: 24,
+                      ),
                       'Initial Population',
                       'Total stock count upon start',
                       countCtrl,
                       onChanged: revalidate,
                     ),
                     _buildInfoCard(
-                      Image.asset('assets/images/SampleCount.png', width: 24, height: 24),
+                      Image.asset(
+                        'assets/images/SampleCount.png',
+                        width: 24,
+                        height: 24,
+                      ),
                       'Sample Count',
                       'Number of crayfish sampled',
                       sampleCountCtrl,
@@ -660,13 +692,21 @@ class _TanksScreenState extends State<TanksScreen> {
                       onChanged: revalidate,
                     ),
                     _buildInfoCard(
-                      Image.asset('assets/images/TotalWeight.png', width: 24, height: 24),
+                      Image.asset(
+                        'assets/images/TotalWeight.png',
+                        width: 24,
+                        height: 24,
+                      ),
                       'Total Weight (g)',
                       'Sum weight of sampled group',
                       totalWeightCtrl,
                     ),
                     _buildInfoCard(
-                      Image.asset('assets/images/TotalLength.png', width: 24, height: 24),
+                      Image.asset(
+                        'assets/images/TotalLength.png',
+                        width: 24,
+                        height: 24,
+                      ),
                       'Total Length (cm)',
                       'Sum length of sampled group',
                       totalLengthCtrl,
@@ -683,9 +723,11 @@ class _TanksScreenState extends State<TanksScreen> {
                                 final sampleCount =
                                     int.tryParse(sampleCountCtrl.text) ?? 0;
                                 final totalWeight =
-                                    double.tryParse(totalWeightCtrl.text) ?? 0.0;
+                                    double.tryParse(totalWeightCtrl.text) ??
+                                    0.0;
                                 final totalLength =
-                                    double.tryParse(totalLengthCtrl.text) ?? 0.0;
+                                    double.tryParse(totalLengthCtrl.text) ??
+                                    0.0;
 
                                 if (count > 0 && sampleCount > 0) {
                                   TankService.instance.initializeGrowOut(
@@ -719,7 +761,9 @@ class _TanksScreenState extends State<TanksScreen> {
                           elevation: 0,
                         ),
                         child: Text(
-                          isEdit ? 'Update Initialization' : 'Initialize Grow-Out',
+                          isEdit
+                              ? 'Update Initialization'
+                              : 'Initialize Grow-Out',
                           style: const TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 14,
@@ -799,7 +843,9 @@ class _TanksScreenState extends State<TanksScreen> {
                 child: TextField(
                   controller: controller,
                   onChanged: (_) => onChanged?.call(),
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
                   inputFormatters: [
                     FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$')),
                   ],
@@ -841,7 +887,9 @@ class _TanksScreenState extends State<TanksScreen> {
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
                       borderSide: BorderSide(
-                        color: hasError ? AppColors.critical : AppColors.primary,
+                        color: hasError
+                            ? AppColors.critical
+                            : AppColors.primary,
                         width: 1.5,
                       ),
                     ),
@@ -941,7 +989,10 @@ class _TanksScreenState extends State<TanksScreen> {
                   ),
                   const SizedBox(height: 6),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
                     decoration: BoxDecoration(
                       color: AppColors.primary.withValues(alpha: 0.06),
                       borderRadius: BorderRadius.circular(10),
@@ -1106,10 +1157,7 @@ class _TanksScreenState extends State<TanksScreen> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
-                            Icons.receipt_long_rounded,
-                            size: 40,
-                          ),
+                          Icon(Icons.receipt_long_rounded, size: 40),
                           SizedBox(height: 12),
                           Text(
                             'No logs yet',
@@ -1200,7 +1248,9 @@ class _TanksScreenState extends State<TanksScreen> {
                                       style: TextStyle(
                                         fontSize: 10,
                                         fontWeight: FontWeight.w500,
-                                        color: AppColors.dark.withValues(alpha: 0.4),
+                                        color: AppColors.dark.withValues(
+                                          alpha: 0.4,
+                                        ),
                                       ),
                                     ),
                                   ],
@@ -1219,7 +1269,7 @@ class _TanksScreenState extends State<TanksScreen> {
                                   act.type == 'init'
                                       ? 'Initialization'
                                       : act.type[0].toUpperCase() +
-                                          act.type.substring(1),
+                                            act.type.substring(1),
                                   style: TextStyle(
                                     fontSize: 8,
                                     fontWeight: FontWeight.w700,
