@@ -138,13 +138,13 @@ class InventoryTab extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 18, 14, 14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: const Color(0xFFFCFCFC),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.dark.withValues(alpha: 0.05)),
+        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: AppColors.dark.withValues(alpha: 0.04),
-            blurRadius: 20,
+            color: AppColors.darkWith(0.12),
+            blurRadius: 16,
             offset: const Offset(0, 4),
           ),
         ],
