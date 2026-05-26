@@ -162,11 +162,6 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     }
   }
 
-  bool get _hasLiveData {
-    if (_activeFilter != 'live') return true;
-    return SensorService.sensorKeys.any((key) => _getData(key, 'live').isNotEmpty);
-  }
-
   List<double> _getData(String key, String range) {
     return _data['$key-$range'] ?? [];
   }
@@ -220,10 +215,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                     child: _buildCustomDateRow(),
                   ),
                 const SizedBox(height: 10),
-                if (_activeFilter == 'live' && !_hasLiveData)
-                  _buildNoLiveData()
-                else
-                  Padding(
+                Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                     child: Column(
                       children: [
@@ -539,48 +531,6 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
-  Widget _buildNoLiveData() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: Column(
-        children: [
-          const SizedBox(height: 40),
-          Icon(Icons.sensors_off_outlined, size: 56, color: AppColors.darkWith(0.12)),
-          const SizedBox(height: 16),
-          const Text(
-            'No Live Data',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.dark),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Waiting for ESP32 sensor data.\nMake sure the device is connected.',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 13, color: AppColors.darkWith(0.5), height: 1.4),
-          ),
-          const SizedBox(height: 24),
-          SizedBox(
-            width: 160,
-            child: TextButton(
-              onPressed: () {
-                setState(() {
-                  _activeFilter = '24h';
-                  _generateData('24h');
-                });
-              },
-              style: TextButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-              child: const Text('View historical data', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   String _formatDate(DateTime dt) {
     final months = [
       'Jan',
@@ -885,7 +835,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                 child: data.isEmpty
                     ? Center(
                         child: Text(
-                          'No data',
+                          _noDataStatus(chartKey),
                           style: TextStyle(
                             fontSize: 10,
                             color: AppColors.darkWith(0.2),
@@ -972,6 +922,23 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     final range = SettingsService.instance.currentRanges[key];
     if (range != null) return range;
     return {'min': 0.0, 'max': 999.0};
+  }
+
+  String _noDataStatus(String key) {
+    switch (key) {
+      case 'temp':
+        return 'No reading from temperature sensor';
+      case 'ph':
+        return 'No reading from pH sensor';
+      case 'do':
+        return 'No reading from dissolved oxygen sensor';
+      case 'turb':
+        return 'No reading from turbidity sensor';
+      case 'waterlevel':
+        return 'No reading from water level sensor';
+      default:
+        return 'No reading';
+    }
   }
 
   Widget _buildStatsFooter(
@@ -1462,7 +1429,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                               ),
                               child: Center(
                                 child: Text(
-                                  'No data available',
+                                  _noDataStatus(chartKey),
                                   style: TextStyle(
                                     fontSize: 11,
                                     color: AppColors.darkWith(0.3),

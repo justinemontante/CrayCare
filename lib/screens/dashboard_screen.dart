@@ -355,10 +355,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildGaugeGrid(BuildContext context) {
-    final temp = SensorService.instance.getLatestValue('temp');
-    final ph = SensorService.instance.getLatestValue('ph');
-    final dO2 = SensorService.instance.getLatestValue('do');
-    final turb = SensorService.instance.getLatestValue('turb');
+    final ss = SensorService.instance;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -369,12 +366,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Expanded(
                 child: _buildGaugeCard(
                   title: 'Temperature',
-                  value: temp.toStringAsFixed(1),
+                  value: ss.hasSensorData('temp') ? ss.getLatestValue('temp').toStringAsFixed(1) : '--',
                   unit: '\u00B0C',
                   ideal: 'Ideal: 25 \u2013 30\u00B0C',
                   iconPath: 'assets/images/temperature.png',
-                  status: _getStatus('temp', temp),
-                  statusColor: _getStatusColor('temp', temp),
+                  status: _getStatus('temp'),
+                  statusColor: _getStatusColor('temp'),
                   onTap: () => _showGaugeDetail(
                     context,
                     sensorKey: 'temp',
@@ -389,12 +386,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Expanded(
                 child: _buildGaugeCard(
                   title: 'pH Level',
-                  value: ph.toStringAsFixed(1),
+                  value: ss.hasSensorData('ph') ? ss.getLatestValue('ph').toStringAsFixed(1) : '--',
                   unit: 'pH',
                   ideal: 'Ideal: 7.0 \u2013 8.5',
                   iconPath: 'assets/images/pH.png',
-                  status: _getStatus('ph', ph),
-                  statusColor: _getStatusColor('ph', ph),
+                  status: _getStatus('ph'),
+                  statusColor: _getStatusColor('ph'),
                   onTap: () => _showGaugeDetail(
                     context,
                     sensorKey: 'ph',
@@ -413,12 +410,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Expanded(
                 child: _buildGaugeCard(
                   title: 'Dissolved O\u2082',
-                  value: dO2.toStringAsFixed(1),
+                  value: ss.hasSensorData('do') ? ss.getLatestValue('do').toStringAsFixed(1) : '--',
                   unit: 'mg/L',
                   ideal: 'Ideal: >5.0 mg/L',
                   iconPath: 'assets/images/DO.png',
-                  status: _getStatus('do', dO2),
-                  statusColor: _getStatusColor('do', dO2),
+                  status: _getStatus('do'),
+                  statusColor: _getStatusColor('do'),
                   onTap: () => _showGaugeDetail(
                     context,
                     sensorKey: 'do',
@@ -433,12 +430,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Expanded(
                 child: _buildGaugeCard(
                   title: 'Turbidity',
-                  value: turb.toStringAsFixed(0),
+                  value: ss.hasSensorData('turb') ? ss.getLatestValue('turb').toStringAsFixed(0) : '--',
                   unit: 'NTU',
                   ideal: 'Ideal: 0 \u2013 25 NTU',
                   iconPath: 'assets/images/Turbidity.png',
-                  status: _getStatus('turb', turb),
-                  statusColor: _getStatusColor('turb', turb),
+                  status: _getStatus('turb'),
+                  statusColor: _getStatusColor('turb'),
                   onTap: () => _showGaugeDetail(
                     context,
                     sensorKey: 'turb',
@@ -456,13 +453,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  String _getStatus(String key, double val) {
-    final zone = SensorService.instance.getZone(key);
-    return zone;
+  String _getStatus(String key) {
+    final ss = SensorService.instance;
+    if (!ss.hasSensorData(key)) return 'No reading';
+    return ss.getZone(key);
   }
 
-  Color _getStatusColor(String key, double val) {
-    final zone = SensorService.instance.getZone(key);
+  Color _getStatusColor(String key) {
+    final ss = SensorService.instance;
+    if (!ss.hasSensorData(key)) return AppColors.darkWith(0.3);
+    final zone = ss.getZone(key);
     if (zone == 'SENSOR ERROR' || zone == 'PLACEHOLDER') {
       return AppColors.mutedText;
     }
@@ -503,17 +503,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildWaterLevelGauge(BuildContext context) {
-    final wl = SensorService.instance.getLatestValue('waterlevel');
+    final ss = SensorService.instance;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14),
       child: _buildGaugeCard(
         title: 'Water Level',
-        value: wl.toStringAsFixed(0),
+        value: ss.hasSensorData('waterlevel') ? ss.getLatestValue('waterlevel').toStringAsFixed(0) : '--',
         unit: 'cm',
         ideal: 'Ideal: 130 \u2013 180 cm',
         iconPath: 'assets/images/waterLevel.png',
-        status: _getStatus('waterlevel', wl),
-        statusColor: _getStatusColor('waterlevel', wl),
+        status: _getStatus('waterlevel'),
+        statusColor: _getStatusColor('waterlevel'),
         onTap: () => _showGaugeDetail(
           context,
           sensorKey: 'waterlevel',
@@ -984,11 +984,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
             SettingsService.instance,
           ]),
           builder: (context, child) {
-            final value = SensorService.instance.getLatestValue(sensorKey);
-            final status = _getStatus(sensorKey, value);
-            final statusColor = _getStatusColor(sensorKey, value);
-            final formattedValue =
-                sensorKey == 'turb' || sensorKey == 'waterlevel'
+            final ss = SensorService.instance;
+            final hasData = ss.hasSensorData(sensorKey);
+            final value = ss.getLatestValue(sensorKey);
+            final status = _getStatus(sensorKey);
+            final statusColor = _getStatusColor(sensorKey);
+            final formattedValue = !hasData
+                ? '--'
+                : sensorKey == 'turb' || sensorKey == 'waterlevel'
                 ? value.toStringAsFixed(0)
                 : value.toStringAsFixed(1);
 

@@ -101,6 +101,7 @@ class SensorService extends ChangeNotifier {
     return -1;
   }
 
+  bool hasSensorData(String key) => _latest.containsKey(key);
   double getLatestValue(String key) => _latest[key] ?? 0.0;
 
   List<double> getData(String key) => _history[key] ?? [];
