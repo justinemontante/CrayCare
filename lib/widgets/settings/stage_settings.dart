@@ -29,7 +29,7 @@ class _StageSettingsState extends State<StageSettings> {
 
   final Map<String, _SensorMeta> sensorMeta = const {
     'temp': _SensorMeta(
-      label: 'Temperature', unit: '°C',
+      label: 'Temperature', unit: '\u00B0C',
       iconPath: 'assets/images/temperature.png', color: Color(0xFFF59E0B),
     ),
     'ph': _SensorMeta(
@@ -41,11 +41,11 @@ class _StageSettingsState extends State<StageSettings> {
       iconPath: 'assets/images/DO.png', color: Color(0xFF3B82F6),
     ),
     'turb': _SensorMeta(
-      label: 'Turbidity / Water Quality', unit: '%',
+      label: 'Turbidity', unit: 'NTU',
       iconPath: 'assets/images/Turbidity.png', color: Color(0xFF64748B),
     ),
     'waterlevel': _SensorMeta(
-      label: 'Water Level', unit: '%',
+      label: 'Water Level', unit: 'cm',
       iconPath: 'assets/images/waterLevel.png', color: AppColors.primary,
     ),
   };
@@ -394,129 +394,11 @@ class _StageSettingsState extends State<StageSettings> {
     );
   }
 
-  Widget _buildStagePanel(CrayfishStage stage) {
-    final svc = SettingsService.instance;
-    final isCurrent = stage.name == svc.currentStage;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isCurrent
-              ? AppColors.primary.withValues(alpha: 0.3)
-              : AppColors.dark.withValues(alpha: 0.06),
-          width: isCurrent ? 1.5 : 1,
-        ),
-      ),
-      child: Theme(
-        data: Theme.of(context).copyWith(
-          dividerColor: Colors.transparent,
-          unselectedWidgetColor: AppColors.darkWith(0.2),
-        ),
-        child: ExpansionTile(
-          tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-          childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-          shape: const Border(),
-          collapsedShape: const Border(),
-          leading: Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: isCurrent
-                  ? AppColors.primary.withValues(alpha: 0.1)
-                  : AppColors.dark.withValues(alpha: 0.04),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(
-              isCurrent ? Icons.check_circle_rounded : Icons.circle_outlined,
-              size: 16,
-              color: isCurrent ? AppColors.primary : AppColors.darkWith(0.3),
-            ),
-          ),
-          title: Text(
-            stage.label,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: isCurrent ? FontWeight.w900 : FontWeight.w700,
-              color: isCurrent ? AppColors.primary : AppColors.dark,
-            ),
-          ),
-          subtitle: Text(
-            stage.description,
-            style: TextStyle(
-              fontSize: 9,
-              color: AppColors.darkWith(0.45),
-            ),
-          ),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (isCurrent)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: const Text(
-                    'ACTIVE',
-                    style: TextStyle(
-                      fontSize: 8, fontWeight: FontWeight.w900,
-                      color: AppColors.primary, letterSpacing: 0.5,
-                    ),
-                  ),
-                ),
-              const SizedBox(width: 6),
-              Icon(
-                Icons.expand_more_rounded,
-                color: AppColors.darkWith(0.35),
-                size: 18,
-              ),
-            ],
-          ),
-          children: [
-            ...sensors.map((key) => _buildSensorRow(stage.name, key)),
-            if (!isCurrent)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: () async {
-                      svc.setCurrentStage(stage.name);
-                      setState(() {});
-                      await _saveConfigToFirebase(showMessage: false);
-                    },
-                    icon: const Icon(Icons.arrow_forward_rounded, size: 12),
-                    label: const Text(
-                      'Set as Active Stage',
-                      style: TextStyle(
-                        fontSize: 10, fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.primary,
-                      side: BorderSide(
-                        color: AppColors.primary.withValues(alpha: 0.3),
-                      ),
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final stages = CrayfishStage.all;
+    final svc = SettingsService.instance;
+    final activeStage = svc.currentStageObj;
 
     return Container(
       color: const Color(0xFFF9FAFB),
@@ -524,74 +406,345 @@ class _StageSettingsState extends State<StageSettings> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Padding(
-            padding: const EdgeInsets.only(left: 4, bottom: 12),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    _saving
-                        ? 'Syncing all stage thresholds to Firebase...'
-                        : 'Expand any stage below to view & edit its sensor thresholds. Changes sync automatically to Firebase.',
+          if (_saving)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                children: [
+                  const SizedBox(
+                    width: 12, height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 1.5),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Syncing to Firebase...',
                     style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w500,
-                      color: AppColors.dark.withValues(alpha: 0.6),
-                      height: 1.4,
+                      fontSize: 10, fontWeight: FontWeight.w600,
+                      color: AppColors.darkWith(0.5),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          if (_loading)
+            const Expanded(child: Center(child: CircularProgressIndicator()))
+          else ...[
+            const Padding(
+              padding: EdgeInsets.only(left: 4, bottom: 8),
+              child: Text(
+                'Select current stage of your crayfish',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.dark,
+                ),
+              ),
+            ),
+            ...stages.map((stage) {
+              final isActive = stage.name == svc.currentStage;
+              return Container(
+                margin: const EdgeInsets.only(bottom: 6),
+                decoration: BoxDecoration(
+                  color: isActive
+                      ? AppColors.primary.withValues(alpha: 0.06)
+                      : Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isActive
+                        ? AppColors.primary.withValues(alpha: 0.3)
+                        : AppColors.dark.withValues(alpha: 0.06),
+                  ),
+                ),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: isActive
+                      ? null
+                      : () {
+                          svc.setCurrentStage(stage.name);
+                          setState(() {});
+                          DatabaseService.instance.saveGrowthStageConfig(
+                            currentStage: stage.name,
+                            allRanges: svc.allRanges,
+                          );
+                          DatabaseService.instance.saveSensorThresholds(
+                            currentStage: stage.name,
+                            currentRanges: svc.allRanges[stage.name] ?? {},
+                          );
+                        },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 18,
+                          height: 18,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: isActive
+                                  ? AppColors.primary
+                                  : AppColors.darkWith(0.25),
+                              width: isActive ? 5 : 1.5,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                stage.label,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  color: isActive ? AppColors.primary : AppColors.dark,
+                                ),
+                              ),
+                              const SizedBox(height: 1),
+                              Text(
+                                stage.description,
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  color: AppColors.darkWith(0.5),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  _infoBadge(stage.lengthRange, AppColors.primary),
+                                  const SizedBox(width: 4),
+                                  _infoBadge(stage.weightRange, AppColors.warning),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: () => _showStageInfo(stage),
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Icon(
+                              Icons.info_outline_rounded,
+                              size: 12,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-                if (_loading || _saving)
-                  const Padding(
-                    padding: EdgeInsets.only(left: 8),
-                    child: SizedBox(
-                      width: 14, height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  ),
-              ],
-            ),
-          ),
+              );
+            }),
+          ],
+          const SizedBox(height: 4),
           Expanded(
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
                 : ListView(
                     padding: EdgeInsets.zero,
                     children: [
-                      ...stages.map((stage) => _buildStagePanel(stage)),
+                      Padding(
+                        padding: const EdgeInsets.only(left: 4, top: 8, bottom: 10),
+                        child: Text(
+                          'Sensor Thresholds for ${activeStage.label}',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.dark,
+                          ),
+                        ),
+                      ),
+                      ...sensors.map((key) => _buildSensorRow(activeStage.name, key)),
                     ],
                   ),
           ),
-          const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            child: TextButton.icon(
-              onPressed: _saving
-                  ? null
-                  : () async {
-                      SettingsService.instance.resetToDefaults();
-                      setState(() {});
-                      await _saveConfigToFirebase();
-                    },
-              icon: const Icon(Icons.refresh_rounded, size: 14, color: AppColors.dark),
-              label: Text(
-                'RESET ALL TO DEFAULTS AND SYNC',
-                style: TextStyle(
-                  fontWeight: FontWeight.w800, fontSize: 10,
-                  color: AppColors.dark.withValues(alpha: 0.5),
-                  letterSpacing: 0.5,
-                ),
-              ),
-              style: TextButton.styleFrom(
-                backgroundColor: AppColors.dark.withValues(alpha: 0.03),
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ),
+
         ],
+      ),
+    );
+  }
+
+  void _showStageInfo(CrayfishStage stage) {
+    final ranges = SettingsService.instance.allRanges[stage.name] ?? {};
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return Container(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 32,
+                  height: 3,
+                  decoration: BoxDecoration(
+                    color: AppColors.darkWith(0.15),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    stage.label,
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w900,
+                      color: AppColors.dark,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Padding(
+                padding: const EdgeInsets.only(left: 18),
+                child: Text(
+                  stage.description,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: AppColors.darkWith(0.6),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Padding(
+                padding: const EdgeInsets.only(left: 18),
+                child: Row(
+                  children: [
+                    _modalChip('ABL: ${stage.lengthRange}', AppColors.primary),
+                    const SizedBox(width: 8),
+                    _modalChip('ABW: ${stage.weightRange}', AppColors.warning),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              Padding(
+                padding: const EdgeInsets.only(left: 18),
+                child: Text(
+                  'Optimal Sensor Ranges',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.darkWith(0.7),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.only(left: 18),
+                child: Column(
+                  children: sensors.map((key) {
+                    final info = sensorMeta[key]!;
+                    final range = ranges[key] ?? {'min': 0.0, 'max': 0.0};
+                    final min = (range['min'] ?? 0.0).toDouble();
+                    final max = (range['max'] ?? 0.0).toDouble();
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: AppColors.darkWith(0.03),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: info.color.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(5),
+                            ),
+                            child: Image.asset(
+                              info.iconPath, width: 12, height: 12,
+                              fit: BoxFit.contain,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              info.label,
+                              style: const TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.dark,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            '${min.toStringAsFixed(1)} \u2013 ${_formatMax(max)} ${info.unit}',
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _modalChip(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
+      ),
+    );
+  }
+
+  Widget _infoBadge(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(3),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 7,
+          fontWeight: FontWeight.w700,
+          color: color,
+          letterSpacing: 0.2,
+        ),
       ),
     );
   }

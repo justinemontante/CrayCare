@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'settings_service.dart';
 
 class SensorService extends ChangeNotifier {
   static final SensorService instance = SensorService._();
@@ -17,10 +18,8 @@ class SensorService extends ChangeNotifier {
 
   final Map<String, List<double>> _history = {};
   final Map<String, double> _latest = {};
-  final Map<String, String> _zones = {};
 
   bool _deviceOnline = false;
-  String _overallStatus = 'UNKNOWN';
   DateTime _lastUpdated = DateTime.fromMillisecondsSinceEpoch(0);
 
   DateTime get lastUpdated => _lastUpdated;
@@ -32,8 +31,24 @@ class SensorService extends ChangeNotifier {
     return diff.inSeconds < 30;
   }
 
-  String get overallStatus => _overallStatus;
-  String getZone(String key) => _zones[key] ?? 'UNKNOWN';
+  String get overallStatus {
+    for (final key in sensorKeys) {
+      if (getZone(key) == 'CRITICAL') return 'CRITICAL';
+    }
+    return 'NORMAL';
+  }
+
+  String getZone(String key) {
+    if (!_latest.containsKey(key)) return 'UNKNOWN';
+    final value = _latest[key]!;
+    final ranges = SettingsService.instance.currentRanges;
+    final range = ranges[key];
+    if (range == null) return 'UNKNOWN';
+    final min = range['min'] ?? 0.0;
+    final max = range['max'] ?? 999.0;
+    if (value >= min && value <= max) return 'OPTIMAL';
+    return 'CRITICAL';
+  }
 
   String get connectionLabel {
     if (isEspOnline) return 'ESP32 Connected';
@@ -56,14 +71,6 @@ class SensorService extends ChangeNotifier {
 
   void _parseAndUpdate(Map<String, dynamic> data) {
     _deviceOnline = data['deviceOnline'] == true;
-
-    _overallStatus = (data['overallStatus'] as String?) ?? 'UNKNOWN';
-
-    _zones['temp'] = (data['temperatureZone'] as String?) ?? 'UNKNOWN';
-    _zones['turb'] = (data['turbidityZone'] as String?) ?? 'UNKNOWN';
-    _zones['do'] = (data['dissolvedOxygenZone'] as String?) ?? 'UNKNOWN';
-    _zones['ph'] = (data['phZone'] as String?) ?? 'UNKNOWN';
-    _zones['waterlevel'] = (data['waterLevelZone'] as String?) ?? 'UNKNOWN';
 
     final tempRaw = _toDouble(data['temperature']);
     final turbRaw = _toDouble(data['turbidityQuality']);

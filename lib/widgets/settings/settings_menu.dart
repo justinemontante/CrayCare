@@ -54,7 +54,7 @@ class SettingsMenu extends StatelessWidget {
               ),
               _buildMenuItem(
                 'Crayfish Stage',
-                Icons.pets,
+                Icons.spa,
                 AppColors.primary,
                 chevron: true,
                 onTap: () => onGoTo(4),

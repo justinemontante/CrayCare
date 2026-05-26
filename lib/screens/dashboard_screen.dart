@@ -7,8 +7,10 @@ import '../services/settings_service.dart';
 
 class DashboardScreen extends StatefulWidget {
   final ValueChanged<String>? onViewGraph;
+  final ValueChanged<int>? onNavigate;
+  final ValueChanged<int>? onTankTab;
 
-  const DashboardScreen({super.key, this.onViewGraph});
+  const DashboardScreen({super.key, this.onViewGraph, this.onNavigate, this.onTankTab});
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
@@ -368,7 +370,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   title: 'Temperature',
                   value: ss.hasSensorData('temp') ? ss.getLatestValue('temp').toStringAsFixed(1) : '--',
                   unit: '\u00B0C',
-                  ideal: 'Ideal: 25 \u2013 30\u00B0C',
+                  ideal: _getIdealText('temp'),
                   iconPath: 'assets/images/temperature.png',
                   status: _getStatus('temp'),
                   statusColor: _getStatusColor('temp'),
@@ -388,7 +390,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   title: 'pH Level',
                   value: ss.hasSensorData('ph') ? ss.getLatestValue('ph').toStringAsFixed(1) : '--',
                   unit: 'pH',
-                  ideal: 'Ideal: 7.0 \u2013 8.5',
+                  ideal: _getIdealText('ph'),
                   iconPath: 'assets/images/pH.png',
                   status: _getStatus('ph'),
                   statusColor: _getStatusColor('ph'),
@@ -412,7 +414,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   title: 'Dissolved O\u2082',
                   value: ss.hasSensorData('do') ? ss.getLatestValue('do').toStringAsFixed(1) : '--',
                   unit: 'mg/L',
-                  ideal: 'Ideal: >5.0 mg/L',
+                  ideal: _getIdealText('do'),
                   iconPath: 'assets/images/DO.png',
                   status: _getStatus('do'),
                   statusColor: _getStatusColor('do'),
@@ -432,7 +434,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   title: 'Turbidity',
                   value: ss.hasSensorData('turb') ? ss.getLatestValue('turb').toStringAsFixed(0) : '--',
                   unit: 'NTU',
-                  ideal: 'Ideal: 0 \u2013 25 NTU',
+                  ideal: _getIdealText('turb'),
                   iconPath: 'assets/images/Turbidity.png',
                   status: _getStatus('turb'),
                   statusColor: _getStatusColor('turb'),
@@ -453,6 +455,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  String _formatMax(double max) {
+    if (max >= 999) return '\u221E';
+    return max.toStringAsFixed(1);
+  }
+
+  String _getUnit(String key) {
+    switch (key) {
+      case 'temp': return '\u00B0C';
+      case 'ph': return 'pH';
+      case 'do': return 'mg/L';
+      case 'turb': return 'NTU';
+      case 'waterlevel': return 'cm';
+      default: return '';
+    }
+  }
+
+  String _getIdealText(String key) {
+    final ranges = SettingsService.instance.currentRanges;
+    final range = ranges[key];
+    if (range == null) return '';
+    final min = range['min'] ?? 0.0;
+    final max = range['max'] ?? 999.0;
+    final unit = _getUnit(key);
+    if (max >= 999) return 'Ideal: > ${min.toStringAsFixed(1)}$unit';
+    return 'Ideal: ${min.toStringAsFixed(1)} \u2013 ${_formatMax(max)}$unit';
+  }
+
   String _getStatus(String key) {
     final ss = SensorService.instance;
     if (!ss.hasSensorData(key)) return 'No reading';
@@ -463,20 +492,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final ss = SensorService.instance;
     if (!ss.hasSensorData(key)) return AppColors.darkWith(0.3);
     final zone = ss.getZone(key);
-    if (zone == 'SENSOR ERROR' || zone == 'PLACEHOLDER') {
-      return AppColors.mutedText;
-    }
-    if (zone == 'CRITICAL LOW' ||
-        zone == 'CRITICAL HIGH' ||
-        zone == 'NO WATER') {
-      return AppColors.critical;
-    }
-    if (zone == 'WARNING' || zone == 'HIGH TURBIDITY') {
-      return AppColors.warning;
-    }
-    if (zone == 'OPTIMAL' || zone == 'CLEAR WATER') {
-      return AppColors.successLight;
-    }
+    if (zone == 'OPTIMAL') return AppColors.success;
+    if (zone == 'CRITICAL') return AppColors.critical;
     return AppColors.darkWith(0.4);
   }
 
@@ -510,7 +527,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         title: 'Water Level',
         value: ss.hasSensorData('waterlevel') ? ss.getLatestValue('waterlevel').toStringAsFixed(0) : '--',
         unit: 'cm',
-        ideal: 'Ideal: 130 \u2013 180 cm',
+          ideal: _getIdealText('waterlevel'),
         iconPath: 'assets/images/waterLevel.png',
         status: _getStatus('waterlevel'),
         statusColor: _getStatusColor('waterlevel'),
@@ -571,76 +588,81 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildQuickActions() {
+    final nav = widget.onNavigate;
+    final tank = widget.onTankTab;
     final actions = [
-      _QuickActionData('Aerator', Icons.air, 'Active'),
-      _QuickActionData('Pump', Icons.water_drop, 'Idle'),
-      _QuickActionData('Feed', Icons.egg_rounded, 'Auto'),
-      _QuickActionData('Stock', Icons.inventory_2_outlined, null),
-      _QuickActionData('Test', Icons.speed_rounded, null),
-      _QuickActionData('Trends', Icons.trending_up_rounded, null),
+      _QuickActionData('Aerator', Icons.air, 'Active', onTap: nav != null ? () => nav(3) : null),
+      _QuickActionData('Pump', Icons.water_drop, 'Idle', onTap: nav != null ? () => nav(3) : null),
+      _QuickActionData('Feed', Icons.egg_rounded, 'Auto', onTap: nav != null ? () => nav(3) : null),
+      _QuickActionData('Inventory', Icons.inventory_2_outlined, null, onTap: tank != null ? () => tank(0) : null),
+      _QuickActionData('Sampling', Icons.speed_rounded, null, onTap: tank != null ? () => tank(1) : null),
+      _QuickActionData('Growth Trends', Icons.trending_up_rounded, null, onTap: tank != null ? () => tank(2) : null),
     ];
 
     return SingleChildScrollView(
       controller: _quickActionsController,
       scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      child: Row(
-        children: actions.map((a) {
-          return Container(
-            margin: const EdgeInsets.only(right: 12),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: AppColors.darkWith(0.1)),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.darkWith(0.06),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: AppColors.primaryWith(0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(a.icon, size: 16, color: AppColors.primary),
-                ),
-                const SizedBox(width: 10),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      a.name,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.dark,
-                      ),
+        child: Row(
+          children: actions.map((a) {
+            return GestureDetector(
+              onTap: a.onTap,
+              child: Container(
+                margin: const EdgeInsets.only(right: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: AppColors.darkWith(0.1)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.darkWith(0.06),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
                     ),
-                    if (a.status != null)
-                      Text(
-                        a.status!,
-                        style: TextStyle(
-                          fontSize: 8,
-                          fontWeight: FontWeight.w600,
-                          color: a.status == 'Active'
-                              ? AppColors.success
-                              : AppColors.darkWith(0.4),
-                        ),
-                      ),
                   ],
                 ),
-              ],
-            ),
-          );
-        }).toList(),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: AppColors.primaryWith(0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(a.icon, size: 16, color: AppColors.primary),
+                    ),
+                    const SizedBox(width: 10),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          a.name,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.dark,
+                          ),
+                        ),
+                        if (a.status != null)
+                          Text(
+                            a.status!,
+                            style: TextStyle(
+                              fontSize: 8,
+                              fontWeight: FontWeight.w600,
+                              color: a.status == 'Active'
+                                  ? AppColors.success
+                                  : AppColors.darkWith(0.4),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }).toList(),
       ),
     );
   }
@@ -969,7 +991,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
     required String ideal,
     required String iconPath,
   }) {
-    final legends = _gaugeLegends[title] ?? [];
+    final ranges = SettingsService.instance.currentRanges;
+    final range = ranges[sensorKey] ?? {'min': 0.0, 'max': 0.0};
+    final rMin = (range['min'] ?? 0.0).toDouble();
+    final rMax = (range['max'] ?? 999.0).toDouble();
+    final rUnit = _getUnit(sensorKey);
+    final legends = [
+      _LegendItem(
+        'Optimal',
+        rMax >= 999
+            ? '> ${rMin.toStringAsFixed(1)}$rUnit'
+            : '${rMin.toStringAsFixed(1)}$rUnit \u2013 ${_formatMax(rMax)}$rUnit',
+        'Within optimal range for current stage.',
+        AppColors.success,
+      ),
+      _LegendItem(
+        'Critical',
+        rMax >= 999
+            ? '< ${rMin.toStringAsFixed(1)}$rUnit'
+            : 'Outside ${rMin.toStringAsFixed(1)}$rUnit \u2013 ${_formatMax(rMax)}$rUnit',
+        'Outside optimal range.',
+        AppColors.critical,
+      ),
+    ];
 
     showModalBottomSheet(
       context: context,
@@ -1454,107 +1498,10 @@ class _LegendItem {
   const _LegendItem(this.label, this.range, this.desc, this.color);
 }
 
-const Map<String, List<_LegendItem>> _gaugeLegends = {
-  'Temperature': [
-    _LegendItem(
-      'Normal',
-      '25\u201330\u00B0C',
-      'Optimal range for crayfish growth.',
-      AppColors.success,
-    ),
-    _LegendItem(
-      'Warning',
-      '22\u201324\u00B0C or 31\u201333\u00B0C',
-      'Metabolic stress risk.',
-      AppColors.warning,
-    ),
-    _LegendItem(
-      'Critical',
-      'below 22\u00B0C or above 33\u00B0C',
-      'Immediate death risk.',
-      AppColors.critical,
-    ),
-  ],
-  'pH Level': [
-    _LegendItem(
-      'Normal',
-      '7.0\u20138.5',
-      'Ideal for shell formation.',
-      AppColors.success,
-    ),
-    _LegendItem(
-      'Warning',
-      '6.5\u20136.9 or 8.6\u20139.0',
-      'Irritates gills.',
-      AppColors.warning,
-    ),
-    _LegendItem(
-      'Critical',
-      'below 6.5 or above 9.0',
-      'Highly toxic.',
-      AppColors.critical,
-    ),
-  ],
-  'Dissolved O\u2082': [
-    _LegendItem(
-      'Normal',
-      '5.0+ mg/L',
-      'Healthy oxygen levels.',
-      AppColors.success,
-    ),
-    _LegendItem(
-      'Low',
-      '3.0\u20134.9 mg/L',
-      'Loss of appetite.',
-      AppColors.warning,
-    ),
-    _LegendItem(
-      'Critical',
-      'below 3.0 mg/L',
-      'Dangerously low.',
-      AppColors.critical,
-    ),
-  ],
-  'Turbidity': [
-    _LegendItem('Normal', '0\u201325 NTU', 'Clean water.', AppColors.success),
-    _LegendItem(
-      'Cloudy',
-      '26\u201350 NTU',
-      'Risk of bacteria.',
-      AppColors.warning,
-    ),
-    _LegendItem(
-      'Dirty',
-      'above 50 NTU',
-      'Severe contamination.',
-      AppColors.critical,
-    ),
-  ],
-  'Water Level': [
-    _LegendItem(
-      'Normal',
-      '130\u2013180 cm',
-      'Ideal pond depth.',
-      AppColors.success,
-    ),
-    _LegendItem(
-      'Warning',
-      '100\u2013129 cm or 181\u2013200 cm',
-      'Poor circulation.',
-      AppColors.warning,
-    ),
-    _LegendItem(
-      'Critical',
-      'below 100 cm or above 200 cm',
-      'Life-threatening.',
-      AppColors.critical,
-    ),
-  ],
-};
-
 class _QuickActionData {
   final String name;
   final IconData icon;
   final String? status;
-  const _QuickActionData(this.name, this.icon, this.status);
+  final VoidCallback? onTap;
+  const _QuickActionData(this.name, this.icon, this.status, {this.onTap});
 }

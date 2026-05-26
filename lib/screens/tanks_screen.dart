@@ -91,12 +91,17 @@ class TanksScreen extends StatefulWidget {
   const TanksScreen({super.key});
 
   @override
-  State<TanksScreen> createState() => _TanksScreenState();
+  State<TanksScreen> createState() => TanksScreenState();
 }
 
-class _TanksScreenState extends State<TanksScreen> {
+class TanksScreenState extends State<TanksScreen> {
   int _activeTab = 0;
   DateTime _lastEdited = DateTime.now();
+
+  void switchToTab(int index) {
+    if (index < 0 || index > 2) return;
+    setState(() => _activeTab = index);
+  }
   final _sampleCountController = TextEditingController();
   final _sampleWeightController = TextEditingController();
   final _sampleLengthController = TextEditingController();

@@ -22,6 +22,7 @@ class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
   final _scaffoldKey = GlobalKey<ScaffoldState>();
   final _analyticsKey = GlobalKey<AnalyticsScreenState>();
+  final _tanksKey = GlobalKey<TanksScreenState>();
   String? _photoUrl; // Original base64 URL — para ipasa sa SettingsScreen
   Uint8List? _photoBytes; // Cached decoded bytes — iwas base64Decode kada rebuild
 
@@ -53,9 +54,16 @@ class _MainShellState extends State<MainShell> {
 
   // Isang beses lang i-create para iwas reload sa tab switch
   late final List<Widget> _screens = [
-    DashboardScreen(onViewGraph: _goToAnalytics),
+    DashboardScreen(
+      onViewGraph: _goToAnalytics,
+      onNavigate: (i) => setState(() => _currentIndex = i),
+      onTankTab: (tab) {
+        setState(() => _currentIndex = 2);
+        _tanksKey.currentState?.switchToTab(tab);
+      },
+    ),
     AnalyticsScreen(key: _analyticsKey),
-    const TanksScreen(),
+    TanksScreen(key: _tanksKey),
     const ControlsScreen(),
     const NotificationsScreen(),
   ];
