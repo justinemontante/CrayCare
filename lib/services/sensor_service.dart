@@ -21,25 +21,15 @@ class SensorService extends ChangeNotifier {
 
   bool _deviceOnline = false;
   String _overallStatus = 'UNKNOWN';
-  DateTime _lastUpdated = DateTime.now();
-
-  // DEBUG: Set to true to force offline mode for testing
-  bool _debugForceOffline = false;
+  DateTime _lastUpdated = DateTime.fromMillisecondsSinceEpoch(0);
 
   DateTime get lastUpdated => _lastUpdated;
   bool get deviceOnline => _deviceOnline;
 
   bool get isEspOnline {
-    if (_debugForceOffline) return false;  // DEBUG: force offline
     if (!_deviceOnline) return false;
     final diff = DateTime.now().difference(_lastUpdated);
     return diff.inSeconds < 30;
-  }
-
-  // DEBUG method to toggle offline mode
-  void debugSetOffline(bool offline) {
-    _debugForceOffline = offline;
-    notifyListeners();
   }
 
   String get overallStatus => _overallStatus;

@@ -99,13 +99,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: SingleChildScrollView(
         child: Column(
           children: [
-            Stack(
-              clipBehavior: Clip.none,
-              children: [
-                _buildGreeting(),
-                Positioned(bottom: -20, right: 12, child: _buildLiveTag()),
-              ],
-            ),
+            _buildGreeting(),
+            _buildConnectionStatus(),
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 4),
               child: SectionLabel(
@@ -248,65 +243,113 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildLiveTag() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-        border: Border.all(
-          color: const Color(0xFF22c55e).withValues(alpha: 0.1),
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              _buildMiniGraphBar(4),
-              _buildMiniGraphBar(7),
-              _buildMiniGraphBar(5),
-            ],
-          ),
-          const SizedBox(width: 6),
-          Container(
-            width: 5,
-            height: 5,
-            decoration: const BoxDecoration(
-              color: Color(0xFF22c55e),
-              shape: BoxShape.circle,
-            ),
-          ),
-          const SizedBox(width: 4),
-          const Text(
-            'LIVE',
-            style: TextStyle(
-              fontSize: 8,
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF22c55e),
-              letterSpacing: 0.5,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget _buildConnectionStatus() {
+    final ss = SensorService.instance;
+    final isOnline = ss.isEspOnline;
+    final hasData = ss.lastUpdated.millisecondsSinceEpoch > 0;
 
-  Widget _buildMiniGraphBar(double height) {
-    return Container(
-      width: 2,
-      height: height,
-      margin: const EdgeInsets.symmetric(horizontal: 0.5),
-      decoration: BoxDecoration(
-        color: const Color(0xFF22c55e).withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(1),
+    final statusColor = isOnline ? const Color(0xFF22c55e) : (hasData ? AppColors.critical : AppColors.warning);
+    final statusLabel = isOnline ? 'ESP32 Connected' : (hasData ? 'ESP32 Offline' : 'Awaiting ESP32');
+
+    String syncText;
+    if (!hasData) {
+      syncText = 'Waiting for sensor data...';
+    } else {
+      final t = ss.lastUpdated;
+      final h = t.hour > 12 ? t.hour - 12 : (t.hour == 0 ? 12 : t.hour);
+      final ampm = t.hour >= 12 ? 'PM' : 'AM';
+      final m = t.minute.toString().padLeft(2, '0');
+      final s = t.second.toString().padLeft(2, '0');
+      syncText = 'Last sync: $h:$m:$s $ampm';
+    }
+
+    final bgColor = const Color(0xFFF0FDF0);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: const Color(0xFF22c55e).withValues(alpha: 0.15)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                color: statusColor,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    statusLabel,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.dark,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    syncText,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.darkWith(0.5),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (isOnline)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: const Color(0xFF22c55e).withValues(alpha: 0.2)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.04),
+                      blurRadius: 4,
+                      offset: const Offset(0, 1),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 5,
+                      height: 5,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF22c55e),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    const Text(
+                      'LIVE',
+                      style: TextStyle(
+                        fontSize: 8,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF22c55e),
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -729,10 +772,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
       ],
     );
-  }
-
-  Widget _buildStatDivider() {
-    return Container(width: 1, height: 40, color: AppColors.darkWith(0.1));
   }
 
   Widget _buildDetailRow(IconData icon, String label, String value) {
@@ -1216,132 +1255,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           },
         );
       },
-    );
-  }
-
-  void _showAlertsModal() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      builder: (ctx) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      color: AppColors.dark.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                const Text(
-                  'Tank Alerts',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w900,
-                    color: AppColors.dark,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                ListView(
-                  shrinkWrap: true,
-                  children: [
-                    _buildAlertItem(
-                      Icons.error_rounded,
-                      'Low DO Level',
-                      'Critical',
-                      AppColors.critical,
-                    ),
-                    _buildAlertItem(
-                      Icons.warning_rounded,
-                      'High Temperature',
-                      'Warning',
-                      AppColors.warning,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    style: TextButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    child: const Text(
-                      'Close',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildAlertItem(
-    IconData icon,
-    String title,
-    String status,
-    Color color,
-  ) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.2)),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: color, size: 20),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 12,
-                  color: AppColors.dark,
-                ),
-              ),
-              Text(
-                status,
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  color: color,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
     );
   }
 

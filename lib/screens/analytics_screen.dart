@@ -162,6 +162,11 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     }
   }
 
+  bool get _hasLiveData {
+    if (_activeFilter != 'live') return true;
+    return SensorService.sensorKeys.any((key) => _getData(key, 'live').isNotEmpty);
+  }
+
   List<double> _getData(String key, String range) {
     return _data['$key-$range'] ?? [];
   }
@@ -215,59 +220,62 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                     child: _buildCustomDateRow(),
                   ),
                 const SizedBox(height: 10),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Column(
-                    children: [
-                      KeyedSubtree(
-                        key: _chartCardKeys['temp'],
-                        child: _buildChartCard(
-                          context,
-                          title: 'Temperature',
-                          iconPath: 'assets/images/temperature.png',
-                          chartKey: 'temp',
+                if (_activeFilter == 'live' && !_hasLiveData)
+                  _buildNoLiveData()
+                else
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Column(
+                      children: [
+                        KeyedSubtree(
+                          key: _chartCardKeys['temp'],
+                          child: _buildChartCard(
+                            context,
+                            title: 'Temperature',
+                            iconPath: 'assets/images/temperature.png',
+                            chartKey: 'temp',
+                          ),
                         ),
-                      ),
-                      KeyedSubtree(
-                        key: _chartCardKeys['ph'],
-                        child: _buildChartCard(
-                          context,
-                          title: 'pH Level',
-                          iconPath: 'assets/images/pH.png',
-                          chartKey: 'ph',
+                        KeyedSubtree(
+                          key: _chartCardKeys['ph'],
+                          child: _buildChartCard(
+                            context,
+                            title: 'pH Level',
+                            iconPath: 'assets/images/pH.png',
+                            chartKey: 'ph',
+                          ),
                         ),
-                      ),
-                      KeyedSubtree(
-                        key: _chartCardKeys['do'],
-                        child: _buildChartCard(
-                          context,
-                          title: 'Dissolved O\u2082',
-                          iconPath: 'assets/images/DO.png',
-                          chartKey: 'do',
+                        KeyedSubtree(
+                          key: _chartCardKeys['do'],
+                          child: _buildChartCard(
+                            context,
+                            title: 'Dissolved O\u2082',
+                            iconPath: 'assets/images/DO.png',
+                            chartKey: 'do',
+                          ),
                         ),
-                      ),
-                      KeyedSubtree(
-                        key: _chartCardKeys['turb'],
-                        child: _buildChartCard(
-                          context,
-                          title: 'Turbidity',
-                          iconPath: 'assets/images/Turbidity.png',
-                          chartKey: 'turb',
+                        KeyedSubtree(
+                          key: _chartCardKeys['turb'],
+                          child: _buildChartCard(
+                            context,
+                            title: 'Turbidity',
+                            iconPath: 'assets/images/Turbidity.png',
+                            chartKey: 'turb',
+                          ),
                         ),
-                      ),
-                      KeyedSubtree(
-                        key: _chartCardKeys['waterlevel'],
-                        child: _buildChartCard(
-                          context,
-                          title: 'Water Level',
-                          iconPath: 'assets/images/waterLevel.png',
-                          chartKey: 'waterlevel',
+                        KeyedSubtree(
+                          key: _chartCardKeys['waterlevel'],
+                          child: _buildChartCard(
+                            context,
+                            title: 'Water Level',
+                            iconPath: 'assets/images/waterLevel.png',
+                            chartKey: 'waterlevel',
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 16),
-                    ],
+                        const SizedBox(height: 16),
+                      ],
+                    ),
                   ),
-                ),
               ],
             ),
           ),
@@ -524,6 +532,48 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                   ],
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNoLiveData() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Column(
+        children: [
+          const SizedBox(height: 40),
+          Icon(Icons.sensors_off_outlined, size: 56, color: AppColors.darkWith(0.12)),
+          const SizedBox(height: 16),
+          const Text(
+            'No Live Data',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.dark),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Waiting for ESP32 sensor data.\nMake sure the device is connected.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 13, color: AppColors.darkWith(0.5), height: 1.4),
+          ),
+          const SizedBox(height: 24),
+          SizedBox(
+            width: 160,
+            child: TextButton(
+              onPressed: () {
+                setState(() {
+                  _activeFilter = '24h';
+                  _generateData('24h');
+                });
+              },
+              style: TextButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              child: const Text('View historical data', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
             ),
           ),
         ],
