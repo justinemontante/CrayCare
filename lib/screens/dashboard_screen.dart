@@ -423,7 +423,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (zone == 'SENSOR ERROR' || zone == 'PLACEHOLDER') {
       return AppColors.mutedText;
     }
-    if (zone == 'CRITICAL LOW' || zone == 'CRITICAL HIGH' || zone == 'NO WATER') {
+    if (zone == 'CRITICAL LOW' ||
+        zone == 'CRITICAL HIGH' ||
+        zone == 'NO WATER') {
       return AppColors.critical;
     }
     if (zone == 'WARNING' || zone == 'HIGH TURBIDITY') {

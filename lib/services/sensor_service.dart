@@ -23,10 +23,36 @@ class SensorService extends ChangeNotifier {
   String _overallStatus = 'UNKNOWN';
   DateTime _lastUpdated = DateTime.now();
 
+  // DEBUG: Set to true to force offline mode for testing
+  bool _debugForceOffline = false;
+
   DateTime get lastUpdated => _lastUpdated;
   bool get deviceOnline => _deviceOnline;
+
+  bool get isEspOnline {
+    if (_debugForceOffline) return false;  // DEBUG: force offline
+    if (!_deviceOnline) return false;
+    final diff = DateTime.now().difference(_lastUpdated);
+    return diff.inSeconds < 30;
+  }
+
+  // DEBUG method to toggle offline mode
+  void debugSetOffline(bool offline) {
+    _debugForceOffline = offline;
+    notifyListeners();
+  }
+
   String get overallStatus => _overallStatus;
   String getZone(String key) => _zones[key] ?? 'UNKNOWN';
+
+  String get connectionLabel {
+    if (isEspOnline) return 'ESP32 Connected';
+    if (_lastUpdated == DateTime.fromMillisecondsSinceEpoch(0)) return 'Waiting for data...';
+    final diff = DateTime.now().difference(_lastUpdated);
+    if (diff.inSeconds < 60) return 'Last seen ${diff.inSeconds}s ago';
+    if (diff.inMinutes < 60) return 'Last seen ${diff.inMinutes}m ago';
+    return 'ESP32 Offline';
+  }
 
   void _initFirebaseListener() {
     _subscription?.cancel();
