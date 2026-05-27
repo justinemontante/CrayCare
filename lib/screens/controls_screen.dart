@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
-import '../widgets/section_label.dart';
-import '../widgets/gradient_button.dart';
+import '../models/control_types.dart';
+import '../widgets/controls/feeder_tab.dart';
+import '../widgets/controls/devices_tab.dart';
 
 class ControlsScreen extends StatefulWidget {
   const ControlsScreen({super.key});
@@ -11,14 +12,14 @@ class ControlsScreen extends StatefulWidget {
 }
 
 class _ControlsScreenState extends State<ControlsScreen> {
+  int _activeTab = 0;
   bool _feederAuto = true;
-  final List<_ScheduleItem> _schedules = [
-    _ScheduleItem('6:00', 'AM', 22),
-    _ScheduleItem('6:00', 'PM', 22),
+  final List<ScheduleItem> _schedules = [
+    ScheduleItem('6:00', 'AM', 22),
+    ScheduleItem('6:00', 'PM', 22),
   ];
   final TextEditingController _timeCtl = TextEditingController();
   final TextEditingController _gramsCtl = TextEditingController();
-  // (edit mode fields reserved for future use)
 
   final Map<String, String> _hwModes = {
     'aerator1': 'auto',
@@ -26,25 +27,25 @@ class _ControlsScreenState extends State<ControlsScreen> {
     'pump': 'auto',
   };
 
-  final List<_LogEntry> _feederLogs = [
-    _LogEntry('Dispensed 44.1g feed (Scheduled)', 'auto', '6:00 AM', 'Today'),
+  final List<LogEntry> _feederLogs = [
+    LogEntry('Dispensed 44.1g feed (Scheduled)', 'auto', '6:00 AM', 'Today'),
   ];
 
-  final Map<String, List<_LogEntry>> _hwLogs = {
+  final Map<String, List<LogEntry>> _hwLogs = {
     'aerator1': [
-      _LogEntry('Set to AUTO', 'auto', '8:05 AM', 'Today'),
-      _LogEntry('Switched ON', 'on', '7:50 AM', 'Today'),
-      _LogEntry('Switched OFF', 'off', '7:30 AM', 'Today'),
+      LogEntry('Set to AUTO', 'auto', '8:05 AM', 'Today'),
+      LogEntry('Switched ON', 'on', '7:50 AM', 'Today'),
+      LogEntry('Switched OFF', 'off', '7:30 AM', 'Today'),
     ],
     'aerator2': [
-      _LogEntry('Set to AUTO', 'auto', '8:10 AM', 'Today'),
-      _LogEntry('Switched ON', 'on', '7:45 AM', 'Today'),
-      _LogEntry('Switched OFF', 'off', '7:20 AM', 'Today'),
+      LogEntry('Set to AUTO', 'auto', '8:10 AM', 'Today'),
+      LogEntry('Switched ON', 'on', '7:45 AM', 'Today'),
+      LogEntry('Switched OFF', 'off', '7:20 AM', 'Today'),
     ],
     'pump': [
-      _LogEntry('Set to AUTO', 'auto', '8:10 AM', 'Today'),
-      _LogEntry('Switched ON', 'on', '7:55 AM', 'Today'),
-      _LogEntry('Switched OFF', 'off', '7:20 AM', 'Today'),
+      LogEntry('Set to AUTO', 'auto', '8:10 AM', 'Today'),
+      LogEntry('Switched ON', 'on', '7:55 AM', 'Today'),
+      LogEntry('Switched OFF', 'off', '7:20 AM', 'Today'),
     ],
   };
 
@@ -62,7 +63,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
     final ampm = now.hour >= 12 ? 'PM' : 'AM';
     final time = '$h:${now.minute.toString().padLeft(2, '0')} $ampm';
     setState(() {
-      _feederLogs.insert(0, _LogEntry(action, type, time, 'Today'));
+      _feederLogs.insert(0, LogEntry(action, type, time, 'Today'));
       if (_feederLogs.length > 50) _feederLogs.removeLast();
     });
   }
@@ -86,7 +87,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
     final hour = int.tryParse(hStr) ?? 6;
     setState(() {
       _schedules.add(
-        _ScheduleItem(
+        ScheduleItem(
           '$hour:${formatted.split(':')[1].split(' ')[0]}',
           isPM ? 'PM' : 'AM',
           grams,
@@ -102,7 +103,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
     });
   }
 
-  int _toMinutes(_ScheduleItem s) {
+  int _toMinutes(ScheduleItem s) {
     int h = int.tryParse(s.time.split(':')[0]) ?? 6;
     final m = int.tryParse(s.time.split(':')[1]) ?? 0;
     if (s.ampm == 'PM' && h != 12) h += 12;
@@ -124,7 +125,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
     if (_hwLogs[device] != null) {
       _hwLogs[device]!.insert(
         0,
-        _LogEntry(modeNames[mode] ?? mode, mode, time, 'Today'),
+        LogEntry(modeNames[mode] ?? mode, mode, time, 'Today'),
       );
       if (_hwLogs[device]!.length > 20) _hwLogs[device]!.removeLast();
     }
@@ -143,15 +144,6 @@ class _ControlsScreenState extends State<ControlsScreen> {
     }
   }
 
-  String _scheduleStatus(_ScheduleItem s) {
-    final now = DateTime.now();
-    final sMin = _toMinutes(s);
-    final nowMin = now.hour * 60 + now.minute;
-    if (sMin < nowMin) return 'completed';
-    if (sMin == nowMin) return 'pending';
-    return 'upcoming';
-  }
-
   @override
   void dispose() {
     _timeCtl.dispose();
@@ -163,185 +155,106 @@ class _ControlsScreenState extends State<ControlsScreen> {
   Widget build(BuildContext context) {
     return Container(
       color: Colors.white,
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SectionLabel(label: 'Hardware Controls'),
-            const SizedBox(height: 8),
-            _buildFeederGroup(),
-            const SizedBox(height: 10),
-            _buildAerationGroup(),
-            const SizedBox(height: 10),
-            _buildFiltrationGroup(),
-            const SizedBox(height: 32),
+      child: Column(
+        children: [
+          _buildHeader(),
+          _buildTabBar(),
+          Expanded(
+            child: IndexedStack(
+              index: _activeTab,
+              children: [
+                FeederTab(
+                  feederAuto: _feederAuto,
+                  schedules: _schedules,
+                  timeCtl: _timeCtl,
+                  gramsCtl: _gramsCtl,
+                  onToggleFeeder: _toggleFeeder,
+                  onFeedNow: _feedNow,
+                  onAddSchedule: _addSchedule,
+                  onShowLog: () => _showFeederLog(context),
+                ),
+                DevicesTab(
+                  hwModes: _hwModes,
+                  onSetMode: _setHwMode,
+                  onShowLog: _showHwLog,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFFF8FFFF),
+            Color(0xFFF2FDFD),
+            Color(0xFFE8FAFA),
+            Color(0xFFDAF4F5),
           ],
         ),
-      ),
-    );
-  }
-
-  // ─── FEEDER GROUP ───────────────────────────────────────────
-  Widget _buildFeederGroup() {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-      decoration: BoxDecoration(
-        color: AppColors.darkWith(0.03),
-        border: Border.all(color: AppColors.darkWith(0.08)),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  const Icon(Icons.egg_alt, size: 12, color: AppColors.primary),
-                  const SizedBox(width: 5),
-                  Text(
-                    'Auto Feeder',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.darkWith(0.6),
-                    ),
-                  ),
-                ],
-              ),
-              GestureDetector(
-                onTap: () => _showFeederLog(context),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.primaryWith(0.1),
-                    border: Border.all(color: AppColors.primaryWith(0.2)),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.menu_book, size: 10, color: AppColors.primary),
-                      SizedBox(width: 4),
-                      Text(
-                        'Log',
-                        style: TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.primary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          _buildFeederCardBody(),
-        ],
-      ),
-    );
-  }
-
-  // ─── FEEDER CARD BODY ───────────────────────────────────────
-  Widget _buildFeederCardBody() {
-    final morning = _schedules.where((s) => s.ampm == 'AM').toList();
-    final afternoon = _schedules.where((s) => s.ampm == 'PM').toList();
-    final morningGrams = morning.fold(0, (sum, s) => sum + s.grams);
-    final afternoonGrams = afternoon.fold(0, (sum, s) => sum + s.grams);
-    final totalGrams = morningGrams + afternoonGrams;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.darkWith(0.1)),
         boxShadow: [
           BoxShadow(
-            color: AppColors.darkWith(0.07),
-            blurRadius: 12,
-            offset: const Offset(0, 2),
+            color: AppColors.primary.withValues(alpha: 0.1),
+            blurRadius: 15,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
         children: [
-          // Toggle row
+          Positioned(
+            right: 0,
+            bottom: 0,
+            width: 170,
+            height: 100,
+            child: Image.asset(
+              'assets/images/crayfish_seaweed_tank.png',
+              fit: BoxFit.contain,
+              alignment: Alignment.bottomRight,
+            ),
+          ),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
+            padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
             child: Row(
               children: [
                 Container(
-                  width: 44,
-                  height: 44,
+                  width: 4,
+                  height: 42,
                   decoration: BoxDecoration(
-                    color: AppColors.primaryWith(0.1),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: const Icon(
-                    Icons.egg_alt,
-                    size: 20,
                     color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(4),
                   ),
                 ),
-                const SizedBox(width: 10),
-                const Expanded(
-                  child: Text(
-                    'Auto Feeder',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.dark,
-                    ),
-                  ),
-                ),
+                const SizedBox(width: 14),
                 Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      _feederAuto ? 'Auto' : 'Manual',
-                      style: const TextStyle(
-                        fontSize: 9,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.primary,
+                    const Text(
+                      'Controls',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.dark,
+                        letterSpacing: -0.2,
                       ),
                     ),
-                    const SizedBox(height: 3),
-                    GestureDetector(
-                      onTap: _toggleFeeder,
-                      child: Container(
-                        width: 40,
-                        height: 22,
-                        decoration: BoxDecoration(
-                          color: _feederAuto
-                              ? AppColors.primary
-                              : AppColors.darkWith(0.15),
-                          borderRadius: BorderRadius.circular(22),
-                        ),
-                        child: AnimatedAlign(
-                          duration: const Duration(milliseconds: 200),
-                          alignment: _feederAuto
-                              ? Alignment.centerRight
-                              : Alignment.centerLeft,
-                          child: Container(
-                            width: 16,
-                            height: 16,
-                            margin: const EdgeInsets.all(3),
-                            decoration: const BoxDecoration(
-                              color: Colors.white,
-                              shape: BoxShape.circle,
-                              boxShadow: [
-                                BoxShadow(color: Colors.black26, blurRadius: 2),
-                              ],
-                            ),
-                          ),
-                        ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Feeder & Devices',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.dark.withValues(alpha: 0.5),
                       ),
                     ),
                   ],
@@ -349,647 +262,75 @@ class _ControlsScreenState extends State<ControlsScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 14),
-          // Feed Now button
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            child: SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _feedNow,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTabBar() {
+    final tabs = [
+      (Icons.egg_alt, 'Feeding'),
+      (Icons.precision_manufacturing, 'Devices'),
+    ];
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 4, 12, 14),
+      padding: const EdgeInsets.all(5),
+      decoration: BoxDecoration(
+        color: AppColors.dark.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: List.generate(tabs.length, (i) {
+          final isActive = _activeTab == i;
+          return Expanded(
+            child: GestureDetector(
+              onTap: () => setState(() => _activeTab = i),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                decoration: BoxDecoration(
+                  color: isActive ? Colors.white : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: isActive
+                      ? [
+                          BoxShadow(
+                            color: AppColors.dark.withValues(alpha: 0.05),
+                            blurRadius: 10,
+                            offset: const Offset(0, 2),
+                          ),
+                        ]
+                      : null,
                 ),
-                child: const Row(
+                child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.play_arrow, size: 16, color: Colors.white),
-                    SizedBox(width: 8),
-                    Text(
-                      'Feed Now',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
+                    Icon(
+                      tabs[i].$1,
+                      size: 14,
+                      color: isActive
+                          ? AppColors.primary
+                          : AppColors.dark.withValues(alpha: 0.4),
                     ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          // Feeder image
-          Center(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              child: Container(
-                width: 120,
-                height: 120,
-                decoration: BoxDecoration(
-                  color: AppColors.successWith(0.1),
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.successWith(0.2),
-                      blurRadius: 20,
-                    ),
-                  ],
-                ),
-                child: ClipOval(
-                  child: Image.asset(
-                    'assets/images/crayfish_feeder.png',
-                    fit: BoxFit.cover,
-                  ),
-                ),
-              ),
-            ),
-          ),
-          // Schedule
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-            child: Column(
-              children: [
-                // Grand total
-                Row(
-                  children: [
-                    const Icon(Icons.egg, size: 12, color: AppColors.success),
                     const SizedBox(width: 6),
                     Text(
-                      '$totalGrams g Total',
-                      style: const TextStyle(
-                        fontSize: 13,
+                      tabs[i].$2,
+                      style: TextStyle(
+                        fontSize: 11,
                         fontWeight: FontWeight.w700,
-                        color: AppColors.success,
+                        color: isActive
+                            ? AppColors.primary
+                            : AppColors.dark.withValues(alpha: 0.4),
                       ),
                     ),
                   ],
-                ),
-                const SizedBox(height: 12),
-                // Morning
-                _buildSchedulePeriod(
-                  'Morning',
-                  Icons.wb_sunny_outlined,
-                  morning,
-                  morningGrams,
-                ),
-                const SizedBox(height: 12),
-                // Afternoon
-                _buildSchedulePeriod(
-                  'Afternoon',
-                  Icons.wb_twilight_outlined,
-                  afternoon,
-                  afternoonGrams,
-                ),
-                const SizedBox(height: 12),
-                // Add row
-                _buildAddScheduleRow(),
-              ],
-            ),
-          ),
-          // AI Recommendation
-          _buildAIRecommendation(),
-          const SizedBox(height: 14),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSchedulePeriod(
-    String label,
-    IconData icon,
-    List<_ScheduleItem> items,
-    int totalGrams,
-  ) {
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: AppColors.darkWith(0.04),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Icon(icon, size: 14, color: AppColors.primary),
-                  const SizedBox(width: 6),
-                  Text(
-                    label,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.dark,
-                    ),
-                  ),
-                ],
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 3,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.primaryWith(0.08),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '${totalGrams}g',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.primary,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          if (items.isEmpty)
-            Container(
-              padding: const EdgeInsets.all(8),
-              child: Text(
-                'No schedules set',
-                style: TextStyle(fontSize: 10, color: AppColors.darkWith(0.3)),
-              ),
-            )
-          else
-            ...items.map((s) => _buildScheduleItem(s)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildScheduleItem(_ScheduleItem s) {
-    final status = _scheduleStatus(s);
-    Color bgColor;
-    Color borderColor;
-    Color dotColor;
-    String statusLabel;
-    IconData statusIcon;
-
-    switch (status) {
-      case 'completed':
-        bgColor = AppColors.success.withValues(alpha: 0.08);
-        borderColor = Colors.transparent;
-        dotColor = AppColors.success;
-        statusLabel = 'Completed';
-        statusIcon = Icons.check_circle;
-        break;
-      case 'pending':
-        bgColor = AppColors.warning.withValues(alpha: 0.1);
-        borderColor = AppColors.warning.withValues(alpha: 0.25);
-        dotColor = AppColors.warning;
-        statusLabel = 'Pending';
-        statusIcon = Icons.hourglass_bottom;
-        break;
-      default:
-        bgColor = Colors.white;
-        borderColor = AppColors.darkWith(0.08);
-        dotColor = AppColors.primaryWith(0.5);
-        statusLabel = 'Upcoming';
-        statusIcon = Icons.schedule;
-        break;
-    }
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: bgColor,
-        border: Border.all(color: borderColor, width: 1.5),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          Icon(statusIcon, size: 12, color: dotColor),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              '${s.time} ${s.ampm}',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: AppColors.dark,
-                decoration: status == 'completed'
-                    ? TextDecoration.lineThrough
-                    : null,
-                decorationColor: AppColors.darkWith(0.3),
-              ),
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              color: AppColors.primaryWith(0.12),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              '${s.grams}g',
-              style: const TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: AppColors.primary,
-              ),
-            ),
-          ),
-          const SizedBox(width: 6),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              color: status == 'completed'
-                  ? AppColors.success.withValues(alpha: 0.15)
-                  : status == 'pending'
-                  ? AppColors.warning.withValues(alpha: 0.15)
-                  : AppColors.darkWith(0.08),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              statusLabel.toUpperCase(),
-              style: TextStyle(
-                fontSize: 9,
-                fontWeight: FontWeight.w700,
-                color: status == 'completed'
-                    ? AppColors.success
-                    : status == 'pending'
-                    ? const Color(0xFFc97d08)
-                    : AppColors.darkWith(0.5),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAddScheduleRow() {
-    return Row(
-      children: [
-        Expanded(
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            decoration: BoxDecoration(
-              border: Border.all(color: AppColors.darkWith(0.15)),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: TextField(
-              controller: _timeCtl,
-              decoration: InputDecoration(
-                hintText: 'HH:MM',
-                hintStyle: TextStyle(
-                  fontSize: 11,
-                  color: AppColors.darkWith(0.3),
-                ),
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(vertical: 7),
-              ),
-              style: const TextStyle(fontSize: 11, color: AppColors.dark),
-              keyboardType: TextInputType.datetime,
-            ),
-          ),
-        ),
-        const SizedBox(width: 6),
-        SizedBox(
-          width: 50,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            decoration: BoxDecoration(
-              border: Border.all(color: AppColors.darkWith(0.15)),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: TextField(
-              controller: _gramsCtl,
-              decoration: InputDecoration(
-                hintText: 'g',
-                hintStyle: TextStyle(
-                  fontSize: 11,
-                  color: AppColors.darkWith(0.3),
-                ),
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(vertical: 7),
-              ),
-              style: const TextStyle(fontSize: 11, color: AppColors.dark),
-              keyboardType: TextInputType.number,
-            ),
-          ),
-        ),
-        const SizedBox(width: 6),
-        GestureDetector(
-          onTap: _addSchedule,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              color: AppColors.primary,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const Text(
-              'Add',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                color: Colors.white,
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ─── AI RECOMMENDATION ──────────────────────────────────────
-  Widget _buildAIRecommendation() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 14),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.primaryWith(0.06),
-        border: Border.all(color: AppColors.primaryWith(0.15)),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.smart_toy, size: 18, color: AppColors.primary),
-              const SizedBox(width: 8),
-              const Text(
-                'AI Feeding Recommendation',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.dark,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: AppColors.primaryWith(0.08),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.primaryWith(0.12)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.smart_toy,
-                      size: 16,
-                      color: AppColors.primary,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _feederLogs.isEmpty
-                            ? 'Hi! It looks like you haven\'t set your initial stock yet. Once you set it in the Tank tab, I\'ll calculate feeding recommendations.'
-                            : 'Your crayfish are doing well! Current feeding schedule is optimized based on your population.',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          height: 1.5,
-                          color: AppColors.dark,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ─── AERATION GROUP ─────────────────────────────────────────
-  Widget _buildAerationGroup() {
-    return _buildHwGroup('Aeration', Icons.air, [
-      ('aerator1', 'Aerator 1', 'Air Pump'),
-      ('aerator2', 'Aerator 2', 'Air Pump'),
-    ]);
-  }
-
-  // ─── FILTRATION GROUP ───────────────────────────────────────
-  Widget _buildFiltrationGroup() {
-    return _buildHwGroup('Filtration', Icons.water_drop, [
-      ('pump', 'Water Pump', 'Filtration System'),
-    ]);
-  }
-
-  Widget _buildHwGroup(
-    String label,
-    IconData icon,
-    List<(String, String, String)> devices,
-  ) {
-    final firstId = devices.isNotEmpty ? devices.first.$1 : '';
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-      decoration: BoxDecoration(
-        color: AppColors.darkWith(0.03),
-        border: Border.all(color: AppColors.darkWith(0.08)),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Icon(icon, size: 12, color: AppColors.primary),
-                  const SizedBox(width: 5),
-                  Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.darkWith(0.6),
-                    ),
-                  ),
-                ],
-              ),
-              GestureDetector(
-                onTap: () => _showHwLog(
-                  context,
-                  firstId,
-                  devices.first.$2,
-                  devices.first.$3,
-                ),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.primaryWith(0.1),
-                    border: Border.all(color: AppColors.primaryWith(0.2)),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.menu_book, size: 10, color: AppColors.primary),
-                      SizedBox(width: 4),
-                      Text(
-                        'Log',
-                        style: TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.primary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          ...devices.map(
-            (d) => Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: _buildHwCard(d.$1, d.$2, d.$3),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHwCard(String deviceId, String title, String subtitle) {
-    final mode = _hwModes[deviceId] ?? 'auto';
-    final borderColor = mode == 'on'
-        ? AppColors.primaryWith(0.4)
-        : mode == 'auto'
-        ? AppColors.warning.withValues(alpha: 0.35)
-        : AppColors.darkWith(0.1);
-    final iconColor = mode == 'on'
-        ? AppColors.primary
-        : mode == 'auto'
-        ? AppColors.warning
-        : AppColors.darkWith(0.4);
-
-    return Material(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: () => _showHwLog(context, deviceId, title, subtitle),
-        child: Ink(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            border: Border.all(color: borderColor, width: 1.5),
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x0f000000),
-                blurRadius: 10,
-                offset: Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 14, 12),
-            child: Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: iconColor.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(Icons.air, size: 18, color: iconColor),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.dark,
-                        ),
-                      ),
-                      Text(
-                        subtitle,
-                        style: TextStyle(
-                          fontSize: 9,
-                          color: AppColors.darkWith(0.4),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                // Mode buttons (clicking here won't open log)
-                _buildHwModeToggle(deviceId, mode),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHwModeToggle(String deviceId, String currentMode) {
-    return Container(
-      padding: const EdgeInsets.all(2),
-      decoration: BoxDecoration(
-        color: AppColors.darkWith(0.06),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: ['off', 'auto', 'on'].map((m) {
-          final isActive = m == currentMode;
-          return GestureDetector(
-            onTap: () => _setHwMode(deviceId, m),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                color: isActive ? Colors.white : Colors.transparent,
-                borderRadius: BorderRadius.circular(18),
-                boxShadow: isActive
-                    ? [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.1),
-                          blurRadius: 4,
-                          offset: const Offset(0, 1),
-                        ),
-                      ]
-                    : null,
-              ),
-              child: Text(
-                m.toUpperCase(),
-                style: TextStyle(
-                  fontSize: 9,
-                  fontWeight: FontWeight.w700,
-                  color: isActive ? _modeColor(m) : AppColors.darkWith(0.4),
                 ),
               ),
             ),
           );
-        }).toList(),
+        }),
       ),
     );
   }
 
-  // ─── FEEDER LOG MODAL ───────────────────────────────────────
   void _showFeederLog(BuildContext context) {
     showModalBottomSheet(
       context: context,
@@ -1137,7 +478,6 @@ class _ControlsScreenState extends State<ControlsScreen> {
     );
   }
 
-  // ─── HW LOG MODAL ───────────────────────────────────────────
   void _showHwLog(
     BuildContext context,
     String deviceId,
@@ -1494,19 +834,4 @@ class _ControlsScreenState extends State<ControlsScreen> {
       },
     );
   }
-}
-
-class _ScheduleItem {
-  final String time;
-  final String ampm;
-  final int grams;
-  _ScheduleItem(this.time, this.ampm, this.grams);
-}
-
-class _LogEntry {
-  final String action;
-  final String type;
-  final String time;
-  final String date;
-  _LogEntry(this.action, this.type, this.time, this.date);
 }
