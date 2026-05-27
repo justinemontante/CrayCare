@@ -121,13 +121,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text('${_filtered.length} notification${_filtered.length == 1 ? '' : 's'}', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.5))),
-          if (_filtered.isNotEmpty)
-            GestureDetector(
-              onTap: () => setState(() {
-                for (var n in _filtered) n.unread = false;
-              }),
-              child: Text('Clear All', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.critical)),
-            ),
         ],
       ),
     );

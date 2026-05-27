@@ -1111,6 +1111,9 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   void scrollToChart(String chartKey) {
+    _activeFilter = 'live';
+    _generateData('live');
+    setState(() {});
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final key = _chartCardKeys[chartKey];
       if (key?.currentContext == null) return;

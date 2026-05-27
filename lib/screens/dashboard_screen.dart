@@ -593,7 +593,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final actions = [
       _QuickActionData('Aerator', Icons.air, 'Active', onTap: nav != null ? () => nav(3) : null),
       _QuickActionData('Pump', Icons.water_drop, 'Idle', onTap: nav != null ? () => nav(3) : null),
-      _QuickActionData('Feed', Icons.egg_rounded, 'Auto', onTap: nav != null ? () => nav(3) : null),
+      _QuickActionData('Feed', Icons.bubble_chart, 'Auto', onTap: nav != null ? () => nav(3) : null),
       _QuickActionData('Inventory', Icons.inventory_2_outlined, null, onTap: tank != null ? () => tank(0) : null),
       _QuickActionData('Sampling', Icons.speed_rounded, null, onTap: tank != null ? () => tank(1) : null),
       _QuickActionData('Growth Trends', Icons.trending_up_rounded, null, onTap: tank != null ? () => tank(2) : null),
@@ -711,28 +711,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: Row(
               children: [
                 Expanded(
-                  child: _buildStatColumn(Icons.numbers, '63', 'LIVE COUNT'),
-                ),
-                Expanded(
                   child: _buildStatColumn(
-                    Icons.shield_outlined,
-                    '92.6%',
-                    'SURVIVAL',
-                  ),
-                ),
-                Expanded(
-                  child: _buildStatColumn(
-                    Icons.pie_chart_outline,
+                    'assets/images/InitialPopulationNo.png',
                     '68',
-                    'INITIAL',
+                    'Initial Population',
                   ),
                 ),
                 Expanded(
                   child: _buildStatColumn(
-                    Icons.favorite_border,
-                    '5',
-                    'MORTALITY',
+                    'assets/images/SurvivalRate.png',
+                    '92.6%',
+                    'Survival Rate',
                   ),
+                ),
+                Expanded(
+                  child: _buildStatColumn('assets/images/AliveNo.png', '63', 'Alive'),
+                ),
+                Expanded(
+                  child: _buildStatColumn('assets/images/mortalityNo.png', '5', 'Mortality'),
                 ),
               ],
             ),
@@ -769,10 +765,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildStatColumn(IconData icon, String value, String label) {
+  Widget _buildStatColumn(String iconPath, String value, String label) {
     return Column(
       children: [
-        Icon(icon, size: 16, color: AppColors.darkWith(0.5)),
+        Container(
+          width: 32,
+          height: 32,
+          padding: const EdgeInsets.all(7),
+          decoration: BoxDecoration(
+            color: AppColors.primary.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Image.asset(iconPath, fit: BoxFit.contain),
+        ),
         const SizedBox(height: 4),
         Text(
           value,
@@ -1066,7 +1071,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               const Text(
-                                'View Graph',
+                                'View Live Graph',
                                 style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.w700,
