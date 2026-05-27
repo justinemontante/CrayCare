@@ -20,6 +20,12 @@ class _ControlsScreenState extends State<ControlsScreen> {
   ];
   final TextEditingController _timeCtl = TextEditingController();
 
+  @override
+  void initState() {
+    super.initState();
+    _syncFeedState();
+  }
+
   final Map<String, String> _hwModes = {
     'aerator1': 'auto',
     'aerator2': 'auto',
@@ -65,6 +71,12 @@ class _ControlsScreenState extends State<ControlsScreen> {
       _feederLogs.insert(0, LogEntry(action, type, time, 'Today'));
       if (_feederLogs.length > 50) _feederLogs.removeLast();
     });
+    FeedState.feederLogs.value = List.from(_feederLogs);
+  }
+
+  void _syncFeedState() {
+    FeedState.schedules.value = List.from(_schedules);
+    FeedState.feederLogs.value = List.from(_feederLogs);
   }
 
   String _formatTimeInput(String val) {
@@ -83,27 +95,36 @@ class _ControlsScreenState extends State<ControlsScreen> {
     final isPM = formatted.contains('PM');
     final hStr = formatted.split(':')[0];
     final hour = int.tryParse(hStr) ?? 6;
+    final timeStr = '$hour:${formatted.split(':')[1].split(' ')[0]}';
     setState(() {
       _schedules.add(
-        ScheduleItem(
-          '$hour:${formatted.split(':')[1].split(' ')[0]}',
-          isPM ? 'PM' : 'AM',
-        ),
+        ScheduleItem(timeStr, isPM ? 'PM' : 'AM'),
       );
       _sortSchedules();
       _timeCtl.clear();
     });
+    _addFeederLog('Schedule added — $timeStr ${isPM ? 'PM' : 'AM'}', 'auto');
+    _syncFeedState();
   }
 
   void _deleteSchedule(int index) {
+    final s = _schedules[index];
+    final timeStr = '${s.time} ${s.ampm}';
     setState(() => _schedules.removeAt(index));
+    _addFeederLog('Schedule deleted — $timeStr', 'auto');
+    _syncFeedState();
   }
 
   void _editSchedule(int index, ScheduleItem item) {
+    final old = _schedules[index];
+    final oldStr = '${old.time} ${old.ampm}';
+    final newStr = '${item.time} ${item.ampm}';
     setState(() {
       _schedules[index] = item;
       _sortSchedules();
     });
+    _addFeederLog('Schedule updated — $oldStr → $newStr', 'auto');
+    _syncFeedState();
   }
 
   void _sortSchedules() {
@@ -182,6 +203,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                   onAddSchedule: _addSchedule,
                   onDeleteSchedule: _deleteSchedule,
                   onEditSchedule: _editSchedule,
+                  feederLogs: _feederLogs,
                 ),
                 DevicesTab(
                   hwModes: _hwModes,
@@ -279,8 +301,8 @@ class _ControlsScreenState extends State<ControlsScreen> {
 
   Widget _buildTabBar() {
     final tabs = [
-      (Icons.egg_alt, 'Feeding'),
-      (Icons.precision_manufacturing, 'Devices'),
+      (Icons.bubble_chart, 'Feeding'),
+      (Icons.developer_board_outlined, 'Devices'),
     ];
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 4, 12, 14),

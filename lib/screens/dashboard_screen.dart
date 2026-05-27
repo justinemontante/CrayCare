@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart'; // Added for Firebase integration
+import 'package:firebase_auth/firebase_auth.dart';
 import '../theme/app_colors.dart';
 import '../widgets/section_label.dart';
 import '../services/sensor_service.dart';
 import '../services/settings_service.dart';
+import '../models/control_types.dart';
 
 class DashboardScreen extends StatefulWidget {
   final ValueChanged<String>? onViewGraph;
@@ -18,12 +20,16 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   final ScrollController _quickActionsController = ScrollController();
+  Timer? _countdownTimer;
 
   @override
   void initState() {
     super.initState();
     SensorService.instance.addListener(_refreshUI);
     SettingsService.instance.addListener(_refreshUI);
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
@@ -31,6 +37,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _quickActionsController.dispose();
     SensorService.instance.removeListener(_refreshUI);
     SettingsService.instance.removeListener(_refreshUI);
+    _countdownTimer?.cancel();
     super.dispose();
   }
 
@@ -833,159 +840,228 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildFeedingScheduleCard() {
+    final schedules = FeedState.schedules.value;
+    final now = DateTime.now();
+    final nowMin = now.hour * 60 + now.minute;
+
+    List<ScheduleItem> sorted = List.from(schedules);
+    sorted.sort((a, b) {
+      int aMin = _toScheduleMinutes(a);
+      int bMin = _toScheduleMinutes(b);
+      return aMin.compareTo(bMin);
+    });
+
+    ScheduleItem? lastFed;
+    ScheduleItem? nextFeed;
+    int completed = 0;
+
+    for (final s in sorted) {
+      final sMin = _toScheduleMinutes(s);
+      if (sMin <= nowMin) {
+        lastFed = s;
+        completed++;
+      } else if (nextFeed == null) {
+        nextFeed = s;
+      }
+    }
+
+    final total = sorted.length;
+    final progress = total > 0 ? completed / total : 0.0;
+
+    String lastFedTime = '--';
+    String lastFedDate = 'No feedings';
+    if (lastFed != null) {
+      lastFedTime = '${lastFed.time} ${lastFed.ampm}';
+      lastFedDate = 'Today';
+    }
+
+    String nextTime = '--';
+    String nextLabel = 'No upcoming';
+    if (nextFeed != null) {
+      nextTime = '${nextFeed.time} ${nextFeed.ampm}';
+      int h = int.parse(nextFeed.time.split(':')[0]);
+      final m = int.parse(nextFeed.time.split(':')[1]);
+      if (nextFeed.ampm == 'PM' && h != 12) h += 12;
+      if (nextFeed.ampm == 'AM' && h == 12) h = 0;
+      final target = DateTime(now.year, now.month, now.day, h, m);
+      final diff = target.isAfter(now)
+          ? target.difference(now)
+          : target.add(const Duration(days: 1)).difference(now);
+      final dh = diff.inHours;
+      final dm = diff.inMinutes.remainder(60);
+      final ds = diff.inSeconds.remainder(60);
+      final parts = <String>[];
+      if (dh > 0) parts.add('${dh}h');
+      parts.add('${dm}m');
+      parts.add('${ds}s');
+      nextLabel = parts.join(' ');
+    }
+
     return Container(
-      margin: const EdgeInsets.fromLTRB(14, 4, 14, 0),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFCFCFC),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.darkWith(0.12),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
+          margin: const EdgeInsets.fromLTRB(14, 4, 14, 0),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFCFCFC),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.darkWith(0.12),
+                blurRadius: 16,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.egg_rounded, size: 18, color: AppColors.primary),
-              const SizedBox(width: 6),
-              const Text(
-                'Feeding Schedule',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
+              Row(
+                children: [
+                  Icon(Icons.bubble_chart, size: 18, color: AppColors.primary),
+                  const SizedBox(width: 6),
+                  const Text(
+                    'Feeding Schedule',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.dark,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      children: [
+                        Icon(
+                          Icons.schedule,
+                          size: 20,
+                          color: AppColors.darkWith(0.5),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'LAST FED',
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.darkWith(0.5),
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          lastFedTime,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.dark,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          lastFedDate,
+                          style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.dark,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    width: 1,
+                    height: 60,
+                    color: AppColors.darkWith(0.1),
+                  ),
+                  Expanded(
+                    child: Column(
+                      children: [
+                        Icon(
+                          Icons.calendar_month,
+                          size: 20,
+                          color: AppColors.darkWith(0.5),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'NEXT FEEDING',
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.darkWith(0.5),
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          nextTime,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.dark,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          nextLabel,
+                          style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.dark,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: Stack(
+                  children: [
+                    Container(
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: AppColors.darkWith(0.08),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                    ),
+                    FractionallySizedBox(
+                      widthFactor: progress,
+                      child: Container(
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: AppColors.primary,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '$completed of $total feedings today completed',
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w500,
                   color: AppColors.dark,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  children: [
-                    Icon(
-                      Icons.schedule,
-                      size: 20,
-                      color: AppColors.darkWith(0.5),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'LAST FED',
-                      style: TextStyle(
-                        fontSize: 9,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.darkWith(0.5),
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      '8:00 AM',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.dark,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    const Text(
-                      'Today',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w500,
-                        color: AppColors.dark,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Container(width: 1, height: 60, color: AppColors.darkWith(0.1)),
-              Expanded(
-                child: Column(
-                  children: [
-                    Icon(
-                      Icons.calendar_month,
-                      size: 20,
-                      color: AppColors.darkWith(0.5),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'NEXT FEEDING',
-                      style: TextStyle(
-                        fontSize: 9,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.darkWith(0.5),
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      '4:00 PM',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.dark,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    const Text(
-                      'In 2 hours',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w500,
-                        color: AppColors.dark,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: Stack(
-              children: [
-                Container(
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: AppColors.darkWith(0.08),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                ),
-                FractionallySizedBox(
-                  widthFactor: 0.5,
-                  child: Container(
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: AppColors.primary,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            '1 of 2 feedings today completed',
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w500,
-              color: AppColors.dark,
-            ),
-          ),
-        ],
-      ),
-    );
+        );
+  }
+
+  int _toScheduleMinutes(ScheduleItem s) {
+    int h = int.tryParse(s.time.split(':')[0]) ?? 6;
+    final m = int.tryParse(s.time.split(':')[1]) ?? 0;
+    if (s.ampm == 'PM' && h != 12) h += 12;
+    if (s.ampm == 'AM' && h == 12) h = 0;
+    return h * 60 + m;
   }
 
   void _showGaugeDetail(

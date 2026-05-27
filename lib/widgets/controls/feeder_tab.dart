@@ -11,6 +11,7 @@ class FeederTab extends StatelessWidget {
   final VoidCallback onAddSchedule;
   final void Function(int index) onDeleteSchedule;
   final void Function(int index, ScheduleItem item) onEditSchedule;
+  final List<LogEntry> feederLogs;
 
   const FeederTab({
     super.key,
@@ -22,6 +23,7 @@ class FeederTab extends StatelessWidget {
     required this.onAddSchedule,
     required this.onDeleteSchedule,
     required this.onEditSchedule,
+    required this.feederLogs,
   });
 
   @override
@@ -76,13 +78,43 @@ class FeederTab extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'Automatic Feeder',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.dark,
-                        ),
+                      Row(
+                        children: [
+                          const Text(
+                            'Automatic Feeder',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.dark,
+                            ),
+                          ),
+                          const Spacer(),
+                          GestureDetector(
+                            onTap: () => _showFeederLog(ctx),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.history, size: 11, color: AppColors.primary),
+                                  SizedBox(width: 3),
+                                  Text(
+                                    'Log',
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.primary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 6),
                       Row(
@@ -144,6 +176,7 @@ class FeederTab extends StatelessWidget {
                 ),
               ],
             ),
+            if (schedules.isNotEmpty) _buildCountdown(),
             if (feederAuto) ...[
               const SizedBox(height: 16),
               Row(
@@ -236,6 +269,100 @@ class FeederTab extends StatelessWidget {
     );
   }
 
+  Widget _buildCountdown() {
+    return StreamBuilder<int>(
+      stream: Stream.periodic(const Duration(seconds: 1), (i) => i),
+      builder: (context, _) {
+        final now = DateTime.now();
+        final nowMin = now.hour * 60 + now.minute;
+
+        ScheduleItem? next;
+        for (final s in schedules) {
+          final sMin = _toScheduleMinutes(s);
+          if (sMin > nowMin) {
+            next = s;
+            break;
+          }
+        }
+
+        String display;
+        if (next == null) {
+          display = 'No upcoming feeding';
+        } else {
+          int h = int.parse(next.time.split(':')[0]);
+          final m = int.parse(next.time.split(':')[1]);
+          if (next.ampm == 'PM' && h != 12) h += 12;
+          if (next.ampm == 'AM' && h == 12) h = 0;
+          final target = DateTime(now.year, now.month, now.day, h, m);
+          final diff = target.difference(now);
+          if (diff.isNegative) {
+            final nextDay = target.add(const Duration(days: 1));
+            final diff2 = nextDay.difference(now);
+            display = _formatDuration(diff2);
+          } else {
+            display = _formatDuration(diff);
+          }
+        }
+
+        return Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppColors.darkWith(0.03),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.timer_outlined,
+                  size: 14,
+                  color: AppColors.primary,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Next feeding in  ',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.darkWith(0.6),
+                  ),
+                ),
+                Text(
+                  display,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.dark,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  String _formatDuration(Duration d) {
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60);
+    final s = d.inSeconds.remainder(60);
+    final parts = <String>[];
+    if (h > 0) parts.add('${h}h');
+    parts.add('${m}m');
+    parts.add('${s}s');
+    return parts.join(' ');
+  }
+
+  int _toScheduleMinutes(ScheduleItem s) {
+    int h = int.tryParse(s.time.split(':')[0]) ?? 6;
+    final m = int.tryParse(s.time.split(':')[1]) ?? 0;
+    if (s.ampm == 'PM' && h != 12) h += 12;
+    if (s.ampm == 'AM' && h == 12) h = 0;
+    return h * 60 + m;
+  }
+
   String _scheduleStatus(ScheduleItem s) {
     final now = DateTime.now();
     int h = int.tryParse(s.time.split(':')[0]) ?? 6;
@@ -300,8 +427,12 @@ class FeederTab extends StatelessWidget {
               ),
             )
           else
-            ...items.asMap().entries.map(
-              (e) => _buildScheduleItem(ctx, e.key, e.value),
+            ...items.map(
+              (s) => _buildScheduleItem(
+                ctx,
+                schedules.indexWhere((x) => x.time == s.time && x.ampm == s.ampm),
+                s,
+              ),
             ),
         ],
       ),
@@ -409,6 +540,172 @@ class FeederTab extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  void _showFeederLog(BuildContext ctx) {
+    showModalBottomSheet(
+      context: ctx,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetCtx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(sheetCtx).size.height * 0.5,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.history,
+                          size: 20,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Feeder Log',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.dark,
+                            ),
+                          ),
+                          Text(
+                            'Recent feeding activity',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: AppColors.darkWith(0.45),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Flexible(
+                    child: feederLogs.isEmpty
+                        ? Center(
+                            child: Text(
+                              'No activity yet.',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: AppColors.darkWith(0.35),
+                              ),
+                            ),
+                          )
+                        : SingleChildScrollView(
+                            child: Column(
+                              children: feederLogs.take(20).map(
+                                (l) => Container(
+                                  margin: const EdgeInsets.only(bottom: 6),
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.darkWith(0.03),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 8,
+                                        height: 8,
+                                        decoration: BoxDecoration(
+                                          color: l.type == 'auto'
+                                              ? AppColors.primary
+                                              : AppColors.warning,
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              l.action,
+                                              style: const TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w700,
+                                                color: AppColors.dark,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 1),
+                                            Text(
+                                              '${l.date} \u00B7 ${l.time}',
+                                              style: TextStyle(
+                                                fontSize: 9,
+                                                color: AppColors.darkWith(0.4),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ).toList(),
+                            ),
+                          ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(sheetCtx),
+                      style: TextButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 9),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      child: const Text(
+                        'Close',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
