@@ -6,206 +6,201 @@ class FeederTab extends StatelessWidget {
   final bool feederAuto;
   final List<ScheduleItem> schedules;
   final TextEditingController timeCtl;
-  final TextEditingController gramsCtl;
   final VoidCallback onToggleFeeder;
   final VoidCallback onFeedNow;
   final VoidCallback onAddSchedule;
-  final VoidCallback onShowLog;
+  final void Function(int index) onDeleteSchedule;
+  final void Function(int index, ScheduleItem item) onEditSchedule;
 
   const FeederTab({
     super.key,
     required this.feederAuto,
     required this.schedules,
     required this.timeCtl,
-    required this.gramsCtl,
     required this.onToggleFeeder,
     required this.onFeedNow,
     required this.onAddSchedule,
-    required this.onShowLog,
+    required this.onDeleteSchedule,
+    required this.onEditSchedule,
   });
 
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildFeederGroup(),
-          const SizedBox(height: 32),
-        ],
-      ),
+      child: _buildFeederCardBody(context),
     );
   }
 
-  Widget _buildFeederGroup() {
+  Widget _buildFeederCardBody(BuildContext ctx) {
+    final morning = schedules.where((s) => s.ampm == 'AM').toList();
+    final afternoon = schedules.where((s) => s.ampm == 'PM').toList();
+
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
       decoration: BoxDecoration(
-        color: AppColors.darkWith(0.03),
-        border: Border.all(color: AppColors.darkWith(0.08)),
-        borderRadius: BorderRadius.circular(16),
+        color: const Color(0xFFFCFCFC),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.darkWith(0.12),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  const Icon(Icons.egg_alt, size: 12, color: AppColors.primary),
-                  const SizedBox(width: 5),
-                  Text(
-                    'Auto Feeder',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.darkWith(0.6),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 70,
+                  height: 70,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Image.asset(
+                      'assets/images/FeedingImage.png',
+                      fit: BoxFit.contain,
                     ),
                   ),
-                ],
-              ),
-              GestureDetector(
-                onTap: onShowLog,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.primaryWith(0.1),
-                    border: Border.all(color: AppColors.primaryWith(0.2)),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.menu_book, size: 10, color: AppColors.primary),
-                      SizedBox(width: 4),
-                      Text(
-                        'Log',
+                      const Text(
+                        'Automatic Feeder',
                         style: TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.primary,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.dark,
                         ),
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: feederAuto
+                                  ? AppColors.success
+                                  : AppColors.darkWith(0.3),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            feederAuto ? 'Auto Mode' : 'Manual Mode',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: feederAuto
+                                  ? AppColors.success
+                                  : AppColors.darkWith(0.4),
+                            ),
+                          ),
+                          const Spacer(),
+                          GestureDetector(
+                            onTap: onToggleFeeder,
+                            child: Container(
+                              width: 36,
+                              height: 20,
+                              decoration: BoxDecoration(
+                                color: feederAuto
+                                    ? AppColors.primary
+                                    : AppColors.darkWith(0.15),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: AnimatedAlign(
+                                duration: const Duration(milliseconds: 200),
+                                alignment: feederAuto
+                                    ? Alignment.centerRight
+                                    : Alignment.centerLeft,
+                                child: Container(
+                                  width: 14,
+                                  height: 14,
+                                  margin: const EdgeInsets.all(3),
+                                  decoration: const BoxDecoration(
+                                    color: Colors.white,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          _buildFeederCardBody(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFeederCardBody() {
-    final morning = schedules.where((s) => s.ampm == 'AM').toList();
-    final afternoon = schedules.where((s) => s.ampm == 'PM').toList();
-    final morningGrams = morning.fold(0, (sum, s) => sum + s.grams);
-    final afternoonGrams = afternoon.fold(0, (sum, s) => sum + s.grams);
-    final totalGrams = morningGrams + afternoonGrams;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.darkWith(0.1)),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.darkWith(0.07),
-            blurRadius: 12,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            child: Row(
-              children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: AppColors.primaryWith(0.1),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: const Icon(
-                    Icons.egg_alt,
-                    size: 20,
-                    color: AppColors.primary,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                const Expanded(
-                  child: Text(
-                    'Auto Feeder',
+              ],
+            ),
+            if (feederAuto) ...[
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Schedules:',
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
                       color: AppColors.dark,
                     ),
                   ),
-                ),
-                Column(
-                  children: [
-                    Text(
-                      feederAuto ? 'Auto' : 'Manual',
-                      style: const TextStyle(
-                        fontSize: 9,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.primary,
+                  GestureDetector(
+                    onTap: () => _showScheduleModal(ctx),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
                       ),
-                    ),
-                    const SizedBox(height: 3),
-                    GestureDetector(
-                      onTap: onToggleFeeder,
-                      child: Container(
-                        width: 40,
-                        height: 22,
-                        decoration: BoxDecoration(
-                          color: feederAuto
-                              ? AppColors.primary
-                              : AppColors.darkWith(0.15),
-                          borderRadius: BorderRadius.circular(22),
-                        ),
-                        child: AnimatedAlign(
-                          duration: const Duration(milliseconds: 200),
-                          alignment: feederAuto
-                              ? Alignment.centerRight
-                              : Alignment.centerLeft,
-                          child: Container(
-                            width: 16,
-                            height: 16,
-                            margin: const EdgeInsets.all(3),
-                            decoration: const BoxDecoration(
-                              color: Colors.white,
-                              shape: BoxShape.circle,
-                              boxShadow: [
-                                BoxShadow(color: Colors.black26, blurRadius: 2),
-                              ],
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.add, size: 12, color: AppColors.primary),
+                          SizedBox(width: 4),
+                          Text(
+                            'Add Schedule',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.primary,
                             ),
                           ),
-                        ),
+                        ],
                       ),
                     ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 14),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            child: SizedBox(
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              _buildSchedulePeriod(
+                ctx,
+                'Morning',
+                Icons.wb_sunny_outlined,
+                morning,
+              ),
+              const SizedBox(height: 12),
+              _buildSchedulePeriod(
+                ctx,
+                'Afternoon',
+                Icons.wb_twilight_outlined,
+                afternoon,
+              ),
+            ],
+            const SizedBox(height: 16),
+            SizedBox(
               width: double.infinity,
               child: ElevatedButton(
                 onPressed: onFeedNow,
@@ -235,82 +230,30 @@ class FeederTab extends StatelessWidget {
                 ),
               ),
             ),
-          ),
-          const SizedBox(height: 14),
-          Center(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              child: Container(
-                width: 120,
-                height: 120,
-                decoration: BoxDecoration(
-                  color: AppColors.successWith(0.1),
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.successWith(0.2),
-                      blurRadius: 20,
-                    ),
-                  ],
-                ),
-                child: ClipOval(
-                  child: Image.asset(
-                    'assets/images/crayfish_feeder.png',
-                    fit: BoxFit.cover,
-                  ),
-                ),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.egg, size: 12, color: AppColors.success),
-                    const SizedBox(width: 6),
-                    Text(
-                      '$totalGrams g Total',
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.success,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                _buildSchedulePeriod(
-                  'Morning',
-                  Icons.wb_sunny_outlined,
-                  morning,
-                  morningGrams,
-                ),
-                const SizedBox(height: 12),
-                _buildSchedulePeriod(
-                  'Afternoon',
-                  Icons.wb_twilight_outlined,
-                  afternoon,
-                  afternoonGrams,
-                ),
-                const SizedBox(height: 12),
-                _buildAddScheduleRow(),
-              ],
-            ),
-          ),
-          _buildAIRecommendation(),
-          const SizedBox(height: 14),
-        ],
+          ],
+        ),
       ),
     );
   }
 
+  String _scheduleStatus(ScheduleItem s) {
+    final now = DateTime.now();
+    int h = int.tryParse(s.time.split(':')[0]) ?? 6;
+    final m = int.tryParse(s.time.split(':')[1]) ?? 0;
+    if (s.ampm == 'PM' && h != 12) h += 12;
+    if (s.ampm == 'AM' && h == 12) h = 0;
+    final sMin = h * 60 + m;
+    final nowMin = now.hour * 60 + now.minute;
+    if (sMin < nowMin) return 'completed';
+    if (sMin == nowMin) return 'pending';
+    return 'upcoming';
+  }
+
   Widget _buildSchedulePeriod(
+    BuildContext ctx,
     String label,
     IconData icon,
     List<ScheduleItem> items,
-    int totalGrams,
   ) {
     return Container(
       padding: const EdgeInsets.all(10),
@@ -337,22 +280,12 @@ class FeederTab extends StatelessWidget {
                   ),
                 ],
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 3,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.primaryWith(0.08),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '${totalGrams}g',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.primary,
-                  ),
+              Text(
+                '${items.length} schedule${items.length != 1 ? 's' : ''}',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.darkWith(0.4),
                 ),
               ),
             ],
@@ -367,13 +300,15 @@ class FeederTab extends StatelessWidget {
               ),
             )
           else
-            ...items.map((s) => _buildScheduleItem(s)),
+            ...items.asMap().entries.map(
+              (e) => _buildScheduleItem(ctx, e.key, e.value),
+            ),
         ],
       ),
     );
   }
 
-  Widget _buildScheduleItem(ScheduleItem s) {
+  Widget _buildScheduleItem(BuildContext ctx, int index, ScheduleItem s) {
     final status = _scheduleStatus(s);
     Color bgColor;
     Color borderColor;
@@ -405,224 +340,220 @@ class FeederTab extends StatelessWidget {
         break;
     }
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: bgColor,
-        border: Border.all(color: borderColor, width: 1.5),
-        borderRadius: BorderRadius.circular(10),
-      ),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
       child: Row(
         children: [
-          Icon(statusIcon, size: 12, color: dotColor),
-          const SizedBox(width: 6),
           Expanded(
-            child: Text(
-              '${s.time} ${s.ampm}',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: AppColors.dark,
-                decoration: status == 'completed'
-                    ? TextDecoration.lineThrough
-                    : null,
-                decorationColor: AppColors.darkWith(0.3),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: bgColor,
+                border: Border.all(color: borderColor, width: 1.5),
+                borderRadius: BorderRadius.circular(10),
               ),
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              color: AppColors.primaryWith(0.12),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              '${s.grams}g',
-              style: const TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: AppColors.primary,
+              child: Row(
+                children: [
+                  Icon(statusIcon, size: 12, color: dotColor),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '${s.time} ${s.ampm}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.dark,
+                        decoration: status == 'completed'
+                            ? TextDecoration.lineThrough
+                            : null,
+                        decorationColor: AppColors.darkWith(0.3),
+                      ),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: status == 'completed'
+                          ? AppColors.success.withValues(alpha: 0.15)
+                          : status == 'pending'
+                          ? AppColors.warning.withValues(alpha: 0.15)
+                          : AppColors.darkWith(0.08),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      statusLabel.toUpperCase(),
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                        color: status == 'completed'
+                            ? AppColors.success
+                            : status == 'pending'
+                            ? const Color(0xFFc97d08)
+                            : AppColors.darkWith(0.5),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
           const SizedBox(width: 6),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              color: status == 'completed'
-                  ? AppColors.success.withValues(alpha: 0.15)
-                  : status == 'pending'
-                  ? AppColors.warning.withValues(alpha: 0.15)
-                  : AppColors.darkWith(0.08),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              statusLabel.toUpperCase(),
-              style: TextStyle(
-                fontSize: 9,
-                fontWeight: FontWeight.w700,
-                color: status == 'completed'
-                    ? AppColors.success
-                    : status == 'pending'
-                    ? const Color(0xFFc97d08)
-                    : AppColors.darkWith(0.5),
-              ),
-            ),
+          GestureDetector(
+            onTap: () => _showScheduleModal(ctx, index: index, existing: s),
+            child: Icon(Icons.edit_outlined, size: 14, color: AppColors.primary),
+          ),
+          const SizedBox(width: 6),
+          GestureDetector(
+            onTap: () => onDeleteSchedule(index),
+            child: Icon(Icons.delete_outline, size: 14, color: AppColors.critical),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildAddScheduleRow() {
-    return Row(
-      children: [
-        Expanded(
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            decoration: BoxDecoration(
-              border: Border.all(color: AppColors.darkWith(0.15)),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: TextField(
-              controller: timeCtl,
-              decoration: InputDecoration(
-                hintText: 'HH:MM',
-                hintStyle: TextStyle(
-                  fontSize: 11,
-                  color: AppColors.darkWith(0.3),
-                ),
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(vertical: 7),
-              ),
-              style: const TextStyle(fontSize: 11, color: AppColors.dark),
-              keyboardType: TextInputType.datetime,
-            ),
-          ),
-        ),
-        const SizedBox(width: 6),
-        SizedBox(
-          width: 50,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            decoration: BoxDecoration(
-              border: Border.all(color: AppColors.darkWith(0.15)),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: TextField(
-              controller: gramsCtl,
-              decoration: InputDecoration(
-                hintText: 'g',
-                hintStyle: TextStyle(
-                  fontSize: 11,
-                  color: AppColors.darkWith(0.3),
-                ),
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(vertical: 7),
-              ),
-              style: const TextStyle(fontSize: 11, color: AppColors.dark),
-              keyboardType: TextInputType.number,
-            ),
-          ),
-        ),
-        const SizedBox(width: 6),
-        GestureDetector(
-          onTap: onAddSchedule,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              color: AppColors.primary,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const Text(
-              'Add',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                color: Colors.white,
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
+  void _showScheduleModal(BuildContext ctx, {int? index, ScheduleItem? existing}) {
+    final isEdit = existing != null;
+    TimeOfDay selectedTime;
+    if (isEdit) {
+      int h = int.parse(existing.time.split(':')[0]);
+      final m = int.parse(existing.time.split(':')[1]);
+      if (existing.ampm == 'PM' && h != 12) h += 12;
+      if (existing.ampm == 'AM' && h == 12) h = 0;
+      selectedTime = TimeOfDay(hour: h, minute: m);
+    } else {
+      selectedTime = const TimeOfDay(hour: 6, minute: 0);
+    }
 
-  Widget _buildAIRecommendation() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 14),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.primaryWith(0.06),
-        border: Border.all(color: AppColors.primaryWith(0.15)),
-        borderRadius: BorderRadius.circular(16),
+    showModalBottomSheet(
+      context: ctx,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            children: [
-              Icon(Icons.smart_toy, size: 18, color: AppColors.primary),
-              SizedBox(width: 8),
-              Text(
-                'AI Feeding Recommendation',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.dark,
-                ),
+      builder: (sheetCtx) {
+        return StatefulBuilder(
+          builder: (sheetCtx, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.fromLTRB(
+                20,
+                10,
+                20,
+                20 + MediaQuery.of(sheetCtx).viewInsets.bottom,
               ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: AppColors.primaryWith(0.08),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.primaryWith(0.12)),
-            ),
-            child: const Row(
-              children: [
-                Icon(
-                  Icons.smart_toy,
-                  size: 16,
-                  color: AppColors.primary,
-                ),
-                SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Your crayfish are doing well! Current feeding schedule is optimized based on your population.',
-                    style: TextStyle(
-                      fontSize: 12,
-                      height: 1.5,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    isEdit ? 'Edit Schedule' : 'Add Schedule',
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
                       color: AppColors.dark,
                     ),
                   ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+                  const SizedBox(height: 16),
+                  GestureDetector(
+                    onTap: () async {
+                      final picked = await showTimePicker(
+                        context: sheetCtx,
+                        initialTime: selectedTime,
+                      );
+                      if (picked != null) {
+                        setSheetState(() => selectedTime = picked);
+                      }
+                    },
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 16,
+                      ),
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          color: AppColors.darkWith(0.15),
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            selectedTime.format(sheetCtx),
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.dark,
+                            ),
+                          ),
+                          Icon(
+                            Icons.access_time,
+                            size: 18,
+                            color: AppColors.primary,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        final h = selectedTime.hour;
+                        final m = selectedTime.minute;
+                        final ampm = h >= 12 ? 'PM' : 'AM';
+                        final h12 = h % 12 == 0 ? 12 : h % 12;
+                        final timeStr =
+                            '$h12:${m.toString().padLeft(2, '0')}';
+                        if (isEdit) {
+                          onEditSchedule(
+                            index!,
+                            ScheduleItem(timeStr, ampm),
+                          );
+                        } else {
+                          timeCtl.text = '$timeStr:$ampm';
+                          onAddSchedule();
+                        }
+                        Navigator.pop(sheetCtx);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: Text(
+                        isEdit ? 'Save' : 'Add',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
-  }
-
-  String _scheduleStatus(ScheduleItem s) {
-    final now = DateTime.now();
-    final sMin = _toMinutes(s);
-    final nowMin = now.hour * 60 + now.minute;
-    if (sMin < nowMin) return 'completed';
-    if (sMin == nowMin) return 'pending';
-    return 'upcoming';
-  }
-
-  int _toMinutes(ScheduleItem s) {
-    int h = int.tryParse(s.time.split(':')[0]) ?? 6;
-    final m = int.tryParse(s.time.split(':')[1]) ?? 0;
-    if (s.ampm == 'PM' && h != 12) h += 12;
-    if (s.ampm == 'AM' && h == 12) h = 0;
-    return h * 60 + m;
   }
 }

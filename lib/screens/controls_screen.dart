@@ -15,11 +15,10 @@ class _ControlsScreenState extends State<ControlsScreen> {
   int _activeTab = 0;
   bool _feederAuto = true;
   final List<ScheduleItem> _schedules = [
-    ScheduleItem('6:00', 'AM', 22),
-    ScheduleItem('6:00', 'PM', 22),
+    ScheduleItem('6:00', 'AM'),
+    ScheduleItem('6:00', 'PM'),
   ];
   final TextEditingController _timeCtl = TextEditingController();
-  final TextEditingController _gramsCtl = TextEditingController();
 
   final Map<String, String> _hwModes = {
     'aerator1': 'auto',
@@ -81,7 +80,6 @@ class _ControlsScreenState extends State<ControlsScreen> {
   void _addSchedule() {
     if (_timeCtl.text.isEmpty) return;
     final formatted = _formatTimeInput(_timeCtl.text);
-    final grams = int.tryParse(_gramsCtl.text) ?? 10;
     final isPM = formatted.contains('PM');
     final hStr = formatted.split(':')[0];
     final hour = int.tryParse(hStr) ?? 6;
@@ -90,16 +88,29 @@ class _ControlsScreenState extends State<ControlsScreen> {
         ScheduleItem(
           '$hour:${formatted.split(':')[1].split(' ')[0]}',
           isPM ? 'PM' : 'AM',
-          grams,
         ),
       );
-      _schedules.sort((a, b) {
-        final aMin = _toMinutes(a);
-        final bMin = _toMinutes(b);
-        return aMin.compareTo(bMin);
-      });
+      _sortSchedules();
       _timeCtl.clear();
-      _gramsCtl.clear();
+    });
+  }
+
+  void _deleteSchedule(int index) {
+    setState(() => _schedules.removeAt(index));
+  }
+
+  void _editSchedule(int index, ScheduleItem item) {
+    setState(() {
+      _schedules[index] = item;
+      _sortSchedules();
+    });
+  }
+
+  void _sortSchedules() {
+    _schedules.sort((a, b) {
+      final aMin = _toMinutes(a);
+      final bMin = _toMinutes(b);
+      return aMin.compareTo(bMin);
     });
   }
 
@@ -147,7 +158,6 @@ class _ControlsScreenState extends State<ControlsScreen> {
   @override
   void dispose() {
     _timeCtl.dispose();
-    _gramsCtl.dispose();
     super.dispose();
   }
 
@@ -167,11 +177,11 @@ class _ControlsScreenState extends State<ControlsScreen> {
                   feederAuto: _feederAuto,
                   schedules: _schedules,
                   timeCtl: _timeCtl,
-                  gramsCtl: _gramsCtl,
                   onToggleFeeder: _toggleFeeder,
                   onFeedNow: _feedNow,
                   onAddSchedule: _addSchedule,
-                  onShowLog: () => _showFeederLog(context),
+                  onDeleteSchedule: _deleteSchedule,
+                  onEditSchedule: _editSchedule,
                 ),
                 DevicesTab(
                   hwModes: _hwModes,
@@ -328,153 +338,6 @@ class _ControlsScreenState extends State<ControlsScreen> {
           );
         }),
       ),
-    );
-  }
-
-  void _showFeederLog(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 36,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade300,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.menu_book,
-                        size: 16,
-                        color: AppColors.primary,
-                      ),
-                      const SizedBox(width: 8),
-                      const Text(
-                        'Feeder Activity Log',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.dark,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  if (_feederLogs.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: Center(
-                        child: Text(
-                          'No activity yet.',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: const Color(
-                              0xFF0B3C49,
-                            ).withValues(alpha: 0.35),
-                          ),
-                        ),
-                      ),
-                    )
-                  else
-                    ..._feederLogs
-                        .take(20)
-                        .map(
-                          (l) => Container(
-                            margin: const EdgeInsets.only(bottom: 6),
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFf7f7f7),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 8,
-                                  height: 8,
-                                  decoration: BoxDecoration(
-                                    color: l.type == 'auto'
-                                        ? AppColors.warning
-                                        : AppColors.primary,
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        l.action,
-                                        style: const TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w700,
-                                          color: AppColors.dark,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 1),
-                                      Text(
-                                        '${l.date} \u00B7 ${l.time}',
-                                        style: TextStyle(
-                                          fontSize: 9,
-                                          color: const Color(
-                                            0xFF0B3C49,
-                                          ).withValues(alpha: 0.4),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: TextButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      style: TextButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 9),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                      child: const Text(
-                        'Close',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
     );
   }
 

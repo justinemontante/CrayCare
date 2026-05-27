@@ -1,8 +1,7 @@
 class ScheduleItem {
   final String time;
   final String ampm;
-  final int grams;
-  ScheduleItem(this.time, this.ampm, this.grams);
+  ScheduleItem(this.time, this.ampm);
 }
 
 class LogEntry {
