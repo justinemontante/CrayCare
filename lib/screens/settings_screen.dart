@@ -223,86 +223,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  void _changePassword() async {
-    final newPw = _newPwCtrl.text;
-    final confirmPw = _confirmPwCtrl.text;
-    final currentPw = _currentPwCtrl.text;
-
-    if (newPw.isEmpty || confirmPw.isEmpty || currentPw.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill in all fields.')),
-      );
-      return;
-    }
-
-    if (newPw != confirmPw) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('New passwords do not match.')),
-      );
-      return;
-    }
-
-    if (newPw.length < 8) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Password must be at least 8 characters.')),
-      );
-      return;
-    }
-
+  Future<void> _changePassword() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user?.email == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No user logged in.')),
-      );
-      return;
+      throw Exception('No user logged in.');
     }
 
-    try {
-      await AuthService().changePassword(
-        email: user!.email!,
-        currentPassword: currentPw,
-        newPassword: newPw,
-      );
+    await AuthService().changePassword(
+      email: user!.email!,
+      currentPassword: _currentPwCtrl.text,
+      newPassword: _newPwCtrl.text,
+    );
 
-      _currentPwCtrl.clear();
-      _newPwCtrl.clear();
-      _confirmPwCtrl.clear();
+    _currentPwCtrl.clear();
+    _newPwCtrl.clear();
+    _confirmPwCtrl.clear();
 
-      if (mounted) {
-        _showSuccessModal(message: 'Your password has been changed successfully!');
-      }
-    } on FirebaseAuthException catch (e) {
-      String msg;
-      switch (e.code) {
-        case 'wrong-password':
-          msg = 'Current password is incorrect.';
-          break;
-        case 'weak-password':
-          msg = 'New password is too weak.';
-          break;
-        case 'requires-recent-login':
-          msg = 'Please log out and log back in, then try again.';
-          break;
-        case 'too-many-requests':
-          msg = 'Too many attempts. Please wait a few minutes and try again.';
-          break;
-        case 'invalid-credential':
-          msg = 'Current password is incorrect.';
-          break;
-        default:
-          msg = e.message ?? 'Failed to change password.';
-      }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(msg)),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
-      }
+    if (mounted) {
+      _showSuccessModal(message: 'Your password has been changed successfully!');
     }
   }
 
