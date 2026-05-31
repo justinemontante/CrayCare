@@ -12,6 +12,7 @@ import '../widgets/settings/stage_settings.dart';
 import '../widgets/settings/logout_sheet.dart';
 import '../services/database_service.dart';
 import '../services/storage_service.dart'; // Para sa pag-pick ng profile picture
+import '../services/auth_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   final String? initialPhotoUrl; // Ipasa mula MainShell para iwas reload
@@ -97,7 +98,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  void _showSuccessModal() {
+  void _showSuccessModal({String message = 'Your profile name has been saved!'}) {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -132,7 +133,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Your profile name has been saved!',
+              message,
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 12,
@@ -222,15 +223,86 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  void _changePassword() {
-    if (_newPwCtrl.text.isNotEmpty && _newPwCtrl.text == _confirmPwCtrl.text) {
-      _back();
+  void _changePassword() async {
+    final newPw = _newPwCtrl.text;
+    final confirmPw = _confirmPwCtrl.text;
+    final currentPw = _currentPwCtrl.text;
+
+    if (newPw.isEmpty || confirmPw.isEmpty || currentPw.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Password updated'),
-          duration: Duration(seconds: 2),
-        ),
+        const SnackBar(content: Text('Please fill in all fields.')),
       );
+      return;
+    }
+
+    if (newPw != confirmPw) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('New passwords do not match.')),
+      );
+      return;
+    }
+
+    if (newPw.length < 8) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Password must be at least 8 characters.')),
+      );
+      return;
+    }
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user?.email == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No user logged in.')),
+      );
+      return;
+    }
+
+    try {
+      await AuthService().changePassword(
+        email: user!.email!,
+        currentPassword: currentPw,
+        newPassword: newPw,
+      );
+
+      _currentPwCtrl.clear();
+      _newPwCtrl.clear();
+      _confirmPwCtrl.clear();
+
+      if (mounted) {
+        _showSuccessModal(message: 'Your password has been changed successfully!');
+      }
+    } on FirebaseAuthException catch (e) {
+      String msg;
+      switch (e.code) {
+        case 'wrong-password':
+          msg = 'Current password is incorrect.';
+          break;
+        case 'weak-password':
+          msg = 'New password is too weak.';
+          break;
+        case 'requires-recent-login':
+          msg = 'Please log out and log back in, then try again.';
+          break;
+        case 'too-many-requests':
+          msg = 'Too many attempts. Please wait a few minutes and try again.';
+          break;
+        case 'invalid-credential':
+          msg = 'Current password is incorrect.';
+          break;
+        default:
+          msg = e.message ?? 'Failed to change password.';
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg)),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
     }
   }
 
@@ -282,6 +354,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       body: Column(
         children: [
           Container(

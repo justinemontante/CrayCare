@@ -120,6 +120,39 @@ class AuthService {
     }
   }
 
+  // CHANGE PASSWORD
+  Future<void> changePassword({
+    required String email,
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final user = _auth.currentUser;
+    if (user == null) throw Exception('No user logged in.');
+
+    // Check if user has email/password provider
+    final hasEmailProvider = user.providerData.any(
+      (info) => info.providerId == 'password',
+    );
+
+    if (hasEmailProvider) {
+      final credential = EmailAuthProvider.credential(
+        email: email,
+        password: currentPassword,
+      );
+      try {
+        await user.reauthenticateWithCredential(credential);
+      } on FirebaseAuthException catch (e) {
+        if (e.code == 'requires-recent-login') {
+          await user.reauthenticateWithCredential(credential);
+        } else {
+          rethrow;
+        }
+      }
+    }
+
+    await user.updatePassword(newPassword);
+  }
+
   // SIGN OUT
   Future<void> signOut() async {
     await _googleSignIn.signOut();
