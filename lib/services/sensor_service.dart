@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'settings_service.dart';
 
@@ -7,6 +8,9 @@ class SensorService extends ChangeNotifier {
   static final SensorService instance = SensorService._();
   SensorService._() {
     _initFirebaseListener();
+    FirebaseAuth.instance.authStateChanges().listen((_) {
+      _initFirebaseListener();
+    });
   }
 
   static const List<String> sensorKeys = [
