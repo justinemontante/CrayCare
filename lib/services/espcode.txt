@@ -929,8 +929,8 @@ void setup() {
   // Set onDisconnect handler: Firebase automatically sets deviceOnline=false
   // when ESP32 loses connection (WiFi drop, crash, power loss).
   if (Firebase.ready()) {
-    if (Firebase.RTDB.onDisconnect()->set(fbdo, String(FIREBASE_LATEST_PATH "/deviceOnline").c_str(), false)) {
-      Serial.println("[ON_DISCONNECT] Handler registered. deviceOnline=false on disconnect");
+    if (Firebase.RTDB.onDisconnect()->setChild(fbdo, FIREBASE_LATEST_PATH "/deviceOnline", false)) {
+      Serial.println("[ON_DISCONNECT] Handler registered — deviceOnline will auto-set to false on disconnect");
     } else {
       Serial.printf("[ON_DISCONNECT] Failed: %s\n", fbdo.errorReason().c_str());
     }
