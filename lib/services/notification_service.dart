@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'sensor_service.dart';
 import '../models/notification_item.dart';
 
@@ -11,6 +12,9 @@ class NotificationService extends ChangeNotifier {
   final Map<String, bool> _previousOnline = {};
   int _idCounter = 0;
   bool _initialized = false;
+
+  final DatabaseReference _notifRef =
+      FirebaseDatabase.instance.ref('notifications');
 
   static const _sensorLabels = {
     'temp': 'Water Temperature',
@@ -45,6 +49,7 @@ class NotificationService extends ChangeNotifier {
   void init() {
     if (_initialized) return;
     _initialized = true;
+    _loadFromFirebase();
     SensorService.instance.addListener(_onSensorUpdate);
     _initPreviousStates();
   }
@@ -55,6 +60,38 @@ class NotificationService extends ChangeNotifier {
       if (zone == 'CRITICAL') {
         _previousZones[key] = 'CRITICAL';
       }
+    }
+  }
+
+  void _loadFromFirebase() async {
+    try {
+      final snapshot = await _notifRef.orderByChild('timestamp').limitToLast(200).once();
+      if (snapshot.snapshot.value == null) return;
+      final data = Map<String, dynamic>.from(
+          snapshot.snapshot.value as Map);
+      final entries = data.entries.toList()
+        ..sort((a, b) {
+          final ta = (a.value as Map)['timestamp'] ?? 0;
+          final tb = (b.value as Map)['timestamp'] ?? 0;
+          return (tb as int).compareTo(ta as int);
+        });
+
+      for (final entry in entries) {
+        final fbKey = entry.key;
+        final map = Map<String, dynamic>.from(entry.value as Map);
+        _notifications.add(NotificationItem(
+          id: map['localId'] ?? 'fb_$fbKey',
+          type: map['type'] ?? 'operational',
+          title: map['title'] ?? '',
+          message: map['message'] ?? '',
+          timestamp: DateTime.fromMillisecondsSinceEpoch(
+              (map['timestamp'] as num).toInt()),
+          unread: map['unread'] == true,
+        ));
+      }
+      notifyListeners();
+    } catch (e) {
+      debugPrint('[NotificationService] Failed to load from Firebase: $e');
     }
   }
 
@@ -120,18 +157,35 @@ class NotificationService extends ChangeNotifier {
     required DateTime timestamp,
   }) {
     _idCounter++;
-    _notifications.insert(
-      0,
-      NotificationItem(
-        id: 'notif_$_idCounter',
-        type: type,
-        title: title,
-        message: message,
-        timestamp: timestamp,
-        unread: true,
-      ),
+    final localId = 'notif_$_idCounter';
+    final notif = NotificationItem(
+      id: localId,
+      type: type,
+      title: title,
+      message: message,
+      timestamp: timestamp,
+      unread: true,
     );
+
+    _notifications.insert(0, notif);
     notifyListeners();
+
+    _saveToFirebase(notif);
+  }
+
+  void _saveToFirebase(NotificationItem notif) {
+    try {
+      _notifRef.push().set({
+        'localId': notif.id,
+        'type': notif.type,
+        'title': notif.title,
+        'message': notif.message,
+        'timestamp': notif.timestamp.millisecondsSinceEpoch,
+        'unread': notif.unread,
+      });
+    } catch (e) {
+      debugPrint('[NotificationService] Failed to save notification: $e');
+    }
   }
 
   void markAllRead() {
@@ -139,6 +193,7 @@ class NotificationService extends ChangeNotifier {
       n.unread = false;
     }
     notifyListeners();
+    _updateUnreadInFirebase();
   }
 
   void markAsRead(String id) {
@@ -146,14 +201,37 @@ class NotificationService extends ChangeNotifier {
       if (n.id == id) {
         n.unread = false;
         notifyListeners();
+        _updateUnreadInFirebase();
         return;
       }
     }
   }
 
-  void clearAll() {
+  void _updateUnreadInFirebase() async {
+    try {
+      final snapshot = await _notifRef.once();
+      if (snapshot.snapshot.value == null) return;
+      final data = Map<String, dynamic>.from(
+          snapshot.snapshot.value as Map);
+      for (final entry in data.entries) {
+        final map = Map<String, dynamic>.from(entry.value as Map);
+        if (map['unread'] == true && _notifications.where((n) => n.id == map['localId']).firstOrNull?.unread == false) {
+          await _notifRef.child(entry.key).child('unread').set(false);
+        }
+      }
+    } catch (e) {
+      debugPrint('[NotificationService] Failed to update unread in Firebase: $e');
+    }
+  }
+
+  void clearAll() async {
     _notifications.clear();
     notifyListeners();
+    try {
+      await _notifRef.remove();
+    } catch (e) {
+      debugPrint('[NotificationService] Failed to clear Firebase: $e');
+    }
   }
 
   bool _isToday(DateTime dt) {
