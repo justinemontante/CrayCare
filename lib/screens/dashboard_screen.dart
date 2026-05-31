@@ -269,14 +269,29 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   Widget _buildConnectionStatus() {
     final ss = SensorService.instance;
+    final err = ss.lastError;
     final isOnline = ss.isEspOnline;
     final hasData = ss.lastUpdated.millisecondsSinceEpoch > 0;
 
-    final statusColor = isOnline ? const Color(0xFF22c55e) : (hasData ? AppColors.critical : AppColors.warning);
-    final statusLabel = isOnline ? 'ESP32 Connected' : (hasData ? 'ESP32 Offline' : 'Awaiting ESP32');
+    final statusColor = err != null
+        ? AppColors.critical
+        : isOnline
+            ? const Color(0xFF22c55e)
+            : hasData
+                ? AppColors.critical
+                : AppColors.warning;
+    final statusLabel = err != null
+        ? 'Firebase Error'
+        : isOnline
+            ? 'ESP32 Connected'
+            : hasData
+                ? 'ESP32 Offline'
+                : 'Awaiting ESP32';
 
     String syncText;
-    if (!hasData) {
+    if (err != null) {
+      syncText = err.length > 80 ? '${err.substring(0, 80)}...' : err;
+    } else if (!hasData) {
       syncText = 'Waiting for sensor data...';
     } else {
       final t = ss.lastUpdated;
@@ -287,16 +302,20 @@ class _DashboardScreenState extends State<DashboardScreen>
       syncText = 'Last sync: $h:$m:$s $ampm';
     }
 
-    final bgColor = isOnline
-        ? const Color(0xFFF0FDF0)
-        : hasData
-            ? const Color(0xFFFEF2F2)
-            : const Color(0xFFFFFBEb);
+    final bgColor = err != null
+        ? const Color(0xFFFEF2F2)
+        : isOnline
+            ? const Color(0xFFF0FDF0)
+            : hasData
+                ? const Color(0xFFFEF2F2)
+                : const Color(0xFFFFFBEb);
 
-    final borderColor = isOnline
-        ? const Color(0xFF22c55e).withValues(alpha: 0.15)
-        : hasData
-            ? AppColors.critical.withValues(alpha: 0.15)
+    final borderColor = err != null
+        ? AppColors.critical.withValues(alpha: 0.3)
+        : isOnline
+            ? const Color(0xFF22c55e).withValues(alpha: 0.15)
+            : hasData
+                ? AppColors.critical.withValues(alpha: 0.15)
             : AppColors.warning.withValues(alpha: 0.3);
 
     return Padding(
@@ -310,36 +329,38 @@ class _DashboardScreenState extends State<DashboardScreen>
         ),
         child: Row(
           children: [
-            isOnline
-                ? AnimatedBuilder(
-                animation: _pulseController,
-                builder: (_, _) {
-                      final p = _pulseController.value;
-                      return Container(
+            err != null
+                ? const Icon(Icons.error_outline, size: 14, color: AppColors.critical)
+                : isOnline
+                    ? AnimatedBuilder(
+                        animation: _pulseController,
+                        builder: (_, _) {
+                          final p = _pulseController.value;
+                          return Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: statusColor,
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: statusColor.withValues(alpha: 0.1 + p * 0.4),
+                                  blurRadius: 1 + p * 5,
+                                  spreadRadius: p * 2,
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      )
+                    : Container(
                         width: 8,
                         height: 8,
                         decoration: BoxDecoration(
                           color: statusColor,
                           shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: statusColor.withValues(alpha: 0.1 + p * 0.4),
-                              blurRadius: 1 + p * 5,
-                              spreadRadius: p * 2,
-                            ),
-                          ],
                         ),
-                      );
-                    },
-                  )
-                : Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: statusColor,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
+                      ),
             const SizedBox(width: 8),
             Expanded(
               child: Column(
