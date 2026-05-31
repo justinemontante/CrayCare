@@ -21,9 +21,11 @@ class SensorService extends ChangeNotifier {
 
   bool _deviceOnline = false;
   DateTime _lastUpdated = DateTime.fromMillisecondsSinceEpoch(0);
+  String? _lastError;
 
   DateTime get lastUpdated => _lastUpdated;
   bool get deviceOnline => _deviceOnline;
+  String? get lastError => _lastError;
 
   bool get isEspOnline {
     if (!_deviceOnline) return false;
@@ -51,6 +53,7 @@ class SensorService extends ChangeNotifier {
   }
 
   String get connectionLabel {
+    if (_lastError != null) return 'Error: ${_lastError!.length > 60 ? '${_lastError!.substring(0, 60)}...' : _lastError}';
     if (isEspOnline) return 'ESP32 Connected';
     if (_lastUpdated == DateTime.fromMillisecondsSinceEpoch(0)) return 'Waiting for data...';
     final diff = DateTime.now().difference(_lastUpdated);
@@ -62,10 +65,13 @@ class SensorService extends ChangeNotifier {
   void _initFirebaseListener() {
     _subscription?.cancel();
     _subscription = _latestRef.onValue.listen((event) {
+      _lastError = null;
       if (event.snapshot.value == null) return;
       _parseAndUpdate(Map<String, dynamic>.from(event.snapshot.value as Map));
     }, onError: (error) {
+      _lastError = error.toString();
       debugPrint('[SensorService] Firebase stream error: $error');
+      notifyListeners();
     });
   }
 
