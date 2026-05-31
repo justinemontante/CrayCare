@@ -1,28 +1,37 @@
 /*
+ * ============================================================
  *  CrayCare — ESP32 Multi-Sensor Monitor + Firebase RTDB
  *  Board   : ESP32 DevKit
  *  Flow    : Flutter App writes config -> ESP32 reads config
- *            ESP32 writes readings -> Flutter App + Web Dashboard read
- *  ============================================================
+ *            ESP32 writes sensor values only -> Flutter reads
+ * ============================================================
  *
- *  Active sensors now:
+ *  MINIMAL FIREBASE PAYLOAD — only raw sensor values.
+ *  Zones, status, thresholds are computed by the Flutter app.
+ *
+ *  TURBIDITY — NTU conversion based on field calibration:
+ *    1.6V =   0 NTU (clear water)
+ *    1.4V = 500 NTU (dirty water)
+ *    NTU = (1.6 - voltage) * 2500
+ *
+ * Active sensors now:
  *  1. Temperature       : DS18B20
- *  2. Turbidity        : DFRobot SEN0189
+ *  2. Turbidity         : DFRobot SEN0189
  *
- *  Placeholder sensors added:
+ * Placeholder sensors added:
  *  3. Dissolved Oxygen  : analog placeholder
  *  4. pH Level          : analog placeholder
  *  5. Water Level       : analog placeholder
  *
- *  Arduino IDE libraries needed:
+ * Arduino IDE libraries needed:
  *  1. Firebase ESP Client by Mobizt
  *  2. OneWire
  *  3. DallasTemperature
  *
- *  Firebase paths:
- *  /sensor_readings/latest    -> latest sensor readings written by ESP32 (every 5s)
- *  /sensor_readings/history   -> history records written by ESP32 (every 60s)
- *  /sensor_readings/config    -> threshold config written by Flutter App, read by ESP32
+ * Firebase paths:
+ *  /sensor_readings/latest   -> overwritten every 5s (1 record)
+ *  /sensor_readings/history  -> pushed every 60s (for time-series)
+ *  /sensor_readings/config   -> threshold config written by Flutter app
  */
 
 #include <WiFi.h>
@@ -37,7 +46,7 @@
 //  WIFI SETTINGS
 // ============================================================
 const char* WIFI_SSID = "JMR ROGELIO'S CATERING";
-const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+const char* WIFI_PASSWORD = "PLDTWIFIJmR79";
 
 // ============================================================
 //  FIREBASE SETTINGS
@@ -79,30 +88,31 @@ unsigned long lastPollTime = 0;
 #define ENABLE_WATER_LEVEL_SENSOR 0
 
 // ============================================================
-// FIREBASE-CONFIGURABLE THRESHOLDS
-// Flutter App writes these values to /sensor_readings/config.
-// ESP32 reads these thresholds from Firebase on startup and every 10s.
+//  CALIBRATED TURBIDITY THRESHOLDS
+//  Based on field calibration with 5V-powered SEN0189:
+//    1.6V =   0 NTU  (clear water)
+//    1.5V = 250 NTU  (moderately dirty)
+//    1.4V = 500 NTU  (very dirty)
+//    1.2V = air      (no water)
+//  Flutter app writes updated values to /sensor_readings/config.
 // ============================================================
-float tempCriticalLow = 26.0;
-float tempCriticalHigh = 29.0;
+float turbidityVClear = 1.6;          // Voltage for clear water (0 NTU)
+float turbidityVDirty = 1.4;          // Voltage for very dirty water (500 NTU)
+float turbidityVAirMax = 1.3;         // Below this voltage = air/no water
+float turbidityVThreshold = 1.52;     // ~200 NTU: OPTIMAL/CRITICAL boundary
 
-float turbidityVClear = 1.54;
-float turbidityVDirty = 1.48;
-float turbidityVAirMax = 1.30;
-float turbidityVClearThreshold = 1.51;
-float turbidityQualityMin = 70.0;
-float turbidityQualityMax = 100.0;
+float tempCriticalLow = 24.0;
+float tempCriticalHigh = 30.0;
 
-float doCriticalLow = 5.0;
+float doCriticalLow = 4.0;
 float doCriticalHigh = 12.0;
 
-float phCriticalLow = 6.5;
+float phCriticalLow = 7.0;
 float phCriticalHigh = 8.5;
 
 float waterLevelCriticalLow = 30.0;
 float waterLevelCriticalHigh = 95.0;
 
-// Placeholder calibration values. Adjust after using the real DO, pH, and water-level modules.
 float doVoltageScale = 4.0;
 float doVoltageOffset = 0.0;
 float phVoltageSlope = -5.70;
@@ -118,10 +128,12 @@ float waterLevelVoltageMax = 3.3;
 #define SAMPLE_DELAY_MS 5
 
 #define TEMP_JUMP_MAX 3.0
-#define TURBIDITY_QUALITY_JUMP_MAX 30.0
+#define TURB_NTU_JUMP_MAX 100.0
 #define MIN_VALID_TEMP -10.0
 #define MAX_VALID_TEMP 60.0
 #define MAX_SKIP_COUNT 10
+
+#define NTU_MAX 1000.0
 
 // ============================================================
 //  SENSOR OBJECTS
@@ -143,31 +155,26 @@ uint8_t tempSkipCount = 0;
 float turbidityBuffer[SMOOTH_WINDOW];
 uint8_t turbidityCount = 0;
 uint8_t turbidityIndex = 0;
-float smoothedTurbidityQuality = 0.0;
-float lastValidTurbidityQuality = -1.0;
+float smoothedTurbidityNTU = 0.0;
+float lastValidTurbidityNTU = -1.0;
 bool turbiditySensorOK = false;
 uint8_t turbiditySkipCount = 0;
-String turbidityStatus = "SENSOR ERROR";
 float turbidityVoltage = 0.0;
 
 float dissolvedOxygen = -1.0;
 float dissolvedOxygenVoltage = 0.0;
 bool doSensorOK = false;
-String doStatus = "PLACEHOLDER";
 
 float phLevel = -1.0;
 float phVoltage = 0.0;
 bool phSensorOK = false;
-String phStatus = "PLACEHOLDER";
 
 float waterLevelPercent = -1.0;
 float waterLevelVoltage = 0.0;
 bool waterLevelSensorOK = false;
-String waterLevelStatus = "PLACEHOLDER";
 
 struct TurbidityResult {
-  float quality;
-  String status;
+  float ntu;
   bool valid;
 };
 
@@ -209,85 +216,33 @@ unsigned long getEpochMillis() {
 }
 
 // ============================================================
-//  CLASSIFICATION / ZONES
+//  TURBIDITY: VOLTAGE -> NTU CONVERSION
+//  Based on calibrated field data:
+//    1.6V =   0 NTU  (clear water)
+//    1.4V = 500 NTU  (dirty)
+//    NTU = (turbidityVClear - voltage) * 2500
 // ============================================================
 TurbidityResult classifyTurbidity(float v) {
   TurbidityResult r;
 
   if (v < turbidityVAirMax) {
-    r.quality = 0.0;
-    r.status = "AIR (NO WATER DETECTED)";
+    r.ntu = 0.0;
     r.valid = false;
     return r;
   }
 
-  r.status = (v >= turbidityVClearThreshold) ? "CLEAR WATER" : "DIRTY WATER";
-  r.quality = (v - turbidityVDirty) * 100.0f / (turbidityVClear - turbidityVDirty);
-  r.quality = constrain(r.quality, 0.0f, 100.0f);
+  r.ntu = (turbidityVClear - v) * 500.0f / (turbidityVClear - turbidityVDirty);
+  r.ntu = constrain(r.ntu, 0.0f, NTU_MAX);
   r.valid = true;
 
   return r;
 }
 
+// For serial debug only
 String getTempZone(float t) {
   if (!tempSensorOK || t < -100.0) return "SENSOR ERROR";
   if (t < tempCriticalLow) return "CRITICAL LOW";
   if (t > tempCriticalHigh) return "CRITICAL HIGH";
-  return "OPTIMAL";
-}
-
-String getTurbidityZone() {
-  if (turbidityStatus == "AIR (NO WATER DETECTED)") return "NO WATER";
-  if (!turbiditySensorOK) return "SENSOR ERROR";
-  if (smoothedTurbidityQuality < turbidityQualityMin) return "HIGH TURBIDITY";
-  if (smoothedTurbidityQuality > turbidityQualityMax) return "CRITICAL HIGH";
-  return "OPTIMAL";
-}
-
-String getDOZone() {
-  if (!ENABLE_DO_SENSOR) return "PLACEHOLDER";
-  if (!doSensorOK || dissolvedOxygen < 0.0) return "SENSOR ERROR";
-  if (dissolvedOxygen < doCriticalLow) return "CRITICAL LOW";
-  if (dissolvedOxygen > doCriticalHigh) return "CRITICAL HIGH";
-  return "OPTIMAL";
-}
-
-String getPHZone() {
-  if (!ENABLE_PH_SENSOR) return "PLACEHOLDER";
-  if (!phSensorOK || phLevel < 0.0) return "SENSOR ERROR";
-  if (phLevel < phCriticalLow) return "CRITICAL LOW";
-  if (phLevel > phCriticalHigh) return "CRITICAL HIGH";
-  return "OPTIMAL";
-}
-
-String getWaterLevelZone() {
-  if (!ENABLE_WATER_LEVEL_SENSOR) return "PLACEHOLDER";
-  if (!waterLevelSensorOK || waterLevelPercent < 0.0) return "SENSOR ERROR";
-  if (waterLevelPercent < waterLevelCriticalLow) return "CRITICAL LOW";
-  if (waterLevelPercent > waterLevelCriticalHigh) return "CRITICAL HIGH";
-  return "OPTIMAL";
-}
-
-String getOverallStatus() {
-  String tempZone = getTempZone(smoothedTemp);
-  String turbidityZone = getTurbidityZone();
-  String doZone = getDOZone();
-  String phZone = getPHZone();
-  String waterLevelZone = getWaterLevelZone();
-
-  if (tempZone == "SENSOR ERROR" || turbidityZone == "SENSOR ERROR") return "SENSOR ERROR";
-  if (ENABLE_DO_SENSOR && doZone == "SENSOR ERROR") return "SENSOR ERROR";
-  if (ENABLE_PH_SENSOR && phZone == "SENSOR ERROR") return "SENSOR ERROR";
-  if (ENABLE_WATER_LEVEL_SENSOR && waterLevelZone == "SENSOR ERROR") return "SENSOR ERROR";
-
-  if (turbidityZone == "NO WATER") return "NO WATER";
-
-  if (tempZone == "CRITICAL LOW" || tempZone == "CRITICAL HIGH") return "WARNING";
-  if (turbidityZone == "HIGH TURBIDITY") return "WARNING";
-  if (ENABLE_DO_SENSOR && (doZone == "CRITICAL LOW" || doZone == "CRITICAL HIGH")) return "WARNING";
-  if (ENABLE_PH_SENSOR && (phZone == "CRITICAL LOW" || phZone == "CRITICAL HIGH")) return "WARNING";
-  if (ENABLE_WATER_LEVEL_SENSOR && (waterLevelZone == "CRITICAL LOW" || waterLevelZone == "CRITICAL HIGH")) return "WARNING";
-
   return "OPTIMAL";
 }
 
@@ -349,6 +304,7 @@ void connectFirebase() {
   }
 
   Firebase.begin(&config, &auth);
+  Firebase.setDoubleDigits(2);
 }
 
 bool readConfigFloatPath(const char* relativePath, float &target, float minValue, float maxValue) {
@@ -367,10 +323,6 @@ bool readConfigFloatPath(const char* relativePath, float &target, float minValue
 
   target = value;
   return true;
-}
-
-bool readConfigFloat(const char* key, float &target, float minValue, float maxValue) {
-  return readConfigFloatPath(key, target, minValue, maxValue);
 }
 
 bool readRangeConfig(const char* sensorKey, float &lowTarget, float &highTarget, float minLimit, float maxLimit) {
@@ -395,58 +347,6 @@ bool readRangeConfig(const char* sensorKey, float &lowTarget, float &highTarget,
   return true;
 }
 
-void publishCurrentConfigToFirebase() {
-  if (!firebaseReady || !Firebase.ready()) return;
-
-  FirebaseJson json;
-  json.set("tempCriticalLow", tempCriticalLow);
-  json.set("tempCriticalHigh", tempCriticalHigh);
-
-  json.set("turbidityVClear", turbidityVClear);
-  json.set("turbidityVDirty", turbidityVDirty);
-  json.set("turbidityVAirMax", turbidityVAirMax);
-  json.set("turbidityVClearThreshold", turbidityVClearThreshold);
-  json.set("turbidityQualityMin", turbidityQualityMin);
-  json.set("turbidityQualityMax", turbidityQualityMax);
-
-  json.set("ranges/temp/min", tempCriticalLow);
-  json.set("ranges/temp/max", tempCriticalHigh);
-  json.set("ranges/turb/min", turbidityQualityMin);
-  json.set("ranges/turb/max", turbidityQualityMax);
-  json.set("ranges/do/min", doCriticalLow);
-  json.set("ranges/do/max", doCriticalHigh);
-  json.set("ranges/ph/min", phCriticalLow);
-  json.set("ranges/ph/max", phCriticalHigh);
-  json.set("ranges/waterlevel/min", waterLevelCriticalLow);
-  json.set("ranges/waterlevel/max", waterLevelCriticalHigh);
-
-  json.set("doCriticalLow", doCriticalLow);
-  json.set("doCriticalHigh", doCriticalHigh);
-
-  json.set("phCriticalLow", phCriticalLow);
-  json.set("phCriticalHigh", phCriticalHigh);
-
-  json.set("waterLevelCriticalLow", waterLevelCriticalLow);
-  json.set("waterLevelCriticalHigh", waterLevelCriticalHigh);
-
-  json.set("doVoltageScale", doVoltageScale);
-  json.set("doVoltageOffset", doVoltageOffset);
-  json.set("phVoltageSlope", phVoltageSlope);
-  json.set("phVoltageIntercept", phVoltageIntercept);
-  json.set("waterLevelVoltageMin", waterLevelVoltageMin);
-  json.set("waterLevelVoltageMax", waterLevelVoltageMax);
-
-  json.set("updatedBy", "esp32-defaults");
-  json.set("updatedAt", getEpochMillis());
-  json.set("deviceMillis", (int)millis());
-
-  if (Firebase.RTDB.updateNode(&fbdo, FIREBASE_CONFIG_PATH, &json)) {
-    Serial.println("[CONFIG] Default/current thresholds published");
-  } else {
-    Serial.printf("[CONFIG ERROR] %s\n", fbdo.errorReason().c_str());
-  }
-}
-
 void syncConfigFromFirebase() {
   if (!firebaseReady || !Firebase.ready()) return;
 
@@ -455,9 +355,7 @@ void syncConfigFromFirebase() {
   float oldTurbidityVClear = turbidityVClear;
   float oldTurbidityVDirty = turbidityVDirty;
   float oldTurbidityVAirMax = turbidityVAirMax;
-  float oldTurbidityVClearThreshold = turbidityVClearThreshold;
-  float oldTurbidityQualityMin = turbidityQualityMin;
-  float oldTurbidityQualityMax = turbidityQualityMax;
+  float oldTurbidityVThreshold = turbidityVThreshold;
   float oldDOLow = doCriticalLow;
   float oldDOHigh = doCriticalHigh;
   float oldPHLow = phCriticalLow;
@@ -468,41 +366,33 @@ void syncConfigFromFirebase() {
   bool gotAny = false;
 
   gotAny |= readRangeConfig("temp", tempCriticalLow, tempCriticalHigh, 0.0, 50.0);
-  gotAny |= readRangeConfig("turb", turbidityQualityMin, turbidityQualityMax, 0.0, 100.0);
   gotAny |= readRangeConfig("do", doCriticalLow, doCriticalHigh, 0.0, 30.0);
   gotAny |= readRangeConfig("ph", phCriticalLow, phCriticalHigh, 0.0, 14.0);
   gotAny |= readRangeConfig("waterlevel", waterLevelCriticalLow, waterLevelCriticalHigh, 0.0, 100.0);
 
-  gotAny |= readConfigFloat("tempCriticalLow", tempCriticalLow, 0.0, 50.0);
-  gotAny |= readConfigFloat("tempCriticalHigh", tempCriticalHigh, 0.0, 50.0);
+  gotAny |= readConfigFloatPath("tempCriticalLow", tempCriticalLow, 0.0, 50.0);
+  gotAny |= readConfigFloatPath("tempCriticalHigh", tempCriticalHigh, 0.0, 50.0);
 
-  gotAny |= readConfigFloat("turbidityVClear", turbidityVClear, 0.0, 3.3);
-  gotAny |= readConfigFloat("turbidityVDirty", turbidityVDirty, 0.0, 3.3);
-  gotAny |= readConfigFloat("turbidityVAirMax", turbidityVAirMax, 0.0, 3.3);
-  gotAny |= readConfigFloat("turbidityVClearThreshold", turbidityVClearThreshold, 0.0, 3.3);
+  gotAny |= readConfigFloatPath("turbidityVClear", turbidityVClear, 0.0, 3.3);
+  gotAny |= readConfigFloatPath("turbidityVDirty", turbidityVDirty, 0.0, 3.3);
+  gotAny |= readConfigFloatPath("turbidityVAirMax", turbidityVAirMax, 0.0, 3.3);
+  gotAny |= readConfigFloatPath("turbidityVThreshold", turbidityVThreshold, 0.0, 3.3);
 
-  gotAny |= readConfigFloat("vClear", turbidityVClear, 0.0, 3.3);
-  gotAny |= readConfigFloat("vDirty", turbidityVDirty, 0.0, 3.3);
-  gotAny |= readConfigFloat("vAirMax", turbidityVAirMax, 0.0, 3.3);
-  gotAny |= readConfigFloat("vClearThreshold", turbidityVClearThreshold, 0.0, 3.3);
-  gotAny |= readConfigFloat("turbidityQualityMin", turbidityQualityMin, 0.0, 100.0);
-  gotAny |= readConfigFloat("turbidityQualityMax", turbidityQualityMax, 0.0, 100.0);
+  gotAny |= readConfigFloatPath("doCriticalLow", doCriticalLow, 0.0, 30.0);
+  gotAny |= readConfigFloatPath("doCriticalHigh", doCriticalHigh, 0.0, 30.0);
 
-  gotAny |= readConfigFloat("doCriticalLow", doCriticalLow, 0.0, 30.0);
-  gotAny |= readConfigFloat("doCriticalHigh", doCriticalHigh, 0.0, 30.0);
+  gotAny |= readConfigFloatPath("phCriticalLow", phCriticalLow, 0.0, 14.0);
+  gotAny |= readConfigFloatPath("phCriticalHigh", phCriticalHigh, 0.0, 14.0);
 
-  gotAny |= readConfigFloat("phCriticalLow", phCriticalLow, 0.0, 14.0);
-  gotAny |= readConfigFloat("phCriticalHigh", phCriticalHigh, 0.0, 14.0);
+  gotAny |= readConfigFloatPath("waterLevelCriticalLow", waterLevelCriticalLow, 0.0, 100.0);
+  gotAny |= readConfigFloatPath("waterLevelCriticalHigh", waterLevelCriticalHigh, 0.0, 100.0);
 
-  gotAny |= readConfigFloat("waterLevelCriticalLow", waterLevelCriticalLow, 0.0, 100.0);
-  gotAny |= readConfigFloat("waterLevelCriticalHigh", waterLevelCriticalHigh, 0.0, 100.0);
-
-  gotAny |= readConfigFloat("doVoltageScale", doVoltageScale, -100.0, 100.0);
-  gotAny |= readConfigFloat("doVoltageOffset", doVoltageOffset, -100.0, 100.0);
-  gotAny |= readConfigFloat("phVoltageSlope", phVoltageSlope, -100.0, 100.0);
-  gotAny |= readConfigFloat("phVoltageIntercept", phVoltageIntercept, -100.0, 100.0);
-  gotAny |= readConfigFloat("waterLevelVoltageMin", waterLevelVoltageMin, 0.0, 3.3);
-  gotAny |= readConfigFloat("waterLevelVoltageMax", waterLevelVoltageMax, 0.0, 3.3);
+  gotAny |= readConfigFloatPath("doVoltageScale", doVoltageScale, -100.0, 100.0);
+  gotAny |= readConfigFloatPath("doVoltageOffset", doVoltageOffset, -100.0, 100.0);
+  gotAny |= readConfigFloatPath("phVoltageSlope", phVoltageSlope, -100.0, 100.0);
+  gotAny |= readConfigFloatPath("phVoltageIntercept", phVoltageIntercept, -100.0, 100.0);
+  gotAny |= readConfigFloatPath("waterLevelVoltageMin", waterLevelVoltageMin, 0.0, 3.3);
+  gotAny |= readConfigFloatPath("waterLevelVoltageMax", waterLevelVoltageMax, 0.0, 3.3);
 
   bool invalidConfig = false;
 
@@ -516,14 +406,9 @@ void syncConfigFromFirebase() {
     Serial.println("[CONFIG SKIP] turbidityVDirty must be lower than turbidityVClear");
   }
 
-  if (turbidityVAirMax >= turbidityVClearThreshold) {
+  if (turbidityVAirMax >= turbidityVThreshold) {
     invalidConfig = true;
-    Serial.println("[CONFIG SKIP] turbidityVAirMax must be lower than turbidityVClearThreshold");
-  }
-
-  if (turbidityQualityMin >= turbidityQualityMax) {
-    invalidConfig = true;
-    Serial.println("[CONFIG SKIP] ranges/turb min must be lower than max");
+    Serial.println("[CONFIG SKIP] turbidityVAirMax must be lower than turbidityVThreshold");
   }
 
   if (doCriticalLow >= doCriticalHigh) {
@@ -552,9 +437,7 @@ void syncConfigFromFirebase() {
     turbidityVClear = oldTurbidityVClear;
     turbidityVDirty = oldTurbidityVDirty;
     turbidityVAirMax = oldTurbidityVAirMax;
-    turbidityVClearThreshold = oldTurbidityVClearThreshold;
-    turbidityQualityMin = oldTurbidityQualityMin;
-    turbidityQualityMax = oldTurbidityQualityMax;
+    turbidityVThreshold = oldTurbidityVThreshold;
     doCriticalLow = oldDOLow;
     doCriticalHigh = oldDOHigh;
     phCriticalLow = oldPHLow;
@@ -565,17 +448,15 @@ void syncConfigFromFirebase() {
   }
 
   if (!gotAny) {
-    Serial.println("[CONFIG] No Firebase config found. Publishing default thresholds.");
-    publishCurrentConfigToFirebase();
+    Serial.println("[CONFIG] No Firebase config found. Using defaults.");
     return;
   }
 
-  Serial.printf("[CONFIG] Temp %.1f-%.1f C | Turbidity quality %.1f-%.1f%% | Voltage threshold %.3f V | DO %.1f-%.1f mg/L | pH %.1f-%.1f | Water %.1f-%.1f%%\n",
+  Serial.printf("[CONFIG] Temp %.1f-%.1f C | Turb voltage clear=%.2f dirty=%.2f | DO %.1f-%.1f mg/L | pH %.1f-%.1f | Water %.1f-%.1f%%\n",
                 tempCriticalLow,
                 tempCriticalHigh,
-                turbidityQualityMin,
-                turbidityQualityMax,
-                turbidityVClearThreshold,
+                turbidityVClear,
+                turbidityVDirty,
                 doCriticalLow,
                 doCriticalHigh,
                 phCriticalLow,
@@ -585,110 +466,31 @@ void syncConfigFromFirebase() {
 }
 
 // ============================================================
-//  FIREBASE JSON
+//  FIREBASE JSON — MINIMAL PAYLOAD
+//  Only raw sensor values. Flutter computes zones & status.
+//  Turbidity is sent as NTU (Nephelometric Turbidity Units).
 // ============================================================
-void addThresholdsToJson(FirebaseJson &json) {
-  json.set("thresholds/tempCriticalLow", tempCriticalLow);
-  json.set("thresholds/tempCriticalHigh", tempCriticalHigh);
-  json.set("thresholds/turbidityVClear", turbidityVClear);
-  json.set("thresholds/turbidityVDirty", turbidityVDirty);
-  json.set("thresholds/turbidityVAirMax", turbidityVAirMax);
-  json.set("thresholds/turbidityVClearThreshold", turbidityVClearThreshold);
-  json.set("thresholds/turbidityQualityMin", turbidityQualityMin);
-  json.set("thresholds/turbidityQualityMax", turbidityQualityMax);
-  json.set("thresholds/ranges/temp/min", tempCriticalLow);
-  json.set("thresholds/ranges/temp/max", tempCriticalHigh);
-  json.set("thresholds/ranges/turb/min", turbidityQualityMin);
-  json.set("thresholds/ranges/turb/max", turbidityQualityMax);
-  json.set("thresholds/ranges/do/min", doCriticalLow);
-  json.set("thresholds/ranges/do/max", doCriticalHigh);
-  json.set("thresholds/ranges/ph/min", phCriticalLow);
-  json.set("thresholds/ranges/ph/max", phCriticalHigh);
-  json.set("thresholds/ranges/waterlevel/min", waterLevelCriticalLow);
-  json.set("thresholds/ranges/waterlevel/max", waterLevelCriticalHigh);
-  json.set("thresholds/doCriticalLow", doCriticalLow);
-  json.set("thresholds/doCriticalHigh", doCriticalHigh);
-  json.set("thresholds/phCriticalLow", phCriticalLow);
-  json.set("thresholds/phCriticalHigh", phCriticalHigh);
-  json.set("thresholds/waterLevelCriticalLow", waterLevelCriticalLow);
-  json.set("thresholds/waterLevelCriticalHigh", waterLevelCriticalHigh);
-}
-
-FirebaseJson buildSensorJson() {
+FirebaseJson buildMinimalJson(bool includeTimestamp) {
   FirebaseJson json;
 
   json.set("temperature", smoothedTemp);
-  json.set("temperatureZone", getTempZone(smoothedTemp));
-  json.set("tempSensorOK", tempSensorOK);
+  json.set("turbidity", smoothedTurbidityNTU);
 
-  json.set("turbidityQuality", smoothedTurbidityQuality);
-  json.set("turbidityZone", getTurbidityZone());
-  json.set("turbidityStatus", turbidityStatus);
-  json.set("turbidityVoltage", turbidityVoltage);
-  json.set("turbSensorOK", turbiditySensorOK);
+  if (ENABLE_DO_SENSOR) {
+    json.set("dissolvedOxygen", dissolvedOxygen);
+  }
 
-  json.set("dissolvedOxygen", dissolvedOxygen);
-  json.set("dissolvedOxygenVoltage", dissolvedOxygenVoltage);
-  json.set("dissolvedOxygenZone", getDOZone());
-  json.set("dissolvedOxygenStatus", doStatus);
-  json.set("dissolvedOxygenSensorOK", doSensorOK);
+  if (ENABLE_PH_SENSOR) {
+    json.set("phLevel", phLevel);
+  }
 
-  json.set("phLevel", phLevel);
-  json.set("phVoltage", phVoltage);
-  json.set("phZone", getPHZone());
-  json.set("phStatus", phStatus);
-  json.set("phSensorOK", phSensorOK);
+  if (ENABLE_WATER_LEVEL_SENSOR) {
+    json.set("waterLevelPercent", waterLevelPercent);
+  }
 
-  json.set("waterLevelPercent", waterLevelPercent);
-  json.set("waterLevelVoltage", waterLevelVoltage);
-  json.set("waterLevelZone", getWaterLevelZone());
-  json.set("waterLevelStatus", waterLevelStatus);
-  json.set("waterLevelSensorOK", waterLevelSensorOK);
-
-  json.set("sensors/temperature/value", smoothedTemp);
-  json.set("sensors/temperature/unit", "°C");
-  json.set("sensors/temperature/zone", getTempZone(smoothedTemp));
-  json.set("sensors/temperature/ok", tempSensorOK);
-
-  json.set("sensors/turbidity/value", smoothedTurbidityQuality);
-  json.set("sensors/turbidity/unit", "% quality");
-  json.set("sensors/turbidity/voltage", turbidityVoltage);
-  json.set("sensors/turbidity/status", turbidityStatus);
-  json.set("sensors/turbidity/zone", getTurbidityZone());
-  json.set("sensors/turbidity/ok", turbiditySensorOK);
-
-  json.set("sensors/dissolvedOxygen/value", dissolvedOxygen);
-  json.set("sensors/dissolvedOxygen/unit", "mg/L");
-  json.set("sensors/dissolvedOxygen/voltage", dissolvedOxygenVoltage);
-  json.set("sensors/dissolvedOxygen/status", doStatus);
-  json.set("sensors/dissolvedOxygen/zone", getDOZone());
-  json.set("sensors/dissolvedOxygen/ok", doSensorOK);
-  json.set("sensors/dissolvedOxygen/placeholder", ENABLE_DO_SENSOR == 0);
-
-  json.set("sensors/ph/value", phLevel);
-  json.set("sensors/ph/unit", "pH");
-  json.set("sensors/ph/voltage", phVoltage);
-  json.set("sensors/ph/status", phStatus);
-  json.set("sensors/ph/zone", getPHZone());
-  json.set("sensors/ph/ok", phSensorOK);
-  json.set("sensors/ph/placeholder", ENABLE_PH_SENSOR == 0);
-
-  json.set("sensors/waterLevel/value", waterLevelPercent);
-  json.set("sensors/waterLevel/unit", "%");
-  json.set("sensors/waterLevel/voltage", waterLevelVoltage);
-  json.set("sensors/waterLevel/status", waterLevelStatus);
-  json.set("sensors/waterLevel/zone", getWaterLevelZone());
-  json.set("sensors/waterLevel/ok", waterLevelSensorOK);
-  json.set("sensors/waterLevel/placeholder", ENABLE_WATER_LEVEL_SENSOR == 0);
-
-  json.set("overallStatus", getOverallStatus());
-  json.set("deviceOnline", true);
-  json.set("deviceMillis", (int)millis());
-  json.set("timestamp", getEpochMillis());
-  json.set("wifiRSSI", WiFi.RSSI());
-  json.set("tankName", "Tank A");
-
-  addThresholdsToJson(json);
+  if (includeTimestamp) {
+    json.set("timestamp", getEpochMillis());
+  }
 
   return json;
 }
@@ -696,10 +498,11 @@ FirebaseJson buildSensorJson() {
 void sendLatestToFirebase() {
   if (!firebaseReady || !Firebase.ready()) return;
 
-  FirebaseJson json = buildSensorJson();
+  FirebaseJson json = buildMinimalJson(false);
+  json.set("deviceOnline", true);
 
   if (Firebase.RTDB.updateNode(&fbdo, FIREBASE_LATEST_PATH, &json)) {
-    Serial.println("[FIREBASE] Latest data sent");
+    Serial.println("[FIREBASE] Latest sent");
   } else {
     Serial.printf("[FIREBASE ERROR] %s\n", fbdo.errorReason().c_str());
   }
@@ -708,12 +511,10 @@ void sendLatestToFirebase() {
 void sendHistoryToFirebase() {
   if (!firebaseReady || !Firebase.ready()) return;
 
-  FirebaseJson json = buildSensorJson();
-  json.set("createdAtMillis", (int)millis());
-  json.set("createdAt", getEpochMillis());
+  FirebaseJson json = buildMinimalJson(true);
 
   if (Firebase.RTDB.pushJSON(&fbdo, FIREBASE_HISTORY_PATH, &json)) {
-    Serial.println("[FIREBASE] History data saved");
+    Serial.println("[FIREBASE] History saved");
   } else {
     Serial.printf("[FIREBASE HISTORY ERROR] %s\n", fbdo.errorReason().c_str());
   }
@@ -745,16 +546,15 @@ void primeTurbidityBuffer() {
   TurbidityResult tr = classifyTurbidity(fv);
 
   turbidityVoltage = fv;
-  lastValidTurbidityQuality = tr.quality;
+  lastValidTurbidityNTU = tr.ntu;
 
   for (uint8_t i = 0; i < SMOOTH_WINDOW; i++) {
-    turbidityBuffer[i] = tr.quality;
+    turbidityBuffer[i] = tr.ntu;
   }
 
   turbidityCount = SMOOTH_WINDOW;
   turbidityIndex = 0;
-  smoothedTurbidityQuality = tr.quality;
-  turbidityStatus = tr.status;
+  smoothedTurbidityNTU = tr.ntu;
   turbiditySensorOK = tr.valid;
 }
 
@@ -811,40 +611,38 @@ void readTurbiditySensor() {
 
   if (!tr.valid) {
     turbiditySensorOK = false;
-    turbidityStatus = tr.status;
-    smoothedTurbidityQuality = 0.0;
-    Serial.printf("[TURB] %s (V=%.3f)\n", tr.status.c_str(), voltage);
+    smoothedTurbidityNTU = 0.0;
+    Serial.printf("[TURB] Air/no water (V=%.3f)\n", voltage);
     return;
   }
 
   bool accept = true;
 
-  if (lastValidTurbidityQuality >= 0.0) {
-    float jump = fabs(tr.quality - lastValidTurbidityQuality);
+  if (lastValidTurbidityNTU >= 0.0) {
+    float jump = fabs(tr.ntu - lastValidTurbidityNTU);
 
-    if (jump > TURBIDITY_QUALITY_JUMP_MAX) {
+    if (jump > TURB_NTU_JUMP_MAX) {
       accept = false;
-      Serial.printf("[TURB SKIP] quality jump too large: %.1f\n", jump);
+      Serial.printf("[TURB SKIP] NTU jump too large: %.1f\n", jump);
     }
   }
 
   if (accept) {
     turbiditySkipCount = 0;
-    turbidityBuffer[turbidityIndex] = tr.quality;
+    turbidityBuffer[turbidityIndex] = tr.ntu;
     turbidityIndex = (turbidityIndex + 1) % SMOOTH_WINDOW;
 
     if (turbidityCount < SMOOTH_WINDOW) turbidityCount++;
 
-    lastValidTurbidityQuality = tr.quality;
+    lastValidTurbidityNTU = tr.ntu;
     turbiditySensorOK = true;
-    turbidityStatus = tr.status;
-    smoothedTurbidityQuality = computeAverage(turbidityBuffer, turbidityCount);
+    smoothedTurbidityNTU = computeAverage(turbidityBuffer, turbidityCount);
   } else {
     turbiditySkipCount++;
 
     if (turbiditySkipCount >= MAX_SKIP_COUNT) {
       Serial.println("[TURB] Watchdog override — forcing new baseline.");
-      lastValidTurbidityQuality = tr.quality;
+      lastValidTurbidityNTU = tr.ntu;
       turbiditySkipCount = 0;
     }
   }
@@ -853,9 +651,6 @@ void readTurbiditySensor() {
 void readDissolvedOxygenSensor() {
   if (!ENABLE_DO_SENSOR) {
     dissolvedOxygen = -1.0;
-    dissolvedOxygenVoltage = 0.0;
-    doSensorOK = false;
-    doStatus = "PLACEHOLDER - SENSOR NOT ENABLED";
     return;
   }
 
@@ -863,15 +658,11 @@ void readDissolvedOxygenSensor() {
   dissolvedOxygen = dissolvedOxygenVoltage * doVoltageScale + doVoltageOffset;
   dissolvedOxygen = constrain(dissolvedOxygen, 0.0f, 30.0f);
   doSensorOK = true;
-  doStatus = getDOZone();
 }
 
 void readPHSensor() {
   if (!ENABLE_PH_SENSOR) {
     phLevel = -1.0;
-    phVoltage = 0.0;
-    phSensorOK = false;
-    phStatus = "PLACEHOLDER - SENSOR NOT ENABLED";
     return;
   }
 
@@ -879,15 +670,11 @@ void readPHSensor() {
   phLevel = phVoltageSlope * phVoltage + phVoltageIntercept;
   phLevel = constrain(phLevel, 0.0f, 14.0f);
   phSensorOK = true;
-  phStatus = getPHZone();
 }
 
 void readWaterLevelSensor() {
   if (!ENABLE_WATER_LEVEL_SENSOR) {
     waterLevelPercent = -1.0;
-    waterLevelVoltage = 0.0;
-    waterLevelSensorOK = false;
-    waterLevelStatus = "PLACEHOLDER - SENSOR NOT ENABLED";
     return;
   }
 
@@ -895,7 +682,6 @@ void readWaterLevelSensor() {
   waterLevelPercent = (waterLevelVoltage - waterLevelVoltageMin) * 100.0f / (waterLevelVoltageMax - waterLevelVoltageMin);
   waterLevelPercent = constrain(waterLevelPercent, 0.0f, 100.0f);
   waterLevelSensorOK = true;
-  waterLevelStatus = getWaterLevelZone();
 }
 
 void readAllSensors() {
@@ -926,21 +712,15 @@ void setup() {
   connectFirebase();
   syncConfigFromFirebase();
 
-  // Set onDisconnect handler: Firebase automatically sets deviceOnline=false
-  // when ESP32 loses connection (WiFi drop, crash, power loss).
-  if (Firebase.ready()) {
-    if (Firebase.RTDB.onDisconnect()->setChild(fbdo, FIREBASE_LATEST_PATH "/deviceOnline", false)) {
-      Serial.println("[ON_DISCONNECT] Handler registered — deviceOnline will auto-set to false on disconnect");
-    } else {
-      Serial.printf("[ON_DISCONNECT] Failed: %s\n", fbdo.errorReason().c_str());
-    }
-  }
+  // Flutter detects offline via timestamp timeout (30s) in sensor_service.dart.
+  // onDisconnect REST handler is not available in this Firebase library version.
 
   Serial.println("============================================");
-  Serial.println("  CrayCare Monitor + Firebase — Ready");
+  Serial.println("  CrayCare Monitor — Calibrated Turbidity");
   Serial.printf("  Latest path : %s\n", FIREBASE_LATEST_PATH);
   Serial.printf("  History path: %s\n", FIREBASE_HISTORY_PATH);
   Serial.printf("  Config path : %s\n", FIREBASE_CONFIG_PATH);
+  Serial.println("  Turbidity: NTU (calibrated)");
   Serial.println("============================================");
 }
 
@@ -968,18 +748,13 @@ void loop() {
 
     readAllSensors();
 
-    Serial.printf("[OK] Temp: %.1f C (%s) | Turbidity: %.1f%% (%s) | DO: %.1f (%s) | pH: %.2f (%s) | Level: %.1f%% (%s) | Overall: %s\n",
+    Serial.printf("[OK] Temp: %.1f C | Turb: %.0f NTU (%.3fV) | DO: %.1f | pH: %.2f | Level: %.1f%%\n",
                   smoothedTemp,
-                  getTempZone(smoothedTemp).c_str(),
-                  smoothedTurbidityQuality,
-                  getTurbidityZone().c_str(),
+                  smoothedTurbidityNTU,
+                  turbidityVoltage,
                   dissolvedOxygen,
-                  getDOZone().c_str(),
                   phLevel,
-                  getPHZone().c_str(),
-                  waterLevelPercent,
-                  getWaterLevelZone().c_str(),
-                  getOverallStatus().c_str());
+                  waterLevelPercent);
   }
 
   if (now - lastFirebaseSendTime >= FIREBASE_SEND_INTERVAL_MS) {
