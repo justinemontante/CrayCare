@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
+import '../services/notification_service.dart';
+import '../models/notification_item.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -11,30 +13,36 @@ class NotificationsScreen extends StatefulWidget {
 class _NotificationsScreenState extends State<NotificationsScreen> {
   String _activeFilter = 'all';
 
-  final List<_NotificationItem> _notifications = [
-    _NotificationItem(id: '1', type: 'critical', title: 'Critical: Low DO Level', message: 'Dissolved oxygen dropped to 2.8 mg/L. Aerator activated automatically.', timestamp: DateTime.now().subtract(const Duration(minutes: 15)), unread: true),
-    _NotificationItem(id: '2', type: 'warning', title: 'Turbidity Warning', message: 'Turbidity level at 48 NTU. Filtration may be needed.', timestamp: DateTime.now().subtract(const Duration(hours: 1)), unread: true),
-    _NotificationItem(id: '3', type: 'operational', title: 'Feeder Dispensed', message: 'Auto Feeder dispensed 44.1g feed (scheduled)', timestamp: DateTime.now().subtract(const Duration(hours: 2)), unread: true),
-    _NotificationItem(id: '4', type: 'reminder', title: 'Sampling Due', message: 'Weekly sampling is due tomorrow.', timestamp: DateTime.now().subtract(const Duration(hours: 5)), unread: false),
-    _NotificationItem(id: '5', type: 'warning', title: 'Temperature Shift', message: 'Water temperature rising above 30\u00B0C. Monitor closely.', timestamp: DateTime.now().subtract(const Duration(days: 1)), unread: false),
-    _NotificationItem(id: '6', type: 'operational', title: 'Aerator Mode Changed', message: 'Aerator 1 set to AUTO mode.', timestamp: DateTime.now().subtract(const Duration(days: 1, hours: 3)), unread: false),
-  ];
-
-  List<_NotificationItem> get _filtered {
-    if (_activeFilter == 'all') return _notifications;
-    return _notifications.where((n) => n.type == _activeFilter).toList();
+  List<NotificationItem> get _filtered {
+    final all = NotificationService.instance.notifications;
+    if (_activeFilter == 'all') return all;
+    return all.where((n) => n.type == _activeFilter).toList();
   }
 
-  int get _unreadCount => _notifications.where((n) => n.unread).length;
-  int get _criticalCount => _notifications.where((n) => n.type == 'critical').length;
+  @override
+  void initState() {
+    super.initState();
+    NotificationService.instance.addListener(_onNotifsChanged);
+  }
+
+  @override
+  void dispose() {
+    NotificationService.instance.removeListener(_onNotifsChanged);
+    super.dispose();
+  }
+
+  void _onNotifsChanged() {
+    if (mounted) setState(() {});
+  }
 
   @override
   Widget build(BuildContext context) {
+    final svc = NotificationService.instance;
     return Container(
       color: Colors.white,
       child: Column(
         children: [
-          _buildKpiRow(),
+          _buildKpiRow(svc),
           _buildFilterRow(),
           _buildHeaderRow(),
           Expanded(child: _filtered.isEmpty ? _buildEmptyState() : _buildList()),
@@ -43,18 +51,18 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 
-  Widget _buildKpiRow() {
+  Widget _buildKpiRow(NotificationService svc) {
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
       child: Row(
         children: [
-          _buildKpiCard('Total Today', '${_notifications.length}', AppColors.primary),
+          _buildKpiCard('Total Today', '${svc.todayCount}', AppColors.primary),
           const SizedBox(width: 6),
-          _buildKpiCard('Unread', '$_unreadCount', AppColors.warning),
+          _buildKpiCard('Unread', '${svc.unreadCount}', AppColors.warning),
           const SizedBox(width: 6),
-          _buildKpiCard('Critical', '$_criticalCount', AppColors.critical),
+          _buildKpiCard('Critical', '${svc.criticalCount}', AppColors.critical),
           const SizedBox(width: 6),
-          _buildKpiCard('Reminders', '${_notifications.where((n) => n.type == 'reminder').length}', AppColors.warningDark),
+          _buildKpiCard('Reminders', '${svc.reminderCount}', AppColors.warningDark),
         ],
       ),
     );
@@ -65,9 +73,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 10),
         decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.08),
+          color: Colors.white,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withValues(alpha: 0.2)),
+          border: Border.all(color: AppColors.darkWith(0.12), width: 1.5),
         ),
         child: Column(
           children: [
@@ -82,8 +90,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   Widget _buildFilterRow() {
     final filters = ['all', 'critical', 'warning', 'operational', 'reminders'];
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      padding: const EdgeInsets.all(5),
+      decoration: BoxDecoration(
+        color: AppColors.dark.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(16),
+      ),
       child: Row(
         children: filters.map((f) {
           final isActive = _activeFilter == f;
@@ -91,19 +104,29 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             child: GestureDetector(
               onTap: () => setState(() => _activeFilter = f),
               child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 2),
-                padding: const EdgeInsets.symmetric(vertical: 6),
+                padding: const EdgeInsets.symmetric(vertical: 12),
                 decoration: BoxDecoration(
-                  color: isActive ? AppColors.primary : Colors.transparent,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: isActive ? AppColors.primary : AppColors.darkWith(0.12)),
+                  color: isActive ? Colors.white : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: isActive
+                      ? [
+                          BoxShadow(
+                            color: AppColors.dark.withValues(alpha: 0.05),
+                            blurRadius: 10,
+                            offset: const Offset(0, 2),
+                          ),
+                        ]
+                      : null,
                 ),
                 child: Text(
                   f == 'all' ? 'All' : '${f[0].toUpperCase()}${f.substring(1)}',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    fontSize: 9, fontWeight: FontWeight.w700,
-                    color: isActive ? Colors.white : AppColors.darkWith(0.5),
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    color: isActive
+                        ? AppColors.primary
+                        : AppColors.dark.withValues(alpha: 0.4),
                   ),
                 ),
               ),
@@ -120,14 +143,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text('${_filtered.length} notification${_filtered.length == 1 ? '' : 's'}', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.5))),
+          Text('${_filtered.length} notification${_filtered.length == 1 ? '' : 's'}',
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.5)),
+          ),
         ],
       ),
     );
   }
 
   Widget _buildList() {
-    final grouped = <String, List<_NotificationItem>>{};
+    final grouped = <String, List<NotificationItem>>{};
     for (var n in _filtered) {
       final key = _dateGroupKey(n.timestamp);
       grouped.putIfAbsent(key, () => []).add(n);
@@ -150,20 +175,20 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 
-  Widget _buildNotificationItem(_NotificationItem n) {
+  Widget _buildNotificationItem(NotificationItem n) {
     final color = _typeColor(n.type);
     return GestureDetector(
       onTap: () {
-        setState(() => n.unread = false);
+        NotificationService.instance.markAsRead(n.id);
         _showDetail(n);
       },
       child: Container(
         margin: const EdgeInsets.only(bottom: 6),
         padding: const EdgeInsets.fromLTRB(10, 10, 6, 10),
         decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.04),
+          color: Colors.white,
           borderRadius: BorderRadius.circular(12),
-          border: Border(left: BorderSide(color: color.withValues(alpha: 0.5), width: 3)),
+          border: Border.all(color: AppColors.darkWith(0.08)),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -211,7 +236,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 
-  void _showDetail(_NotificationItem n) {
+  void _showDetail(NotificationItem n) {
     final color = _typeColor(n.type);
     showModalBottomSheet(
       context: context,
@@ -314,22 +339,4 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     if (diff.inHours < 24) return '${diff.inHours}h ago';
     return '${diff.inDays}d ago';
   }
-}
-
-class _NotificationItem {
-  final String id;
-  final String type;
-  final String title;
-  final String message;
-  final DateTime timestamp;
-  bool unread;
-
-  _NotificationItem({
-    required this.id,
-    required this.type,
-    required this.title,
-    required this.message,
-    required this.timestamp,
-    this.unread = false,
-  });
 }

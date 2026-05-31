@@ -9,6 +9,7 @@ import 'theme/app_theme.dart';
 import 'screens/login_screen.dart';
 import 'screens/main_shell.dart'; // Import the MainShell for routing
 import 'services/settings_service.dart';
+import 'services/notification_service.dart';
 import 'firebase_options.dart'; // Generated configuration file
 import 'screens/verify_screen.dart';
 
@@ -29,6 +30,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await SettingsService.instance.init();
+  NotificationService.instance.init();
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
