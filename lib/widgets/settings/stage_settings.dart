@@ -120,6 +120,75 @@ class _StageSettingsState extends State<StageSettings> {
     return null;
   }
 
+  void _showSuccessModal(String message) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF22c55e).withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.check_circle_rounded,
+                color: Color(0xFF22c55e),
+                size: 50,
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Updated Successfully!',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+                color: AppColors.dark,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12,
+                color: AppColors.dark.withValues(alpha: 0.6),
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Navigator.pop(ctx),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text(
+                  'Done',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _saveConfigToFirebase({
     String? changedKey,
     bool showMessage = true,
@@ -144,12 +213,10 @@ class _StageSettingsState extends State<StageSettings> {
       if (!mounted) return;
       setState(() => _saving = false);
       if (showMessage) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Thresholds synced to Firebase'),
-            duration: Duration(seconds: 2),
-          ),
-        );
+        final msg = changedKey != null
+            ? 'Threshold updated!'
+            : 'Stage and thresholds saved!';
+        _showSuccessModal(msg);
       }
     } catch (e) {
       if (!mounted) return;

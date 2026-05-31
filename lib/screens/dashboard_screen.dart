@@ -18,13 +18,19 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen> {
+class _DashboardScreenState extends State<DashboardScreen>
+    with SingleTickerProviderStateMixin {
   final ScrollController _quickActionsController = ScrollController();
   Timer? _countdownTimer;
+  late final AnimationController _pulseController;
 
   @override
   void initState() {
     super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    );
     SensorService.instance.addListener(_refreshUI);
     SettingsService.instance.addListener(_refreshUI);
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -34,6 +40,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   void dispose() {
+    _pulseController.dispose();
     _quickActionsController.dispose();
     SensorService.instance.removeListener(_refreshUI);
     SettingsService.instance.removeListener(_refreshUI);
@@ -42,7 +49,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _refreshUI() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    final isOnline = SensorService.instance.isEspOnline;
+    if (isOnline && !_pulseController.isAnimating) {
+      _pulseController.repeat(reverse: true);
+    } else if (!isOnline && _pulseController.isAnimating) {
+      _pulseController.stop();
+      _pulseController.reset();
+    }
+    setState(() {});
   }
 
   // LOGIC PARA KUNIN ANG FIRST NAME LANG NG NAKA-LOGIN
@@ -272,7 +287,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
       syncText = 'Last sync: $h:$m:$s $ampm';
     }
 
-    final bgColor = const Color(0xFFF0FDF0);
+    final bgColor = isOnline
+        ? const Color(0xFFF0FDF0)
+        : hasData
+            ? const Color(0xFFFEF2F2)
+            : const Color(0xFFFFFBEb);
+
+    final borderColor = isOnline
+        ? const Color(0xFF22c55e).withValues(alpha: 0.15)
+        : hasData
+            ? AppColors.critical.withValues(alpha: 0.15)
+            : AppColors.warning.withValues(alpha: 0.3);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
@@ -281,18 +306,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
         decoration: BoxDecoration(
           color: bgColor,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: const Color(0xFF22c55e).withValues(alpha: 0.15)),
+          border: Border.all(color: borderColor),
         ),
         child: Row(
           children: [
-            Container(
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(
-                color: statusColor,
-                shape: BoxShape.circle,
-              ),
-            ),
+            isOnline
+                ? AnimatedBuilder(
+                animation: _pulseController,
+                builder: (_, _) {
+                      final p = _pulseController.value;
+                      return Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: statusColor,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: statusColor.withValues(alpha: 0.1 + p * 0.4),
+                              blurRadius: 1 + p * 5,
+                              spreadRadius: p * 2,
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  )
+                : Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: statusColor,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
             const SizedBox(width: 8),
             Expanded(
               child: Column(
@@ -319,43 +366,51 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ),
             if (isOnline)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0xFF22c55e).withValues(alpha: 0.2)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.04),
-                      blurRadius: 4,
-                      offset: const Offset(0, 1),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 5,
-                      height: 5,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF22c55e),
-                        shape: BoxShape.circle,
+              AnimatedBuilder(
+                    animation: _pulseController,
+                    builder: (_, _) {
+                  final p = _pulseController.value;
+                  return Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.85 + p * 0.15),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: const Color(0xFF22c55e).withValues(alpha: 0.2 + p * 0.3),
                       ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF22c55e).withValues(alpha: 0.05 + p * 0.1),
+                          blurRadius: 4,
+                          offset: const Offset(0, 1),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 4),
-                    const Text(
-                      'LIVE',
-                      style: TextStyle(
-                        fontSize: 8,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF22c55e),
-                        letterSpacing: 0.5,
-                      ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 5,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF22c55e).withValues(alpha: 0.6 + p * 0.4),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'LIVE',
+                          style: TextStyle(
+                            fontSize: 8,
+                            fontWeight: FontWeight.w800,
+                            color: const Color(0xFF22c55e).withValues(alpha: 0.7 + p * 0.3),
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  );
+                },
               ),
           ],
         ),

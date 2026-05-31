@@ -90,6 +90,7 @@ class SensorService extends ChangeNotifier {
 
   void _updateSensor(String key, double? value) {
     if (value == null || value < 0) return;
+    if (value == 0 && !_latest.containsKey(key)) return;
 
     _latest[key] = value;
 

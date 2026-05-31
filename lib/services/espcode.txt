@@ -926,6 +926,16 @@ void setup() {
   connectFirebase();
   syncConfigFromFirebase();
 
+  // Set onDisconnect handler: Firebase automatically sets deviceOnline=false
+  // when ESP32 loses connection (WiFi drop, crash, power loss).
+  if (Firebase.ready()) {
+    if (Firebase.RTDB.onDisconnect()->setChild(fbdo, FIREBASE_LATEST_PATH "/deviceOnline", false)) {
+      Serial.println("[ON_DISCONNECT] Handler registered — deviceOnline will auto-set to false on disconnect");
+    } else {
+      Serial.printf("[ON_DISCONNECT] Failed: %s\n", fbdo.errorReason().c_str());
+    }
+  }
+
   Serial.println("============================================");
   Serial.println("  CrayCare Monitor + Firebase — Ready");
   Serial.printf("  Latest path : %s\n", FIREBASE_LATEST_PATH);
