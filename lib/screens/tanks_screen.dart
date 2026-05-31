@@ -146,11 +146,15 @@ class TanksScreenState extends State<TanksScreen> {
                   lastEdited: _lastEdited,
                 ),
                 SamplingTab(
+                  lastEdited: _lastEdited,
                   sampleCountController: _sampleCountController,
                   sampleWeightController: _sampleWeightController,
                   sampleLengthController: _sampleLengthController,
                 ),
-                TrendsTab(onInfoTap: _showGrowthStageReferenceModal),
+                TrendsTab(
+                  lastEdited: _lastEdited,
+                  onInfoTap: _showGrowthStageReferenceModal,
+                ),
               ],
             ),
           ),

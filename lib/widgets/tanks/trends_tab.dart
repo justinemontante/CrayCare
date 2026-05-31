@@ -6,8 +6,9 @@ import '../../services/tank_service.dart';
 import 'sampling_tab.dart';
 
 class TrendsTab extends StatefulWidget {
+  final DateTime lastEdited;
   final VoidCallback? onInfoTap;
-  const TrendsTab({super.key, this.onInfoTap});
+  const TrendsTab({super.key, required this.lastEdited, this.onInfoTap});
 
   @override
   State<TrendsTab> createState() => _TrendsTabState();

@@ -51,12 +51,14 @@ void showBeautifulSnackbar(
 }
 
 class SamplingTab extends StatelessWidget {
+  final DateTime lastEdited;
   final TextEditingController sampleCountController;
   final TextEditingController sampleWeightController;
   final TextEditingController sampleLengthController;
 
   const SamplingTab({
     super.key,
+    required this.lastEdited,
     required this.sampleCountController,
     required this.sampleWeightController,
     required this.sampleLengthController,
@@ -72,13 +74,13 @@ class SamplingTab extends StatelessWidget {
         children: [
           _buildSectionHeader(),
           const SizedBox(height: 8),
-          const NextSamplingPanel(),
+          NextSamplingPanel(),
           const SizedBox(height: 12),
-          const GrowthOverviewPanel(),
+          GrowthOverviewPanel(),
           const SizedBox(height: 12),
-          const SamplingFormPanel(),
+          SamplingFormPanel(),
           const SizedBox(height: 12),
-          const SamplingHistoryPanel(),
+          SamplingHistoryPanel(),
           const SizedBox(height: 12),
         ],
       ),
@@ -996,6 +998,9 @@ class GrowthStagePanel extends StatelessWidget {
     final currentAbw = history.isNotEmpty
         ? history.last.abw
         : TankService.instance.initialWeight;
+    final currentAbl = history.isNotEmpty
+        ? history.last.avgLength
+        : TankService.instance.initialLength;
 
     int activeIndex = 0;
     for (int i = 0; i < stages.length; i++) {
@@ -1133,6 +1138,41 @@ class GrowthStagePanel extends StatelessWidget {
             }),
           ),
           const SizedBox(height: 16),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  'ABW: ${currentAbw.toStringAsFixed(1)}g',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.primary,
+                  ),
+                ),
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 12),
+                  width: 1,
+                  height: 14,
+                  color: AppColors.primary.withValues(alpha: 0.2),
+                ),
+                Text(
+                  'ABL: ${currentAbl.toStringAsFixed(1)}cm',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.primary,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -1141,6 +1181,14 @@ class GrowthStagePanel extends StatelessWidget {
 
 class SamplingHistoryPanel extends StatelessWidget {
   const SamplingHistoryPanel({super.key});
+
+  String _formatDate(DateTime date) {
+    final months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return '${months[date.month - 1]} ${date.day}, ${date.year}';
+  }
 
   void _showAllHistory(BuildContext context) {
     final service = TankService.instance;
@@ -1205,7 +1253,7 @@ class SamplingHistoryPanel extends StatelessWidget {
                       final entry = allHistory.reversed.toList()[i];
                       final isLatest = i == 0;
                       return _buildHistoryCard(
-                        title: '${entry.date.month}/${entry.date.day}/${entry.date.year}',
+                        title: _formatDate(entry.date),
                         dateLabel: 'Sampling entry',
                         abw: entry.abw,
                         abl: entry.avgLength,
@@ -1221,7 +1269,7 @@ class SamplingHistoryPanel extends StatelessWidget {
                     // Last item = Initial Baseline
                     return _buildHistoryCard(
                       title: 'Initial Baseline',
-                      dateLabel: '${service.stockingDate.month}/${service.stockingDate.day}/${service.stockingDate.year}',
+                      dateLabel: _formatDate(service.stockingDate),
                       abw: service.initialWeight,
                       abl: service.initialLength,
                       sampleSize: service.sampleCount,
@@ -1431,7 +1479,7 @@ class SamplingHistoryPanel extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          if (history.isEmpty && !TankService.instance.isInitialized)
+          if (!TankService.instance.isInitialized)
             Center(
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 24),
@@ -1446,37 +1494,30 @@ class SamplingHistoryPanel extends StatelessWidget {
               ),
             )
           else ...[
-            // History entries — latest first
-            ...List.generate(
-              history.length > 3 ? 3 : history.length,
-              (i) {
-                final entry = history.reversed.toList()[i];
-                final isLatest = i == 0;
-                return Padding(
-                  padding: EdgeInsets.only(bottom: i < 2 ? 8 : 0),
-                  child: _buildHistoryCard(
-                    title: '${entry.date.month}/${entry.date.day}/${entry.date.year}',
-                    dateLabel: 'Sampling entry',
-                    abw: entry.abw,
-                    abl: entry.avgLength,
-                    sampleSize: entry.sampleSize,
-                    isLatest: isLatest,
-                    icon: const Icon(
-                      Icons.history_rounded,
-                      size: 18,
-                      color: AppColors.primary,
-                    ),
-                  ),
-                );
-              },
-            ),
-            // Initial baseline card at the bottom — same design as history cards
+            // Max 2 most recent sampling entries first (latest agad)
+            ...history.reversed.take(2).map((entry) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _buildHistoryCard(
+                title: _formatDate(entry.date),
+                dateLabel: 'Sampling entry',
+                abw: entry.abw,
+                abl: entry.avgLength,
+                sampleSize: entry.sampleSize,
+                isLatest: false,
+                icon: const Icon(
+                  Icons.history_rounded,
+                  size: 18,
+                  color: AppColors.primary,
+                ),
+              ),
+            )),
+            // Initial baseline card at the bottom
             if (TankService.instance.isInitialized)
               Padding(
-                padding: const EdgeInsets.only(top: 8),
+                padding: const EdgeInsets.only(bottom: 8),
                 child: _buildHistoryCard(
                   title: 'Initial Baseline',
-                  dateLabel: '${service.stockingDate.month}/${service.stockingDate.day}/${service.stockingDate.year}',
+                  dateLabel: _formatDate(service.stockingDate),
                   abw: service.initialWeight,
                   abl: service.initialLength,
                   sampleSize: service.sampleCount,
