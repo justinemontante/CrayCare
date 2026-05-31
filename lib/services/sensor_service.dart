@@ -79,7 +79,7 @@ class SensorService extends ChangeNotifier {
     _deviceOnline = data['deviceOnline'] == true;
 
     final tempRaw = _toDouble(data['temperature']);
-    final turbRaw = _toDouble(data['turbidityQuality']);
+    final turbRaw = _toDouble(data['turbidity']);
     final doRaw = _toDouble(data['dissolvedOxygen']);
     final phRaw = _toDouble(data['phLevel']);
     final wlRaw = _toDouble(data['waterLevelPercent']);
