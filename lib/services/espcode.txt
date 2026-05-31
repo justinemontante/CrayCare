@@ -99,10 +99,12 @@ unsigned long lastPollTime = 0;
 float turbidityVClear = 1.6;          // Voltage for clear water (0 NTU)
 float turbidityVDirty = 1.4;          // Voltage for very dirty water (500 NTU)
 float turbidityVAirMax = 1.3;         // Below this voltage = air/no water
-float turbidityVThreshold = 1.52;     // ~200 NTU: OPTIMAL/CRITICAL boundary
 
 float tempCriticalLow = 24.0;
 float tempCriticalHigh = 30.0;
+
+float turbNtuMin = 0.0;
+float turbNtuMax = 40.0;
 
 float doCriticalLow = 4.0;
 float doCriticalHigh = 12.0;
@@ -256,14 +258,19 @@ void connectWiFi() {
 
   Serial.print("Connecting to WiFi");
 
-  while (WiFi.status() != WL_CONNECTED) {
+  int retries = 40;
+  while (WiFi.status() != WL_CONNECTED && retries-- > 0) {
     delay(500);
     Serial.print(".");
   }
 
-  Serial.println();
-  Serial.print("Connected! IP: ");
-  Serial.println(WiFi.localIP());
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println();
+    Serial.print("Connected! IP: ");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println(" FAILED — check SSID/password or network availability");
+  }
 }
 
 void initTime() {
@@ -355,7 +362,8 @@ void syncConfigFromFirebase() {
   float oldTurbidityVClear = turbidityVClear;
   float oldTurbidityVDirty = turbidityVDirty;
   float oldTurbidityVAirMax = turbidityVAirMax;
-  float oldTurbidityVThreshold = turbidityVThreshold;
+  float oldTurbNtuMin = turbNtuMin;
+  float oldTurbNtuMax = turbNtuMax;
   float oldDOLow = doCriticalLow;
   float oldDOHigh = doCriticalHigh;
   float oldPHLow = phCriticalLow;
@@ -366,6 +374,7 @@ void syncConfigFromFirebase() {
   bool gotAny = false;
 
   gotAny |= readRangeConfig("temp", tempCriticalLow, tempCriticalHigh, 0.0, 50.0);
+  gotAny |= readRangeConfig("turb", turbNtuMin, turbNtuMax, 0.0, 1000.0);
   gotAny |= readRangeConfig("do", doCriticalLow, doCriticalHigh, 0.0, 30.0);
   gotAny |= readRangeConfig("ph", phCriticalLow, phCriticalHigh, 0.0, 14.0);
   gotAny |= readRangeConfig("waterlevel", waterLevelCriticalLow, waterLevelCriticalHigh, 0.0, 100.0);
@@ -376,7 +385,6 @@ void syncConfigFromFirebase() {
   gotAny |= readConfigFloatPath("turbidityVClear", turbidityVClear, 0.0, 3.3);
   gotAny |= readConfigFloatPath("turbidityVDirty", turbidityVDirty, 0.0, 3.3);
   gotAny |= readConfigFloatPath("turbidityVAirMax", turbidityVAirMax, 0.0, 3.3);
-  gotAny |= readConfigFloatPath("turbidityVThreshold", turbidityVThreshold, 0.0, 3.3);
 
   gotAny |= readConfigFloatPath("doCriticalLow", doCriticalLow, 0.0, 30.0);
   gotAny |= readConfigFloatPath("doCriticalHigh", doCriticalHigh, 0.0, 30.0);
@@ -406,9 +414,9 @@ void syncConfigFromFirebase() {
     Serial.println("[CONFIG SKIP] turbidityVDirty must be lower than turbidityVClear");
   }
 
-  if (turbidityVAirMax >= turbidityVThreshold) {
+  if (turbNtuMin >= turbNtuMax) {
     invalidConfig = true;
-    Serial.println("[CONFIG SKIP] turbidityVAirMax must be lower than turbidityVThreshold");
+    Serial.println("[CONFIG SKIP] ranges/turb min must be lower than max");
   }
 
   if (doCriticalLow >= doCriticalHigh) {
@@ -437,7 +445,8 @@ void syncConfigFromFirebase() {
     turbidityVClear = oldTurbidityVClear;
     turbidityVDirty = oldTurbidityVDirty;
     turbidityVAirMax = oldTurbidityVAirMax;
-    turbidityVThreshold = oldTurbidityVThreshold;
+    turbNtuMin = oldTurbNtuMin;
+    turbNtuMax = oldTurbNtuMax;
     doCriticalLow = oldDOLow;
     doCriticalHigh = oldDOHigh;
     phCriticalLow = oldPHLow;
@@ -452,11 +461,11 @@ void syncConfigFromFirebase() {
     return;
   }
 
-  Serial.printf("[CONFIG] Temp %.1f-%.1f C | Turb voltage clear=%.2f dirty=%.2f | DO %.1f-%.1f mg/L | pH %.1f-%.1f | Water %.1f-%.1f%%\n",
+  Serial.printf("[CONFIG] Temp %.1f-%.1f C | Turb %.0f-%.0f NTU | DO %.1f-%.1f mg/L | pH %.1f-%.1f | Water %.1f-%.1f%%\n",
                 tempCriticalLow,
                 tempCriticalHigh,
-                turbidityVClear,
-                turbidityVDirty,
+                turbNtuMin,
+                turbNtuMax,
                 doCriticalLow,
                 doCriticalHigh,
                 phCriticalLow,
