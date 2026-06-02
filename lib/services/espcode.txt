@@ -10,9 +10,9 @@
  *  Zones, status, thresholds are computed by the Flutter app.
  *
  *  TURBIDITY — NTU conversion based on field calibration:
- *    1.6V =   0 NTU (clear water)
- *    1.4V = 500 NTU (dirty water)
- *    NTU = (1.6 - voltage) * 2500
+ *    1.50V =   0 NTU (clear water)
+ *    1.40V = 500 NTU (dirty water)
+ *    NTU = (turbidityVClear - voltage) * 500 / (turbidityVClear - turbidityVDirty)
  *
  * Active sensors now:
  *  1. Temperature       : DS18B20
@@ -89,16 +89,12 @@ unsigned long lastPollTime = 0;
 
 // ============================================================
 //  CALIBRATED TURBIDITY THRESHOLDS
-//  Based on field calibration with 5V-powered SEN0189:
-//    1.6V =   0 NTU  (clear water)
-//    1.5V = 250 NTU  (moderately dirty)
-//    1.4V = 500 NTU  (very dirty)
-//    1.2V = air      (no water)
-//  Flutter app writes updated values to /sensor_readings/config.
+//  Recalibrated: clear water ~1.52V, dirty ~1.40V, air <1.30V
+//  ESP32 sends turbidityAir flag so Flutter shows "--" when no water.
 // ============================================================
-float turbidityVClear = 1.6;          // Voltage for clear water (0 NTU)
-float turbidityVDirty = 1.4;          // Voltage for very dirty water (500 NTU)
-float turbidityVAirMax = 1.3;         // Below this voltage = air/no water
+float turbidityVClear = 1.50;          // Voltage for clear water (0 NTU)
+float turbidityVDirty = 1.40;          // Voltage for very dirty water (500 NTU)
+float turbidityVAirMax = 1.30;         // Below this voltage = air/no water
 
 float tempCriticalLow = 24.0;
 float tempCriticalHigh = 30.0;
@@ -355,7 +351,7 @@ bool readRangeConfig(const char* sensorKey, float &lowTarget, float &highTarget,
 }
 
 void syncConfigFromFirebase() {
-  if (!firebaseReady || !Firebase.ready()) return;
+  if (!ensureFirebaseReady()) return;
 
   float oldTempLow = tempCriticalLow;
   float oldTempHigh = tempCriticalHigh;
@@ -475,6 +471,38 @@ void syncConfigFromFirebase() {
 }
 
 // ============================================================
+//  FIREBASE READY CHECK — Re-auth if token expired
+// ============================================================
+bool ensureFirebaseReady() {
+  if (!firebaseReady) return false;
+  if (Firebase.ready()) return true;
+  Serial.println("[FIREBASE] Token expired, re-authenticating...");
+  if (Firebase.signUp(&config, &auth, "", "")) {
+    firebaseReady = true;
+    Serial.println("[FIREBASE] Re-auth OK");
+    return true;
+  }
+  Serial.printf("[FIREBASE] Re-auth failed: %s\n", config.signer.signupError.message.c_str());
+  return false;
+}
+
+// ============================================================
+//  FIREBASE CONFIG PUSH — ESP32 sends calibration to Firebase
+// ============================================================
+void sendConfigToFirebase() {
+  if (!ensureFirebaseReady()) return;
+  FirebaseJson cfg;
+  cfg.set("turbidityVClear", turbidityVClear);
+  cfg.set("turbidityVDirty", turbidityVDirty);
+  cfg.set("turbidityVAirMax", turbidityVAirMax);
+  if (Firebase.RTDB.updateNode(&fbdo, FIREBASE_CONFIG_PATH, &cfg)) {
+    Serial.println("[CONFIG PUSH] Calibration sent to Firebase");
+  } else {
+    Serial.printf("[CONFIG PUSH] Failed: %s\n", fbdo.errorReason().c_str());
+  }
+}
+
+// ============================================================
 //  FIREBASE JSON — MINIMAL PAYLOAD
 //  Only raw sensor values. Flutter computes zones & status.
 //  Turbidity is sent as NTU (Nephelometric Turbidity Units).
@@ -482,8 +510,15 @@ void syncConfigFromFirebase() {
 FirebaseJson buildMinimalJson(bool includeTimestamp) {
   FirebaseJson json;
 
+  json.set("deviceOnline", true);
   json.set("temperature", smoothedTemp);
-  json.set("turbidity", smoothedTurbidityNTU);
+  if (turbiditySensorOK) {
+    json.set("turbidityAir", false);
+    json.set("turbidity", smoothedTurbidityNTU);
+  } else {
+    json.set("turbidityAir", true);
+    json.set("turbidity", 0);
+  }
 
   if (ENABLE_DO_SENSOR) {
     json.set("dissolvedOxygen", dissolvedOxygen);
@@ -505,10 +540,9 @@ FirebaseJson buildMinimalJson(bool includeTimestamp) {
 }
 
 void sendLatestToFirebase() {
-  if (!firebaseReady || !Firebase.ready()) return;
+  if (!ensureFirebaseReady()) return;
 
   FirebaseJson json = buildMinimalJson(false);
-  json.set("deviceOnline", true);
 
   if (Firebase.RTDB.updateNode(&fbdo, FIREBASE_LATEST_PATH, &json)) {
     Serial.println("[FIREBASE] Latest sent");
@@ -518,7 +552,7 @@ void sendLatestToFirebase() {
 }
 
 void sendHistoryToFirebase() {
-  if (!firebaseReady || !Firebase.ready()) return;
+  if (!ensureFirebaseReady()) return;
 
   FirebaseJson json = buildMinimalJson(true);
 
@@ -720,6 +754,7 @@ void setup() {
   initTime();
   connectFirebase();
   syncConfigFromFirebase();
+  sendConfigToFirebase();
 
   // Flutter detects offline via timestamp timeout (30s) in sensor_service.dart.
   // onDisconnect REST handler is not available in this Firebase library version.

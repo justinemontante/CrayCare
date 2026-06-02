@@ -515,12 +515,12 @@ class _DashboardScreenState extends State<DashboardScreen>
               Expanded(
                 child: _buildGaugeCard(
                   title: 'Turbidity',
-                  value: ss.hasSensorData('turb') ? ss.getLatestValue('turb').toStringAsFixed(0) : '--',
-                  unit: 'NTU',
-                  ideal: _getIdealText('turb'),
+                  value: ss.isTurbidityAir ? '--' : (ss.hasSensorData('turb') ? ss.getLatestValue('turb').toStringAsFixed(0) : '--'),
+                  unit: ss.isTurbidityAir ? '' : 'NTU',
+                  ideal: ss.isTurbidityAir ? '' : _getIdealText('turb'),
                   iconPath: 'assets/images/Turbidity.png',
-                  status: _getStatus('turb'),
-                  statusColor: _getStatusColor('turb'),
+                  status: ss.isTurbidityAir ? 'NO WATER' : _getStatus('turb'),
+                  statusColor: ss.isTurbidityAir ? AppColors.warning : _getStatusColor('turb'),
                   onTap: () => _showGaugeDetail(
                     context,
                     sensorKey: 'turb',
@@ -1188,9 +1188,12 @@ class _DashboardScreenState extends State<DashboardScreen>
             final ss = SensorService.instance;
             final hasData = ss.hasSensorData(sensorKey);
             final value = ss.getLatestValue(sensorKey);
-            final status = _getStatus(sensorKey);
-            final statusColor = _getStatusColor(sensorKey);
-            final formattedValue = !hasData
+            final isTurbAir = sensorKey == 'turb' && ss.isTurbidityAir;
+            final status = isTurbAir ? 'NO WATER' : _getStatus(sensorKey);
+            final statusColor = isTurbAir ? AppColors.warning : _getStatusColor(sensorKey);
+            final formattedValue = isTurbAir
+                ? '--'
+                : !hasData
                 ? '--'
                 : sensorKey == 'turb' || sensorKey == 'waterlevel'
                 ? value.toStringAsFixed(0)

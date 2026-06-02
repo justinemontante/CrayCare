@@ -23,18 +23,21 @@ class SensorService extends ChangeNotifier {
   final Map<String, List<double>> _history = {};
   final Map<String, double> _latest = {};
 
+  bool _turbidityAir = false;
   bool _deviceOnline = false;
+
   DateTime _lastUpdated = DateTime.fromMillisecondsSinceEpoch(0);
   String? _lastError;
 
   DateTime get lastUpdated => _lastUpdated;
-  bool get deviceOnline => _deviceOnline;
   String? get lastError => _lastError;
+  bool get isTurbidityAir => _turbidityAir;
 
   bool get isEspOnline {
     if (!_deviceOnline) return false;
+    if (_lastUpdated == DateTime.fromMillisecondsSinceEpoch(0)) return false;
     final diff = DateTime.now().difference(_lastUpdated);
-    return diff.inSeconds < 30;
+    return diff.inSeconds < 15;
   }
 
   String get overallStatus {
@@ -80,13 +83,13 @@ class SensorService extends ChangeNotifier {
   }
 
   void _parseAndUpdate(Map<String, dynamic> data) {
-    _deviceOnline = data['deviceOnline'] == true;
-
     final tempRaw = _toDouble(data['temperature']);
     final turbRaw = _toDouble(data['turbidity']);
     final doRaw = _toDouble(data['dissolvedOxygen']);
     final phRaw = _toDouble(data['phLevel']);
     final wlRaw = _toDouble(data['waterLevelPercent']);
+    _turbidityAir = data['turbidityAir'] == true;
+    _deviceOnline = data['deviceOnline'] == true;
 
     _updateSensor('temp', tempRaw);
     _updateSensor('turb', turbRaw);
@@ -99,7 +102,10 @@ class SensorService extends ChangeNotifier {
   }
 
   void _updateSensor(String key, double? value) {
-    if (value == null || value < 0) return;
+    if (value == null || value < 0) {
+      _latest.remove(key);
+      return;
+    }
     if (value == 0 && !_latest.containsKey(key)) return;
 
     _latest[key] = value;
