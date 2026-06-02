@@ -18,6 +18,21 @@ class SettingsMenu extends StatelessWidget {
     required this.onLogout,
   });
 
+  ImageProvider<Object>? _photoImageProvider(String? photoUrl) {
+    if (photoUrl == null || photoUrl.isEmpty) return null;
+
+    final uri = Uri.tryParse(photoUrl);
+    if (uri != null && (uri.scheme == 'http' || uri.scheme == 'https')) {
+      return NetworkImage(photoUrl);
+    }
+
+    try {
+      return MemoryImage(base64Decode(photoUrl.split(',').last));
+    } on FormatException {
+      return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -75,6 +90,8 @@ class SettingsMenu extends StatelessWidget {
   }
 
   Widget _buildProfileCard() {
+    final photoImage = _photoImageProvider(photoUrl);
+
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 12, 12, 4),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -96,18 +113,13 @@ class SettingsMenu extends StatelessWidget {
             width: 48,
             height: 48,
             decoration: BoxDecoration(
-              color: photoUrl == null ? AppColors.primary : null,
+              color: photoImage == null ? AppColors.primary : null,
               shape: BoxShape.circle,
-              image: photoUrl != null
-                  ? DecorationImage(
-                      image: MemoryImage(
-                        base64Decode(photoUrl!.split(',').last),
-                      ),
-                      fit: BoxFit.cover,
-                    )
+              image: photoImage != null
+                  ? DecorationImage(image: photoImage, fit: BoxFit.cover)
                   : null,
             ),
-            child: photoUrl == null
+            child: photoImage == null
                 ? const Icon(Icons.person, color: Colors.white, size: 26)
                 : null,
           ),

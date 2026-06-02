@@ -510,7 +510,6 @@ void sendConfigToFirebase() {
 FirebaseJson buildMinimalJson(bool includeTimestamp) {
   FirebaseJson json;
 
-  json.set("deviceOnline", true);
   json.set("temperature", smoothedTemp);
   if (turbiditySensorOK) {
     json.set("turbidityAir", false);
@@ -755,9 +754,6 @@ void setup() {
   connectFirebase();
   syncConfigFromFirebase();
   sendConfigToFirebase();
-
-  // Flutter detects offline via timestamp timeout (30s) in sensor_service.dart.
-  // onDisconnect REST handler is not available in this Firebase library version.
 
   Serial.println("============================================");
   Serial.println("  CrayCare Monitor — Calibrated Turbidity");

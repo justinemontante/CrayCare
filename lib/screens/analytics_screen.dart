@@ -216,58 +216,58 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                   ),
                 const SizedBox(height: 10),
                 Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Column(
-                      children: [
-                        KeyedSubtree(
-                          key: _chartCardKeys['temp'],
-                          child: _buildChartCard(
-                            context,
-                            title: 'Temperature',
-                            iconPath: 'assets/images/temperature.png',
-                            chartKey: 'temp',
-                          ),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Column(
+                    children: [
+                      KeyedSubtree(
+                        key: _chartCardKeys['temp'],
+                        child: _buildChartCard(
+                          context,
+                          title: 'Temperature',
+                          iconPath: 'assets/images/temperature.png',
+                          chartKey: 'temp',
                         ),
-                        KeyedSubtree(
-                          key: _chartCardKeys['ph'],
-                          child: _buildChartCard(
-                            context,
-                            title: 'pH Level',
-                            iconPath: 'assets/images/pH.png',
-                            chartKey: 'ph',
-                          ),
+                      ),
+                      KeyedSubtree(
+                        key: _chartCardKeys['ph'],
+                        child: _buildChartCard(
+                          context,
+                          title: 'pH Level',
+                          iconPath: 'assets/images/pH.png',
+                          chartKey: 'ph',
                         ),
-                        KeyedSubtree(
-                          key: _chartCardKeys['do'],
-                          child: _buildChartCard(
-                            context,
-                            title: 'Dissolved O\u2082',
-                            iconPath: 'assets/images/DO.png',
-                            chartKey: 'do',
-                          ),
+                      ),
+                      KeyedSubtree(
+                        key: _chartCardKeys['do'],
+                        child: _buildChartCard(
+                          context,
+                          title: 'Dissolved O\u2082',
+                          iconPath: 'assets/images/DO.png',
+                          chartKey: 'do',
                         ),
-                        KeyedSubtree(
-                          key: _chartCardKeys['turb'],
-                          child: _buildChartCard(
-                            context,
-                            title: 'Turbidity',
-                            iconPath: 'assets/images/Turbidity.png',
-                            chartKey: 'turb',
-                          ),
+                      ),
+                      KeyedSubtree(
+                        key: _chartCardKeys['turb'],
+                        child: _buildChartCard(
+                          context,
+                          title: 'Turbidity',
+                          iconPath: 'assets/images/Turbidity.png',
+                          chartKey: 'turb',
                         ),
-                        KeyedSubtree(
-                          key: _chartCardKeys['waterlevel'],
-                          child: _buildChartCard(
-                            context,
-                            title: 'Water Level',
-                            iconPath: 'assets/images/waterLevel.png',
-                            chartKey: 'waterlevel',
-                          ),
+                      ),
+                      KeyedSubtree(
+                        key: _chartCardKeys['waterlevel'],
+                        child: _buildChartCard(
+                          context,
+                          title: 'Water Level',
+                          iconPath: 'assets/images/waterLevel.png',
+                          chartKey: 'waterlevel',
                         ),
-                        const SizedBox(height: 16),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
                   ),
+                ),
               ],
             ),
           ),
@@ -1198,7 +1198,9 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
               builder: (ctx2, setDialogState) {
                 String modalDisplayCur = cur;
                 String modalDisplayLabel = curLabel;
-                String modalCurPrefix = _activeFilter == 'live' ? 'Live' : 'Avg';
+                String modalCurPrefix = _activeFilter == 'live'
+                    ? 'Live'
+                    : 'Avg';
 
                 return Dialog(
                   insetPadding: const EdgeInsets.symmetric(horizontal: 20),

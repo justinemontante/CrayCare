@@ -12,25 +12,24 @@ class DashboardScreen extends StatefulWidget {
   final ValueChanged<int>? onNavigate;
   final ValueChanged<int>? onTankTab;
 
-  const DashboardScreen({super.key, this.onViewGraph, this.onNavigate, this.onTankTab});
+  const DashboardScreen({
+    super.key,
+    this.onViewGraph,
+    this.onNavigate,
+    this.onTankTab,
+  });
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen>
-    with SingleTickerProviderStateMixin {
+class _DashboardScreenState extends State<DashboardScreen> {
   final ScrollController _quickActionsController = ScrollController();
   Timer? _countdownTimer;
-  late final AnimationController _pulseController;
 
   @override
   void initState() {
     super.initState();
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1500),
-    );
     SensorService.instance.addListener(_refreshUI);
     SettingsService.instance.addListener(_refreshUI);
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -40,7 +39,6 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   @override
   void dispose() {
-    _pulseController.dispose();
     _quickActionsController.dispose();
     SensorService.instance.removeListener(_refreshUI);
     SettingsService.instance.removeListener(_refreshUI);
@@ -50,13 +48,6 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   void _refreshUI() {
     if (!mounted) return;
-    final isOnline = SensorService.instance.isEspOnline;
-    if (isOnline && !_pulseController.isAnimating) {
-      _pulseController.repeat(reverse: true);
-    } else if (!isOnline && _pulseController.isAnimating) {
-      _pulseController.stop();
-      _pulseController.reset();
-    }
     setState(() {});
   }
 
@@ -124,7 +115,6 @@ class _DashboardScreenState extends State<DashboardScreen>
         child: Column(
           children: [
             _buildGreeting(),
-            _buildConnectionStatus(),
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 4),
               child: SectionLabel(
@@ -267,178 +257,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
-  Widget _buildConnectionStatus() {
-    final ss = SensorService.instance;
-    final err = ss.lastError;
-    final isOnline = ss.isEspOnline;
-    final hasData = ss.lastUpdated.millisecondsSinceEpoch > 0;
-
-    final statusColor = err != null
-        ? AppColors.critical
-        : isOnline
-            ? const Color(0xFF22c55e)
-            : hasData
-                ? AppColors.critical
-                : AppColors.warning;
-    final statusLabel = err != null
-        ? 'Firebase Error'
-        : isOnline
-            ? 'ESP32 Connected'
-            : hasData
-                ? 'ESP32 Offline'
-                : 'Awaiting ESP32';
-
-    String syncText;
-    if (err != null) {
-      syncText = err.length > 80 ? '${err.substring(0, 80)}...' : err;
-    } else if (!hasData) {
-      syncText = 'Waiting for sensor data...';
-    } else {
-      final t = ss.lastUpdated;
-      final h = t.hour > 12 ? t.hour - 12 : (t.hour == 0 ? 12 : t.hour);
-      final ampm = t.hour >= 12 ? 'PM' : 'AM';
-      final m = t.minute.toString().padLeft(2, '0');
-      final s = t.second.toString().padLeft(2, '0');
-      syncText = 'Last sync: $h:$m:$s $ampm';
-    }
-
-    final bgColor = err != null
-        ? const Color(0xFFFEF2F2)
-        : isOnline
-            ? const Color(0xFFF0FDF0)
-            : hasData
-                ? const Color(0xFFFEF2F2)
-                : const Color(0xFFFFFBEb);
-
-    final borderColor = err != null
-        ? AppColors.critical.withValues(alpha: 0.3)
-        : isOnline
-            ? const Color(0xFF22c55e).withValues(alpha: 0.15)
-            : hasData
-                ? AppColors.critical.withValues(alpha: 0.15)
-            : AppColors.warning.withValues(alpha: 0.3);
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: bgColor,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: borderColor),
-        ),
-        child: Row(
-          children: [
-            err != null
-                ? const Icon(Icons.error_outline, size: 14, color: AppColors.critical)
-                : isOnline
-                    ? AnimatedBuilder(
-                        animation: _pulseController,
-                        builder: (_, _) {
-                          final p = _pulseController.value;
-                          return Container(
-                            width: 8,
-                            height: 8,
-                            decoration: BoxDecoration(
-                              color: statusColor,
-                              shape: BoxShape.circle,
-                              boxShadow: [
-                                BoxShadow(
-                                  color: statusColor.withValues(alpha: 0.1 + p * 0.4),
-                                  blurRadius: 1 + p * 5,
-                                  spreadRadius: p * 2,
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      )
-                    : Container(
-                        width: 8,
-                        height: 8,
-                        decoration: BoxDecoration(
-                          color: statusColor,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    statusLabel,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.dark,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    syncText,
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w500,
-                      color: AppColors.darkWith(0.5),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (isOnline)
-              AnimatedBuilder(
-                    animation: _pulseController,
-                    builder: (_, _) {
-                  final p = _pulseController.value;
-                  return Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.85 + p * 0.15),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: const Color(0xFF22c55e).withValues(alpha: 0.2 + p * 0.3),
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFF22c55e).withValues(alpha: 0.05 + p * 0.1),
-                          blurRadius: 4,
-                          offset: const Offset(0, 1),
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 5,
-                          height: 5,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF22c55e).withValues(alpha: 0.6 + p * 0.4),
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          'LIVE',
-                          style: TextStyle(
-                            fontSize: 8,
-                            fontWeight: FontWeight.w800,
-                            color: const Color(0xFF22c55e).withValues(alpha: 0.7 + p * 0.3),
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildGaugeGrid(BuildContext context) {
     final ss = SensorService.instance;
 
@@ -451,7 +269,9 @@ class _DashboardScreenState extends State<DashboardScreen>
               Expanded(
                 child: _buildGaugeCard(
                   title: 'Temperature',
-                  value: ss.hasSensorData('temp') ? ss.getLatestValue('temp').toStringAsFixed(1) : '--',
+                  value: ss.hasSensorData('temp')
+                      ? ss.getLatestValue('temp').toStringAsFixed(1)
+                      : '--',
                   unit: '\u00B0C',
                   ideal: _getIdealText('temp'),
                   iconPath: 'assets/images/temperature.png',
@@ -471,7 +291,9 @@ class _DashboardScreenState extends State<DashboardScreen>
               Expanded(
                 child: _buildGaugeCard(
                   title: 'pH Level',
-                  value: ss.hasSensorData('ph') ? ss.getLatestValue('ph').toStringAsFixed(1) : '--',
+                  value: ss.hasSensorData('ph')
+                      ? ss.getLatestValue('ph').toStringAsFixed(1)
+                      : '--',
                   unit: 'pH',
                   ideal: _getIdealText('ph'),
                   iconPath: 'assets/images/pH.png',
@@ -495,7 +317,9 @@ class _DashboardScreenState extends State<DashboardScreen>
               Expanded(
                 child: _buildGaugeCard(
                   title: 'Dissolved O\u2082',
-                  value: ss.hasSensorData('do') ? ss.getLatestValue('do').toStringAsFixed(1) : '--',
+                  value: ss.hasSensorData('do')
+                      ? ss.getLatestValue('do').toStringAsFixed(1)
+                      : '--',
                   unit: 'mg/L',
                   ideal: _getIdealText('do'),
                   iconPath: 'assets/images/DO.png',
@@ -515,12 +339,18 @@ class _DashboardScreenState extends State<DashboardScreen>
               Expanded(
                 child: _buildGaugeCard(
                   title: 'Turbidity',
-                  value: ss.isTurbidityAir ? '--' : (ss.hasSensorData('turb') ? ss.getLatestValue('turb').toStringAsFixed(0) : '--'),
+                  value: ss.isTurbidityAir
+                      ? '--'
+                      : (ss.hasSensorData('turb')
+                            ? ss.getLatestValue('turb').toStringAsFixed(0)
+                            : '--'),
                   unit: ss.isTurbidityAir ? '' : 'NTU',
                   ideal: ss.isTurbidityAir ? '' : _getIdealText('turb'),
                   iconPath: 'assets/images/Turbidity.png',
                   status: ss.isTurbidityAir ? 'NO WATER' : _getStatus('turb'),
-                  statusColor: ss.isTurbidityAir ? AppColors.warning : _getStatusColor('turb'),
+                  statusColor: ss.isTurbidityAir
+                      ? AppColors.warning
+                      : _getStatusColor('turb'),
                   onTap: () => _showGaugeDetail(
                     context,
                     sensorKey: 'turb',
@@ -545,12 +375,18 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   String _getUnit(String key) {
     switch (key) {
-      case 'temp': return '\u00B0C';
-      case 'ph': return 'pH';
-      case 'do': return 'mg/L';
-      case 'turb': return 'NTU';
-      case 'waterlevel': return 'cm';
-      default: return '';
+      case 'temp':
+        return '\u00B0C';
+      case 'ph':
+        return 'pH';
+      case 'do':
+        return 'mg/L';
+      case 'turb':
+        return 'NTU';
+      case 'waterlevel':
+        return 'cm';
+      default:
+        return '';
     }
   }
 
@@ -608,9 +444,11 @@ class _DashboardScreenState extends State<DashboardScreen>
       padding: const EdgeInsets.symmetric(horizontal: 14),
       child: _buildGaugeCard(
         title: 'Water Level',
-        value: ss.hasSensorData('waterlevel') ? ss.getLatestValue('waterlevel').toStringAsFixed(0) : '--',
+        value: ss.hasSensorData('waterlevel')
+            ? ss.getLatestValue('waterlevel').toStringAsFixed(0)
+            : '--',
         unit: 'cm',
-          ideal: _getIdealText('waterlevel'),
+        ideal: _getIdealText('waterlevel'),
         iconPath: 'assets/images/waterLevel.png',
         status: _getStatus('waterlevel'),
         statusColor: _getStatusColor('waterlevel'),
@@ -674,78 +512,108 @@ class _DashboardScreenState extends State<DashboardScreen>
     final nav = widget.onNavigate;
     final tank = widget.onTankTab;
     final actions = [
-      _QuickActionData('Aerator', Icons.air, 'Active', onTap: nav != null ? () => nav(3) : null),
-      _QuickActionData('Pump', Icons.water_drop, 'Idle', onTap: nav != null ? () => nav(3) : null),
-      _QuickActionData('Feed', Icons.bubble_chart, 'Auto', onTap: nav != null ? () => nav(3) : null),
-      _QuickActionData('Inventory', Icons.inventory_2_outlined, null, onTap: tank != null ? () => tank(0) : null),
-      _QuickActionData('Sampling', Icons.speed_rounded, null, onTap: tank != null ? () => tank(1) : null),
-      _QuickActionData('Growth Trends', Icons.trending_up_rounded, null, onTap: tank != null ? () => tank(2) : null),
+      _QuickActionData(
+        'Aerator',
+        Icons.air,
+        'Active',
+        onTap: nav != null ? () => nav(3) : null,
+      ),
+      _QuickActionData(
+        'Pump',
+        Icons.water_drop,
+        'Idle',
+        onTap: nav != null ? () => nav(3) : null,
+      ),
+      _QuickActionData(
+        'Feed',
+        Icons.bubble_chart,
+        'Auto',
+        onTap: nav != null ? () => nav(3) : null,
+      ),
+      _QuickActionData(
+        'Inventory',
+        Icons.inventory_2_outlined,
+        null,
+        onTap: tank != null ? () => tank(0) : null,
+      ),
+      _QuickActionData(
+        'Sampling',
+        Icons.speed_rounded,
+        null,
+        onTap: tank != null ? () => tank(1) : null,
+      ),
+      _QuickActionData(
+        'Growth Trends',
+        Icons.trending_up_rounded,
+        null,
+        onTap: tank != null ? () => tank(2) : null,
+      ),
     ];
 
     return SingleChildScrollView(
       controller: _quickActionsController,
       scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        child: Row(
-          children: actions.map((a) {
-            return GestureDetector(
-              onTap: a.onTap,
-              child: Container(
-                margin: const EdgeInsets.only(right: 12),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: AppColors.darkWith(0.1)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.darkWith(0.06),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
+      child: Row(
+        children: actions.map((a) {
+          return GestureDetector(
+            onTap: a.onTap,
+            child: Container(
+              margin: const EdgeInsets.only(right: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: AppColors.darkWith(0.1)),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.darkWith(0.06),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryWith(0.1),
+                      shape: BoxShape.circle,
                     ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: AppColors.primaryWith(0.1),
-                        shape: BoxShape.circle,
+                    child: Icon(a.icon, size: 16, color: AppColors.primary),
+                  ),
+                  const SizedBox(width: 10),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        a.name,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.dark,
+                        ),
                       ),
-                      child: Icon(a.icon, size: 16, color: AppColors.primary),
-                    ),
-                    const SizedBox(width: 10),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
+                      if (a.status != null)
                         Text(
-                          a.name,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.dark,
+                          a.status!,
+                          style: TextStyle(
+                            fontSize: 8,
+                            fontWeight: FontWeight.w600,
+                            color: a.status == 'Active'
+                                ? AppColors.success
+                                : AppColors.darkWith(0.4),
                           ),
                         ),
-                        if (a.status != null)
-                          Text(
-                            a.status!,
-                            style: TextStyle(
-                              fontSize: 8,
-                              fontWeight: FontWeight.w600,
-                              color: a.status == 'Active'
-                                  ? AppColors.success
-                                  : AppColors.darkWith(0.4),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ],
-                ),
+                    ],
+                  ),
+                ],
               ),
-            );
-          }).toList(),
+            ),
+          );
+        }).toList(),
       ),
     );
   }
@@ -808,10 +676,18 @@ class _DashboardScreenState extends State<DashboardScreen>
                   ),
                 ),
                 Expanded(
-                  child: _buildStatColumn('assets/images/AliveNo.png', '63', 'Alive'),
+                  child: _buildStatColumn(
+                    'assets/images/AliveNo.png',
+                    '63',
+                    'Alive',
+                  ),
                 ),
                 Expanded(
-                  child: _buildStatColumn('assets/images/mortalityNo.png', '5', 'Mortality'),
+                  child: _buildStatColumn(
+                    'assets/images/mortalityNo.png',
+                    '5',
+                    'Mortality',
+                  ),
                 ),
               ],
             ),
@@ -936,8 +812,8 @@ class _DashboardScreenState extends State<DashboardScreen>
       if (sMin <= nowMin) {
         lastFed = s;
         completed++;
-      } else if (nextFeed == null) {
-        nextFeed = s;
+      } else {
+        nextFeed ??= s;
       }
     }
 
@@ -974,162 +850,158 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
 
     return Container(
-          margin: const EdgeInsets.fromLTRB(14, 4, 14, 0),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: const Color(0xFFFCFCFC),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.darkWith(0.12),
-                blurRadius: 16,
-                offset: const Offset(0, 4),
-              ),
-            ],
+      margin: const EdgeInsets.fromLTRB(14, 4, 14, 0),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFCFCFC),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.darkWith(0.12),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              Row(
-                children: [
-                  Icon(Icons.bubble_chart, size: 18, color: AppColors.primary),
-                  const SizedBox(width: 6),
-                  const Text(
-                    'Feeding Schedule',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.dark,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      children: [
-                        Icon(
-                          Icons.schedule,
-                          size: 20,
-                          color: AppColors.darkWith(0.5),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          'LAST FED',
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.darkWith(0.5),
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          lastFedTime,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.dark,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          lastFedDate,
-                          style: const TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w500,
-                            color: AppColors.dark,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    width: 1,
-                    height: 60,
-                    color: AppColors.darkWith(0.1),
-                  ),
-                  Expanded(
-                    child: Column(
-                      children: [
-                        Icon(
-                          Icons.calendar_month,
-                          size: 20,
-                          color: AppColors.darkWith(0.5),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          'NEXT FEEDING',
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.darkWith(0.5),
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          nextTime,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.dark,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          nextLabel,
-                          style: const TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w500,
-                            color: AppColors.dark,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(6),
-                child: Stack(
-                  children: [
-                    Container(
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: AppColors.darkWith(0.08),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                    ),
-                    FractionallySizedBox(
-                      widthFactor: progress,
-                      child: Container(
-                        height: 8,
-                        decoration: BoxDecoration(
-                          color: AppColors.primary,
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '$completed of $total feedings today completed',
-                style: const TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w500,
+              Icon(Icons.bubble_chart, size: 18, color: AppColors.primary),
+              const SizedBox(width: 6),
+              const Text(
+                'Feeding Schedule',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
                   color: AppColors.dark,
                 ),
               ),
             ],
           ),
-        );
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  children: [
+                    Icon(
+                      Icons.schedule,
+                      size: 20,
+                      color: AppColors.darkWith(0.5),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'LAST FED',
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.darkWith(0.5),
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      lastFedTime,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.dark,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      lastFedDate,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.dark,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(width: 1, height: 60, color: AppColors.darkWith(0.1)),
+              Expanded(
+                child: Column(
+                  children: [
+                    Icon(
+                      Icons.calendar_month,
+                      size: 20,
+                      color: AppColors.darkWith(0.5),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'NEXT FEEDING',
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.darkWith(0.5),
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      nextTime,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.dark,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      nextLabel,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.dark,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: Stack(
+              children: [
+                Container(
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: AppColors.darkWith(0.08),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                ),
+                FractionallySizedBox(
+                  widthFactor: progress,
+                  child: Container(
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '$completed of $total feedings today completed',
+            style: const TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w500,
+              color: AppColors.dark,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   int _toScheduleMinutes(ScheduleItem s) {
@@ -1190,7 +1062,9 @@ class _DashboardScreenState extends State<DashboardScreen>
             final value = ss.getLatestValue(sensorKey);
             final isTurbAir = sensorKey == 'turb' && ss.isTurbidityAir;
             final status = isTurbAir ? 'NO WATER' : _getStatus(sensorKey);
-            final statusColor = isTurbAir ? AppColors.warning : _getStatusColor(sensorKey);
+            final statusColor = isTurbAir
+                ? AppColors.warning
+                : _getStatusColor(sensorKey);
             final formattedValue = isTurbAir
                 ? '--'
                 : !hasData

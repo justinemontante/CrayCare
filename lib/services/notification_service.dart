@@ -9,12 +9,12 @@ class NotificationService extends ChangeNotifier {
 
   final List<NotificationItem> _notifications = [];
   final Map<String, String> _previousZones = {};
-  final Map<String, bool> _previousOnline = {};
   int _idCounter = 0;
   bool _initialized = false;
 
-  final DatabaseReference _notifRef =
-      FirebaseDatabase.instance.ref('notifications');
+  final DatabaseReference _notifRef = FirebaseDatabase.instance.ref(
+    'notifications',
+  );
 
   static const _sensorLabels = {
     'temp': 'Water Temperature',
@@ -32,8 +32,7 @@ class NotificationService extends ChangeNotifier {
     'waterlevel': 'cm',
   };
 
-  List<NotificationItem> get notifications =>
-      List.unmodifiable(_notifications);
+  List<NotificationItem> get notifications => List.unmodifiable(_notifications);
 
   int get unreadCount => _notifications.where((n) => n.unread).length;
   int get criticalCount =>
@@ -65,10 +64,12 @@ class NotificationService extends ChangeNotifier {
 
   void _loadFromFirebase() async {
     try {
-      final snapshot = await _notifRef.orderByChild('timestamp').limitToLast(200).once();
+      final snapshot = await _notifRef
+          .orderByChild('timestamp')
+          .limitToLast(200)
+          .once();
       if (snapshot.snapshot.value == null) return;
-      final data = Map<String, dynamic>.from(
-          snapshot.snapshot.value as Map);
+      final data = Map<String, dynamic>.from(snapshot.snapshot.value as Map);
       final entries = data.entries.toList()
         ..sort((a, b) {
           final ta = (a.value as Map)['timestamp'] ?? 0;
@@ -79,15 +80,18 @@ class NotificationService extends ChangeNotifier {
       for (final entry in entries) {
         final fbKey = entry.key;
         final map = Map<String, dynamic>.from(entry.value as Map);
-        _notifications.add(NotificationItem(
-          id: map['localId'] ?? 'fb_$fbKey',
-          type: map['type'] ?? 'operational',
-          title: map['title'] ?? '',
-          message: map['message'] ?? '',
-          timestamp: DateTime.fromMillisecondsSinceEpoch(
-              (map['timestamp'] as num).toInt()),
-          unread: map['unread'] == true,
-        ));
+        _notifications.add(
+          NotificationItem(
+            id: map['localId'] ?? 'fb_$fbKey',
+            type: map['type'] ?? 'operational',
+            title: map['title'] ?? '',
+            message: map['message'] ?? '',
+            timestamp: DateTime.fromMillisecondsSinceEpoch(
+              (map['timestamp'] as num).toInt(),
+            ),
+            unread: map['unread'] == true,
+          ),
+        );
       }
       notifyListeners();
     } catch (e) {
@@ -114,9 +118,9 @@ class NotificationService extends ChangeNotifier {
               : '$label is at ${value.toStringAsFixed(1)}.',
           timestamp: now,
         );
-      } else if (
-        prevZone != null && zone != 'CRITICAL' && prevZone == 'CRITICAL'
-      ) {
+      } else if (prevZone != null &&
+          zone != 'CRITICAL' &&
+          prevZone == 'CRITICAL') {
         _addNotification(
           type: 'operational',
           title: '$label Normalized',
@@ -129,25 +133,6 @@ class NotificationService extends ChangeNotifier {
 
       _previousZones[key] = zone;
     }
-
-    final isOnline = SensorService.instance.isEspOnline;
-    final wasOnline = _previousOnline['esp'] ?? true;
-    if (wasOnline && !isOnline) {
-      _addNotification(
-        type: 'warning',
-        title: 'ESP32 Disconnected',
-        message: 'Connection to monitoring device lost. Check device connectivity.',
-        timestamp: now,
-      );
-    } else if (!wasOnline && isOnline) {
-      _addNotification(
-        type: 'operational',
-        title: 'ESP32 Reconnected',
-        message: 'Monitoring device is back online.',
-        timestamp: now,
-      );
-    }
-    _previousOnline['esp'] = isOnline;
   }
 
   void _addNotification({
@@ -211,16 +196,22 @@ class NotificationService extends ChangeNotifier {
     try {
       final snapshot = await _notifRef.once();
       if (snapshot.snapshot.value == null) return;
-      final data = Map<String, dynamic>.from(
-          snapshot.snapshot.value as Map);
+      final data = Map<String, dynamic>.from(snapshot.snapshot.value as Map);
       for (final entry in data.entries) {
         final map = Map<String, dynamic>.from(entry.value as Map);
-        if (map['unread'] == true && _notifications.where((n) => n.id == map['localId']).firstOrNull?.unread == false) {
+        if (map['unread'] == true &&
+            _notifications
+                    .where((n) => n.id == map['localId'])
+                    .firstOrNull
+                    ?.unread ==
+                false) {
           await _notifRef.child(entry.key).child('unread').set(false);
         }
       }
     } catch (e) {
-      debugPrint('[NotificationService] Failed to update unread in Firebase: $e');
+      debugPrint(
+        '[NotificationService] Failed to update unread in Firebase: $e',
+      );
     }
   }
 
@@ -236,9 +227,7 @@ class NotificationService extends ChangeNotifier {
 
   bool _isToday(DateTime dt) {
     final now = DateTime.now();
-    return dt.day == now.day &&
-        dt.month == now.month &&
-        dt.year == now.year;
+    return dt.day == now.day && dt.month == now.month && dt.year == now.year;
   }
 
   @override

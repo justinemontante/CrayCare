@@ -18,8 +18,25 @@ class ProfileEditForm extends StatelessWidget {
     this.photoUrl,
   });
 
+  ImageProvider<Object>? _photoImageProvider(String? photoUrl) {
+    if (photoUrl == null || photoUrl.isEmpty) return null;
+
+    final uri = Uri.tryParse(photoUrl);
+    if (uri != null && (uri.scheme == 'http' || uri.scheme == 'https')) {
+      return NetworkImage(photoUrl);
+    }
+
+    try {
+      return MemoryImage(base64Decode(photoUrl.split(',').last));
+    } on FormatException {
+      return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final photoImage = _photoImageProvider(photoUrl);
+
     return Container(
       color: const Color(0xFFf7f7f7),
       padding: const EdgeInsets.all(12),
@@ -42,7 +59,8 @@ class ProfileEditForm extends StatelessWidget {
             child: Column(
               children: [
                 GestureDetector(
-                  onTap: onTapCamera, // Clickable na — pindutin para magpalit ng picture
+                  onTap:
+                      onTapCamera, // Clickable na — pindutin para magpalit ng picture
                   child: Stack(
                     alignment: Alignment.bottomRight,
                     children: [
@@ -50,22 +68,22 @@ class ProfileEditForm extends StatelessWidget {
                         width: 80,
                         height: 80,
                         decoration: BoxDecoration(
-                          color: photoUrl == null ? AppColors.primaryWith(0.1) : null,
+                          color: photoImage == null
+                              ? AppColors.primaryWith(0.1)
+                              : null,
                           shape: BoxShape.circle,
                           border: Border.all(
                             color: AppColors.primaryWith(0.2),
                             width: 2,
                           ),
-                          image: photoUrl != null
+                          image: photoImage != null
                               ? DecorationImage(
-                                  image: MemoryImage(
-                                    base64Decode(photoUrl!.split(',').last),
-                                  ),
+                                  image: photoImage,
                                   fit: BoxFit.cover,
                                 )
                               : null,
                         ),
-                        child: photoUrl == null
+                        child: photoImage == null
                             ? const Icon(
                                 Icons.person,
                                 color: AppColors.primary,

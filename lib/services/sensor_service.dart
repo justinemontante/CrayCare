@@ -14,17 +14,22 @@ class SensorService extends ChangeNotifier {
   }
 
   static const List<String> sensorKeys = [
-    'temp', 'ph', 'do', 'turb', 'waterlevel'
+    'temp',
+    'ph',
+    'do',
+    'turb',
+    'waterlevel',
   ];
 
   StreamSubscription<DatabaseEvent>? _subscription;
-  final DatabaseReference _latestRef = FirebaseDatabase.instance.ref('sensor_readings/latest');
+  final DatabaseReference _latestRef = FirebaseDatabase.instance.ref(
+    'sensor_readings/latest',
+  );
 
   final Map<String, List<double>> _history = {};
   final Map<String, double> _latest = {};
 
   bool _turbidityAir = false;
-  bool _deviceOnline = false;
 
   DateTime _lastUpdated = DateTime.fromMillisecondsSinceEpoch(0);
   String? _lastError;
@@ -32,13 +37,6 @@ class SensorService extends ChangeNotifier {
   DateTime get lastUpdated => _lastUpdated;
   String? get lastError => _lastError;
   bool get isTurbidityAir => _turbidityAir;
-
-  bool get isEspOnline {
-    if (!_deviceOnline) return false;
-    if (_lastUpdated == DateTime.fromMillisecondsSinceEpoch(0)) return false;
-    final diff = DateTime.now().difference(_lastUpdated);
-    return diff.inSeconds < 15;
-  }
 
   String get overallStatus {
     for (final key in sensorKeys) {
@@ -59,27 +57,20 @@ class SensorService extends ChangeNotifier {
     return 'CRITICAL';
   }
 
-  String get connectionLabel {
-    if (_lastError != null) return 'Error: ${_lastError!.length > 60 ? '${_lastError!.substring(0, 60)}...' : _lastError}';
-    if (isEspOnline) return 'ESP32 Connected';
-    if (_lastUpdated == DateTime.fromMillisecondsSinceEpoch(0)) return 'Waiting for data...';
-    final diff = DateTime.now().difference(_lastUpdated);
-    if (diff.inSeconds < 60) return 'Last seen ${diff.inSeconds}s ago';
-    if (diff.inMinutes < 60) return 'Last seen ${diff.inMinutes}m ago';
-    return 'ESP32 Offline';
-  }
-
   void _initFirebaseListener() {
     _subscription?.cancel();
-    _subscription = _latestRef.onValue.listen((event) {
-      _lastError = null;
-      if (event.snapshot.value == null) return;
-      _parseAndUpdate(Map<String, dynamic>.from(event.snapshot.value as Map));
-    }, onError: (error) {
-      _lastError = error.toString();
-      debugPrint('[SensorService] Firebase stream error: $error');
-      notifyListeners();
-    });
+    _subscription = _latestRef.onValue.listen(
+      (event) {
+        _lastError = null;
+        if (event.snapshot.value == null) return;
+        _parseAndUpdate(Map<String, dynamic>.from(event.snapshot.value as Map));
+      },
+      onError: (error) {
+        _lastError = error.toString();
+        debugPrint('[SensorService] Firebase stream error: $error');
+        notifyListeners();
+      },
+    );
   }
 
   void _parseAndUpdate(Map<String, dynamic> data) {
@@ -89,7 +80,6 @@ class SensorService extends ChangeNotifier {
     final phRaw = _toDouble(data['phLevel']);
     final wlRaw = _toDouble(data['waterLevelPercent']);
     _turbidityAir = data['turbidityAir'] == true;
-    _deviceOnline = data['deviceOnline'] == true;
 
     _updateSensor('temp', tempRaw);
     _updateSensor('turb', turbRaw);

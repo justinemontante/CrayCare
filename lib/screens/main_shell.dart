@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data'; // Para sa Uint8List
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../theme/app_colors.dart';
@@ -23,13 +22,25 @@ class _MainShellState extends State<MainShell> {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
   final _analyticsKey = GlobalKey<AnalyticsScreenState>();
   final _tanksKey = GlobalKey<TanksScreenState>();
-  String? _photoUrl; // Original base64 URL — para ipasa sa SettingsScreen
-  Uint8List? _photoBytes; // Cached decoded bytes — iwas base64Decode kada rebuild
+  String? _photoUrl; // Base64 data URL or Google/network photo URL.
 
-  // Isang beses lang mag-decode — para smooth ang tab switching
   void _setPhoto(String url) {
     _photoUrl = url;
-    _photoBytes = base64Decode(url.split(',').last);
+  }
+
+  ImageProvider<Object>? _photoImageProvider(String? photoUrl) {
+    if (photoUrl == null || photoUrl.isEmpty) return null;
+
+    final uri = Uri.tryParse(photoUrl);
+    if (uri != null && (uri.scheme == 'http' || uri.scheme == 'https')) {
+      return NetworkImage(photoUrl);
+    }
+
+    try {
+      return MemoryImage(base64Decode(photoUrl.split(',').last));
+    } on FormatException {
+      return null;
+    }
   }
 
   @override
@@ -78,6 +89,8 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
+    final photoImage = _photoImageProvider(_photoUrl);
+
     return Scaffold(
       key: _scaffoldKey,
       body: Column(
@@ -137,7 +150,8 @@ class _MainShellState extends State<MainShell> {
                     final result = await Navigator.push<String>(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => SettingsScreen(initialPhotoUrl: _photoUrl),
+                        builder: (_) =>
+                            SettingsScreen(initialPhotoUrl: _photoUrl),
                       ),
                     );
                     if (result != null && mounted) {
@@ -148,16 +162,16 @@ class _MainShellState extends State<MainShell> {
                     width: 42,
                     height: 42,
                     decoration: BoxDecoration(
-                      color: _photoBytes == null ? AppColors.primary : null,
+                      color: photoImage == null ? AppColors.primary : null,
                       shape: BoxShape.circle,
-                      image: _photoBytes != null
+                      image: photoImage != null
                           ? DecorationImage(
-                              image: MemoryImage(_photoBytes!),
+                              image: photoImage,
                               fit: BoxFit.cover,
                             )
                           : null,
                     ),
-                    child: _photoBytes == null
+                    child: photoImage == null
                         ? const Icon(
                             Icons.person,
                             color: Colors.white,
@@ -170,17 +184,13 @@ class _MainShellState extends State<MainShell> {
             ),
           ),
           Expanded(
-            child: IndexedStack(
-              index: _currentIndex,
-              children: _screens,
-            ),
+            child: IndexedStack(index: _currentIndex, children: _screens),
           ),
           _buildBottomNav(),
         ],
       ),
     );
   }
-
 
   Widget _buildBottomNav() {
     return Container(
