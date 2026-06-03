@@ -4,11 +4,12 @@ import '../../models/control_types.dart';
 
 class FeederTab extends StatelessWidget {
   final bool feederAuto;
+  final bool isOnline;
+  final double hopperLevel;
   final List<ScheduleItem> schedules;
-  final TextEditingController timeCtl;
   final VoidCallback onToggleFeeder;
   final VoidCallback onFeedNow;
-  final VoidCallback onAddSchedule;
+  final void Function(String time, String ampm) onAddSchedule;
   final void Function(int index) onDeleteSchedule;
   final void Function(int index, ScheduleItem item) onEditSchedule;
   final List<LogEntry> feederLogs;
@@ -16,8 +17,9 @@ class FeederTab extends StatelessWidget {
   const FeederTab({
     super.key,
     required this.feederAuto,
+    required this.isOnline,
+    required this.hopperLevel,
     required this.schedules,
-    required this.timeCtl,
     required this.onToggleFeeder,
     required this.onFeedNow,
     required this.onAddSchedule,
@@ -123,7 +125,7 @@ class FeederTab extends StatelessWidget {
                             width: 8,
                             height: 8,
                             decoration: BoxDecoration(
-                              color: feederAuto
+                              color: isOnline
                                   ? AppColors.success
                                   : AppColors.darkWith(0.3),
                               shape: BoxShape.circle,
@@ -131,44 +133,50 @@ class FeederTab extends StatelessWidget {
                           ),
                           const SizedBox(width: 6),
                           Text(
-                            feederAuto ? 'Auto Mode' : 'Manual Mode',
+                            isOnline
+                                ? (feederAuto ? 'Auto Mode' : 'Manual Mode')
+                                : 'Device Offline',
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w600,
-                              color: feederAuto
-                                  ? AppColors.success
-                                  : AppColors.darkWith(0.4),
+                              color: isOnline
+                                  ? (feederAuto
+                                      ? AppColors.success
+                                      : AppColors.darkWith(0.4))
+                                  : AppColors.critical,
                             ),
                           ),
-                          const Spacer(),
-                          GestureDetector(
-                            onTap: onToggleFeeder,
-                            child: Container(
-                              width: 36,
-                              height: 20,
-                              decoration: BoxDecoration(
-                                color: feederAuto
-                                    ? AppColors.primary
-                                    : AppColors.darkWith(0.15),
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: AnimatedAlign(
-                                duration: const Duration(milliseconds: 200),
-                                alignment: feederAuto
-                                    ? Alignment.centerRight
-                                    : Alignment.centerLeft,
-                                child: Container(
-                                  width: 14,
-                                  height: 14,
-                                  margin: const EdgeInsets.all(3),
-                                  decoration: const BoxDecoration(
-                                    color: Colors.white,
-                                    shape: BoxShape.circle,
+                          if (isOnline) ...[
+                            const Spacer(),
+                            GestureDetector(
+                              onTap: onToggleFeeder,
+                              child: Container(
+                                width: 36,
+                                height: 20,
+                                decoration: BoxDecoration(
+                                  color: feederAuto
+                                      ? AppColors.primary
+                                      : AppColors.darkWith(0.15),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: AnimatedAlign(
+                                  duration: const Duration(milliseconds: 200),
+                                  alignment: feederAuto
+                                      ? Alignment.centerRight
+                                      : Alignment.centerLeft,
+                                  child: Container(
+                                    width: 14,
+                                    height: 14,
+                                    margin: const EdgeInsets.all(3),
+                                    decoration: const BoxDecoration(
+                                      color: Colors.white,
+                                      shape: BoxShape.circle,
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
-                          ),
+                          ],
                         ],
                       ),
                     ],
@@ -176,8 +184,12 @@ class FeederTab extends StatelessWidget {
                 ),
               ],
             ),
+            if (isOnline) ...[
+              const SizedBox(height: 12),
+              _buildHopperLevel(),
+            ],
             if (schedules.isNotEmpty) _buildCountdown(),
-            if (feederAuto) ...[
+            if (feederAuto && isOnline) ...[
               const SizedBox(height: 16),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -238,7 +250,7 @@ class FeederTab extends StatelessWidget {
               child: ElevatedButton(
                 onPressed: onFeedNow,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
+                  backgroundColor: isOnline ? AppColors.primary : AppColors.darkWith(0.3),
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   elevation: 0,
@@ -265,6 +277,60 @@ class FeederTab extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildHopperLevel() {
+    final pct = hopperLevel.clamp(0, 100);
+    final fillColor = pct > 30
+        ? AppColors.primary
+        : (pct > 10 ? AppColors.warning : AppColors.critical);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.darkWith(0.03),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.inventory_2_outlined, size: 14, color: AppColors.primary),
+          const SizedBox(width: 8),
+          Text(
+            'Feed Level',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: AppColors.darkWith(0.6),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: LinearProgressIndicator(
+                value: pct / 100,
+                backgroundColor: AppColors.darkWith(0.08),
+                valueColor: AlwaysStoppedAnimation(fillColor),
+                minHeight: 10,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 36,
+            child: Text(
+              '${pct.round()}%',
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                color: fillColor,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -822,8 +888,7 @@ class FeederTab extends StatelessWidget {
                             ScheduleItem(timeStr, ampm),
                           );
                         } else {
-                          timeCtl.text = '$timeStr:$ampm';
-                          onAddSchedule();
+                          onAddSchedule(timeStr, ampm);
                         }
                         Navigator.pop(sheetCtx);
                       },

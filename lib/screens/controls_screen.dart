@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../models/control_types.dart';
+import '../services/feeder_service.dart';
 import '../widgets/controls/feeder_tab.dart';
 import '../widgets/controls/devices_tab.dart';
 
@@ -13,28 +14,12 @@ class ControlsScreen extends StatefulWidget {
 
 class _ControlsScreenState extends State<ControlsScreen> {
   int _activeTab = 0;
-  bool _feederAuto = true;
-  final List<ScheduleItem> _schedules = [
-    ScheduleItem('6:00', 'AM'),
-    ScheduleItem('6:00', 'PM'),
-  ];
-  final TextEditingController _timeCtl = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    _syncFeedState();
-  }
 
   final Map<String, String> _hwModes = {
     'aerator1': 'auto',
     'aerator2': 'auto',
     'pump': 'auto',
   };
-
-  final List<LogEntry> _feederLogs = [
-    LogEntry('Dispensed 44.1g feed (Scheduled)', 'auto', '6:00 AM', 'Today'),
-  ];
 
   final Map<String, List<LogEntry>> _hwLogs = {
     'aerator1': [
@@ -54,93 +39,16 @@ class _ControlsScreenState extends State<ControlsScreen> {
     ],
   };
 
-  void _toggleFeeder() {
-    setState(() => _feederAuto = !_feederAuto);
+  final FeederService _feeder = FeederService.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    _feeder.addListener(_onFeederChanged);
   }
 
-  void _feedNow() {
-    _addFeederLog('Manual Feed — Feed Now triggered', 'manual');
-  }
-
-  void _addFeederLog(String action, String type) {
-    final now = DateTime.now();
-    final h = now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour);
-    final ampm = now.hour >= 12 ? 'PM' : 'AM';
-    final time = '$h:${now.minute.toString().padLeft(2, '0')} $ampm';
-    setState(() {
-      _feederLogs.insert(0, LogEntry(action, type, time, 'Today'));
-      if (_feederLogs.length > 50) _feederLogs.removeLast();
-    });
-    FeedState.feederLogs.value = List.from(_feederLogs);
-  }
-
-  void _syncFeedState() {
-    FeedState.schedules.value = List.from(_schedules);
-    FeedState.feederLogs.value = List.from(_feederLogs);
-  }
-
-  String _formatTimeInput(String val) {
-    final parts = val.split(':');
-    if (parts.length != 2) return val;
-    final h = int.tryParse(parts[0]) ?? 0;
-    final m = parts[1].padLeft(2, '0');
-    final ampm = h >= 12 ? 'PM' : 'AM';
-    final h12 = h % 12 == 0 ? 12 : h % 12;
-    return '$h12:$m $ampm';
-  }
-
-  void _addSchedule() {
-    if (_timeCtl.text.isEmpty) return;
-    final formatted = _formatTimeInput(_timeCtl.text);
-    final isPM = formatted.contains('PM');
-    final hStr = formatted.split(':')[0];
-    final hour = int.tryParse(hStr) ?? 6;
-    final timeStr = '$hour:${formatted.split(':')[1].split(' ')[0]}';
-    setState(() {
-      _schedules.add(
-        ScheduleItem(timeStr, isPM ? 'PM' : 'AM'),
-      );
-      _sortSchedules();
-      _timeCtl.clear();
-    });
-    _addFeederLog('Schedule added — $timeStr ${isPM ? 'PM' : 'AM'}', 'auto');
-    _syncFeedState();
-  }
-
-  void _deleteSchedule(int index) {
-    final s = _schedules[index];
-    final timeStr = '${s.time} ${s.ampm}';
-    setState(() => _schedules.removeAt(index));
-    _addFeederLog('Schedule deleted — $timeStr', 'auto');
-    _syncFeedState();
-  }
-
-  void _editSchedule(int index, ScheduleItem item) {
-    final old = _schedules[index];
-    final oldStr = '${old.time} ${old.ampm}';
-    final newStr = '${item.time} ${item.ampm}';
-    setState(() {
-      _schedules[index] = item;
-      _sortSchedules();
-    });
-    _addFeederLog('Schedule updated — $oldStr → $newStr', 'auto');
-    _syncFeedState();
-  }
-
-  void _sortSchedules() {
-    _schedules.sort((a, b) {
-      final aMin = _toMinutes(a);
-      final bMin = _toMinutes(b);
-      return aMin.compareTo(bMin);
-    });
-  }
-
-  int _toMinutes(ScheduleItem s) {
-    int h = int.tryParse(s.time.split(':')[0]) ?? 6;
-    final m = int.tryParse(s.time.split(':')[1]) ?? 0;
-    if (s.ampm == 'PM' && h != 12) h += 12;
-    if (s.ampm == 'AM' && h == 12) h = 0;
-    return h * 60 + m;
+  void _onFeederChanged() {
+    if (mounted) setState(() {});
   }
 
   void _setHwMode(String device, String mode) {
@@ -178,7 +86,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
 
   @override
   void dispose() {
-    _timeCtl.dispose();
+    _feeder.removeListener(_onFeederChanged);
     super.dispose();
   }
 
@@ -195,15 +103,21 @@ class _ControlsScreenState extends State<ControlsScreen> {
               index: _activeTab,
               children: [
                 FeederTab(
-                  feederAuto: _feederAuto,
-                  schedules: _schedules,
-                  timeCtl: _timeCtl,
-                  onToggleFeeder: _toggleFeeder,
-                  onFeedNow: _feedNow,
-                  onAddSchedule: _addSchedule,
-                  onDeleteSchedule: _deleteSchedule,
-                  onEditSchedule: _editSchedule,
-                  feederLogs: _feederLogs,
+                  feederAuto: _feeder.autoMode,
+                  isOnline: _feeder.isOnline,
+                  hopperLevel: _feeder.hopperLevel,
+                  schedules: _feeder.schedules,
+                  onToggleFeeder: _feeder.toggleMode,
+                  onFeedNow: () => _feeder.feedNow(),
+                  onAddSchedule: _feeder.addSchedule,
+                  onDeleteSchedule: _feeder.deleteSchedule,
+                  onEditSchedule: (i, s) => _feeder.editSchedule(
+                    i,
+                    time: s.time,
+                    ampm: s.ampm,
+                    enabled: s.enabled,
+                  ),
+                  feederLogs: _feeder.logs,
                 ),
                 DevicesTab(
                   hwModes: _hwModes,
