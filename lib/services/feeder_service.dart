@@ -33,6 +33,10 @@ class FeederService extends ChangeNotifier {
   final List<ScheduleItem> _schedules = [];
   final List<String> _scheduleKeys = [];
 
+  Timer? _scheduleTimer;
+  final Set<String> _dispatchedToday = {};
+  String _lastCheckDate = '';
+
   // ─── Getters ───
   bool get autoMode => _autoMode;
   bool get isRunning => _isRunning;
@@ -60,6 +64,7 @@ class FeederService extends ChangeNotifier {
       _listenStatus();
       _listenSchedules();
       _listenLogs();
+      _startScheduleTimer();
     } catch (e) {
       debugPrint('[FeederService] Initialization error: $e');
     }
@@ -272,6 +277,40 @@ class FeederService extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ─── Schedule Timer ───
+
+  void _startScheduleTimer() {
+    _scheduleTimer?.cancel();
+    _scheduleTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      _checkSchedules();
+    });
+  }
+
+  void _checkSchedules() {
+    if (!_autoMode) return;
+    final now = DateTime.now();
+    final todayKey = '${now.month}/${now.day}';
+    if (_lastCheckDate != todayKey) {
+      _dispatchedToday.clear();
+      _lastCheckDate = todayKey;
+    }
+    for (final s in _schedules) {
+      if (!s.enabled) continue;
+      int h = int.parse(s.time.split(':')[0]);
+      final m = int.parse(s.time.split(':')[1]);
+      if (s.ampm == 'PM' && h != 12) h += 12;
+      if (s.ampm == 'AM' && h == 12) h = 0;
+      if (now.hour == h && now.minute == m) {
+        final key = '${s.time}_${s.ampm}';
+        if (!_dispatchedToday.contains(key)) {
+          _dispatchedToday.add(key);
+          feedNow();
+          debugPrint('[FeederService] Auto-dispatch: $key');
+        }
+      }
+    }
+  }
+
   // ─── Helpers ───
 
   int _toMinutes(Map<String, dynamic> s) {
@@ -290,6 +329,7 @@ class FeederService extends ChangeNotifier {
     _statusSub?.cancel();
     _schedulesSub?.cancel();
     _logsSub?.cancel();
+    _scheduleTimer?.cancel();
     super.dispose();
   }
 }
