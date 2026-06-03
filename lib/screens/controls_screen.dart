@@ -209,6 +209,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                       onEditSchedule: _editSchedule,
                       feederLogs: FeederService.instance.logs,
                       fedToday: _fedToday,
+                      feederError: FeederService.instance.feederError,
                     ),
                     DevicesTab(
                       hwModes: _hwModes,

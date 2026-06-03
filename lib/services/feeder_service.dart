@@ -28,6 +28,7 @@ class FeederService extends ChangeNotifier {
   double _hopperLevel = 100;
   DateTime _lastSeen = DateTime.fromMillisecondsSinceEpoch(0);
   String? _lastError;
+  String _feederError = '';
 
   final List<LogEntry> _logs = [];
   final List<ScheduleItem> _schedules = [];
@@ -45,6 +46,7 @@ class FeederService extends ChangeNotifier {
   double get hopperLevel => _hopperLevel;
   DateTime get lastSeen => _lastSeen;
   String? get lastError => _lastError;
+  String get feederError => _feederError;
 
   bool get isOnline =>
       DateTime.now().difference(_lastSeen).inSeconds < 30;
@@ -87,6 +89,7 @@ class FeederService extends ChangeNotifier {
             _feedSource = (data['feedSource'] as String?) ?? '';
             _feedCount = (data['feedCount'] as num?)?.toInt() ?? _feedCount;
             _hopperLevel = (data['hopperLevel'] as num?)?.toDouble() ?? 100;
+            _feederError = (data['feederError'] as String?) ?? '';
             final seen = data['lastSeen'];
             if (seen is int && seen > 0) {
               _lastSeen = DateTime.fromMillisecondsSinceEpoch(seen);
@@ -215,17 +218,20 @@ class FeederService extends ChangeNotifier {
   }
 
   Future<void> toggleMode() async {
-    if (_commandsRef == null) return;
+    if (_statusRef == null) return;
     final newMode = _autoMode ? 'manual' : 'auto';
     _autoMode = !_autoMode;
     notifyListeners();
     try {
-      await _commandsRef!.push().set({
-        'action': 'set_mode',
-        'mode': newMode,
-        'timestamp': ServerValue.timestamp,
-        'source': 'flutter-app',
-      });
+      await _statusRef!.update({'mode': newMode});
+      if (_commandsRef != null) {
+        await _commandsRef!.push().set({
+          'action': 'set_mode',
+          'mode': newMode,
+          'timestamp': ServerValue.timestamp,
+          'source': 'flutter-app',
+        });
+      }
     } catch (e) {
       _autoMode = !_autoMode;
       notifyListeners();

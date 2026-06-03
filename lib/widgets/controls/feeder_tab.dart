@@ -13,6 +13,7 @@ class FeederTab extends StatelessWidget {
   final void Function(int index, ScheduleItem item) onEditSchedule;
   final List<LogEntry> feederLogs;
   final Set<String> fedToday;
+  final String feederError;
 
   const FeederTab({
     super.key,
@@ -26,6 +27,7 @@ class FeederTab extends StatelessWidget {
     required this.onEditSchedule,
     required this.feederLogs,
     this.fedToday = const {},
+    this.feederError = '',
   });
 
   @override
@@ -178,6 +180,7 @@ class FeederTab extends StatelessWidget {
                 ),
               ],
             ),
+            if (feederError.isNotEmpty) _buildErrorBanner(),
             if (schedules.isNotEmpty) _buildCountdown(),
             if (feederAuto) ...[
               const SizedBox(height: 16),
@@ -262,6 +265,36 @@ class FeederTab extends StatelessWidget {
                       ),
                     ),
                   ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildErrorBanner() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppColors.critical.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.critical.withValues(alpha: 0.3)),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.error_outline, size: 14, color: AppColors.critical),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                feederError,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.critical,
                 ),
               ),
             ),
