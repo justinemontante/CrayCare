@@ -22,6 +22,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
   int _lastFeedCount = 0;
   Timer? _feedTimer;
   final TextEditingController _timeCtl = TextEditingController();
+  final Set<String> _fedToday = {};
 
   @override
   void initState() {
@@ -62,9 +63,25 @@ class _ControlsScreenState extends State<ControlsScreen> {
         });
       }
       _lastFeedCount = svc.feedCount;
+      _markNearestScheduleFed();
     }
 
     if (mounted) setState(() {});
+  }
+
+  void _markNearestScheduleFed() {
+    final now = DateTime.now();
+    final svc = FeederService.instance;
+    for (final s in svc.schedules) {
+      int h = int.tryParse(s.time.split(':')[0]) ?? 6;
+      final m = int.tryParse(s.time.split(':')[1]) ?? 0;
+      if (s.ampm == 'PM' && h != 12) h += 12;
+      if (s.ampm == 'AM' && h == 12) h = 0;
+      final scheduleDt = DateTime(now.year, now.month, now.day, h, m);
+      if (now.difference(scheduleDt).inMinutes.abs() <= 2) {
+        _fedToday.add('${s.time}_${s.ampm}');
+      }
+    }
   }
 
   final Map<String, String> _hwModes = {
@@ -191,6 +208,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                       onDeleteSchedule: _deleteSchedule,
                       onEditSchedule: _editSchedule,
                       feederLogs: FeederService.instance.logs,
+                      fedToday: _fedToday,
                     ),
                     DevicesTab(
                       hwModes: _hwModes,

@@ -12,6 +12,7 @@ class FeederTab extends StatelessWidget {
   final void Function(int index) onDeleteSchedule;
   final void Function(int index, ScheduleItem item) onEditSchedule;
   final List<LogEntry> feederLogs;
+  final Set<String> fedToday;
 
   const FeederTab({
     super.key,
@@ -24,6 +25,7 @@ class FeederTab extends StatelessWidget {
     required this.onDeleteSchedule,
     required this.onEditSchedule,
     required this.feederLogs,
+    this.fedToday = const {},
   });
 
   @override
@@ -364,15 +366,17 @@ class FeederTab extends StatelessWidget {
   }
 
   String _scheduleStatus(ScheduleItem s) {
+    final key = '${s.time}_${s.ampm}';
+    if (fedToday.contains(key)) return 'completed';
     final now = DateTime.now();
     int h = int.tryParse(s.time.split(':')[0]) ?? 6;
     final m = int.tryParse(s.time.split(':')[1]) ?? 0;
     if (s.ampm == 'PM' && h != 12) h += 12;
     if (s.ampm == 'AM' && h == 12) h = 0;
-    final sMin = h * 60 + m;
-    final nowMin = now.hour * 60 + now.minute;
-    if (sMin < nowMin) return 'completed';
-    if (sMin == nowMin) return 'pending';
+    final scheduleDt = DateTime(now.year, now.month, now.day, h, m);
+    final diffSec = now.difference(scheduleDt).inSeconds;
+    if (diffSec > 30) return 'completed';
+    if (diffSec >= 0) return 'pending';
     return 'upcoming';
   }
 

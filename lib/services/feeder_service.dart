@@ -117,14 +117,14 @@ class FeederService extends ChangeNotifier {
             _scheduleKeys.clear();
             if (data != null && data is Map) {
               final entries =
-                  (data as Map<String, dynamic>).entries.toList();
+                  (Map<String, dynamic>.from(data)).entries.toList();
               entries.sort((a, b) {
-                final aVal = a.value as Map<String, dynamic>;
-                final bVal = b.value as Map<String, dynamic>;
+                final aVal = Map<String, dynamic>.from(a.value);
+                final bVal = Map<String, dynamic>.from(b.value);
                 return _toMinutes(aVal).compareTo(_toMinutes(bVal));
               });
               for (final entry in entries) {
-                final val = entry.value as Map<String, dynamic>;
+                final val = Map<String, dynamic>.from(entry.value);
                 _scheduleKeys.add(entry.key);
                 _schedules.add(ScheduleItem(
                   val['time'] as String? ?? '6:00',
@@ -160,16 +160,16 @@ class FeederService extends ChangeNotifier {
             _logs.clear();
             if (data != null && data is Map) {
               final entries =
-                  (data as Map<String, dynamic>).entries.toList();
+                  (Map<String, dynamic>.from(data)).entries.toList();
               entries.sort((a, b) {
-                final aVal = a.value as Map<String, dynamic>;
-                final bVal = b.value as Map<String, dynamic>;
+                final aVal = Map<String, dynamic>.from(a.value);
+                final bVal = Map<String, dynamic>.from(b.value);
                 final aTs = aVal['timestamp'] as int? ?? 0;
                 final bTs = bVal['timestamp'] as int? ?? 0;
                 return bTs.compareTo(aTs);
               });
               for (final entry in entries) {
-                final val = entry.value as Map<String, dynamic>;
+                final val = Map<String, dynamic>.from(entry.value);
                 _logs.add(LogEntry(
                   val['action'] as String? ?? '',
                   val['type'] as String? ?? 'auto',
