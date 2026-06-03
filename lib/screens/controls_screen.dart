@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../models/control_types.dart';
 import '../widgets/controls/feeder_tab.dart';
 import '../widgets/controls/devices_tab.dart';
+import '../services/feeder_service.dart';
 
 class ControlsScreen extends StatefulWidget {
   const ControlsScreen({super.key});
@@ -11,19 +13,58 @@ class ControlsScreen extends StatefulWidget {
   State<ControlsScreen> createState() => _ControlsScreenState();
 }
 
+enum _FeedState { hidden, dispensing, done }
+
 class _ControlsScreenState extends State<ControlsScreen> {
   int _activeTab = 0;
-  bool _feederAuto = true;
-  final List<ScheduleItem> _schedules = [
-    ScheduleItem('6:00', 'AM'),
-    ScheduleItem('6:00', 'PM'),
-  ];
+  _FeedState _feedState = _FeedState.hidden;
+  bool _wasRunning = false;
+  int _lastFeedCount = 0;
+  Timer? _feedTimer;
   final TextEditingController _timeCtl = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    _syncFeedState();
+    final svc = FeederService.instance;
+    _wasRunning = svc.isRunning;
+    _lastFeedCount = svc.feedCount;
+    svc.addListener(_onFeederUpdate);
+  }
+
+  @override
+  void dispose() {
+    FeederService.instance.removeListener(_onFeederUpdate);
+    _feedTimer?.cancel();
+    _timeCtl.dispose();
+    super.dispose();
+  }
+
+  void _onFeederUpdate() {
+    final svc = FeederService.instance;
+    final isRunning = svc.isRunning;
+
+    // Detect start: isRunning false → true
+    if (_wasRunning != isRunning) {
+      if (isRunning) {
+        _feedState = _FeedState.dispensing;
+      }
+      _wasRunning = isRunning;
+    }
+
+    // Detect completion: feedCount incremented (guaranteed Firebase update)
+    if (svc.feedCount != _lastFeedCount) {
+      if (_feedState == _FeedState.dispensing) {
+        _feedState = _FeedState.done;
+        _feedTimer?.cancel();
+        _feedTimer = Timer(const Duration(milliseconds: 1500), () {
+          if (mounted) setState(() => _feedState = _FeedState.hidden);
+        });
+      }
+      _lastFeedCount = svc.feedCount;
+    }
+
+    if (mounted) setState(() {});
   }
 
   final Map<String, String> _hwModes = {
@@ -31,10 +72,6 @@ class _ControlsScreenState extends State<ControlsScreen> {
     'aerator2': 'auto',
     'pump': 'auto',
   };
-
-  final List<LogEntry> _feederLogs = [
-    LogEntry('Dispensed 44.1g feed (Scheduled)', 'auto', '6:00 AM', 'Today'),
-  ];
 
   final Map<String, List<LogEntry>> _hwLogs = {
     'aerator1': [
@@ -55,28 +92,12 @@ class _ControlsScreenState extends State<ControlsScreen> {
   };
 
   void _toggleFeeder() {
-    setState(() => _feederAuto = !_feederAuto);
+    FeederService.instance.toggleMode();
   }
 
   void _feedNow() {
-    _addFeederLog('Manual Feed — Feed Now triggered', 'manual');
-  }
-
-  void _addFeederLog(String action, String type) {
-    final now = DateTime.now();
-    final h = now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour);
-    final ampm = now.hour >= 12 ? 'PM' : 'AM';
-    final time = '$h:${now.minute.toString().padLeft(2, '0')} $ampm';
-    setState(() {
-      _feederLogs.insert(0, LogEntry(action, type, time, 'Today'));
-      if (_feederLogs.length > 50) _feederLogs.removeLast();
-    });
-    FeedState.feederLogs.value = List.from(_feederLogs);
-  }
-
-  void _syncFeedState() {
-    FeedState.schedules.value = List.from(_schedules);
-    FeedState.feederLogs.value = List.from(_feederLogs);
+    FeederService.instance.feedNow();
+    setState(() => _feedState = _FeedState.dispensing);
   }
 
   String _formatTimeInput(String val) {
@@ -96,51 +117,21 @@ class _ControlsScreenState extends State<ControlsScreen> {
     final hStr = formatted.split(':')[0];
     final hour = int.tryParse(hStr) ?? 6;
     final timeStr = '$hour:${formatted.split(':')[1].split(' ')[0]}';
-    setState(() {
-      _schedules.add(
-        ScheduleItem(timeStr, isPM ? 'PM' : 'AM'),
-      );
-      _sortSchedules();
-      _timeCtl.clear();
-    });
-    _addFeederLog('Schedule added — $timeStr ${isPM ? 'PM' : 'AM'}', 'auto');
-    _syncFeedState();
+    FeederService.instance.addSchedule(timeStr, isPM ? 'PM' : 'AM');
+    _timeCtl.clear();
   }
 
   void _deleteSchedule(int index) {
-    final s = _schedules[index];
-    final timeStr = '${s.time} ${s.ampm}';
-    setState(() => _schedules.removeAt(index));
-    _addFeederLog('Schedule deleted — $timeStr', 'auto');
-    _syncFeedState();
+    FeederService.instance.deleteSchedule(index);
   }
 
   void _editSchedule(int index, ScheduleItem item) {
-    final old = _schedules[index];
-    final oldStr = '${old.time} ${old.ampm}';
-    final newStr = '${item.time} ${item.ampm}';
-    setState(() {
-      _schedules[index] = item;
-      _sortSchedules();
-    });
-    _addFeederLog('Schedule updated — $oldStr → $newStr', 'auto');
-    _syncFeedState();
-  }
-
-  void _sortSchedules() {
-    _schedules.sort((a, b) {
-      final aMin = _toMinutes(a);
-      final bMin = _toMinutes(b);
-      return aMin.compareTo(bMin);
-    });
-  }
-
-  int _toMinutes(ScheduleItem s) {
-    int h = int.tryParse(s.time.split(':')[0]) ?? 6;
-    final m = int.tryParse(s.time.split(':')[1]) ?? 0;
-    if (s.ampm == 'PM' && h != 12) h += 12;
-    if (s.ampm == 'AM' && h == 12) h = 0;
-    return h * 60 + m;
+    FeederService.instance.editSchedule(
+      index,
+      time: item.time,
+      ampm: item.ampm,
+      enabled: item.enabled,
+    );
   }
 
   void _setHwMode(String device, String mode) {
@@ -177,43 +168,118 @@ class _ControlsScreenState extends State<ControlsScreen> {
   }
 
   @override
-  void dispose() {
-    _timeCtl.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     return Container(
       color: Colors.white,
-      child: Column(
+      child: Stack(
         children: [
-          _buildHeader(),
-          _buildTabBar(),
-          Expanded(
-            child: IndexedStack(
-              index: _activeTab,
-              children: [
-                FeederTab(
-                  feederAuto: _feederAuto,
-                  schedules: _schedules,
-                  timeCtl: _timeCtl,
-                  onToggleFeeder: _toggleFeeder,
-                  onFeedNow: _feedNow,
-                  onAddSchedule: _addSchedule,
-                  onDeleteSchedule: _deleteSchedule,
-                  onEditSchedule: _editSchedule,
-                  feederLogs: _feederLogs,
+          Column(
+            children: [
+              _buildHeader(),
+              _buildTabBar(),
+              Expanded(
+                child: IndexedStack(
+                  index: _activeTab,
+                  children: [
+                    FeederTab(
+                      feederAuto: FeederService.instance.autoMode,
+                      schedules: FeederService.instance.schedules,
+                      timeCtl: _timeCtl,
+                      onToggleFeeder: _toggleFeeder,
+                      onFeedNow: _feedNow,
+                      onAddSchedule: _addSchedule,
+                      onDeleteSchedule: _deleteSchedule,
+                      onEditSchedule: _editSchedule,
+                      feederLogs: FeederService.instance.logs,
+                    ),
+                    DevicesTab(
+                      hwModes: _hwModes,
+                      onSetMode: _setHwMode,
+                      onShowLog: _showHwLog,
+                    ),
+                  ],
                 ),
-                DevicesTab(
-                  hwModes: _hwModes,
-                  onSetMode: _setHwMode,
-                  onShowLog: _showHwLog,
+              ),
+            ],
+          ),
+          if (_feedState != _FeedState.hidden) _buildFeedOverlay(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFeedOverlay() {
+    final isDone = _feedState == _FeedState.done;
+    final isScheduled = FeederService.instance.feedSource == 'scheduled';
+
+    final (String title, String subtitle) = switch ((isDone, isScheduled)) {
+      (false, true)  => ('Auto-feeding...', 'Scheduled feed in progress.'),
+      (false, false) => ('Dispensing...',   'Please wait while the feeder is running.'),
+      (true,  true)  => ('Feed Complete!',  'Scheduled feed has been dispensed.'),
+      (true,  false) => ('Done!',           'Feed has been dispensed successfully.'),
+    };
+
+    return Positioned(
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      child: Material(
+        color: Colors.black26,
+        child: Center(
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 48),
+            padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                isDone
+                    ? Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: AppColors.success.withValues(alpha: 0.12),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.check_circle_rounded,
+                          color: AppColors.success,
+                          size: 48,
+                        ),
+                      )
+                    : const SizedBox(
+                        width: 48,
+                        height: 48,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 4,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                const SizedBox(height: 20),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.dark,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  subtitle,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: AppColors.dark.withValues(alpha: 0.6),
+                  ),
                 ),
               ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }

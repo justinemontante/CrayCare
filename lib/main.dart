@@ -10,6 +10,7 @@ import 'screens/login_screen.dart';
 import 'screens/main_shell.dart'; // Import the MainShell for routing
 import 'services/settings_service.dart';
 import 'services/notification_service.dart';
+import 'services/feeder_service.dart';
 import 'firebase_options.dart'; // Generated configuration file
 import 'screens/verify_screen.dart';
 
@@ -31,6 +32,7 @@ void main() async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await SettingsService.instance.init();
   NotificationService.instance.init();
+  FeederService.instance.init();
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
@@ -83,33 +85,42 @@ class _SplashScreenState extends State<SplashScreen> {
     if (!mounted) return;
 
     // 2. Check Firebase Auth State (Persistent Login)
-    User? currentUser = FirebaseAuth.instance.currentUser;
+    try {
+      User? currentUser = FirebaseAuth.instance.currentUser;
 
-    if (currentUser != null) {
-      await currentUser.reload();
-      final freshUser = FirebaseAuth.instance.currentUser;
+      if (currentUser != null) {
+        await currentUser.reload();
+        final freshUser = FirebaseAuth.instance.currentUser;
 
-      if (freshUser != null && freshUser.emailVerified) {
-        // Verified: deretso sa Dashboard
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const MainShell()),
-        );
-      } else if (freshUser != null && !freshUser.emailVerified) {
-        // May account pero hindi naka-verify: pumunta sa VerifyScreen
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const VerifyScreen()),
-        );
+        if (freshUser != null && freshUser.emailVerified) {
+          // Verified: deretso sa Dashboard
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const MainShell()),
+          );
+        } else if (freshUser != null && !freshUser.emailVerified) {
+          // May account pero hindi naka-verify: pumunta sa VerifyScreen
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const VerifyScreen()),
+          );
+        } else {
+          // User deleted or invalid: LoginScreen
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const LoginScreen()),
+          );
+        }
       } else {
-        // User deleted or invalid: LoginScreen
+        // Walang naka-login
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => const LoginScreen()),
         );
       }
-    } else {
-      // Walang naka-login
+    } catch (e) {
+      // If Firebase Auth check fails (e.g. web init issue), go to LoginScreen
+      if (!mounted) return;
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const LoginScreen()),

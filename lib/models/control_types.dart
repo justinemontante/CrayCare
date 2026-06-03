@@ -3,7 +3,8 @@ import 'package:flutter/foundation.dart';
 class ScheduleItem {
   final String time;
   final String ampm;
-  ScheduleItem(this.time, this.ampm);
+  final bool enabled;
+  ScheduleItem(this.time, this.ampm, {this.enabled = true});
 }
 
 class LogEntry {
