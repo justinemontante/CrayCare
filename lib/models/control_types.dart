@@ -4,7 +4,8 @@ class ScheduleItem {
   final String time;
   final String ampm;
   final bool enabled;
-  ScheduleItem(this.time, this.ampm, {this.enabled = true});
+  final String? createdBy;
+  ScheduleItem(this.time, this.ampm, {this.enabled = true, this.createdBy});
 }
 
 class LogEntry {
@@ -12,7 +13,8 @@ class LogEntry {
   final String type;
   final String time;
   final String date;
-  LogEntry(this.action, this.type, this.time, this.date);
+  final String userName;
+  LogEntry(this.action, this.type, this.time, this.date, {this.userName = ''});
 }
 
 class FeedState {

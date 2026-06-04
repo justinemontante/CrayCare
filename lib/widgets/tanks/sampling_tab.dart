@@ -632,15 +632,22 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
   final _weightController = TextEditingController();
   final _lengthController = TextEditingController();
   bool _isRecorded = false;
+  bool _isEditing = false;
   String? _countError;
+  late final VoidCallback _serviceListener;
 
   @override
   void initState() {
     super.initState();
     _checkLastSampling();
+    _serviceListener = () {
+      if (mounted) setState(() => _checkLastSampling());
+    };
+    TankService.instance.addListener(_serviceListener);
   }
 
   void _checkLastSampling() {
+    _isEditing = false;
     final history = TankService.instance.samplingHistory;
     if (history.isNotEmpty) {
       final last = history.last;
@@ -652,12 +659,17 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
         _countController.text = last.sampleSize.toString();
         _weightController.text = last.totalWeight.toStringAsFixed(1);
         _lengthController.text = last.totalLength.toStringAsFixed(1);
+      } else {
+        _isRecorded = false;
       }
+    } else {
+      _isRecorded = false;
     }
   }
 
   @override
   void dispose() {
+    TankService.instance.removeListener(_serviceListener);
     _countController.dispose();
     _weightController.dispose();
     _lengthController.dispose();
@@ -689,7 +701,10 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
         weight > 0 &&
         length > 0) {
       TankService.instance.addSamplingEntry(count, weight, length);
-      setState(() => _isRecorded = true);
+      setState(() {
+        _isRecorded = true;
+        _isEditing = false;
+      });
       showBeautifulSnackbar(
         context,
         'Sampling successfully recorded & computed!',
@@ -699,11 +714,15 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
   }
 
   void _handleEdit() {
-    setState(() => _isRecorded = false);
+    setState(() {
+      _isRecorded = false;
+      _isEditing = true;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    final canSample = TankService.instance.canSample;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -749,11 +768,11 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
               Expanded(
                 child: _buildInputCard(
                   Image.asset('assets/images/SampleCount.png', width: 20, height: 20),
-                  'Sample Count',
+                  'sampleCount',
                   'Crayfish sampled',
                   '10',
                   _countController,
-                  enabled: !_isRecorded,
+                  enabled: (!_isRecorded && canSample) || _isEditing,
                   hasError: _countError != null,
                   onChanged: _revalidateCount,
                 ),
@@ -762,22 +781,22 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
               Expanded(
                 child: _buildInputCard(
                   Image.asset('assets/images/TotalWeight.png', width: 20, height: 20),
-                  'Total Weight',
+                  'totalWeight',
                   'Weight of samples',
                   '150',
                   _weightController,
-                  enabled: !_isRecorded,
+                  enabled: (!_isRecorded && canSample) || _isEditing,
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: _buildInputCard(
                   Image.asset('assets/images/TotalLength.png', width: 20, height: 20),
-                  'Total Length',
+                  'totalLength',
                   'Length of samples',
                   '60',
                   _lengthController,
-                  enabled: !_isRecorded,
+                  enabled: (!_isRecorded && canSample) || _isEditing,
                 ),
               ),
             ],
@@ -814,7 +833,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
             ),
           ],
           const SizedBox(height: 10),
-          if (!_isRecorded)
+          if (!_isRecorded && (canSample || _isEditing))
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
@@ -837,6 +856,29 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
                 child: const Text(
                   'Compute Results',
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                ),
+              ),
+            ),
+          if (!_isRecorded && !canSample && !_isEditing)
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: null,
+                icon: const Icon(Icons.lock_rounded, size: 16),
+                label: Text(
+                  'Sampling available in ${7 - TankService.instance.daysSinceLastSampling} days',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.dark.withValues(alpha: 0.15),
+                  foregroundColor: AppColors.dark.withValues(alpha: 0.5),
+                  disabledBackgroundColor: AppColors.dark.withValues(alpha: 0.15),
+                  disabledForegroundColor: AppColors.dark.withValues(alpha: 0.5),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
             ),

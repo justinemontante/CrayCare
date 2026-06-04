@@ -320,10 +320,10 @@ class FeederTab extends StatelessWidget {
           }
         }
 
-        String display;
-        if (next == null) {
-          display = 'No upcoming feeding';
-        } else {
+        final bool noUpcoming = next == null;
+
+        String? display;
+        if (!noUpcoming) {
           int h = int.parse(next.time.split(':')[0]);
           final m = int.parse(next.time.split(':')[1]);
           if (next.ampm == 'PM' && h != 12) h += 12;
@@ -332,8 +332,7 @@ class FeederTab extends StatelessWidget {
           final diff = target.difference(now);
           if (diff.isNegative) {
             final nextDay = target.add(const Duration(days: 1));
-            final diff2 = nextDay.difference(now);
-            display = _formatDuration(diff2);
+            display = _formatDuration(nextDay.difference(now));
           } else {
             display = _formatDuration(diff);
           }
@@ -350,27 +349,30 @@ class FeederTab extends StatelessWidget {
             child: Row(
               children: [
                 Icon(
-                  Icons.timer_outlined,
+                  noUpcoming ? Icons.info_outline : Icons.timer_outlined,
                   size: 14,
-                  color: AppColors.primary,
+                  color: noUpcoming ? AppColors.darkWith(0.4) : AppColors.primary,
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  'Next feeding in  ',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.darkWith(0.6),
+                Expanded(
+                  child: Text(
+                    noUpcoming ? 'No upcoming feeding' : 'Next feeding in  ',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.darkWith(0.6),
+                    ),
                   ),
                 ),
-                Text(
-                  display,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.dark,
+                if (display != null)
+                  Text(
+                    display,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.dark,
+                    ),
                   ),
-                ),
               ],
             ),
           ),
@@ -567,13 +569,157 @@ class FeederTab extends StatelessWidget {
           ),
           const SizedBox(width: 6),
           GestureDetector(
+            onTap: () => _showScheduleInfo(ctx, s),
+            child: Icon(Icons.info_outline, size: 14, color: AppColors.primaryWith(0.7)),
+          ),
+          const SizedBox(width: 6),
+          GestureDetector(
             onTap: () => _showScheduleModal(ctx, index: index, existing: s),
             child: Icon(Icons.edit_outlined, size: 14, color: AppColors.primary),
           ),
           const SizedBox(width: 6),
           GestureDetector(
-            onTap: () => onDeleteSchedule(index),
+            onTap: () => _confirmDelete(ctx, index),
             child: Icon(Icons.delete_outline, size: 14, color: AppColors.critical),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showScheduleInfo(BuildContext ctx, ScheduleItem s) {
+    showModalBottomSheet(
+      context: ctx,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetCtx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36, height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Container(
+                      width: 42, height: 42,
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(Icons.schedule, size: 20, color: AppColors.primary),
+                    ),
+                    const SizedBox(width: 12),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Schedule Info',
+                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.dark),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${s.time} ${s.ampm}',
+                          style: TextStyle(fontSize: 11, color: AppColors.darkWith(0.45)),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: AppColors.darkWith(0.03),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.person_outline, size: 16, color: AppColors.primary),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Created by',
+                              style: TextStyle(fontSize: 10, color: AppColors.darkWith(0.45)),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              s.createdBy ?? 'Unknown',
+                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.dark),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(sheetCtx),
+                    style: TextButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 9),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    child: const Text('Close', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _confirmDelete(BuildContext ctx, int index) {
+    showDialog(
+      context: ctx,
+      builder: (dialogCtx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_rounded, size: 20, color: AppColors.critical),
+            SizedBox(width: 8),
+            Text('Delete Schedule', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
+          ],
+        ),
+        content: const Text(
+          'Are you sure you want to delete this schedule?',
+          style: TextStyle(fontSize: 12, color: AppColors.dark),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx),
+            child: const Text('Cancel', style: TextStyle(fontWeight: FontWeight.w600)),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(dialogCtx);
+              onDeleteSchedule(index);
+            },
+            child: const Text('Delete', style: TextStyle(color: AppColors.critical, fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -705,6 +851,15 @@ class FeederTab extends StatelessWidget {
                                                 color: AppColors.darkWith(0.4),
                                               ),
                                             ),
+                                            if (l.userName.isNotEmpty)
+                                              Text(
+                                                l.userName,
+                                                style: TextStyle(
+                                                  fontSize: 9,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: AppColors.darkWith(0.5),
+                                                ),
+                                              ),
                                           ],
                                         ),
                                       ),

@@ -1,20 +1,20 @@
 import 'dart:async';
-import 'dart:io'; // For HttpOverrides
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:firebase_core/firebase_core.dart'; // The core Firebase plugin
-import 'package:firebase_auth/firebase_auth.dart'; // Added for checking auth state
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import 'theme/app_theme.dart';
 import 'screens/login_screen.dart';
-import 'screens/main_shell.dart'; // Import the MainShell for routing
+import 'screens/main_shell.dart';
 import 'services/settings_service.dart';
 import 'services/notification_service.dart';
 import 'services/feeder_service.dart';
-import 'firebase_options.dart'; // Generated configuration file
+import 'services/tank_service.dart';
+import 'firebase_options.dart';
 import 'screens/verify_screen.dart';
 
-// 2. Dinagdag itong class na ito para ma-bypass ang SSL/Handshake errors sa devices
 class MyHttpOverrides extends HttpOverrides {
   @override
   HttpClient createHttpClient(SecurityContext? context) {
@@ -25,7 +25,6 @@ class MyHttpOverrides extends HttpOverrides {
 }
 
 void main() async {
-  //  In-initialize ang HttpOverrides bago mag-start ang app
   HttpOverrides.global = MyHttpOverrides();
 
   WidgetsFlutterBinding.ensureInitialized();
@@ -33,6 +32,7 @@ void main() async {
   await SettingsService.instance.init();
   NotificationService.instance.init();
   FeederService.instance.init();
+  TankService.instance.init();
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
@@ -71,7 +71,9 @@ class _SplashScreenState extends State<SplashScreen> {
 
   void _animateProgress() async {
     const totalSteps = 100;
-    const stepDuration = Duration(milliseconds: 30);
+    const stepDuration = Duration(
+      milliseconds: 30,
+    ); // Total 3 seconds animation
 
     // 1. Progress bar animation
     for (int i = 1; i <= totalSteps; i++) {
@@ -89,7 +91,16 @@ class _SplashScreenState extends State<SplashScreen> {
       User? currentUser = FirebaseAuth.instance.currentUser;
 
       if (currentUser != null) {
-        await currentUser.reload();
+        // FIXED: Nilagyan ng 5-second timeout para hindi mag-hang forever
+        try {
+          await currentUser.reload().timeout(const Duration(seconds: 5));
+        } catch (reloadError) {
+          debugPrint("RELOAD TIMEOUT/ERROR: $reloadError");
+          // Kahit nag-timeout ang reload, kung may current user, papasukin pa rin
+          // (para pwede pa rin mag-load ang app kahit mahina net).
+          // Magiging null lang ito kung talagang na-delete na ang account.
+        }
+
         final freshUser = FirebaseAuth.instance.currentUser;
 
         if (freshUser != null && freshUser.emailVerified) {
@@ -119,7 +130,9 @@ class _SplashScreenState extends State<SplashScreen> {
         );
       }
     } catch (e) {
-      // If Firebase Auth check fails (e.g. web init issue), go to LoginScreen
+      // DITO LALABAS ANG ERROR SA VS CODE KUNG BAKIT SIYA NAG-FAIL
+      debugPrint("SPLASH SCREEN MAIN ERROR: $e");
+
       if (!mounted) return;
       Navigator.pushReplacement(
         context,

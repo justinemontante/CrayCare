@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import '../models/control_types.dart';
 
@@ -90,6 +91,10 @@ class FeederService extends ChangeNotifier {
             _feedCount = (data['feedCount'] as num?)?.toInt() ?? _feedCount;
             _hopperLevel = (data['hopperLevel'] as num?)?.toDouble() ?? 100;
             _feederError = (data['feederError'] as String?) ?? '';
+            if (_feederError.isNotEmpty && !_isRunning) {
+              _statusRef!.update({'feederError': ''});
+              _feederError = '';
+            }
             final seen = data['lastSeen'];
             if (seen is int && seen > 0) {
               _lastSeen = DateTime.fromMillisecondsSinceEpoch(seen);
@@ -138,6 +143,7 @@ class FeederService extends ChangeNotifier {
                   val['time'] as String? ?? '6:00',
                   val['ampm'] as String? ?? 'AM',
                   enabled: val['enabled'] as bool? ?? true,
+                  createdBy: val['createdBy'] as String?,
                 ));
               }
             }
@@ -183,6 +189,7 @@ class FeederService extends ChangeNotifier {
                   val['type'] as String? ?? 'auto',
                   val['time'] as String? ?? '',
                   val['date'] as String? ?? '',
+                  userName: val['userName'] as String? ?? '',
                 ));
               }
             }
@@ -203,7 +210,7 @@ class FeederService extends ChangeNotifier {
 
   // ─── Actions ───
 
-  void feedNow() {
+  void feedNow({String source = 'manual'}) {
     if (_commandsRef == null) return;
     try {
       _commandsRef!.push().set({
@@ -211,10 +218,58 @@ class FeederService extends ChangeNotifier {
         'timestamp': ServerValue.timestamp,
         'source': 'flutter-app',
       });
+      if (source == 'scheduled') {
+        _addLogEntry(
+          action: 'Auto feed dispensed',
+          type: 'auto',
+        );
+      } else {
+        final name = _getUserName();
+        _addLogEntry(
+          action: '$name manually fed',
+          type: 'manual',
+          userName: name,
+        );
+      }
     } catch (e) {
       debugPrint('[FeederService] feedNow error: $e');
     }
     notifyListeners();
+  }
+
+  void logFeedFailure() {
+    final name = _getUserName();
+    _addLogEntry(
+      action: '$name \u2014 Feed failed to dispense',
+      type: 'error',
+      userName: name,
+    );
+  }
+
+  void _addLogEntry({required String action, required String type, String? userName}) {
+    if (_logsRef == null) return;
+    userName ??= _getUserName();
+    final now = DateTime.now();
+    final months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    final dateStr = '${months[now.month - 1]} ${now.day}, ${now.year}';
+    final h = now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour);
+    final ampm = now.hour >= 12 ? 'PM' : 'AM';
+    final timeStr = '$h:${now.minute.toString().padLeft(2, '0')} $ampm';
+    try {
+      _logsRef!.push().set({
+        'action': action,
+        'type': type,
+        'time': timeStr,
+        'date': dateStr,
+        'userName': userName,
+        'timestamp': ServerValue.timestamp,
+      });
+    } catch (e) {
+      debugPrint('[FeederService] addLogEntry error: $e');
+    }
   }
 
   Future<void> toggleMode() async {
@@ -222,6 +277,7 @@ class FeederService extends ChangeNotifier {
     final newMode = _autoMode ? 'manual' : 'auto';
     _autoMode = !_autoMode;
     notifyListeners();
+    final name = _getUserName();
     try {
       await _statusRef!.update({'mode': newMode});
       if (_commandsRef != null) {
@@ -232,6 +288,11 @@ class FeederService extends ChangeNotifier {
           'source': 'flutter-app',
         });
       }
+      _addLogEntry(
+        action: '$name switched to ${newMode == 'auto' ? 'Auto' : 'Manual'} mode',
+        type: 'auto',
+        userName: name,
+      );
     } catch (e) {
       _autoMode = !_autoMode;
       notifyListeners();
@@ -241,23 +302,43 @@ class FeederService extends ChangeNotifier {
 
   void addSchedule(String time, String ampm) {
     if (_schedulesRef == null) return;
+    final name = _getUserName();
     try {
       _schedulesRef!.push().set({
         'time': time,
         'ampm': ampm,
         'enabled': true,
+        'createdBy': name,
       });
+      _addLogEntry(
+        action: '$name scheduled auto feed at $time $ampm',
+        type: 'auto',
+        userName: name,
+      );
     } catch (e) {
       debugPrint('[FeederService] addSchedule error: $e');
     }
     notifyListeners();
   }
 
+  String getScheduleTime(int index) {
+    if (index < 0 || index >= _schedules.length) return '';
+    final s = _schedules[index];
+    return '${s.time} ${s.ampm}';
+  }
+
   void deleteSchedule(int index) {
     if (_schedulesRef == null) return;
     if (index < 0 || index >= _scheduleKeys.length) return;
+    final name = _getUserName();
+    final timeStr = getScheduleTime(index);
     try {
       _schedulesRef!.child(_scheduleKeys[index]).remove();
+      _addLogEntry(
+        action: '$name removed schedule at $timeStr',
+        type: 'auto',
+        userName: name,
+      );
     } catch (e) {
       debugPrint('[FeederService] deleteSchedule error: $e');
     }
@@ -271,12 +352,18 @@ class FeederService extends ChangeNotifier {
   }) {
     if (_schedulesRef == null) return;
     if (index < 0 || index >= _scheduleKeys.length) return;
+    final name = _getUserName();
     try {
       _schedulesRef!.child(_scheduleKeys[index]).update({
         'time': time,
         'ampm': ampm,
         if (enabled != null) 'enabled': enabled,
       });
+      _addLogEntry(
+        action: '$name edited schedule to $time $ampm',
+        type: 'auto',
+        userName: name,
+      );
     } catch (e) {
       debugPrint('[FeederService] editSchedule error: $e');
     }
@@ -310,7 +397,7 @@ class FeederService extends ChangeNotifier {
         final key = '${s.time}_${s.ampm}';
         if (!_dispatchedToday.contains(key)) {
           _dispatchedToday.add(key);
-          feedNow();
+          feedNow(source: 'scheduled');
           debugPrint('[FeederService] Auto-dispatch: $key');
         }
       }
@@ -318,6 +405,10 @@ class FeederService extends ChangeNotifier {
   }
 
   // ─── Helpers ───
+
+  String _getUserName() {
+    return FirebaseAuth.instance.currentUser?.displayName ?? 'Unknown';
+  }
 
   int _toMinutes(Map<String, dynamic> s) {
     final time = s['time'] as String? ?? '6:00';

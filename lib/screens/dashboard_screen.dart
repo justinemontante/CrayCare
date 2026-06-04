@@ -665,7 +665,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   child: _buildStatColumn(
                     'assets/images/InitialPopulationNo.png',
                     '68',
-                    'Initial Population',
+                    'initialPopulation',
                   ),
                 ),
                 Expanded(

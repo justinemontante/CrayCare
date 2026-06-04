@@ -16,31 +16,11 @@ class TrendsTab extends StatefulWidget {
 
 class _TrendsTabState extends State<TrendsTab> {
   String _activeMetric = 'ABW';
-  bool _sampleLoaded = false;
 
   @override
   void initState() {
     super.initState();
     TankService.instance.addListener(_handleUpdate);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadSampleData());
-  }
-
-  void _loadSampleData() {
-    if (_sampleLoaded) return;
-    _sampleLoaded = true;
-    final service = TankService.instance;
-    if (service.mortalityHistory.isNotEmpty) return;
-    final now = DateTime.now();
-    service.addMortality(2, date: now.subtract(const Duration(days: 10)));
-    service.addMortality(0, date: now.subtract(const Duration(days: 9)));
-    service.addMortality(4, date: now.subtract(const Duration(days: 8)));
-    service.addMortality(1, date: now.subtract(const Duration(days: 7)));
-    service.addMortality(6, date: now.subtract(const Duration(days: 6)));
-    service.addMortality(3, date: now.subtract(const Duration(days: 5)));
-    service.addMortality(5, date: now.subtract(const Duration(days: 4)));
-    service.addMortality(2, date: now.subtract(const Duration(days: 3)));
-    service.addMortality(3, date: now.subtract(const Duration(days: 2)));
-    service.addMortality(1, date: now.subtract(const Duration(days: 1)));
   }
 
   @override

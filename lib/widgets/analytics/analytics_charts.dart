@@ -35,7 +35,8 @@ class AnalyticsLineChart extends StatefulWidget {
   State<AnalyticsLineChart> createState() => _AnalyticsLineChartState();
 }
 
-class _AnalyticsLineChartState extends State<AnalyticsLineChart> with SingleTickerProviderStateMixin {
+class _AnalyticsLineChartState extends State<AnalyticsLineChart>
+    with SingleTickerProviderStateMixin {
   late AnimationController _pulseController;
 
   @override
@@ -80,9 +81,27 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart> with SingleTick
     if (widget.data.isEmpty) return const SizedBox.shrink();
 
     final curIdx = widget.selectedIndex;
-    final minVal = widget.data.reduce(min);
-    final maxVal = widget.data.reduce(max);
-    final range = (maxVal - minVal).abs() < 0.01 ? 1.0 : maxVal - minVal;
+
+    // --- MAGANDANG RANGE AT MARGIN CALCULATION PARA SA FLATLINE ---
+    double originalMin = widget.data.reduce(min);
+    double originalMax = widget.data.reduce(max);
+    double minVal;
+    double maxVal;
+
+    if ((originalMax - originalMin).abs() < 0.01) {
+      // Kapag flatline (laging 30), mag-pad ng +-10% para mapunta sa gitna ang linya
+      double padding = originalMin == 0.0
+          ? 5.0
+          : (originalMin * 0.1).clamp(2.0, 10.0);
+      minVal = originalMin - padding;
+      maxVal = originalMin + padding;
+    } else {
+      // Magdagdag ng kaunting 5% padding sa taas at baba para hindi nakadikit sa gilid ang mga tuldok
+      double padding = (originalMax - originalMin) * 0.05;
+      minVal = originalMin - padding;
+      maxVal = originalMax + padding;
+    }
+    final range = maxVal - minVal;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -90,15 +109,14 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart> with SingleTick
           behavior: HitTestBehavior.opaque,
           gestures: {
             HorizontalDragGestureRecognizer:
-                GestureRecognizerFactoryWithHandlers<HorizontalDragGestureRecognizer>(
-              () => HorizontalDragGestureRecognizer(),
-              (instance) {
-                instance.onStart =
-                    (details) => _selectPoint(details.localPosition);
-                instance.onUpdate =
-                    (details) => _selectPoint(details.localPosition);
-              },
-            ),
+                GestureRecognizerFactoryWithHandlers<
+                  HorizontalDragGestureRecognizer
+                >(() => HorizontalDragGestureRecognizer(), (instance) {
+                  instance.onStart = (details) =>
+                      _selectPoint(details.localPosition);
+                  instance.onUpdate = (details) =>
+                      _selectPoint(details.localPosition);
+                }),
           },
           child: Stack(
             children: [
@@ -215,7 +233,7 @@ class _LineChartPainter extends CustomPainter {
 
     final yLabelW = large ? 42.0 : 36.0;
     final padL = showAxis ? yLabelW : 4.0;
-    final padR = 12.0; // Increased padding to ensure the last dot/pulse isn't clipped
+    final padR = 12.0;
     final padT = 8.0;
     final padB = showAxis ? (large ? 44.0 : 34.0) : 4.0;
 
@@ -236,6 +254,17 @@ class _LineChartPainter extends CustomPainter {
         ..color = AppColors.darkWith(0.05)
         ..strokeWidth = 1;
 
+      // DYNAMIC DECIMAL PRECISION:
+      // Kapag maliit ang range, nagpapakita ng decimal para hindi mag-duplicate ang labels
+      int decimalPlaces = 0;
+      if (range < 1.0) {
+        decimalPlaces = 2;
+      } else if (range < 5.0) {
+        decimalPlaces = 1;
+      } else {
+        decimalPlaces = 0;
+      }
+
       final tickCount = 5;
       for (int i = 0; i <= tickCount; i++) {
         final y = padT + (chartH * i / tickCount);
@@ -246,7 +275,7 @@ class _LineChartPainter extends CustomPainter {
         );
 
         final val = maxVal - (range * i / tickCount);
-        final label = val.toStringAsFixed(val.abs() >= 10 ? 0 : 1);
+        final label = val.toStringAsFixed(decimalPlaces);
         final tp = TextPainter(
           text: TextSpan(
             text: i == tickCount ? '$label $unit' : label,
@@ -335,11 +364,11 @@ class _LineChartPainter extends CustomPainter {
       final sx = padL + selectedIndex! * stepX;
       final sy =
           padT + chartH - ((data[selectedIndex!] - minVal) / range) * chartH;
-      // Vertical dashed line (hyphens style)
+
       final linePaint = Paint()
         ..color = color.withValues(alpha: 0.6)
         ..strokeWidth = 1.2;
-      
+
       double dashHeight = 4, dashSpace = 3;
       double startY = padT;
       while (startY < padT + chartH) {
@@ -350,7 +379,6 @@ class _LineChartPainter extends CustomPainter {
         );
         startY += dashHeight + dashSpace;
       }
-      // Selected point dot (web style)
       canvas.drawCircle(Offset(sx, sy), 5, Paint()..color = Colors.white);
       canvas.drawCircle(
         Offset(sx, sy),
@@ -381,8 +409,7 @@ class _LineChartPainter extends CustomPainter {
     if (count <= 8) {
       return List.generate(count, (i) => _XLabel(labels![i], i));
     }
-    
-    // Divide the data range into 7 intervals (8 labels)
+
     final step = (count - 1) / 7;
     return List.generate(8, (i) {
       final index = (i * step).round().clamp(0, count - 1);

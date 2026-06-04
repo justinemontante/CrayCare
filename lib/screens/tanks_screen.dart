@@ -727,7 +727,7 @@ class TanksScreenState extends State<TanksScreen> {
                       child: ElevatedButton(
                         onPressed: sampleError != null
                             ? null
-                            : () {
+                            : () async {
                                 final count = int.tryParse(countCtrl.text) ?? 0;
                                 final sampleCount =
                                     int.tryParse(sampleCountCtrl.text) ?? 0;
@@ -739,7 +739,7 @@ class TanksScreenState extends State<TanksScreen> {
                                     0.0;
 
                                 if (count > 0 && sampleCount > 0) {
-                                  TankService.instance.initializeGrowOut(
+                                  await TankService.instance.initializeGrowOut(
                                     count,
                                     sampleCount,
                                     totalWeight,

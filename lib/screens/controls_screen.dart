@@ -13,14 +13,16 @@ class ControlsScreen extends StatefulWidget {
   State<ControlsScreen> createState() => _ControlsScreenState();
 }
 
-enum _FeedState { hidden, dispensing, done }
+enum _FeedState { hidden, dispensing, done, failed }
 
 class _ControlsScreenState extends State<ControlsScreen> {
   int _activeTab = 0;
   _FeedState _feedState = _FeedState.hidden;
   bool _wasRunning = false;
   int _lastFeedCount = 0;
+  int _feedCountAtStart = 0;
   Timer? _feedTimer;
+  Timer? _dispenseTimer;
   final TextEditingController _timeCtl = TextEditingController();
   final Set<String> _fedToday = {};
 
@@ -30,6 +32,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
     final svc = FeederService.instance;
     _wasRunning = svc.isRunning;
     _lastFeedCount = svc.feedCount;
+    _feedCountAtStart = svc.feedCount;
     svc.addListener(_onFeederUpdate);
   }
 
@@ -37,6 +40,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
   void dispose() {
     FeederService.instance.removeListener(_onFeederUpdate);
     _feedTimer?.cancel();
+    _dispenseTimer?.cancel();
     _timeCtl.dispose();
     super.dispose();
   }
@@ -48,14 +52,38 @@ class _ControlsScreenState extends State<ControlsScreen> {
     // Detect start: isRunning false → true
     if (_wasRunning != isRunning) {
       if (isRunning) {
+        _feedCountAtStart = svc.feedCount;
         _feedState = _FeedState.dispensing;
+        _dispenseTimer?.cancel();
+        _dispenseTimer = Timer(const Duration(seconds: 60), () {
+          if (!mounted) return;
+          FeederService.instance.logFeedFailure();
+          _feedState = _FeedState.failed;
+          _feedTimer?.cancel();
+          _feedTimer = Timer(const Duration(seconds: 3), () {
+            if (mounted) setState(() => _feedState = _FeedState.hidden);
+          });
+          if (mounted) setState(() {});
+        });
+      } else {
+        _dispenseTimer?.cancel();
+        // isRunning went true → false: check if feed actually dispensed
+        if (_feedState == _FeedState.dispensing && svc.feedCount == _feedCountAtStart) {
+          FeederService.instance.logFeedFailure();
+          _feedState = _FeedState.failed;
+          _feedTimer?.cancel();
+          _feedTimer = Timer(const Duration(seconds: 3), () {
+            if (mounted) setState(() => _feedState = _FeedState.hidden);
+          });
+        }
       }
       _wasRunning = isRunning;
     }
 
-    // Detect completion: feedCount incremented (guaranteed Firebase update)
+    // Detect completion: feedCount incremented
     if (svc.feedCount != _lastFeedCount) {
       if (_feedState == _FeedState.dispensing) {
+        _dispenseTimer?.cancel();
         _feedState = _FeedState.done;
         _feedTimer?.cancel();
         _feedTimer = Timer(const Duration(milliseconds: 1500), () {
@@ -228,14 +256,18 @@ class _ControlsScreenState extends State<ControlsScreen> {
   }
 
   Widget _buildFeedOverlay() {
+    final isFailed = _feedState == _FeedState.failed;
     final isDone = _feedState == _FeedState.done;
+    final isDispensing = _feedState == _FeedState.dispensing;
     final isScheduled = FeederService.instance.feedSource == 'scheduled';
 
-    final (String title, String subtitle) = switch ((isDone, isScheduled)) {
-      (false, true)  => ('Auto-feeding...', 'Scheduled feed in progress.'),
-      (false, false) => ('Dispensing...',   'Please wait while the feeder is running.'),
-      (true,  true)  => ('Feed Complete!',  'Scheduled feed has been dispensed.'),
-      (true,  false) => ('Done!',           'Feed has been dispensed successfully.'),
+    final (String title, String subtitle, IconData icon, Color iconColor) = switch ((isFailed, isDone, isDispensing, isScheduled)) {
+      (true,  _,     _,      _)     => ('Feed Failed!',          'Feed did not dispense. Check feeder.',        Icons.error_outline_rounded, AppColors.critical),
+      (_,     true,  _,      true)  => ('Feed Complete!',        'Scheduled feed has been dispensed.',          Icons.check_circle_rounded,  AppColors.success),
+      (_,     true,  _,      false) => ('Done!',                 'Feed has been dispensed successfully.',       Icons.check_circle_rounded,  AppColors.success),
+      (_,     _,     true,   true)  => ('Auto-feeding...',       'Scheduled feed in progress.',                 Icons.schedule,              AppColors.primary),
+      (_,     _,     true,   false) => ('Dispensing...',         'Please wait while the feeder is running.',    Icons.schedule,              AppColors.primary),
+      _                              => ('Dispensing...',         'Please wait while the feeder is running.',    Icons.schedule,              AppColors.primary),
     };
 
     return Positioned(
@@ -256,27 +288,27 @@ class _ControlsScreenState extends State<ControlsScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                isDone
-                    ? Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: AppColors.success.withValues(alpha: 0.12),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.check_circle_rounded,
-                          color: AppColors.success,
-                          size: 48,
-                        ),
-                      )
-                    : const SizedBox(
-                        width: 48,
-                        height: 48,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 4,
-                          color: AppColors.primary,
-                        ),
-                      ),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: isFailed
+                        ? AppColors.critical.withValues(alpha: 0.12)
+                        : isDone
+                        ? AppColors.success.withValues(alpha: 0.12)
+                        : AppColors.primary.withValues(alpha: 0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: isDispensing
+                      ? const SizedBox(
+                          width: 48,
+                          height: 48,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 4,
+                            color: AppColors.primary,
+                          ),
+                        )
+                      : Icon(icon, color: iconColor, size: 48),
+                ),
                 const SizedBox(height: 20),
                 Text(
                   title,
