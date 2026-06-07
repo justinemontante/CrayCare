@@ -478,7 +478,6 @@ class _TrendsTabState extends State<TrendsTab> {
   Widget _buildMortalityFooter(
       TankService service, List<MortalityEntry> entries, int totalMort) {
     final survRate = service.survivalRate;
-    final dailyAvg = service.dailyAverageMortality;
 
     return Column(
       children: [
@@ -520,12 +519,6 @@ class _TrendsTabState extends State<TrendsTab> {
                     : survRate > 50
                         ? const Color(0xFFf59e0b)
                         : AppColors.critical,
-              ),
-              const SizedBox(width: 12),
-              _statChip(
-                'Daily avg',
-                '${dailyAvg.toStringAsFixed(2)}/day',
-                AppColors.darkWith(0.6),
               ),
             ],
           ),

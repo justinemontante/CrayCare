@@ -4,7 +4,7 @@ import '../../theme/app_colors.dart';
 class HardwareGroup extends StatelessWidget {
   final String label;
   final IconData icon;
-  final List<(String, String, String)> devices;
+  final List<(String, String, String, String?)> devices;
   final Map<String, String> hwModes;
   final void Function(String deviceId, String mode) onSetMode;
   final void Function(
@@ -95,7 +95,7 @@ class HardwareGroup extends StatelessWidget {
           ...devices.map(
             (d) => Padding(
               padding: const EdgeInsets.only(bottom: 6),
-              child: _buildHwCard(d.$1, d.$2, d.$3, context),
+              child: _buildHwCard(d.$1, d.$2, d.$3, d.$4, context),
             ),
           ),
         ],
@@ -107,6 +107,7 @@ class HardwareGroup extends StatelessWidget {
     String deviceId,
     String title,
     String subtitle,
+    String? imageAsset,
     BuildContext context,
   ) {
     final mode = hwModes[deviceId] ?? 'auto';
@@ -144,15 +145,32 @@ class HardwareGroup extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(12, 12, 14, 12),
             child: Row(
               children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: iconColor.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(12),
+                if (imageAsset != null)
+                  Container(
+                    width: 70,
+                    height: 70,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Image.asset(
+                        imageAsset,
+                        fit: BoxFit.contain,
+                      ),
+                    ),
+                  )
+                else
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: iconColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(Icons.air, size: 18, color: iconColor),
                   ),
-                  child: Icon(Icons.air, size: 18, color: iconColor),
-                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(

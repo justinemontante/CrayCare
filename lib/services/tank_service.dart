@@ -148,15 +148,6 @@ class TankService extends ChangeNotifier {
     return _mortalityHistory.fold(0, (sum, e) => sum + e.count);
   }
 
-  double get dailyAverageMortality {
-    if (_mortalityHistory.isEmpty) return 0;
-    final firstDate = _mortalityHistory.first.date;
-    final days = DateTime.now().difference(firstDate).inDays;
-    if (days < 1)
-      return _mortalityHistory.fold(0, (s, e) => s + e.count).toDouble();
-    return _mortalityHistory.fold(0, (s, e) => s + e.count) / days;
-  }
-
   GrowthStage get currentGrowthStage {
     final latest = _samplingHistory.isNotEmpty ? _samplingHistory.last : null;
     final abw = latest?.abw ?? _initialWeight;

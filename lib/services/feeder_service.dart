@@ -22,7 +22,6 @@ class FeederService extends ChangeNotifier {
   StreamSubscription<DatabaseEvent>? _logsSub;
 
   // ─── State ───
-  bool _autoMode = true;
   bool _isRunning = false;
   String _feedSource = '';
   int _feedCount = 0;
@@ -40,7 +39,6 @@ class FeederService extends ChangeNotifier {
   String _lastCheckDate = '';
 
   // ─── Getters ───
-  bool get autoMode => _autoMode;
   bool get isRunning => _isRunning;
   String get feedSource => _feedSource;
   int get feedCount => _feedCount;
@@ -85,7 +83,6 @@ class FeederService extends ChangeNotifier {
           try {
             final data =
                 Map<String, dynamic>.from(event.snapshot.value as Map);
-            _autoMode = data['mode'] == 'auto';
             _isRunning = data['isRunning'] == true;
             _feedSource = (data['feedSource'] as String?) ?? '';
             _feedCount = (data['feedCount'] as num?)?.toInt() ?? _feedCount;
@@ -272,34 +269,6 @@ class FeederService extends ChangeNotifier {
     }
   }
 
-  Future<void> toggleMode() async {
-    if (_statusRef == null) return;
-    final newMode = _autoMode ? 'manual' : 'auto';
-    _autoMode = !_autoMode;
-    notifyListeners();
-    final name = _getUserName();
-    try {
-      await _statusRef!.update({'mode': newMode});
-      if (_commandsRef != null) {
-        await _commandsRef!.push().set({
-          'action': 'set_mode',
-          'mode': newMode,
-          'timestamp': ServerValue.timestamp,
-          'source': 'flutter-app',
-        });
-      }
-      _addLogEntry(
-        action: '$name switched to ${newMode == 'auto' ? 'Auto' : 'Manual'} mode',
-        type: 'auto',
-        userName: name,
-      );
-    } catch (e) {
-      _autoMode = !_autoMode;
-      notifyListeners();
-      debugPrint('[FeederService] toggleMode error: $e');
-    }
-  }
-
   void addSchedule(String time, String ampm) {
     if (_schedulesRef == null) return;
     final name = _getUserName();
@@ -380,7 +349,6 @@ class FeederService extends ChangeNotifier {
   }
 
   void _checkSchedules() {
-    if (!_autoMode) return;
     final now = DateTime.now();
     final todayKey = '${now.month}/${now.day}';
     if (_lastCheckDate != todayKey) {

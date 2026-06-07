@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:firebase_database/firebase_database.dart';
 import '../theme/app_colors.dart';
 import '../models/control_types.dart';
 import '../widgets/controls/feeder_tab.dart';
@@ -25,6 +26,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
   Timer? _dispenseTimer;
   final TextEditingController _timeCtl = TextEditingController();
   final Set<String> _fedToday = {};
+  String _lastDateKey = '';
 
   @override
   void initState() {
@@ -33,19 +35,49 @@ class _ControlsScreenState extends State<ControlsScreen> {
     _wasRunning = svc.isRunning;
     _lastFeedCount = svc.feedCount;
     _feedCountAtStart = svc.feedCount;
+    _lastDateKey = _todayKey();
     svc.addListener(_onFeederUpdate);
+    _initDeviceModes();
+  }
+
+  void _initDeviceModes() {
+    _devicesSub = _devicesRef.onValue.listen((event) {
+      if (event.snapshot.value != null && event.snapshot.value is Map) {
+        final data = Map<String, dynamic>.from(event.snapshot.value as Map);
+        final modes = <String, String>{};
+        for (final e in data.entries) {
+          modes[e.key] = e.value.toString();
+        }
+        if (mounted) setState(() => _hwModes = modes);
+      }
+    });
   }
 
   @override
   void dispose() {
     FeederService.instance.removeListener(_onFeederUpdate);
+    _devicesSub?.cancel();
     _feedTimer?.cancel();
     _dispenseTimer?.cancel();
     _timeCtl.dispose();
     super.dispose();
   }
 
+  String _todayKey() {
+    final now = DateTime.now();
+    return '${now.month}/${now.day}';
+  }
+
+  void _checkDateReset() {
+    final key = _todayKey();
+    if (_lastDateKey != key) {
+      _fedToday.clear();
+      _lastDateKey = key;
+    }
+  }
+
   void _onFeederUpdate() {
+    _checkDateReset();
     final svc = FeederService.instance;
     final isRunning = svc.isRunning;
 
@@ -112,11 +144,12 @@ class _ControlsScreenState extends State<ControlsScreen> {
     }
   }
 
-  final Map<String, String> _hwModes = {
+  Map<String, String> _hwModes = {
     'aerator1': 'auto',
-    'aerator2': 'auto',
     'pump': 'auto',
   };
+  StreamSubscription<DatabaseEvent>? _devicesSub;
+  final DatabaseReference _devicesRef = FirebaseDatabase.instance.ref('devices/modes');
 
   final Map<String, List<LogEntry>> _hwLogs = {
     'aerator1': [
@@ -124,21 +157,12 @@ class _ControlsScreenState extends State<ControlsScreen> {
       LogEntry('Switched ON', 'on', '7:50 AM', 'Today'),
       LogEntry('Switched OFF', 'off', '7:30 AM', 'Today'),
     ],
-    'aerator2': [
-      LogEntry('Set to AUTO', 'auto', '8:10 AM', 'Today'),
-      LogEntry('Switched ON', 'on', '7:45 AM', 'Today'),
-      LogEntry('Switched OFF', 'off', '7:20 AM', 'Today'),
-    ],
     'pump': [
       LogEntry('Set to AUTO', 'auto', '8:10 AM', 'Today'),
       LogEntry('Switched ON', 'on', '7:55 AM', 'Today'),
       LogEntry('Switched OFF', 'off', '7:20 AM', 'Today'),
     ],
   };
-
-  void _toggleFeeder() {
-    FeederService.instance.toggleMode();
-  }
 
   void _feedNow() {
     FeederService.instance.feedNow();
@@ -181,6 +205,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
 
   void _setHwMode(String device, String mode) {
     setState(() => _hwModes[device] = mode);
+    _devicesRef.child(device).set(mode);
     final now = DateTime.now();
     final h = now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour);
     final ampm = now.hour >= 12 ? 'PM' : 'AM';
@@ -227,10 +252,8 @@ class _ControlsScreenState extends State<ControlsScreen> {
                   index: _activeTab,
                   children: [
                     FeederTab(
-                      feederAuto: FeederService.instance.autoMode,
                       schedules: FeederService.instance.schedules,
                       timeCtl: _timeCtl,
-                      onToggleFeeder: _toggleFeeder,
                       onFeedNow: _feedNow,
                       onAddSchedule: _addSchedule,
                       onDeleteSchedule: _deleteSchedule,

@@ -29,8 +29,7 @@ class DevicesTab extends StatelessWidget {
             label: 'Aeration',
             icon: Icons.air,
             devices: const [
-              ('aerator1', 'Aerator 1', 'Air Pump'),
-              ('aerator2', 'Aerator 2', 'Air Pump'),
+              ('aerator1', 'Aerator', 'Air Pump', 'assets/images/aerator.png'),
             ],
             hwModes: hwModes,
             onSetMode: onSetMode,
@@ -41,7 +40,7 @@ class DevicesTab extends StatelessWidget {
             label: 'Filtration',
             icon: Icons.water_drop,
             devices: const [
-              ('pump', 'Water Pump', 'Filtration System'),
+              ('pump', 'Water Pump', 'Filtration System', 'assets/images/waterPump.png'),
             ],
             hwModes: hwModes,
             onSetMode: onSetMode,

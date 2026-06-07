@@ -965,40 +965,42 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 16),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: Stack(
-              children: [
-                Container(
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: AppColors.darkWith(0.08),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                ),
-                FractionallySizedBox(
-                  widthFactor: progress,
-                  child: Container(
+          if (total > 0) ...[
+            const SizedBox(height: 16),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: Stack(
+                children: [
+                  Container(
                     height: 8,
                     decoration: BoxDecoration(
-                      color: AppColors.primary,
+                      color: AppColors.darkWith(0.08),
                       borderRadius: BorderRadius.circular(6),
                     ),
                   ),
-                ),
-              ],
+                  FractionallySizedBox(
+                    widthFactor: progress,
+                    child: Container(
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: AppColors.primary,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '$completed of $total feedings today completed',
-            style: const TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w500,
-              color: AppColors.dark,
+            const SizedBox(height: 8),
+            Text(
+              '$completed of $total feedings today completed',
+              style: const TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w500,
+                color: AppColors.dark,
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );

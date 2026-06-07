@@ -3,10 +3,8 @@ import '../../theme/app_colors.dart';
 import '../../models/control_types.dart';
 
 class FeederTab extends StatelessWidget {
-  final bool feederAuto;
   final List<ScheduleItem> schedules;
   final TextEditingController timeCtl;
-  final VoidCallback onToggleFeeder;
   final VoidCallback onFeedNow;
   final VoidCallback onAddSchedule;
   final void Function(int index) onDeleteSchedule;
@@ -17,10 +15,8 @@ class FeederTab extends StatelessWidget {
 
   const FeederTab({
     super.key,
-    required this.feederAuto,
     required this.schedules,
     required this.timeCtl,
-    required this.onToggleFeeder,
     required this.onFeedNow,
     required this.onAddSchedule,
     required this.onDeleteSchedule,
@@ -126,51 +122,18 @@ class FeederTab extends StatelessWidget {
                           Container(
                             width: 8,
                             height: 8,
-                            decoration: BoxDecoration(
-                              color: feederAuto
-                                  ? AppColors.success
-                                  : AppColors.darkWith(0.3),
+                            decoration: const BoxDecoration(
+                              color: AppColors.success,
                               shape: BoxShape.circle,
                             ),
                           ),
                           const SizedBox(width: 6),
-                          Text(
-                            feederAuto ? 'Auto Mode' : 'Manual Mode',
+                          const Text(
+                            'Schedules Active',
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w600,
-                              color: feederAuto
-                                  ? AppColors.success
-                                  : AppColors.darkWith(0.4),
-                            ),
-                          ),
-                          const Spacer(),
-                          GestureDetector(
-                            onTap: onToggleFeeder,
-                            child: Container(
-                              width: 36,
-                              height: 20,
-                              decoration: BoxDecoration(
-                                color: feederAuto
-                                    ? AppColors.primary
-                                    : AppColors.darkWith(0.15),
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: AnimatedAlign(
-                                duration: const Duration(milliseconds: 200),
-                                alignment: feederAuto
-                                    ? Alignment.centerRight
-                                    : Alignment.centerLeft,
-                                child: Container(
-                                  width: 14,
-                                  height: 14,
-                                  margin: const EdgeInsets.all(3),
-                                  decoration: const BoxDecoration(
-                                    color: Colors.white,
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                              ),
+                              color: AppColors.success,
                             ),
                           ),
                         ],
@@ -182,46 +145,46 @@ class FeederTab extends StatelessWidget {
             ),
             if (feederError.isNotEmpty) _buildErrorBanner(),
             if (schedules.isNotEmpty) _buildCountdown(),
-            if (feederAuto) ...[
-              const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Schedules:',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.dark,
-                    ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Schedules:',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.dark,
                   ),
-                  GestureDetector(
-                    onTap: () => _showScheduleModal(ctx),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.add, size: 12, color: AppColors.primary),
-                          SizedBox(width: 4),
-                          Text(
-                            'Add Schedule',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.primary,
-                            ),
+                ),
+                GestureDetector(
+                  onTap: () => _showScheduleModal(ctx),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.add, size: 12, color: AppColors.primary),
+                        SizedBox(width: 4),
+                        Text(
+                          'Add Schedule',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.primary,
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
+            ),
+            if (schedules.isNotEmpty) ...[
               const SizedBox(height: 12),
               _buildSchedulePeriod(
                 ctx,
@@ -236,7 +199,40 @@ class FeederTab extends StatelessWidget {
                 Icons.wb_twilight_outlined,
                 afternoon,
               ),
-            ],
+            ] else
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.darkWith(0.03),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    children: [
+                      Icon(Icons.schedule_send_outlined, size: 28, color: AppColors.darkWith(0.2)),
+                      const SizedBox(height: 8),
+                      Text(
+                        'No schedules yet',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.darkWith(0.4),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Tap above to add a feeding schedule',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: AppColors.darkWith(0.3),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
@@ -400,9 +396,27 @@ class FeederTab extends StatelessWidget {
     return h * 60 + m;
   }
 
+  String _logDateString() {
+    final now = DateTime.now();
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return '${months[now.month - 1]} ${now.day}, ${now.year}';
+  }
+
   String _scheduleStatus(ScheduleItem s) {
     final key = '${s.time}_${s.ampm}';
     if (fedToday.contains(key)) return 'completed';
+    final scheduleTimeStr = '${s.time} ${s.ampm}';
+    final todayStr = _logDateString();
+    for (final log in feederLogs) {
+      if (log.action == 'Auto feed dispensed' &&
+          log.time == scheduleTimeStr &&
+          log.date == todayStr) {
+        return 'completed';
+      }
+    }
     final now = DateTime.now();
     int h = int.tryParse(s.time.split(':')[0]) ?? 6;
     final m = int.tryParse(s.time.split(':')[1]) ?? 0;
@@ -410,7 +424,7 @@ class FeederTab extends StatelessWidget {
     if (s.ampm == 'AM' && h == 12) h = 0;
     final scheduleDt = DateTime(now.year, now.month, now.day, h, m);
     final diffSec = now.difference(scheduleDt).inSeconds;
-    if (diffSec > 30) return 'completed';
+    if (diffSec > 120) return 'skipped';
     if (diffSec >= 0) return 'pending';
     return 'upcoming';
   }
@@ -501,6 +515,13 @@ class FeederTab extends StatelessWidget {
         statusLabel = 'Pending';
         statusIcon = Icons.hourglass_bottom;
         break;
+      case 'skipped':
+        bgColor = AppColors.darkWith(0.06);
+        borderColor = AppColors.darkWith(0.15);
+        dotColor = AppColors.darkWith(0.4);
+        statusLabel = 'Skipped';
+        statusIcon = Icons.skip_next;
+        break;
       default:
         bgColor = Colors.white;
         borderColor = AppColors.darkWith(0.08);
@@ -547,6 +568,8 @@ class FeederTab extends StatelessWidget {
                           ? AppColors.success.withValues(alpha: 0.15)
                           : status == 'pending'
                           ? AppColors.warning.withValues(alpha: 0.15)
+                          : status == 'skipped'
+                          ? AppColors.darkWith(0.1)
                           : AppColors.darkWith(0.08),
                       borderRadius: BorderRadius.circular(12),
                     ),
@@ -559,6 +582,8 @@ class FeederTab extends StatelessWidget {
                             ? AppColors.success
                             : status == 'pending'
                             ? const Color(0xFFc97d08)
+                            : status == 'skipped'
+                            ? AppColors.darkWith(0.5)
                             : AppColors.darkWith(0.5),
                       ),
                     ),
@@ -851,15 +876,6 @@ class FeederTab extends StatelessWidget {
                                                 color: AppColors.darkWith(0.4),
                                               ),
                                             ),
-                                            if (l.userName.isNotEmpty)
-                                              Text(
-                                                l.userName,
-                                                style: TextStyle(
-                                                  fontSize: 9,
-                                                  fontWeight: FontWeight.w600,
-                                                  color: AppColors.darkWith(0.5),
-                                                ),
-                                              ),
                                           ],
                                         ),
                                       ),
@@ -1008,6 +1024,22 @@ class FeederTab extends StatelessWidget {
                         final h12 = h % 12 == 0 ? 12 : h % 12;
                         final timeStr =
                             '$h12:${m.toString().padLeft(2, '0')}';
+                        // Check duplicate
+                        final duplicate = schedules.any((s) =>
+                            s.time == timeStr &&
+                            s.ampm == ampm &&
+                            (isEdit ? schedules.indexOf(s) != index : true));
+                        if (duplicate) {
+                          ScaffoldMessenger.of(ctx).showSnackBar(
+                            SnackBar(
+                              content: const Text('A schedule at this time already exists'),
+                              behavior: SnackBarBehavior.floating,
+                              backgroundColor: AppColors.critical,
+                              duration: const Duration(seconds: 2),
+                            ),
+                          );
+                          return;
+                        }
                         if (isEdit) {
                           onEditSchedule(
                             index!,
