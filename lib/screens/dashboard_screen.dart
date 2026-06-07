@@ -5,6 +5,7 @@ import '../theme/app_colors.dart';
 import '../widgets/section_label.dart';
 import '../services/sensor_service.dart';
 import '../services/settings_service.dart';
+import '../services/tank_service.dart';
 import '../models/control_types.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -711,11 +712,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 const SizedBox(height: 8),
                 _buildDetailRow(Icons.history, 'Last Sampling', 'May 12, 2026'),
                 const SizedBox(height: 8),
-                _buildDetailRow(
-                  Icons.calendar_today,
-                  'Next Sampling',
-                  'May 19, 2026',
-                ),
+                _buildNextSamplingRow(),
               ],
             ),
           ),
@@ -786,6 +783,71 @@ class _DashboardScreenState extends State<DashboardScreen> {
             fontWeight: FontWeight.w600,
             color: AppColors.dark,
           ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNextSamplingRow() {
+    final tank = TankService.instance;
+    final daysLeft = tank.daysUntilNextSampling;
+    final isReady = daysLeft == 0;
+
+    String nextDateStr;
+    if (tank.samplingHistory.isNotEmpty) {
+      final lastSampling = tank.samplingHistory.last.date;
+      final nextDate = lastSampling.add(const Duration(days: 7));
+      final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      nextDateStr = '${months[nextDate.month - 1]} ${nextDate.day}, ${nextDate.year}';
+    } else {
+      final nextDate = tank.stockingDate.add(const Duration(days: 7));
+      final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      nextDateStr = '${months[nextDate.month - 1]} ${nextDate.day}, ${nextDate.year}';
+    }
+
+    final daysLeftColor = AppColors.primary;
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.calendar_today, size: 14, color: AppColors.darkWith(0.5)),
+            const SizedBox(width: 8),
+            Text(
+              'Next Sampling',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: AppColors.darkWith(0.7),
+              ),
+            ),
+          ],
+        ),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              isReady ? 'Ready!' : nextDateStr,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: isReady ? AppColors.success : AppColors.dark,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              isReady
+                  ? 'Tap to record'
+                  : '$daysLeft day${daysLeft == 1 ? '' : 's'} left',
+              style: TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.w600,
+                color: daysLeftColor,
+              ),
+            ),
+          ],
         ),
       ],
     );

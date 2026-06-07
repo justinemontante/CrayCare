@@ -134,6 +134,12 @@ class TankService extends ChangeNotifier {
 
   bool get canSample => daysSinceLastSampling >= 7;
 
+  int get daysUntilNextSampling {
+    final daysPassed = daysSinceLastSampling;
+    final remaining = 7 - daysPassed;
+    return remaining < 0 ? 0 : remaining;
+  }
+
   int get sampleCount => _sampleCount;
   double get initialWeight => _initialWeight;
   double get initialLength => _initialLength;
