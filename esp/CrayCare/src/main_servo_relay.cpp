@@ -321,6 +321,7 @@ void loop() {
             return;
         }
         initTime();
+        connectFirebase();
         Serial.println("[MAIN] Waiting for Firebase to become ready...");
         firebaseReadyOnce = true;
     }

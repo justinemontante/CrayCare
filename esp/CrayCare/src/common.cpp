@@ -13,8 +13,8 @@ const char* ssid = "YOUR_SSID";
 const char* password = "YOUR_PASSWORD";
 
 const char* firebase_api_key = "AIzaSyBIidS1Y6wysetztz1pSSIWlHTcaQFeAE4";
-const char* firebase_user_email = "YOUR_FIREBASE_EMAIL";
-const char* firebase_user_password = "YOUR_FIREBASE_PASSWORD";
+const char* firebase_user_email = "esp32@craycare.com";
+const char* firebase_user_password = "Craycare123";
 const char* firebase_database_url = "https://craycare-8436c-default-rtdb.asia-southeast1.firebasedatabase.app";
 
 // ***** Global Firebase objects *****
@@ -65,8 +65,8 @@ bool connectFirebase() {
     config.api_key = firebase_api_key;
     config.database_url = firebase_database_url;
     config.token_status_callback = tokenStatusCallback;
-    auth.user.email = "";
-    auth.user.password = "";
+    auth.user.email = firebase_user_email;
+    auth.user.password = firebase_user_password;
     Firebase.reconnectWiFi(true);
     fbdo.setResponseSize(4096);
     Firebase.begin(&config, &auth);
