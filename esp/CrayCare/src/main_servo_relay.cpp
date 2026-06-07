@@ -104,23 +104,30 @@ static void applyMode(int idx, const String& modeStr) {
 }
 
 static void onModesUpdate() {
-    if (!strmModes.streamAvailable()) return;
+    if (!strmModes.streamAvailable()) {
+        Serial.println("[MODES] stream NOT available");
+        return;
+    }
     String path = strmModes.dataPath();
     String type = strmModes.dataType();
+    Serial.printf("[MODES] path=%s type=%s\n", path.c_str(), type.c_str());
+
     if (type == "json") {
         FirebaseJson j = strmModes.jsonObject();
         FirebaseJsonData d;
-        if (j.get(d, DEV_A1)) applyMode(0, d.stringValue);
-        if (j.get(d, DEV_A2)) applyMode(1, d.stringValue);
-        if (j.get(d, DEV_P))  applyMode(2, d.stringValue);
+        if (j.get(d, DEV_A1)) { Serial.printf("[MODES] %s=%s\n", DEV_A1, d.stringValue.c_str()); applyMode(0, d.stringValue); }
+        if (j.get(d, DEV_A2)) { Serial.printf("[MODES] %s=%s\n", DEV_A2, d.stringValue.c_str()); applyMode(1, d.stringValue); }
+        if (j.get(d, DEV_P))  { Serial.printf("[MODES] %s=%s\n", DEV_P, d.stringValue.c_str()); applyMode(2, d.stringValue); }
     } else if (type == "string" || type == "number" || type == "boolean") {
         int ls = path.lastIndexOf('/');
         String child = path.substring(ls + 1);
         String val = strmModes.to<String>();
+        Serial.printf("[MODES] child=%s val=%s\n", child.c_str(), val.c_str());
         if (child == DEV_A1) applyMode(0, val);
         else if (child == DEV_A2) applyMode(1, val);
         else if (child == DEV_P)  applyMode(2, val);
     } else if (type == "null") {
+        Serial.println("[MODES] null — resetting all to OFF");
         applyMode(0, "off");
         applyMode(1, "off");
         applyMode(2, "off");
@@ -155,30 +162,50 @@ static void onCommandsUpdate() {
     if (!strmCmds.streamAvailable()) return;
     String path = strmCmds.dataPath();
     String type = strmCmds.dataType();
+    Serial.printf("[STREAM] commands update: path=%s type=%s\n", path.c_str(), type.c_str());
+
     if (type == "json") {
         FirebaseJson j = strmCmds.jsonObject();
-        size_t n = j.iteratorBegin();
-        for (size_t i = 0; i < n; i++) {
-            int itType;
-            String key, value;
-            j.iteratorGet(i, itType, key, value);
-            if (itType == FirebaseJson::JSON_OBJECT) {
-                FirebaseJson sub;
-                sub.setJsonData(value);
-                FirebaseJsonData d;
-                sub.get(d, "action");
-                if (d.stringValue == "feed_now") {
-                    sub.get(d, "timestamp");
-                    unsigned long ts = (unsigned long)d.doubleValue;
-                    if (getEpochMillis() - ts < 30000) {
-                        doFeed(String("/feeder/commands/") + key);
-                    } else {
-                        Firebase.RTDB.deleteNode(&fbW, String("/feeder/commands/") + key);
+        FirebaseJsonData d;
+        j.get(d, "action");
+
+        if (d.success) {
+            // Direct command child was added/changed (e.g. push from Flutter)
+            Serial.printf("[STREAM] direct command action=%s\n", d.stringValue.c_str());
+            if (d.stringValue == "feed_now") {
+                j.get(d, "timestamp");
+                unsigned long ts = (unsigned long)d.doubleValue;
+                if (getEpochMillis() - ts < 30000) {
+                    doFeed(path);
+                } else {
+                    Firebase.RTDB.deleteNode(&fbW, path);
+                }
+            }
+        } else {
+            // Full node put — iterate all children
+            size_t n = j.iteratorBegin();
+            Serial.printf("[STREAM] full node put, %u children\n", n);
+            for (size_t i = 0; i < n; i++) {
+                int itType;
+                String key, value;
+                j.iteratorGet(i, itType, key, value);
+                if (itType == FirebaseJson::JSON_OBJECT) {
+                    FirebaseJson sub;
+                    sub.setJsonData(value);
+                    sub.get(d, "action");
+                    if (d.stringValue == "feed_now") {
+                        sub.get(d, "timestamp");
+                        unsigned long ts = (unsigned long)d.doubleValue;
+                        if (getEpochMillis() - ts < 30000) {
+                            doFeed(String("/feeder/commands/") + key);
+                        } else {
+                            Firebase.RTDB.deleteNode(&fbW, String("/feeder/commands/") + key);
+                        }
                     }
                 }
             }
+            j.iteratorEnd();
         }
-        j.iteratorEnd();
     } else if (type == "string") {
         int ls = path.lastIndexOf('/');
         String child = path.substring(ls + 1);
@@ -326,30 +353,22 @@ void loop() {
         firebaseReadyOnce = true;
     }
 
-    if (!Firebase.ready()) {
-        static unsigned long lastWarn = 0;
+    if (streamsStarted) {
+        if (Firebase.RTDB.readStream(&strmModes)) onModesUpdate();
+        if (Firebase.RTDB.readStream(&strmCmds)) onCommandsUpdate();
+
         unsigned long now = millis();
-        if (now - lastWarn > 10000) {
-            lastWarn = now;
-            Serial.println("[MAIN] Still waiting for Firebase...");
+        if (now - lastStatus >= 5000) {
+            writeStatus();
+            lastStatus = now;
         }
-        return;
     }
 
-    if (!streamsStarted) {
+    if (Firebase.ready() && !streamsStarted) {
         Firebase.RTDB.beginStream(&strmModes, "/devices/modes");
         Firebase.RTDB.beginStream(&strmCmds, "/feeder/commands");
         writeStatus();
         streamsStarted = true;
         Serial.println("[MAIN] Firebase streams started");
-    }
-
-    if (Firebase.RTDB.readStream(&strmModes)) onModesUpdate();
-    if (Firebase.RTDB.readStream(&strmCmds)) onCommandsUpdate();
-
-    unsigned long now = millis();
-    if (now - lastStatus >= 5000) {
-        writeStatus();
-        lastStatus = now;
     }
 }
