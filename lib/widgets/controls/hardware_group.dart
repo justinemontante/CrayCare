@@ -9,11 +9,9 @@ class HardwareGroup extends StatelessWidget {
   final void Function(String deviceId, String mode) onSetMode;
   final void Function(
     BuildContext context,
-    String deviceId,
-    String title,
-    String subtitle,
-  )
-  onShowLog;
+    String label,
+    List<(String, String, String, String?)> devices,
+  ) onShowGroupLog;
 
   const HardwareGroup({
     super.key,
@@ -22,7 +20,7 @@ class HardwareGroup extends StatelessWidget {
     required this.devices,
     required this.hwModes,
     required this.onSetMode,
-    required this.onShowLog,
+    required this.onShowGroupLog,
   });
 
   @override
@@ -56,12 +54,7 @@ class HardwareGroup extends StatelessWidget {
                 ],
               ),
               GestureDetector(
-                onTap: () => onShowLog(
-                  context,
-                  firstId,
-                  devices.first.$2,
-                  devices.first.$3,
-                ),
+                onTap: () => onShowGroupLog(context, label, devices),
                 child: Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 10,
@@ -127,7 +120,6 @@ class HardwareGroup extends StatelessWidget {
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        onTap: () => onShowLog(context, deviceId, title, subtitle),
         child: Ink(
           decoration: BoxDecoration(
             color: Colors.white,

@@ -514,9 +514,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final tank = widget.onTankTab;
     final actions = [
       _QuickActionData(
-        'Aerator',
+        'Devices',
         Icons.air,
-        'Active',
+        '2 Aerators',
         onTap: nav != null ? () => nav(3) : null,
       ),
       _QuickActionData(

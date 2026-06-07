@@ -6,16 +6,15 @@ class DevicesTab extends StatelessWidget {
   final void Function(String deviceId, String mode) onSetMode;
   final void Function(
     BuildContext context,
-    String deviceId,
-    String title,
-    String subtitle,
-  ) onShowLog;
+    String label,
+    List<(String, String, String, String?)> devices,
+  ) onShowGroupLog;
 
   const DevicesTab({
     super.key,
     required this.hwModes,
     required this.onSetMode,
-    required this.onShowLog,
+    required this.onShowGroupLog,
   });
 
   @override
@@ -29,11 +28,12 @@ class DevicesTab extends StatelessWidget {
             label: 'Aeration',
             icon: Icons.air,
             devices: const [
-              ('aerator1', 'Aerator', 'Air Pump', 'assets/images/aerator.png'),
+              ('aerator1', 'Aerator 1', 'Air Pump', 'assets/images/aerator.png'),
+              ('aerator2', 'Aerator 2', 'Air Pump', 'assets/images/aerator.png'),
             ],
             hwModes: hwModes,
             onSetMode: onSetMode,
-            onShowLog: onShowLog,
+            onShowGroupLog: onShowGroupLog,
           ),
           const SizedBox(height: 14),
           HardwareGroup(
@@ -44,7 +44,7 @@ class DevicesTab extends StatelessWidget {
             ],
             hwModes: hwModes,
             onSetMode: onSetMode,
-            onShowLog: onShowLog,
+            onShowGroupLog: onShowGroupLog,
           ),
           const SizedBox(height: 32),
         ],

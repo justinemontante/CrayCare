@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import '../theme/app_colors.dart';
 import '../models/control_types.dart';
@@ -38,6 +39,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
     _lastDateKey = _todayKey();
     svc.addListener(_onFeederUpdate);
     _initDeviceModes();
+    _initDeviceLogs();
   }
 
   void _initDeviceModes() {
@@ -53,10 +55,43 @@ class _ControlsScreenState extends State<ControlsScreen> {
     });
   }
 
+  void _initDeviceLogs() {
+    _devicesLogsSub = _devicesLogsRef
+        .orderByChild('timestamp')
+        .limitToLast(50)
+        .onValue
+        .listen((event) {
+      if (event.snapshot.value == null) return;
+      final data = Map<String, dynamic>.from(event.snapshot.value as Map);
+      final logs = <String, List<LogEntry>>{};
+      for (final deviceEntry in data.entries) {
+        final deviceId = deviceEntry.key;
+        final entries = Map<String, dynamic>.from(deviceEntry.value as Map);
+        final list = entries.values.map((e) {
+          final map = Map<String, dynamic>.from(e as Map);
+          return LogEntry(
+            map['action'] as String? ?? '',
+            map['type'] as String? ?? '',
+            map['time'] as String? ?? '',
+            map['date'] as String? ?? '',
+            userName: map['userName'] as String? ?? '',
+            timestamp: map['timestamp'] as int? ?? 0,
+          );
+        }).toList()
+          ..sort((a, b) {
+            return b.timestamp.compareTo(a.timestamp);
+          });
+        logs[deviceId] = list;
+      }
+      if (mounted) setState(() => _hwLogs = logs);
+    });
+  }
+
   @override
   void dispose() {
     FeederService.instance.removeListener(_onFeederUpdate);
     _devicesSub?.cancel();
+    _devicesLogsSub?.cancel();
     _feedTimer?.cancel();
     _dispenseTimer?.cancel();
     _timeCtl.dispose();
@@ -146,23 +181,15 @@ class _ControlsScreenState extends State<ControlsScreen> {
 
   Map<String, String> _hwModes = {
     'aerator1': 'auto',
+    'aerator2': 'auto',
     'pump': 'auto',
   };
   StreamSubscription<DatabaseEvent>? _devicesSub;
+  StreamSubscription<DatabaseEvent>? _devicesLogsSub;
   final DatabaseReference _devicesRef = FirebaseDatabase.instance.ref('devices/modes');
+  final DatabaseReference _devicesLogsRef = FirebaseDatabase.instance.ref('devices/logs');
 
-  final Map<String, List<LogEntry>> _hwLogs = {
-    'aerator1': [
-      LogEntry('Set to AUTO', 'auto', '8:05 AM', 'Today'),
-      LogEntry('Switched ON', 'on', '7:50 AM', 'Today'),
-      LogEntry('Switched OFF', 'off', '7:30 AM', 'Today'),
-    ],
-    'pump': [
-      LogEntry('Set to AUTO', 'auto', '8:10 AM', 'Today'),
-      LogEntry('Switched ON', 'on', '7:55 AM', 'Today'),
-      LogEntry('Switched OFF', 'off', '7:20 AM', 'Today'),
-    ],
-  };
+  Map<String, List<LogEntry>> _hwLogs = {};
 
   void _feedNow() {
     FeederService.instance.feedNow();
@@ -210,31 +237,28 @@ class _ControlsScreenState extends State<ControlsScreen> {
     final h = now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour);
     final ampm = now.hour >= 12 ? 'PM' : 'AM';
     final time = '$h:${now.minute.toString().padLeft(2, '0')} $ampm';
+    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final dateStr = '${months[now.month - 1]} ${now.day}, ${now.year}';
     final modeNames = {
       'on': 'Switched ON',
       'auto': 'Set to AUTO',
       'off': 'Switched OFF',
     };
-    if (_hwLogs[device] != null) {
-      _hwLogs[device]!.insert(
-        0,
-        LogEntry(modeNames[mode] ?? mode, mode, time, 'Today'),
-      );
-      if (_hwLogs[device]!.length > 20) _hwLogs[device]!.removeLast();
-    }
-  }
-
-  Color _modeColor(String mode) {
-    switch (mode) {
-      case 'on':
-        return AppColors.primary;
-      case 'auto':
-        return AppColors.warning;
-      case 'off':
-        return AppColors.critical;
-      default:
-        return AppColors.darkWith(0.4);
-    }
+    final deviceNames = {
+      'aerator1': 'Aerator 1',
+      'aerator2': 'Aerator 2',
+      'pump': 'Water Pump',
+    };
+    final user = FirebaseAuth.instance.currentUser;
+    final userName = user?.displayName ?? user?.email ?? 'Unknown';
+    _devicesLogsRef.child(device).push().set({
+      'action': '${deviceNames[device] ?? device}: ${modeNames[mode] ?? mode}',
+      'type': mode,
+      'time': time,
+      'date': dateStr,
+      'userName': userName,
+      'timestamp': ServerValue.timestamp,
+    });
   }
 
   @override
@@ -265,7 +289,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                     DevicesTab(
                       hwModes: _hwModes,
                       onSetMode: _setHwMode,
-                      onShowLog: _showHwLog,
+                      onShowGroupLog: _showHwGroupLog,
                     ),
                   ],
                 ),
@@ -512,6 +536,32 @@ class _ControlsScreenState extends State<ControlsScreen> {
     final mode = _hwModes[deviceId] ?? 'auto';
     final logs = _hwLogs[deviceId] ?? [];
 
+    _showDeviceLogSheet(context, title, subtitle, mode, logs, deviceId);
+  }
+
+  void _showHwGroupLog(
+    BuildContext context,
+    String label,
+    List<(String, String, String, String?)> devices,
+  ) {
+    final allLogs = <LogEntry>[];
+    for (final d in devices) {
+      final deviceId = d.$1;
+      final logs = _hwLogs[deviceId] ?? [];
+      allLogs.addAll(logs);
+    }
+    allLogs.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    _showDeviceLogSheet(context, label, '', '', allLogs, null);
+  }
+
+  void _showDeviceLogSheet(
+    BuildContext context,
+    String title,
+    String subtitle,
+    String mode,
+    List<LogEntry> logs,
+    String? deviceId,
+  ) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -520,341 +570,233 @@ class _ControlsScreenState extends State<ControlsScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setDialogState) {
-            return SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.5,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
                     children: [
-                      Center(
-                        child: Container(
-                          width: 36,
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade300,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
+                      Container(
+                        width: 52,
+                        height: 52,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1FA5A5).withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Icon(
+                          Icons.air,
+                          size: 22,
+                          color: AppColors.primary,
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      Row(
+                      const SizedBox(width: 14),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Container(
-                            width: 52,
-                            height: 52,
-                            decoration: BoxDecoration(
-                              color: const Color(
-                                0xFF1FA5A5,
-                              ).withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            child: Icon(
-                              Icons.air,
-                              size: 22,
-                              color: AppColors.primary,
-                            ),
-                          ),
-                          const SizedBox(width: 14),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                title,
-                                style: const TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppColors.dark,
-                                ),
-                              ),
-                              Text(
-                                subtitle,
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: const Color(
-                                    0xFF0B3C49,
-                                  ).withValues(alpha: 0.45),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: mode == 'on'
-                                  ? const Color(
-                                      0xFF1FA5A5,
-                                    ).withValues(alpha: 0.12)
-                                  : mode == 'auto'
-                                  ? const Color(
-                                      0xFFf59e0b,
-                                    ).withValues(alpha: 0.12)
-                                  : const Color(
-                                      0xFFE63946,
-                                    ).withValues(alpha: 0.08),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              mode.toUpperCase(),
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: mode == 'on'
-                                    ? AppColors.primary
-                                    : mode == 'auto'
-                                    ? const Color(0xFFc97d08)
-                                    : AppColors.critical,
-                              ),
+                          Text(
+                            title,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.dark,
                             ),
                           ),
                           Text(
-                            'Last changed: ${logs.isNotEmpty ? logs.first.time : '--'}',
+                            subtitle,
                             style: TextStyle(
-                              fontSize: 9,
-                              color: const Color(
-                                0xFF0B3C49,
-                              ).withValues(alpha: 0.4),
+                              fontSize: 10,
+                              color: const Color(0xFF0B3C49).withValues(alpha: 0.45),
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 8),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 10,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(
-                            0xFF0B3C49,
-                          ).withValues(alpha: 0.03),
-                          border: Border.all(
-                            color: const Color(
-                              0xFF0B3C49,
-                            ).withValues(alpha: 0.07),
-                          ),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(
-                              Icons.trending_up,
-                              size: 14,
-                              color: AppColors.primary,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Dissolved O\u2082: ',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: const Color(
-                                  0xFF0B3C49,
-                                ).withValues(alpha: 0.7),
-                              ),
-                            ),
-                            const Text(
-                              '4.2 mg/L',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.dark,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      Text(
-                        'MODE CONTROL',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.darkWith(0.4),
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Container(
-                        padding: const EdgeInsets.all(3),
-                        decoration: BoxDecoration(
-                          color: const Color(
-                            0xFF0B3C49,
-                          ).withValues(alpha: 0.06),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Row(
-                          children: ['off', 'auto', 'on'].map((m) {
-                            final isActive =
-                                m == (_hwModes[deviceId] ?? 'auto');
-                            return Expanded(
-                              child: GestureDetector(
-                                onTap: () {
-                                  _setHwMode(deviceId, m);
-                                  setDialogState(() {});
-                                },
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 8,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: isActive
-                                        ? Colors.white
-                                        : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(18),
-                                    boxShadow: isActive
-                                        ? [
-                                            BoxShadow(
-                                              color: Colors.black.withValues(
-                                                alpha: 0.1,
-                                              ),
-                                              blurRadius: 4,
-                                              offset: const Offset(0, 1),
-                                            ),
-                                          ]
-                                        : null,
-                                  ),
-                                  child: Text(
-                                    m.toUpperCase(),
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
-                                      color: isActive
-                                          ? _modeColor(m)
-                                          : const Color(
-                                              0xFF0B3C49,
-                                            ).withValues(alpha: 0.4),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            );
-                          }).toList(),
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      Text(
-                        'ACTIVITY LOG',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.darkWith(0.4),
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      if (logs.isEmpty)
-                        Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Center(
-                            child: Text(
-                              'No activity yet.',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: const Color(
-                                  0xFF0B3C49,
-                                ).withValues(alpha: 0.35),
-                              ),
-                            ),
-                          ),
-                        )
-                      else
-                        ...logs
-                            .take(10)
-                            .map(
-                              (l) => Container(
-                                margin: const EdgeInsets.only(bottom: 6),
-                                padding: const EdgeInsets.all(10),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFf7f7f7),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      width: 8,
-                                      height: 8,
-                                      decoration: BoxDecoration(
-                                        color: l.type == 'on'
-                                            ? AppColors.primary
-                                            : l.type == 'auto'
-                                            ? AppColors.warning
-                                            : AppColors.critical,
-                                        shape: BoxShape.circle,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            l.action,
-                                            style: const TextStyle(
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.w700,
-                                              color: AppColors.dark,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 1),
-                                          Text(
-                                            '${l.date} \u00B7 ${l.time}',
-                                            style: TextStyle(
-                                              fontSize: 9,
-                                              color: const Color(
-                                                0xFF0B3C49,
-                                              ).withValues(alpha: 0.4),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: TextButton(
-                          onPressed: () => Navigator.pop(ctx),
-                          style: TextButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 9),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                          ),
-                          child: const Text(
-                            'Close',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ),
                     ],
                   ),
-                ),
+                  if (deviceId != null) ...[
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: mode == 'on'
+                                ? const Color(0xFF1FA5A5).withValues(alpha: 0.12)
+                                : mode == 'auto'
+                                    ? const Color(0xFFf59e0b).withValues(alpha: 0.12)
+                                    : const Color(0xFFE63946).withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            mode.toUpperCase(),
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: mode == 'on'
+                                  ? AppColors.primary
+                                  : mode == 'auto'
+                                      ? const Color(0xFFc97d08)
+                                      : AppColors.critical,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          'Last changed: ${logs.isNotEmpty ? logs.first.time : '--'}',
+                          style: TextStyle(
+                            fontSize: 9,
+                            color: const Color(0xFF0B3C49).withValues(alpha: 0.4),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  Text(
+                    'ACTIVITY LOG',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.darkWith(0.4),
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  if (logs.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Center(
+                        child: Text(
+                          'No activity yet.',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: const Color(0xFF0B3C49).withValues(alpha: 0.35),
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    ...logs
+                        .take(20)
+                        .map(
+                          (l) => Container(
+                            margin: const EdgeInsets.only(bottom: 6),
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFf7f7f7),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 8,
+                                  height: 8,
+                                  decoration: BoxDecoration(
+                                    color: l.type == 'on'
+                                        ? AppColors.primary
+                                        : l.type == 'auto'
+                                            ? AppColors.warning
+                                            : AppColors.critical,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        l.action,
+                                        style: const TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w700,
+                                          color: AppColors.dark,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 1),
+                                      Text(
+                                        '${l.date} \u00B7 ${l.time}',
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          color: const Color(0xFF0B3C49).withValues(alpha: 0.4),
+                                        ),
+                                      ),
+                                      if (l.userName.isNotEmpty) ...[
+                                        const SizedBox(height: 2),
+                                        Row(
+                                          children: [
+                                            Icon(
+                                              Icons.person_outline,
+                                              size: 8,
+                                              color: AppColors.primary.withValues(alpha: 0.6),
+                                            ),
+                                            const SizedBox(width: 3),
+                                            Text(
+                                              l.userName,
+                                              style: TextStyle(
+                                                fontSize: 8,
+                                                fontWeight: FontWeight.w600,
+                                                color: AppColors.primary.withValues(alpha: 0.7),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      style: TextButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 9),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      child: const Text(
+                        'Close',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            );
-          },
+            ),
+          ),
+        ),
         );
       },
     );

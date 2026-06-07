@@ -14,7 +14,9 @@ class LogEntry {
   final String time;
   final String date;
   final String userName;
-  LogEntry(this.action, this.type, this.time, this.date, {this.userName = ''});
+  final int timestamp;
+  LogEntry(this.action, this.type, this.time, this.date,
+      {this.userName = '', this.timestamp = 0});
 }
 
 class FeedState {
