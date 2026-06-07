@@ -46,3 +46,11 @@ nul
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# PlatformIO (ESP)
+esp/.pio/
+esp/.pioenvs/
+esp/.piolib/
+esp/.piolibdeps/
+esp/.clang_complete
+esp/.gcc_flags
