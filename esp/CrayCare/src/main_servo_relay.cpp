@@ -35,6 +35,7 @@ static FirebaseData fbW;
 static bool feedBusy = false;
 static int  feedCount = 0;
 static unsigned long lastStatus = 0;
+static unsigned long lastCmdPoll = 0;
 
 static String fmtTime() {
     struct tm t;
@@ -113,11 +114,12 @@ static void onModesUpdate() {
     Serial.printf("[MODES] path=%s type=%s\n", path.c_str(), type.c_str());
 
     if (type == "json") {
-        FirebaseJson j = strmModes.jsonObject();
+        FirebaseJson *j = strmModes.jsonObject();
+        if (!j) { Serial.println("[MODES] jsonObject null"); return; }
         FirebaseJsonData d;
-        if (j.get(d, DEV_A1)) { Serial.printf("[MODES] %s=%s\n", DEV_A1, d.stringValue.c_str()); applyMode(0, d.stringValue); }
-        if (j.get(d, DEV_A2)) { Serial.printf("[MODES] %s=%s\n", DEV_A2, d.stringValue.c_str()); applyMode(1, d.stringValue); }
-        if (j.get(d, DEV_P))  { Serial.printf("[MODES] %s=%s\n", DEV_P, d.stringValue.c_str()); applyMode(2, d.stringValue); }
+        if (j->get(d, DEV_A1)) { Serial.printf("[MODES] %s=%s\n", DEV_A1, d.stringValue.c_str()); applyMode(0, d.stringValue); }
+        if (j->get(d, DEV_A2)) { Serial.printf("[MODES] %s=%s\n", DEV_A2, d.stringValue.c_str()); applyMode(1, d.stringValue); }
+        if (j->get(d, DEV_P))  { Serial.printf("[MODES] %s=%s\n", DEV_P, d.stringValue.c_str()); applyMode(2, d.stringValue); }
     } else if (type == "string" || type == "number" || type == "boolean") {
         int ls = path.lastIndexOf('/');
         String child = path.substring(ls + 1);
@@ -132,6 +134,43 @@ static void onModesUpdate() {
         applyMode(1, "off");
         applyMode(2, "off");
     }
+}
+
+static void pollCommands() {
+    if (!Firebase.ready()) return;
+    unsigned long now = millis();
+    if (now - lastCmdPoll < 5000) return;
+    lastCmdPoll = now;
+
+    FirebaseJson j;
+    if (!Firebase.RTDB.getJSON(&fbW, "/feeder/commands", &j)) return;
+
+    FirebaseJsonData d;
+    size_t n = j.iteratorBegin();
+    if (n > 0) Serial.printf("[POLL] %u command(s) found\n", n);
+    for (size_t i = 0; i < n; i++) {
+        int itType;
+        String key, value;
+        j.iteratorGet(i, itType, key, value);
+        if (itType == FirebaseJson::JSON_OBJECT) {
+            FirebaseJson sub;
+            sub.setJsonData(value);
+            sub.get(d, "action");
+            if (d.stringValue == "feed_now") {
+                sub.get(d, "timestamp");
+                int64_t ts = (int64_t)d.doubleValue;
+                int64_t nowMs = (int64_t)getEpochMillis();
+                if (nowMs > 0 && nowMs - ts < 30000) {
+                    Serial.printf("[POLL] Processing feed command %s\n", key.c_str());
+                    doFeed(String("/feeder/commands/") + key);
+                } else if (nowMs > 0) {
+                    Serial.printf("[POLL] Removing stale command %s\n", key.c_str());
+                    Firebase.RTDB.deleteNode(&fbW, String("/feeder/commands/") + key);
+                }
+            }
+        }
+    }
+    j.iteratorEnd();
 }
 
 static void doFeed(const String& cmdPath) {
@@ -165,46 +204,47 @@ static void onCommandsUpdate() {
     Serial.printf("[STREAM] commands update: path=%s type=%s\n", path.c_str(), type.c_str());
 
     if (type == "json") {
-        FirebaseJson j = strmCmds.jsonObject();
+        FirebaseJson *j = strmCmds.jsonObject();
+        if (!j) { Serial.println("[STREAM] jsonObject null"); return; }
         FirebaseJsonData d;
-        j.get(d, "action");
+        j->get(d, "action");
 
         if (d.success) {
-            // Direct command child was added/changed (e.g. push from Flutter)
             Serial.printf("[STREAM] direct command action=%s\n", d.stringValue.c_str());
             if (d.stringValue == "feed_now") {
-                j.get(d, "timestamp");
-                unsigned long ts = (unsigned long)d.doubleValue;
-                if (getEpochMillis() - ts < 30000) {
+                j->get(d, "timestamp");
+                int64_t ts = (int64_t)d.doubleValue;
+                int64_t nowMs = (int64_t)getEpochMillis();
+                if (nowMs > 0 && nowMs - ts < 30000) {
                     doFeed(path);
-                } else {
+                } else if (nowMs > 0) {
                     Firebase.RTDB.deleteNode(&fbW, path);
                 }
             }
         } else {
-            // Full node put — iterate all children
-            size_t n = j.iteratorBegin();
+            size_t n = j->iteratorBegin();
             Serial.printf("[STREAM] full node put, %u children\n", n);
             for (size_t i = 0; i < n; i++) {
                 int itType;
                 String key, value;
-                j.iteratorGet(i, itType, key, value);
+                j->iteratorGet(i, itType, key, value);
                 if (itType == FirebaseJson::JSON_OBJECT) {
                     FirebaseJson sub;
                     sub.setJsonData(value);
                     sub.get(d, "action");
                     if (d.stringValue == "feed_now") {
                         sub.get(d, "timestamp");
-                        unsigned long ts = (unsigned long)d.doubleValue;
-                        if (getEpochMillis() - ts < 30000) {
+                        int64_t ts = (int64_t)d.doubleValue;
+                        int64_t nowMs = (int64_t)getEpochMillis();
+                        if (nowMs > 0 && nowMs - ts < 30000) {
                             doFeed(String("/feeder/commands/") + key);
-                        } else {
+                        } else if (nowMs > 0) {
                             Firebase.RTDB.deleteNode(&fbW, String("/feeder/commands/") + key);
                         }
                     }
                 }
             }
-            j.iteratorEnd();
+            j->iteratorEnd();
         }
     } else if (type == "string") {
         int ls = path.lastIndexOf('/');
@@ -356,6 +396,8 @@ void loop() {
     if (streamsStarted) {
         if (Firebase.RTDB.readStream(&strmModes)) onModesUpdate();
         if (Firebase.RTDB.readStream(&strmCmds)) onCommandsUpdate();
+
+        pollCommands();
 
         unsigned long now = millis();
         if (now - lastStatus >= 5000) {
