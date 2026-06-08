@@ -48,18 +48,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _loadUserData();
   }
 
-  void _loadUserData() {
+  Future<void> _loadUserData() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       setState(() {
         _profileName = user.displayName ?? 'CrayCare User';
         _profileEmail = user.email ?? 'No email linked';
       });
-      // Kung may initialPhotoUrl mula MainShell, gamitin na diretso
       if (widget.initialPhotoUrl != null) {
         setState(() => _photoUrl = widget.initialPhotoUrl);
       } else {
         _loadPhotoFromRTDB(user.uid);
+      }
+      final notifPrefs = await DatabaseService.instance.getNotificationPrefs(user.uid);
+      if (notifPrefs != null && mounted) {
+        setState(() {
+          _notifSound = notifPrefs['sound'] as bool? ?? true;
+          _notifVibration = notifPrefs['vibration'] as bool? ?? true;
+          _notifCritical = notifPrefs['critical'] as bool? ?? true;
+          _notifFeeding = notifPrefs['feeding'] as bool? ?? true;
+          _notifSampling = notifPrefs['sampling'] as bool? ?? false;
+        });
       }
     }
   }
@@ -83,6 +92,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _onSettingsChange() => setState(() {});
+
+  Future<void> _saveNotifPrefs() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    await DatabaseService.instance.saveNotificationPrefs(
+      uid: user.uid,
+      sound: _notifSound,
+      vibration: _notifVibration,
+      critical: _notifCritical,
+      feeding: _notifFeeding,
+      sampling: _notifSampling,
+    );
+  }
 
   void _goTo(int page) {
     _nameCtrl.text = _profileName;
@@ -342,16 +364,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   notifCritical: _notifCritical,
                   notifFeeding: _notifFeeding,
                   notifSampling: _notifSampling,
-                  onNotifSoundChanged: (v) =>
-                      setState(() => _notifSound = v ?? true),
-                  onNotifVibrationChanged: (v) =>
-                      setState(() => _notifVibration = v ?? true),
-                  onNotifCriticalChanged: (v) =>
-                      setState(() => _notifCritical = v ?? true),
-                  onNotifFeedingChanged: (v) =>
-                      setState(() => _notifFeeding = v ?? true),
-                  onNotifSamplingChanged: (v) =>
-                      setState(() => _notifSampling = v ?? false),
+                  onNotifSoundChanged: (v) {
+                    setState(() => _notifSound = v ?? true);
+                    _saveNotifPrefs();
+                  },
+                  onNotifVibrationChanged: (v) {
+                    setState(() => _notifVibration = v ?? true);
+                    _saveNotifPrefs();
+                  },
+                  onNotifCriticalChanged: (v) {
+                    setState(() => _notifCritical = v ?? true);
+                    _saveNotifPrefs();
+                  },
+                  onNotifFeedingChanged: (v) {
+                    setState(() => _notifFeeding = v ?? true);
+                    _saveNotifPrefs();
+                  },
+                  onNotifSamplingChanged: (v) {
+                    setState(() => _notifSampling = v ?? false);
+                    _saveNotifPrefs();
+                  },
                 ),
                 StageSettings(key: const ValueKey('stage-settings')),
               ][_currentPage],

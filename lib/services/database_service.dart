@@ -118,6 +118,34 @@ class DatabaseService {
     );
   }
 
+  // ─── Per-User Notification Preferences ─────────────────────────
+
+  Future<void> saveNotificationPrefs({
+    required String uid,
+    required bool sound,
+    required bool vibration,
+    required bool critical,
+    required bool feeding,
+    required bool sampling,
+  }) async {
+    await _db.child('users/$uid/notifications').set({
+      'sound': sound,
+      'vibration': vibration,
+      'critical': critical,
+      'feeding': feeding,
+      'sampling': sampling,
+      'updatedAt': DateTime.now().toIso8601String(),
+    });
+  }
+
+  Future<Map<String, dynamic>?> getNotificationPrefs(String uid) async {
+    final snapshot = await _db.child('users/$uid/notifications').get();
+    if (snapshot.exists) {
+      return Map<String, dynamic>.from(snapshot.value as Map);
+    }
+    return null;
+  }
+
   Future<List<Map<String, dynamic>>> getSensorHistory({
     int limit = 100,
     String orderBy = 'timestamp',

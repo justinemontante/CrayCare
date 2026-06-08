@@ -134,11 +134,18 @@ class TankService extends ChangeNotifier {
   double get survivalRate =>
       _initialCount == 0 ? 0 : (liveCount / _initialCount * 100);
   DateTime get stockingDate => _stockingDate;
-  int get daysInCulture => DateTime.now().difference(_stockingDate).inDays;
+  int get daysInCulture {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    return today.difference(DateTime(_stockingDate.year, _stockingDate.month, _stockingDate.day)).inDays;
+  }
 
   int get daysSinceLastSampling {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
     if (_samplingHistory.isEmpty) return daysInCulture;
-    return DateTime.now().difference(_samplingHistory.last.date).inDays;
+    final last = _samplingHistory.last.date;
+    return today.difference(DateTime(last.year, last.month, last.day)).inDays;
   }
 
   bool get canSample => daysSinceLastSampling >= 7;

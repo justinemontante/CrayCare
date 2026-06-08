@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
 import '../../services/tank_service.dart';
@@ -184,9 +185,8 @@ class NextSamplingPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final service = TankService.instance;
-    final daysInCycle = 7;
-    final currentDay = (service.daysInCulture % daysInCycle) + 1;
-    final daysRemaining = daysInCycle - currentDay;
+    final daysSince = service.daysSinceLastSampling;
+    final daysRemaining = daysSince >= 7 ? 0 : 7 - daysSince;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -261,7 +261,7 @@ class NextSamplingPanel extends StatelessWidget {
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
-                      'Sampling Week ${((currentDay - 1) / 7).floor() + 1}',
+                      'Sampling Week ${(service.daysInCulture ~/ 7) + 1}',
                       style: const TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w800,
@@ -286,7 +286,7 @@ class NextSamplingPanel extends StatelessWidget {
           const SizedBox(height: 14),
           Divider(height: 1, thickness: 1, color: AppColors.faintBorder),
           const SizedBox(height: 14),
-          _buildStepTracker(currentDay, daysInCycle),
+          _buildStepTracker(daysSince >= 7 ? 7 : daysSince, 7),
         ],
       ),
     );
@@ -395,7 +395,8 @@ class GrowthOverviewPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final service = TankService.instance;
     final history = service.samplingHistory;
-    final latest = history.isNotEmpty ? history.last : null;
+    final hasWeeklySampling = history.any((e) => !e.isBaseline);
+    final latest = hasWeeklySampling ? history.lastWhere((e) => !e.isBaseline) : null;
     final initialW = service.initialWeight;
     final initialL = service.initialLength;
 
@@ -441,15 +442,15 @@ class GrowthOverviewPanel extends StatelessWidget {
                 false,
               ),
               const SizedBox(width: 12),
-              _buildMiniCard(
-                'Latest Sampling',
-                latest != null
-                    ? _formatDate(latest.date)
-                    : _formatDate(service.stockingDate),
-                latestW,
-                latestL,
-                true,
-              ),
+              hasWeeklySampling
+                  ? _buildMiniCard(
+                      'Latest Sampling',
+                      _formatDate(latest!.date),
+                      latestW,
+                      latestL,
+                      true,
+                    )
+                  : _buildAwaitingCard(),
             ],
           ),
           const SizedBox(height: 12),
@@ -499,6 +500,52 @@ class GrowthOverviewPanel extends StatelessWidget {
             const SizedBox(height: 12),
             _buildDataRow('ABW:', '${weight.toStringAsFixed(1)} g', center: true),
             _buildDataRow('ABL:', '${length.toStringAsFixed(1)} cm', center: true),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAwaitingCard() {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.dark.withValues(alpha: 0.06)),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.darkWith(0.06),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Text(
+              'Latest Sampling',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+                color: AppColors.primary,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Awaiting Week 1\nSampling',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.w500,
+                color: AppColors.darkWith(0.45),
+                height: 1.3,
+              ),
+            ),
+            const SizedBox(height: 4),
+            _buildDataRow('ABW:', '—', center: true),
+            _buildDataRow('ABL:', '—', center: true),
           ],
         ),
       ),
@@ -652,11 +699,15 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
   bool _isEditing = false;
   String? _countError;
   late final VoidCallback _serviceListener;
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
     _checkLastSampling();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
     _serviceListener = () {
       if (mounted) setState(() => _checkLastSampling());
     };
@@ -686,6 +737,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
 
   @override
   void dispose() {
+    _refreshTimer?.cancel();
     TankService.instance.removeListener(_serviceListener);
     _countController.dispose();
     _weightController.dispose();
@@ -1396,31 +1448,6 @@ class SamplingHistoryPanel extends StatelessWidget {
     return '${months[date.month - 1]} ${date.day}, ${date.year}';
   }
 
-  List<_HistoryEntry> _buildHistoryEntries() {
-    final service = TankService.instance;
-    final allHistory = service.samplingHistory
-        .where((e) => !e.isBaseline)
-        .toList();
-
-    List<_HistoryEntry> entries = [];
-    for (int i = 0; i < allHistory.length; i++) {
-      final entry = allHistory[i];
-      final prevAbw = i == 0 ? service.initialWeight : allHistory[i - 1].abw;
-      final prevAbl = i == 0 ? service.initialLength : allHistory[i - 1].avgLength;
-      entries.add(_HistoryEntry(
-        title: 'Week ${i + 1}',
-        dateLabel: _formatDate(entry.date),
-        abw: entry.abw,
-        abl: entry.avgLength,
-        sampleSize: entry.sampleSize,
-        gainW: entry.abw - prevAbw,
-        gainL: entry.avgLength - prevAbl,
-        recordedBy: entry.recordedBy,
-      ));
-    }
-    return entries;
-  }
-
   void _showAllHistory(BuildContext context) {
     final service = TankService.instance;
     final allHistory = service.samplingHistory
@@ -1759,10 +1786,69 @@ class SamplingHistoryPanel extends StatelessWidget {
     );
   }
 
+  List<Widget> _buildMainViewCards() {
+    final service = TankService.instance;
+    final weeklyHistory = service.samplingHistory
+        .where((e) => !e.isBaseline)
+        .toList();
+
+    if (weeklyHistory.isEmpty) {
+      return [
+        _buildHistoryCard(
+          title: 'Week 0 (Baseline)',
+          dateLabel: _formatDate(service.stockingDate),
+          abw: service.initialWeight,
+          abl: service.initialLength,
+          sampleSize: service.sampleCount,
+          isLatest: false,
+          icon: Image.asset(
+            'assets/images/InitialPopulation.png',
+            width: 20,
+            height: 20,
+          ),
+          recordedBy: service.recordedBy,
+        ),
+      ];
+    }
+
+    final totalWeekly = weeklyHistory.length;
+    final showCount = totalWeekly >= 2 ? 2 : 1;
+    final recent = weeklyHistory.reversed.take(showCount).toList();
+
+    return recent.asMap().entries.map((e) {
+      final idxInRecent = e.key;
+      final idxInHistory = totalWeekly - 1 - idxInRecent;
+      final entry = e.value;
+
+      final prevIdx = idxInHistory - 1;
+      final prevAbw = prevIdx < 0
+          ? service.initialWeight
+          : weeklyHistory[prevIdx].abw;
+      final prevAbl = prevIdx < 0
+          ? service.initialLength
+          : weeklyHistory[prevIdx].avgLength;
+
+      return _buildHistoryCard(
+        title: 'Week ${idxInHistory + 1}',
+        dateLabel: _formatDate(entry.date),
+        abw: entry.abw,
+        abl: entry.avgLength,
+        sampleSize: entry.sampleSize,
+        isLatest: idxInRecent == 0,
+        icon: const Icon(
+          Icons.biotech_rounded,
+          size: 18,
+          color: AppColors.primary,
+        ),
+        gainW: entry.abw - prevAbw,
+        gainL: entry.avgLength - prevAbl,
+        recordedBy: entry.recordedBy,
+      );
+    }).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final service = TankService.instance;
-
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1820,45 +1906,7 @@ class SamplingHistoryPanel extends StatelessWidget {
               ),
             )
           else ...[
-            ..._buildHistoryEntries().reversed.take(2).map(
-              (e) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: _buildHistoryCard(
-                  title: e.title,
-                  dateLabel: e.dateLabel,
-                  abw: e.abw,
-                  abl: e.abl,
-                  sampleSize: e.sampleSize,
-                  isLatest: false,
-                  icon: const Icon(
-                    Icons.history_rounded,
-                    size: 18,
-                    color: AppColors.primary,
-                  ),
-                  gainW: e.gainW,
-                  gainL: e.gainL,
-                  recordedBy: e.recordedBy,
-                ),
-              ),
-            ),
-            if (TankService.instance.isInitialized)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: _buildHistoryCard(
-                  title: 'Week 0 (Baseline)',
-                  dateLabel: _formatDate(service.stockingDate),
-                  abw: service.initialWeight,
-                  abl: service.initialLength,
-                  sampleSize: service.sampleCount,
-                  isLatest: false,
-                  icon: Image.asset(
-                    'assets/images/InitialPopulation.png',
-                    width: 20,
-                    height: 20,
-                  ),
-                  recordedBy: service.recordedBy,
-                ),
-              ),
+            ..._buildMainViewCards(),
           ],
         ],
       ),
