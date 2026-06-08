@@ -105,10 +105,10 @@ class _TrendsTabState extends State<TrendsTab> {
     final data = <double>[];
     if (_activeMetric == 'ABW') {
       data.add(service.initialWeight);
-      data.addAll(history.map((e) => e.abw));
+      data.addAll(history.where((e) => !e.isBaseline).map((e) => e.abw));
     } else {
       data.add(service.initialLength);
-      data.addAll(history.map((e) => e.avgLength));
+      data.addAll(history.where((e) => !e.isBaseline).map((e) => e.avgLength));
     }
 
     final unit = _activeMetric == 'ABW' ? 'g' : 'cm';

@@ -788,7 +788,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                       if (_activeFilter == '24h') ...[const SizedBox(width: 8)],
                     ],
                   ),
-                  if (data.isNotEmpty)
+                  if (_activeFilter == 'live' && data.isNotEmpty)
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 8,

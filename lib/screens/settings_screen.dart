@@ -363,11 +363,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildHeader() {
-    return Container(
+    final Widget header = Container(
       padding: const EdgeInsets.fromLTRB(4, 8, 16, 8),
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: AppColors.darkWith(0.07))),
+        color: _currentPage == 4 ? Colors.transparent : Colors.white,
+        border: Border(bottom: BorderSide(
+          color: _currentPage == 4 ? Colors.transparent : AppColors.darkWith(0.07),
+        )),
       ),
       child: Row(
         children: [
@@ -387,6 +389,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
               color: AppColors.dark,
             ),
           ),
+        ],
+      ),
+    );
+
+    if (_currentPage != 4) return header;
+
+    return ClipRRect(
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: Align(
+              alignment: Alignment(0.7, 0),
+              child: Transform.scale(
+                scale: 1.8,
+                child: Image.asset(
+                  'assets/images/crayfish_stage_image.png',
+                  fit: BoxFit.contain,
+                ),
+              ),
+            ),
+          ),
+          header,
         ],
       ),
     );

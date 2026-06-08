@@ -224,15 +224,15 @@ class InventoryTab extends StatelessWidget {
                   Expanded(child: _buildMetricCard(Image.asset('assets/images/InitialPopulation.png', width: 20, height: 20), 'Initial Population', '${service.initialCount}', 'Total stock at start', onTap: () => _showMetricDetail(context, 'Initial Population', service.initialCount.toString(), 'Total stock at start', 'assets/images/InitialPopulation.png', 'During grow-out initialization, ${service.initialCount} crayfish were placed in the tank on ${service.stockingDate.month}/${service.stockingDate.day}/${service.stockingDate.year}. This serves as the baseline for all monitoring and survival rate calculations.', Icons.people_alt_rounded))),
 
                   const SizedBox(width: 6),
-                  Expanded(child: _buildMetricCard(Image.asset('assets/images/SampleCount.png', width: 20, height: 20), 'Sample Count', '${service.sampleCount}', 'Crayfish in sample', onTap: () => _showMetricDetail(context, 'Sample Count', service.sampleCount.toString(), 'Crayfish in sample', 'assets/images/SampleCount.png', 'During initialization, ${service.sampleCount} crayfish were taken and measured to determine the average weight and length per crayfish. This sample represents the entire population.', Icons.analytics_rounded))),
+                  Expanded(child: _buildMetricCard(Image.asset('assets/images/SampleCount.png', width: 20, height: 20), 'Sample Size', '${service.sampleCount}', 'Crayfish in sample', onTap: () => _showMetricDetail(context, 'Sample Size', service.sampleCount.toString(), 'Crayfish in sample', 'assets/images/SampleCount.png', 'During initialization, ${service.sampleCount} crayfish were taken and measured to determine the average weight and length per crayfish. This sample represents the entire population.', Icons.analytics_rounded))),
                 ],
               ),
               const SizedBox(height: 6),
               Row(
                 children: [
-                  Expanded(child: _buildMetricCard(Image.asset('assets/images/TotalWeight.png', width: 20, height: 20), 'Total Weight', '${(service.initialWeight * service.sampleCount).toStringAsFixed(1)} g', 'Avg: ${service.initialWeight.toStringAsFixed(1)} g/crayfish', onTap: () => _showMetricDetail(context, 'Total Weight', '${(service.initialWeight * service.sampleCount).toStringAsFixed(1)} g', 'Avg: ${service.initialWeight.toStringAsFixed(1)} g/crayfish', 'assets/images/TotalWeight.png', 'Total weight of ${service.sampleCount} samples taken during initialization. Average weight per crayfish: ${service.initialWeight.toStringAsFixed(1)} g. This is the baseline for growth monitoring.', Icons.monitor_weight_rounded))),
+                  Expanded(child: _buildMetricCard(Image.asset('assets/images/TotalWeight.png', width: 20, height: 20), 'Initial Sample Weight', '${(service.initialWeight * service.sampleCount).toStringAsFixed(0)} g', 'ABW: ${service.initialWeight.toStringAsFixed(1)} g', onTap: () => _showMetricDetail(context, 'Initial Sample Weight', '${(service.initialWeight * service.sampleCount).toStringAsFixed(0)} g', 'Average Body Weight (ABW): ${service.initialWeight.toStringAsFixed(1)} g', 'assets/images/TotalWeight.png', 'Total weight of ${service.sampleCount} samples taken during initialization. Average Body Weight (ABW): ${service.initialWeight.toStringAsFixed(1)} g. This is the baseline for growth monitoring.', Icons.monitor_weight_rounded))),
                   const SizedBox(width: 6),
-                  Expanded(child: _buildMetricCard(Image.asset('assets/images/TotalLength.png', width: 20, height: 20), 'Total Length', '${(service.initialLength * service.sampleCount).toStringAsFixed(1)} cm', 'Avg: ${service.initialLength.toStringAsFixed(1)} cm/crayfish', onTap: () => _showMetricDetail(context, 'Total Length', '${(service.initialLength * service.sampleCount).toStringAsFixed(1)} cm', 'Avg: ${service.initialLength.toStringAsFixed(1)} cm/crayfish', 'assets/images/TotalLength.png', 'Total length of ${service.sampleCount} samples taken during initialization. Average length per crayfish: ${service.initialLength.toStringAsFixed(1)} cm. This is the baseline for growth monitoring.', Icons.straighten_rounded))),
+                  Expanded(child: _buildMetricCard(Image.asset('assets/images/TotalLength.png', width: 20, height: 20), 'Initial Sample Length', '${(service.initialLength * service.sampleCount).toStringAsFixed(0)} cm', 'ABL: ${service.initialLength.toStringAsFixed(1)} cm', onTap: () => _showMetricDetail(context, 'Initial Sample Length', '${(service.initialLength * service.sampleCount).toStringAsFixed(0)} cm', 'Average Body Length (ABL): ${service.initialLength.toStringAsFixed(1)} cm', 'assets/images/TotalLength.png', 'Total length of ${service.sampleCount} samples taken during initialization. Average Body Length (ABL): ${service.initialLength.toStringAsFixed(1)} cm. This is the baseline for growth monitoring.', Icons.straighten_rounded))),
                 ],
               ),
               const SizedBox(height: 6),
@@ -409,8 +409,6 @@ class InventoryTab extends StatelessWidget {
                     fontWeight: FontWeight.w700,
                     color: AppColors.dark,
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 1),
                 Text(

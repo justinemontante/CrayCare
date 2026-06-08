@@ -411,10 +411,10 @@ class _ControlsScreenState extends State<ControlsScreen> {
           Positioned(
             right: 0,
             bottom: 0,
-            width: 170,
-            height: 100,
+            width: 220,
+            height: 140,
             child: Image.asset(
-              'assets/images/crayfish_seaweed_tank.png',
+              'assets/images/controls_image.png',
               fit: BoxFit.contain,
               alignment: Alignment.bottomRight,
             ),

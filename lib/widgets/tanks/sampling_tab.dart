@@ -1234,7 +1234,9 @@ class SamplingHistoryPanel extends StatelessWidget {
 
   void _showAllHistory(BuildContext context) {
     final service = TankService.instance;
-    final allHistory = service.samplingHistory.toList();
+    final allHistory = service.samplingHistory
+        .where((e) => !e.isBaseline)
+        .toList();
     final totalItems = allHistory.length + 1; // +1 for baseline
 
     showModalBottomSheet(
@@ -1537,7 +1539,12 @@ class SamplingHistoryPanel extends StatelessWidget {
             )
           else ...[
             // Max 2 most recent sampling entries first (latest agad)
-            ...history.reversed.take(2).map((entry) => Padding(
+            ...history
+                .where((e) => !e.isBaseline)
+                .toList()
+                .reversed
+                .take(2)
+                .map((entry) => Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: _buildHistoryCard(
                 title: _formatDate(entry.date),

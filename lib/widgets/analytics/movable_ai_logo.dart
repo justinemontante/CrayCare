@@ -134,26 +134,13 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                 ),
               ),
               const SizedBox(width: 12),
-              const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'CrayAI Analytics',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.dark,
-                    ),
-                  ),
-                  Text(
-                    'Powered by Machine Learning',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
+              const Text(
+                'CrayAI Analytics',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.dark,
+                ),
               ),
               const Spacer(),
               // CLOSE BUTTON

@@ -33,6 +33,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.initState();
     SensorService.instance.addListener(_refreshUI);
     SettingsService.instance.addListener(_refreshUI);
+    TankService.instance.addListener(_refreshUI);
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
@@ -43,6 +44,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _quickActionsController.dispose();
     SensorService.instance.removeListener(_refreshUI);
     SettingsService.instance.removeListener(_refreshUI);
+    TankService.instance.removeListener(_refreshUI);
     _countdownTimer?.cancel();
     super.dispose();
   }
@@ -106,6 +108,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final weekday = weekdays[now.weekday % 7];
     final month = months[now.month - 1];
     return '$weekday, $month ${now.day}, ${now.year}';
+  }
+
+  String _formatTankDate(DateTime dt) {
+    final months = [
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ];
+    return '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
   }
 
   @override
@@ -346,7 +366,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ? ss.getLatestValue('turb').toStringAsFixed(0)
                             : '--'),
                   unit: ss.isTurbidityAir ? '' : 'NTU',
-                  ideal: ss.isTurbidityAir ? '' : _getIdealText('turb'),
+                  ideal: _getIdealText('turb'),
                   iconPath: 'assets/images/Turbidity.png',
                   status: ss.isTurbidityAir ? 'NO WATER' : _getStatus('turb'),
                   statusColor: ss.isTurbidityAir
@@ -620,6 +640,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildTankStatusCard() {
+    final tank = TankService.instance;
+    final hasData = tank.isInitialized;
+
     return Container(
       margin: const EdgeInsets.fromLTRB(14, 4, 14, 0),
       decoration: BoxDecoration(
@@ -665,28 +688,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 Expanded(
                   child: _buildStatColumn(
                     'assets/images/InitialPopulationNo.png',
-                    '68',
+                    hasData ? tank.initialCount.toString() : '--',
                     'initialPopulation',
                   ),
                 ),
                 Expanded(
                   child: _buildStatColumn(
                     'assets/images/SurvivalRate.png',
-                    '92.6%',
+                    hasData ? '${tank.survivalRate.toStringAsFixed(1)}%' : '--',
                     'Survival Rate',
                   ),
                 ),
                 Expanded(
                   child: _buildStatColumn(
                     'assets/images/AliveNo.png',
-                    '63',
+                    hasData ? tank.liveCount.toString() : '--',
                     'Alive',
                   ),
                 ),
                 Expanded(
                   child: _buildStatColumn(
                     'assets/images/mortalityNo.png',
-                    '5',
+                    hasData ? tank.mortality.toString() : '--',
                     'Mortality',
                   ),
                 ),
@@ -707,10 +730,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 _buildDetailRow(
                   Icons.hourglass_bottom,
                   'Days in Culture',
-                  '45',
+                  hasData ? tank.daysInCulture.toString() : '--',
                 ),
                 const SizedBox(height: 8),
-                _buildDetailRow(Icons.history, 'Last Sampling', 'May 12, 2026'),
+                _buildDetailRow(
+                  Icons.history,
+                  'Last Sampling',
+                  hasData && tank.samplingHistory.isNotEmpty
+                      ? _formatTankDate(tank.samplingHistory.last.date)
+                      : '--',
+                ),
                 const SizedBox(height: 8),
                 _buildNextSamplingRow(),
               ],
@@ -797,12 +826,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (tank.samplingHistory.isNotEmpty) {
       final lastSampling = tank.samplingHistory.last.date;
       final nextDate = lastSampling.add(const Duration(days: 7));
-      final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      nextDateStr = '${months[nextDate.month - 1]} ${nextDate.day}, ${nextDate.year}';
+      final months = [
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
+      ];
+      nextDateStr =
+          '${months[nextDate.month - 1]} ${nextDate.day}, ${nextDate.year}';
     } else {
       final nextDate = tank.stockingDate.add(const Duration(days: 7));
-      final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      nextDateStr = '${months[nextDate.month - 1]} ${nextDate.day}, ${nextDate.year}';
+      final months = [
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
+      ];
+      nextDateStr =
+          '${months[nextDate.month - 1]} ${nextDate.day}, ${nextDate.year}';
     }
 
     final daysLeftColor = AppColors.primary;
@@ -813,7 +870,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.calendar_today, size: 14, color: AppColors.darkWith(0.5)),
+            Icon(
+              Icons.calendar_today,
+              size: 14,
+              color: AppColors.darkWith(0.5),
+            ),
             const SizedBox(width: 8),
             Text(
               'Next Sampling',
@@ -1265,17 +1326,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ],
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Center(
-                      child: Text(
-                        ideal,
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.darkWith(0.5),
-                        ),
-                      ),
-                    ),
                     const SizedBox(height: 6),
                     Center(
                       child: Container(
@@ -1297,9 +1347,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              _formatTimestamp(
-                                SensorService.instance.lastUpdated,
-                              ),
+                              hasData
+                                  ? _formatTimestamp(
+                                      SensorService.instance.lastUpdated,
+                                    )
+                                  : 'Captured: --',
                               style: TextStyle(
                                 fontSize: 9,
                                 fontWeight: FontWeight.w500,

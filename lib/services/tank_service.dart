@@ -50,6 +50,7 @@ class SamplingEntry {
   final double totalLength;
   final double biomass;
   final int liveCount;
+  final bool isBaseline;
 
   SamplingEntry({
     required this.date,
@@ -60,6 +61,7 @@ class SamplingEntry {
     required this.totalLength,
     required this.biomass,
     required this.liveCount,
+    this.isBaseline = false,
   });
 }
 
@@ -189,10 +191,8 @@ class TankService extends ChangeNotifier {
         (data['stockingDate'] as int?) ?? DateTime.now().millisecondsSinceEpoch,
       );
       _sampleCount = (data['sampleCount'] as int?) ?? 0;
-      final totalW = (data['totalWeight'] as num?)?.toDouble() ?? 0.0;
-      final totalL = (data['totalLength'] as num?)?.toDouble() ?? 0.0;
-      _initialWeight = _sampleCount > 0 ? totalW / _sampleCount : 0.0;
-      _initialLength = _sampleCount > 0 ? totalL / _sampleCount : 0.0;
+      _initialWeight = (data['initialSampleWeight'] as num?)?.toDouble() ?? 0.0;
+      _initialLength = (data['initialSampleLength'] as num?)?.toDouble() ?? 0.0;
       _isInitialized = isInit;
       _setupComplete = isInit;
       notifyListeners();
@@ -245,6 +245,7 @@ class TankService extends ChangeNotifier {
             totalLength: (map['totalLength'] as num).toDouble(),
             biomass: (map['biomass'] as num).toDouble(),
             liveCount: map['liveCount'],
+            isBaseline: map['isBaseline'] == true,
           );
         }).toList()..sort((a, b) => a.date.compareTo(b.date));
       }
@@ -372,8 +373,8 @@ class TankService extends ChangeNotifier {
         'stockingDate': _stockingDate.millisecondsSinceEpoch,
         'Mortality': _mortality,
         'sampleCount': _sampleCount,
-        'totalWeight': _initialWeight * _sampleCount,
-        'totalLength': _initialLength * _sampleCount,
+        'initialSampleWeight': _initialWeight,
+        'initialSampleLength': _initialLength,
         'Alive': _initialCount - _mortality,
         'isInitialized': _isInitialized,
         'updatedAt': ServerValue.timestamp,
@@ -471,6 +472,7 @@ class TankService extends ChangeNotifier {
       'totalLength': entry.totalLength,
       'biomass': entry.biomass,
       'liveCount': entry.liveCount,
+      'isBaseline': false,
       'timestamp': ServerValue.timestamp,
     });
     _addActivity(
