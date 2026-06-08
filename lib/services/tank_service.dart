@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
 
 enum GrowthStage {
@@ -51,6 +52,7 @@ class SamplingEntry {
   final double biomass;
   final int liveCount;
   final bool isBaseline;
+  final String recordedBy;
 
   SamplingEntry({
     required this.date,
@@ -62,6 +64,7 @@ class SamplingEntry {
     required this.biomass,
     required this.liveCount,
     this.isBaseline = false,
+    this.recordedBy = '',
   });
 }
 
@@ -70,7 +73,8 @@ class TankActivity {
   final String date;
   final String time;
   final String type;
-  final int timestamp; // Added to sort activities correctly
+  final int timestamp;
+  final String recordedBy;
 
   TankActivity({
     required this.action,
@@ -78,13 +82,15 @@ class TankActivity {
     required this.time,
     required this.type,
     this.timestamp = 0,
+    this.recordedBy = '',
   });
 }
 
 class MortalityEntry {
   final DateTime date;
   final int count;
-  MortalityEntry({required this.date, required this.count});
+  final String recordedBy;
+  MortalityEntry({required this.date, required this.count, this.recordedBy = ''});
 }
 
 class TankService extends ChangeNotifier {
@@ -115,6 +121,7 @@ class TankService extends ChangeNotifier {
   int _sampleCount = 0;
   double _initialWeight = 0.0;
   double _initialLength = 0.0;
+  String _recordedBy = '';
 
   List<SamplingEntry> _samplingHistory = [];
   List<TankActivity> _activities = [];
@@ -145,12 +152,17 @@ class TankService extends ChangeNotifier {
   int get sampleCount => _sampleCount;
   double get initialWeight => _initialWeight;
   double get initialLength => _initialLength;
+  String get recordedBy => _recordedBy;
 
   List<SamplingEntry> get samplingHistory =>
       List.unmodifiable(_samplingHistory);
   List<TankActivity> get activities => List.unmodifiable(_activities.reversed);
   List<MortalityEntry> get mortalityHistory =>
       List.unmodifiable(_mortalityHistory);
+
+  String _getUserName() {
+    return FirebaseAuth.instance.currentUser?.displayName ?? 'Unknown';
+  }
 
   int get totalMortality {
     return _mortalityHistory.fold(0, (sum, e) => sum + e.count);
@@ -193,6 +205,7 @@ class TankService extends ChangeNotifier {
       _sampleCount = (data['sampleCount'] as int?) ?? 0;
       _initialWeight = (data['initialSampleWeight'] as num?)?.toDouble() ?? 0.0;
       _initialLength = (data['initialSampleLength'] as num?)?.toDouble() ?? 0.0;
+      _recordedBy = data['recordedBy'] as String? ?? '';
       _isInitialized = isInit;
       _setupComplete = isInit;
       notifyListeners();
@@ -207,6 +220,7 @@ class TankService extends ChangeNotifier {
     _sampleCount = 0;
     _initialWeight = 0.0;
     _initialLength = 0.0;
+    _recordedBy = '';
     _isInitialized = false;
     _setupComplete = false;
     _samplingHistory.clear();
@@ -226,6 +240,7 @@ class TankService extends ChangeNotifier {
           return MortalityEntry(
             date: DateTime.fromMillisecondsSinceEpoch(map['date']),
             count: map['count'],
+            recordedBy: map['recordedBy'] as String? ?? '',
           );
         }).toList()..sort((a, b) => a.date.compareTo(b.date));
       }
@@ -246,6 +261,7 @@ class TankService extends ChangeNotifier {
             biomass: (map['biomass'] as num).toDouble(),
             liveCount: map['liveCount'],
             isBaseline: map['isBaseline'] == true,
+            recordedBy: map['recordedBy'] as String? ?? '',
           );
         }).toList()..sort((a, b) => a.date.compareTo(b.date));
       }
@@ -262,6 +278,7 @@ class TankService extends ChangeNotifier {
             time: map['time'],
             type: map['type'],
             timestamp: map['timestamp'] ?? 0,
+            recordedBy: map['recordedBy'] as String? ?? '',
           );
         }).toList()..sort((a, b) => a.timestamp.compareTo(b.timestamp));
       }
@@ -288,14 +305,9 @@ class TankService extends ChangeNotifier {
       _initialCount = (data['initialPopulation'] as int?) ?? _initialCount;
       _mortality = (data['Mortality'] as int?) ?? _mortality;
       _sampleCount = (data['sampleCount'] as int?) ?? _sampleCount;
-      final tw = (data['totalWeight'] as num?)?.toDouble();
-      final tl = (data['totalLength'] as num?)?.toDouble();
-      if (tw != null && _sampleCount > 0) {
-        _initialWeight = tw / _sampleCount;
-      }
-      if (tl != null && _sampleCount > 0) {
-        _initialLength = tl / _sampleCount;
-      }
+      _initialWeight = (data['initialSampleWeight'] as num?)?.toDouble() ?? 0.0;
+      _initialLength = (data['initialSampleLength'] as num?)?.toDouble() ?? 0.0;
+      _recordedBy = data['recordedBy'] as String? ?? _recordedBy;
       if (data.containsKey('stockingDate')) {
         _stockingDate = DateTime.fromMillisecondsSinceEpoch(
           data['stockingDate'] as int,
@@ -322,6 +334,7 @@ class TankService extends ChangeNotifier {
           totalLength: (map['totalLength'] as num).toDouble(),
           biomass: (map['biomass'] as num).toDouble(),
           liveCount: map['liveCount'],
+          recordedBy: map['recordedBy'] as String? ?? '',
         );
       }).toList()..sort((a, b) => a.date.compareTo(b.date));
       notifyListeners();
@@ -339,6 +352,7 @@ class TankService extends ChangeNotifier {
         return MortalityEntry(
           date: DateTime.fromMillisecondsSinceEpoch(map['date']),
           count: map['count'],
+          recordedBy: map['recordedBy'] as String? ?? '',
         );
       }).toList()..sort((a, b) => a.date.compareTo(b.date));
       notifyListeners();
@@ -359,6 +373,7 @@ class TankService extends ChangeNotifier {
           time: map['time'],
           type: map['type'],
           timestamp: map['timestamp'] ?? 0,
+          recordedBy: map['recordedBy'] as String? ?? '',
         );
       }).toList()..sort((a, b) => a.timestamp.compareTo(b.timestamp));
       notifyListeners();
@@ -377,6 +392,7 @@ class TankService extends ChangeNotifier {
         'initialSampleLength': _initialLength,
         'Alive': _initialCount - _mortality,
         'isInitialized': _isInitialized,
+        'recordedBy': _recordedBy,
         'updatedAt': ServerValue.timestamp,
       });
     } catch (e) {
@@ -422,6 +438,7 @@ class TankService extends ChangeNotifier {
     _initialLength = sampleCount > 0 ? (totalLength / sampleCount) : 0.0;
     _isInitialized = true;
     _setupComplete = true;
+    _recordedBy = _getUserName();
 
     // Always reset mortality and history on init
     _mortality = 0;
@@ -450,6 +467,7 @@ class TankService extends ChangeNotifier {
 
   void addSamplingEntry(int count, double weight, double length) {
     _setupComplete = true;
+    final userName = _getUserName();
     final abw = weight / count;
     final avgLength = length / count;
     final entry = SamplingEntry(
@@ -461,6 +479,7 @@ class TankService extends ChangeNotifier {
       totalLength: length,
       biomass: liveCount * abw,
       liveCount: liveCount,
+      recordedBy: userName,
     );
     _samplingHistory.add(entry);
     _samplingRef.push().set({
@@ -473,6 +492,7 @@ class TankService extends ChangeNotifier {
       'biomass': entry.biomass,
       'liveCount': entry.liveCount,
       'isBaseline': false,
+      'recordedBy': userName,
       'timestamp': ServerValue.timestamp,
     });
     _addActivity(
@@ -486,11 +506,17 @@ class TankService extends ChangeNotifier {
   void addMortality(int val, {DateTime? date}) {
     _mortality += val;
     _setupComplete = true;
-    final mEntry = MortalityEntry(date: date ?? DateTime.now(), count: val);
+    final userName = _getUserName();
+    final mEntry = MortalityEntry(
+      date: date ?? DateTime.now(),
+      count: val,
+      recordedBy: userName,
+    );
     _mortalityHistory.add(mEntry);
     _mortalityRef.push().set({
       'date': mEntry.date.millisecondsSinceEpoch,
       'count': mEntry.count,
+      'recordedBy': userName,
       'timestamp': ServerValue.timestamp,
     });
     _addActivity(
@@ -504,6 +530,7 @@ class TankService extends ChangeNotifier {
 
   void _addActivity(String action, String type, {DateTime? customDate}) {
     final now = customDate ?? DateTime.now();
+    final userName = _getUserName();
     final months = [
       'Jan',
       'Feb',
@@ -530,6 +557,7 @@ class TankService extends ChangeNotifier {
       time: timeStr,
       type: type,
       timestamp: timestamp,
+      recordedBy: userName,
     );
     _activities.add(act);
 
@@ -538,6 +566,7 @@ class TankService extends ChangeNotifier {
       'date': dateStr,
       'time': timeStr,
       'type': type,
+      'recordedBy': userName,
       'timestamp': timestamp,
     });
   }

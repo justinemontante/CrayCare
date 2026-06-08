@@ -261,7 +261,7 @@ class NextSamplingPanel extends StatelessWidget {
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
-                      'Week ${((currentDay - 1) / 7).floor() + 1}',
+                      'Sampling Week ${((currentDay - 1) / 7).floor() + 1}',
                       style: const TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w800,
@@ -497,8 +497,8 @@ class GrowthOverviewPanel extends StatelessWidget {
               style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.5)),
             ),
             const SizedBox(height: 12),
-            _buildDataRow('Avg Weight', '${weight.toStringAsFixed(1)} g'),
-            _buildDataRow('Avg Length', '${length.toStringAsFixed(1)} cm'),
+            _buildDataRow('ABW:', '${weight.toStringAsFixed(1)} g', center: true),
+            _buildDataRow('ABL:', '${length.toStringAsFixed(1)} cm', center: true),
           ],
         ),
       ),
@@ -527,7 +527,7 @@ class GrowthOverviewPanel extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           const Text(
-            'Net Growth',
+            'Growth Change',
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w800,
@@ -538,7 +538,7 @@ class GrowthOverviewPanel extends StatelessWidget {
             child: Row(
               children: [
                 _buildGrowthMetric(
-                  'Weight',
+                  'Weight Gain',
                   '${isPosW ? '+' : ''}${weight.toStringAsFixed(1)}g',
                   isPosW,
                 ),
@@ -549,7 +549,7 @@ class GrowthOverviewPanel extends StatelessWidget {
                 ),
                 const SizedBox(width: 10),
                 _buildGrowthMetric(
-                  'Length',
+                  'Length Gain',
                   '${isPosL ? '+' : ''}${length.toStringAsFixed(1)}cm',
                   isPosL,
                 ),
@@ -582,22 +582,39 @@ class GrowthOverviewPanel extends StatelessWidget {
     );
   }
 
-  Widget _buildDataRow(String label, String value) {
+  Widget _buildDataRow(String label, String value, {bool center = false}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.6)),
-          ),
-          Text(
-            value,
-            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800),
-          ),
-        ],
-      ),
+      child: center
+          ? Center(
+              child: Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                      text: '$label ',
+                      style: TextStyle(fontSize: 10, color: AppColors.darkWith(0.6)),
+                    ),
+                    TextSpan(
+                      text: value,
+                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.6)),
+                ),
+                Text(
+                  value,
+                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800),
+                ),
+              ],
+            ),
     );
   }
 
@@ -686,6 +703,18 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
     }
   }
 
+  double _computeAbw() {
+    final count = int.tryParse(_countController.text) ?? 0;
+    final weight = double.tryParse(_weightController.text) ?? 0;
+    return count > 0 ? weight / count : 0;
+  }
+
+  double _computeAbl() {
+    final count = int.tryParse(_countController.text) ?? 0;
+    final length = double.tryParse(_lengthController.text) ?? 0;
+    return count > 0 ? length / count : 0;
+  }
+
   void _handleCompute() {
     _revalidateCount();
     if (_countError != null) return;
@@ -768,20 +797,21 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
               Expanded(
                 child: _buildInputCard(
                   Image.asset('assets/images/SampleCount.png', width: 20, height: 20),
-                  'sampleCount',
+                  'Sample Size',
                   'Crayfish sampled',
                   '10',
                   _countController,
                   enabled: (!_isRecorded && canSample) || _isEditing,
                   hasError: _countError != null,
                   onChanged: _revalidateCount,
+                  subtitleBottomSpacing: 20,
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: _buildInputCard(
                   Image.asset('assets/images/TotalWeight.png', width: 20, height: 20),
-                  'totalWeight',
+                  'Sample Weight',
                   'Weight of samples',
                   '150',
                   _weightController,
@@ -792,7 +822,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
               Expanded(
                 child: _buildInputCard(
                   Image.asset('assets/images/TotalLength.png', width: 20, height: 20),
-                  'totalLength',
+                  'Sample Length',
                   'Length of samples',
                   '60',
                   _lengthController,
@@ -801,6 +831,115 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
               ),
             ],
           ),
+          if (_isRecorded) ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: AppColors.success.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: AppColors.success.withValues(alpha: 0.2),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.check_circle_rounded,
+                        size: 14,
+                        color: AppColors.success,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'After Sampling',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.success,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Column(
+                            children: [
+                              Text(
+                                'Average ABW',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.darkWith(0.5),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '${_computeAbw().toStringAsFixed(1)} g/crayfish',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w900,
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Column(
+                            children: [
+                              Text(
+                                'Average ABL',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.darkWith(0.5),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '${_computeAbl().toStringAsFixed(1)} cm/crayfish',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w900,
+                                  color: AppColors.success,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
           if (_countError != null && !_isRecorded) ...[
             const SizedBox(height: 8),
             Padding(
@@ -919,6 +1058,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
     bool enabled = true,
     bool hasError = false,
     VoidCallback? onChanged,
+    double subtitleBottomSpacing = 8,
   }) {
     final borderColor = hasError && enabled
         ? AppColors.critical.withValues(alpha: 0.6)
@@ -982,7 +1122,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
             ),
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: subtitleBottomSpacing),
           TextField(
             controller: controller,
             onChanged: (_) => onChanged?.call(),
@@ -1221,6 +1361,30 @@ class GrowthStagePanel extends StatelessWidget {
   }
 }
 
+class _HistoryEntry {
+  final String title;
+  final String dateLabel;
+  final double abw;
+  final double abl;
+  final int sampleSize;
+  final double? gainW;
+  final double? gainL;
+  final Widget? icon;
+  final String recordedBy;
+
+  _HistoryEntry({
+    this.title = '',
+    this.dateLabel = '',
+    this.abw = 0,
+    this.abl = 0,
+    this.sampleSize = 0,
+    this.gainW,
+    this.gainL,
+    this.icon,
+    this.recordedBy = '',
+  });
+}
+
 class SamplingHistoryPanel extends StatelessWidget {
   const SamplingHistoryPanel({super.key});
 
@@ -1232,12 +1396,71 @@ class SamplingHistoryPanel extends StatelessWidget {
     return '${months[date.month - 1]} ${date.day}, ${date.year}';
   }
 
+  List<_HistoryEntry> _buildHistoryEntries() {
+    final service = TankService.instance;
+    final allHistory = service.samplingHistory
+        .where((e) => !e.isBaseline)
+        .toList();
+
+    List<_HistoryEntry> entries = [];
+    for (int i = 0; i < allHistory.length; i++) {
+      final entry = allHistory[i];
+      final prevAbw = i == 0 ? service.initialWeight : allHistory[i - 1].abw;
+      final prevAbl = i == 0 ? service.initialLength : allHistory[i - 1].avgLength;
+      entries.add(_HistoryEntry(
+        title: 'Week ${i + 1}',
+        dateLabel: _formatDate(entry.date),
+        abw: entry.abw,
+        abl: entry.avgLength,
+        sampleSize: entry.sampleSize,
+        gainW: entry.abw - prevAbw,
+        gainL: entry.avgLength - prevAbl,
+        recordedBy: entry.recordedBy,
+      ));
+    }
+    return entries;
+  }
+
   void _showAllHistory(BuildContext context) {
     final service = TankService.instance;
     final allHistory = service.samplingHistory
         .where((e) => !e.isBaseline)
         .toList();
-    final totalItems = allHistory.length + 1; // +1 for baseline
+
+    List<_HistoryEntry> entries = [];
+    entries.add(_HistoryEntry(
+      title: 'Week 0 (Baseline)',
+      dateLabel: _formatDate(service.stockingDate),
+      abw: service.initialWeight,
+      abl: service.initialLength,
+      sampleSize: service.sampleCount,
+      recordedBy: service.recordedBy,
+      icon: Image.asset(
+        'assets/images/InitialPopulation.png',
+        width: 20,
+        height: 20,
+      ),
+    ));
+    for (int i = 0; i < allHistory.length; i++) {
+      final entry = allHistory[i];
+      final prevAbw = i == 0 ? service.initialWeight : allHistory[i - 1].abw;
+      final prevAbl = i == 0 ? service.initialLength : allHistory[i - 1].avgLength;
+      entries.add(_HistoryEntry(
+        title: 'Week ${i + 1}',
+        dateLabel: _formatDate(entry.date),
+        abw: entry.abw,
+        abl: entry.avgLength,
+        sampleSize: entry.sampleSize,
+        gainW: entry.abw - prevAbw,
+        gainL: entry.avgLength - prevAbl,
+        recordedBy: entry.recordedBy,
+        icon: const Icon(
+          Icons.biotech_rounded,
+          size: 18,
+          color: AppColors.primary,
+        ),
+      ));
+    }
 
     showModalBottomSheet(
       context: context,
@@ -1277,7 +1500,7 @@ class SamplingHistoryPanel extends StatelessWidget {
                   ),
                   const Spacer(),
                   Text(
-                    '$totalItems entries',
+                    '${entries.length} entries',
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
@@ -1289,40 +1512,22 @@ class SamplingHistoryPanel extends StatelessWidget {
               const SizedBox(height: 16),
               Expanded(
                 child: ListView.separated(
-                  itemCount: totalItems,
+                  itemCount: entries.reversed.length,
                   separatorBuilder: (_, _) => const SizedBox(height: 8),
                   itemBuilder: (_, i) {
-                    // Latest to first: sampling entries first, then baseline
-                    if (i < allHistory.length) {
-                      final entry = allHistory.reversed.toList()[i];
-                      final isLatest = i == 0;
-                      return _buildHistoryCard(
-                        title: _formatDate(entry.date),
-                        dateLabel: 'Sampling entry',
-                        abw: entry.abw,
-                        abl: entry.avgLength,
-                        sampleSize: entry.sampleSize,
-                        isLatest: isLatest,
-                        icon: const Icon(
-                          Icons.biotech_rounded,
-                          size: 18,
-                          color: AppColors.primary,
-                        ),
-                      );
-                    }
-                    // Last item = Initial Baseline
+                    final entry = entries.reversed.toList()[i];
+                    final isLatest = i == 0 && !entry.title.contains('Baseline');
                     return _buildHistoryCard(
-                      title: 'Initial Baseline',
-                      dateLabel: _formatDate(service.stockingDate),
-                      abw: service.initialWeight,
-                      abl: service.initialLength,
-                      sampleSize: service.sampleCount,
-                      isLatest: false,
-                      icon: Image.asset(
-                        'assets/images/InitialPopulation.png',
-                        width: 20,
-                        height: 20,
-                      ),
+                      title: entry.title,
+                      dateLabel: entry.dateLabel,
+                      abw: entry.abw,
+                      abl: entry.abl,
+                      sampleSize: entry.sampleSize,
+                      isLatest: isLatest,
+                      icon: entry.icon!,
+                      gainW: entry.gainW,
+                      gainL: entry.gainL,
+                      recordedBy: entry.recordedBy,
                     );
                   },
                 ),
@@ -1365,6 +1570,9 @@ class SamplingHistoryPanel extends StatelessWidget {
     required int sampleSize,
     required bool isLatest,
     required Widget icon,
+    double? gainW,
+    double? gainL,
+    String recordedBy = '',
   }) {
     return Container(
       padding: const EdgeInsets.all(12),
@@ -1372,7 +1580,9 @@ class SamplingHistoryPanel extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: AppColors.dark.withValues(alpha: 0.06),
+          color: isLatest
+              ? AppColors.primary.withValues(alpha: 0.3)
+              : AppColors.dark.withValues(alpha: 0.06),
         ),
         boxShadow: [
           BoxShadow(
@@ -1382,93 +1592,166 @@ class SamplingHistoryPanel extends StatelessWidget {
           ),
         ],
       ),
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 36,
-            height: 36,
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: icon,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.dark,
-                  ),
+          Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                const SizedBox(height: 1),
-                Text(
-                  dateLabel,
-                  style: TextStyle(
-                    fontSize: 9,
-                    fontWeight: FontWeight.w500,
-                    color: AppColors.darkWith(0.45),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Row(
+                child: icon,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        'ABW: ${abw.toStringAsFixed(2)}g',
-                        style: const TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.primary,
-                        ),
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.dark,
                       ),
                     ),
-                    const SizedBox(width: 4),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.success.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        'ABL: ${abl.toStringAsFixed(2)}cm',
-                        style: const TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.success,
-                        ),
+                    const SizedBox(height: 1),
+                    Text(
+                      dateLabel,
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.darkWith(0.45),
                       ),
                     ),
+                    if (recordedBy.isNotEmpty) ...[
+                      const SizedBox(height: 1),
+                      Text(
+                        recordedBy,
+                        style: TextStyle(
+                          fontSize: 8,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.darkWith(0.4),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
-                const SizedBox(height: 2),
+              ),
+              if (isLatest)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Text(
+                    'Latest',
+                    style: TextStyle(
+                      fontSize: 8,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _buildDetailBadge(
+                  'Sample Size',
+                  '$sampleSize',
+                  AppColors.primary,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: _buildDetailBadge(
+                  'ABW',
+                  '${abw.toStringAsFixed(2)} g',
+                  AppColors.primary,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: _buildDetailBadge(
+                  'ABL',
+                  '${abl.toStringAsFixed(2)} cm',
+                  AppColors.success,
+                ),
+              ),
+            ],
+          ),
+          if (gainW != null && gainL != null) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(
+                  Icons.trending_up_rounded,
+                  size: 12,
+                  color: gainW >= 0 ? AppColors.success : AppColors.critical,
+                ),
+                const SizedBox(width: 4),
                 Text(
-                  '$sampleSize samples',
+                  'Weight Gain: ${gainW >= 0 ? "+" : ""}${gainW.toStringAsFixed(2)}g',
                   style: TextStyle(
-                    fontSize: 9,
-                    fontWeight: FontWeight.w500,
-                    color: AppColors.darkWith(0.4),
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: gainW >= 0 ? AppColors.success : AppColors.critical,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  'Length Gain: ${gainL >= 0 ? "+" : ""}${gainL.toStringAsFixed(2)}cm',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: gainL >= 0 ? AppColors.success : AppColors.critical,
                   ),
                 ),
               ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailBadge(String label, String value, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Column(
+        children: [
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              color: color,
+              height: 1.1,
+            ),
+          ),
+          const SizedBox(height: 1),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 7,
+              fontWeight: FontWeight.w600,
+              color: color.withValues(alpha: 0.6),
             ),
           ),
         ],
@@ -1479,7 +1762,6 @@ class SamplingHistoryPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final service = TankService.instance;
-    final history = service.samplingHistory.toList();
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -1538,34 +1820,32 @@ class SamplingHistoryPanel extends StatelessWidget {
               ),
             )
           else ...[
-            // Max 2 most recent sampling entries first (latest agad)
-            ...history
-                .where((e) => !e.isBaseline)
-                .toList()
-                .reversed
-                .take(2)
-                .map((entry) => Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: _buildHistoryCard(
-                title: _formatDate(entry.date),
-                dateLabel: 'Sampling entry',
-                abw: entry.abw,
-                abl: entry.avgLength,
-                sampleSize: entry.sampleSize,
-                isLatest: false,
-                icon: const Icon(
-                  Icons.history_rounded,
-                  size: 18,
-                  color: AppColors.primary,
+            ..._buildHistoryEntries().reversed.take(2).map(
+              (e) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _buildHistoryCard(
+                  title: e.title,
+                  dateLabel: e.dateLabel,
+                  abw: e.abw,
+                  abl: e.abl,
+                  sampleSize: e.sampleSize,
+                  isLatest: false,
+                  icon: const Icon(
+                    Icons.history_rounded,
+                    size: 18,
+                    color: AppColors.primary,
+                  ),
+                  gainW: e.gainW,
+                  gainL: e.gainL,
+                  recordedBy: e.recordedBy,
                 ),
               ),
-            )),
-            // Initial baseline card at the bottom
+            ),
             if (TankService.instance.isInitialized)
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: _buildHistoryCard(
-                  title: 'Initial Baseline',
+                  title: 'Week 0 (Baseline)',
                   dateLabel: _formatDate(service.stockingDate),
                   abw: service.initialWeight,
                   abl: service.initialLength,
@@ -1576,6 +1856,7 @@ class SamplingHistoryPanel extends StatelessWidget {
                     width: 20,
                     height: 20,
                   ),
+                  recordedBy: service.recordedBy,
                 ),
               ),
           ],

@@ -564,7 +564,17 @@ class TanksScreenState extends State<TanksScreen> {
   }
 
   void _showInitModal() => _showSetupForm(isEdit: false);
-  void _showEditModal() => _showSetupForm(isEdit: true);
+  void _showEditModal() {
+    if (TankService.instance.samplingHistory.isNotEmpty) {
+      showBeautifulSnackbar(
+        context,
+        'Initial setup data can no longer be modified because sampling records already exist.',
+        false,
+      );
+      return;
+    }
+    _showSetupForm(isEdit: true);
+  }
 
   void _showSetupForm({required bool isEdit}) {
     final countCtrl = TextEditingController(
@@ -694,7 +704,7 @@ class TanksScreenState extends State<TanksScreen> {
                         width: 24,
                         height: 24,
                       ),
-                      'Sample Count',
+                      'Sample Size',
                       'Number of crayfish sampled',
                       sampleCountCtrl,
                       errorText: sampleError,
@@ -706,8 +716,8 @@ class TanksScreenState extends State<TanksScreen> {
                         width: 24,
                         height: 24,
                       ),
-                      'Total Weight (g)',
-                      'Sum weight of sampled group',
+                      'Initial Sample\nWeight (g)',
+                      'Total weight of sampled group',
                       totalWeightCtrl,
                     ),
                     _buildInfoCard(
@@ -716,8 +726,8 @@ class TanksScreenState extends State<TanksScreen> {
                         width: 24,
                         height: 24,
                       ),
-                      'Total Length (cm)',
-                      'Sum length of sampled group',
+                      'Initial Sample\nLength (cm)',
+                      'Total length of sampled group',
                       totalLengthCtrl,
                     ),
 
@@ -1222,6 +1232,15 @@ class TanksScreenState extends State<TanksScreen> {
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                     const SizedBox(height: 2),
+                                    if (act.recordedBy.isNotEmpty)
+                                      Text(
+                                        act.recordedBy,
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppColors.dark.withValues(alpha: 0.5),
+                                        ),
+                                      ),
                                     Text(
                                       '${act.date} · ${act.time}',
                                       style: TextStyle(
