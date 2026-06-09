@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
 import '../../services/tank_service.dart';
-import '../../models/crayfish_stage.dart';
+
 
 // Copying helper to use within sampling UI
 void showBeautifulSnackbar(
@@ -261,7 +261,7 @@ class NextSamplingPanel extends StatelessWidget {
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
-                      'Sampling Week ${(service.daysInCulture ~/ 7) + 1}',
+                      'Sampling Week ${service.samplingHistory.where((e) => !e.isBaseline).length}',
                       style: const TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w800,
@@ -396,7 +396,9 @@ class GrowthOverviewPanel extends StatelessWidget {
     final service = TankService.instance;
     final history = service.samplingHistory;
     final hasWeeklySampling = history.any((e) => !e.isBaseline);
-    final latest = hasWeeklySampling ? history.lastWhere((e) => !e.isBaseline) : null;
+    final latest = hasWeeklySampling
+        ? history.lastWhere((e) => !e.isBaseline)
+        : null;
     final initialW = service.initialWeight;
     final initialL = service.initialLength;
 
@@ -498,8 +500,16 @@ class GrowthOverviewPanel extends StatelessWidget {
               style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.5)),
             ),
             const SizedBox(height: 12),
-            _buildDataRow('ABW:', '${weight.toStringAsFixed(1)} g', center: true),
-            _buildDataRow('ABL:', '${length.toStringAsFixed(1)} cm', center: true),
+            _buildDataRow(
+              'ABW:',
+              '${weight.toStringAsFixed(1)} g',
+              center: true,
+            ),
+            _buildDataRow(
+              'ABL:',
+              '${length.toStringAsFixed(1)} cm',
+              center: true,
+            ),
           ],
         ),
       ),
@@ -590,10 +600,7 @@ class GrowthOverviewPanel extends StatelessWidget {
                   isPosW,
                 ),
                 const SizedBox(width: 10),
-                Container(
-                  width: 1,
-                  color: AppColors.darkWith(0.25),
-                ),
+                Container(width: 1, color: AppColors.darkWith(0.25)),
                 const SizedBox(width: 10),
                 _buildGrowthMetric(
                   'Length Gain',
@@ -615,9 +622,9 @@ class GrowthOverviewPanel extends StatelessWidget {
         Text(
           label,
           style: TextStyle(fontSize: 8, color: AppColors.darkWith(0.5)),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
+        ),
+        const SizedBox(height: 4),
+        Text(
           value,
           style: TextStyle(
             fontSize: 12,
@@ -639,11 +646,17 @@ class GrowthOverviewPanel extends StatelessWidget {
                   children: [
                     TextSpan(
                       text: '$label ',
-                      style: TextStyle(fontSize: 10, color: AppColors.darkWith(0.6)),
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: AppColors.darkWith(0.6),
+                      ),
                     ),
                     TextSpan(
                       text: value,
-                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800),
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                   ],
                 ),
@@ -658,7 +671,10 @@ class GrowthOverviewPanel extends StatelessWidget {
                 ),
                 Text(
                   value,
-                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800),
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ],
             ),
@@ -848,7 +864,11 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
             children: [
               Expanded(
                 child: _buildInputCard(
-                  Image.asset('assets/images/SampleCount.png', width: 20, height: 20),
+                  Image.asset(
+                    'assets/images/SampleCount.png',
+                    width: 20,
+                    height: 20,
+                  ),
                   'Sample Size',
                   'Crayfish sampled',
                   '10',
@@ -862,7 +882,11 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
               const SizedBox(width: 8),
               Expanded(
                 child: _buildInputCard(
-                  Image.asset('assets/images/TotalWeight.png', width: 20, height: 20),
+                  Image.asset(
+                    'assets/images/TotalWeight.png',
+                    width: 20,
+                    height: 20,
+                  ),
                   'Sample Weight',
                   'Weight of samples',
                   '150',
@@ -873,7 +897,11 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
               const SizedBox(width: 8),
               Expanded(
                 child: _buildInputCard(
-                  Image.asset('assets/images/TotalLength.png', width: 20, height: 20),
+                  Image.asset(
+                    'assets/images/TotalLength.png',
+                    width: 20,
+                    height: 20,
+                  ),
                   'Sample Length',
                   'Length of samples',
                   '60',
@@ -1036,7 +1064,9 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
                   foregroundColor: _countError != null
                       ? Colors.white.withValues(alpha: 0.4)
                       : Colors.white,
-                  disabledBackgroundColor: AppColors.dark.withValues(alpha: 0.2),
+                  disabledBackgroundColor: AppColors.dark.withValues(
+                    alpha: 0.2,
+                  ),
                   disabledForegroundColor: Colors.white.withValues(alpha: 0.4),
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   elevation: 0,
@@ -1058,13 +1088,20 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
                 icon: const Icon(Icons.lock_rounded, size: 16),
                 label: Text(
                   'Sampling available in ${7 - TankService.instance.daysSinceLastSampling} days',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
                 ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.dark.withValues(alpha: 0.15),
                   foregroundColor: AppColors.dark.withValues(alpha: 0.5),
-                  disabledBackgroundColor: AppColors.dark.withValues(alpha: 0.15),
-                  disabledForegroundColor: AppColors.dark.withValues(alpha: 0.5),
+                  disabledBackgroundColor: AppColors.dark.withValues(
+                    alpha: 0.15,
+                  ),
+                  disabledForegroundColor: AppColors.dark.withValues(
+                    alpha: 0.5,
+                  ),
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   elevation: 0,
                   shape: RoundedRectangleBorder(
@@ -1118,14 +1155,14 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: enabled ? AppColors.primaryWith(0.03) : AppColors.primaryWith(0.01),
+        color: enabled
+            ? AppColors.primaryWith(0.03)
+            : AppColors.primaryWith(0.01),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: hasError && enabled
               ? AppColors.critical.withValues(alpha: 0.35)
-              : (enabled
-                  ? AppColors.darkWith(0.08)
-                  : AppColors.darkWith(0.04)),
+              : (enabled ? AppColors.darkWith(0.08) : AppColors.darkWith(0.04)),
         ),
         boxShadow: [
           BoxShadow(
@@ -1170,7 +1207,9 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
               fontWeight: FontWeight.w500,
               color: hasError && enabled
                   ? AppColors.critical.withValues(alpha: 0.6)
-                  : (enabled ? AppColors.darkWith(0.5) : AppColors.darkWith(0.3)),
+                  : (enabled
+                        ? AppColors.darkWith(0.5)
+                        : AppColors.darkWith(0.3)),
             ),
             textAlign: TextAlign.center,
           ),
@@ -1205,7 +1244,10 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
                       : AppColors.primary,
                 ),
               ),
-              hintStyle: TextStyle(fontSize: 12, color: AppColors.darkWith(0.3)),
+              hintStyle: TextStyle(
+                fontSize: 12,
+                color: AppColors.darkWith(0.3),
+              ),
             ),
             style: TextStyle(
               fontSize: 13,
@@ -1223,25 +1265,69 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
 
 class GrowthStagePanel extends StatelessWidget {
   final VoidCallback onInfoTap;
+
   const GrowthStagePanel({super.key, required this.onInfoTap});
+
+  static final List<_StageRule> _rules = [
+    _StageRule(
+      label: 'Early Juvenile',
+      minAbw: 1,
+      maxAbw: 5,
+      minAbl: 2,
+      maxAbl: 4,
+    ),
+    _StageRule(
+      label: 'Advanced Juvenile',
+      minAbw: 5,
+      maxAbw: 15,
+      minAbl: 4,
+      maxAbl: 6,
+    ),
+    _StageRule(
+      label: 'Pre-Adult',
+      minAbw: 15,
+      maxAbw: 50,
+      minAbl: 6,
+      maxAbl: 10,
+    ),
+    _StageRule(
+      label: 'Market Size',
+      minAbw: 50,
+      maxAbw: double.infinity,
+      minAbl: 10,
+      maxAbl: double.infinity,
+    ),
+  ];
 
   @override
   Widget build(BuildContext context) {
-    final stages = CrayfishStage.all;
-    final history = TankService.instance.samplingHistory;
+    final service = TankService.instance;
+    final history = service.samplingHistory;
+
     final currentAbw = history.isNotEmpty
         ? history.last.abw
-        : TankService.instance.initialWeight;
+        : service.initialWeight;
+
     final currentAbl = history.isNotEmpty
         ? history.last.avgLength
-        : TankService.instance.initialLength;
+        : service.initialLength;
 
-    int activeIndex = 0;
-    for (int i = 0; i < stages.length; i++) {
-      if (currentAbw >= stages[i].threshold) activeIndex = i;
-    }
+    final abwStageIndex = _getStageIndexByAbw(currentAbw);
+    final ablStageIndex = _getStageIndexByAbl(currentAbl);
 
-    final double progress = (activeIndex + 1) / stages.length;
+    // Conservative rule:
+    // Kung mas mababa ang ABL kaysa ABW, lower stage muna ang gagamitin.
+    final activeIndex = abwStageIndex < ablStageIndex
+        ? abwStageIndex
+        : ablStageIndex;
+
+    final activeStage = _rules[activeIndex];
+
+    final abwScore = _getAbwProgressScore(currentAbw);
+    final ablScore = _getAblProgressScore(currentAbl);
+
+    // Average progress ng ABW + ABL
+    final progress = ((abwScore + ablScore) / 2).clamp(0.0, 1.0);
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -1275,7 +1361,7 @@ class GrowthStagePanel extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    'Current: ${stages[activeIndex].label}',
+                    'Current: ${activeStage.label}',
                     style: const TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w600,
@@ -1294,7 +1380,9 @@ class GrowthStagePanel extends StatelessWidget {
               ),
             ],
           ),
+
           const SizedBox(height: 20),
+
           Stack(
             clipBehavior: Clip.none,
             children: [
@@ -1307,7 +1395,7 @@ class GrowthStagePanel extends StatelessWidget {
               ),
               TweenAnimationBuilder<double>(
                 tween: Tween<double>(begin: 0, end: progress),
-                duration: const Duration(milliseconds: 1000),
+                duration: const Duration(milliseconds: 900),
                 curve: Curves.easeOutCubic,
                 builder: (context, value, child) {
                   return FractionallySizedBox(
@@ -1316,7 +1404,7 @@ class GrowthStagePanel extends StatelessWidget {
                       height: 8,
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
-                          colors: [Color(0xFF52c283), AppColors.primary],
+                          colors: [Color(0xFF52C283), AppColors.primary],
                         ),
                         borderRadius: BorderRadius.circular(10),
                         boxShadow: [
@@ -1331,47 +1419,39 @@ class GrowthStagePanel extends StatelessWidget {
                   );
                 },
               ),
-              Positioned.fill(
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: List.generate(stages.length, (i) {
-                    final isActive = i <= activeIndex;
-                    return Container(
-                      width: 2,
-                      height: 8,
-                      color: isActive
-                          ? Colors.white.withValues(alpha: 0.5)
-                          : Colors.transparent,
-                    );
-                  }),
-                ),
-              ),
             ],
           ),
+
           const SizedBox(height: 12),
+
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: List.generate(stages.length, (i) {
+            children: List.generate(_rules.length, (i) {
               final isThisActive = i == activeIndex;
               final isReached = i <= activeIndex;
+
               return Expanded(
                 child: Text(
-                  stages[i].label,
+                  _rules[i].label,
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 8,
-                    fontWeight: isThisActive ? FontWeight.w800 : FontWeight.w600,
+                    fontWeight: isThisActive
+                        ? FontWeight.w800
+                        : FontWeight.w600,
                     color: isThisActive
                         ? AppColors.primary
-                        : (isReached
-                              ? AppColors.darkWith(0.7)
-                              : AppColors.darkWith(0.3)),
+                        : isReached
+                        ? AppColors.darkWith(0.7)
+                        : AppColors.darkWith(0.3),
                   ),
                 ),
               );
             }),
           ),
+
           const SizedBox(height: 16),
+
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -1379,29 +1459,42 @@ class GrowthStagePanel extends StatelessWidget {
               color: AppColors.primary.withValues(alpha: 0.06),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+            child: Column(
               children: [
-                Text(
-                  'ABW: ${currentAbw.toStringAsFixed(1)}g',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.primary,
-                  ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      'ABW: ${currentAbw.toStringAsFixed(1)}g',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                    Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 12),
+                      width: 1,
+                      height: 14,
+                      color: AppColors.primary.withValues(alpha: 0.2),
+                    ),
+                    Text(
+                      'ABL: ${currentAbl.toStringAsFixed(1)}cm',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                  ],
                 ),
-                Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 12),
-                  width: 1,
-                  height: 14,
-                  color: AppColors.primary.withValues(alpha: 0.2),
-                ),
+                const SizedBox(height: 4),
                 Text(
-                  'ABL: ${currentAbl.toStringAsFixed(1)}cm',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.primary,
+                  'Stage is based on both ABW and ABL.',
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.darkWith(0.45),
                   ),
                 ),
               ],
@@ -1411,6 +1504,102 @@ class GrowthStagePanel extends StatelessWidget {
       ),
     );
   }
+
+  int _getStageIndexByAbw(double abw) {
+    for (int i = 0; i < _rules.length; i++) {
+      final rule = _rules[i];
+
+      if (i == _rules.length - 1) {
+        if (abw >= rule.minAbw) return i;
+      } else {
+        if (abw >= rule.minAbw && abw < rule.maxAbw) return i;
+      }
+    }
+
+    return 0;
+  }
+
+  int _getStageIndexByAbl(double abl) {
+    for (int i = 0; i < _rules.length; i++) {
+      final rule = _rules[i];
+
+      if (i == _rules.length - 1) {
+        if (abl >= rule.minAbl) return i;
+      } else {
+        if (abl >= rule.minAbl && abl < rule.maxAbl) return i;
+      }
+    }
+
+    return 0;
+  }
+
+  double _getAbwProgressScore(double abw) {
+    return _getProgressScore(
+      value: abw,
+      ranges: [
+        const _MetricRange(min: 1, max: 5),
+        const _MetricRange(min: 5, max: 15),
+        const _MetricRange(min: 15, max: 50),
+        const _MetricRange(min: 50, max: 100),
+      ],
+    );
+  }
+
+  double _getAblProgressScore(double abl) {
+    return _getProgressScore(
+      value: abl,
+      ranges: [
+        const _MetricRange(min: 2, max: 4),
+        const _MetricRange(min: 4, max: 6),
+        const _MetricRange(min: 6, max: 10),
+        const _MetricRange(min: 10, max: 12),
+      ],
+    );
+  }
+
+  double _getProgressScore({
+    required double value,
+    required List<_MetricRange> ranges,
+  }) {
+    if (value <= ranges.first.min) return 0.0;
+
+    for (int i = 0; i < ranges.length; i++) {
+      final range = ranges[i];
+
+      if (value >= range.min && value < range.max) {
+        final withinStage = ((value - range.min) / (range.max - range.min))
+            .clamp(0.0, 1.0);
+
+        return ((i + withinStage) / ranges.length).clamp(0.0, 1.0);
+      }
+    }
+
+    return 1.0;
+  }
+}
+
+class _StageRule {
+  final String label;
+  final double minAbw;
+  final double maxAbw;
+  final double minAbl;
+  final double maxAbl;
+
+  const _StageRule({
+    required this.label,
+    required this.minAbw,
+    required this.maxAbw,
+    required this.minAbl,
+    required this.maxAbl,
+  });
+
+}
+
+class _MetricRange {
+  final double min;
+  final double max;
+
+  const _MetricRange({required this.min, required this.max});
 }
 
 class _HistoryEntry {
@@ -1442,8 +1631,18 @@ class SamplingHistoryPanel extends StatelessWidget {
 
   String _formatDate(DateTime date) {
     final months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return '${months[date.month - 1]} ${date.day}, ${date.year}';
   }
@@ -1455,38 +1654,44 @@ class SamplingHistoryPanel extends StatelessWidget {
         .toList();
 
     List<_HistoryEntry> entries = [];
-    entries.add(_HistoryEntry(
-      title: 'Week 0 (Baseline)',
-      dateLabel: _formatDate(service.stockingDate),
-      abw: service.initialWeight,
-      abl: service.initialLength,
-      sampleSize: service.sampleCount,
-      recordedBy: service.recordedBy,
-      icon: Image.asset(
-        'assets/images/InitialPopulation.png',
-        width: 20,
-        height: 20,
+    entries.add(
+      _HistoryEntry(
+        title: 'Week 0 (Baseline)',
+        dateLabel: _formatDate(service.stockingDate),
+        abw: service.initialWeight,
+        abl: service.initialLength,
+        sampleSize: service.sampleCount,
+        recordedBy: service.recordedBy,
+        icon: Image.asset(
+          'assets/images/InitialPopulation.png',
+          width: 20,
+          height: 20,
+        ),
       ),
-    ));
+    );
     for (int i = 0; i < allHistory.length; i++) {
       final entry = allHistory[i];
       final prevAbw = i == 0 ? service.initialWeight : allHistory[i - 1].abw;
-      final prevAbl = i == 0 ? service.initialLength : allHistory[i - 1].avgLength;
-      entries.add(_HistoryEntry(
-        title: 'Week ${i + 1}',
-        dateLabel: _formatDate(entry.date),
-        abw: entry.abw,
-        abl: entry.avgLength,
-        sampleSize: entry.sampleSize,
-        gainW: entry.abw - prevAbw,
-        gainL: entry.avgLength - prevAbl,
-        recordedBy: entry.recordedBy,
-        icon: const Icon(
-          Icons.biotech_rounded,
-          size: 18,
-          color: AppColors.primary,
+      final prevAbl = i == 0
+          ? service.initialLength
+          : allHistory[i - 1].avgLength;
+      entries.add(
+        _HistoryEntry(
+          title: 'Week ${i + 1}',
+          dateLabel: _formatDate(entry.date),
+          abw: entry.abw,
+          abl: entry.avgLength,
+          sampleSize: entry.sampleSize,
+          gainW: entry.abw - prevAbw,
+          gainL: entry.avgLength - prevAbl,
+          recordedBy: entry.recordedBy,
+          icon: const Icon(
+            Icons.biotech_rounded,
+            size: 18,
+            color: AppColors.primary,
+          ),
         ),
-      ));
+      );
     }
 
     showModalBottomSheet(
@@ -1543,7 +1748,8 @@ class SamplingHistoryPanel extends StatelessWidget {
                   separatorBuilder: (_, _) => const SizedBox(height: 8),
                   itemBuilder: (_, i) {
                     final entry = entries.reversed.toList()[i];
-                    final isLatest = i == 0 && !entry.title.contains('Baseline');
+                    final isLatest =
+                        i == 0 && !entry.title.contains('Baseline');
                     return _buildHistoryCard(
                       title: entry.title,
                       dateLabel: entry.dateLabel,
@@ -1575,10 +1781,7 @@ class SamplingHistoryPanel extends StatelessWidget {
                   ),
                   child: const Text(
                     'Close',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                    ),
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
                   ),
                 ),
               ),

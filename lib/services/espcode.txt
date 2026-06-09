@@ -31,7 +31,7 @@
  * Firebase paths:
  *  /sensor_readings/latest   -> overwritten every 5s (1 record)
  *  /sensor_readings/history  -> pushed every 60s (for time-series)
- *  /sensor_readings/config   -> threshold config written by Flutter app
+ *  /sensor_readings/thresholds   -> threshold config written by Flutter app
  */
 
 #include <WiFi.h>
@@ -56,7 +56,7 @@ const char* WIFI_PASSWORD = "PLDTWIFIJmR79";
 
 #define FIREBASE_LATEST_PATH   "/sensor_readings/latest"
 #define FIREBASE_HISTORY_PATH  "/sensor_readings/history"
-#define FIREBASE_CONFIG_PATH   "/sensor_readings/config"
+#define FIREBASE_CONFIG_PATH   "/sensor_readings/thresholds"
 
 #define FIREBASE_SEND_INTERVAL_MS 5000
 #define HISTORY_SEND_INTERVAL_MS 60000

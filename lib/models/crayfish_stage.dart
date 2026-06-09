@@ -2,16 +2,13 @@ class CrayfishStage {
   final String name;
   final String label;
   final String description;
-  final String lengthRange;
-  final String weightRange;
+
   final double threshold;
 
   const CrayfishStage({
     required this.name,
     required this.label,
     required this.description,
-    required this.lengthRange,
-    required this.weightRange,
     required this.threshold,
   });
 
@@ -20,32 +17,24 @@ class CrayfishStage {
       name: 'early_juvenile',
       label: 'Early Juvenile',
       description: 'Newly stocked young crayfish',
-      lengthRange: '2 – 4 cm',
-      weightRange: '1 – 5 g',
       threshold: 0.0,
     ),
     CrayfishStage(
       name: 'advanced_juvenile',
       label: 'Advanced Juvenile',
       description: 'Active early growth',
-      lengthRange: '4 – 6 cm',
-      weightRange: '5 – 15 g',
       threshold: 5.0,
     ),
     CrayfishStage(
       name: 'pre_adult',
       label: 'Pre-Adult',
       description: 'Preparing for full maturity',
-      lengthRange: '6 – 10 cm',
-      weightRange: '15 – 50 g',
       threshold: 15.0,
     ),
     CrayfishStage(
       name: 'market_size',
       label: 'Market Size',
       description: 'Ready for harvest',
-      lengthRange: '> 10 cm',
-      weightRange: '50 g+',
       threshold: 50.0,
     ),
   ];

@@ -410,23 +410,7 @@ class TanksScreenState extends State<TanksScreen> {
                                   ),
                                   SizedBox(width: 24),
                                   SizedBox(
-                                    width: 160,
-                                    child: Text(
-                                      'Average Length (cm)',
-                                      style: _tableHeaderStyle,
-                                    ),
-                                  ),
-                                  SizedBox(width: 24),
-                                  SizedBox(
-                                    width: 160,
-                                    child: Text(
-                                      'Average Weight (g)',
-                                      style: _tableHeaderStyle,
-                                    ),
-                                  ),
-                                  SizedBox(width: 24),
-                                  SizedBox(
-                                    width: 220,
+                                    width: 340,
                                     child: Text(
                                       'System Classification',
                                       style: _tableHeaderStyle,
@@ -439,8 +423,6 @@ class TanksScreenState extends State<TanksScreen> {
                             for (var i = 0; i < CrayfishStage.all.length; i++)
                               _buildTableRow(
                                 CrayfishStage.all[i].label,
-                                CrayfishStage.all[i].lengthRange,
-                                CrayfishStage.all[i].weightRange,
                                 CrayfishStage.all[i].description,
                                 isStriped: i.isOdd,
                                 isLast: i == CrayfishStage.all.length - 1,
@@ -491,8 +473,6 @@ class TanksScreenState extends State<TanksScreen> {
 
   Widget _buildTableRow(
     String stage,
-    String length,
-    String weight,
     String classification, {
     required bool isStriped,
     bool isLast = false,
@@ -523,31 +503,7 @@ class TanksScreenState extends State<TanksScreen> {
           ),
           const SizedBox(width: 24),
           SizedBox(
-            width: 160,
-            child: Text(
-              length,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: AppColors.dark,
-              ),
-            ),
-          ),
-          const SizedBox(width: 24),
-          SizedBox(
-            width: 160,
-            child: Text(
-              weight,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: AppColors.dark,
-              ),
-            ),
-          ),
-          const SizedBox(width: 24),
-          SizedBox(
-            width: 220,
+            width: 340,
             child: Text(
               classification,
               style: TextStyle(

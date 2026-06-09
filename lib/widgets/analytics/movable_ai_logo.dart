@@ -1,5 +1,9 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import '../../theme/app_colors.dart';
+import '../../services/sensor_service.dart';
+import '../../services/settings_service.dart';
 
 class MovableAiLogo extends StatefulWidget {
   const MovableAiLogo({super.key});
@@ -14,6 +18,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
   late AnimationController _pulseController;
   final double _logoSize = 60.0;
   bool _isInitialized = false;
+  int _retryTrigger = 0;
 
   @override
   void initState() {
@@ -39,61 +44,108 @@ class _MovableAiLogoState extends State<MovableAiLogo>
     );
   }
 
-  // SIMULATED PYTHON ML API FETCHING
-  Future<List<Map<String, dynamic>>> _fetchMLData() async {
-    // Naghihintay ng 2 seconds para makita ang "Analyzing..." animation
-    await Future.delayed(const Duration(seconds: 2));
+  static const String _mlApiUrl = 'http://192.168.1.16:5000/predict';
 
-    return [
-      {
-        'title': 'Temperature',
-        'iconPath': 'assets/icons/temperature.png',
-        'color': AppColors.warning,
-        'status': 'Warning',
-        'statusColor': AppColors.warning,
-        'insight':
-            'Currently at 29.5°C. Temperature is rising faster than usual.',
-        'prediction':
-            'AI predicts it will reach the critical level of 32°C in the next 3 hours.',
-        'recommendation':
-            'Turn on the cooling fans immediately and block direct sunlight to the tank.',
-      },
-      {
-        'title': 'pH Level',
-        'iconPath': 'assets/icons/pH.png',
-        'color': AppColors.primary,
-        'status': 'Stable',
-        'statusColor': AppColors.success,
-        'insight': 'pH is at 7.2. Water chemistry is highly optimal.',
-        'prediction':
-            'AI predicts pH will remain stable between 7.1 and 7.3 for the next 24 hours.',
-        'recommendation': 'No action needed. Keep current feeding routine.',
-      },
-      {
-        'title': 'Dissolved Oxygen',
-        'iconPath': 'assets/icons/DO.png',
-        'color': const Color(0xFF52c283),
-        'status': 'Stable',
-        'statusColor': AppColors.success,
-        'insight': 'DO is at 5.5 mg/L. Aeration is performing efficiently.',
-        'prediction':
-            'AI predicts DO will drop slightly at night but will stay above safe limits.',
-        'recommendation': 'Ensure air pump remains plugged in overnight.',
-      },
-      {
-        'title': 'Turbidity',
-        'iconPath': 'assets/icons/Turbidity.png',
-        'color': AppColors.critical,
-        'status': 'Action Needed',
-        'statusColor': AppColors.critical,
-        'insight':
-            'Water clarity is decreasing (45 NTU). High suspended solids detected.',
-        'prediction':
-            'AI predicts a possible ammonia spike in 12 hours due to accumulated waste.',
-        'recommendation':
-            'Perform a 20% water change and clean the mechanical filtration sponge.',
-      },
-    ];
+  static const Map<String, String> _sensorKeyMap = {
+    'temp': 'temperature',
+    'ph': 'phLevel',
+    'do': 'dissolvedOxygen',
+    'turb': 'turbidity',
+    'waterlevel': 'waterLevel',
+  };
+
+  Future<List<Map<String, dynamic>>> _fetchMLData() async {
+    final svc = SensorService.instance;
+    final settings = SettingsService.instance;
+
+    final temp = svc.getLatestValue('temp');
+    final ph = svc.getLatestValue('ph');
+    final doVal = svc.getLatestValue('do');
+    final turb = svc.getLatestValue('turb');
+    final wl = svc.getLatestValue('waterlevel');
+
+    if (temp == 0 && ph == 0 && doVal == 0 && turb == 0 && wl == 0) {
+      throw Exception('No sensor data available. Make sure ESP32 is connected.');
+    }
+
+    final thresholds = <String, Map<String, double>>{};
+    for (final entry in settings.currentRanges.entries) {
+      final mappedKey = _sensorKeyMap[entry.key];
+      if (mappedKey != null) {
+        thresholds[mappedKey] = entry.value;
+      }
+    }
+
+    final response = await http
+        .post(
+          Uri.parse(_mlApiUrl),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'temperature': temp,
+            'phLevel': ph,
+            'dissolvedOxygen': doVal,
+            'turbidity': turb,
+            'waterLevel': wl,
+            'thresholds': thresholds,
+          }),
+        )
+        .timeout(const Duration(seconds: 5));
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final status = data['predictedStatus'] as String;
+      final isCritical = status == 'CRITICAL';
+      final statusLabel = isCritical ? 'Critical' : 'Optimal';
+      final statusColor = isCritical ? AppColors.critical : AppColors.success;
+      final insight = data['insight'] as String;
+      final prediction = data['prediction'] as String;
+      final recommendation = data['recommendation'] as String;
+
+      return [
+        {
+          'title': 'Temperature',
+          'iconPath': 'assets/icons/temperature.png',
+          'color': AppColors.warning,
+          'status': statusLabel,
+          'statusColor': statusColor,
+          'insight': 'Temperature at ${temp.toStringAsFixed(1)}°C. $insight',
+          'prediction': prediction,
+          'recommendation': recommendation,
+        },
+        {
+          'title': 'pH Level',
+          'iconPath': 'assets/icons/pH.png',
+          'color': AppColors.primary,
+          'status': statusLabel,
+          'statusColor': statusColor,
+          'insight': 'pH at ${ph.toStringAsFixed(1)}. $insight',
+          'prediction': prediction,
+          'recommendation': recommendation,
+        },
+        {
+          'title': 'Dissolved Oxygen',
+          'iconPath': 'assets/icons/DO.png',
+          'color': const Color(0xFF52c283),
+          'status': statusLabel,
+          'statusColor': statusColor,
+          'insight': 'DO at ${doVal.toStringAsFixed(1)} mg/L. $insight',
+          'prediction': prediction,
+          'recommendation': recommendation,
+        },
+        {
+          'title': 'Turbidity',
+          'iconPath': 'assets/icons/Turbidity.png',
+          'color': AppColors.critical,
+          'status': statusLabel,
+          'statusColor': statusColor,
+          'insight': 'Turbidity at ${turb.toStringAsFixed(1)} NTU. $insight',
+          'prediction': prediction,
+          'recommendation': recommendation,
+        },
+      ];
+    }
+
+    throw Exception('ML API returned status ${response.statusCode}');
   }
 
   Widget _buildAIInsightsSheet(BuildContext ctx) {
@@ -167,6 +219,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
           Expanded(
             child: FutureBuilder<List<Map<String, dynamic>>>(
               future: _fetchMLData(),
+              key: ValueKey(_retryTrigger),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return Center(
@@ -191,10 +244,46 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                 }
 
                 if (snapshot.hasError || !snapshot.hasData) {
-                  return const Center(
-                    child: Text(
-                      'Failed to load ML Insights',
-                      style: TextStyle(color: AppColors.critical),
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.cloud_off_rounded,
+                            size: 40,
+                            color: AppColors.critical.withValues(alpha: 0.6),
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            snapshot.error?.toString() ?? 'Failed to load ML Insights',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: AppColors.dark.withValues(alpha: 0.6),
+                              height: 1.4,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton.icon(
+                            onPressed: () => setState(() => _retryTrigger++),
+                            icon: const Icon(Icons.refresh_rounded, size: 16),
+                            label: const Text('Retry'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20, vertical: 10,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   );
                 }

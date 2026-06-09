@@ -81,7 +81,7 @@ class DatabaseService {
 
   DatabaseReference get _sensorLatestRef => _db.child('sensor_readings/latest');
   DatabaseReference get _sensorHistoryRef => _db.child('sensor_readings/history');
-  DatabaseReference get _sensorConfigRef => _db.child('sensor_readings/config');
+  DatabaseReference get _sensorConfigRef => _db.child('sensor_readings/thresholds');
 
   Future<Map<String, dynamic>?> getLatestReadings() async {
     final snapshot = await _sensorLatestRef.get().timeout(

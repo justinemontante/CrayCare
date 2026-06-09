@@ -602,21 +602,13 @@ class _StageSettingsState extends State<StageSettings> {
                           const SizedBox(height: 6),
                           Text(
                             stage.description,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
                             style: TextStyle(
                               fontSize: 9,
                               color: AppColors.darkWith(0.5),
                             ),
                           ),
-                          const SizedBox(height: 6),
-                          Row(
-                            children: [
-                              _infoBadge(stage.lengthRange, AppColors.primary),
-                              const SizedBox(width: 4),
-                              _infoBadge(stage.weightRange, AppColors.warning),
-                            ],
-                          ),
+
                         ],
                       ),
                     ),
@@ -741,17 +733,6 @@ class _StageSettingsState extends State<StageSettings> {
                   ),
                 ),
               ),
-              const SizedBox(height: 16),
-              Padding(
-                padding: const EdgeInsets.only(left: 18),
-                child: Row(
-                  children: [
-                    _modalChip('ABL: ${stage.lengthRange}', AppColors.primary),
-                    const SizedBox(width: 8),
-                    _modalChip('ABW: ${stage.weightRange}', AppColors.warning),
-                  ],
-                ),
-              ),
               const SizedBox(height: 20),
               Padding(
                 padding: const EdgeInsets.only(left: 18),
@@ -825,40 +806,4 @@ class _StageSettingsState extends State<StageSettings> {
     );
   }
 
-  Widget _modalChip(String text, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(
-          fontSize: 9,
-          fontWeight: FontWeight.w700,
-          color: color,
-        ),
-      ),
-    );
-  }
-
-  Widget _infoBadge(String text, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(3),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(
-          fontSize: 7,
-          fontWeight: FontWeight.w700,
-          color: color,
-          letterSpacing: 0.2,
-        ),
-      ),
-    );
-  }
 }
