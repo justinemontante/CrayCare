@@ -25,6 +25,13 @@ class _SensorMeta {
 }
 
 class _StageSettingsState extends State<StageSettings> {
+  static Map<String, dynamic> _convertMap(Object? value) {
+    if (value is Map) {
+      return value.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
+    }
+    return {};
+  }
+
   final List<String> sensors = const ['temp', 'ph', 'do', 'turb', 'waterlevel'];
 
   final Map<String, _SensorMeta> sensorMeta = const {
@@ -79,17 +86,17 @@ class _StageSettingsState extends State<StageSettings> {
 
       final allRaw = data['allRanges'];
       if (allRaw is Map) {
-        final all = Map<String, dynamic>.from(allRaw);
+        final all = _convertMap(allRaw);
         for (final stageEntry in all.entries) {
           final stageName = stageEntry.key;
           if (!CrayfishStage.all.any((s) => s.name == stageName)) continue;
           if (stageEntry.value is! Map) continue;
 
-          final stageData = Map<String, dynamic>.from(stageEntry.value as Map);
+          final stageData = _convertMap(stageEntry.value as Map);
           for (final sensorKey in sensors) {
             final sRaw = stageData[sensorKey];
             if (sRaw is! Map) continue;
-            final sMap = Map<String, dynamic>.from(sRaw);
+            final sMap = _convertMap(sRaw);
             final min = _toDouble(sMap['min']);
             final max = _toDouble(sMap['max']);
             if (min == null || max == null) continue;

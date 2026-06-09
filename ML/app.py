@@ -15,7 +15,7 @@ def check_thresholds(data, thresholds):
         "temperature": "temperature",
         "phLevel": "phLevel",
         "dissolvedOxygen": "dissolvedOxygen",
-        "turbidity": "turbidity",``
+        "turbidity": "turbidity",
         "waterLevel": "waterLevel",
     }
 
@@ -72,6 +72,81 @@ def build_response(status, confidence, out_of_range):
     }
 
 
+def build_per_sensor_response(status, confidence, data, thresholds):
+    sensor_configs = [
+        {"key": "temperature", "label": "Temperature", "unit": "\u00b0C"},
+        {"key": "phLevel", "label": "pH Level", "unit": ""},
+        {"key": "dissolvedOxygen", "label": "Dissolved Oxygen", "unit": "mg/L"},
+        {"key": "turbidity", "label": "Turbidity", "unit": "NTU"},
+        {"key": "waterLevel", "label": "Water Level", "unit": "%"},
+    ]
+
+    sensors = []
+    out_of_range = []
+
+    for cfg in sensor_configs:
+        key = cfg["key"]
+        val = data.get(key, 0)
+        t = thresholds.get(key, {}) if thresholds else {}
+        t_min = t.get("min")
+        t_max = t.get("max")
+
+        sensor_status = "OPTIMAL"
+        if t_min is not None and val < t_min:
+            sensor_status = "CRITICAL"
+            out_of_range.append(
+                f"{cfg['label']} ({val}) is below the ideal minimum of {t_min}"
+            )
+        elif t_max is not None and val > t_max:
+            sensor_status = "CRITICAL"
+            out_of_range.append(
+                f"{cfg['label']} ({val}) is above the ideal maximum of {t_max}"
+            )
+
+        if sensor_status == "CRITICAL":
+            if t_min is not None and val < t_min:
+                insight = f"{cfg['label']} at {val}{cfg['unit']} is below the ideal minimum of {t_min}{cfg['unit']}."
+                prediction = "The model predicts this may cause environmental stress if not corrected."
+                recommendation = f"Increase {cfg['label'].lower()} to bring it within the ideal range ({t_min}{cfg['unit']} - {t_max}{cfg['unit']})."
+            elif t_max is not None and val > t_max:
+                insight = f"{cfg['label']} at {val}{cfg['unit']} is above the ideal maximum of {t_max}{cfg['unit']}."
+                prediction = "The model predicts this may cause environmental stress if not corrected."
+                recommendation = f"Reduce {cfg['label'].lower()} to bring it within the ideal range ({t_min}{cfg['unit']} - {t_max}{cfg['unit']})."
+            else:
+                insight = f"{cfg['label']} reading is {val}{cfg['unit']} and requires attention."
+                prediction = "The model predicts that corrective action is needed."
+                recommendation = "Check equipment and water quality parameters."
+        else:
+            if t_min is not None and t_max is not None:
+                insight = f"{cfg['label']} at {val}{cfg['unit']} is within the ideal range ({t_min}{cfg['unit']} - {t_max}{cfg['unit']})."
+            else:
+                insight = f"{cfg['label']} is currently at {val}{cfg['unit']}."
+            prediction = (
+                "The model predicts stable conditions if current readings persist."
+            )
+            recommendation = "Continue regular monitoring."
+
+        sensors.append(
+            {
+                "key": key,
+                "label": cfg["label"],
+                "value": val,
+                "unit": cfg["unit"],
+                "min": t_min,
+                "max": t_max,
+                "status": sensor_status,
+                "insight": insight,
+                "prediction": prediction,
+                "recommendation": recommendation,
+            }
+        )
+
+    overall = build_response(status, confidence, out_of_range)
+    overall["sensors"] = sensors
+    overall["sensorValues"] = data
+    return overall
+
+
 @app.route("/predict", methods=["POST"])
 def predict():
     data = request.get_json()
@@ -93,9 +168,8 @@ def predict():
     confidence = round(float(max(probabilities)), 2)
 
     thresholds = data.get("thresholds")
-    out_of_range, has_issue = check_thresholds(data, thresholds)
 
-    return jsonify(build_response(prediction, confidence, out_of_range))
+    return jsonify(build_per_sensor_response(prediction, confidence, data, thresholds))
 
 
 @app.route("/", methods=["GET"])

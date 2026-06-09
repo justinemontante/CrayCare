@@ -65,6 +65,18 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   void _onSensorDataChanged() {
     if (_activeFilter == 'live' && mounted) {
       setState(() {
+        final hasData = SensorService.sensorKeys.any(
+          (k) => SensorService.instance.hasSensorData(k),
+        );
+
+        if (!hasData) {
+          for (final key in SensorService.sensorKeys) {
+            _data['$key-live'] = [];
+          }
+          _labels['live'] = [];
+          return;
+        }
+
         final now = DateTime.now();
         final timeStr =
             "${now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour)}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')} ${now.hour >= 12 ? 'PM' : 'AM'}";

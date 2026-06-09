@@ -20,6 +20,8 @@ class NotificationService extends ChangeNotifier {
   final DatabaseReference _notifRef = FirebaseDatabase.instance.ref(
     'notifications',
   );
+  StreamSubscription<DatabaseEvent>? _notifSub;
+  StreamSubscription<DatabaseEvent>? _notifRemovedSub;
 
   final FlutterLocalNotificationsPlugin _localNotifications =
       FlutterLocalNotificationsPlugin();
@@ -61,7 +63,7 @@ class NotificationService extends ChangeNotifier {
   void init() {
     if (_initialized) return;
     _initialized = true;
-    _loadFromFirebase();
+    _listenFirebase();
     SensorService.instance.addListener(_onSensorUpdate);
     _initPreviousStates();
   }
@@ -150,6 +152,8 @@ class NotificationService extends ChangeNotifier {
   @override
   void dispose() {
     _tokenSub?.cancel();
+    _notifSub?.cancel();
+    _notifRemovedSub?.cancel();
     SensorService.instance.removeListener(_onSensorUpdate);
     super.dispose();
   }
@@ -157,50 +161,48 @@ class NotificationService extends ChangeNotifier {
   void _initPreviousStates() {
     for (final key in SensorService.sensorKeys) {
       final zone = SensorService.instance.getZone(key);
-      if (zone == 'CRITICAL') {
-        _previousZones[key] = 'CRITICAL';
-      }
+      _previousZones[key] = zone;
     }
   }
 
-  void _loadFromFirebase() async {
-    try {
-      final snapshot = await _notifRef
-          .orderByChild('timestamp')
-          .limitToLast(200)
-          .once();
-      if (snapshot.snapshot.value == null) return;
-      final data = Map<String, dynamic>.from(snapshot.snapshot.value as Map);
-      final entries = data.entries.toList()
-        ..sort((a, b) {
-          final ta = (a.value as Map)['timestamp'] ?? 0;
-          final tb = (b.value as Map)['timestamp'] ?? 0;
-          return (tb as int).compareTo(ta as int);
-        });
+  void _listenFirebase() {
+    _notifSub = _notifRef.onChildAdded.listen((e) {
+      final key = e.snapshot.key;
+      if (key == null || e.snapshot.value == null) return;
+      if (_notifications.any((n) => n.id == key)) return;
 
-      for (final entry in entries) {
-        final fbKey = entry.key;
-        final map = Map<String, dynamic>.from(entry.value as Map);
-        _notifications.add(
-          NotificationItem(
-            id: map['localId'] ?? 'fb_$fbKey',
-            type: map['type'] ?? 'operational',
-            title: map['title'] ?? '',
-            message: map['message'] ?? '',
-            timestamp: DateTime.fromMillisecondsSinceEpoch(
-              (map['timestamp'] as num).toInt(),
-            ),
-            unread: map['unread'] == true,
+      final raw = e.snapshot.value as Map<Object?, Object?>;
+      final map = raw.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
+      _notifications.add(
+        NotificationItem(
+          id: key,
+          type: map['type'] ?? 'operational',
+          title: map['title'] ?? '',
+          message: map['message'] ?? '',
+          timestamp: DateTime.fromMillisecondsSinceEpoch(
+            (map['timestamp'] as num).toInt(),
           ),
-        );
-      }
+          unread: map['unread'] == true,
+        ),
+      );
+      _notifications.sort((a, b) => b.timestamp.compareTo(a.timestamp));
       notifyListeners();
-    } catch (e) {
-      debugPrint('[NotificationService] Failed to load from Firebase: $e');
-    }
+    });
+
+    _notifRemovedSub = _notifRef.onChildRemoved.listen((e) {
+      final key = e.snapshot.key;
+      if (key == null) return;
+      _notifications.removeWhere((n) => n.id == key);
+      notifyListeners();
+    });
   }
 
   void _onSensorUpdate() {
+    final hasData = SensorService.sensorKeys.any(
+      (k) => SensorService.instance.getZone(k) != 'UNKNOWN',
+    );
+    if (!hasData) return;
+
     final now = DateTime.now();
 
     for (final key in SensorService.sensorKeys) {
@@ -242,10 +244,9 @@ class NotificationService extends ChangeNotifier {
     required String message,
     required DateTime timestamp,
   }) {
-    _idCounter++;
-    final localId = 'notif_$_idCounter';
+    final fbRef = _notifRef.push();
     final notif = NotificationItem(
-      id: localId,
+      id: fbRef.key ?? 'notif_${++_idCounter}',
       type: type,
       title: title,
       message: message,
@@ -256,22 +257,15 @@ class NotificationService extends ChangeNotifier {
     _notifications.insert(0, notif);
     notifyListeners();
 
-    _saveToFirebase(notif);
-  }
-
-  void _saveToFirebase(NotificationItem notif) {
-    try {
-      _notifRef.push().set({
-        'localId': notif.id,
-        'type': notif.type,
-        'title': notif.title,
-        'message': notif.message,
-        'timestamp': notif.timestamp.millisecondsSinceEpoch,
-        'unread': notif.unread,
-      });
-    } catch (e) {
-      debugPrint('[NotificationService] Failed to save notification: $e');
-    }
+    fbRef.set({
+      'type': notif.type,
+      'title': notif.title,
+      'message': notif.message,
+      'timestamp': notif.timestamp.millisecondsSinceEpoch,
+      'unread': notif.unread,
+    }).catchError((e) {
+      debugPrint('[NotificationService] Failed to save: $e');
+    });
   }
 
   void markAllRead() {
@@ -294,25 +288,10 @@ class NotificationService extends ChangeNotifier {
   }
 
   void _updateUnreadInFirebase() async {
-    try {
-      final snapshot = await _notifRef.once();
-      if (snapshot.snapshot.value == null) return;
-      final data = Map<String, dynamic>.from(snapshot.snapshot.value as Map);
-      for (final entry in data.entries) {
-        final map = Map<String, dynamic>.from(entry.value as Map);
-        if (map['unread'] == true &&
-            _notifications
-                    .where((n) => n.id == map['localId'])
-                    .firstOrNull
-                    ?.unread ==
-                false) {
-          await _notifRef.child(entry.key).child('unread').set(false);
-        }
-      }
-    } catch (e) {
-      debugPrint(
-        '[NotificationService] Failed to update unread in Firebase: $e',
-      );
+    for (final n in _notifications.where((n) => !n.unread)) {
+      try {
+        await _notifRef.child(n.id).child('unread').set(false);
+      } catch (_) {}
     }
   }
 

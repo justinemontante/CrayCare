@@ -8,6 +8,13 @@ class FeederService extends ChangeNotifier {
   static final FeederService instance = FeederService._();
   FeederService._();
 
+  static Map<String, dynamic> _convertMap(Object? value) {
+    if (value is Map) {
+      return value.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
+    }
+    return {};
+  }
+
   bool _initialized = false;
 
   // ─── Firebase Refs (lazy) ───
@@ -82,7 +89,7 @@ class FeederService extends ChangeNotifier {
           if (event.snapshot.value == null) return;
           try {
             final data =
-                Map<String, dynamic>.from(event.snapshot.value as Map);
+                _convertMap(event.snapshot.value as Map);
             _isRunning = data['isRunning'] == true;
             _feedSource = (data['feedSource'] as String?) ?? '';
             _feedCount = (data['feedCount'] as num?)?.toInt() ?? _feedCount;
@@ -127,14 +134,14 @@ class FeederService extends ChangeNotifier {
             _scheduleKeys.clear();
             if (data != null && data is Map) {
               final entries =
-                  (Map<String, dynamic>.from(data)).entries.toList();
+                  (_convertMap(data)).entries.toList();
               entries.sort((a, b) {
-                final aVal = Map<String, dynamic>.from(a.value);
-                final bVal = Map<String, dynamic>.from(b.value);
+                final aVal = _convertMap(a.value);
+                final bVal = _convertMap(b.value);
                 return _toMinutes(aVal).compareTo(_toMinutes(bVal));
               });
               for (final entry in entries) {
-                final val = Map<String, dynamic>.from(entry.value);
+                final val = _convertMap(entry.value);
                 _scheduleKeys.add(entry.key);
                 _schedules.add(ScheduleItem(
                   val['time'] as String? ?? '6:00',
@@ -171,16 +178,16 @@ class FeederService extends ChangeNotifier {
             _logs.clear();
             if (data != null && data is Map) {
               final entries =
-                  (Map<String, dynamic>.from(data)).entries.toList();
+                  (_convertMap(data)).entries.toList();
               entries.sort((a, b) {
-                final aVal = Map<String, dynamic>.from(a.value);
-                final bVal = Map<String, dynamic>.from(b.value);
+                final aVal = _convertMap(a.value);
+                final bVal = _convertMap(b.value);
                 final aTs = aVal['timestamp'] as int? ?? 0;
                 final bTs = bVal['timestamp'] as int? ?? 0;
                 return bTs.compareTo(aTs);
               });
               for (final entry in entries) {
-                final val = Map<String, dynamic>.from(entry.value);
+                final val = _convertMap(entry.value);
                 _logs.add(LogEntry(
                   val['action'] as String? ?? '',
                   val['type'] as String? ?? 'auto',

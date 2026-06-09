@@ -97,6 +97,13 @@ class TankService extends ChangeNotifier {
   static final TankService instance = TankService._();
   TankService._();
 
+  static Map<String, dynamic> _convertMap(Object? value) {
+    if (value is Map) {
+      return value.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
+    }
+    return {};
+  }
+
   int _initialCount = 0;
   int _mortality = 0;
   bool _isInitialized = false;
@@ -194,7 +201,7 @@ class TankService extends ChangeNotifier {
     try {
       final snap = await _configRef.get();
       if (!snap.exists) return;
-      final data = Map<String, dynamic>.from(snap.value as Map);
+      final data = _convertMap(snap.value as Map);
       final isInit = (data['isInitialized'] as bool?) ?? false;
       if (!isInit) {
         _resetAll();
@@ -241,9 +248,9 @@ class TankService extends ChangeNotifier {
       // Load Mortality
       final mSnap = await _mortalityRef.get();
       if (mSnap.exists) {
-        final mData = Map<String, dynamic>.from(mSnap.value as Map);
+        final mData = _convertMap(mSnap.value as Map);
         _mortalityHistory = mData.values.map((e) {
-          final map = Map<String, dynamic>.from(e as Map);
+          final map = _convertMap(e as Map);
           return MortalityEntry(
             date: DateTime.fromMillisecondsSinceEpoch(map['date']),
             count: map['count'],
@@ -255,9 +262,9 @@ class TankService extends ChangeNotifier {
       // Load Sampling
       final sSnap = await _samplingRef.get();
       if (sSnap.exists) {
-        final sData = Map<String, dynamic>.from(sSnap.value as Map);
+        final sData = _convertMap(sSnap.value as Map);
         _samplingHistory = sData.values.map((e) {
-          final map = Map<String, dynamic>.from(e as Map);
+          final map = _convertMap(e as Map);
           return SamplingEntry(
             date: DateTime.fromMillisecondsSinceEpoch(map['date']),
             abw: (map['abw'] as num).toDouble(),
@@ -276,9 +283,9 @@ class TankService extends ChangeNotifier {
       // Load Activities
       final aSnap = await _activitiesRef.get();
       if (aSnap.exists) {
-        final aData = Map<String, dynamic>.from(aSnap.value as Map);
+        final aData = _convertMap(aSnap.value as Map);
         _activities = aData.values.map((e) {
-          final map = Map<String, dynamic>.from(e as Map);
+          final map = _convertMap(e as Map);
           return TankActivity(
             action: map['action'],
             date: map['date'],
@@ -306,7 +313,7 @@ class TankService extends ChangeNotifier {
         _resetAll();
         return;
       }
-      final data = Map<String, dynamic>.from(e.snapshot.value as Map);
+      final data = _convertMap(e.snapshot.value as Map);
       final isInit = (data['isInitialized'] as bool?) ?? false;
       if (!isInit) return;
       _initialCount = (data['initialPopulation'] as int?) ?? _initialCount;
@@ -329,9 +336,9 @@ class TankService extends ChangeNotifier {
         notifyListeners();
         return;
       }
-      final sData = Map<String, dynamic>.from(e.snapshot.value as Map);
+      final sData = _convertMap(e.snapshot.value as Map);
       _samplingHistory = sData.values.map((e) {
-        final map = Map<String, dynamic>.from(e as Map);
+        final map = _convertMap(e as Map);
         return SamplingEntry(
           date: DateTime.fromMillisecondsSinceEpoch(map['date']),
           abw: (map['abw'] as num).toDouble(),
@@ -353,9 +360,9 @@ class TankService extends ChangeNotifier {
         notifyListeners();
         return;
       }
-      final mData = Map<String, dynamic>.from(e.snapshot.value as Map);
+      final mData = _convertMap(e.snapshot.value as Map);
       _mortalityHistory = mData.values.map((e) {
-        final map = Map<String, dynamic>.from(e as Map);
+        final map = _convertMap(e as Map);
         return MortalityEntry(
           date: DateTime.fromMillisecondsSinceEpoch(map['date']),
           count: map['count'],
@@ -371,9 +378,9 @@ class TankService extends ChangeNotifier {
         notifyListeners();
         return;
       }
-      final aData = Map<String, dynamic>.from(e.snapshot.value as Map);
+      final aData = _convertMap(e.snapshot.value as Map);
       _activities = aData.values.map((e) {
-        final map = Map<String, dynamic>.from(e as Map);
+        final map = _convertMap(e as Map);
         return TankActivity(
           action: map['action'],
           date: map['date'],

@@ -18,6 +18,13 @@ class ControlsScreen extends StatefulWidget {
 enum _FeedState { hidden, dispensing, done, failed }
 
 class _ControlsScreenState extends State<ControlsScreen> {
+  static Map<String, dynamic> _convertMap(Object? value) {
+    if (value is Map) {
+      return value.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
+    }
+    return {};
+  }
+
   int _activeTab = 0;
   _FeedState _feedState = _FeedState.hidden;
   bool _wasRunning = false;
@@ -45,7 +52,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
   void _initDeviceModes() {
     _devicesSub = _devicesRef.onValue.listen((event) {
       if (event.snapshot.value != null && event.snapshot.value is Map) {
-        final data = Map<String, dynamic>.from(event.snapshot.value as Map);
+        final data = _convertMap(event.snapshot.value as Map);
         final modes = <String, String>{};
         for (final e in data.entries) {
           modes[e.key] = e.value.toString();
@@ -62,13 +69,13 @@ class _ControlsScreenState extends State<ControlsScreen> {
         .onValue
         .listen((event) {
       if (event.snapshot.value == null) return;
-      final data = Map<String, dynamic>.from(event.snapshot.value as Map);
+      final data = _convertMap(event.snapshot.value as Map);
       final logs = <String, List<LogEntry>>{};
       for (final deviceEntry in data.entries) {
         final deviceId = deviceEntry.key;
-        final entries = Map<String, dynamic>.from(deviceEntry.value as Map);
+        final entries = _convertMap(deviceEntry.value as Map);
         final list = entries.values.map((e) {
-          final map = Map<String, dynamic>.from(e as Map);
+          final map = _convertMap(e as Map);
           return LogEntry(
             map['action'] as String? ?? '',
             map['type'] as String? ?? '',

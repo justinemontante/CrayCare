@@ -30,6 +30,10 @@ class SensorService extends ChangeNotifier {
   final Map<String, double> _latest = {};
 
   bool _turbidityAir = false;
+  bool _initialDataLoaded = false;
+
+  Timer? _staleTimer;
+  static const _staleTimeout = Duration(seconds: 12);
 
   DateTime _lastUpdated = DateTime.fromMillisecondsSinceEpoch(0);
   String? _lastError;
@@ -59,11 +63,14 @@ class SensorService extends ChangeNotifier {
 
   void _initFirebaseListener() {
     _subscription?.cancel();
+    _initialDataLoaded = false;
+    _staleTimer?.cancel();
     _subscription = _latestRef.onValue.listen(
       (event) {
         _lastError = null;
         if (event.snapshot.value == null) return;
-        _parseAndUpdate(Map<String, dynamic>.from(event.snapshot.value as Map));
+        final raw = event.snapshot.value as Map<Object?, Object?>;
+        _parseAndUpdate(raw.map<String, dynamic>((k, v) => MapEntry(k.toString(), v)));
       },
       onError: (error) {
         _lastError = error.toString();
@@ -74,6 +81,13 @@ class SensorService extends ChangeNotifier {
   }
 
   void _parseAndUpdate(Map<String, dynamic> data) {
+    if (!_initialDataLoaded) {
+      _initialDataLoaded = true;
+      _staleTimer = Timer(_staleTimeout, _markStale);
+      notifyListeners();
+      return;
+    }
+
     final tempRaw = _toDouble(data['temperature']);
     final turbRaw = _toDouble(data['turbidity']);
     final doRaw = _toDouble(data['dissolvedOxygen']);
@@ -88,7 +102,16 @@ class SensorService extends ChangeNotifier {
     _updateSensor('waterlevel', wlRaw);
 
     _lastUpdated = DateTime.now();
+    _staleTimer?.cancel();
+    _staleTimer = Timer(_staleTimeout, _markStale);
     notifyListeners();
+  }
+
+  void _markStale() {
+    _latest.clear();
+    _lastUpdated = DateTime.fromMillisecondsSinceEpoch(0);
+    notifyListeners();
+    debugPrint('[SensorService] Data stale - ESP32 offline');
   }
 
   void _updateSensor(String key, double? value) {
@@ -123,6 +146,7 @@ class SensorService extends ChangeNotifier {
   @override
   void dispose() {
     _subscription?.cancel();
+    _staleTimer?.cancel();
     super.dispose();
   }
 }

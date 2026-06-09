@@ -6,6 +6,13 @@ import 'package:firebase_database/firebase_database.dart';
 class DatabaseService {
   static final DatabaseService instance = DatabaseService._();
   DatabaseService._();
+
+  static Map<String, dynamic> _convertMap(Object? value) {
+    if (value is Map) {
+      return value.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
+    }
+    return {};
+  }
   // Root reference ng Realtime Database natin
   final DatabaseReference _db = FirebaseDatabase.instance.ref();
 
@@ -30,7 +37,7 @@ class DatabaseService {
   Future<Map<String, dynamic>?> getUserProfile(String uid) async {
     final snapshot = await _db.child('users/$uid/profile').get();
     if (snapshot.exists) {
-      return Map<String, dynamic>.from(snapshot.value as Map);
+      return _convertMap(snapshot.value as Map);
     }
     return null;
   }
@@ -45,7 +52,7 @@ class DatabaseService {
       onTimeout: () => throw TimeoutException('Firebase read timed out'),
     );
     if (snapshot.exists && snapshot.value != null) {
-      return Map<String, dynamic>.from(snapshot.value as Map);
+      return _convertMap(snapshot.value as Map);
     }
     return null;
   }
@@ -89,7 +96,7 @@ class DatabaseService {
       onTimeout: () => throw TimeoutException('Firebase read timed out'),
     );
     if (snapshot.exists && snapshot.value != null) {
-      return Map<String, dynamic>.from(snapshot.value as Map);
+      return _convertMap(snapshot.value as Map);
     }
     return null;
   }
@@ -141,7 +148,7 @@ class DatabaseService {
   Future<Map<String, dynamic>?> getNotificationPrefs(String uid) async {
     final snapshot = await _db.child('users/$uid/notifications').get();
     if (snapshot.exists) {
-      return Map<String, dynamic>.from(snapshot.value as Map);
+      return _convertMap(snapshot.value as Map);
     }
     return null;
   }
@@ -159,11 +166,11 @@ class DatabaseService {
           onTimeout: () => throw TimeoutException('Firebase history read timed out'),
         );
     if (!snapshot.exists || snapshot.value == null) return [];
-    final raw = Map<String, dynamic>.from(snapshot.value as Map);
+    final raw = _convertMap(snapshot.value as Map);
     final list = <Map<String, dynamic>>[];
     raw.forEach((key, value) {
       if (value is Map) {
-        list.add(Map<String, dynamic>.from(value));
+        list.add(_convertMap(value));
       }
     });
     list.sort((a, b) => (b['timestamp'] ?? 0).compareTo(a['timestamp'] ?? 0));
