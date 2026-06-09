@@ -15,7 +15,7 @@ def check_thresholds(data, thresholds):
         "temperature": "temperature",
         "phLevel": "phLevel",
         "dissolvedOxygen": "dissolvedOxygen",
-        "turbidity": "turbidity",
+        "turbidity": "turbidity",``
         "waterLevel": "waterLevel",
     }
 
