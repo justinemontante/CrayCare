@@ -1,5 +1,10 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'sensor_service.dart';
 import '../models/notification_item.dart';
 
@@ -15,6 +20,14 @@ class NotificationService extends ChangeNotifier {
   final DatabaseReference _notifRef = FirebaseDatabase.instance.ref(
     'notifications',
   );
+
+  final FlutterLocalNotificationsPlugin _localNotifications =
+      FlutterLocalNotificationsPlugin();
+  StreamSubscription? _tokenSub;
+
+  static const String _channelId = 'craycare_alerts';
+  static const String _channelName = 'CrayCare Alerts';
+  static const String _channelDesc = 'Sensor threshold alerts';
 
   static const _sensorLabels = {
     'temp': 'Water Temperature',
@@ -51,6 +64,94 @@ class NotificationService extends ChangeNotifier {
     _loadFromFirebase();
     SensorService.instance.addListener(_onSensorUpdate);
     _initPreviousStates();
+  }
+
+  Future<void> initFCM() async {
+    try {
+      const androidSettings =
+          AndroidInitializationSettings('@mipmap/ic_launcher');
+      const initSettings = InitializationSettings(
+        android: androidSettings,
+      );
+      await _localNotifications.initialize(initSettings);
+
+      const androidChannel = AndroidNotificationChannel(
+        _channelId,
+        _channelName,
+        description: _channelDesc,
+        importance: Importance.high,
+      );
+      await _localNotifications
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()
+          ?.createNotificationChannel(androidChannel);
+
+      final messaging = FirebaseMessaging.instance;
+
+      await messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+
+      final token = await messaging.getToken();
+      if (token != null) await _saveToken(token);
+
+      _tokenSub = messaging.onTokenRefresh.listen(_saveToken);
+
+      FirebaseMessaging.onMessage.listen(_onForegroundMessage);
+
+      FirebaseMessaging.onBackgroundMessage(_onBackgroundMessage);
+
+      debugPrint('[NotificationService] FCM initialized');
+    } catch (e) {
+      debugPrint('[NotificationService] FCM init error: $e');
+    }
+  }
+
+  Future<void> _saveToken(String token) async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        await FirebaseDatabase.instance
+            .ref('users/${user.uid}/fcmToken')
+            .set(token);
+      }
+    } catch (e) {
+      debugPrint('[NotificationService] Token save error: $e');
+    }
+  }
+
+  Future<void> _onForegroundMessage(RemoteMessage message) async {
+    final title = message.notification?.title ?? 'CrayCare Alert';
+    final body = message.notification?.body ?? '';
+
+    await _localNotifications.show(
+      DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      title,
+      body,
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          _channelId,
+          _channelName,
+          channelDescription: _channelDesc,
+          importance: Importance.high,
+          priority: Priority.high,
+        ),
+      ),
+    );
+  }
+
+  @pragma('vm:entry-point')
+  static Future<void> _onBackgroundMessage(RemoteMessage message) async {
+    debugPrint('[NotificationService] Background msg: ${message.messageId}');
+  }
+
+  @override
+  void dispose() {
+    _tokenSub?.cancel();
+    SensorService.instance.removeListener(_onSensorUpdate);
+    super.dispose();
   }
 
   void _initPreviousStates() {
@@ -230,9 +331,4 @@ class NotificationService extends ChangeNotifier {
     return dt.day == now.day && dt.month == now.month && dt.year == now.year;
   }
 
-  @override
-  void dispose() {
-    SensorService.instance.removeListener(_onSensorUpdate);
-    super.dispose();
-  }
 }

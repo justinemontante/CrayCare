@@ -10,7 +10,7 @@ model = joblib.load("models/craycare_model.pkl")
 
 
 def check_thresholds(data, thresholds):
-    violations = []
+    out_of_range = []
     threshold_map = {
         "temperature": "temperature",
         "phLevel": "phLevel",
@@ -31,27 +31,27 @@ def check_thresholds(data, thresholds):
         t_max = t.get("max")
 
         if t_min is not None and val < t_min:
-            violations.append(
-                f"{label} ({val}) is below the minimum threshold of {t_min}"
+            out_of_range.append(
+                f"{label} ({val}) is below the ideal minimum of {t_min}"
             )
         elif t_max is not None and val > t_max:
-            violations.append(
-                f"{label} ({val}) exceeds the maximum threshold of {t_max}"
+            out_of_range.append(
+                f"{label} ({val}) is above the ideal maximum of {t_max}"
             )
 
-    has_violation = len(violations) > 0
-    return violations, has_violation
+    has_issue = len(out_of_range) > 0
+    return out_of_range, has_issue
 
 
-def build_response(status, confidence, violations):
-    if violations:
-        violation_details = "; ".join(violations)
+def build_response(status, confidence, out_of_range):
+    if out_of_range:
+        details = "; ".join(out_of_range)
         return {
             "predictedStatus": "CRITICAL",
             "confidence": confidence,
-            "insight": f"Threshold violation detected: {violation_details}.",
-            "prediction": "The model predicts that the current condition requires immediate corrective action based on threshold violations.",
-            "recommendation": "Adjust the violating parameters to bring them back within the configured threshold ranges. Check your stage settings for the ideal ranges.",
+            "insight": f"Sensor reading out of ideal range: {details}.",
+            "prediction": "The model predicts that the current condition needs attention to bring readings back within ideal range.",
+            "recommendation": "Adjust the affected sensors to bring them back within the configured ideal ranges. Check your stage settings for the recommended ranges.",
         }
 
     if status == "CRITICAL":
@@ -93,9 +93,9 @@ def predict():
     confidence = round(float(max(probabilities)), 2)
 
     thresholds = data.get("thresholds")
-    violations, has_violation = check_thresholds(data, thresholds)
+    out_of_range, has_issue = check_thresholds(data, thresholds)
 
-    return jsonify(build_response(prediction, confidence, violations))
+    return jsonify(build_response(prediction, confidence, out_of_range))
 
 
 @app.route("/", methods=["GET"])

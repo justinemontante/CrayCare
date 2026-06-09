@@ -1,0 +1,9 @@
+{
+  "name": "craycare-notification-worker",
+  "version": "1.0.0",
+  "description": "Monitors Firebase RTDB sensor data and sends FCM push notifications when thresholds are exceeded",
+  "main": "worker.js",
+  "dependencies": {
+    "firebase-admin": "^13.0.0"
+  }
+}

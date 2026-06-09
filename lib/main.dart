@@ -31,6 +31,7 @@ void main() async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await SettingsService.instance.init();
   NotificationService.instance.init();
+  NotificationService.instance.initFCM();
   FeederService.instance.init();
   TankService.instance.init();
   SystemChrome.setPreferredOrientations([
