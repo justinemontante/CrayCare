@@ -28,14 +28,33 @@ static RelayCtx relays[3] = {
     {PIN_P,  RM_OFF, false, DEV_P,  LBL_P},
 };
 
-static FirebaseData strmModes;
-static FirebaseData strmCmds;
 static FirebaseData fbW;
 
 static bool feedBusy = false;
 static int  feedCount = 0;
 static unsigned long lastStatus = 0;
+static unsigned long lastModesPoll = 0;
 static unsigned long lastCmdPoll = 0;
+
+static void applyMode(int idx, const String& modeStr);
+
+static void pollModes() {
+    if (!Firebase.ready()) return;
+    unsigned long now = millis();
+    if (now - lastModesPoll < 3000) return;
+    lastModesPoll = now;
+
+    FirebaseJson j;
+    if (!Firebase.RTDB.getJSON(&fbW, "/devices/modes", &j)) {
+        Serial.println("[MODES] poll FAILED");
+        return;
+    }
+
+    FirebaseJsonData d;
+    if (j.get(d, DEV_A1)) { Serial.printf("[MODES-POLL] %s=%s\n", DEV_A1, d.stringValue.c_str()); applyMode(0, d.stringValue); }
+    if (j.get(d, DEV_A2)) { Serial.printf("[MODES-POLL] %s=%s\n", DEV_A2, d.stringValue.c_str()); applyMode(1, d.stringValue); }
+    if (j.get(d, DEV_P))  { Serial.printf("[MODES-POLL] %s=%s\n", DEV_P, d.stringValue.c_str()); applyMode(2, d.stringValue); }
+}
 
 static String fmtTime() {
     struct tm t;
@@ -104,36 +123,30 @@ static void applyMode(int idx, const String& modeStr) {
     }
 }
 
-static void onModesUpdate() {
-    if (!strmModes.streamAvailable()) {
-        Serial.println("[MODES] stream NOT available");
-        return;
-    }
-    String path = strmModes.dataPath();
-    String type = strmModes.dataType();
-    Serial.printf("[MODES] path=%s type=%s\n", path.c_str(), type.c_str());
 
-    if (type == "json") {
-        FirebaseJson *j = strmModes.jsonObject();
-        if (!j) { Serial.println("[MODES] jsonObject null"); return; }
-        FirebaseJsonData d;
-        if (j->get(d, DEV_A1)) { Serial.printf("[MODES] %s=%s\n", DEV_A1, d.stringValue.c_str()); applyMode(0, d.stringValue); }
-        if (j->get(d, DEV_A2)) { Serial.printf("[MODES] %s=%s\n", DEV_A2, d.stringValue.c_str()); applyMode(1, d.stringValue); }
-        if (j->get(d, DEV_P))  { Serial.printf("[MODES] %s=%s\n", DEV_P, d.stringValue.c_str()); applyMode(2, d.stringValue); }
-    } else if (type == "string" || type == "number" || type == "boolean") {
-        int ls = path.lastIndexOf('/');
-        String child = path.substring(ls + 1);
-        String val = strmModes.to<String>();
-        Serial.printf("[MODES] child=%s val=%s\n", child.c_str(), val.c_str());
-        if (child == DEV_A1) applyMode(0, val);
-        else if (child == DEV_A2) applyMode(1, val);
-        else if (child == DEV_P)  applyMode(2, val);
-    } else if (type == "null") {
-        Serial.println("[MODES] null — resetting all to OFF");
-        applyMode(0, "off");
-        applyMode(1, "off");
-        applyMode(2, "off");
+
+static void doFeed(const String& cmdPath) {
+    if (feedBusy) return;
+    feedBusy = true;
+    if (Firebase.ready()) {
+        Firebase.RTDB.setBool(&fbW, "/feeder/status/isRunning", true);
+        Firebase.RTDB.deleteNode(&fbW, cmdPath);
     }
+    executeServoCycle();
+    feedCount++;
+    unsigned long now = getEpochMillis();
+    if (Firebase.ready()) {
+        FirebaseJson j;
+        j.add("isRunning", false);
+        j.add("feedCount", feedCount);
+        j.add("lastSeen", (double)now);
+        j.add("hopperLevel", 100.0);
+        j.add("feedSource", "esp32");
+        j.add("feederError", "");
+        Firebase.RTDB.setJSON(&fbW, "/feeder/status", &j);
+        logFeedAction("Feed dispensed", "auto");
+    }
+    feedBusy = false;
 }
 
 static void pollCommands() {
@@ -171,93 +184,6 @@ static void pollCommands() {
         }
     }
     j.iteratorEnd();
-}
-
-static void doFeed(const String& cmdPath) {
-    if (feedBusy) return;
-    feedBusy = true;
-    if (Firebase.ready()) {
-        Firebase.RTDB.setBool(&fbW, "/feeder/status/isRunning", true);
-    }
-    executeServoCycle();
-    feedCount++;
-    unsigned long now = getEpochMillis();
-    if (Firebase.ready()) {
-        FirebaseJson j;
-        j.add("isRunning", false);
-        j.add("feedCount", feedCount);
-        j.add("lastSeen", (double)now);
-        j.add("hopperLevel", 100.0);
-        j.add("feedSource", "esp32");
-        j.add("feederError", "");
-        Firebase.RTDB.setJSON(&fbW, "/feeder/status", &j);
-        logFeedAction("Feed dispensed", "auto");
-        Firebase.RTDB.deleteNode(&fbW, cmdPath);
-    }
-    feedBusy = false;
-}
-
-static void onCommandsUpdate() {
-    if (!strmCmds.streamAvailable()) return;
-    String path = strmCmds.dataPath();
-    String type = strmCmds.dataType();
-    Serial.printf("[STREAM] commands update: path=%s type=%s\n", path.c_str(), type.c_str());
-
-    if (type == "json") {
-        FirebaseJson *j = strmCmds.jsonObject();
-        if (!j) { Serial.println("[STREAM] jsonObject null"); return; }
-        FirebaseJsonData d;
-        j->get(d, "action");
-
-        if (d.success) {
-            Serial.printf("[STREAM] direct command action=%s\n", d.stringValue.c_str());
-            if (d.stringValue == "feed_now") {
-                j->get(d, "timestamp");
-                int64_t ts = (int64_t)d.doubleValue;
-                int64_t nowMs = (int64_t)getEpochMillis();
-                if (nowMs > 0 && nowMs - ts < 30000) {
-                    doFeed(path);
-                } else if (nowMs > 0) {
-                    Firebase.RTDB.deleteNode(&fbW, path);
-                }
-            }
-        } else {
-            size_t n = j->iteratorBegin();
-            Serial.printf("[STREAM] full node put, %u children\n", n);
-            for (size_t i = 0; i < n; i++) {
-                int itType;
-                String key, value;
-                j->iteratorGet(i, itType, key, value);
-                if (itType == FirebaseJson::JSON_OBJECT) {
-                    FirebaseJson sub;
-                    sub.setJsonData(value);
-                    sub.get(d, "action");
-                    if (d.stringValue == "feed_now") {
-                        sub.get(d, "timestamp");
-                        int64_t ts = (int64_t)d.doubleValue;
-                        int64_t nowMs = (int64_t)getEpochMillis();
-                        if (nowMs > 0 && nowMs - ts < 30000) {
-                            doFeed(String("/feeder/commands/") + key);
-                        } else if (nowMs > 0) {
-                            Firebase.RTDB.deleteNode(&fbW, String("/feeder/commands/") + key);
-                        }
-                    }
-                }
-            }
-            j->iteratorEnd();
-        }
-    } else if (type == "string") {
-        int ls = path.lastIndexOf('/');
-        String child = path.substring(ls + 1);
-        String val = strmCmds.to<String>();
-        FirebaseJson sub;
-        sub.setJsonData(val);
-        FirebaseJsonData d;
-        sub.get(d, "action");
-        if (d.stringValue == "feed_now") {
-            doFeed(path);
-        }
-    }
 }
 
 static void writeStatus() {
@@ -350,8 +276,6 @@ static void processSerial() {
     Serial.println("[CMD] Unknown - type 'help'");
 }
 
-static bool streamsStarted = false;
-
 void setup() {
     Serial.begin(115200);
     Serial.println("=== CrayCare Servo + Relay Firmware ===");
@@ -364,20 +288,14 @@ void setup() {
 
     loadWifiFromNVS();
     connectWiFi();
-    if (WiFi.status() == WL_CONNECTED) {
-        initTime();
-        connectFirebase();
-    } else {
-        Serial.println("[WARN] WiFi not connected - will retry in loop");
-    }
 }
 
-static bool firebaseReadyOnce = false;
+static bool initialConnectDone = false;
 
 void loop() {
     processSerial();
 
-    if (!firebaseReadyOnce) {
+    if (!initialConnectDone) {
         if (WiFi.status() != WL_CONNECTED) {
             static unsigned long lastWifiRetry = 0;
             unsigned long now = millis();
@@ -389,14 +307,14 @@ void loop() {
         }
         initTime();
         connectFirebase();
-        Serial.println("[MAIN] Waiting for Firebase to become ready...");
-        firebaseReadyOnce = true;
+        initialConnectDone = true;
+        Serial.println("[MAIN] Initial WiFi+Firebase connect done");
     }
 
-    if (streamsStarted) {
-        if (Firebase.RTDB.readStream(&strmModes)) onModesUpdate();
-        if (Firebase.RTDB.readStream(&strmCmds)) onCommandsUpdate();
+    if (Firebase.ready()) {
+        writeStatus();
 
+        pollModes();
         pollCommands();
 
         unsigned long now = millis();
@@ -404,13 +322,5 @@ void loop() {
             writeStatus();
             lastStatus = now;
         }
-    }
-
-    if (Firebase.ready() && !streamsStarted) {
-        Firebase.RTDB.beginStream(&strmModes, "/devices/modes");
-        Firebase.RTDB.beginStream(&strmCmds, "/feeder/commands");
-        writeStatus();
-        streamsStarted = true;
-        Serial.println("[MAIN] Firebase streams started");
     }
 }

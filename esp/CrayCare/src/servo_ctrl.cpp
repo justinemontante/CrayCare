@@ -38,7 +38,7 @@ void setServoAngle(int angle) {
 
 void executeServoCycle() {
     // Open (90°)
-    setServoAngle(90);
+    setServoAngle(180);
     Serial.println("[SERVO] Open (90°) – waiting pause");
     delay(servoPauseMs);
     // Close (0°)
