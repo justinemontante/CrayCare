@@ -47,6 +47,12 @@ class _ControlsScreenState extends State<ControlsScreen> {
     svc.addListener(_onFeederUpdate);
     _initDeviceModes();
     _initDeviceLogs();
+    _runtimeTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) {
+        if (mounted) setState(() => _computeRuntimeLabels());
+      },
+    );
   }
 
   void _initDeviceModes() {
@@ -94,6 +100,50 @@ class _ControlsScreenState extends State<ControlsScreen> {
     });
   }
 
+  void _computeRuntimeLabels() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final labels = <String, String>{};
+
+    for (final deviceId in _hwModes.keys) {
+      final logs = _hwLogs[deviceId] ?? [];
+      int? lastOnTs;
+      int? lastOffTs;
+
+      for (final log in logs) {
+        if (log.action.contains('Switched ON')) {
+          if (lastOnTs == null || log.timestamp > lastOnTs) {
+            lastOnTs = log.timestamp;
+          }
+        } else if (log.action.contains('Switched OFF')) {
+          if (lastOffTs == null || log.timestamp > lastOffTs) {
+            lastOffTs = log.timestamp;
+          }
+        }
+      }
+
+      if (lastOnTs != null && (lastOffTs == null || lastOnTs > lastOffTs)) {
+        final elapsed = now - lastOnTs;
+        labels[deviceId] = _formatDuration(elapsed ~/ 1000);
+      } else {
+        labels[deviceId] = '';
+      }
+    }
+
+    _deviceRuntimeLabels = labels;
+  }
+
+  String _formatDuration(int seconds) {
+    if (seconds < 60) return '${seconds}s';
+    final minutes = seconds ~/ 60;
+    if (minutes < 60) return '${minutes}m';
+    final hours = minutes ~/ 60;
+    final mins = minutes % 60;
+    if (hours < 24) return '${hours}h ${mins}m';
+    final days = hours ~/ 24;
+    final hrs = hours % 24;
+    return '${days}d ${hrs}h';
+  }
+
   @override
   void dispose() {
     FeederService.instance.removeListener(_onFeederUpdate);
@@ -101,6 +151,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
     _devicesLogsSub?.cancel();
     _feedTimer?.cancel();
     _dispenseTimer?.cancel();
+    _runtimeTimer?.cancel();
     _timeCtl.dispose();
     super.dispose();
   }
@@ -197,6 +248,8 @@ class _ControlsScreenState extends State<ControlsScreen> {
   final DatabaseReference _devicesLogsRef = FirebaseDatabase.instance.ref('devices/logs');
 
   Map<String, List<LogEntry>> _hwLogs = {};
+  Map<String, String> _deviceRuntimeLabels = {};
+  Timer? _runtimeTimer;
 
   void _feedNow() {
     FeederService.instance.feedNow();
@@ -297,6 +350,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                       hwModes: _hwModes,
                       onSetMode: _setHwMode,
                       onShowGroupLog: _showHwGroupLog,
+                      deviceRuntimeLabels: _deviceRuntimeLabels,
                     ),
                   ],
                 ),

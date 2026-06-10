@@ -194,6 +194,7 @@ class FeederService extends ChangeNotifier {
                   val['time'] as String? ?? '',
                   val['date'] as String? ?? '',
                   userName: val['userName'] as String? ?? '',
+                  timestamp: val['timestamp'] as int? ?? 0,
                 ));
               }
             }
@@ -214,7 +215,7 @@ class FeederService extends ChangeNotifier {
 
   // ─── Actions ───
 
-  void feedNow({String source = 'manual'}) {
+  void feedNow({String source = 'manual', String? scheduleKey}) {
     if (_commandsRef == null) return;
     try {
       _commandsRef!.push().set({
@@ -227,6 +228,12 @@ class FeederService extends ChangeNotifier {
           action: 'Auto feed dispensed',
           type: 'auto',
         );
+        final dateKey = '${DateTime.now().month}/${DateTime.now().day}';
+        if (scheduleKey != null) {
+          try {
+            _commandsRef!.parent!.child('dispatched/$dateKey/$scheduleKey').set(true);
+          } catch (_) {}
+        }
       } else {
         final name = _getUserName();
         _addLogEntry(
@@ -362,17 +369,20 @@ class FeederService extends ChangeNotifier {
       _dispatchedToday.clear();
       _lastCheckDate = todayKey;
     }
-    for (final s in _schedules) {
+    for (int i = 0; i < _schedules.length; i++) {
+      final s = _schedules[i];
       if (!s.enabled) continue;
       int h = int.parse(s.time.split(':')[0]);
       final m = int.parse(s.time.split(':')[1]);
       if (s.ampm == 'PM' && h != 12) h += 12;
       if (s.ampm == 'AM' && h == 12) h = 0;
       if (now.hour == h && now.minute == m) {
-        final key = '${s.time}_${s.ampm}';
+        final key = i < _scheduleKeys.length
+            ? _scheduleKeys[i]
+            : '${s.time}_${s.ampm}';
         if (!_dispatchedToday.contains(key)) {
           _dispatchedToday.add(key);
-          feedNow(source: 'scheduled');
+          feedNow(source: 'scheduled', scheduleKey: key);
           debugPrint('[FeederService] Auto-dispatch: $key');
         }
       }

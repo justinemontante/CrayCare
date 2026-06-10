@@ -29,7 +29,6 @@ class SensorService extends ChangeNotifier {
   final Map<String, List<double>> _history = {};
   final Map<String, double> _latest = {};
 
-  bool _turbidityAir = false;
   bool _initialDataLoaded = false;
 
   Timer? _staleTimer;
@@ -40,7 +39,6 @@ class SensorService extends ChangeNotifier {
 
   DateTime get lastUpdated => _lastUpdated;
   String? get lastError => _lastError;
-  bool get isTurbidityAir => _turbidityAir;
 
   String get overallStatus {
     for (final key in sensorKeys) {
@@ -84,16 +82,13 @@ class SensorService extends ChangeNotifier {
     if (!_initialDataLoaded) {
       _initialDataLoaded = true;
       _staleTimer = Timer(_staleTimeout, _markStale);
-      notifyListeners();
-      return;
     }
 
     final tempRaw = _toDouble(data['temperature']);
     final turbRaw = _toDouble(data['turbidity']);
     final doRaw = _toDouble(data['dissolvedOxygen']);
     final phRaw = _toDouble(data['phLevel']);
-    final wlRaw = _toDouble(data['waterLevelPercent']);
-    _turbidityAir = data['turbidityAir'] == true;
+    final wlRaw = _toDouble(data['waterLevel']);
 
     _updateSensor('temp', tempRaw);
     _updateSensor('turb', turbRaw);
@@ -138,10 +133,41 @@ class SensorService extends ChangeNotifier {
     return -1;
   }
 
+  int? _toInt(dynamic v) {
+    if (v is int) return v;
+    if (v is double) return v.toInt();
+    return null;
+  }
+
   bool hasSensorData(String key) => _latest.containsKey(key);
   double getLatestValue(String key) => _latest[key] ?? 0.0;
 
   List<double> getData(String key) => _history[key] ?? [];
+
+  Future<List<Map<String, dynamic>>> fetchHistoryRange({
+    required DateTime start,
+    required DateTime end,
+  }) async {
+    final records = <Map<String, dynamic>>[];
+    for (var d = DateTime(start.year, start.month, start.day);
+        !d.isAfter(end);
+        d = d.add(const Duration(days: 1))) {
+      final dateStr =
+          '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+      final ref = FirebaseDatabase.instance.ref('sensor_readings/history/$dateStr');
+      final snapshot = await ref.get();
+      if (snapshot.value == null) continue;
+      final map = snapshot.value as Map<Object?, Object?>;
+      for (final entry in map.entries) {
+        final record = entry.value as Map<Object?, Object?>;
+        records.add(record.map<String, dynamic>((k, v) => MapEntry(k.toString(), v)));
+      }
+    }
+    records.sort(
+      (a, b) => (_toInt(a['timestamp']) ?? 0).compareTo(_toInt(b['timestamp']) ?? 0),
+    );
+    return records;
+  }
 
   @override
   void dispose() {

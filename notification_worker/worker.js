@@ -24,7 +24,7 @@ db.ref("sensor_readings/latest").on("value", async (snap) => {
 
   try {
     const thresholdSnap = await db
-      .ref("sensor_readings/thresholds")
+      .ref("sensor_readings/thresholds/ranges")
       .once("value");
     const thresholds = thresholdSnap.val();
     if (!thresholds) return;

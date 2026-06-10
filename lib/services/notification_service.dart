@@ -6,7 +6,9 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'sensor_service.dart';
+import 'tank_service.dart';
 import '../models/notification_item.dart';
+import '../models/control_types.dart';
 
 class NotificationService extends ChangeNotifier {
   static final NotificationService instance = NotificationService._();
@@ -17,11 +19,22 @@ class NotificationService extends ChangeNotifier {
   int _idCounter = 0;
   bool _initialized = false;
 
+  bool _notifSound = true;
+  bool _notifVibration = true;
+  bool _notifCritical = true;
+  bool _notifFeeding = true;
+  bool _notifSampling = false;
+
+  final Set<String> _feedingReminderSent = {};
+  String _lastSamplingReminderDate = '';
+
   final DatabaseReference _notifRef = FirebaseDatabase.instance.ref(
     'notifications',
   );
   StreamSubscription<DatabaseEvent>? _notifSub;
   StreamSubscription<DatabaseEvent>? _notifRemovedSub;
+  StreamSubscription<DatabaseEvent>? _prefsSub;
+  Timer? _reminderTimer;
 
   final FlutterLocalNotificationsPlugin _localNotifications =
       FlutterLocalNotificationsPlugin();
@@ -64,8 +77,10 @@ class NotificationService extends ChangeNotifier {
     if (_initialized) return;
     _initialized = true;
     _listenFirebase();
+    _loadUserPrefs();
     SensorService.instance.addListener(_onSensorUpdate);
     _initPreviousStates();
+    _startReminderTimer();
   }
 
   Future<void> initFCM() async {
@@ -132,13 +147,15 @@ class NotificationService extends ChangeNotifier {
       DateTime.now().millisecondsSinceEpoch ~/ 1000,
       title,
       body,
-      const NotificationDetails(
+      NotificationDetails(
         android: AndroidNotificationDetails(
           _channelId,
           _channelName,
           channelDescription: _channelDesc,
           importance: Importance.high,
           priority: Priority.high,
+          playSound: _notifSound,
+          enableVibration: _notifVibration,
         ),
       ),
     );
@@ -147,6 +164,38 @@ class NotificationService extends ChangeNotifier {
   @pragma('vm:entry-point')
   static Future<void> _onBackgroundMessage(RemoteMessage message) async {
     debugPrint('[NotificationService] Background msg: ${message.messageId}');
+    try {
+      final localNotif = FlutterLocalNotificationsPlugin();
+      const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+      await localNotif.initialize(const InitializationSettings(
+        android: androidSettings,
+      ));
+
+      final title = message.notification?.title ??
+          message.data['title'] ??
+          'CrayCare Alert';
+      final body = message.notification?.body ??
+          message.data['message'] ??
+          message.data['body'] ??
+          '';
+
+      await localNotif.show(
+        DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        title,
+        body,
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            _channelId,
+            _channelName,
+            channelDescription: _channelDesc,
+            importance: Importance.high,
+            priority: Priority.high,
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('[NotificationService] Background notification error: $e');
+    }
   }
 
   @override
@@ -154,6 +203,8 @@ class NotificationService extends ChangeNotifier {
     _tokenSub?.cancel();
     _notifSub?.cancel();
     _notifRemovedSub?.cancel();
+    _prefsSub?.cancel();
+    _reminderTimer?.cancel();
     SensorService.instance.removeListener(_onSensorUpdate);
     super.dispose();
   }
@@ -162,6 +213,103 @@ class NotificationService extends ChangeNotifier {
     for (final key in SensorService.sensorKeys) {
       final zone = SensorService.instance.getZone(key);
       _previousZones[key] = zone;
+    }
+  }
+
+  void _loadUserPrefs() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    _prefsSub = FirebaseDatabase.instance
+        .ref('users/${user.uid}/notifications')
+        .onValue
+        .listen((e) {
+      if (!e.snapshot.exists || e.snapshot.value == null) return;
+      final raw = e.snapshot.value as Map<Object?, Object?>;
+      final map = raw.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
+      _notifSound = map['sound'] as bool? ?? true;
+      _notifVibration = map['vibration'] as bool? ?? true;
+      _notifCritical = map['critical'] as bool? ?? true;
+      _notifFeeding = map['feeding'] as bool? ?? true;
+      _notifSampling = map['sampling'] as bool? ?? false;
+    });
+  }
+
+  void _startReminderTimer() {
+    _reminderTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      _checkFeedingReminders();
+      _confirmFeedingComplete();
+      _checkSamplingReminders();
+    });
+  }
+
+  void _checkFeedingReminders() {
+    if (!_notifFeeding) return;
+    final now = DateTime.now();
+    final todayKey = '${now.month}/${now.day}';
+
+    for (final s in FeedState.schedules.value) {
+      if (!s.enabled) continue;
+      int h = int.parse(s.time.split(':')[0]);
+      final m = int.parse(s.time.split(':')[1]);
+      if (s.ampm == 'PM' && h != 12) h += 12;
+      if (s.ampm == 'AM' && h == 12) h = 0;
+
+      final schedMins = h * 60 + m;
+      final nowMins = now.hour * 60 + now.minute;
+      if (schedMins > 0 && nowMins == schedMins - 1) {
+        final key = '${todayKey}_${s.time}_${s.ampm}';
+        if (_feedingReminderSent.contains(key)) return;
+        _feedingReminderSent.add(key);
+
+        _addNotification(
+          type: 'reminder',
+          title: 'Feeding Reminder',
+          message: 'Scheduled feeding at ${s.time} ${s.ampm} starts in 1 minute.',
+          timestamp: now,
+        );
+      }
+    }
+  }
+
+  void _confirmFeedingComplete() {
+    if (!_notifFeeding) return;
+    final now = DateTime.now();
+    final todayKey = '${now.month}/${now.day}';
+    final oneMinAgo = now.millisecondsSinceEpoch - 60000;
+
+    for (final log in FeedState.feederLogs.value) {
+      if (log.type != 'auto') continue;
+      if (!log.action.contains('Auto feed dispensed')) continue;
+      if (log.timestamp <= 0 || log.timestamp < oneMinAgo) continue;
+
+      final confirmKey = 'confirm_${todayKey}_${log.timestamp}';
+      if (_feedingReminderSent.contains(confirmKey)) return;
+      _feedingReminderSent.add(confirmKey);
+
+      _addNotification(
+        type: 'reminder',
+        title: 'Feeding Complete',
+        message: 'Feed has been dispensed successfully.',
+        timestamp: now,
+      );
+    }
+  }
+
+  void _checkSamplingReminders() {
+    if (!_notifSampling) return;
+    final now = DateTime.now();
+    final todayKey = '${now.month}/${now.day}';
+    if (_lastSamplingReminderDate == todayKey) return;
+
+    final tank = TankService.instance;
+    if (tank.daysSinceLastSampling >= 7 && tank.canSample) {
+      _lastSamplingReminderDate = todayKey;
+      _addNotification(
+        type: 'reminder',
+        title: 'Sampling Reminder',
+        message: 'It\'s been ${tank.daysSinceLastSampling} days since last sampling. Time to record growth data!',
+        timestamp: now,
+      );
     }
   }
 
@@ -212,7 +360,10 @@ class NotificationService extends ChangeNotifier {
       final label = _sensorLabels[key] ?? key;
       final unit = _sensorUnits[key] ?? '';
 
-      if (prevZone != null && zone == 'CRITICAL' && prevZone != 'CRITICAL') {
+      if (_notifCritical &&
+          prevZone != null &&
+          zone == 'CRITICAL' &&
+          prevZone != 'CRITICAL') {
         _addNotification(
           type: 'critical',
           title: 'Critical: $label',
@@ -221,7 +372,8 @@ class NotificationService extends ChangeNotifier {
               : '$label is at ${value.toStringAsFixed(1)}.',
           timestamp: now,
         );
-      } else if (prevZone != null &&
+      } else if (_notifCritical &&
+          prevZone != null &&
           zone != 'CRITICAL' &&
           prevZone == 'CRITICAL') {
         _addNotification(
@@ -266,6 +418,23 @@ class NotificationService extends ChangeNotifier {
     }).catchError((e) {
       debugPrint('[NotificationService] Failed to save: $e');
     });
+
+    _localNotifications.show(
+      timestamp.millisecondsSinceEpoch ~/ 1000,
+      title,
+      message,
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          _channelId,
+          _channelName,
+          channelDescription: _channelDesc,
+          importance: Importance.high,
+          priority: Priority.high,
+          playSound: _notifSound,
+          enableVibration: _notifVibration,
+        ),
+      ),
+    );
   }
 
   void markAllRead() {

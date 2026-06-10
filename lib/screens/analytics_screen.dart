@@ -28,7 +28,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   late final Map<String, GlobalKey> _chartCardKeys;
   late final ScrollController _scrollController;
 
-  final _rng = Random(42);
+  bool _isLoading = false;
 
   void _onChartSelectionChanged(String chartKey, int? index) {
     setState(() => _selectedIndices[chartKey] = index);
@@ -73,7 +73,6 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
           for (final key in SensorService.sensorKeys) {
             _data['$key-live'] = [];
           }
-          _labels['live'] = [];
           return;
         }
 
@@ -81,18 +80,30 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
         final timeStr =
             "${now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour)}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')} ${now.hour >= 12 ? 'PM' : 'AM'}";
 
+        _labels['live'] ??= [];
         final labels = _labels['live']!;
-        if (labels.isNotEmpty) labels.removeAt(0);
+        if (labels.length >= 60) labels.removeAt(0);
         labels.add(timeStr);
 
         SensorService.sensorKeys.forEach((key) {
-          _data['$key-live'] = List.from(SensorService.instance.getData(key));
+          final raw = SensorService.instance.getData(key);
+          _data['$key-live'] = raw.length > 60
+              ? raw.sublist(raw.length - 60)
+              : List.from(raw);
         });
       });
     }
   }
 
-  void _generateData(String range) {
+  static const _firebaseKeyMap = {
+    'temp': 'temperature',
+    'ph': 'phLevel',
+    'do': 'dissolvedOxygen',
+    'turb': 'turbidity',
+    'waterlevel': 'waterLevel',
+  };
+
+  Future<void> _generateData(String range) async {
     int pts;
     if (range == 'live') {
       pts = 60;
@@ -118,9 +129,16 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       });
 
       SensorService.sensorKeys.forEach((key) {
-        _data['$key-live'] = List.from(SensorService.instance.getData(key));
+        final raw = SensorService.instance.getData(key);
+        _data['$key-live'] = raw.length > 60
+            ? raw.sublist(raw.length - 60)
+            : List.from(raw);
       });
-    } else if (range == '24h') {
+      _labels['live'] = labels;
+      return;
+    }
+
+    if (range == '24h') {
       labels = List.generate(pts, (i) {
         final d = now.subtract(Duration(minutes: (pts - 1 - i) * 10));
         final h = d.hour > 12 ? d.hour - 12 : (d.hour == 0 ? 12 : d.hour);
@@ -153,25 +171,98 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
             ' ${d.day}';
       });
     }
-
     _labels[range] = labels;
 
-    if (range != 'live') {
-      final seeds = {
-        'temp': {'min': 24.0, 'max': 32.0},
-        'ph': {'min': 6.5, 'max': 9.0},
-        'do': {'min': 2.5, 'max': 7.0},
-        'turb': {'min': 10.0, 'max': 70.0},
-        'waterlevel': {'min': 100.0, 'max': 200.0},
-      };
-
-      seeds.forEach((key, bounds) {
-        _data['$key-$range'] = List.generate(pts, (_) {
-          return (bounds['min']! +
-              _rng.nextDouble() * (bounds['max']! - bounds['min']!));
-        });
-      });
+    DateTime historyStart;
+    DateTime historyEnd;
+    if (range == '24h') {
+      historyStart = now.subtract(const Duration(hours: 24));
+      historyEnd = now;
+    } else if (range == '7d') {
+      historyStart = now.subtract(const Duration(days: 7));
+      historyEnd = now;
+    } else if (range == '30d') {
+      historyStart = now.subtract(const Duration(days: 30));
+      historyEnd = now;
+    } else {
+      historyStart = _customStartDate;
+      historyEnd = _customEndDate;
     }
+
+    final records = await SensorService.instance.fetchHistoryRange(
+      start: historyStart,
+      end: historyEnd,
+    );
+
+    if (records.isEmpty || pts == 0) {
+      for (final key in SensorService.sensorKeys) {
+        _data['$key-$range'] = [];
+      }
+      return;
+    }
+
+    final labelTimes = List<DateTime>.generate(pts, (i) {
+      if (range == '24h') {
+        return now.subtract(Duration(minutes: (pts - 1 - i) * 10));
+      }
+      return now.subtract(Duration(days: (pts - 1 - i)));
+    });
+
+    for (final key in SensorService.sensorKeys) {
+      final fbKey = _firebaseKeyMap[key]!;
+      _data['$key-$range'] = _aggregateHistory(records, fbKey, labelTimes);
+    }
+  }
+
+  List<double> _aggregateHistory(
+    List<Map<String, dynamic>> records,
+    String fbKey,
+    List<DateTime> labelTimes,
+  ) {
+    final window = labelTimes.length > 20
+        ? const Duration(hours: 12)
+        : const Duration(hours: 1);
+    return List<double>.generate(labelTimes.length, (i) {
+      if (i < labelTimes.length - 1 &&
+          labelTimes[i + 1].difference(labelTimes[i]).inDays >= 1) {
+        return _dailyAggregate(records, fbKey, labelTimes[i]);
+      }
+      final mid = labelTimes[i];
+      final start = mid.subtract(window);
+      final end = mid.add(window);
+      final matching = records.where((r) {
+        final ts = r['timestamp'];
+        if (ts is! num) return false;
+        final t = DateTime.fromMillisecondsSinceEpoch(ts.toInt());
+        return t.isAfter(start) && t.isBefore(end);
+      }).map((r) => _toDouble(r[fbKey])).whereType<double>().where((v) => v >= 0).toList();
+      if (matching.isEmpty) return 0.0;
+      return matching.reduce((a, b) => a + b) / matching.length;
+    });
+  }
+
+  double _dailyAggregate(
+    List<Map<String, dynamic>> records,
+    String fbKey,
+    DateTime day,
+  ) {
+    final dayStart = DateTime(day.year, day.month, day.day);
+    final dayEnd = dayStart.add(const Duration(days: 1));
+    final matching = records.where((r) {
+      final ts = r['timestamp'];
+      if (ts is! num) return false;
+      final t = DateTime.fromMillisecondsSinceEpoch(ts.toInt());
+      return t.isAfter(dayStart) && t.isBefore(dayEnd);
+    }).map((r) => _toDouble(r[fbKey])).whereType<double>().where((v) => v >= 0).toList();
+    if (matching.isEmpty) return 0.0;
+    return matching.reduce((a, b) => a + b) / matching.length;
+  }
+
+  double? _toDouble(dynamic v) {
+    if (v is int) return v.toDouble();
+    if (v is double) return v;
+    if (v is num) return v.toDouble();
+    return null;
   }
 
   List<double> _getData(String key, String range) {
@@ -200,18 +291,14 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                   child: FilterSelector(
                     activeFilter: _activeFilter,
                     showCustom: _showCustom,
-                    onFilterChanged: (val) {
+                    onFilterChanged: (val) async {
                       setState(() {
                         _activeFilter = val;
                         _showCustom = false;
+                        _isLoading = val != 'live';
                       });
-                      Future.delayed(const Duration(milliseconds: 100), () {
-                        if (mounted) {
-                          setState(() {
-                            _generateData(val);
-                          });
-                        }
-                      });
+                      await _generateData(val);
+                      if (mounted) setState(() => _isLoading = false);
                     },
                     onToggleCustom: () {
                       setState(() {
@@ -227,7 +314,13 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                     child: _buildCustomDateRow(),
                   ),
                 const SizedBox(height: 10),
-                Padding(
+                if (_isLoading)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 40),
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                if (!_isLoading)
+                  Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   child: Column(
                     children: [
@@ -647,15 +740,13 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
               onTapDown: (_) => setState(() => _isApplyPressed = true),
               onTapUp: (_) => setState(() => _isApplyPressed = false),
               onTapCancel: () => setState(() => _isApplyPressed = false),
-              onTap: () {
-                setState(() => _activeFilter = 'custom');
-                Future.delayed(const Duration(milliseconds: 100), () {
-                  if (mounted) {
-                    setState(() {
-                      _generateData('custom');
-                    });
-                  }
+              onTap: () async {
+                setState(() {
+                  _activeFilter = 'custom';
+                  _isLoading = true;
                 });
+                await _generateData('custom');
+                if (mounted) setState(() => _isLoading = false);
               },
               child: Ink(
                 padding: const EdgeInsets.symmetric(

@@ -136,6 +136,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: Column(
           children: [
             _buildGreeting(),
+            _buildConnectionBanner(),
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 4),
               child: SectionLabel(
@@ -278,6 +279,54 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  Widget _buildConnectionBanner() {
+    final ss = SensorService.instance;
+    final hasAnyData = SensorService.sensorKeys.any((k) => ss.hasSensorData(k));
+    final error = ss.lastError;
+
+    if (hasAnyData && error == null) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: error != null
+            ? const Color(0xFFFFF3F0)
+            : const Color(0xFFFFF8E1),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: error != null
+              ? const Color(0xFFFFCCBB)
+              : const Color(0xFFFFE082),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            error != null ? Icons.error_outline : Icons.info_outline,
+            size: 16,
+            color: error != null
+                ? const Color(0xFFD84315)
+                : const Color(0xFFF9A825),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              error ?? 'Waiting for sensor data...',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: error != null
+                    ? const Color(0xFFBF360C)
+                    : const Color(0xFF795548),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildGaugeGrid(BuildContext context) {
     final ss = SensorService.instance;
 
@@ -358,20 +407,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: _buildGaugeCard(
-                  title: 'Turbidity',
-                  value: ss.isTurbidityAir
-                      ? '--'
-                      : (ss.hasSensorData('turb')
-                            ? ss.getLatestValue('turb').toStringAsFixed(0)
-                            : '--'),
-                  unit: ss.isTurbidityAir ? '' : 'NTU',
-                  ideal: _getIdealText('turb'),
-                  iconPath: 'assets/images/Turbidity.png',
-                  status: ss.isTurbidityAir ? 'NO WATER' : _getStatus('turb'),
-                  statusColor: ss.isTurbidityAir
-                      ? AppColors.warning
-                      : _getStatusColor('turb'),
+                  child: _buildGaugeCard(
+                    title: 'Turbidity',
+                    value: ss.hasSensorData('turb')
+                        ? ss.getLatestValue('turb').toStringAsFixed(0)
+                        : '--',
+                    unit: 'NTU',
+                    ideal: _getIdealText('turb'),
+                    iconPath: 'assets/images/Turbidity.png',
+                    status: _getStatus('turb'),
+                    statusColor: _getStatusColor('turb'),
                   onTap: () => _showGaugeDetail(
                     context,
                     sensorKey: 'turb',
@@ -1185,14 +1230,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
             final ss = SensorService.instance;
             final hasData = ss.hasSensorData(sensorKey);
             final value = ss.getLatestValue(sensorKey);
-            final isTurbAir = sensorKey == 'turb' && ss.isTurbidityAir;
-            final status = isTurbAir ? 'NO WATER' : _getStatus(sensorKey);
-            final statusColor = isTurbAir
-                ? AppColors.warning
-                : _getStatusColor(sensorKey);
-            final formattedValue = isTurbAir
-                ? '--'
-                : !hasData
+            final status = _getStatus(sensorKey);
+            final statusColor = _getStatusColor(sensorKey);
+            final formattedValue = !hasData
                 ? '--'
                 : sensorKey == 'turb' || sensorKey == 'waterlevel'
                 ? value.toStringAsFixed(0)
