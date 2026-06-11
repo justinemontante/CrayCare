@@ -16,7 +16,7 @@ OneWire oneWire(ONE_WIRE_PIN);
 DallasTemperature ds18b20(&oneWire);
 
 // For smoothing turbidity values (simple moving average)
-static const size_t TURB_BUF_SIZE = 10;
+static const size_t TURB_BUF_SIZE = 20;
 static float turbBuf[TURB_BUF_SIZE];
 static size_t turbIdx = 0;
 static bool turbBufFilled = false;
@@ -46,20 +46,24 @@ void loadTurbidityFromFirebase() {
 }
 
 float readTurbidityVoltage() {
-    // ESP32 ADC is 0‑3.3 V, 12‑bit (0‑4095). We'll map to voltage.
-    int raw = analogRead(TURBIDITY_PIN);
-    float voltage = (raw / 4095.0f) * 3.3f;
-    // Store in moving‑average buffer
-    turbBuf[turbIdx++] = voltage;
+    // Oversample: take 10 readings, average them
+    float sum = 0.0f;
+    for (int s = 0; s < 50; s++) {
+        sum += analogRead(TURBIDITY_PIN);
+        delay(2);
+    }
+    float raw = (sum / 50.0f) / 4095.0f * 3.3f;
+    // Store in moving‑average buffer (size 10)
+    turbBuf[turbIdx++] = raw;
     if (turbIdx >= TURB_BUF_SIZE) {
         turbIdx = 0;
         turbBufFilled = true;
     }
-    // Compute average
-    float sum = 0.0f;
+    // Compute average of buffer
+    float avg = 0.0f;
     size_t count = turbBufFilled ? TURB_BUF_SIZE : turbIdx;
-    for (size_t i = 0; i < count; ++i) sum += turbBuf[i];
-    return sum / (float)count;
+    for (size_t i = 0; i < count; ++i) avg += turbBuf[i];
+    return avg / (float)count;
 }
 
 float ntuFromVoltage(float V) {

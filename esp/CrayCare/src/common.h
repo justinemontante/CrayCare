@@ -38,7 +38,7 @@ void connectWiFi();
 void initTime();
 bool connectFirebase();
 bool ensureFirebaseReady(); // calls Wi‑Fi, time, Firebase in order
-unsigned long getEpochMillis();
+uint64_t getEpochMillis();
 
 // Wi‑Fi NVS helper prototypes
 void loadWifiFromNVS();
