@@ -63,7 +63,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   void _onSensorDataChanged() {
-    if (_activeFilter == 'live' && mounted) {
+    if (!mounted) return;
+    if (_activeFilter == 'live') {
       setState(() {
         final hasData = SensorService.sensorKeys.any(
           (k) => SensorService.instance.hasSensorData(k),
@@ -82,14 +83,33 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
         _labels['live'] ??= [];
         final labels = _labels['live']!;
-        if (labels.length >= 60) labels.removeAt(0);
+        if (labels.length >= 8) labels.removeAt(0);
         labels.add(timeStr);
 
         SensorService.sensorKeys.forEach((key) {
           final raw = SensorService.instance.getData(key);
-          _data['$key-live'] = raw.length > 60
-              ? raw.sublist(raw.length - 60)
+          _data['$key-live'] = raw.length > 8
+              ? raw.sublist(raw.length - 8)
               : List.from(raw);
+        });
+      });
+    } else if (_activeFilter.isNotEmpty && _data.isNotEmpty) {
+      final ss = SensorService.instance;
+      final anyData = SensorService.sensorKeys.any((k) => ss.hasSensorData(k));
+      if (!anyData) {
+        setState(() {
+          for (final key in SensorService.sensorKeys) {
+            _data['$key-${_activeFilter}'] = [];
+          }
+        });
+        return;
+      }
+      setState(() {
+        SensorService.sensorKeys.forEach((key) {
+          final arr = _data['$key-${_activeFilter}'];
+          if (arr != null && arr.isNotEmpty) {
+            arr[arr.length - 1] = ss.getLatestValue(key);
+          }
         });
       });
     }
@@ -106,11 +126,13 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   Future<void> _generateData(String range) async {
     int pts;
     if (range == 'live') {
-      pts = 60;
+      pts = 8;
     } else if (range == '24h')
-      pts = 144;
+      pts = 24;
     else if (range == '7d')
       pts = 7;
+    else if (range == '30d')
+      pts = 30;
     else if (range == 'custom') {
       pts = _customEndDate.difference(_customStartDate).inDays + 1;
       if (pts < 1) pts = 1;
@@ -130,8 +152,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
       SensorService.sensorKeys.forEach((key) {
         final raw = SensorService.instance.getData(key);
-        _data['$key-live'] = raw.length > 60
-            ? raw.sublist(raw.length - 60)
+        _data['$key-live'] = raw.length > 8
+            ? raw.sublist(raw.length - 8)
             : List.from(raw);
       });
       _labels['live'] = labels;
@@ -140,10 +162,10 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
     if (range == '24h') {
       labels = List.generate(pts, (i) {
-        final d = now.subtract(Duration(minutes: (pts - 1 - i) * 10));
+        final d = now.subtract(Duration(hours: (pts - 1 - i)));
         final h = d.hour > 12 ? d.hour - 12 : (d.hour == 0 ? 12 : d.hour);
         final ampm = d.hour >= 12 ? 'PM' : 'AM';
-        return '${h}:${d.minute.toString().padLeft(2, '0')} $ampm';
+        return '$h $ampm';
       });
     } else if (range == 'custom') {
       labels = List.generate(pts, (i) {
@@ -152,7 +174,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       });
     } else {
       labels = List.generate(pts, (i) {
-        final days = range == '7d' ? (pts - 1 - i) : (pts - 1 - i) * 3;
+        final days = (pts - 1 - i);
         final d = now.subtract(Duration(days: days));
         return [
               'Jan',
@@ -203,7 +225,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
     final labelTimes = List<DateTime>.generate(pts, (i) {
       if (range == '24h') {
-        return now.subtract(Duration(minutes: (pts - 1 - i) * 10));
+        return now.subtract(Duration(hours: (pts - 1 - i)));
       }
       return now.subtract(Duration(days: (pts - 1 - i)));
     });
@@ -214,14 +236,21 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     }
   }
 
+  DateTime _parseTimestamp(dynamic ts) {
+    if (ts is! num) return DateTime(2000);
+    final ms = ts.toInt() < 100000000000 ? ts.toInt() * 1000 : ts.toInt();
+    return DateTime.fromMillisecondsSinceEpoch(ms);
+  }
+
   List<double> _aggregateHistory(
     List<Map<String, dynamic>> records,
     String fbKey,
     List<DateTime> labelTimes,
   ) {
-    final window = labelTimes.length > 20
-        ? const Duration(hours: 12)
-        : const Duration(hours: 1);
+    final interval = labelTimes.length > 1
+        ? labelTimes[1].difference(labelTimes[0])
+        : const Duration(minutes: 10);
+    final window = interval ~/ 2;
     return List<double>.generate(labelTimes.length, (i) {
       if (i < labelTimes.length - 1 &&
           labelTimes[i + 1].difference(labelTimes[i]).inDays >= 1) {
@@ -231,12 +260,10 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       final start = mid.subtract(window);
       final end = mid.add(window);
       final matching = records.where((r) {
-        final ts = r['timestamp'];
-        if (ts is! num) return false;
-        final t = DateTime.fromMillisecondsSinceEpoch(ts.toInt());
+        final t = _parseTimestamp(r['timestamp']);
         return t.isAfter(start) && t.isBefore(end);
       }).map((r) => _toDouble(r[fbKey])).whereType<double>().where((v) => v >= 0).toList();
-      if (matching.isEmpty) return 0.0;
+      if (matching.isEmpty) return double.nan;
       return matching.reduce((a, b) => a + b) / matching.length;
     });
   }
@@ -249,12 +276,10 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     final dayStart = DateTime(day.year, day.month, day.day);
     final dayEnd = dayStart.add(const Duration(days: 1));
     final matching = records.where((r) {
-      final ts = r['timestamp'];
-      if (ts is! num) return false;
-      final t = DateTime.fromMillisecondsSinceEpoch(ts.toInt());
+      final t = _parseTimestamp(r['timestamp']);
       return t.isAfter(dayStart) && t.isBefore(dayEnd);
     }).map((r) => _toDouble(r[fbKey])).whereType<double>().where((v) => v >= 0).toList();
-    if (matching.isEmpty) return 0.0;
+    if (matching.isEmpty) return double.nan;
     return matching.reduce((a, b) => a + b) / matching.length;
   }
 
@@ -783,20 +808,23 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   }) {
     final data = _getData(chartKey, _activeFilter);
     final labels = _labels[_activeFilter] ?? [];
-    final mn = data.isEmpty
+    final dp = _decimalFor(chartKey);
+    final validData = data.where((v) => !v.isNaN).toList();
+    final hasValid = validData.isNotEmpty;
+    final mn = !hasValid
         ? '--'
-        : _calc(data, (d) => d.reduce(min)).toStringAsFixed(1);
-    final mx = data.isEmpty
+        : _calc(validData, (d) => d.reduce(min)).toStringAsFixed(dp);
+    final mx = !hasValid
         ? '--'
-        : _calc(data, (d) => d.reduce(max)).toStringAsFixed(1);
-    final cur = data.isEmpty ? '--' : data.last.toStringAsFixed(1);
+        : _calc(validData, (d) => d.reduce(max)).toStringAsFixed(dp);
+    final cur = !hasValid ? '--' : validData.last.toStringAsFixed(dp);
     final curLabel = labels.isNotEmpty ? labels.last : '';
     final unit = _unitFor(chartKey);
 
     int minIdx = -1, maxIdx = -1;
-    if (data.isNotEmpty) {
-      final minVal = data.reduce(min);
-      final maxVal = data.reduce(max);
+    if (hasValid) {
+      final minVal = validData.reduce(min);
+      final maxVal = validData.reduce(max);
       minIdx = data.indexOf(minVal);
       maxIdx = data.indexOf(maxVal);
     }
@@ -810,7 +838,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
     final thresholds = _thresholdsFor(chartKey);
     final criticalCount = data
-        .where((v) => v < thresholds['min']! || v > thresholds['max']!)
+        .where((v) => !v.isNaN && (v < thresholds['min']! || v > thresholds['max']!))
         .length;
 
     final selIdx = _selectedIndices[chartKey];
@@ -821,8 +849,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     String statusLabel = '';
     Color statusColor = Colors.transparent;
     Color statusBg = Colors.transparent;
-    if (data.isNotEmpty) {
-      final lastVal = data.last;
+    if (hasValid) {
+      final lastVal = validData.last;
       if (lastVal > thresholds['max']! || lastVal < thresholds['min']!) {
         statusLabel = 'Critical';
         statusColor = AppColors.critical;
@@ -832,7 +860,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
         statusColor = AppColors.warning;
         statusBg = AppColors.warningWith(0.15);
       } else {
-        statusLabel = 'Normal';
+        statusLabel = 'Optimal';
         statusColor = AppColors.success;
         statusBg = AppColors.successWith(0.12);
       }
@@ -891,7 +919,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                       if (_activeFilter == '24h') ...[const SizedBox(width: 8)],
                     ],
                   ),
-                  if (_activeFilter == 'live' && data.isNotEmpty)
+                  if (_activeFilter == 'live' && hasValid)
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 8,
@@ -935,7 +963,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                   color: AppColors.primaryWith(0.03),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: data.isEmpty
+                child: !hasValid
                     ? Center(
                         child: Text(
                           _noDataStatus(chartKey),
@@ -957,9 +985,10 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                         thresholdMin: thresholds['min'],
                         thresholdMax: thresholds['max'],
                         isLive: _activeFilter == 'live',
+                        decimalPlaces: dp,
                       ),
               ),
-              if (data.isNotEmpty) ...[
+              if (hasValid) ...[
                 const SizedBox(height: 8),
                 _buildStatsFooter(
                   displayCur,
@@ -978,6 +1007,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                   onSelectIndex: (idx) =>
                       _onChartSelectionChanged(chartKey, idx),
                   curPrefix: curPrefix,
+                  dp: dp,
                 ),
               ],
             ],
@@ -1021,6 +1051,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     }
   }
 
+  int _decimalFor(String key) => 2;
+
   Map<String, double> _thresholdsFor(String key) {
     final range = SettingsService.instance.currentRanges[key];
     if (range != null) return range;
@@ -1060,13 +1092,17 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     int nowIdx = -1,
     ValueChanged<int>? onSelectIndex,
     String curPrefix = 'Now',
+    int dp = 1,
   }) {
     final isLive = _activeFilter == 'live';
     final isShortRange = _activeFilter == 'live';
 
     double avg = 0.0;
     if (data.isNotEmpty) {
-      avg = data.reduce((a, b) => a + b) / data.length;
+      final valid = data.where((v) => !v.isNaN).toList();
+      if (valid.isNotEmpty) {
+        avg = valid.reduce((a, b) => a + b) / valid.length;
+      }
     }
 
     return Container(
@@ -1142,7 +1178,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                         )
                       : _buildStatRow(
                           Icons.analytics_outlined,
-                          'Avg: ${avg.toStringAsFixed(1)} $unit',
+                          'Avg: ${avg.toStringAsFixed(dp)} $unit',
                           'Period Average',
                           AppColors.primary,
                         ),
@@ -1253,17 +1289,20 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
             final data = _getData(chartKey, _activeFilter);
             final labels = _labels[_activeFilter] ?? [];
             final color = _colorFor(chartKey);
+            final dp = _decimalFor(chartKey);
+            final validData = data.where((v) => !v.isNaN).toList();
+            final hasValid = validData.isNotEmpty;
 
             int minIdx = -1, maxIdx = -1;
-            final mn = data.isEmpty
+            final mn = !hasValid
                 ? '--'
-                : data.reduce(min).toStringAsFixed(1);
-            final mx = data.isEmpty
+                : validData.reduce(min).toStringAsFixed(dp);
+            final mx = !hasValid
                 ? '--'
-                : data.reduce(max).toStringAsFixed(1);
-            if (data.isNotEmpty) {
-              final minVal = data.reduce(min);
-              final maxVal = data.reduce(max);
+                : validData.reduce(max).toStringAsFixed(dp);
+            if (hasValid) {
+              final minVal = validData.reduce(min);
+              final maxVal = validData.reduce(max);
               minIdx = data.indexOf(minVal);
               maxIdx = data.indexOf(maxVal);
             }
@@ -1277,13 +1316,13 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
             final thresholds = _thresholdsFor(chartKey);
             final criticalCount = data
-                .where((v) => v < thresholds['min']! || v > thresholds['max']!)
+                .where((v) => !v.isNaN && (v < thresholds['min']! || v > thresholds['max']!))
                 .length;
             final criticalItems = <_CriticalItem>[];
             if (criticalCount > 0) {
               for (int i = 0; i < data.length; i++) {
                 final v = data[i];
-                if (v < thresholds['min']! || v > thresholds['max']!) {
+                if (!v.isNaN && (v < thresholds['min']! || v > thresholds['max']!)) {
                   criticalItems.add(
                     _CriticalItem(
                       value: v,
@@ -1294,7 +1333,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                 }
               }
             }
-            final cur = data.isEmpty ? '--' : data.last.toStringAsFixed(1);
+            final cur = !hasValid ? '--' : validData.last.toStringAsFixed(dp);
             final curLabel = labels.isNotEmpty ? labels.last : '';
 
             return StatefulBuilder(
@@ -1375,7 +1414,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                         ),
                         const SizedBox(height: 10),
                         if (modalShowCritical)
-                          _buildModalCriticalList(criticalItems, unit)
+                          _buildModalCriticalList(criticalItems, unit, dp: dp)
                         else ...[
                           Container(
                             padding: const EdgeInsets.symmetric(
@@ -1503,7 +1542,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                             ),
                           ),
                           const SizedBox(height: 12),
-                          if (data.isNotEmpty && labels.isNotEmpty)
+                          if (hasValid && labels.isNotEmpty)
                             Container(
                               height: 220,
                               width: double.infinity,
@@ -1525,6 +1564,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                                 thresholdMin: thresholds['min'],
                                 thresholdMax: thresholds['max'],
                                 isLive: _activeFilter == 'live',
+                                decimalPlaces: dp,
                               ),
                             )
                           else
@@ -1558,7 +1598,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
-  Widget _buildModalCriticalList(List<_CriticalItem> items, String unit) {
+  Widget _buildModalCriticalList(List<_CriticalItem> items, String unit, {int dp = 1}) {
     return Container(
       height: 220,
       padding: const EdgeInsets.all(10),
@@ -1611,7 +1651,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                             ),
                             const SizedBox(width: 5),
                             Text(
-                              '${c.value.toStringAsFixed(1)} $unit',
+                              '${c.value.toStringAsFixed(dp)} $unit',
                               style: const TextStyle(
                                 fontSize: 9,
                                 fontWeight: FontWeight.w600,

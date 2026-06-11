@@ -340,7 +340,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: _buildGaugeCard(
                   title: 'Temperature',
                   value: ss.hasSensorData('temp')
-                      ? ss.getLatestValue('temp').toStringAsFixed(1)
+                      ? ss.getLatestValue('temp').toStringAsFixed(2)
                       : '--',
                   unit: '\u00B0C',
                   ideal: _getIdealText('temp'),
@@ -362,7 +362,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: _buildGaugeCard(
                   title: 'pH Level',
                   value: ss.hasSensorData('ph')
-                      ? ss.getLatestValue('ph').toStringAsFixed(1)
+                      ? ss.getLatestValue('ph').toStringAsFixed(2)
                       : '--',
                   unit: 'pH',
                   ideal: _getIdealText('ph'),
@@ -388,7 +388,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: _buildGaugeCard(
                   title: 'Dissolved O\u2082',
                   value: ss.hasSensorData('do')
-                      ? ss.getLatestValue('do').toStringAsFixed(1)
+                      ? ss.getLatestValue('do').toStringAsFixed(2)
                       : '--',
                   unit: 'mg/L',
                   ideal: _getIdealText('do'),
@@ -410,7 +410,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   child: _buildGaugeCard(
                     title: 'Turbidity',
                     value: ss.hasSensorData('turb')
-                        ? ss.getLatestValue('turb').toStringAsFixed(0)
+                        ? ss.getLatestValue('turb').toStringAsFixed(2)
                         : '--',
                     unit: 'NTU',
                     ideal: _getIdealText('turb'),
@@ -511,7 +511,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: _buildGaugeCard(
         title: 'Water Level',
         value: ss.hasSensorData('waterlevel')
-            ? ss.getLatestValue('waterlevel').toStringAsFixed(0)
+            ? ss.getLatestValue('waterlevel').toStringAsFixed(2)
             : '--',
         unit: 'cm',
         ideal: _getIdealText('waterlevel'),
@@ -1234,9 +1234,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             final statusColor = _getStatusColor(sensorKey);
             final formattedValue = !hasData
                 ? '--'
-                : sensorKey == 'turb' || sensorKey == 'waterlevel'
-                ? value.toStringAsFixed(0)
-                : value.toStringAsFixed(1);
+                : value.toStringAsFixed(2);
 
             return SafeArea(
               child: Padding(

@@ -15,6 +15,7 @@ class AnalyticsLineChart extends StatefulWidget {
   final double? thresholdMin;
   final double? thresholdMax;
   final bool isLive;
+  final int decimalPlaces;
 
   const AnalyticsLineChart({
     super.key,
@@ -29,6 +30,7 @@ class AnalyticsLineChart extends StatefulWidget {
     this.thresholdMin,
     this.thresholdMax,
     this.isLive = false,
+    this.decimalPlaces = 1,
   });
 
   @override
@@ -79,12 +81,14 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart>
   @override
   Widget build(BuildContext context) {
     if (widget.data.isEmpty) return const SizedBox.shrink();
+    final validData = widget.data.where((v) => !v.isNaN).toList();
+    if (validData.isEmpty) return const SizedBox.shrink();
 
     final curIdx = widget.selectedIndex;
 
     // --- MAGANDANG RANGE AT MARGIN CALCULATION PARA SA FLATLINE ---
-    double originalMin = widget.data.reduce(min);
-    double originalMax = widget.data.reduce(max);
+    double originalMin = validData.reduce(min);
+    double originalMax = validData.reduce(max);
     double minVal;
     double maxVal;
 
@@ -185,7 +189,9 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart>
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
-        '$label: ${val.toStringAsFixed(1)} ${widget.unit}',
+        val.isNaN
+            ? '$label: No data'
+            : '$label: ${val.toStringAsFixed(widget.decimalPlaces)} ${widget.unit}',
         style: const TextStyle(
           fontSize: 9,
           fontWeight: FontWeight.w600,
@@ -325,22 +331,36 @@ class _LineChartPainter extends CustomPainter {
     final path = Path();
     final fillPath = Path();
 
+    int? segStart;
+    int lastValid = -1;
     for (int i = 0; i < data.length; i++) {
+      if (data[i].isNaN) {
+        if (segStart != null && lastValid >= 0) {
+          final lx = padL + lastValid * stepX;
+          fillPath.lineTo(lx, padT + chartH);
+          fillPath.close();
+        }
+        segStart = null;
+        continue;
+      }
       final x = padL + i * stepX;
       final y = padT + chartH - ((data[i] - minVal) / range) * chartH;
-
-      if (i == 0) {
+      if (segStart == null) {
         path.moveTo(x, y);
         fillPath.moveTo(x, padT + chartH);
         fillPath.lineTo(x, y);
+        segStart = i;
       } else {
         path.lineTo(x, y);
         fillPath.lineTo(x, y);
       }
+      lastValid = i;
     }
-
-    fillPath.lineTo(padL + (data.length - 1) * stepX, padT + chartH);
-    fillPath.close();
+    if (segStart != null && lastValid >= 0) {
+      final lx = padL + lastValid * stepX;
+      fillPath.lineTo(lx, padT + chartH);
+      fillPath.close();
+    }
 
     canvas.drawPath(fillPath, fillPaint);
     canvas.drawPath(path, paintLine);
@@ -351,6 +371,7 @@ class _LineChartPainter extends CustomPainter {
     final dotStep = 1;
 
     for (int i = 0; i < data.length; i += dotStep) {
+      if (data[i].isNaN) continue;
       final x = padL + i * stepX;
       final y = padT + chartH - ((data[i] - minVal) / range) * chartH;
       canvas.drawCircle(Offset(x, y), 3, dotBorder);
@@ -360,7 +381,8 @@ class _LineChartPainter extends CustomPainter {
     // Selected point highlight & vertical line
     if (selectedIndex != null &&
         selectedIndex! >= 0 &&
-        selectedIndex! < data.length) {
+        selectedIndex! < data.length &&
+        !data[selectedIndex!].isNaN) {
       final sx = padL + selectedIndex! * stepX;
       final sy =
           padT + chartH - ((data[selectedIndex!] - minVal) / range) * chartH;
@@ -391,7 +413,7 @@ class _LineChartPainter extends CustomPainter {
     }
 
     // Live pulsing dot
-    if (isLive && data.isNotEmpty) {
+    if (isLive && data.isNotEmpty && !data.last.isNaN) {
       final lastIdx = data.length - 1;
       final lx = padL + lastIdx * stepX;
       final ly = padT + chartH - ((data[lastIdx] - minVal) / range) * chartH;

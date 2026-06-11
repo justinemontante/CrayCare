@@ -32,7 +32,7 @@ class SensorService extends ChangeNotifier {
   bool _initialDataLoaded = false;
 
   Timer? _staleTimer;
-  static const _staleTimeout = Duration(seconds: 12);
+  static const _staleTimeout = Duration(seconds: 30);
 
   DateTime _lastUpdated = DateTime.fromMillisecondsSinceEpoch(0);
   String? _lastError;
@@ -148,19 +148,46 @@ class SensorService extends ChangeNotifier {
     required DateTime start,
     required DateTime end,
   }) async {
-    final records = <Map<String, dynamic>>[];
+    final days = <String>[];
     for (var d = DateTime(start.year, start.month, start.day);
         !d.isAfter(end);
         d = d.add(const Duration(days: 1))) {
-      final dateStr =
-          '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
-      final ref = FirebaseDatabase.instance.ref('sensor_readings/history/$dateStr');
-      final snapshot = await ref.get();
+      days.add(
+        '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}',
+      );
+    }
+
+    final snapshots = await Future.wait(
+      days.map((dateStr) =>
+          FirebaseDatabase.instance.ref('sensor_readings/history/$dateStr').get()),
+    );
+
+    final records = <Map<String, dynamic>>[];
+    for (int di = 0; di < days.length; di++) {
+      final dateStr = days[di];
+      final snapshot = snapshots[di];
       if (snapshot.value == null) continue;
       final map = snapshot.value as Map<Object?, Object?>;
+      final nodeDate = DateTime(
+        int.parse(dateStr.split('-')[0]),
+        int.parse(dateStr.split('-')[1]),
+        int.parse(dateStr.split('-')[2]),
+      );
       for (final entry in map.entries) {
         final record = entry.value as Map<Object?, Object?>;
-        records.add(record.map<String, dynamic>((k, v) => MapEntry(k.toString(), v)));
+        final r = record.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
+        final rawTs = _toInt(r['timestamp']);
+        if (rawTs != null) {
+          final dt = DateTime.fromMillisecondsSinceEpoch(
+            rawTs < 100000000000 ? rawTs * 1000 : rawTs,
+          );
+          if ((dt.difference(nodeDate).abs().inDays) > 30) {
+            r['timestamp'] = nodeDate
+                .add(const Duration(hours: 12))
+                .millisecondsSinceEpoch ~/ 1000;
+          }
+        }
+        records.add(r);
       }
     }
     records.sort(
