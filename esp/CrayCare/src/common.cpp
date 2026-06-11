@@ -154,10 +154,10 @@ String getStoredWifiPassword() {
     return stored;
 }
 
-unsigned long getEpochMillis() {
+uint64_t getEpochMillis() {
     struct tm timeInfo;
     if (!getLocalTime(&timeInfo)) {
         return 0;
     }
-    return (unsigned long) mktime(&timeInfo) * 1000UL;
+    return (uint64_t)mktime(&timeInfo) * 1000ULL;
 }
