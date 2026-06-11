@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'dart:convert';
 import '../models/crayfish_stage.dart';
@@ -12,9 +13,8 @@ class SettingsService extends ChangeNotifier {
   String _currentStage = 'pre_adult';
   late Map<String, Map<String, Map<String, double>>> _stageRanges;
 
-  final DatabaseReference _thresholdsRef = FirebaseDatabase.instance.ref(
-    'sensor_readings/thresholds',
-  );
+  DatabaseReference get _thresholdsRef =>
+      FirebaseDatabase.instance.ref('sensor_readings/config');
 
   String get currentStage => _currentStage;
   CrayfishStage get currentStageObj => CrayfishStage.fromName(_currentStage);
@@ -60,6 +60,11 @@ class SettingsService extends ChangeNotifier {
 
     await _syncFromFirebase();
     _initialized = true;
+    FirebaseAuth.instance.authStateChanges().listen((user) {
+      if (user != null) {
+        _syncFromFirebase();
+      }
+    });
   }
 
   Future<void> _syncFromFirebase() async {

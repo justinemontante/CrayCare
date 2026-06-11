@@ -13,7 +13,7 @@ const SENSOR_MAP = {
   phLevel: "ph",
   dissolvedOxygen: "do",
   turbidity: "turb",
-  waterLevelPercent: "waterlevel",
+  waterLevel: "waterlevel",
 };
 
 let previousAlertHash = "";
@@ -23,22 +23,34 @@ db.ref("sensor_readings/latest").on("value", async (snap) => {
   if (!data) return;
 
   try {
-    const thresholdSnap = await db
-      .ref("sensor_readings/thresholds/ranges")
+    const configSnap = await db
+      .ref("sensor_readings/config")
       .once("value");
-    const thresholds = thresholdSnap.val();
-    if (!thresholds) return;
+    const config = configSnap.val();
+    if (!config) return;
+
+    const selectedStage = config.selectedStage;
+    if (!selectedStage || !config[selectedStage]) return;
+    const thresholds = config[selectedStage];
+
+    const LABELS = {
+      temp: "Temperature", ph: "pH Level", do: "Dissolved Oxygen",
+      turb: "Turbidity", waterlevel: "Water Level",
+    };
+    const UNITS = {
+      temp: "\u00B0C", ph: "", do: "mg/L", turb: "NTU", waterlevel: "cm",
+    };
 
     const issues = [];
-    for (const [fbKey, svcKey] of Object.entries(SENSOR_MAP)) {
-      const val = data[fbKey];
-      const t = thresholds[svcKey];
-      if (val == null || !t) continue;
+    for (const [espKey, svcKey] of Object.entries(SENSOR_MAP)) {
+      const val = data[espKey];
+      const range = thresholds[svcKey];
+      if (val == null || !range) continue;
 
-      if (t.min != null && val < t.min) {
-        issues.push(`${fbKey} (${val}) is below ideal minimum of ${t.min}`);
-      } else if (t.max != null && val > t.max) {
-        issues.push(`${fbKey} (${val}) is above ideal maximum of ${t.max}`);
+      if (range.min != null && val < range.min) {
+        issues.push({ espKey, svcKey, val, threshold: range.min, dir: "low" });
+      } else if (range.max != null && val > range.max) {
+        issues.push({ espKey, svcKey, val, threshold: range.max, dir: "high" });
       }
     }
 
@@ -47,74 +59,89 @@ db.ref("sensor_readings/latest").on("value", async (snap) => {
       return;
     }
 
-    // Prevent duplicate alerts
-    const hash = issues.sort().join("|");
+    const hash = issues.map(i => `${i.espKey}:${i.dir}`).sort().join("|");
     if (hash === previousAlertHash) return;
     previousAlertHash = hash;
 
-    // Save notification to Firebase
-    const notifRef = db.ref("notifications").push();
-    await notifRef.set({
+    const msgLines = issues.map(({ svcKey, val, threshold, dir }) => {
+      const label = LABELS[svcKey] || svcKey;
+      const unit = UNITS[svcKey] || "";
+      const d = dir === "low" ? "below minimum" : "above maximum";
+      return unit
+        ? `${label} (${val.toFixed(1)} ${unit}) is ${d} of ${threshold}`
+        : `${label} (${val.toFixed(1)}) is ${d} of ${threshold}`;
+    });
+
+    const notifPayload = {
       type: "critical",
       title: "Sensor Alert",
-      message: issues.join("; "),
+      message: msgLines.join("; "),
       timestamp: Date.now(),
       unread: true,
-    });
+    };
 
-    // Collect all user FCM tokens
-    const usersSnap = await db.ref("users").once("value");
-    const tokens = [];
-    usersSnap.forEach((userSnap) => {
-      const token = userSnap.child("fcmToken").val();
-      if (token) tokens.push(token);
-    });
+    // Get authorized users
+    const authSnap = await db.ref("system/authorizedOperators").once("value");
+    const authVal = authSnap.val();
+    let uids = [];
 
-    if (tokens.length === 0) return;
-
-    // Send FCM push
-    const result = await admin.messaging().sendEachForMulticast({
-      tokens,
-      notification: {
-        title: "CrayCare Alert",
-        body: issues.join("\n"),
-      },
-      android: {
-        priority: "high",
-        notification: {
-          channelId: "craycare_alerts",
-          priority: "high",
-          sound: "default",
-        },
-      },
-    });
-
-    console.log(
-      `[${new Date().toLocaleTimeString()}] Sent: ${result.successCount} success, ${result.failureCount} failed`
-    );
-
-    // Remove invalid tokens
-    if (result.failureCount > 0) {
-      const invalidTokens = [];
-      result.responses.forEach((resp, i) => {
-        if (
-          !resp.success &&
-          (resp.error.code === "messaging/invalid-registration-token" ||
-            resp.error.code === "messaging/registration-token-not-registered")
-        ) {
-          invalidTokens.push(i);
+    if (authVal === null) {
+      const usersSnap = await db.ref("users").once("value");
+      if (usersSnap.exists()) {
+        usersSnap.forEach((child) => uids.push(child.key));
+      }
+    } else if (typeof authVal === "object") {
+      if (authVal.UID && typeof authVal.UID === "string") {
+        uids = authVal.UID.split(",").map(u => u.trim()).filter(Boolean);
+      } else {
+        for (const [key, val] of Object.entries(authVal)) {
+          if (val === true) uids.push(key);
         }
-      });
-
-      let idx = 0;
-      usersSnap.forEach((userSnap) => {
-        if (invalidTokens.includes(idx)) {
-          userSnap.ref.child("fcmToken").remove();
-          console.log(`Removed invalid token for user ${userSnap.key}`);
-        }
-        idx++;
-      });
+      }
     }
+
+    let successCount = 0;
+    let failureCount = 0;
+
+    await Promise.allSettled(uids.map(async (uid) => {
+      try {
+        await db.ref(`users/${uid}/notifications`).push().set(notifPayload);
+
+        const tokenSnap = await db.ref(`users/${uid}/fcmToken`).once("value");
+        const token = tokenSnap.val();
+        if (!token) return;
+
+        const result = await admin.messaging().send({
+          token,
+          notification: {
+            title: "CrayCare Alert",
+            body: msgLines.join("\n"),
+          },
+          android: {
+            priority: "high",
+            notification: {
+              channelId: "craycare_alerts",
+              priority: "high",
+              sound: "default",
+            },
+          },
+        });
+
+        successCount++;
+        console.log(`[${new Date().toLocaleTimeString()}] Alert sent to ${uid}`);
+      } catch (err) {
+        failureCount++;
+        if (err.code === "messaging/invalid-registration-token" ||
+            err.code === "messaging/registration-token-not-registered") {
+          await db.ref(`users/${uid}/fcmToken`).remove();
+          console.log(`Removed invalid token for ${uid}`);
+        } else {
+          console.error(`FCM failed for ${uid}:`, err.message);
+        }
+      }
+    }));
+
+    console.log(`[${new Date().toLocaleTimeString()}] Processed ${uids.length} users: ${successCount} OK, ${failureCount} FAIL`);
   } catch (e) {
     console.error("Worker error:", e.message);
   }

@@ -1,4 +1,3 @@
-// Firebase Realtime Database — para mag-save at magbasa ng data online
 import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
@@ -13,8 +12,10 @@ class DatabaseService {
     }
     return {};
   }
-  // Root reference ng Realtime Database natin
+
   final DatabaseReference _db = FirebaseDatabase.instance.ref();
+
+  String get _uid => FirebaseAuth.instance.currentUser?.uid ?? '';
 
   /// I-save ang profile name, email, at photo URL ng user sa RTDB
   Future<void> saveUserProfile({
@@ -42,12 +43,15 @@ class DatabaseService {
     return null;
   }
 
-  // ─── Growth Stage Config ───────────────────────────────────────
+  // ─── Growth Stage Config (per-user) ────────────────────────────
 
-  DatabaseReference get _growthStageRef => _db.child('growth_stage');
+  DatabaseReference _growthStageRef(String uid) =>
+      _db.child('users/$uid/growth_stage');
 
   Future<Map<String, dynamic>?> getGrowthStageConfig() async {
-    final snapshot = await _growthStageRef.get().timeout(
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return null;
+    final snapshot = await _growthStageRef(uid).get().timeout(
       const Duration(seconds: 10),
       onTimeout: () => throw TimeoutException('Firebase read timed out'),
     );
@@ -63,7 +67,9 @@ class DatabaseService {
     String? changedKey,
   }) async {
     final user = FirebaseAuth.instance.currentUser;
-    await _growthStageRef
+    final uid = user?.uid;
+    if (uid == null) return;
+    await _growthStageRef(uid)
         .update({
           'currentStage': currentStage,
           'allRanges': {
@@ -84,11 +90,16 @@ class DatabaseService {
         );
   }
 
-  // ─── Sensor Readings ────────────────────────────────────────────
+  // ─── Sensor Readings (per-user) ───────────────────────────────
 
-  DatabaseReference get _sensorLatestRef => _db.child('sensor_readings/latest');
-  DatabaseReference get _sensorHistoryRef => _db.child('sensor_readings/history');
-  DatabaseReference get _sensorConfigRef => _db.child('sensor_readings/thresholds');
+  DatabaseReference get _sensorLatestRef =>
+      _db.child('sensor_readings/latest');
+
+  DatabaseReference get _sensorHistoryRef =>
+      _db.child('sensor_readings/history');
+
+  DatabaseReference get _sensorConfigRef =>
+      _db.child('sensor_readings/config');
 
   Future<Map<String, dynamic>?> getLatestReadings() async {
     final snapshot = await _sensorLatestRef.get().timeout(
@@ -109,6 +120,8 @@ class DatabaseService {
     String? changedKey,
   }) async {
     final user = FirebaseAuth.instance.currentUser;
+    final uid = user?.uid;
+    if (uid == null) return;
     await _sensorConfigRef.update({
       'currentStage': currentStage,
       'ranges': {
@@ -176,4 +189,5 @@ class DatabaseService {
     list.sort((a, b) => (b['timestamp'] ?? 0).compareTo(a['timestamp'] ?? 0));
     return list;
   }
+
 }

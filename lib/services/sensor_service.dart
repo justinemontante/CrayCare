@@ -22,9 +22,8 @@ class SensorService extends ChangeNotifier {
   ];
 
   StreamSubscription<DatabaseEvent>? _subscription;
-  final DatabaseReference _latestRef = FirebaseDatabase.instance.ref(
-    'sensor_readings/latest',
-  );
+  DatabaseReference get _latestRef =>
+      FirebaseDatabase.instance.ref('sensor_readings/latest');
 
   final Map<String, List<double>> _history = {};
   final Map<String, double> _latest = {};
@@ -157,9 +156,10 @@ class SensorService extends ChangeNotifier {
       );
     }
 
+    const historyBase = 'sensor_readings/history';
     final snapshots = await Future.wait(
       days.map((dateStr) =>
-          FirebaseDatabase.instance.ref('sensor_readings/history/$dateStr').get()),
+          FirebaseDatabase.instance.ref('$historyBase/$dateStr').get()),
     );
 
     final records = <Map<String, dynamic>>[];

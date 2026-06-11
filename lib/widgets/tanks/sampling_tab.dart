@@ -1611,8 +1611,6 @@ class _HistoryEntry {
   final double? gainW;
   final double? gainL;
   final Widget? icon;
-  final String recordedBy;
-
   _HistoryEntry({
     this.title = '',
     this.dateLabel = '',
@@ -1622,7 +1620,6 @@ class _HistoryEntry {
     this.gainW,
     this.gainL,
     this.icon,
-    this.recordedBy = '',
   });
 }
 
@@ -1661,7 +1658,6 @@ class SamplingHistoryPanel extends StatelessWidget {
         abw: service.initialWeight,
         abl: service.initialLength,
         sampleSize: service.sampleCount,
-        recordedBy: service.recordedBy,
         icon: Image.asset(
           'assets/images/InitialPopulation.png',
           width: 20,
@@ -1684,7 +1680,6 @@ class SamplingHistoryPanel extends StatelessWidget {
           sampleSize: entry.sampleSize,
           gainW: entry.abw - prevAbw,
           gainL: entry.avgLength - prevAbl,
-          recordedBy: entry.recordedBy,
           icon: const Icon(
             Icons.biotech_rounded,
             size: 18,
@@ -1760,7 +1755,6 @@ class SamplingHistoryPanel extends StatelessWidget {
                       icon: entry.icon!,
                       gainW: entry.gainW,
                       gainL: entry.gainL,
-                      recordedBy: entry.recordedBy,
                     );
                   },
                 ),
@@ -1802,7 +1796,6 @@ class SamplingHistoryPanel extends StatelessWidget {
     required Widget icon,
     double? gainW,
     double? gainL,
-    String recordedBy = '',
   }) {
     return Container(
       padding: const EdgeInsets.all(12),
@@ -1859,17 +1852,6 @@ class SamplingHistoryPanel extends StatelessWidget {
                         color: AppColors.darkWith(0.45),
                       ),
                     ),
-                    if (recordedBy.isNotEmpty) ...[
-                      const SizedBox(height: 1),
-                      Text(
-                        recordedBy,
-                        style: TextStyle(
-                          fontSize: 8,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.darkWith(0.4),
-                        ),
-                      ),
-                    ],
                   ],
                 ),
               ),
@@ -2009,7 +1991,6 @@ class SamplingHistoryPanel extends StatelessWidget {
             width: 20,
             height: 20,
           ),
-          recordedBy: service.recordedBy,
         ),
       ];
     }
@@ -2045,7 +2026,6 @@ class SamplingHistoryPanel extends StatelessWidget {
         ),
         gainW: entry.abw - prevAbw,
         gainL: entry.avgLength - prevAbl,
-        recordedBy: entry.recordedBy,
       );
     }).toList();
   }

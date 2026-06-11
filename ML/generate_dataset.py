@@ -4,38 +4,105 @@ import os
 
 os.makedirs("dataset", exist_ok=True)
 
-rows = []
+STAGES = ["early_juvenile", "advanced_juvenile", "pre_adult", "market_size"]
 
-for _ in range(10000):
-    temperature = round(random.uniform(20, 35), 2)
-    phLevel = round(random.uniform(6.0, 9.5), 2)
-    dissolvedOxygen = round(random.uniform(2.0, 9.0), 2)
-    turbidity = round(random.uniform(0, 80), 2)
-    waterLevel = round(random.uniform(90, 210), 2)
+STAGE_RANGES = {
+    "early_juvenile": {
+        "temperature": {"min": 26.0, "max": 28.0},
+        "phLevel": {"min": 7.5, "max": 8.0},
+        "dissolvedOxygen": {"min": 5.0, "max": 999.0},
+        "turbidity": {"min": 0.0, "max": 25.0},
+        "waterLevel": {"min": 120.0, "max": 160.0},
+    },
+    "advanced_juvenile": {
+        "temperature": {"min": 25.0, "max": 30.0},
+        "phLevel": {"min": 7.0, "max": 8.5},
+        "dissolvedOxygen": {"min": 5.0, "max": 999.0},
+        "turbidity": {"min": 0.0, "max": 30.0},
+        "waterLevel": {"min": 120.0, "max": 170.0},
+    },
+    "pre_adult": {
+        "temperature": {"min": 24.0, "max": 30.0},
+        "phLevel": {"min": 7.0, "max": 8.5},
+        "dissolvedOxygen": {"min": 4.5, "max": 999.0},
+        "turbidity": {"min": 0.0, "max": 35.0},
+        "waterLevel": {"min": 130.0, "max": 180.0},
+    },
+    "market_size": {
+        "temperature": {"min": 24.0, "max": 28.0},
+        "phLevel": {"min": 7.0, "max": 8.0},
+        "dissolvedOxygen": {"min": 4.0, "max": 999.0},
+        "turbidity": {"min": 0.0, "max": 40.0},
+        "waterLevel": {"min": 130.0, "max": 180.0},
+    },
+}
 
-    isCritical = (
-        temperature < 24 or temperature > 31 or
-        phLevel < 7.0 or phLevel > 8.5 or
-        dissolvedOxygen < 4.0 or
-        turbidity > 45 or
-        waterLevel < 110 or waterLevel > 190
-    )
+SENSOR_SPREAD = {
+    "temperature": {"global_min": 20.0, "global_max": 35.0},
+    "phLevel": {"global_min": 6.0, "global_max": 9.5},
+    "dissolvedOxygen": {"global_min": 2.0, "global_max": 9.0},
+    "turbidity": {"global_min": 0.0, "global_max": 80.0},
+    "waterLevel": {"global_min": 90.0, "global_max": 210.0},
+}
 
-    status = "CRITICAL" if isCritical else "OPTIMAL"
+SENSOR_KEYS = ["temperature", "phLevel", "dissolvedOxygen", "turbidity", "waterLevel"]
 
-    rows.append({
-        "temperature": temperature,
-        "phLevel": phLevel,
-        "dissolvedOxygen": dissolvedOxygen,
-        "turbidity": turbidity,
-        "waterLevel": waterLevel,
-        "status": status
-    })
 
-df = pd.DataFrame(rows)
-df.to_csv("dataset/craycare_dataset.csv", index=False)
+def generate_optimal(ranges):
+    vals = {}
+    for key in SENSOR_KEYS:
+        r = ranges[key]
+        vals[key] = round(random.uniform(r["min"], r["max"]), 2)
+    return vals
 
-print("Dataset created successfully!")
-print("Saved to dataset/craycare_dataset.csv")
-print("Total rows:", len(df))
-print(df["status"].value_counts())
+
+def generate_critical(ranges):
+    vals = {}
+    for key in SENSOR_KEYS:
+        r = ranges[key]
+        spread = SENSOR_SPREAD[key]
+        if random.random() < 0.5:
+            below_min = spread["global_min"]
+            vals[key] = round(
+                random.uniform(below_min, max(below_min, r["min"] - 0.1)), 2
+            )
+        else:
+            above_max = spread["global_max"]
+            vals[key] = round(
+                random.uniform(min(above_max, r["max"] + 0.1), above_max), 2
+            )
+    return vals
+
+
+def generate_for_stage(stage: str, num_rows: int = 10000):
+    ranges = STAGE_RANGES[stage]
+    half = num_rows // 2
+    rows = []
+
+    for _ in range(half):
+        val = generate_optimal(ranges)
+        val["status"] = "OPTIMAL"
+        rows.append(val)
+
+    for _ in range(num_rows - half):
+        val = generate_critical(ranges)
+        val["status"] = "CRITICAL"
+        rows.append(val)
+
+    random.shuffle(rows)
+    df = pd.DataFrame(rows)
+    path = f"dataset/{stage}.csv"
+    df.to_csv(path, index=False)
+    print(f"Saved {path}: {len(df)} rows ({df['status'].value_counts().to_dict()})")
+    return df
+
+
+all_dfs = []
+for stage in STAGES:
+    df = generate_for_stage(stage)
+    df["stage"] = stage
+    all_dfs.append(df)
+
+combined = pd.concat(all_dfs, ignore_index=True)
+combined.to_csv("dataset/craycare_dataset.csv", index=False)
+print(f"\nCombined: {len(combined)} rows total")

@@ -666,37 +666,6 @@ class FeederTab extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 20),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: AppColors.darkWith(0.03),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.person_outline, size: 16, color: AppColors.primary),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Created by',
-                              style: TextStyle(fontSize: 10, color: AppColors.darkWith(0.45)),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              s.createdBy ?? 'Unknown',
-                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.dark),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 20),
                 SizedBox(
                   width: double.infinity,
                   child: TextButton(

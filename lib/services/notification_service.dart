@@ -28,9 +28,8 @@ class NotificationService extends ChangeNotifier {
   final Set<String> _feedingReminderSent = {};
   String _lastSamplingReminderDate = '';
 
-  final DatabaseReference _notifRef = FirebaseDatabase.instance.ref(
-    'notifications',
-  );
+  DatabaseReference get _notifRef =>
+      FirebaseDatabase.instance.ref('users/${FirebaseAuth.instance.currentUser?.uid ?? ""}/notifications');
   StreamSubscription<DatabaseEvent>? _notifSub;
   StreamSubscription<DatabaseEvent>? _notifRemovedSub;
   StreamSubscription<DatabaseEvent>? _prefsSub;
@@ -81,6 +80,16 @@ class NotificationService extends ChangeNotifier {
     SensorService.instance.addListener(_onSensorUpdate);
     _initPreviousStates();
     _startReminderTimer();
+    FirebaseAuth.instance.authStateChanges().listen((user) {
+      _notifications.clear();
+      _notifSub?.cancel();
+      _notifRemovedSub?.cancel();
+      if (user != null) {
+        _listenFirebase();
+        _loadUserPrefs();
+      }
+      notifyListeners();
+    });
   }
 
   Future<void> initFCM() async {

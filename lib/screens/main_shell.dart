@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_database/firebase_database.dart';
 import '../theme/app_colors.dart';
 import '../services/database_service.dart';
 import 'dashboard_screen.dart';
@@ -22,7 +24,9 @@ class _MainShellState extends State<MainShell> {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
   final _analyticsKey = GlobalKey<AnalyticsScreenState>();
   final _tanksKey = GlobalKey<TanksScreenState>();
-  String? _photoUrl; // Base64 data URL or Google/network photo URL.
+  String? _photoUrl;
+  bool? _isPrimary;
+  StreamSubscription<DatabaseEvent>? _primarySub;
 
   void _setPhoto(String url) {
     _photoUrl = url;
@@ -43,10 +47,43 @@ class _MainShellState extends State<MainShell> {
     }
   }
 
+  bool get _isRestricted => _isPrimary == false;
+
   @override
   void initState() {
     super.initState();
     _loadPhoto();
+    _checkPrimaryUser();
+  }
+
+  @override
+  void dispose() {
+    _primarySub?.cancel();
+    super.dispose();
+  }
+
+  void _checkPrimaryUser() {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    debugPrint('[MainShell] Checking primary user. Current UID: $uid');
+    _primarySub = FirebaseDatabase.instance
+        .ref('system/authorizedOperators')
+        .onValue
+        .listen((event) {
+      final val = event.snapshot.value;
+      debugPrint('[MainShell] authorizedOperators value: $val');
+      bool isPrimary;
+      if (val == null) {
+        debugPrint('[MainShell] No authorizedOperators set. Allowing all.');
+        isPrimary = true;
+      } else if (val is Map) {
+        isPrimary = val.containsKey(uid) || val['UID'] == uid;
+      } else {
+        isPrimary = val.toString() == uid;
+      }
+      debugPrint('[MainShell] isPrimary = $isPrimary');
+      if (mounted) setState(() => _isPrimary = isPrimary);
+    });
   }
 
   Future<void> _loadPhoto() async {
@@ -63,7 +100,6 @@ class _MainShellState extends State<MainShell> {
     _analyticsKey.currentState?.scrollToChart(chartKey);
   }
 
-  // Isang beses lang i-create para iwas reload sa tab switch
   late final List<Widget> _screens = [
     DashboardScreen(
       onViewGraph: _goToAnalytics,
@@ -184,7 +220,9 @@ class _MainShellState extends State<MainShell> {
             ),
           ),
           Expanded(
-            child: IndexedStack(index: _currentIndex, children: _screens),
+            child: _isRestricted
+                ? const _RestrictedView()
+                : IndexedStack(index: _currentIndex, children: _screens),
           ),
           _buildBottomNav(),
         ],
@@ -193,6 +231,7 @@ class _MainShellState extends State<MainShell> {
   }
 
   Widget _buildBottomNav() {
+    final items = _navItems;
     return Container(
       padding: const EdgeInsets.fromLTRB(8, 10, 8, 10),
       decoration: BoxDecoration(
@@ -206,8 +245,8 @@ class _MainShellState extends State<MainShell> {
         ],
       ),
       child: Row(
-        children: List.generate(_navItems.length, (i) {
-          final item = _navItems[i];
+        children: List.generate(items.length, (i) {
+          final item = items[i];
           final isActive = i == _currentIndex;
           return Expanded(
             child: GestureDetector(
@@ -265,21 +304,39 @@ class _MainShellState extends State<MainShell> {
   }
 }
 
-class PlaceholderScreen extends StatelessWidget {
-  final String label;
-  const PlaceholderScreen({super.key, required this.label});
+class _RestrictedView extends StatelessWidget {
+  const _RestrictedView();
 
   @override
   Widget build(BuildContext context) {
     return Container(
       color: Colors.white,
       child: Center(
-        child: Text(
-          label,
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-            color: AppColors.dark,
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.lock_outline, size: 64, color: AppColors.darkWith(0.2)),
+              const SizedBox(height: 16),
+              const Text(
+                'Restricted Access',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.dark,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'This section is only accessible by the primary user.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: AppColors.darkWith(0.5),
+                ),
+              ),
+            ],
           ),
         ),
       ),

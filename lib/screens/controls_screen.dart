@@ -87,7 +87,6 @@ class _ControlsScreenState extends State<ControlsScreen> {
             map['type'] as String? ?? '',
             map['time'] as String? ?? '',
             map['date'] as String? ?? '',
-            userName: map['userName'] as String? ?? '',
             timestamp: map['timestamp'] as int? ?? 0,
           );
         }).toList()
@@ -244,8 +243,11 @@ class _ControlsScreenState extends State<ControlsScreen> {
   };
   StreamSubscription<DatabaseEvent>? _devicesSub;
   StreamSubscription<DatabaseEvent>? _devicesLogsSub;
-  final DatabaseReference _devicesRef = FirebaseDatabase.instance.ref('devices/modes');
-  final DatabaseReference _devicesLogsRef = FirebaseDatabase.instance.ref('devices/logs');
+  DatabaseReference get _devicesRef =>
+      FirebaseDatabase.instance.ref('devices/modes');
+
+  DatabaseReference get _devicesLogsRef =>
+      FirebaseDatabase.instance.ref('devices/logs');
 
   Map<String, List<LogEntry>> _hwLogs = {};
   Map<String, String> _deviceRuntimeLabels = {};
@@ -309,14 +311,11 @@ class _ControlsScreenState extends State<ControlsScreen> {
       'aerator2': 'Aerator 2',
       'pump': 'Water Pump',
     };
-    final user = FirebaseAuth.instance.currentUser;
-    final userName = user?.displayName ?? user?.email ?? 'Unknown';
     _devicesLogsRef.child(device).push().set({
       'action': '${deviceNames[device] ?? device}: ${modeNames[mode] ?? mode}',
       'type': mode,
       'time': time,
       'date': dateStr,
-      'userName': userName,
       'timestamp': ServerValue.timestamp,
     });
   }
@@ -803,27 +802,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                                           color: const Color(0xFF0B3C49).withValues(alpha: 0.4),
                                         ),
                                       ),
-                                      if (l.userName.isNotEmpty) ...[
-                                        const SizedBox(height: 2),
-                                        Row(
-                                          children: [
-                                            Icon(
-                                              Icons.person_outline,
-                                              size: 8,
-                                              color: AppColors.primary.withValues(alpha: 0.6),
-                                            ),
-                                            const SizedBox(width: 3),
-                                            Text(
-                                              l.userName,
-                                              style: TextStyle(
-                                                fontSize: 8,
-                                                fontWeight: FontWeight.w600,
-                                                color: AppColors.primary.withValues(alpha: 0.7),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
+
                                     ],
                                   ),
                                 ),

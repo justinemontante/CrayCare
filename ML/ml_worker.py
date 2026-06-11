@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 import firebase_admin
 from firebase_admin import db, credentials
-from app import model, build_per_sensor_response
+from app import models, build_per_sensor_response
 
 SERVICE_ACCOUNT = os.path.join(
     os.path.dirname(__file__), "..", "notification_worker", "serviceAccountKey.json"
@@ -26,7 +26,7 @@ cred = credentials.Certificate(SERVICE_ACCOUNT)
 firebase_admin.initialize_app(cred, {"databaseURL": DATABASE_URL})
 
 latest_ref = db.reference("sensor_readings/latest")
-thresholds_ref = db.reference("sensor_readings/thresholds")
+thresholds_ref = db.reference("users")
 prediction_ref = db.reference("ml_predictions/latest")
 
 
@@ -35,8 +35,20 @@ def on_sensor_change(event):
     if not data:
         return
 
-    thresholds = thresholds_ref.get() or {}
-    thresholds_data = thresholds.get("ranges", {})
+    uid = data.get("uid") or list((thresholds_ref.get() or {}).keys())[0]
+    user_thresholds_ref = thresholds_ref.child(f"{uid}/sensor_readings/thresholds")
+    thresholds_data = user_thresholds_ref.get() or {}
+
+    stage = thresholds_data.get("selectedStage", "pre_adult")
+
+    if stage not in models:
+        print(f"[ML Worker] No model for stage '{stage}', falling back to pre_adult")
+        stage = "pre_adult"
+
+    model = models[stage]
+
+    ranges = thresholds_data.get("ranges", {})
+    stage_ranges = ranges.get(stage, {})
 
     mapped_data = {}
     for fb_key, svc_key in SENSOR_MAP.items():
@@ -73,10 +85,13 @@ def on_sensor_change(event):
     probabilities = model.predict_proba(X)[0]
     confidence = round(float(max(probabilities)), 2)
 
-    result = build_per_sensor_response(status, confidence, full_input, thresholds_data)
+    result = build_per_sensor_response(status, confidence, full_input, stage_ranges)
     result["timestamp"] = int(time.time() * 1000)
+    result["stage"] = stage
 
-    print(f"[ML Worker] Status changed to {result['predictedStatus']} ({confidence})")
+    print(
+        f"[ML Worker] Stage={stage} Status={result['predictedStatus']} ({confidence})"
+    )
     prediction_ref.set(result)
 
 

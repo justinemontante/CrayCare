@@ -1187,16 +1187,6 @@ class TanksScreenState extends State<TanksScreen> {
                                       maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
                                     ),
-                                    const SizedBox(height: 2),
-                                    if (act.recordedBy.isNotEmpty)
-                                      Text(
-                                        act.recordedBy,
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w600,
-                                          color: AppColors.dark.withValues(alpha: 0.5),
-                                        ),
-                                      ),
                                     Text(
                                       '${act.date} · ${act.time}',
                                       style: TextStyle(

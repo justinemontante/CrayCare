@@ -8,48 +8,45 @@ from sklearn.metrics import accuracy_score, classification_report
 
 os.makedirs("models", exist_ok=True)
 
-df = pd.read_csv("dataset/craycare_dataset.csv")
+STAGES = ["early_juvenile", "advanced_juvenile", "pre_adult", "market_size"]
+FEATURES = ["temperature", "phLevel", "dissolvedOxygen", "turbidity", "waterLevel"]
 
-print("Dataset loaded.")
-print("Rows:", len(df))
-print(df["status"].value_counts())
+for stage in STAGES:
+    print(f"\n{'=' * 50}")
+    print(f"Training model for stage: {stage}")
+    print(f"{'=' * 50}")
 
-X = df[
-    [
-        "temperature",
-        "phLevel",
-        "dissolvedOxygen",
-        "turbidity",
-        "waterLevel",
-    ]
-]
+    df = pd.read_csv(f"dataset/{stage}.csv")
+    print(f"Rows: {len(df)}")
+    print(df["status"].value_counts())
 
-y = df["status"]
+    X = df[FEATURES]
+    y = df["status"]
 
-X_train, X_test, y_train, y_test = train_test_split(
-    X,
-    y,
-    test_size=0.2,
-    random_state=42,
-    stratify=y,
-)
+    X_train, X_test, y_train, y_test = train_test_split(
+        X,
+        y,
+        test_size=0.2,
+        random_state=42,
+        stratify=y,
+    )
 
-model = RandomForestClassifier(
-    n_estimators=100,
-    random_state=42,
-    class_weight="balanced",
-)
+    model = RandomForestClassifier(
+        n_estimators=100,
+        random_state=42,
+        class_weight="balanced",
+    )
 
-model.fit(X_train, y_train)
+    model.fit(X_train, y_train)
 
-predictions = model.predict(X_test)
+    predictions = model.predict(X_test)
+    acc = accuracy_score(y_test, predictions)
+    print(f"\nAccuracy: {acc:.4f}")
+    print("\nClassification Report:")
+    print(classification_report(y_test, predictions, zero_division=0))
 
-print("\nAccuracy:")
-print(accuracy_score(y_test, predictions))
+    path = f"models/craycare_model_{stage}.pkl"
+    joblib.dump(model, path)
+    print(f"Model saved to {path}")
 
-print("\nClassification Report:")
-print(classification_report(y_test, predictions))
-
-joblib.dump(model, "models/craycare_model.pkl")
-
-print("\nModel saved to models/craycare_model.pkl")
+print("\nAll per-stage models trained and saved.")

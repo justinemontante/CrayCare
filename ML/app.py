@@ -2,11 +2,21 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import joblib
 import pandas as pd
+import os
 
 app = Flask(__name__)
 CORS(app)
 
-model = joblib.load("models/craycare_model.pkl")
+STAGES = ["early_juvenile", "advanced_juvenile", "pre_adult", "market_size"]
+
+models = {}
+for stage in STAGES:
+    path = f"models/craycare_model_{stage}.pkl"
+    if os.path.exists(path):
+        models[stage] = joblib.load(path)
+        print(f"Loaded model for {stage}")
+    else:
+        print(f"WARNING: Model not found for {stage}")
 
 
 def check_thresholds(data, thresholds):
@@ -151,6 +161,12 @@ def build_per_sensor_response(status, confidence, data, thresholds):
 def predict():
     data = request.get_json()
 
+    stage = data.get("stage", "pre_adult")
+    if stage not in models:
+        return jsonify({"error": f"No model found for stage '{stage}'"}), 400
+
+    model = models[stage]
+
     X = pd.DataFrame(
         [
             {
@@ -172,9 +188,17 @@ def predict():
     return jsonify(build_per_sensor_response(prediction, confidence, data, thresholds))
 
 
+@app.route("/stages", methods=["GET"])
+def list_stages():
+    available = [s for s in STAGES if s in models]
+    return jsonify({"stages": available})
+
+
 @app.route("/", methods=["GET"])
 def home():
-    return jsonify({"message": "CrayCare ML API is running"})
+    return jsonify(
+        {"message": "CrayCare ML API is running", "stages": list(models.keys())}
+    )
 
 
 if __name__ == "__main__":

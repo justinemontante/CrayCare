@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
@@ -8,7 +9,11 @@ class BackgroundHelper {
   static const _notifChannelName = 'CrayCare Alerts';
   static const _notifChannelDesc = 'Sensor threshold alerts';
 
+  static String get _userId => FirebaseAuth.instance.currentUser?.uid ?? '';
+
   static Future<void> checkAndDispatchFeeding() async {
+    final uid = _userId;
+    if (uid.isEmpty) return;
     final db = FirebaseDatabase.instance;
     final now = DateTime.now();
     final todayKey = '${now.month}/${now.day}';
@@ -37,7 +42,7 @@ class BackgroundHelper {
 
       final dispatchedKey = '${entry.key}';
       final marker = await db
-          .ref('feeder/dispatched/$todayKey/$dispatchedKey')
+          .ref('users/$uid/feeder/dispatched/$todayKey/$dispatchedKey')
           .get();
       if (marker.exists) continue;
 
@@ -61,7 +66,6 @@ class BackgroundHelper {
         'type': 'auto',
         'time': timeStr,
         'date': dateStr,
-        'userName': 'System',
         'timestamp': now.millisecondsSinceEpoch,
       });
 
@@ -72,6 +76,8 @@ class BackgroundHelper {
   }
 
   static Future<void> showPendingNotifications() async {
+    final uid = _userId;
+    if (uid.isEmpty) return;
     final db = FirebaseDatabase.instance;
     final now = DateTime.now();
     final todayKey = '${now.month}/${now.day}';
@@ -104,10 +110,10 @@ class BackgroundHelper {
       final confirmKey = 'confirm_${todayKey}_${entry.key}';
 
       final reminderMarker = await db
-          .ref('notifications/markers/$reminderKey')
+          .ref('users/$uid/notifications/markers/$reminderKey')
           .get();
       final confirmMarker = await db
-          .ref('notifications/markers/$confirmKey')
+          .ref('users/$uid/notifications/markers/$confirmKey')
           .get();
 
       if (!reminderMarker.exists && nowMins == schedMins - 1) {
@@ -125,7 +131,7 @@ class BackgroundHelper {
             ),
           ),
         );
-        await db.ref('notifications/markers/$reminderKey').set(true);
+        await db.ref('users/$uid/notifications/markers/$reminderKey').set(true);
       }
 
       if (!confirmMarker.exists && nowMins > schedMins && nowMins <= schedMins + 15) {
@@ -148,37 +154,38 @@ class BackgroundHelper {
               ),
             ),
           );
-          await db.ref('notifications/markers/$confirmKey').set(true);
+          await db.ref('users/$uid/notifications/markers/$confirmKey').set(true);
         }
       }
     }
   }
 
   static Future<void> checkSamplingReminders() async {
+    final uid = _userId;
+    if (uid.isEmpty) return;
     final db = FirebaseDatabase.instance;
     final now = DateTime.now();
     final todayKey = '${now.month}/${now.day}';
     final markerKey = 'sampling_reminder_$todayKey';
 
-    final marker = await db.ref('notifications/markers/$markerKey').get();
+    final marker = await db.ref('users/$uid/notifications/markers/$markerKey').get();
     if (marker.exists) return;
 
-    final tankSnap = await db.ref('tanks').limitToFirst(1).get();
+    final tankSnap = await db.ref('users/$uid/tank/config').get();
     if (!tankSnap.exists) return;
-    final tankData = tankSnap.value;
-    if (tankData is! Map) return;
-    final tankEntry = tankData.entries.firstOrNull;
-    if (tankEntry == null) return;
-    final tank = tankEntry.value;
+    final tank = tankSnap.value;
     if (tank is! Map) return;
 
-    final lastSampling = tank['lastSamplingDate'] as int? ?? 0;
-    final canSample = tank['canSample'] as bool? ?? false;
-    final daysSince = lastSampling > 0
-        ? now.difference(DateTime.fromMillisecondsSinceEpoch(lastSampling)).inDays
+    final isInitialized = tank['isInitialized'] as bool? ?? false;
+    if (!isInitialized) return;
+
+    final stockingDate = tank['stockingDate'] as int? ?? 0;
+    final sampleCount = tank['sampleCount'] as int? ?? 0;
+    final daysSince = stockingDate > 0
+        ? now.difference(DateTime.fromMillisecondsSinceEpoch(stockingDate)).inDays
         : 999;
 
-    if (daysSince >= 7 && canSample) {
+    if (daysSince >= 7 && sampleCount > 0) {
       final localNotif = FlutterLocalNotificationsPlugin();
       const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
       await localNotif.initialize(const InitializationSettings(
@@ -200,7 +207,7 @@ class BackgroundHelper {
         ),
       );
 
-      await db.ref('notifications/markers/$markerKey').set(true);
+      await db.ref('users/$uid/notifications/markers/$markerKey').set(true);
     }
   }
 }
