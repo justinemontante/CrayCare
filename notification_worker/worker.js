@@ -1,5 +1,18 @@
+const http = require("http");
 const admin = require("firebase-admin");
-const serviceAccount = require("./serviceAccountKey.json");
+
+let serviceAccount;
+if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+  try {
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    console.log("Loading service account credentials from environment variable.");
+  } catch (err) {
+    console.error("Failed to parse FIREBASE_SERVICE_ACCOUNT env variable:", err.message);
+    serviceAccount = require("./serviceAccountKey.json");
+  }
+} else {
+  serviceAccount = require("./serviceAccountKey.json");
+}
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -8,6 +21,15 @@ admin.initializeApp({
 });
 
 const db = admin.database();
+
+// Simple HTTP server to bind to port for hosting providers like Render
+const PORT = process.env.PORT || 3000;
+http.createServer((req, res) => {
+  res.writeHead(200, { "Content-Type": "text/plain" });
+  res.end("CrayCare Worker is running...\n");
+}).listen(PORT, () => {
+  console.log(`HTTP server listening on port ${PORT}`);
+});
 const SENSOR_MAP = {
   temperature: "temp",
   phLevel: "ph",
@@ -15,8 +37,6 @@ const SENSOR_MAP = {
   turbidity: "turb",
   waterLevel: "waterlevel",
 };
-
-let previousAlertHash = "";
 
 db.ref("sensor_readings/latest").on("value", async (snap) => {
   const data = snap.val();
@@ -34,11 +54,18 @@ db.ref("sensor_readings/latest").on("value", async (snap) => {
     const thresholds = config[selectedStage];
 
     const LABELS = {
-      temp: "Temperature", ph: "pH Level", do: "Dissolved Oxygen",
-      turb: "Turbidity", waterlevel: "Water Level",
+      temp: "Temperature",
+      ph: "pH Level",
+      do: "Dissolved Oxygen",
+      turb: "Turbidity",
+      waterlevel: "Water Level",
     };
     const UNITS = {
-      temp: "\u00B0C", ph: "", do: "mg/L", turb: "NTU", waterlevel: "cm",
+      temp: "°C",
+      ph: "",
+      do: "mg/L",
+      turb: "NTU",
+      waterlevel: "cm",
     };
 
     const issues = [];
@@ -54,14 +81,21 @@ db.ref("sensor_readings/latest").on("value", async (snap) => {
       }
     }
 
+    const previousAlertHashSnap = await db.ref("system/lastAlertHash").once("value");
+    const previousAlertHash = previousAlertHashSnap.val() || "";
+
     if (issues.length === 0) {
-      previousAlertHash = "";
+      if (previousAlertHash !== "") {
+        await db.ref("system/lastAlertHash").set("");
+        console.log(`[${new Date().toLocaleTimeString()}] Sensors normalized. Resetting hash.`);
+      }
       return;
     }
 
     const hash = issues.map(i => `${i.espKey}:${i.dir}`).sort().join("|");
     if (hash === previousAlertHash) return;
-    previousAlertHash = hash;
+
+    await db.ref("system/lastAlertHash").set(hash);
 
     const msgLines = issues.map(({ svcKey, val, threshold, dir }) => {
       const label = LABELS[svcKey] || svcKey;
@@ -111,7 +145,7 @@ db.ref("sensor_readings/latest").on("value", async (snap) => {
         const token = tokenSnap.val();
         if (!token) return;
 
-        const result = await admin.messaging().send({
+        await admin.messaging().send({
           token,
           notification: {
             title: "CrayCare Alert",

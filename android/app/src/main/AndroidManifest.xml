@@ -5,8 +5,6 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
@@ -36,14 +34,7 @@
             </intent-filter>
         </activity>
 
-        <!-- Override plugin's foreground service with required foregroundServiceType for Android 14+ -->
-        <service
-            android:name="id.flutter.flutter_background_service.BackgroundService"
-            android:enabled="true"
-            android:exported="true"
-            android:foregroundServiceType="specialUse"
-            android:stopWithTask="false"
-            tools:node="replace" />
+
 
         <meta-data
             android:name="flutterEmbedding"

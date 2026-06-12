@@ -4,20 +4,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import 'theme/app_theme.dart';
 import 'screens/login_screen.dart';
 import 'screens/main_shell.dart';
+import 'services/background_service.dart';
+import 'services/ml_service.dart';
+import 'firebase_options.dart';
+import 'screens/verify_screen.dart';
 import 'services/settings_service.dart';
 import 'services/notification_service.dart';
 import 'services/feeder_service.dart';
 import 'services/tank_service.dart';
-import 'services/background_service.dart';
-import 'services/foreground_service.dart';
-import 'services/ml_service.dart';
-import 'firebase_options.dart';
-import 'screens/verify_screen.dart';
 
 class MyHttpOverrides extends HttpOverrides {
   @override
@@ -38,27 +36,6 @@ void main() async {
     await initializeWorkmanager();
   } catch (e) {
     debugPrint('[Main] Workmanager init error: $e');
-  }
-
-  try {
-    const bgChannel = AndroidNotificationChannel(
-      'craycare_background',
-      'CrayCare Service',
-      description: 'Background monitoring service',
-      importance: Importance.low,
-    );
-    await FlutterLocalNotificationsPlugin()
-        .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(bgChannel);
-  } catch (e) {
-    debugPrint('[Main] Background channel creation error: $e');
-  }
-
-  try {
-    await ForegroundService.initialize();
-  } catch (e) {
-    debugPrint('[Main] Foreground service init error: $e');
   }
 
   await SettingsService.instance.init();
