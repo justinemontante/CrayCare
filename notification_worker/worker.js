@@ -23,7 +23,7 @@ admin.initializeApp({
 const db = admin.database();
 
 // Simple HTTP server to bind to port for hosting providers like Render
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 7860;
 http.createServer((req, res) => {
   res.writeHead(200, { "Content-Type": "text/plain" });
   res.end("CrayCare Worker is running...\n");
@@ -37,6 +37,12 @@ const SENSOR_MAP = {
   turbidity: "turb",
   waterLevel: "waterlevel",
 };
+
+let lastSentHash = "";
+db.ref("system/lastAlertHash").once("value").then((snap) => {
+  lastSentHash = snap.val() || "";
+  console.log(`Preloaded last alert hash: "${lastSentHash}"`);
+});
 
 db.ref("sensor_readings/latest").on("value", async (snap) => {
   const data = snap.val();
@@ -81,20 +87,22 @@ db.ref("sensor_readings/latest").on("value", async (snap) => {
       }
     }
 
-    const previousAlertHashSnap = await db.ref("system/lastAlertHash").once("value");
-    const previousAlertHash = previousAlertHashSnap.val() || "";
-
+    const hash = issues.map(i => `${i.espKey}:${i.dir}`).sort().join("|");
+    
+    // Synchronous in-memory check to prevent race condition duplicates
+    if (hash === lastSentHash) return;
+    
     if (issues.length === 0) {
-      if (previousAlertHash !== "") {
+      if (lastSentHash !== "") {
+        lastSentHash = "";
         await db.ref("system/lastAlertHash").set("");
         console.log(`[${new Date().toLocaleTimeString()}] Sensors normalized. Resetting hash.`);
       }
       return;
     }
 
-    const hash = issues.map(i => `${i.espKey}:${i.dir}`).sort().join("|");
-    if (hash === previousAlertHash) return;
-
+    // Immediately mark as sent to block concurrent triggers
+    lastSentHash = hash;
     await db.ref("system/lastAlertHash").set(hash);
 
     const msgLines = issues.map(({ svcKey, val, threshold, dir }) => {
