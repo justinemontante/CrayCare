@@ -529,78 +529,78 @@ class _StageSettingsState extends State<StageSettings> {
           else ...[
             Container(
               margin: const EdgeInsets.only(bottom: 10),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
               decoration: BoxDecoration(
-                color: svc.autoDetect
-                    ? AppColors.primary.withValues(alpha: 0.06)
-                    : AppColors.dark.withValues(alpha: 0.03),
-                borderRadius: BorderRadius.circular(12),
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
                 border: Border.all(
                   color: svc.autoDetect
                       ? AppColors.primary.withValues(alpha: 0.15)
                       : AppColors.dark.withValues(alpha: 0.04),
                 ),
               ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(5),
-                    decoration: BoxDecoration(
-                      color: svc.autoDetect
-                          ? AppColors.primary.withValues(alpha: 0.1)
-                          : AppColors.dark.withValues(alpha: 0.05),
-                      borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: svc.autoDetect
+                            ? AppColors.primary.withValues(alpha: 0.1)
+                            : AppColors.dark.withValues(alpha: 0.05),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(
+                        Icons.sensors,
+                        size: 18,
+                        color: svc.autoDetect
+                            ? AppColors.primary
+                            : AppColors.darkWith(0.35),
+                      ),
                     ),
-                    child: Icon(
-                      Icons.sensors,
-                      size: 16,
-                      color: svc.autoDetect
-                          ? AppColors.primary
-                          : AppColors.darkWith(0.35),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'Auto-Detect Stage',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.dark,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Auto-Detect Stage',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.dark,
+                            ),
                           ),
-                        ),
-                        Text(
-                          svc.autoDetect
-                              ? 'Stage updates based on sampling ABW'
-                              : 'Tap a stage above to set manually',
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w500,
-                            color: AppColors.darkWith(0.45),
+                          const SizedBox(height: 2),
+                          Text(
+                            svc.autoDetect
+                                ? 'Stage updates based on ABW & ABL'
+                                : 'Tap a stage above to set manually',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w500,
+                              color: AppColors.darkWith(0.4),
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                  SizedBox(
-                    height: 24,
-                    child: Switch(
-                      value: svc.autoDetect,
-                      activeTrackColor: AppColors.primary.withValues(alpha: 0.35),
-                      activeThumbColor: AppColors.primary,
-                      inactiveTrackColor: AppColors.dark.withValues(alpha: 0.1),
-                      inactiveThumbColor: AppColors.darkWith(0.35),
-                      onChanged: (v) {
-                        svc.setAutoDetect(v);
-                        setState(() {});
-                      },
+                    Transform.scale(
+                      scale: 0.8,
+                      child: Switch(
+                        value: svc.autoDetect,
+                        activeThumbColor: AppColors.primary,
+                        activeTrackColor: AppColors.primary.withValues(alpha: 0.25),
+                        inactiveTrackColor: AppColors.dark.withValues(alpha: 0.1),
+                        onChanged: (v) {
+                          svc.setAutoDetect(v);
+                          setState(() {});
+                        },
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
             const Padding(

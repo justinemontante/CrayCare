@@ -157,8 +157,12 @@ class SettingsService extends ChangeNotifier {
           currentStage: detected.name,
           allRanges: _stageRanges,
         );
+        await DatabaseService.instance.saveSensorThresholds(
+          currentStage: detected.name,
+          currentRanges: _stageRanges[detected.name] ?? {},
+        );
       } catch (e) {
-        debugPrint('[SettingsService] saveGrowthStageConfig failed: $e');
+        debugPrint('[SettingsService] autoDetectStage save failed: $e');
       }
     }
   }
