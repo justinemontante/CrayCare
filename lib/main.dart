@@ -15,6 +15,7 @@ import 'services/feeder_service.dart';
 import 'services/tank_service.dart';
 import 'services/background_service.dart';
 import 'services/foreground_service.dart';
+import 'services/ml_service.dart';
 import 'firebase_options.dart';
 import 'screens/verify_screen.dart';
 
@@ -65,6 +66,7 @@ void main() async {
   NotificationService.instance.initFCM();
   FeederService.instance.init();
   TankService.instance.init();
+  MlService.instance.init();
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,

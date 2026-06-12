@@ -4,12 +4,14 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'dart:convert';
 import '../models/crayfish_stage.dart';
+import 'database_service.dart';
 
 class SettingsService extends ChangeNotifier {
   static final SettingsService instance = SettingsService._();
   SettingsService._();
 
   bool _initialized = false;
+  bool _autoDetect = true;
   String _currentStage = 'pre_adult';
   late Map<String, Map<String, Map<String, double>>> _stageRanges;
 
@@ -18,6 +20,8 @@ class SettingsService extends ChangeNotifier {
 
   String get currentStage => _currentStage;
   CrayfishStage get currentStageObj => CrayfishStage.fromName(_currentStage);
+
+  bool get autoDetect => _autoDetect;
 
   Map<String, Map<String, double>> get currentRanges =>
       _stageRanges[_currentStage] ?? defaultStageRanges['pre_adult']!;
@@ -35,6 +39,7 @@ class SettingsService extends ChangeNotifier {
     }
 
     final prefs = await SharedPreferences.getInstance();
+    _autoDetect = prefs.getBool('autoDetect') ?? true;
     final stage = prefs.getString('currentStage');
     if (stage != null && CrayfishStage.all.any((s) => s.name == stage)) {
       _currentStage = stage;
@@ -132,6 +137,29 @@ class SettingsService extends ChangeNotifier {
       await _thresholdsRef.child('selectedStage').set(name);
     } catch (e) {
       debugPrint('[SettingsService] Firebase setCurrentStage failed: $e');
+    }
+  }
+
+  Future<void> setAutoDetect(bool value) async {
+    _autoDetect = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('autoDetect', value);
+  }
+
+  Future<void> autoDetectStage(double abw) async {
+    if (!_autoDetect) return;
+    final detected = CrayfishStage.fromABW(abw);
+    if (detected.name != _currentStage) {
+      await setCurrentStage(detected.name);
+      try {
+        await DatabaseService.instance.saveGrowthStageConfig(
+          currentStage: detected.name,
+          allRanges: _stageRanges,
+        );
+      } catch (e) {
+        debugPrint('[SettingsService] saveGrowthStageConfig failed: $e');
+      }
     }
   }
 

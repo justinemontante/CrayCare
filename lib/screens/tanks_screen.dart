@@ -373,7 +373,7 @@ class TanksScreenState extends State<TanksScreen> {
                       scrollDirection: Axis.horizontal,
                       child: Container(
                         constraints: BoxConstraints(
-                          minWidth: MediaQuery.of(context).size.width - 40,
+                          minWidth: 510,
                         ),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(16),
@@ -400,29 +400,35 @@ class TanksScreenState extends State<TanksScreen> {
                               ),
                               child: const Row(
                                 children: [
-                                  SizedBox(width: 16),
+                                  SizedBox(width: 12),
                                   SizedBox(
-                                    width: 130,
-                                    child: Text(
-                                      'Growth Stage',
-                                      style: _tableHeaderStyle,
-                                    ),
+                                    width: 120,
+                                    child: Text('Growth Stage', style: _tableHeaderStyle),
                                   ),
-                                  SizedBox(width: 24),
+                                  SizedBox(width: 12),
                                   SizedBox(
-                                    width: 340,
-                                    child: Text(
-                                      'System Classification',
-                                      style: _tableHeaderStyle,
-                                    ),
+                                    width: 65,
+                                    child: Text('ABW', style: _tableHeaderStyle),
                                   ),
-                                  SizedBox(width: 16),
+                                  SizedBox(width: 12),
+                                  SizedBox(
+                                    width: 65,
+                                    child: Text('ABL', style: _tableHeaderStyle),
+                                  ),
+                                  SizedBox(width: 12),
+                                  SizedBox(
+                                    width: 200,
+                                    child: Text('System Classification', style: _tableHeaderStyle),
+                                  ),
+                                  SizedBox(width: 12),
                                 ],
                               ),
                             ),
                             for (var i = 0; i < CrayfishStage.all.length; i++)
                               _buildTableRow(
                                 CrayfishStage.all[i].label,
+                                _stageAbwRanges[i],
+                                _stageAblRanges[i],
                                 CrayfishStage.all[i].description,
                                 isStriped: i.isOdd,
                                 isLast: i == CrayfishStage.all.length - 1,
@@ -439,7 +445,7 @@ class TanksScreenState extends State<TanksScreen> {
                   child: ElevatedButton(
                     onPressed: () => Navigator.pop(ctx),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.dark,
+                      backgroundColor: AppColors.primary,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       elevation: 0,
@@ -464,6 +470,9 @@ class TanksScreenState extends State<TanksScreen> {
     ).whenComplete(() => scrollCtrl.dispose());
   }
 
+  static const _stageAbwRanges = ['1\u20135g', '5\u201315g', '15\u201350g', '50\u2013120g+'];
+  static const _stageAblRanges = ['2\u20134cm', '4\u20136cm', '6\u201310cm', '10cm+'];
+
   static const _tableHeaderStyle = TextStyle(
     fontSize: 9,
     fontWeight: FontWeight.w800,
@@ -473,12 +482,14 @@ class TanksScreenState extends State<TanksScreen> {
 
   Widget _buildTableRow(
     String stage,
+    String abw,
+    String abl,
     String classification, {
     required bool isStriped,
     bool isLast = false,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         color: isStriped
             ? AppColors.dark.withValues(alpha: 0.02)
@@ -489,31 +500,27 @@ class TanksScreenState extends State<TanksScreen> {
       ),
       child: Row(
         children: [
-          const SizedBox(width: 16),
+          const SizedBox(width: 12),
           SizedBox(
-            width: 130,
-            child: Text(
-              stage,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: AppColors.dark,
-              ),
-            ),
+            width: 120,
+            child: Text(stage, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.dark)),
           ),
-          const SizedBox(width: 24),
+          const SizedBox(width: 12),
           SizedBox(
-            width: 340,
-            child: Text(
-              classification,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                color: AppColors.dark.withValues(alpha: 0.55),
-              ),
-            ),
+            width: 65,
+            child: Text(abw, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.primary)),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 12),
+          SizedBox(
+            width: 65,
+            child: Text(abl, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.primary)),
+          ),
+          const SizedBox(width: 12),
+          SizedBox(
+            width: 200,
+            child: Text(classification, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: AppColors.dark.withValues(alpha: 0.55))),
+          ),
+          const SizedBox(width: 12),
         ],
       ),
     );

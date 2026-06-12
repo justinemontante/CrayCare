@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
 import '../../services/sensor_service.dart';
 import '../../services/settings_service.dart';
+import '../../services/ml_service.dart';
 
 class MovableAiLogo extends StatefulWidget {
   const MovableAiLogo({super.key});
@@ -46,11 +47,20 @@ class _MovableAiLogoState extends State<MovableAiLogo>
     super.didChangeDependencies();
     SensorService.instance.addListener(_onSensorOrSettingsChanged);
     SettingsService.instance.addListener(_onSensorOrSettingsChanged);
-    _generateLocalInsights();
+    MlService.instance.addListener(_onMlChanged);
+    _refreshInsights();
   }
 
   void _onSensorOrSettingsChanged() {
     _generateLocalInsights();
+  }
+
+  void _onMlChanged() {
+    if (MlService.instance.hasData) {
+      _useMlData(MlService.instance.latestPrediction!);
+    } else {
+      _generateLocalInsights();
+    }
   }
 
   Widget _buildAIInsightsSheet(BuildContext ctx) {
@@ -177,8 +187,54 @@ class _MovableAiLogoState extends State<MovableAiLogo>
   void dispose() {
     SensorService.instance.removeListener(_onSensorOrSettingsChanged);
     SettingsService.instance.removeListener(_onSensorOrSettingsChanged);
+    MlService.instance.removeListener(_onMlChanged);
     _pulseController.dispose();
     super.dispose();
+  }
+
+  void _refreshInsights() {
+    if (MlService.instance.hasData) {
+      _useMlData(MlService.instance.latestPrediction!);
+    } else {
+      _generateLocalInsights();
+    }
+  }
+
+  void _useMlData(Map<String, dynamic> mlData) {
+    final rawSensors = mlData['sensors'] as List<dynamic>?;
+    if (rawSensors == null || rawSensors.isEmpty) {
+      _generateLocalInsights();
+      return;
+    }
+
+    final sensors = rawSensors.map((s) {
+      final map = s as Map<String, dynamic>;
+      final key = map['key'] as String? ?? '';
+      final fbKey = _localKeyToFbKey(key);
+      return {
+        'key': fbKey,
+        'status': map['status'] as String? ?? 'UNKNOWN',
+        'insight': map['insight'] as String? ?? '',
+        'prediction': map['prediction'] as String? ?? '',
+        'recommendation': map['recommendation'] as String? ?? '',
+      };
+    }).toList();
+
+    _mlData = {'sensors': sensors};
+    _mlError = null;
+    _mlLoading = false;
+    if (mounted) setState(() {});
+  }
+
+  String _localKeyToFbKey(String mlKey) {
+    switch (mlKey) {
+      case 'temperature': return 'temperature';
+      case 'phLevel': return 'phLevel';
+      case 'dissolvedOxygen': return 'dissolvedOxygen';
+      case 'turbidity': return 'turbidity';
+      case 'waterLevel': return 'waterLevel';
+      default: return mlKey;
+    }
   }
 
   void _generateLocalInsights() {
@@ -305,15 +361,9 @@ class _MovableAiLogoState extends State<MovableAiLogo>
         final display = _sensorDisplayInfo[key];
         if (display == null) return const SizedBox.shrink();
 
-        final sensorStatus = s['status'] as String? ?? 'OPTIMAL';
-        final isCritical = sensorStatus == 'CRITICAL';
-
         return _buildSmartInsightCard(
           title: display['title'] as String,
           iconPath: display['icon'] as String,
-          iconColor: display['color'] as Color,
-          status: isCritical ? 'Critical' : 'Optimal',
-          statusColor: isCritical ? AppColors.critical : AppColors.success,
           insight: s['insight'] as String? ?? '',
           prediction: s['prediction'] as String? ?? '',
           recommendation: s['recommendation'] as String? ?? '',
@@ -325,9 +375,6 @@ class _MovableAiLogoState extends State<MovableAiLogo>
   Widget _buildSmartInsightCard({
     required String title,
     required String iconPath,
-    required Color iconColor,
-    required String status,
-    required Color statusColor,
     required String insight,
     required String prediction,
     required String recommendation,
@@ -353,7 +400,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // TITLE AND STATUS ROW
+          // TITLE ROW (no status badge)
           Row(
             children: [
               Image.asset(iconPath, width: 22, height: 22),
@@ -364,23 +411,6 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
                   color: AppColors.dark,
-                ),
-              ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  status,
-                  style: TextStyle(
-                    fontSize: 9,
-                    fontWeight: FontWeight.w800,
-                    color: statusColor,
-                    letterSpacing: 0.3,
-                  ),
                 ),
               ),
             ],

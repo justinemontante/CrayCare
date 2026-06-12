@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
+import 'settings_service.dart';
 
 enum GrowthStage {
   earlyJuvenile(
@@ -463,6 +464,7 @@ class TankService extends ChangeNotifier {
     );
 
     await _saveConfig();
+    SettingsService.instance.autoDetectStage(_initialWeight);
     notifyListeners();
   }
 
@@ -498,6 +500,7 @@ class TankService extends ChangeNotifier {
       'sampling',
     );
     _saveConfig();
+    SettingsService.instance.autoDetectStage(abw);
     notifyListeners();
   }
 

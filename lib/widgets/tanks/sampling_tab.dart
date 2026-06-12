@@ -1268,36 +1268,34 @@ class GrowthStagePanel extends StatelessWidget {
 
   const GrowthStagePanel({super.key, required this.onInfoTap});
 
-  static final List<_StageRule> _rules = [
-    _StageRule(
-      label: 'Early Juvenile',
-      minAbw: 1,
-      maxAbw: 5,
-      minAbl: 2,
-      maxAbl: 4,
-    ),
-    _StageRule(
-      label: 'Advanced Juvenile',
-      minAbw: 5,
-      maxAbw: 15,
-      minAbl: 4,
-      maxAbl: 6,
-    ),
-    _StageRule(
-      label: 'Pre-Adult',
-      minAbw: 15,
-      maxAbw: 50,
-      minAbl: 6,
-      maxAbl: 10,
-    ),
-    _StageRule(
-      label: 'Market Size',
-      minAbw: 50,
-      maxAbw: double.infinity,
-      minAbl: 10,
-      maxAbl: double.infinity,
-    ),
+  static const List<_StageRange> _stages = [
+    _StageRange(abwMin: 1, abwMax: 5, ablMin: 2, ablMax: 4),
+    _StageRange(abwMin: 5, abwMax: 15, ablMin: 4, ablMax: 6),
+    _StageRange(abwMin: 15, abwMax: 50, ablMin: 6, ablMax: 10),
+    _StageRange(abwMin: 50, abwMax: 100, ablMin: 10, ablMax: 12),
   ];
+
+  static const List<String> _labels = [
+    'Early Juvenile',
+    'Advanced Juvenile',
+    'Pre-Adult',
+    'Market Size',
+  ];
+
+  int _indexOf(GrowthStage stage) {
+    switch (stage) {
+      case GrowthStage.earlyJuvenile: return 0;
+      case GrowthStage.advancedJuvenile: return 1;
+      case GrowthStage.growOut: return 2;
+      case GrowthStage.marketSize: return 3;
+    }
+  }
+
+  double _calcProgress(double value, double min, double max) {
+    if (value <= min) return 0.0;
+    if (value >= max) return 1.0;
+    return (value - min) / (max - min);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1312,22 +1310,15 @@ class GrowthStagePanel extends StatelessWidget {
         ? history.last.avgLength
         : service.initialLength;
 
-    final abwStageIndex = _getStageIndexByAbw(currentAbw);
-    final ablStageIndex = _getStageIndexByAbl(currentAbl);
+    final currentStage = service.currentGrowthStage;
+    final activeIndex = _indexOf(currentStage);
+    final range = _stages[activeIndex];
 
-    // Conservative rule:
-    // Kung mas mababa ang ABL kaysa ABW, lower stage muna ang gagamitin.
-    final activeIndex = abwStageIndex < ablStageIndex
-        ? abwStageIndex
-        : ablStageIndex;
-
-    final activeStage = _rules[activeIndex];
-
-    final abwScore = _getAbwProgressScore(currentAbw);
-    final ablScore = _getAblProgressScore(currentAbl);
-
-    // Average progress ng ABW + ABL
-    final progress = ((abwScore + ablScore) / 2).clamp(0.0, 1.0);
+    final abwProgress = _calcProgress(currentAbw, range.abwMin, range.abwMax);
+    final ablProgress = currentAbl > 0
+        ? _calcProgress(currentAbl, range.ablMin, range.ablMax)
+        : 1.0;
+    final progress = (abwProgress < ablProgress ? abwProgress : ablProgress).clamp(0.0, 1.0);
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -1361,7 +1352,7 @@ class GrowthStagePanel extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    'Current: ${activeStage.label}',
+                    'Current: ${_labels[activeIndex]}',
                     style: const TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w600,
@@ -1383,56 +1374,42 @@ class GrowthStagePanel extends StatelessWidget {
 
           const SizedBox(height: 20),
 
-          Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Container(
-                height: 8,
-                decoration: BoxDecoration(
-                  color: AppColors.darkWith(0.06),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              TweenAnimationBuilder<double>(
-                tween: Tween<double>(begin: 0, end: progress),
-                duration: const Duration(milliseconds: 900),
-                curve: Curves.easeOutCubic,
-                builder: (context, value, child) {
-                  return FractionallySizedBox(
-                    widthFactor: value,
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              height: 8,
+              child: Row(
+                children: [
+                  Expanded(
+                    flex: (progress * 1000).round().clamp(0, 1000),
                     child: Container(
-                      height: 8,
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
                           colors: [Color(0xFF52C283), AppColors.primary],
                         ),
-                        borderRadius: BorderRadius.circular(10),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.primaryWith(0.2),
-                            blurRadius: 4,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
                       ),
                     ),
-                  );
-                },
+                  ),
+                  Expanded(
+                    flex: (1000 - (progress * 1000).round()).clamp(0, 1000),
+                    child: Container(color: AppColors.darkWith(0.06)),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
 
           const SizedBox(height: 12),
 
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: List.generate(_rules.length, (i) {
+            children: List.generate(_labels.length, (i) {
               final isThisActive = i == activeIndex;
               final isReached = i <= activeIndex;
 
               return Expanded(
                 child: Text(
-                  _rules[i].label,
+                  _labels[i],
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 8,
@@ -1504,102 +1481,20 @@ class GrowthStagePanel extends StatelessWidget {
       ),
     );
   }
-
-  int _getStageIndexByAbw(double abw) {
-    for (int i = 0; i < _rules.length; i++) {
-      final rule = _rules[i];
-
-      if (i == _rules.length - 1) {
-        if (abw >= rule.minAbw) return i;
-      } else {
-        if (abw >= rule.minAbw && abw < rule.maxAbw) return i;
-      }
-    }
-
-    return 0;
-  }
-
-  int _getStageIndexByAbl(double abl) {
-    for (int i = 0; i < _rules.length; i++) {
-      final rule = _rules[i];
-
-      if (i == _rules.length - 1) {
-        if (abl >= rule.minAbl) return i;
-      } else {
-        if (abl >= rule.minAbl && abl < rule.maxAbl) return i;
-      }
-    }
-
-    return 0;
-  }
-
-  double _getAbwProgressScore(double abw) {
-    return _getProgressScore(
-      value: abw,
-      ranges: [
-        const _MetricRange(min: 1, max: 5),
-        const _MetricRange(min: 5, max: 15),
-        const _MetricRange(min: 15, max: 50),
-        const _MetricRange(min: 50, max: 100),
-      ],
-    );
-  }
-
-  double _getAblProgressScore(double abl) {
-    return _getProgressScore(
-      value: abl,
-      ranges: [
-        const _MetricRange(min: 2, max: 4),
-        const _MetricRange(min: 4, max: 6),
-        const _MetricRange(min: 6, max: 10),
-        const _MetricRange(min: 10, max: 12),
-      ],
-    );
-  }
-
-  double _getProgressScore({
-    required double value,
-    required List<_MetricRange> ranges,
-  }) {
-    if (value <= ranges.first.min) return 0.0;
-
-    for (int i = 0; i < ranges.length; i++) {
-      final range = ranges[i];
-
-      if (value >= range.min && value < range.max) {
-        final withinStage = ((value - range.min) / (range.max - range.min))
-            .clamp(0.0, 1.0);
-
-        return ((i + withinStage) / ranges.length).clamp(0.0, 1.0);
-      }
-    }
-
-    return 1.0;
-  }
 }
 
-class _StageRule {
-  final String label;
-  final double minAbw;
-  final double maxAbw;
-  final double minAbl;
-  final double maxAbl;
+class _StageRange {
+  final double abwMin;
+  final double abwMax;
+  final double ablMin;
+  final double ablMax;
 
-  const _StageRule({
-    required this.label,
-    required this.minAbw,
-    required this.maxAbw,
-    required this.minAbl,
-    required this.maxAbl,
+  const _StageRange({
+    required this.abwMin,
+    required this.abwMax,
+    required this.ablMin,
+    required this.ablMax,
   });
-
-}
-
-class _MetricRange {
-  final double min;
-  final double max;
-
-  const _MetricRange({required this.min, required this.max});
 }
 
 class _HistoryEntry {

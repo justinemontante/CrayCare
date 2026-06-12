@@ -703,92 +703,117 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ],
       ),
       child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                child: Row(
+                  children: [
+                    Icon(Icons.inventory_2_outlined, size: 18, color: AppColors.primary),
+                    const SizedBox(width: 10),
+                    const Text(
+                      'Tank Status',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.dark),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  children: [
+                    Expanded(child: _buildStatColumn('assets/images/InitialPopulationNo.png', hasData ? tank.initialCount.toString() : '--', 'initialPopulation')),
+                    Expanded(child: _buildStatColumn('assets/images/SurvivalRate.png', hasData ? '${tank.survivalRate.toStringAsFixed(1)}%' : '--', 'Survival Rate')),
+                    Expanded(child: _buildStatColumn('assets/images/AliveNo.png', hasData ? tank.liveCount.toString() : '--', 'Alive')),
+                    Expanded(child: _buildStatColumn('assets/images/mortalityNo.png', hasData ? tank.mortality.toString() : '--', 'Mortality')),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              _buildCurrentStageSection(tank),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: AppColors.darkWith(0.02),
+                  borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
+                ),
+                child: Column(
+                  children: [
+                    _buildDetailRow(Icons.hourglass_bottom, 'Days in Culture', hasData ? tank.daysInCulture.toString() : '--'),
+                    const SizedBox(height: 8),
+                    _buildDetailRow(Icons.history, 'Last Sampling', hasData && tank.samplingHistory.isNotEmpty ? _formatTankDate(tank.samplingHistory.last.date) : '--'),
+                    const SizedBox(height: 8),
+                    _buildNextSamplingRow(),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+  }
+
+  static const _stageRules = [
+    (label: 'Early Juvenile', min: 1.0, max: 5.0),
+    (label: 'Advanced Juvenile', min: 5.0, max: 15.0),
+    (label: 'Pre-Adult', min: 15.0, max: 50.0),
+    (label: 'Market Size', min: 50.0, max: 100.0),
+  ];
+
+  Widget _buildCurrentStageSection(TankService tank) {
+    final history = tank.samplingHistory;
+    final hasGrowthData = tank.isInitialized && tank.initialCount > 0;
+    final currentAbw = hasGrowthData ? (history.isNotEmpty ? history.last.abw : tank.initialWeight) : 0.0;
+    final currentAbl = hasGrowthData ? (history.isNotEmpty ? history.last.avgLength : tank.initialLength) : 0.0;
+
+    String stageLabel;
+    bool isReady;
+    if (!hasGrowthData) {
+      stageLabel = '--';
+      isReady = false;
+    } else {
+      int activeIndex = 0;
+      for (int i = 0; i < _stageRules.length; i++) {
+        final rule = _stageRules[i];
+        if (i == _stageRules.length - 1) {
+          if (currentAbw >= rule.min) activeIndex = i;
+        } else {
+          if (currentAbw >= rule.min && currentAbw < rule.max) activeIndex = i;
+        }
+      }
+      stageLabel = _stageRules[activeIndex].label;
+      isReady = true;
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.inventory_2_outlined,
-                  size: 18,
-                  color: AppColors.primary,
-                ),
-                const SizedBox(width: 10),
-                const Text(
-                  'Tank Status',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.dark,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: _buildStatColumn(
-                    'assets/images/InitialPopulationNo.png',
-                    hasData ? tank.initialCount.toString() : '--',
-                    'initialPopulation',
-                  ),
-                ),
-                Expanded(
-                  child: _buildStatColumn(
-                    'assets/images/SurvivalRate.png',
-                    hasData ? '${tank.survivalRate.toStringAsFixed(1)}%' : '--',
-                    'Survival Rate',
-                  ),
-                ),
-                Expanded(
-                  child: _buildStatColumn(
-                    'assets/images/AliveNo.png',
-                    hasData ? tank.liveCount.toString() : '--',
-                    'Alive',
-                  ),
-                ),
-                Expanded(
-                  child: _buildStatColumn(
-                    'assets/images/mortalityNo.png',
-                    hasData ? tank.mortality.toString() : '--',
-                    'Mortality',
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: AppColors.darkWith(0.02),
-              borderRadius: const BorderRadius.vertical(
-                bottom: Radius.circular(20),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.eco, size: 16, color: Color(0xFF9E9E9E)),
+                  const SizedBox(width: 6),
+                  Text('Current Crayfish Stage:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.7))),
+                ],
               ),
-            ),
-            child: Column(
-              children: [
-                _buildDetailRow(
-                  Icons.hourglass_bottom,
-                  'Days in Culture',
-                  hasData ? tank.daysInCulture.toString() : '--',
-                ),
-                const SizedBox(height: 8),
-                _buildDetailRow(
-                  Icons.history,
-                  'Last Sampling',
-                  hasData && tank.samplingHistory.isNotEmpty
-                      ? _formatTankDate(tank.samplingHistory.last.date)
-                      : '--',
-                ),
-                const SizedBox(height: 8),
-                _buildNextSamplingRow(),
-              ],
-            ),
+              Text(stageLabel, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: isReady ? AppColors.primary : AppColors.darkWith(0.4))),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text('ABW: ', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.5))),
+              Text(isReady ? '${currentAbw.toStringAsFixed(2)}g' : '--', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.primary)),
+              const SizedBox(width: 14),
+              Text('ABL: ', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.5))),
+              Text(isReady ? '${currentAbl.toStringAsFixed(2)}cm' : '--', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.primary)),
+            ],
           ),
         ],
       ),

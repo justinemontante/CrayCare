@@ -18,6 +18,9 @@ SENSOR_MAP = {
     "waterLevelPercent": "waterlevel",
 }
 
+INTERNAL_TO_FB = {v: k for k, v in SENSOR_MAP.items()}
+INTERNAL_TO_FB["waterlevel"] = "waterLevel"
+
 DATABASE_URL = (
     "https://craycare-8436c-default-rtdb.asia-southeast1.firebasedatabase.app"
 )
@@ -26,8 +29,36 @@ cred = credentials.Certificate(SERVICE_ACCOUNT)
 firebase_admin.initialize_app(cred, {"databaseURL": DATABASE_URL})
 
 latest_ref = db.reference("sensor_readings/latest")
-thresholds_ref = db.reference("users")
+config_ref = db.reference("sensor_readings/config")
 prediction_ref = db.reference("ml_predictions/latest")
+
+
+def get_current_stage_ranges():
+    """Read current stage and its sensor ranges from sensor_readings/config."""
+    config = config_ref.get() or {}
+
+    stage = config.get("selectedStage") or config.get("currentStage", "pre_adult")
+
+    if stage not in models:
+        print(f"[ML Worker] No model for stage '{stage}', falling back to pre_adult")
+        stage = "pre_adult"
+
+    raw_ranges = config.get("ranges", {})
+    if not raw_ranges:
+        stage_data = config.get(stage, {})
+        raw_ranges = {}
+        for sensor_key in ["temp", "ph", "do", "turb", "waterlevel"]:
+            sr = stage_data.get(sensor_key)
+            if sr and isinstance(sr, dict):
+                raw_ranges[sensor_key] = {"min": sr.get("min"), "max": sr.get("max")}
+
+    ranges = {}
+    for internal_key, fb_key in INTERNAL_TO_FB.items():
+        sr = raw_ranges.get(internal_key)
+        if sr and isinstance(sr, dict):
+            ranges[fb_key] = {"min": sr.get("min"), "max": sr.get("max")}
+
+    return stage, ranges
 
 
 def on_sensor_change(event):
@@ -35,20 +66,13 @@ def on_sensor_change(event):
     if not data:
         return
 
-    uid = data.get("uid") or list((thresholds_ref.get() or {}).keys())[0]
-    user_thresholds_ref = thresholds_ref.child(f"{uid}/sensor_readings/thresholds")
-    thresholds_data = user_thresholds_ref.get() or {}
-
-    stage = thresholds_data.get("selectedStage", "pre_adult")
+    stage, stage_ranges = get_current_stage_ranges()
 
     if stage not in models:
         print(f"[ML Worker] No model for stage '{stage}', falling back to pre_adult")
         stage = "pre_adult"
 
     model = models[stage]
-
-    ranges = thresholds_data.get("ranges", {})
-    stage_ranges = ranges.get(stage, {})
 
     mapped_data = {}
     for fb_key, svc_key in SENSOR_MAP.items():

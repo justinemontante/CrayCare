@@ -259,7 +259,7 @@ class HardwareGroup extends StatelessWidget {
           return GestureDetector(
             onTap: () => onSetMode(deviceId, m),
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
                 color: isActive ? Colors.white : Colors.transparent,
                 borderRadius: BorderRadius.circular(18),
@@ -276,7 +276,7 @@ class HardwareGroup extends StatelessWidget {
               child: Text(
                 m.toUpperCase(),
                 style: TextStyle(
-                  fontSize: 9,
+                  fontSize: 10,
                   fontWeight: FontWeight.w700,
                   color: isActive ? _modeColor(m) : AppColors.darkWith(0.4),
                 ),
