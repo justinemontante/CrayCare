@@ -180,7 +180,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
         final d = now.subtract(Duration(hours: (pts - 1 - i)));
         final h = d.hour > 12 ? d.hour - 12 : (d.hour == 0 ? 12 : d.hour);
         final ampm = d.hour >= 12 ? 'PM' : 'AM';
-        return i % 24 == 0 ? '${d.month}/${d.day}' : '';
+        return '${d.month}/${d.day} ${h}${ampm}';
       });
     } else if (range == 'custom') {
       labels = List.generate(pts, (i) {
