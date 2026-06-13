@@ -58,3 +58,5 @@ esp/.gcc_flags
 # Node modules
 notification_worker/node_modules/
 notification_worker/serviceAccountKey.json
+test_tools/node_modules/
+/serviceAccountKey.json
