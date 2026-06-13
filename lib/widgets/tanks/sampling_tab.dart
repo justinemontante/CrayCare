@@ -57,12 +57,15 @@ class SamplingTab extends StatelessWidget {
   final TextEditingController sampleWeightController;
   final TextEditingController sampleLengthController;
 
+  final bool isOwner;
+
   const SamplingTab({
     super.key,
     required this.lastEdited,
     required this.sampleCountController,
     required this.sampleWeightController,
     required this.sampleLengthController,
+    this.isOwner = true,
   });
 
   @override
@@ -79,7 +82,7 @@ class SamplingTab extends StatelessWidget {
           const SizedBox(height: 12),
           GrowthOverviewPanel(),
           const SizedBox(height: 12),
-          SamplingFormPanel(),
+          SamplingFormPanel(isOwner: isOwner),
           const SizedBox(height: 12),
           SamplingHistoryPanel(),
           const SizedBox(height: 12),
@@ -701,7 +704,8 @@ class GrowthOverviewPanel extends StatelessWidget {
 }
 
 class SamplingFormPanel extends StatefulWidget {
-  const SamplingFormPanel({super.key});
+  final bool isOwner;
+  const SamplingFormPanel({super.key, this.isOwner = true});
 
   @override
   State<SamplingFormPanel> createState() => _SamplingFormPanelState();
@@ -844,7 +848,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
                 'Weekly Sampling',
                 style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
               ),
-              if (_isRecorded)
+              if (_isRecorded && widget.isOwner)
                 TextButton(
                   onPressed: _handleEdit,
                   child: const Text(
@@ -1056,14 +1060,14 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: _handleCompute,
+                onPressed: widget.isOwner && _countError == null ? _handleCompute : null,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: _countError != null
-                      ? AppColors.dark.withValues(alpha: 0.2)
-                      : AppColors.primary,
-                  foregroundColor: _countError != null
-                      ? Colors.white.withValues(alpha: 0.4)
-                      : Colors.white,
+                  backgroundColor: widget.isOwner && _countError == null
+                      ? AppColors.primary
+                      : AppColors.dark.withValues(alpha: 0.2),
+                  foregroundColor: widget.isOwner && _countError == null
+                      ? Colors.white
+                      : Colors.white.withValues(alpha: 0.4),
                   disabledBackgroundColor: AppColors.dark.withValues(
                     alpha: 0.2,
                   ),
@@ -1074,9 +1078,9 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                child: const Text(
-                  'Compute Results',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                child: Text(
+                  widget.isOwner ? 'Compute Results' : 'Compute Results (Owner Only)',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                 ),
               ),
             ),

@@ -8,45 +8,26 @@ from sklearn.metrics import accuracy_score, classification_report
 
 os.makedirs("models", exist_ok=True)
 
-STAGES = ["early_juvenile", "advanced_juvenile", "pre_adult", "market_size"]
-FEATURES = ["temperature", "phLevel", "dissolvedOxygen", "turbidity", "waterLevel"]
+df = pd.read_csv("dataset/craycare_dataset.csv")
+print(f"Loaded dataset with {len(df)} rows.")
 
-for stage in STAGES:
-    print(f"\n{'=' * 50}")
-    print(f"Training model for stage: {stage}")
-    print(f"{'=' * 50}")
+FEATURES = [
+    "temperature", "phLevel", "dissolvedOxygen", "turbidity", "waterLevel",
+    "temp_rate", "do_rate", "turb_rate",
+    "temp_min", "temp_max", "ph_min", "ph_max", "do_min", "turb_max", "wl_min", "wl_max"
+]
 
-    df = pd.read_csv(f"dataset/{stage}.csv")
-    print(f"Rows: {len(df)}")
-    print(df["status"].value_counts())
+X = df[FEATURES]
+y_status = df["status"]
 
-    X = df[FEATURES]
-    y = df["status"]
+print("\nTraining Overall Status Model...")
+X_train, X_test, y_train, y_test = train_test_split(X, y_status, test_size=0.2, random_state=42, stratify=y_status)
+model_status = RandomForestClassifier(n_estimators=50, random_state=42, n_jobs=-1)
+model_status.fit(X_train, y_train)
+acc_status = accuracy_score(y_test, model_status.predict(X_test))
+print(f"Overall Status Model Accuracy: {acc_status:.4f}")
+print(classification_report(y_test, model_status.predict(X_test)))
+joblib.dump(model_status, "models/craycare_status_model.pkl")
+print("Saved models/craycare_status_model.pkl")
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X,
-        y,
-        test_size=0.2,
-        random_state=42,
-        stratify=y,
-    )
-
-    model = RandomForestClassifier(
-        n_estimators=100,
-        random_state=42,
-        class_weight="balanced",
-    )
-
-    model.fit(X_train, y_train)
-
-    predictions = model.predict(X_test)
-    acc = accuracy_score(y_test, predictions)
-    print(f"\nAccuracy: {acc:.4f}")
-    print("\nClassification Report:")
-    print(classification_report(y_test, predictions, zero_division=0))
-
-    path = f"models/craycare_model_{stage}.pkl"
-    joblib.dump(model, path)
-    print(f"Model saved to {path}")
-
-print("\nAll per-stage models trained and saved.")
+print("\nDynamic status model trained and saved.")

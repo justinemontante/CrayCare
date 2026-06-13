@@ -16,8 +16,9 @@ import '../services/auth_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   final String? initialPhotoUrl; // Ipasa mula MainShell para iwas reload
+  final bool isOwner;
 
-  const SettingsScreen({super.key, this.initialPhotoUrl});
+  const SettingsScreen({super.key, this.initialPhotoUrl, this.isOwner = true});
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -385,7 +386,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _saveNotifPrefs();
                   },
                 ),
-                StageSettings(key: const ValueKey('stage-settings')),
+                StageSettings(key: const ValueKey('stage-settings'), isOwner: widget.isOwner),
               ][_currentPage],
             ),
           ),

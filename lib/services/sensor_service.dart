@@ -40,10 +40,13 @@ class SensorService extends ChangeNotifier {
   String? get lastError => _lastError;
 
   String get overallStatus {
+    String status = 'NORMAL';
     for (final key in sensorKeys) {
-      if (getZone(key) == 'CRITICAL') return 'CRITICAL';
+      final zone = getZone(key);
+      if (zone == 'CRITICAL') return 'CRITICAL';
+      if (zone == 'WARNING') status = 'WARNING';
     }
-    return 'NORMAL';
+    return status;
   }
 
   String getZone(String key) {
@@ -54,8 +57,76 @@ class SensorService extends ChangeNotifier {
     if (range == null) return 'UNKNOWN';
     final min = range['min'] ?? 0.0;
     final max = range['max'] ?? 999.0;
-    if (value >= min && value <= max) return 'OPTIMAL';
-    return 'CRITICAL';
+    
+    if (value < min || value > max) {
+      return 'CRITICAL';
+    }
+
+    final isMaxBound = max < 999.0;
+    final rangeSpan = isMaxBound ? (max - min) : min;
+    final warningThreshold = rangeSpan * 0.15;
+    
+    final checkLower = min > 0.0;
+    final checkUpper = isMaxBound;
+
+    if ((checkLower && (value - min) < warningThreshold) ||
+        (checkUpper && (max - value) < warningThreshold)) {
+      return 'WARNING';
+    }
+
+    return 'OPTIMAL';
+  }
+
+  String getTrend(String key) {
+    final history = _history[key];
+    if (history == null || history.length < 3) return 'stable';
+    final recent = history.length >= 5 ? history.sublist(history.length - 5) : history;
+    final delta = recent.last - recent.first;
+    final rate = delta / (recent.length - 1);
+
+    double stableThreshold;
+    double fastThreshold;
+
+    switch (key) {
+      case 'temp':
+        stableThreshold = 0.02;
+        fastThreshold = 0.15;
+        break;
+      case 'ph':
+        stableThreshold = 0.01;
+        fastThreshold = 0.08;
+        break;
+      case 'do':
+        stableThreshold = 0.03;
+        fastThreshold = 0.2;
+        break;
+      case 'turb':
+        stableThreshold = 0.1;
+        fastThreshold = 1.0;
+        break;
+      case 'waterlevel':
+        stableThreshold = 0.1;
+        fastThreshold = 1.0;
+        break;
+      default:
+        stableThreshold = 0.05;
+        fastThreshold = 0.3;
+    }
+
+    if (rate.abs() < stableThreshold) return 'stable';
+    if (rate > 0) {
+      return rate >= fastThreshold ? 'rising_fast' : 'rising';
+    } else {
+      return rate <= -fastThreshold ? 'falling_fast' : 'falling';
+    }
+  }
+
+  double getTrendRate(String key) {
+    final history = _history[key];
+    if (history == null || history.length < 3) return 0.0;
+    final recent = history.length >= 5 ? history.sublist(history.length - 5) : history;
+    final delta = recent.last - recent.first;
+    return delta / (recent.length - 1);
   }
 
   void _initFirebaseListener() {

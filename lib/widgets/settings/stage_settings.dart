@@ -5,7 +5,8 @@ import '../../services/settings_service.dart';
 import '../../services/database_service.dart';
 
 class StageSettings extends StatefulWidget {
-  const StageSettings({super.key});
+  final bool isOwner;
+  const StageSettings({super.key, this.isOwner = true});
 
   @override
   State<StageSettings> createState() => _StageSettingsState();
@@ -422,7 +423,7 @@ class _StageSettingsState extends State<StageSettings> {
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(12),
-          onTap: _saving
+          onTap: (!widget.isOwner || _saving)
               ? null
               : () => _showRangeEditor(
                   stageName, sensorKey, info.label, info.unit, min, max,
@@ -593,10 +594,12 @@ class _StageSettingsState extends State<StageSettings> {
                         activeThumbColor: AppColors.primary,
                         activeTrackColor: AppColors.primary.withValues(alpha: 0.25),
                         inactiveTrackColor: AppColors.dark.withValues(alpha: 0.1),
-                        onChanged: (v) {
-                          svc.setAutoDetect(v);
-                          setState(() {});
-                        },
+                        onChanged: widget.isOwner
+                            ? (v) {
+                                svc.setAutoDetect(v);
+                                setState(() {});
+                              }
+                            : null,
                       ),
                     ),
                   ],
@@ -631,7 +634,7 @@ class _StageSettingsState extends State<StageSettings> {
                   ),
                   child: InkWell(
                     borderRadius: BorderRadius.circular(12),
-                    onTap: isActive || svc.autoDetect
+                    onTap: (isActive || svc.autoDetect || !widget.isOwner)
                         ? null
                         : () {
                             svc.setCurrentStage(stage.name);

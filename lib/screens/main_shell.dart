@@ -25,7 +25,8 @@ class _MainShellState extends State<MainShell> {
   final _analyticsKey = GlobalKey<AnalyticsScreenState>();
   final _tanksKey = GlobalKey<TanksScreenState>();
   String? _photoUrl;
-  bool? _isPrimary;
+  bool _isOwner = false;
+  StreamSubscription<DatabaseEvent>? _roleSub;
   StreamSubscription<DatabaseEvent>? _primarySub;
 
   void _setPhoto(String url) {
@@ -47,8 +48,6 @@ class _MainShellState extends State<MainShell> {
     }
   }
 
-  bool get _isRestricted => _isPrimary == false;
-
   @override
   void initState() {
     super.initState();
@@ -58,6 +57,7 @@ class _MainShellState extends State<MainShell> {
 
   @override
   void dispose() {
+    _roleSub?.cancel();
     _primarySub?.cancel();
     super.dispose();
   }
@@ -65,7 +65,21 @@ class _MainShellState extends State<MainShell> {
   void _checkPrimaryUser() {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
-    debugPrint('[MainShell] Checking primary user. Current UID: $uid');
+    debugPrint('[MainShell] Checking user role. Current UID: $uid');
+
+    // Listen to user's role in their profile
+    _roleSub = FirebaseDatabase.instance
+        .ref('users/$uid/profile/role')
+        .onValue
+        .listen((event) {
+      final roleVal = event.snapshot.value;
+      debugPrint('[MainShell] User role value: $roleVal');
+      final isOwnerByRole = (roleVal?.toString() == 'owner');
+
+      if (mounted) setState(() => _isOwner = isOwnerByRole);
+    });
+
+    // Also check legacy authorizedOperators (backward compat)
     _primarySub = FirebaseDatabase.instance
         .ref('system/authorizedOperators')
         .onValue
@@ -74,15 +88,14 @@ class _MainShellState extends State<MainShell> {
       debugPrint('[MainShell] authorizedOperators value: $val');
       bool isPrimary;
       if (val == null) {
-        debugPrint('[MainShell] No authorizedOperators set. Allowing all.');
-        isPrimary = true;
+        isPrimary = false;
       } else if (val is Map) {
         isPrimary = val.containsKey(uid) || val['UID'] == uid;
       } else {
         isPrimary = val.toString() == uid;
       }
-      debugPrint('[MainShell] isPrimary = $isPrimary');
-      if (mounted) setState(() => _isPrimary = isPrimary);
+      debugPrint('[MainShell] isPrimary (legacy) = $isPrimary');
+      if (isPrimary && mounted) setState(() => _isOwner = true);
     });
   }
 
@@ -100,20 +113,7 @@ class _MainShellState extends State<MainShell> {
     _analyticsKey.currentState?.scrollToChart(chartKey);
   }
 
-  late final List<Widget> _screens = [
-    DashboardScreen(
-      onViewGraph: _goToAnalytics,
-      onNavigate: (i) => setState(() => _currentIndex = i),
-      onTankTab: (tab) {
-        setState(() => _currentIndex = 2);
-        _tanksKey.currentState?.switchToTab(tab);
-      },
-    ),
-    AnalyticsScreen(key: _analyticsKey),
-    TanksScreen(key: _tanksKey),
-    const ControlsScreen(),
-    const NotificationsScreen(),
-  ];
+
 
   static const List<_NavItem> _navItems = [
     _NavItem(icon: Icons.dashboard_rounded, label: 'Dashboard'),
@@ -126,6 +126,7 @@ class _MainShellState extends State<MainShell> {
   @override
   Widget build(BuildContext context) {
     final photoImage = _photoImageProvider(_photoUrl);
+    final isOwner = _isOwner;
 
     return Scaffold(
       key: _scaffoldKey,
@@ -187,7 +188,7 @@ class _MainShellState extends State<MainShell> {
                       context,
                       MaterialPageRoute(
                         builder: (_) =>
-                            SettingsScreen(initialPhotoUrl: _photoUrl),
+                            SettingsScreen(initialPhotoUrl: _photoUrl, isOwner: isOwner),
                       ),
                     );
                     if (result != null && mounted) {
@@ -220,9 +221,23 @@ class _MainShellState extends State<MainShell> {
             ),
           ),
           Expanded(
-            child: _isRestricted
-                ? const _RestrictedView()
-                : IndexedStack(index: _currentIndex, children: _screens),
+            child: IndexedStack(
+              index: _currentIndex,
+              children: [
+                DashboardScreen(
+                  onViewGraph: _goToAnalytics,
+                  onNavigate: (i) => setState(() => _currentIndex = i),
+                  onTankTab: (tab) {
+                    setState(() => _currentIndex = 2);
+                    _tanksKey.currentState?.switchToTab(tab);
+                  },
+                ),
+                AnalyticsScreen(key: _analyticsKey),
+                TanksScreen(key: _tanksKey, isOwner: isOwner),
+                ControlsScreen(isOwner: isOwner),
+                const NotificationsScreen(),
+              ],
+            ),
           ),
           _buildBottomNav(),
         ],
@@ -304,45 +319,6 @@ class _MainShellState extends State<MainShell> {
   }
 }
 
-class _RestrictedView extends StatelessWidget {
-  const _RestrictedView();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      color: Colors.white,
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.lock_outline, size: 64, color: AppColors.darkWith(0.2)),
-              const SizedBox(height: 16),
-              const Text(
-                'Restricted Access',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.dark,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'This section is only accessible by the primary user.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: AppColors.darkWith(0.5),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 class _NavItem {
   final IconData icon;

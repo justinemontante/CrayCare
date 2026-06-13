@@ -28,10 +28,12 @@ class AuthService {
           await user.sendEmailVerification();
         }
         // Save profile to RTDB for a record (preserve existing photoUrl kung mayron)
+        // Auto-assign 'monitor' role for all new signups
         await DatabaseService.instance.saveUserProfile(
           uid: user.uid,
           name: name,
           email: email,
+          role: 'monitor',
         );
       }
 
@@ -60,11 +62,13 @@ class AuthService {
       // Para sa mga existing users — i-save sa RTDB (preserve photoUrl)
       if (user != null && user.emailVerified) {
         final existing = await DatabaseService.instance.getUserProfile(user.uid);
+        final String? existingRole = existing?['role'] as String?;
         await DatabaseService.instance.saveUserProfile(
           uid: user.uid,
           name: user.displayName ?? 'CrayCare User',
           email: user.email ?? '',
           photoUrl: existing?['photoUrl'] as String?,
+          role: existingRole ?? 'monitor', // Kung walang role, gawing 'monitor'
         );
       }
       return user;
@@ -102,13 +106,15 @@ class AuthService {
       // I-save sa RTDB ang Google user profile
       final user = userCredential.user;
       if (user != null) {
-        // Kunin muna ang existing profile para hindi mawala ang photoUrl
+        // Kunin muna ang existing profile para hindi mawala ang photoUrl/role
         final existing = await DatabaseService.instance.getUserProfile(user.uid);
+        final String? existingRole = existing?['role'] as String?;
         await DatabaseService.instance.saveUserProfile(
           uid: user.uid,
           name: user.displayName ?? 'Google User',
           email: user.email ?? '',
           photoUrl: existing?['photoUrl'] as String?,
+          role: existingRole ?? 'monitor', // Kung walang role, gawing 'monitor'
         );
       }
 

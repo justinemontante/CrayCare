@@ -18,18 +18,23 @@ class DatabaseService {
   String get _uid => FirebaseAuth.instance.currentUser?.uid ?? '';
 
   /// I-save ang profile name, email, at photo URL ng user sa RTDB
+  /// [role] — 'monitor' (default for new users) or 'owner' (set via Firebase console)
   Future<void> saveUserProfile({
     required String uid,
     required String name,
     required String email,
     String? photoUrl, // Optional — kung may profile picture
+    String? role, // Optional — only written on first signup
   }) async {
-    await _db.child('users/$uid/profile').set({
+    final data = <String, dynamic>{
       'displayName': name,
       'email': email,
-      if (photoUrl != null) 'photoUrl': photoUrl,
       'updatedAt': DateTime.now().toIso8601String(),
-    });
+    };
+    if (photoUrl != null) data['photoUrl'] = photoUrl;
+    if (role != null) data['role'] = role;
+    // Use update() para hindi ma-overwrite ang existing 'role' kung hindi naka-pass
+    await _db.child('users/$uid/profile').update(data);
   }
 
   /// Kunin ang naka-save na profile ng user galing RTDB

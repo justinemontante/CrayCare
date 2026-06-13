@@ -14,6 +14,8 @@ class HardwareGroup extends StatelessWidget {
   ) onShowGroupLog;
   final Map<String, String> deviceRuntimeLabels;
 
+  final bool isOwner;
+
   const HardwareGroup({
     super.key,
     required this.label,
@@ -23,6 +25,7 @@ class HardwareGroup extends StatelessWidget {
     required this.onSetMode,
     required this.onShowGroupLog,
     required this.deviceRuntimeLabels,
+    this.isOwner = true,
   });
 
   @override
@@ -199,7 +202,7 @@ class HardwareGroup extends StatelessWidget {
                     child: FittedBox(
                       fit: BoxFit.scaleDown,
                       alignment: Alignment.centerRight,
-                      child: _buildHwModeToggle(deviceId, mode),
+                      child: _buildHwModeToggle(deviceId, mode, context),
                     ),
                   ),
                 ],
@@ -245,7 +248,7 @@ class HardwareGroup extends StatelessWidget {
     );
   }
 
-  Widget _buildHwModeToggle(String deviceId, String currentMode) {
+  Widget _buildHwModeToggle(String deviceId, String currentMode, BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(2),
       decoration: BoxDecoration(
@@ -257,7 +260,18 @@ class HardwareGroup extends StatelessWidget {
         children: ['off', 'auto', 'on'].map((m) {
           final isActive = m == currentMode;
           return GestureDetector(
-            onTap: () => onSetMode(deviceId, m),
+            onTap: () {
+              if (isOwner) {
+                onSetMode(deviceId, m);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Control denied: Only owners can control hardware devices.'),
+                    backgroundColor: Colors.redAccent,
+                  ),
+                );
+              }
+            },
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(

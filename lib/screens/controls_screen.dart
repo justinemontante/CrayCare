@@ -9,7 +9,8 @@ import '../widgets/controls/devices_tab.dart';
 import '../services/feeder_service.dart';
 
 class ControlsScreen extends StatefulWidget {
-  const ControlsScreen({super.key});
+  final bool isOwner;
+  const ControlsScreen({super.key, this.isOwner = true});
 
   @override
   State<ControlsScreen> createState() => _ControlsScreenState();
@@ -330,6 +331,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
             children: [
               _buildHeader(),
               _buildTabBar(),
+              if (!widget.isOwner) _buildReadOnlyBanner(),
               Expanded(
                 child: IndexedStack(
                   index: _activeTab,
@@ -344,12 +346,14 @@ class _ControlsScreenState extends State<ControlsScreen> {
                       feederLogs: FeederService.instance.logs,
                       fedToday: _fedToday,
                       feederError: FeederService.instance.feederError,
+                      isOwner: widget.isOwner,
                     ),
                     DevicesTab(
                       hwModes: _hwModes,
                       onSetMode: _setHwMode,
                       onShowGroupLog: _showHwGroupLog,
                       deviceRuntimeLabels: _deviceRuntimeLabels,
+                      isOwner: widget.isOwner,
                     ),
                   ],
                 ),
@@ -438,6 +442,35 @@ class _ControlsScreenState extends State<ControlsScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildReadOnlyBanner() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.warning.withValues(alpha: 0.1),
+        border: Border.all(color: AppColors.warning.withValues(alpha: 0.3)),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.lock_outline, size: 16, color: AppColors.warning),
+          SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Read-only: Only owner accounts can toggle device operations or change schedules.',
+              style: TextStyle(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFFc97d08),
+                height: 1.3,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

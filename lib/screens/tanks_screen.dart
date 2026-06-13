@@ -88,7 +88,8 @@ void showBeautifulSnackbar(
 }
 
 class TanksScreen extends StatefulWidget {
-  const TanksScreen({super.key});
+  final bool isOwner;
+  const TanksScreen({super.key, this.isOwner = true});
 
   @override
   State<TanksScreen> createState() => TanksScreenState();
@@ -144,12 +145,14 @@ class TanksScreenState extends State<TanksScreen> {
                   onShowLogsModal: _showLogsModal,
                   hasSetup: TankService.instance.isInitialized,
                   lastEdited: _lastEdited,
+                  isOwner: widget.isOwner,
                 ),
                 SamplingTab(
                   lastEdited: _lastEdited,
                   sampleCountController: _sampleCountController,
                   sampleWeightController: _sampleWeightController,
                   sampleLengthController: _sampleLengthController,
+                  isOwner: widget.isOwner,
                 ),
                 TrendsTab(
                   lastEdited: _lastEdited,
