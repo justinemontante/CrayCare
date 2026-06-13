@@ -504,6 +504,7 @@ class _UserManagementFormState extends State<UserManagementForm>
         final String email = profile['email'] ?? 'No email';
         final String role = profile['role'] ?? 'monitor';
         final String status = profile['status'] ?? 'active';
+        final String? photoUrl = profile['photoUrl'] as String?;
         final bool isSelf = uid == currentUid;
 
         return _buildUserTile(
@@ -512,6 +513,7 @@ class _UserManagementFormState extends State<UserManagementForm>
           email: email,
           role: role,
           status: status,
+          photoUrl: photoUrl,
           isSelf: isSelf,
           index: idx,
         );
@@ -525,6 +527,7 @@ class _UserManagementFormState extends State<UserManagementForm>
     required String email,
     required String role,
     required String status,
+    required String? photoUrl,
     required bool isSelf,
     required int index,
   }) {
@@ -616,14 +619,34 @@ class _UserManagementFormState extends State<UserManagementForm>
                       ),
                     ),
                     alignment: Alignment.center,
-                    child: Text(
-                      name.isNotEmpty ? name[0].toUpperCase() : 'U',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900,
-                        color: avatarColor,
-                      ),
-                    ),
+                    child: photoUrl != null && photoUrl.isNotEmpty
+                        ? ClipRRect(
+                            borderRadius: BorderRadius.circular(21),
+                            child: Image.network(
+                              photoUrl,
+                              width: 42,
+                              height: 42,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) {
+                                return Text(
+                                  name.isNotEmpty ? name[0].toUpperCase() : 'U',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w900,
+                                    color: avatarColor,
+                                  ),
+                                );
+                              },
+                            ),
+                          )
+                        : Text(
+                            name.isNotEmpty ? name[0].toUpperCase() : 'U',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w900,
+                              color: avatarColor,
+                            ),
+                          ),
                   ),
                   const SizedBox(width: 14),
 
