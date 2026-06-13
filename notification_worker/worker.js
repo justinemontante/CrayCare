@@ -38,11 +38,10 @@ const SENSOR_MAP = {
   waterLevel: "waterlevel",
 };
 
-let lastSentHash = "";
-db.ref("system/lastAlertHash").once("value").then((snap) => {
-  lastSentHash = snap.val() || "";
-  console.log(`Preloaded last alert hash: "${lastSentHash}"`);
-});
+// Sensor state tracker — ON/OFF per sensor
+const sensorStates = {}; // { temp: false, ph: false, ... }
+// Flag para hindi mag-spam ng "resolved" sa umpisa
+let firstRun = true;
 
 db.ref("sensor_readings/latest").on("value", async (snap) => {
   const data = snap.val();
@@ -74,49 +73,67 @@ db.ref("sensor_readings/latest").on("value", async (snap) => {
       waterlevel: "cm",
     };
 
-    const issues = [];
+    // Check each sensor for state changes (ON / OFF)
+    const stateChanges = [];
+
     for (const [espKey, svcKey] of Object.entries(SENSOR_MAP)) {
       const val = data[espKey];
       const range = thresholds[svcKey];
       if (val == null || !range) continue;
 
-      if (range.min != null && val < range.min) {
-        issues.push({ espKey, svcKey, val, threshold: range.min, dir: "low" });
-      } else if (range.max != null && val > range.max) {
-        issues.push({ espKey, svcKey, val, threshold: range.max, dir: "high" });
+      const isCritical = (range.min != null && val < range.min) ||
+                         (range.max != null && val > range.max);
+      const wasCritical = sensorStates[svcKey] || false;
+
+      if (isCritical && !wasCritical) {
+        // normal → critical : send ON alert
+        sensorStates[svcKey] = true;
+        let dir, threshold;
+        if (range.min != null && val < range.min) {
+          dir = "low";
+          threshold = range.min;
+        } else {
+          dir = "high";
+          threshold = range.max;
+        }
+        stateChanges.push({ svcKey, val, threshold, dir, state: "critical" });
+      } else if (!isCritical && wasCritical) {
+        if (!firstRun) {
+          // critical → normal : send OFF alert
+          sensorStates[svcKey] = false;
+          stateChanges.push({ svcKey, val, state: "resolved" });
+        } else {
+          // First run — just mark as normal, no alert
+          sensorStates[svcKey] = false;
+        }
       }
+      // else: no state change → skip
     }
 
-    const hash = issues.map(i => `${i.espKey}:${i.dir}`).sort().join("|");
-    
-    // Synchronous in-memory check to prevent race condition duplicates
-    if (hash === lastSentHash) return;
-    
-    if (issues.length === 0) {
-      if (lastSentHash !== "") {
-        lastSentHash = "";
-        await db.ref("system/lastAlertHash").set("");
-        console.log(`[${new Date().toLocaleTimeString()}] Sensors normalized. Resetting hash.`);
-      }
-      return;
-    }
+    firstRun = false;
 
-    // Immediately mark as sent to block concurrent triggers
-    lastSentHash = hash;
-    await db.ref("system/lastAlertHash").set(hash);
+    // Walang state change → huwag mag-send
+    if (stateChanges.length === 0) return;
 
-    const msgLines = issues.map(({ svcKey, val, threshold, dir }) => {
+    // Build notification messages
+    const msgLines = stateChanges.map(({ svcKey, val, threshold, dir, state }) => {
       const label = LABELS[svcKey] || svcKey;
       const unit = UNITS[svcKey] || "";
-      const d = dir === "low" ? "below minimum" : "above maximum";
-      return unit
-        ? `${label} (${val.toFixed(1)} ${unit}) is ${d} of ${threshold}`
-        : `${label} (${val.toFixed(1)}) is ${d} of ${threshold}`;
+      if (state === "resolved") {
+        return unit
+          ? `${label} is back to normal (${val.toFixed(1)} ${unit})`
+          : `${label} is back to normal (${val.toFixed(1)})`;
+      } else {
+        const d = dir === "low" ? "below minimum" : "above maximum";
+        return unit
+          ? `${label} (${val.toFixed(1)} ${unit}) is ${d} of ${threshold}`
+          : `${label} (${val.toFixed(1)}) is ${d} of ${threshold}`;
+      }
     });
 
     const notifPayload = {
       type: "critical",
-      title: "Sensor Alert",
+      title: stateChanges.some(c => c.state === "critical") ? "Sensor Alert" : "Sensor Normalized",
       message: msgLines.join("; "),
       timestamp: Date.now(),
       unread: true,
