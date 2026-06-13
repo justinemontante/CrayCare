@@ -195,8 +195,8 @@ class NotificationService extends ChangeNotifier {
   }
 
   Future<void> _onForegroundMessage(RemoteMessage message) async {
-    final title = message.notification?.title ?? 'CrayCare Alert';
-    final body = message.notification?.body ?? '';
+    final title = message.data['title'] ?? message.notification?.title ?? 'CrayCare Alert';
+    final body = message.data['body'] ?? message.notification?.body ?? '';
 
     await _localNotifications.show(
       DateTime.now().millisecondsSinceEpoch ~/ 1000,
@@ -226,28 +226,14 @@ class NotificationService extends ChangeNotifier {
         android: androidSettings,
       ));
 
-      bool playSound = true;
-      bool vibrate = true;
-      bool showCritical = true;
-      try {
-        final user = FirebaseAuth.instance.currentUser;
-        if (user != null) {
-          final prefsSnap = await FirebaseDatabase.instance
-              .ref('users/${user.uid}/notifications')
-              .get();
-          if (prefsSnap.exists && prefsSnap.value is Map) {
-            final map = Map<String, dynamic>.from(prefsSnap.value as Map);
-            playSound = map['sound'] as bool? ?? true;
-            vibrate = map['vibration'] as bool? ?? true;
-            showCritical = map['critical'] as bool? ?? true;
-          }
-        }
-      } catch (_) {}
-
+      final data = message.data;
+      final showCritical = data['critical'] != 'false';
       if (!showCritical) return;
 
-      final title = message.data['title'] ?? 'CrayCare Alert';
-      final body = message.data['body'] ?? message.data['message'] ?? '';
+      final playSound = data['sound'] != 'false';
+      final vibrate = data['vibration'] != 'false';
+      final title = data['title'] ?? 'CrayCare Alert';
+      final body = data['body'] ?? data['message'] ?? '';
 
       await localNotif.show(
         DateTime.now().millisecondsSinceEpoch ~/ 1000,

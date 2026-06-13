@@ -189,11 +189,22 @@ db.ref("sensor_readings/latest").on("value", async (snap) => {
         const token = tokenSnap.val();
         if (!token) return;
 
+        const prefsSnap = await db.ref(`users/${uid}/notifications`).once("value");
+        const prefs = prefsSnap.val() || {};
+        const sound = prefs.sound !== false;
+        const vibration = prefs.vibration !== false;
+        const critical = prefs.critical !== false;
+
+        if (!critical) return;
+
         await admin.messaging().send({
           token,
           data: {
             title: "CrayCare Alert",
             body: msgLines.join("\n"),
+            sound: String(sound),
+            vibration: String(vibration),
+            critical: String(critical),
           },
           android: {
             priority: "high",
