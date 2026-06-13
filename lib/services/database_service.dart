@@ -65,16 +65,36 @@ class DatabaseService {
   }
 
   /// I-update ang Role at Status ng isang user (Admin function)
+  /// If [role] is 'owner', automatically demote any other owner to 'monitor' to enforce single-owner limit.
   Future<void> updateUserRoleAndStatus({
     required String uid,
     required String role,
     required String status,
   }) async {
-    await _db.child('users/$uid/profile').update({
-      'role': role,
-      'status': status,
-      'updatedAt': DateTime.now().toIso8601String(),
-    });
+    final updates = <String, dynamic>{
+      'users/$uid/profile/role': role,
+      'users/$uid/profile/status': status,
+      'users/$uid/profile/updatedAt': DateTime.now().toIso8601String(),
+    };
+
+    if (role == 'owner') {
+      final usersSnapshot = await _db.child('users').get();
+      if (usersSnapshot.exists && usersSnapshot.value != null) {
+        final rawUsers = usersSnapshot.value as Map;
+        rawUsers.forEach((key, val) {
+          final userId = key.toString();
+          if (userId != uid && val is Map && val['profile'] != null) {
+            final profile = val['profile'] as Map;
+            if (profile['role'] == 'owner') {
+              updates['users/$userId/profile/role'] = 'monitor';
+              updates['users/$userId/profile/updatedAt'] = DateTime.now().toIso8601String();
+            }
+          }
+        });
+      }
+    }
+
+    await _db.update(updates);
   }
 
   // ─── Growth Stage Config (per-user) ────────────────────────────

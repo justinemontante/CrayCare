@@ -492,6 +492,21 @@ class _UserManagementFormState extends State<UserManagementForm>
       );
     }
 
+    String? currentOwnerUid;
+    String? currentOwnerName;
+    if (snapshot.hasData && snapshot.data?.snapshot.value != null) {
+      final rawUsers = snapshot.data!.snapshot.value as Map;
+      rawUsers.forEach((key, val) {
+        if (val is Map && val['profile'] != null) {
+          final profile = val['profile'] as Map;
+          if (profile['role'] == 'owner') {
+            currentOwnerUid = key.toString();
+            currentOwnerName = profile['displayName'] ?? profile['email'] ?? 'CrayCare Owner';
+          }
+        }
+      });
+    }
+
     return ListView.builder(
       padding: const EdgeInsets.only(top: 6, bottom: 24),
       itemCount: filteredUsers.length,
@@ -516,6 +531,8 @@ class _UserManagementFormState extends State<UserManagementForm>
           photoUrl: photoUrl,
           isSelf: isSelf,
           index: idx,
+          currentOwnerUid: currentOwnerUid,
+          currentOwnerName: currentOwnerName,
         );
       },
     );
@@ -530,6 +547,8 @@ class _UserManagementFormState extends State<UserManagementForm>
     required String? photoUrl,
     required bool isSelf,
     required int index,
+    required String? currentOwnerUid,
+    required String? currentOwnerName,
   }) {
     final bool isDisabled = status == 'disabled';
 
@@ -601,7 +620,16 @@ class _UserManagementFormState extends State<UserManagementForm>
           child: InkWell(
             borderRadius: BorderRadius.circular(16),
             onTap: () =>
-                _showUserActionSheet(uid, name, email, role, status, isSelf),
+                _showUserActionSheet(
+                  uid,
+                  name,
+                  email,
+                  role,
+                  status,
+                  isSelf,
+                  currentOwnerUid,
+                  currentOwnerName,
+                ),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               child: Row(
@@ -786,6 +814,8 @@ class _UserManagementFormState extends State<UserManagementForm>
     String currentRole,
     String currentStatus,
     bool isSelf,
+    String? currentOwnerUid,
+    String? currentOwnerName,
   ) {
     if (isSelf) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -949,17 +979,19 @@ class _UserManagementFormState extends State<UserManagementForm>
                         onTap: () =>
                             setSheetState(() => selectedRole = 'owner'),
                       ),
-                      const SizedBox(width: 8),
-                      _buildRoleOption(
-                        label: 'Admin',
-                        subtitle: 'Manage users',
-                        icon: Icons.admin_panel_settings_rounded,
-                        color: const Color(0xFFef4444), // Red
-                        bgColor: const Color(0xFFfee2e2),
-                        isSelected: selectedRole == 'admin',
-                        onTap: () =>
-                            setSheetState(() => selectedRole = 'admin'),
-                      ),
+                      if (currentRole == 'admin') ...[
+                        const SizedBox(width: 8),
+                        _buildRoleOption(
+                          label: 'Admin',
+                          subtitle: 'Manage users',
+                          icon: Icons.admin_panel_settings_rounded,
+                          color: const Color(0xFFef4444), // Red
+                          bgColor: const Color(0xFFfee2e2),
+                          isSelected: selectedRole == 'admin',
+                          onTap: () =>
+                              setSheetState(() => selectedRole = 'admin'),
+                        ),
+                      ],
                     ],
                   ),
 
@@ -1037,6 +1069,38 @@ class _UserManagementFormState extends State<UserManagementForm>
 
                   const SizedBox(height: 24),
 
+                  if (selectedRole == 'owner' &&
+                      currentOwnerUid != null &&
+                      currentOwnerUid != targetUid) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFFBEB),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFFFDE68A)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.info_outline, size: 20, color: Color(0xFFD97706)),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Promoting this user will automatically demote the current Owner ($currentOwnerName) to Monitor.',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: const Color(0xFFB45309),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+
+                  const SizedBox(height: 24),
+
                   // Save Button
                   ElevatedButton(
                     onPressed: hasChanges
@@ -1048,6 +1112,8 @@ class _UserManagementFormState extends State<UserManagementForm>
                               selectedStatus: selectedStatus,
                               currentRole: currentRole,
                               currentStatus: currentStatus,
+                              currentOwnerUid: currentOwnerUid,
+                              currentOwnerName: currentOwnerName,
                             )
                         : null,
                     style: ElevatedButton.styleFrom(
@@ -1165,6 +1231,8 @@ class _UserManagementFormState extends State<UserManagementForm>
     required String selectedStatus,
     required String currentRole,
     required String currentStatus,
+    String? currentOwnerUid,
+    String? currentOwnerName,
   }) {
     // Build change description
     final changes = <String>[];
@@ -1221,6 +1289,36 @@ class _UserManagementFormState extends State<UserManagementForm>
                 ),
               ),
             ),
+            if (selectedRole == 'owner' &&
+                currentOwnerUid != null &&
+                currentOwnerUid != targetUid)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFFBEB),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFFDE68A)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.swap_horiz_rounded, size: 16, color: Color(0xFFD97706)),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Current Owner ($currentOwnerName) will be demoted to Monitor.',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: const Color(0xFFB45309),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             if (selectedStatus == 'disabled')
               Padding(
                 padding: const EdgeInsets.only(top: 8),

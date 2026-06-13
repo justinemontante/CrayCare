@@ -824,6 +824,10 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
   @override
   Widget build(BuildContext context) {
     final canSample = TankService.instance.canSample;
+    final service = TankService.instance;
+    final daysSince = service.daysSinceLastSampling;
+    final daysRemaining = daysSince >= 7 ? 0 : 7 - daysSince;
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -841,12 +845,94 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Dynamic Call-To-Action Banner inside the Card
+          if (daysRemaining == 0 && !_isRecorded) ...[
+            Container(
+              margin: const EdgeInsets.only(bottom: 14),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFFFFF7ED), Color(0xFFFFF1F2)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: AppColors.critical.withValues(alpha: 0.25),
+                  width: 1,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFFECACA),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.notification_important_rounded,
+                      size: 16,
+                      color: AppColors.critical,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Weekly Sampling Due!',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF991B1B),
+                          ),
+                        ),
+                        const SizedBox(height: 1),
+                        Text(
+                          '7 days passed since your last log. Update metrics now.',
+                          style: TextStyle(
+                            fontSize: 8.5,
+                            fontWeight: FontWeight.w500,
+                            color: const Color(0xFF991B1B).withValues(alpha: 0.8),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
-                'Weekly Sampling',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+              Row(
+                children: [
+                  const Text(
+                    'Weekly Sampling',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(width: 8),
+                  if (daysRemaining == 0 && !_isRecorded)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AppColors.critical.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        'DUE',
+                        style: TextStyle(
+                          fontSize: 8,
+                          fontWeight: FontWeight.w900,
+                          color: AppColors.critical,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                ],
               ),
               if (_isRecorded && widget.isOwner)
                 TextButton(
@@ -1322,7 +1408,10 @@ class GrowthStagePanel extends StatelessWidget {
     final ablProgress = currentAbl > 0
         ? _calcProgress(currentAbl, range.ablMin, range.ablMax)
         : 1.0;
-    final progress = (abwProgress < ablProgress ? abwProgress : ablProgress).clamp(0.0, 1.0);
+    final stageProgress = (abwProgress < ablProgress ? abwProgress : ablProgress).clamp(0.0, 1.0);
+
+    // Scale progress across the entire bar (4 stages, each represents 25% or 0.25)
+    final progress = ((activeIndex * 0.25) + (stageProgress * 0.25)).clamp(0.0, 1.0);
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -1380,26 +1469,11 @@ class GrowthStagePanel extends StatelessWidget {
 
           ClipRRect(
             borderRadius: BorderRadius.circular(10),
-            child: Container(
-              height: 8,
-              child: Row(
-                children: [
-                  Expanded(
-                    flex: (progress * 1000).round().clamp(0, 1000),
-                    child: Container(
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Color(0xFF52C283), AppColors.primary],
-                        ),
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    flex: (1000 - (progress * 1000).round()).clamp(0, 1000),
-                    child: Container(color: AppColors.darkWith(0.06)),
-                  ),
-                ],
-              ),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 8,
+              backgroundColor: AppColors.darkWith(0.06),
+              valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
             ),
           ),
 
