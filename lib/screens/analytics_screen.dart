@@ -1060,20 +1060,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   String _noDataStatus(String key) {
-    switch (key) {
-      case 'temp':
-        return 'No reading from temperature sensor';
-      case 'ph':
-        return 'No reading from pH sensor';
-      case 'do':
-        return 'No reading from dissolved oxygen sensor';
-      case 'turb':
-        return 'No reading from turbidity sensor';
-      case 'waterlevel':
-        return 'No reading from water level sensor';
-      default:
-        return 'No reading';
-    }
+    return 'No sensor reading';
   }
 
   Widget _buildStatsFooter(
