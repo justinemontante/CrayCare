@@ -191,17 +191,12 @@ db.ref("sensor_readings/latest").on("value", async (snap) => {
 
         await admin.messaging().send({
           token,
-          notification: {
+          data: {
             title: "CrayCare Alert",
             body: msgLines.join("\n"),
           },
           android: {
             priority: "high",
-            notification: {
-              channelId: "craycare_alerts",
-              priority: "high",
-              sound: "default",
-            },
           },
         });
 

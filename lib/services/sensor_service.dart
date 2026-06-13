@@ -149,6 +149,21 @@ class SensorService extends ChangeNotifier {
   }
 
   void _parseAndUpdate(Map<String, dynamic> data) {
+    final dataTimestamp = _toInt(data['timestamp']);
+    if (dataTimestamp != null) {
+      final dt = DateTime.fromMillisecondsSinceEpoch(
+        dataTimestamp < 100000000000 ? dataTimestamp * 1000 : dataTimestamp,
+      );
+      if (DateTime.now().difference(dt) >= _staleTimeout) {
+        debugPrint('[SensorService] Skipping stale cached data from ${dt.toIso8601String()}');
+        if (!_initialDataLoaded) {
+          _initialDataLoaded = true;
+          _markStale();
+        }
+        return;
+      }
+    }
+
     if (!_initialDataLoaded) {
       _initialDataLoaded = true;
       _staleTimer = Timer(_staleTimeout, _markStale);
@@ -210,6 +225,11 @@ class SensorService extends ChangeNotifier {
   }
 
   bool hasSensorData(String key) => _latest.containsKey(key);
+
+  bool hasFreshData(String key) =>
+      _latest.containsKey(key) &&
+      DateTime.now().difference(_lastUpdated) < _staleTimeout;
+
   double getLatestValue(String key) => _latest[key] ?? 0.0;
 
   List<double> getData(String key) => _history[key] ?? [];

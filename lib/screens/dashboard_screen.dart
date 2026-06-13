@@ -337,18 +337,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Row(
             children: [
               Expanded(
-                child: _buildGaugeCard(
-                  title: 'Temperature',
-                  value: ss.hasSensorData('temp')
-                      ? ss.getLatestValue('temp').toStringAsFixed(2)
-                      : '--',
-                  unit: '\u00B0C',
-                  ideal: _getIdealText('temp'),
-                  iconPath: 'assets/images/temperature.png',
-                  status: _getStatus('temp'),
-                  statusColor: _getStatusColor('temp'),
-                  trend: ss.getTrend('temp'),
-                  trendRate: ss.getTrendRate('temp'),
+                  child: _buildGaugeCard(
+                    title: 'Temperature',
+                    value: ss.hasSensorData('temp')
+                        ? ss.getLatestValue('temp').toStringAsFixed(2)
+                        : '--',
+                    unit: '\u00B0C',
+                    ideal: _getIdealText('temp'),
+                    iconPath: 'assets/images/temperature.png',
+                    status: _getStatus('temp'),
+                    statusColor: _getStatusColor('temp'),
+                    trend: ss.getTrend('temp'),
+                    trendRate: ss.getTrendRate('temp'),
+                    hasData: ss.hasSensorData('temp'),
                   onTap: () => _showGaugeDetail(
                     context,
                     sensorKey: 'temp',
@@ -362,17 +363,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
               const SizedBox(width: 12),
               Expanded(
                 child: _buildGaugeCard(
-                  title: 'pH Level',
-                  value: ss.hasSensorData('ph')
-                      ? ss.getLatestValue('ph').toStringAsFixed(2)
-                      : '--',
-                  unit: 'pH',
-                  ideal: _getIdealText('ph'),
-                  iconPath: 'assets/images/pH.png',
-                  status: _getStatus('ph'),
-                  statusColor: _getStatusColor('ph'),
-                  trend: ss.getTrend('ph'),
-                  trendRate: ss.getTrendRate('ph'),
+                    title: 'pH Level',
+                    value: ss.hasSensorData('ph')
+                        ? ss.getLatestValue('ph').toStringAsFixed(2)
+                        : '--',
+                    unit: 'pH',
+                    ideal: _getIdealText('ph'),
+                    iconPath: 'assets/images/pH.png',
+                    status: _getStatus('ph'),
+                    statusColor: _getStatusColor('ph'),
+                    trend: ss.getTrend('ph'),
+                    trendRate: ss.getTrendRate('ph'),
+                    hasData: ss.hasSensorData('ph'),
                   onTap: () => _showGaugeDetail(
                     context,
                     sensorKey: 'ph',
@@ -390,17 +392,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
             children: [
               Expanded(
                 child: _buildGaugeCard(
-                  title: 'Dissolved O\u2082',
-                  value: ss.hasSensorData('do')
-                      ? ss.getLatestValue('do').toStringAsFixed(2)
-                      : '--',
-                  unit: 'mg/L',
-                  ideal: _getIdealText('do'),
-                  iconPath: 'assets/images/DO.png',
-                  status: _getStatus('do'),
-                  statusColor: _getStatusColor('do'),
-                  trend: ss.getTrend('do'),
-                  trendRate: ss.getTrendRate('do'),
+                    title: 'Dissolved O\u2082',
+                    value: ss.hasSensorData('do')
+                        ? ss.getLatestValue('do').toStringAsFixed(2)
+                        : '--',
+                    unit: 'mg/L',
+                    ideal: _getIdealText('do'),
+                    iconPath: 'assets/images/DO.png',
+                    status: _getStatus('do'),
+                    statusColor: _getStatusColor('do'),
+                    trend: ss.getTrend('do'),
+                    trendRate: ss.getTrendRate('do'),
+                    hasData: ss.hasSensorData('do'),
                   onTap: () => _showGaugeDetail(
                     context,
                     sensorKey: 'do',
@@ -414,17 +417,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
               const SizedBox(width: 12),
               Expanded(
                 child: _buildGaugeCard(
-                  title: 'Turbidity',
-                  value: ss.hasSensorData('turb')
-                      ? ss.getLatestValue('turb').toStringAsFixed(2)
-                      : '--',
-                  unit: 'NTU',
-                  ideal: _getIdealText('turb'),
-                  iconPath: 'assets/images/Turbidity.png',
-                  status: _getStatus('turb'),
-                  statusColor: _getStatusColor('turb'),
-                  trend: ss.getTrend('turb'),
-                  trendRate: ss.getTrendRate('turb'),
+                    title: 'Turbidity',
+                    value: ss.hasSensorData('turb')
+                        ? ss.getLatestValue('turb').toStringAsFixed(2)
+                        : '--',
+                    unit: 'NTU',
+                    ideal: _getIdealText('turb'),
+                    iconPath: 'assets/images/Turbidity.png',
+                    status: _getStatus('turb'),
+                    statusColor: _getStatusColor('turb'),
+                    trend: ss.getTrend('turb'),
+                    trendRate: ss.getTrendRate('turb'),
+                    hasData: ss.hasSensorData('turb'),
                   onTap: () => _showGaugeDetail(
                     context,
                     sensorKey: 'turb',
@@ -501,6 +505,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     required Color statusColor,
     required String trend,
     required double trendRate,
+    required bool hasData,
     VoidCallback? onTap,
   }) {
     return _GaugeCard(
@@ -513,6 +518,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       statusColor: statusColor,
       trend: trend,
       trendRate: trendRate,
+      hasData: hasData,
       onTap: onTap,
     );
   }
@@ -533,6 +539,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         statusColor: _getStatusColor('waterlevel'),
         trend: ss.getTrend('waterlevel'),
         trendRate: ss.getTrendRate('waterlevel'),
+        hasData: ss.hasSensorData('waterlevel'),
         onTap: () => _showGaugeDetail(
           context,
           sensorKey: 'waterlevel',
@@ -1682,6 +1689,7 @@ class _GaugeCard extends StatefulWidget {
   final Color statusColor;
   final String trend;
   final double trendRate;
+  final bool hasData;
   final VoidCallback? onTap;
 
   const _GaugeCard({
@@ -1694,6 +1702,7 @@ class _GaugeCard extends StatefulWidget {
     required this.statusColor,
     required this.trend,
     required this.trendRate,
+    required this.hasData,
     this.onTap,
   });
 
@@ -1854,7 +1863,7 @@ class _GaugeCardState extends State<_GaugeCard> {
                   ),
                 ),
                 const SizedBox(height: 2),
-                _buildTrendIndicator(),
+                if (widget.hasData) _buildTrendIndicator(),
                 Container(
                   margin: const EdgeInsets.symmetric(vertical: 8),
                   padding: const EdgeInsets.symmetric(

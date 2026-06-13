@@ -159,10 +159,14 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       });
 
       SensorService.sensorKeys.forEach((key) {
-        final raw = SensorService.instance.getData(key);
-        _data['$key-live'] = raw.length > 8
-            ? raw.sublist(raw.length - 8)
-            : List.from(raw);
+        if (SensorService.instance.hasFreshData(key)) {
+          final raw = SensorService.instance.getData(key);
+          _data['$key-live'] = raw.length > 8
+              ? raw.sublist(raw.length - 8)
+              : List.from(raw);
+        } else {
+          _data['$key-live'] = [];
+        }
       });
       _labels['live'] = labels;
       return;

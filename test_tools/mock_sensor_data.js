@@ -55,23 +55,31 @@ const HOUR_CYCLE = (hour) => ({
 });
 
 // ─── 3. Generate reading ──────────────────────────────────────
+function pickRandom(arr, count) {
+  const shuffled = [...arr].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, count);
+}
+
 function generateReading(date = new Date(), critical = false) {
   const hour = date.getHours() + date.getMinutes() / 60;
   const cycle = HOUR_CYCLE(hour);
   const reading = {};
+
+  const critKeys = critical ? pickRandom(LATEST_KEYS, 1 + Math.floor(Math.random() * 2)) : [];
+
   for (const key of LATEST_KEYS) {
     const r = RANGES[key];
     const mid = (r.min + r.max) / 2;
     const amp = (r.max - r.min) / 2;
     let val = mid + cycle[key] + (Math.random() - 0.5) * amp * 0.3;
-    // Critical mode forces extreme values
-    if (critical) {
-      if (key === 'temperature') val = r.max + 5 + Math.random() * 3;
-      else if (key === 'phLevel') val = r.min - 0.8 - Math.random() * 0.5;
-      else if (key === 'dissolvedOxygen') val = r.min - 0.5 - Math.random();
-      else val = r.max + 10 + Math.random() * 10;
+
+    if (critKeys.includes(key)) {
+      const exceed = Math.random() * 2 + 0.5;
+      val = Math.random() < 0.5 ? r.max + exceed : r.min - exceed;
+      reading[key] = parseFloat(val.toFixed(1));
+    } else {
+      reading[key] = parseFloat(Math.max(r.min, Math.min(r.max, val)).toFixed(1));
     }
-    reading[key] = parseFloat(Math.max(r.min, Math.min(r.max, val)).toFixed(1));
   }
   return reading;
 }
@@ -80,7 +88,9 @@ function generateReading(date = new Date(), critical = false) {
 const latestRef = db.ref('sensor_readings/latest');
 
 async function writeLatest(critical = false) {
-  const data = generateReading(new Date(), critical);
+  const now = new Date();
+  const data = generateReading(now, critical);
+  data.timestamp = Math.floor(now.getTime() / 1000);
   await latestRef.set(data);
   const ts = new Date().toLocaleTimeString();
   const vals = LATEST_KEYS.map(k => `${data[k]}`).join(' | ');
@@ -90,10 +100,10 @@ async function writeLatest(critical = false) {
 // ─── 5. Append history ────────────────────────────────────────
 let historyCount = 0;
 
-async function appendHistory() {
+async function appendHistory(critical = false) {
   const now = new Date();
   const dateStr = now.toISOString().slice(0, 10);
-  const reading = generateReading(now);
+  const reading = generateReading(now, critical);
   reading.timestamp = Math.floor(now.getTime() / 1000);
   const ref = db.ref(`sensor_readings/history/${dateStr}`).push();
   await ref.set(reading);
@@ -192,14 +202,14 @@ async function main() {
     console.log('\n🚀 Starting real-time simulation…');
     console.log('   Every 5s  → sensor_readings/latest');
     console.log('   Every 10m → sensor_readings/history');
-    if (criticalMode) console.log('   ⚠️  CRITICAL MODE — values will exceed thresholds');
+    if (criticalMode) console.log('   ⚠️  CRITICAL MODE — 1-2 sensors slightly exceed thresholds');
     console.log('   Press Ctrl+C to stop.\n');
 
     await writeLatest(criticalMode);
     setInterval(() => writeLatest(criticalMode), 5000);
 
-    await appendHistory();
-    setInterval(appendHistory, 10 * 60 * 1000);
+    await appendHistory(criticalMode);
+    setInterval(() => appendHistory(criticalMode), 10 * 60 * 1000);
 
     setTimeout(() => writeNotification('operational', 'System Online', 'Mock data generator started.'), 2000);
     setTimeout(() => writeNotification('critical', '⚠️ Critical: Temperature', 'Sensor values exceeded safe range!'), 15000);
