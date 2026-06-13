@@ -6,7 +6,7 @@ class DatabaseService {
   static final DatabaseService instance = DatabaseService._();
   DatabaseService._();
 
-  static Map<String, dynamic> _convertMap(Object? value) {
+  static Map<String, dynamic> convertMap(Object? value) {
     if (value is Map) {
       return value.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
     }
@@ -18,13 +18,15 @@ class DatabaseService {
   String get _uid => FirebaseAuth.instance.currentUser?.uid ?? '';
 
   /// I-save ang profile name, email, at photo URL ng user sa RTDB
-  /// [role] — 'monitor' (default for new users) or 'owner' (set via Firebase console)
+  /// [role] — 'monitor' (default for new users) or 'owner' or 'admin'
+  /// [status] — 'active' or 'disabled'
   Future<void> saveUserProfile({
     required String uid,
     required String name,
     required String email,
     String? photoUrl, // Optional — kung may profile picture
     String? role, // Optional — only written on first signup
+    String? status, // Optional — defaults to 'active' on first signup
   }) async {
     final data = <String, dynamic>{
       'displayName': name,
@@ -33,19 +35,45 @@ class DatabaseService {
     };
     if (photoUrl != null) data['photoUrl'] = photoUrl;
     if (role != null) data['role'] = role;
-    // Use update() para hindi ma-overwrite ang existing 'role' kung hindi naka-pass
+    if (status != null) {
+      data['status'] = status;
+    } else {
+      // Kung wala pang profile, default status is 'active'
+      final existing = await getUserProfile(uid);
+      if (existing == null || existing['status'] == null) {
+        data['status'] = 'active';
+      }
+    }
+    // Use update() para hindi ma-overwrite ang existing 'role'/'status' kung hindi naka-pass
     await _db.child('users/$uid/profile').update(data);
   }
 
   /// Kunin ang naka-save na profile ng user galing RTDB
-  /// May laman na 'displayName', 'email', 'photoUrl' (kung meron)
-
+  /// May laman na 'displayName', 'email', 'photoUrl' (kung meron), 'role', 'status'
   Future<Map<String, dynamic>?> getUserProfile(String uid) async {
     final snapshot = await _db.child('users/$uid/profile').get();
-    if (snapshot.exists) {
-      return _convertMap(snapshot.value as Map);
+    if (snapshot.exists && snapshot.value != null) {
+      return convertMap(snapshot.value as Map);
     }
     return null;
+  }
+
+  /// Kumuha ng Stream ng lahat ng users para sa Admin User Management Screen
+  Stream<DatabaseEvent> getAllUsersStream() {
+    return _db.child('users').onValue;
+  }
+
+  /// I-update ang Role at Status ng isang user (Admin function)
+  Future<void> updateUserRoleAndStatus({
+    required String uid,
+    required String role,
+    required String status,
+  }) async {
+    await _db.child('users/$uid/profile').update({
+      'role': role,
+      'status': status,
+      'updatedAt': DateTime.now().toIso8601String(),
+    });
   }
 
   // ─── Growth Stage Config (per-user) ────────────────────────────
@@ -61,7 +89,7 @@ class DatabaseService {
       onTimeout: () => throw TimeoutException('Firebase read timed out'),
     );
     if (snapshot.exists && snapshot.value != null) {
-      return _convertMap(snapshot.value as Map);
+      return convertMap(snapshot.value as Map);
     }
     return null;
   }
@@ -112,7 +140,7 @@ class DatabaseService {
       onTimeout: () => throw TimeoutException('Firebase read timed out'),
     );
     if (snapshot.exists && snapshot.value != null) {
-      return _convertMap(snapshot.value as Map);
+      return convertMap(snapshot.value as Map);
     }
     return null;
   }
@@ -166,7 +194,7 @@ class DatabaseService {
   Future<Map<String, dynamic>?> getNotificationPrefs(String uid) async {
     final snapshot = await _db.child('users/$uid/notifications').get();
     if (snapshot.exists) {
-      return _convertMap(snapshot.value as Map);
+      return convertMap(snapshot.value as Map);
     }
     return null;
   }
@@ -184,11 +212,11 @@ class DatabaseService {
           onTimeout: () => throw TimeoutException('Firebase history read timed out'),
         );
     if (!snapshot.exists || snapshot.value == null) return [];
-    final raw = _convertMap(snapshot.value as Map);
+    final raw = convertMap(snapshot.value as Map);
     final list = <Map<String, dynamic>>[];
     raw.forEach((key, value) {
       if (value is Map) {
-        list.add(_convertMap(value));
+        list.add(convertMap(value));
       }
     });
     list.sort((a, b) => (b['timestamp'] ?? 0).compareTo(a['timestamp'] ?? 0));

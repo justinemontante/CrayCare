@@ -104,8 +104,11 @@ class _LoginScreenState extends State<LoginScreen> {
         MaterialPageRoute(builder: (_) => const MainShell()),
       );
     } catch (e) {
+      final msg = e.toString().replaceAll('Exception: ', '');
       setState(() {
-        _loginError = 'Incorrect email or password.';
+        _loginError = msg.contains('disabled')
+            ? msg
+            : 'Incorrect email or password.';
         _autovalidateMode = AutovalidateMode.onUserInteraction;
       });
     } finally {

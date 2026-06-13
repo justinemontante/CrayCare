@@ -130,7 +130,13 @@ db.ref("sensor_readings/latest").on("value", async (snap) => {
     if (authVal === null) {
       const usersSnap = await db.ref("users").once("value");
       if (usersSnap.exists()) {
-        usersSnap.forEach((child) => uids.push(child.key));
+        usersSnap.forEach((child) => {
+          const userData = child.val();
+          const role = userData && userData.profile && userData.profile.role;
+          if (!role || String(role).toLowerCase() !== "admin") {
+            uids.push(child.key);
+          }
+        });
       }
     } else if (typeof authVal === "object") {
       if (authVal.UID && typeof authVal.UID === "string") {
@@ -140,6 +146,19 @@ db.ref("sensor_readings/latest").on("value", async (snap) => {
           if (val === true) uids.push(key);
         }
       }
+
+      // Filter out admin accounts from uids
+      const filteredUids = [];
+      await Promise.all(
+        uids.map(async (uid) => {
+          const roleSnap = await db.ref(`users/${uid}/profile/role`).once("value");
+          const role = roleSnap.val();
+          if (!role || String(role).toLowerCase() !== "admin") {
+            filteredUids.push(uid);
+          }
+        })
+      );
+      uids = filteredUids;
     }
 
     let successCount = 0;

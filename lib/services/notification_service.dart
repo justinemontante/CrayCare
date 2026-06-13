@@ -9,6 +9,7 @@ import 'sensor_service.dart';
 import 'tank_service.dart';
 import '../models/notification_item.dart';
 import '../models/control_types.dart';
+import 'database_service.dart';
 
 class NotificationService extends ChangeNotifier {
   static final NotificationService instance = NotificationService._();
@@ -30,6 +31,8 @@ class NotificationService extends ChangeNotifier {
 
   DatabaseReference get _notifRef =>
       FirebaseDatabase.instance.ref('users/${FirebaseAuth.instance.currentUser?.uid ?? ""}/notifications');
+  String? _userRole;
+  StreamSubscription<DatabaseEvent>? _profileSub;
   StreamSubscription<DatabaseEvent>? _notifSub;
   StreamSubscription<DatabaseEvent>? _notifRemovedSub;
   StreamSubscription<DatabaseEvent>? _prefsSub;
@@ -84,11 +87,48 @@ class NotificationService extends ChangeNotifier {
       _notifications.clear();
       _notifSub?.cancel();
       _notifRemovedSub?.cancel();
+      _prefsSub?.cancel();
+      _profileSub?.cancel();
+      _userRole = null;
       if (user != null) {
-        _listenFirebase();
-        _loadUserPrefs();
+        _listenProfile();
       }
       notifyListeners();
+    });
+  }
+
+  void _listenProfile() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    _profileSub?.cancel();
+    _profileSub = FirebaseDatabase.instance
+        .ref('users/${user.uid}/profile')
+        .onValue
+        .listen((event) async {
+      if (event.snapshot.value == null) return;
+      final profile = DatabaseService.convertMap(event.snapshot.value as Map);
+      _userRole = profile['role'] as String?;
+
+      if (_userRole == 'admin') {
+        _notifSub?.cancel();
+        _notifRemovedSub?.cancel();
+        _prefsSub?.cancel();
+        _notifications.clear();
+        FirebaseDatabase.instance
+            .ref('users/${user.uid}/fcmToken')
+            .remove()
+            .catchError((_) {});
+        notifyListeners();
+      } else {
+        _listenFirebase();
+        _loadUserPrefs();
+        final messaging = FirebaseMessaging.instance;
+        try {
+          final token = await messaging.getToken();
+          if (token != null) _saveToken(token);
+        } catch (_) {}
+      }
     });
   }
 
@@ -139,6 +179,12 @@ class NotificationService extends ChangeNotifier {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
+        if (_userRole == 'admin') {
+          await FirebaseDatabase.instance
+              .ref('users/${user.uid}/fcmToken')
+              .remove();
+          return;
+        }
         await FirebaseDatabase.instance
             .ref('users/${user.uid}/fcmToken')
             .set(token);
@@ -213,6 +259,7 @@ class NotificationService extends ChangeNotifier {
     _notifSub?.cancel();
     _notifRemovedSub?.cancel();
     _prefsSub?.cancel();
+    _profileSub?.cancel();
     _reminderTimer?.cancel();
     SensorService.instance.removeListener(_onSensorUpdate);
     super.dispose();
@@ -252,6 +299,7 @@ class NotificationService extends ChangeNotifier {
   }
 
   void _checkFeedingReminders() {
+    if (_userRole == 'admin') return;
     if (!_notifFeeding) return;
     final now = DateTime.now();
     final todayKey = '${now.month}/${now.day}';
@@ -281,6 +329,7 @@ class NotificationService extends ChangeNotifier {
   }
 
   void _confirmFeedingComplete() {
+    if (_userRole == 'admin') return;
     if (!_notifFeeding) return;
     final now = DateTime.now();
     final todayKey = '${now.month}/${now.day}';
@@ -305,6 +354,7 @@ class NotificationService extends ChangeNotifier {
   }
 
   void _checkSamplingReminders() {
+    if (_userRole == 'admin') return;
     if (!_notifSampling) return;
     final now = DateTime.now();
     final todayKey = '${now.month}/${now.day}';
@@ -355,6 +405,7 @@ class NotificationService extends ChangeNotifier {
   }
 
   void _onSensorUpdate() {
+    if (_userRole == 'admin') return;
     final hasData = SensorService.sensorKeys.any(
       (k) => SensorService.instance.getZone(k) != 'UNKNOWN',
     );
@@ -405,6 +456,7 @@ class NotificationService extends ChangeNotifier {
     required String message,
     required DateTime timestamp,
   }) {
+    if (_userRole == 'admin') return;
     final fbRef = _notifRef.push();
     final notif = NotificationItem(
       id: fbRef.key ?? 'notif_${++_idCounter}',

@@ -1,5 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'package:flutter/foundation.dart';
 import 'database_service.dart';
 
 class AuthService {
@@ -28,12 +30,13 @@ class AuthService {
           await user.sendEmailVerification();
         }
         // Save profile to RTDB for a record (preserve existing photoUrl kung mayron)
-        // Auto-assign 'monitor' role for all new signups
+        // Auto-assign 'monitor' role and 'active' status for all new signups
         await DatabaseService.instance.saveUserProfile(
           uid: user.uid,
           name: name,
           email: email,
           role: 'monitor',
+          status: 'active',
         );
       }
 
@@ -53,22 +56,31 @@ class AuthService {
 
       User? user = result.user;
 
-      if (user != null && !user.emailVerified) {
-        await _auth.signOut();
-        throw Exception(
-          'Please verify your email first. A verification link was sent to your inbox.',
-        );
-      }
-      // Para sa mga existing users — i-save sa RTDB (preserve photoUrl)
-      if (user != null && user.emailVerified) {
-        final existing = await DatabaseService.instance.getUserProfile(user.uid);
-        final String? existingRole = existing?['role'] as String?;
+      if (user != null) {
+        // Kumuha muna ng profile sa RTDB para ma-verify kung disabled
+        final profile = await DatabaseService.instance.getUserProfile(user.uid);
+        if (profile != null && profile['status'] == 'disabled') {
+          await signOut();
+          throw Exception('Your account has been disabled. Please contact the administrator.');
+        }
+
+        if (!user.emailVerified) {
+          await _auth.signOut();
+          throw Exception(
+            'Please verify your email first. A verification link was sent to your inbox.',
+          );
+        }
+
+        // Para sa mga existing users — i-save sa RTDB (preserve photoUrl)
+        final String? existingRole = profile?['role'] as String?;
+        final String? existingStatus = profile?['status'] as String?;
         await DatabaseService.instance.saveUserProfile(
           uid: user.uid,
           name: user.displayName ?? 'CrayCare User',
           email: user.email ?? '',
-          photoUrl: existing?['photoUrl'] as String?,
+          photoUrl: profile?['photoUrl'] as String?,
           role: existingRole ?? 'monitor', // Kung walang role, gawing 'monitor'
+          status: existingStatus ?? 'active',
         );
       }
       return user;
@@ -106,15 +118,22 @@ class AuthService {
       // I-save sa RTDB ang Google user profile
       final user = userCredential.user;
       if (user != null) {
-        // Kunin muna ang existing profile para hindi mawala ang photoUrl/role
-        final existing = await DatabaseService.instance.getUserProfile(user.uid);
-        final String? existingRole = existing?['role'] as String?;
+        // Kunin muna ang existing profile para hindi mawala ang photoUrl/role/status
+        final profile = await DatabaseService.instance.getUserProfile(user.uid);
+        if (profile != null && profile['status'] == 'disabled') {
+          await signOut();
+          throw Exception('Your account has been disabled. Please contact the administrator.');
+        }
+
+        final String? existingRole = profile?['role'] as String?;
+        final String? existingStatus = profile?['status'] as String?;
         await DatabaseService.instance.saveUserProfile(
           uid: user.uid,
           name: user.displayName ?? 'Google User',
           email: user.email ?? '',
-          photoUrl: existing?['photoUrl'] as String?,
+          photoUrl: profile?['photoUrl'] as String?,
           role: existingRole ?? 'monitor', // Kung walang role, gawing 'monitor'
+          status: existingStatus ?? 'active',
         );
       }
 
@@ -161,6 +180,16 @@ class AuthService {
 
   // SIGN OUT
   Future<void> signOut() async {
+    final uid = _auth.currentUser?.uid;
+    if (uid != null) {
+      try {
+        await FirebaseDatabase.instance
+            .ref('users/$uid/fcmToken')
+            .remove();
+      } catch (e) {
+        debugPrint('[AuthService] Failed to clear FCM token on signout: $e');
+      }
+    }
     await _googleSignIn.signOut();
     await _auth.signOut();
   }

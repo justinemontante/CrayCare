@@ -6,6 +6,7 @@ class SettingsMenu extends StatelessWidget {
   final String profileName;
   final String profileEmail;
   final String? photoUrl; // Profile picture (base64 o URL)
+  final String? userRole;
   final void Function(int page) onGoTo;
   final VoidCallback onLogout;
 
@@ -14,6 +15,7 @@ class SettingsMenu extends StatelessWidget {
     required this.profileName,
     required this.profileEmail,
     this.photoUrl,
+    this.userRole,
     required this.onGoTo,
     required this.onLogout,
   });
@@ -35,12 +37,15 @@ class SettingsMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bool isAdmin = userRole == 'admin';
+
     return Container(
       color: const Color(0xFFf7f7f7),
       child: SingleChildScrollView(
         child: Column(
           children: [
             _buildProfileCard(),
+            const SizedBox(height: 10),
             const SizedBox(height: 10),
             _buildMenuSection('Account', [
               _buildMenuItem(
@@ -59,23 +64,25 @@ class SettingsMenu extends StatelessWidget {
               ),
             ]),
             const SizedBox(height: 10),
-            _buildMenuSection('Preferences', [
-              _buildMenuItem(
-                'Notifications',
-                Icons.notifications,
-                AppColors.warning,
-                chevron: true,
-                onTap: () => onGoTo(3),
-              ),
-              _buildMenuItem(
-                'Crayfish Stage & Thresholds',
-                Icons.timeline,
-                AppColors.primary,
-                chevron: true,
-                onTap: () => onGoTo(4),
-              ),
-            ]),
-            const SizedBox(height: 10),
+            if (!isAdmin) ...[
+              _buildMenuSection('Preferences', [
+                _buildMenuItem(
+                  'Notifications',
+                  Icons.notifications,
+                  AppColors.warning,
+                  chevron: true,
+                  onTap: () => onGoTo(3),
+                ),
+                _buildMenuItem(
+                  'Crayfish Stage & Thresholds',
+                  Icons.timeline,
+                  AppColors.primary,
+                  chevron: true,
+                  onTap: () => onGoTo(4),
+                ),
+              ]),
+              const SizedBox(height: 10),
+            ],
             _buildMenuItem(
               'Logout',
               Icons.logout,
@@ -144,12 +151,59 @@ class SettingsMenu extends StatelessWidget {
                     color: AppColors.darkWith(0.5),
                   ),
                 ),
+                const SizedBox(height: 5),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
+                  decoration: BoxDecoration(
+                    color: _getRoleBgColor(userRole),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    _getRoleLabel(userRole),
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w800,
+                      color: _getRoleTextColor(userRole),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
         ],
       ),
     );
+  }
+
+  Color _getRoleBgColor(String? role) {
+    switch (role?.toLowerCase()) {
+      case 'admin':
+        return const Color(0xFFfee2e2); // Light red
+      case 'owner':
+        return const Color(0xFFdbeafe); // Light blue
+      case 'monitor':
+        return const Color(0xFFe2fbf0); // Light teal-green
+      default:
+        return const Color(0xFFf3f4f6); // Light grey
+    }
+  }
+
+  Color _getRoleTextColor(String? role) {
+    switch (role?.toLowerCase()) {
+      case 'admin':
+        return const Color(0xFFef4444); // Red
+      case 'owner':
+        return const Color(0xFF2563eb); // Blue
+      case 'monitor':
+        return const Color(0xFF0f766e); // Teal
+      default:
+        return const Color(0xFF4b5563); // Grey
+    }
+  }
+
+  String _getRoleLabel(String? role) {
+    if (role == null || role.isEmpty) return 'User';
+    return role[0].toUpperCase() + role.substring(1).toLowerCase();
   }
 
   Widget _buildMenuSection(String label, List<Widget> items) {

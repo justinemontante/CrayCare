@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 import '../theme/app_colors.dart';
 import 'login_screen.dart';
 import '../services/settings_service.dart';
@@ -14,11 +13,13 @@ import '../services/database_service.dart';
 import '../services/storage_service.dart'; // Para sa pag-pick ng profile picture
 import '../services/auth_service.dart';
 
+import '../widgets/settings/user_management_form.dart';
+
 class SettingsScreen extends StatefulWidget {
   final String? initialPhotoUrl; // Ipasa mula MainShell para iwas reload
-  final bool isOwner;
+  final String? userRole;
 
-  const SettingsScreen({super.key, this.initialPhotoUrl, this.isOwner = true});
+  const SettingsScreen({super.key, this.initialPhotoUrl, this.userRole});
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -277,8 +278,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (ctx) => LogoutSheet(
         onLogout: () async {
           try {
-            await GoogleSignIn().signOut();
-            await FirebaseAuth.instance.signOut();
+            await AuthService().signOut();
             if (!ctx.mounted) return;
             Navigator.of(ctx).pop();
             Navigator.of(context).pop();
@@ -307,6 +307,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return 'Notifications';
       case 4:
         return 'Crayfish Stage';
+      case 5:
+        return 'User Management';
       default:
         return '';
     }
@@ -314,6 +316,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isOwnerOrAdmin = widget.userRole == 'owner' || widget.userRole == 'admin';
+
     return Scaffold(
       resizeToAvoidBottomInset: false,
       body: Column(
@@ -339,6 +343,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   key: const ValueKey('menu'),
                   profileName: _profileName,
                   profileEmail: _profileEmail,
+                  userRole: widget.userRole,
                   onGoTo: _goTo,
                   onLogout: _showLogoutSheet,
                   photoUrl: _photoUrl,
@@ -386,7 +391,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _saveNotifPrefs();
                   },
                 ),
-                StageSettings(key: const ValueKey('stage-settings'), isOwner: widget.isOwner),
+                StageSettings(key: const ValueKey('stage-settings'), isOwner: isOwnerOrAdmin),
+                const UserManagementForm(key: ValueKey('user-management')),
               ][_currentPage],
             ),
           ),
@@ -433,7 +439,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         children: [
           Positioned.fill(
             child: Align(
-              alignment: Alignment(0.7, 0),
+              alignment: const Alignment(0.7, 0),
               child: Transform.scale(
                 scale: 1.8,
                 child: Image.asset(
