@@ -410,41 +410,31 @@ class _UserManagementFormState extends State<UserManagementForm>
                 return Expanded(
                   child: GestureDetector(
                     onTap: () => setState(() => _filterRole = tabs[i].$3),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
                       decoration: BoxDecoration(
                         color: isActive ? Colors.white : Colors.transparent,
                         borderRadius: BorderRadius.circular(12),
-                        boxShadow: isActive
-                            ? [
-                                BoxShadow(
-                                  color: AppColors.darkWith(0.05),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 2),
-                                ),
-                              ]
-                            : null,
                       ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(
                             tabs[i].$1,
-                            size: 13,
+                            size: 14,
                             color: isActive
                                 ? AppColors.primary
-                                : AppColors.darkWith(0.4),
+                                : AppColors.dark.withValues(alpha: 0.4),
                           ),
-                          const SizedBox(width: 4),
+                          const SizedBox(width: 6),
                           Text(
                             tabs[i].$2,
                             style: TextStyle(
-                              fontSize: 10,
+                              fontSize: 11,
                               fontWeight: FontWeight.w700,
                               color: isActive
                                   ? AppColors.primary
-                                  : AppColors.darkWith(0.4),
+                                  : AppColors.dark.withValues(alpha: 0.4),
                             ),
                           ),
                         ],
