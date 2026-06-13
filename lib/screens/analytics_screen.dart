@@ -169,15 +169,11 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     }
 
     if (range == '24h') {
-      final labelStep = 6; // show a label every hour (6 × 10min = 60min)
       labels = List.generate(pts, (i) {
         final d = now.subtract(Duration(minutes: (pts - 1 - i) * 10));
-        if (i % labelStep == 0) {
-          final h = d.hour > 12 ? d.hour - 12 : (d.hour == 0 ? 12 : d.hour);
-          final ampm = d.hour >= 12 ? 'PM' : 'AM';
-          return '$h $ampm';
-        }
-        return '';
+        final h = d.hour > 12 ? d.hour - 12 : (d.hour == 0 ? 12 : d.hour);
+        final ampm = d.hour >= 12 ? 'PM' : 'AM';
+        return '${h}:${d.minute.toString().padLeft(2, '0')} $ampm';
       });
     } else if (range == '7d') {
       labels = List.generate(pts, (i) {
