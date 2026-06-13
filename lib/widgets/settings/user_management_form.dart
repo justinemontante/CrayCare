@@ -17,7 +17,8 @@ class _UserManagementFormState extends State<UserManagementForm>
   String _searchQuery = '';
   String _filterRole = 'all'; // 'all', 'admin', 'owner', 'monitor'
 
-  final Stream<DatabaseEvent> _usersStream = DatabaseService.instance.getAllUsersStream();
+  final Stream<DatabaseEvent> _usersStream = DatabaseService.instance
+      .getAllUsersStream();
   late AnimationController _animCtrl;
   late Animation<double> _fadeAnim;
 
@@ -69,22 +70,23 @@ class _UserManagementFormState extends State<UserManagementForm>
               .where((e) => (e.value['status'] ?? 'active') != 'disabled')
               .length;
           final int disabledUsers = totalUsers - activeUsers;
-          final int ownerCount =
-              usersList.where((e) => e.value['role'] == 'owner').length;
-          final int monitorCount =
-              usersList.where((e) => (e.value['role'] ?? 'monitor') == 'monitor').length;
+          final int ownerCount = usersList
+              .where((e) => e.value['role'] == 'owner')
+              .length;
+          final int monitorCount = usersList
+              .where((e) => (e.value['role'] ?? 'monitor') == 'monitor')
+              .length;
 
           // Filter users
           final filteredUsers = usersList.where((entry) {
-            final name =
-                (entry.value['displayName'] ?? '').toString().toLowerCase();
-            final email =
-                (entry.value['email'] ?? '').toString().toLowerCase();
+            final name = (entry.value['displayName'] ?? '')
+                .toString()
+                .toLowerCase();
+            final email = (entry.value['email'] ?? '').toString().toLowerCase();
             final role = (entry.value['role'] ?? 'monitor').toString();
             final matchesSearch =
                 name.contains(_searchQuery) || email.contains(_searchQuery);
-            final matchesFilter =
-                _filterRole == 'all' || role == _filterRole;
+            final matchesFilter = _filterRole == 'all' || role == _filterRole;
             return matchesSearch && matchesFilter;
           }).toList();
 
@@ -111,10 +113,7 @@ class _UserManagementFormState extends State<UserManagementForm>
                     switchInCurve: Curves.easeOut,
                     switchOutCurve: Curves.easeIn,
                     transitionBuilder: (child, animation) {
-                      return FadeTransition(
-                        opacity: animation,
-                        child: child,
-                      );
+                      return FadeTransition(opacity: animation, child: child);
                     },
                     child: _buildUsersList(
                       key: ValueKey('${_filterRole}_$_searchQuery'),
@@ -143,12 +142,27 @@ class _UserManagementFormState extends State<UserManagementForm>
   String _getFormattedDate() {
     final now = DateTime.now();
     final weekdays = [
-      'Sunday', 'Monday', 'Tuesday', 'Wednesday',
-      'Thursday', 'Friday', 'Saturday',
+      'Sunday',
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
     ];
     final months = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December',
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
     ];
     final weekday = weekdays[now.weekday % 7];
     final month = months[now.month - 1];
@@ -248,7 +262,9 @@ class _UserManagementFormState extends State<UserManagementForm>
                 right: 0,
                 width: 190,
                 child: ClipRRect(
-                  borderRadius: const BorderRadius.horizontal(right: Radius.circular(16)),
+                  borderRadius: const BorderRadius.horizontal(
+                    right: Radius.circular(16),
+                  ),
                   child: Image.asset(
                     'assets/images/seaweedImage.png',
                     fit: BoxFit.contain,
@@ -370,8 +386,11 @@ class _UserManagementFormState extends State<UserManagementForm>
                 fontSize: 13,
                 color: AppColors.darkWith(0.3),
               ),
-              prefixIcon:
-                  const Icon(Icons.search, color: AppColors.primary, size: 20),
+              prefixIcon: const Icon(
+                Icons.search,
+                color: AppColors.primary,
+                size: 20,
+              ),
               suffixIcon: _searchQuery.isNotEmpty
                   ? IconButton(
                       icon: const Icon(Icons.clear, size: 16),
@@ -390,8 +409,10 @@ class _UserManagementFormState extends State<UserManagementForm>
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),
-                borderSide:
-                    const BorderSide(color: AppColors.primary, width: 1.5),
+                borderSide: const BorderSide(
+                  color: AppColors.primary,
+                  width: 1.5,
+                ),
               ),
             ),
             style: const TextStyle(fontSize: 13),
@@ -490,8 +511,11 @@ class _UserManagementFormState extends State<UserManagementForm>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.people_outline,
-                size: 48, color: AppColors.darkWith(0.15)),
+            Icon(
+              Icons.people_outline,
+              size: 48,
+              color: AppColors.darkWith(0.15),
+            ),
             const SizedBox(height: 12),
             Text(
               _searchQuery.isNotEmpty
@@ -516,7 +540,10 @@ class _UserManagementFormState extends State<UserManagementForm>
             final profile = val['profile'] as Map;
             if (profile['role'] == 'owner') {
               currentOwnerUid = key.toString();
-              currentOwnerName = profile['displayName'] ?? profile['email'] ?? 'CrayCare Owner';
+              currentOwnerName =
+                  profile['displayName'] ??
+                  profile['email'] ??
+                  'CrayCare Owner';
             }
           }
         });
@@ -586,8 +613,11 @@ class _UserManagementFormState extends State<UserManagementForm>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.people_outline,
-                size: 48, color: AppColors.darkWith(0.15)),
+            Icon(
+              Icons.people_outline,
+              size: 48,
+              color: AppColors.darkWith(0.15),
+            ),
             const SizedBox(height: 12),
             Text(
               _searchQuery.isNotEmpty
@@ -613,7 +643,8 @@ class _UserManagementFormState extends State<UserManagementForm>
           final profile = val['profile'] as Map;
           if (profile['role'] == 'owner') {
             currentOwnerUid = key.toString();
-            currentOwnerName = profile['displayName'] ?? profile['email'] ?? 'CrayCare Owner';
+            currentOwnerName =
+                profile['displayName'] ?? profile['email'] ?? 'CrayCare Owner';
           }
         }
       });
@@ -694,215 +725,221 @@ class _UserManagementFormState extends State<UserManagementForm>
       const Color(0xFF059669),
     ];
     final colorIdx = name.hashCode.abs() % avatarColors.length;
-    final avatarColor = isDisabled ? Colors.grey.shade400 : avatarColors[colorIdx];
+    final avatarColor = isDisabled
+        ? Colors.grey.shade400
+        : avatarColors[colorIdx];
 
     return Container(
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        decoration: BoxDecoration(
-          color: isDisabled ? const Color(0xFFFAFAFA) : Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: isDisabled ? Colors.grey.shade200 : AppColors.darkWith(0.04),
-          ),
-          boxShadow: [
-            if (!isDisabled)
-              BoxShadow(
-                color: AppColors.darkWith(0.03),
-                blurRadius: 10,
-                offset: const Offset(0, 2),
-              ),
-          ],
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      decoration: BoxDecoration(
+        color: isDisabled ? const Color(0xFFFAFAFA) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDisabled ? Colors.grey.shade200 : AppColors.darkWith(0.04),
         ),
-        child: Material(
-          color: Colors.transparent,
+        boxShadow: [
+          if (!isDisabled)
+            BoxShadow(
+              color: AppColors.darkWith(0.03),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
+            ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
           borderRadius: BorderRadius.circular(16),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: () =>
-                _showUserActionSheet(
-                  uid,
-                  name,
-                  email,
-                  role,
-                  status,
-                  isSelf,
-                  currentOwnerUid,
-                  currentOwnerName,
-                ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              child: Row(
-                children: [
-                  // Avatar
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: avatarColor.withValues(alpha: 0.12),
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: avatarColor.withValues(alpha: 0.2),
-                        width: 1.5,
-                      ),
+          onTap: () => _showUserActionSheet(
+            uid,
+            name,
+            email,
+            role,
+            status,
+            isSelf,
+            currentOwnerUid,
+            currentOwnerName,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                // Avatar
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: avatarColor.withValues(alpha: 0.12),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: avatarColor.withValues(alpha: 0.2),
+                      width: 1.5,
                     ),
-                    alignment: Alignment.center,
-                    child: photoUrl != null && photoUrl.isNotEmpty
-                        ? ClipRRect(
-                            borderRadius: BorderRadius.circular(21),
-                            child: Image.network(
-                              photoUrl,
-                              width: 42,
-                              height: 42,
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) {
-                                return Text(
-                                  name.isNotEmpty ? name[0].toUpperCase() : 'U',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w900,
-                                    color: avatarColor,
-                                  ),
-                                );
-                              },
-                            ),
-                          )
-                        : Text(
-                            name.isNotEmpty ? name[0].toUpperCase() : 'U',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w900,
-                              color: avatarColor,
+                  ),
+                  alignment: Alignment.center,
+                  child: photoUrl != null && photoUrl.isNotEmpty
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(21),
+                          child: Image.network(
+                            photoUrl,
+                            width: 42,
+                            height: 42,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Text(
+                                name.isNotEmpty ? name[0].toUpperCase() : 'U',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w900,
+                                  color: avatarColor,
+                                ),
+                              );
+                            },
+                          ),
+                        )
+                      : Text(
+                          name.isNotEmpty ? name[0].toUpperCase() : 'U',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                            color: avatarColor,
+                          ),
+                        ),
+                ),
+                const SizedBox(width: 14),
+
+                // Info
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              name,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w800,
+                                color: isDisabled
+                                    ? Colors.grey.shade400
+                                    : AppColors.dark,
+                                decoration: isDisabled
+                                    ? TextDecoration.lineThrough
+                                    : null,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                  ),
-                  const SizedBox(width: 14),
-
-                  // Info
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                name,
+                          if (isSelf) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2.5,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFE2F9F6), // Light teal
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: const Text(
+                                'YOU',
                                 style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w800,
-                                  color: isDisabled
-                                      ? Colors.grey.shade400
-                                      : AppColors.dark,
-                                  decoration: isDisabled
-                                      ? TextDecoration.lineThrough
-                                      : null,
+                                  fontSize: 8,
+                                  fontWeight: FontWeight.w900,
+                                  color: Color(0xFF0D9488), // Teal
                                 ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                            if (isSelf) ...[
-                              const SizedBox(width: 8),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 2.5),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFE2F9F6), // Light teal
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: const Text(
-                                  'YOU',
-                                  style: TextStyle(
-                                    fontSize: 8,
-                                    fontWeight: FontWeight.w900,
-                                    color: Color(0xFF0D9488), // Teal
-                                  ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        email,
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: AppColors.darkWith(0.35),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 5),
+                      if (isDisabled)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2.5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFfef2f2),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.block,
+                                size: 9,
+                                color: Color(0xFFef4444),
+                              ),
+                              SizedBox(width: 4),
+                              Text(
+                                'ACCOUNT DISABLED',
+                                style: TextStyle(
+                                  fontSize: 8,
+                                  fontWeight: FontWeight.w900,
+                                  color: Color(0xFFef4444),
                                 ),
                               ),
                             ],
-                          ],
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          email,
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: AppColors.darkWith(0.35),
                           ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 5),
-                        if (isDisabled)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 2.5),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFfef2f2),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.block,
-                                    size: 9, color: Color(0xFFef4444)),
-                                SizedBox(width: 4),
-                                Text(
-                                  'ACCOUNT DISABLED',
-                                  style: TextStyle(
-                                    fontSize: 8,
-                                    fontWeight: FontWeight.w900,
-                                    color: Color(0xFFef4444),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          )
-                        else
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 2.5),
-                            decoration: BoxDecoration(
-                              color: roleBgColor,
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  roleIcon,
-                                  size: 9,
+                        )
+                      else
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2.5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: roleBgColor,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(roleIcon, size: 9, color: roleTextColor),
+                              const SizedBox(width: 4),
+                              Text(
+                                role.toUpperCase(),
+                                style: TextStyle(
+                                  fontSize: 8,
+                                  fontWeight: FontWeight.w900,
                                   color: roleTextColor,
+                                  letterSpacing: 0.5,
                                 ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  role.toUpperCase(),
-                                  style: TextStyle(
-                                    fontSize: 8,
-                                    fontWeight: FontWeight.w900,
-                                    color: roleTextColor,
-                                    letterSpacing: 0.5,
-                                  ),
-                                ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
-                      ],
-                    ),
+                        ),
+                    ],
                   ),
+                ),
 
-                  const SizedBox(width: 8),
-                  Icon(
-                    Icons.chevron_right_rounded,
-                    size: 18,
-                    color: AppColors.darkWith(0.3),
-                  ),
-                ],
-              ),
+                const SizedBox(width: 8),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  size: 18,
+                  color: AppColors.darkWith(0.3),
+                ),
+              ],
             ),
           ),
         ),
-      );
+      ),
+    );
   }
 
   void _showUserActionSheet(
@@ -927,7 +964,9 @@ class _UserManagementFormState extends State<UserManagementForm>
           ),
           backgroundColor: AppColors.dark,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
           margin: const EdgeInsets.all(16),
         ),
       );
@@ -954,7 +993,11 @@ class _UserManagementFormState extends State<UserManagementForm>
                 borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
               ),
               padding: EdgeInsets.fromLTRB(
-                  20, 12, 20, MediaQuery.of(ctx).viewInsets.bottom + 28),
+                20,
+                12,
+                20,
+                MediaQuery.of(ctx).viewInsets.bottom + 28,
+              ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -985,7 +1028,8 @@ class _UserManagementFormState extends State<UserManagementForm>
                             const Color(0xFF2563EB),
                             const Color(0xFF059669),
                           ];
-                          final colorIdx = targetName.hashCode.abs() % avatarColors.length;
+                          final colorIdx =
+                              targetName.hashCode.abs() % avatarColors.length;
                           final avatarColor = avatarColors[colorIdx];
                           return Container(
                             width: 44,
@@ -1000,7 +1044,9 @@ class _UserManagementFormState extends State<UserManagementForm>
                             ),
                             alignment: Alignment.center,
                             child: Text(
-                              targetName.isNotEmpty ? targetName[0].toUpperCase() : 'U',
+                              targetName.isNotEmpty
+                                  ? targetName[0].toUpperCase()
+                                  : 'U',
                               style: TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.w900,
@@ -1008,7 +1054,7 @@ class _UserManagementFormState extends State<UserManagementForm>
                               ),
                             ),
                           );
-                        }
+                        },
                       ),
                       const SizedBox(width: 14),
                       Expanded(
@@ -1097,7 +1143,10 @@ class _UserManagementFormState extends State<UserManagementForm>
 
                   // Status Toggle
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
                     decoration: BoxDecoration(
                       color: isDisabled
                           ? const Color(0xFFfef2f2)
@@ -1112,9 +1161,7 @@ class _UserManagementFormState extends State<UserManagementForm>
                     child: Row(
                       children: [
                         Icon(
-                          isDisabled
-                              ? Icons.block
-                              : Icons.check_circle_rounded,
+                          isDisabled ? Icons.block : Icons.check_circle_rounded,
                           size: 20,
                           color: isDisabled
                               ? const Color(0xFFef4444)
@@ -1156,8 +1203,7 @@ class _UserManagementFormState extends State<UserManagementForm>
                           inactiveThumbColor: Colors.white,
                           onChanged: (active) {
                             setSheetState(() {
-                              selectedStatus =
-                                  active ? 'active' : 'disabled';
+                              selectedStatus = active ? 'active' : 'disabled';
                             });
                           },
                         ),
@@ -1172,7 +1218,10 @@ class _UserManagementFormState extends State<UserManagementForm>
                       currentOwnerUid != targetUid) ...[
                     const SizedBox(height: 16),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
                       decoration: BoxDecoration(
                         color: const Color(0xFFFFFBEB),
                         borderRadius: BorderRadius.circular(16),
@@ -1180,7 +1229,11 @@ class _UserManagementFormState extends State<UserManagementForm>
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.info_outline, size: 20, color: Color(0xFFD97706)),
+                          const Icon(
+                            Icons.info_outline,
+                            size: 20,
+                            color: Color(0xFFD97706),
+                          ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Text(
@@ -1203,16 +1256,16 @@ class _UserManagementFormState extends State<UserManagementForm>
                   ElevatedButton(
                     onPressed: hasChanges
                         ? () => _confirmSave(
-                              ctx: ctx,
-                              targetUid: targetUid,
-                              targetName: targetName,
-                              selectedRole: selectedRole,
-                              selectedStatus: selectedStatus,
-                              currentRole: currentRole,
-                              currentStatus: currentStatus,
-                              currentOwnerUid: currentOwnerUid,
-                              currentOwnerName: currentOwnerName,
-                            )
+                            ctx: ctx,
+                            targetUid: targetUid,
+                            targetName: targetName,
+                            selectedRole: selectedRole,
+                            selectedStatus: selectedStatus,
+                            currentRole: currentRole,
+                            currentStatus: currentStatus,
+                            currentOwnerUid: currentOwnerUid,
+                            currentOwnerName: currentOwnerName,
+                          )
                         : null,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
@@ -1231,9 +1284,7 @@ class _UserManagementFormState extends State<UserManagementForm>
                         const Icon(Icons.save_rounded, size: 18),
                         const SizedBox(width: 8),
                         Text(
-                          hasChanges
-                              ? 'Save Changes'
-                              : 'No Changes Made',
+                          hasChanges ? 'Save Changes' : 'No Changes Made',
                           style: const TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w700,
@@ -1299,7 +1350,9 @@ class _UserManagementFormState extends State<UserManagementForm>
                     style: TextStyle(
                       fontSize: 9,
                       fontWeight: FontWeight.w500,
-                      color: isSelected ? color.withValues(alpha: 0.8) : const Color(0xFF9CA3AF),
+                      color: isSelected
+                          ? color.withValues(alpha: 0.8)
+                          : const Color(0xFF9CA3AF),
                     ),
                   ),
                 ],
@@ -1309,11 +1362,7 @@ class _UserManagementFormState extends State<UserManagementForm>
               Positioned(
                 top: 8,
                 right: 8,
-                child: Icon(
-                  Icons.check_circle_rounded,
-                  size: 16,
-                  color: color,
-                ),
+                child: Icon(Icons.check_circle_rounded, size: 16, color: color),
               ),
           ],
         ),
@@ -1335,10 +1384,14 @@ class _UserManagementFormState extends State<UserManagementForm>
     // Build change description
     final changes = <String>[];
     if (selectedRole != currentRole) {
-      changes.add('Role: ${currentRole.toUpperCase()} → ${selectedRole.toUpperCase()}');
+      changes.add(
+        'Role: ${currentRole.toUpperCase()} → ${selectedRole.toUpperCase()}',
+      );
     }
     if (selectedStatus != currentStatus) {
-      changes.add('Status: ${currentStatus.toUpperCase()} → ${selectedStatus.toUpperCase()}');
+      changes.add(
+        'Status: ${currentStatus.toUpperCase()} → ${selectedStatus.toUpperCase()}',
+      );
     }
 
     showDialog(
@@ -1349,7 +1402,11 @@ class _UserManagementFormState extends State<UserManagementForm>
         surfaceTintColor: Colors.white,
         title: const Row(
           children: [
-            Icon(Icons.warning_amber_rounded, color: Color(0xFFf59e0b), size: 22),
+            Icon(
+              Icons.warning_amber_rounded,
+              color: Color(0xFFf59e0b),
+              size: 22,
+            ),
             SizedBox(width: 8),
             Text(
               'Confirm Changes',
@@ -1371,8 +1428,11 @@ class _UserManagementFormState extends State<UserManagementForm>
                 padding: const EdgeInsets.only(bottom: 6),
                 child: Row(
                   children: [
-                    const Icon(Icons.arrow_forward_rounded,
-                        size: 14, color: AppColors.primary),
+                    const Icon(
+                      Icons.arrow_forward_rounded,
+                      size: 14,
+                      color: AppColors.primary,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -1401,7 +1461,11 @@ class _UserManagementFormState extends State<UserManagementForm>
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.swap_horiz_rounded, size: 16, color: Color(0xFFD97706)),
+                      const Icon(
+                        Icons.swap_horiz_rounded,
+                        size: 16,
+                        color: Color(0xFFD97706),
+                      ),
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(
@@ -1475,8 +1539,11 @@ class _UserManagementFormState extends State<UserManagementForm>
                     SnackBar(
                       content: Row(
                         children: [
-                          const Icon(Icons.check_circle,
-                              color: Colors.white, size: 16),
+                          const Icon(
+                            Icons.check_circle,
+                            color: Colors.white,
+                            size: 16,
+                          ),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
@@ -1489,7 +1556,8 @@ class _UserManagementFormState extends State<UserManagementForm>
                       backgroundColor: const Color(0xFF16a34a),
                       behavior: SnackBarBehavior.floating,
                       shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                       margin: const EdgeInsets.all(16),
                     ),
                   );
@@ -1500,8 +1568,11 @@ class _UserManagementFormState extends State<UserManagementForm>
                     SnackBar(
                       content: Row(
                         children: [
-                          const Icon(Icons.error_outline,
-                              color: Colors.white, size: 16),
+                          const Icon(
+                            Icons.error_outline,
+                            color: Colors.white,
+                            size: 16,
+                          ),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
@@ -1514,7 +1585,8 @@ class _UserManagementFormState extends State<UserManagementForm>
                       backgroundColor: Colors.redAccent,
                       behavior: SnackBarBehavior.floating,
                       shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                       margin: const EdgeInsets.all(16),
                     ),
                   );
