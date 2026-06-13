@@ -316,8 +316,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bool isOwnerOrAdmin = widget.userRole == 'owner' || widget.userRole == 'admin';
-
     return Scaffold(
       resizeToAvoidBottomInset: false,
       body: Column(
@@ -391,7 +389,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _saveNotifPrefs();
                   },
                 ),
-                StageSettings(key: const ValueKey('stage-settings'), isOwner: isOwnerOrAdmin),
+                StageSettings(key: const ValueKey('stage-settings'), isOwner: widget.userRole == 'owner'),
                 const UserManagementForm(key: ValueKey('user-management')),
               ][_currentPage],
             ),
