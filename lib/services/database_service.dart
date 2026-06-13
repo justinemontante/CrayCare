@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 
@@ -102,6 +103,15 @@ class DatabaseService {
     final user = FirebaseAuth.instance.currentUser;
     final uid = user?.uid;
     if (uid == null) return;
+
+    // Safety lock: Verify user is Owner before database updates
+    final profile = await getUserProfile(uid);
+    final role = profile?['role'] as String?;
+    if (role != 'owner') {
+      debugPrint('[DatabaseService] Blocked non-owner saveGrowthStageConfig call for role: $role');
+      return;
+    }
+
     await _growthStageRef(uid)
         .update({
           'currentStage': currentStage,
@@ -155,6 +165,15 @@ class DatabaseService {
     final user = FirebaseAuth.instance.currentUser;
     final uid = user?.uid;
     if (uid == null) return;
+
+    // Safety lock: Verify user is Owner before database updates
+    final profile = await getUserProfile(uid);
+    final role = profile?['role'] as String?;
+    if (role != 'owner') {
+      debugPrint('[DatabaseService] Blocked non-owner saveSensorThresholds call for role: $role');
+      return;
+    }
+
     await _sensorConfigRef.update({
       'currentStage': currentStage,
       'ranges': {
