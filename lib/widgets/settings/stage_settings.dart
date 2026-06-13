@@ -5,7 +5,8 @@ import '../../services/settings_service.dart';
 import '../../services/database_service.dart';
 
 class StageSettings extends StatefulWidget {
-  const StageSettings({super.key});
+  final bool isOwner;
+  const StageSettings({super.key, this.isOwner = true});
 
   @override
   State<StageSettings> createState() => _StageSettingsState();
@@ -25,6 +26,13 @@ class _SensorMeta {
 }
 
 class _StageSettingsState extends State<StageSettings> {
+  static Map<String, dynamic> _convertMap(Object? value) {
+    if (value is Map) {
+      return value.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
+    }
+    return {};
+  }
+
   final List<String> sensors = const ['temp', 'ph', 'do', 'turb', 'waterlevel'];
 
   final Map<String, _SensorMeta> sensorMeta = const {
@@ -57,6 +65,17 @@ class _StageSettingsState extends State<StageSettings> {
   void initState() {
     super.initState();
     _loadConfigFromFirebase();
+    SettingsService.instance.addListener(_onSettingsChanged);
+  }
+
+  @override
+  void dispose() {
+    SettingsService.instance.removeListener(_onSettingsChanged);
+    super.dispose();
+  }
+
+  void _onSettingsChanged() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _loadConfigFromFirebase() async {
@@ -79,17 +98,17 @@ class _StageSettingsState extends State<StageSettings> {
 
       final allRaw = data['allRanges'];
       if (allRaw is Map) {
-        final all = Map<String, dynamic>.from(allRaw);
+        final all = _convertMap(allRaw);
         for (final stageEntry in all.entries) {
           final stageName = stageEntry.key;
           if (!CrayfishStage.all.any((s) => s.name == stageName)) continue;
           if (stageEntry.value is! Map) continue;
 
-          final stageData = Map<String, dynamic>.from(stageEntry.value as Map);
+          final stageData = _convertMap(stageEntry.value as Map);
           for (final sensorKey in sensors) {
             final sRaw = stageData[sensorKey];
             if (sRaw is! Map) continue;
-            final sMap = Map<String, dynamic>.from(sRaw);
+            final sMap = _convertMap(sRaw);
             final min = _toDouble(sMap['min']);
             final max = _toDouble(sMap['max']);
             if (min == null || max == null) continue;
@@ -404,7 +423,7 @@ class _StageSettingsState extends State<StageSettings> {
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(12),
-          onTap: _saving
+          onTap: (!widget.isOwner || _saving)
               ? null
               : () => _showRangeEditor(
                   stageName, sensorKey, info.label, info.unit, min, max,
@@ -486,6 +505,100 @@ class _StageSettingsState extends State<StageSettings> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (!widget.isOwner) ...[
+            Container(
+              margin: const EdgeInsets.only(bottom: 10),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color(0xFFFFFDF5),
+                    Color(0xFFFFF9E6),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: const Color(0xFFFCD34D).withValues(alpha: 0.35),
+                  width: 1,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFFD97706).withValues(alpha: 0.03),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: Stack(
+                  children: [
+                    Positioned(
+                      right: -15,
+                      top: -15,
+                      child: Container(
+                        width: 50,
+                        height: 50,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: const Color(0xFFFCD34D).withValues(alpha: 0.1),
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFCD34D).withValues(alpha: 0.2),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.lock_outline_rounded,
+                              size: 16,
+                              color: Color(0xFFD97706),
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Text(
+                                  'Read-Only Mode',
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFFB45309),
+                                    letterSpacing: -0.1,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Only owner accounts can select the crayfish growth stage or customize optimal sensor thresholds.',
+                                  style: TextStyle(
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.w500,
+                                    color: const Color(0xFFB45309).withValues(alpha: 0.8),
+                                    height: 1.35,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
           if (_saving)
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
@@ -509,6 +622,84 @@ class _StageSettingsState extends State<StageSettings> {
           if (_loading)
             const Expanded(child: Center(child: CircularProgressIndicator()))
           else ...[
+            Container(
+              margin: const EdgeInsets.only(bottom: 10),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: svc.autoDetect
+                      ? AppColors.primary.withValues(alpha: 0.15)
+                      : AppColors.dark.withValues(alpha: 0.04),
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: svc.autoDetect
+                            ? AppColors.primary.withValues(alpha: 0.1)
+                            : AppColors.dark.withValues(alpha: 0.05),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(
+                        Icons.sensors,
+                        size: 18,
+                        color: svc.autoDetect
+                            ? AppColors.primary
+                            : AppColors.darkWith(0.35),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Auto-Detect Stage',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.dark,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            svc.autoDetect
+                                ? 'Stage updates based on ABW & ABL'
+                                : 'Tap a stage above to set manually',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w500,
+                              color: AppColors.darkWith(0.4),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Transform.scale(
+                      scale: 0.8,
+                      child: Switch(
+                        value: svc.autoDetect,
+                        activeThumbColor: AppColors.primary,
+                        activeTrackColor: AppColors.primary.withValues(alpha: 0.25),
+                        inactiveTrackColor: AppColors.dark.withValues(alpha: 0.1),
+                        onChanged: widget.isOwner
+                            ? (v) {
+                                svc.setAutoDetect(v);
+                                setState(() {});
+                              }
+                            : null,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
             const Padding(
               padding: EdgeInsets.only(left: 4, bottom: 10),
               child: Text(
@@ -537,7 +728,7 @@ class _StageSettingsState extends State<StageSettings> {
                   ),
                   child: InkWell(
                     borderRadius: BorderRadius.circular(12),
-                    onTap: isActive
+                    onTap: (isActive || svc.autoDetect || !widget.isOwner)
                         ? null
                         : () {
                             svc.setCurrentStage(stage.name);

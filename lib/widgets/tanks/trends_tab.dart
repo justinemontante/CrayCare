@@ -218,7 +218,9 @@ class _TrendsTabState extends State<TrendsTab> {
           bottomTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
-              interval: 1,
+              interval: data.length > 8
+                  ? (data.length / 4).ceilToDouble()
+                  : (data.length > 5 ? 2.0 : 1.0),
               getTitlesWidget: (value, meta) {
                 final i = value.toInt();
                 if (i >= 0 && i < labels.length) {

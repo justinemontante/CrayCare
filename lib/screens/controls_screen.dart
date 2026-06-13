@@ -9,7 +9,8 @@ import '../widgets/controls/devices_tab.dart';
 import '../services/feeder_service.dart';
 
 class ControlsScreen extends StatefulWidget {
-  const ControlsScreen({super.key});
+  final bool isOwner;
+  const ControlsScreen({super.key, this.isOwner = true});
 
   @override
   State<ControlsScreen> createState() => _ControlsScreenState();
@@ -18,6 +19,13 @@ class ControlsScreen extends StatefulWidget {
 enum _FeedState { hidden, dispensing, done, failed }
 
 class _ControlsScreenState extends State<ControlsScreen> {
+  static Map<String, dynamic> _convertMap(Object? value) {
+    if (value is Map) {
+      return value.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
+    }
+    return {};
+  }
+
   int _activeTab = 0;
   _FeedState _feedState = _FeedState.hidden;
   bool _wasRunning = false;
@@ -40,12 +48,18 @@ class _ControlsScreenState extends State<ControlsScreen> {
     svc.addListener(_onFeederUpdate);
     _initDeviceModes();
     _initDeviceLogs();
+    _runtimeTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) {
+        if (mounted) setState(() => _computeRuntimeLabels());
+      },
+    );
   }
 
   void _initDeviceModes() {
     _devicesSub = _devicesRef.onValue.listen((event) {
       if (event.snapshot.value != null && event.snapshot.value is Map) {
-        final data = Map<String, dynamic>.from(event.snapshot.value as Map);
+        final data = _convertMap(event.snapshot.value as Map);
         final modes = <String, String>{};
         for (final e in data.entries) {
           modes[e.key] = e.value.toString();
@@ -62,19 +76,18 @@ class _ControlsScreenState extends State<ControlsScreen> {
         .onValue
         .listen((event) {
       if (event.snapshot.value == null) return;
-      final data = Map<String, dynamic>.from(event.snapshot.value as Map);
+      final data = _convertMap(event.snapshot.value as Map);
       final logs = <String, List<LogEntry>>{};
       for (final deviceEntry in data.entries) {
         final deviceId = deviceEntry.key;
-        final entries = Map<String, dynamic>.from(deviceEntry.value as Map);
+        final entries = _convertMap(deviceEntry.value as Map);
         final list = entries.values.map((e) {
-          final map = Map<String, dynamic>.from(e as Map);
+          final map = _convertMap(e as Map);
           return LogEntry(
             map['action'] as String? ?? '',
             map['type'] as String? ?? '',
             map['time'] as String? ?? '',
             map['date'] as String? ?? '',
-            userName: map['userName'] as String? ?? '',
             timestamp: map['timestamp'] as int? ?? 0,
           );
         }).toList()
@@ -87,6 +100,50 @@ class _ControlsScreenState extends State<ControlsScreen> {
     });
   }
 
+  void _computeRuntimeLabels() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final labels = <String, String>{};
+
+    for (final deviceId in _hwModes.keys) {
+      final logs = _hwLogs[deviceId] ?? [];
+      int? lastOnTs;
+      int? lastOffTs;
+
+      for (final log in logs) {
+        if (log.action.contains('Switched ON')) {
+          if (lastOnTs == null || log.timestamp > lastOnTs) {
+            lastOnTs = log.timestamp;
+          }
+        } else if (log.action.contains('Switched OFF')) {
+          if (lastOffTs == null || log.timestamp > lastOffTs) {
+            lastOffTs = log.timestamp;
+          }
+        }
+      }
+
+      if (lastOnTs != null && (lastOffTs == null || lastOnTs > lastOffTs)) {
+        final elapsed = now - lastOnTs;
+        labels[deviceId] = _formatDuration(elapsed ~/ 1000);
+      } else {
+        labels[deviceId] = '';
+      }
+    }
+
+    _deviceRuntimeLabels = labels;
+  }
+
+  String _formatDuration(int seconds) {
+    if (seconds < 60) return '${seconds}s';
+    final minutes = seconds ~/ 60;
+    if (minutes < 60) return '${minutes}m';
+    final hours = minutes ~/ 60;
+    final mins = minutes % 60;
+    if (hours < 24) return '${hours}h ${mins}m';
+    final days = hours ~/ 24;
+    final hrs = hours % 24;
+    return '${days}d ${hrs}h';
+  }
+
   @override
   void dispose() {
     FeederService.instance.removeListener(_onFeederUpdate);
@@ -94,6 +151,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
     _devicesLogsSub?.cancel();
     _feedTimer?.cancel();
     _dispenseTimer?.cancel();
+    _runtimeTimer?.cancel();
     _timeCtl.dispose();
     super.dispose();
   }
@@ -186,10 +244,15 @@ class _ControlsScreenState extends State<ControlsScreen> {
   };
   StreamSubscription<DatabaseEvent>? _devicesSub;
   StreamSubscription<DatabaseEvent>? _devicesLogsSub;
-  final DatabaseReference _devicesRef = FirebaseDatabase.instance.ref('devices/modes');
-  final DatabaseReference _devicesLogsRef = FirebaseDatabase.instance.ref('devices/logs');
+  DatabaseReference get _devicesRef =>
+      FirebaseDatabase.instance.ref('devices/modes');
+
+  DatabaseReference get _devicesLogsRef =>
+      FirebaseDatabase.instance.ref('devices/logs');
 
   Map<String, List<LogEntry>> _hwLogs = {};
+  Map<String, String> _deviceRuntimeLabels = {};
+  Timer? _runtimeTimer;
 
   void _feedNow() {
     FeederService.instance.feedNow();
@@ -249,14 +312,11 @@ class _ControlsScreenState extends State<ControlsScreen> {
       'aerator2': 'Aerator 2',
       'pump': 'Water Pump',
     };
-    final user = FirebaseAuth.instance.currentUser;
-    final userName = user?.displayName ?? user?.email ?? 'Unknown';
     _devicesLogsRef.child(device).push().set({
       'action': '${deviceNames[device] ?? device}: ${modeNames[mode] ?? mode}',
       'type': mode,
       'time': time,
       'date': dateStr,
-      'userName': userName,
       'timestamp': ServerValue.timestamp,
     });
   }
@@ -271,6 +331,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
             children: [
               _buildHeader(),
               _buildTabBar(),
+              if (!widget.isOwner) _buildReadOnlyBanner(),
               Expanded(
                 child: IndexedStack(
                   index: _activeTab,
@@ -285,11 +346,14 @@ class _ControlsScreenState extends State<ControlsScreen> {
                       feederLogs: FeederService.instance.logs,
                       fedToday: _fedToday,
                       feederError: FeederService.instance.feederError,
+                      isOwner: widget.isOwner,
                     ),
                     DevicesTab(
                       hwModes: _hwModes,
                       onSetMode: _setHwMode,
                       onShowGroupLog: _showHwGroupLog,
+                      deviceRuntimeLabels: _deviceRuntimeLabels,
+                      isOwner: widget.isOwner,
                     ),
                   ],
                 ),
@@ -377,6 +441,104 @@ class _ControlsScreenState extends State<ControlsScreen> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReadOnlyBanner() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(14, 0, 14, 10),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFFFFFDF5),
+            Color(0xFFFFF9E6),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: const Color(0xFFFCD34D).withValues(alpha: 0.35),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFD97706).withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Stack(
+          children: [
+            // Decorative subtle background bubble
+            Positioned(
+              right: -15,
+              top: -15,
+              child: Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: const Color(0xFFFCD34D).withValues(alpha: 0.1),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Icon container with modern circle backdrop
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFCD34D).withValues(alpha: 0.2),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.lock_outline_rounded,
+                      size: 16,
+                      color: Color(0xFFD97706),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  // Text instructions
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'Read-Only Mode',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFFB45309),
+                            letterSpacing: -0.1,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Only owner accounts can trigger manual feeding, toggle active devices, or modify schedules.',
+                          style: TextStyle(
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w500,
+                            color: const Color(0xFFB45309).withValues(alpha: 0.8),
+                            height: 1.35,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -742,27 +904,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
                                           color: const Color(0xFF0B3C49).withValues(alpha: 0.4),
                                         ),
                                       ),
-                                      if (l.userName.isNotEmpty) ...[
-                                        const SizedBox(height: 2),
-                                        Row(
-                                          children: [
-                                            Icon(
-                                              Icons.person_outline,
-                                              size: 8,
-                                              color: AppColors.primary.withValues(alpha: 0.6),
-                                            ),
-                                            const SizedBox(width: 3),
-                                            Text(
-                                              l.userName,
-                                              style: TextStyle(
-                                                fontSize: 8,
-                                                fontWeight: FontWeight.w600,
-                                                color: AppColors.primary.withValues(alpha: 0.7),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
+
                                     ],
                                   ),
                                 ),

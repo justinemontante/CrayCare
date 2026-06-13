@@ -54,3 +54,7 @@ esp/.piolib/
 esp/.piolibdeps/
 esp/.clang_complete
 esp/.gcc_flags
+
+# Node modules
+notification_worker/node_modules/
+notification_worker/serviceAccountKey.json

@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_database/firebase_database.dart';
 import '../theme/app_colors.dart';
 import '../services/database_service.dart';
 import 'dashboard_screen.dart';
@@ -9,6 +11,8 @@ import 'controls_screen.dart';
 import 'tanks_screen.dart';
 import 'notifications_screen.dart';
 import 'settings_screen.dart';
+import 'login_screen.dart';
+import '../widgets/settings/user_management_form.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -22,7 +26,12 @@ class _MainShellState extends State<MainShell> {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
   final _analyticsKey = GlobalKey<AnalyticsScreenState>();
   final _tanksKey = GlobalKey<TanksScreenState>();
-  String? _photoUrl; // Base64 data URL or Google/network photo URL.
+  String? _photoUrl;
+  String? _userRole;
+  bool _isOwner = false;
+  bool _loadingRole = true;
+  StreamSubscription<DatabaseEvent>? _roleSub;
+  StreamSubscription<DatabaseEvent>? _primarySub;
 
   void _setPhoto(String url) {
     _photoUrl = url;
@@ -47,6 +56,101 @@ class _MainShellState extends State<MainShell> {
   void initState() {
     super.initState();
     _loadPhoto();
+    _checkPrimaryUser();
+    // Safety fallback: if DB role checking takes too long, stop loading after 2.5 seconds
+    Future.delayed(const Duration(milliseconds: 2500), () {
+      if (mounted && _loadingRole) {
+        setState(() => _loadingRole = false);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _roleSub?.cancel();
+    _primarySub?.cancel();
+    super.dispose();
+  }
+
+  void _checkPrimaryUser() {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    debugPrint('[MainShell] Checking user role. Current UID: $uid');
+
+    // Listen to user's profile node (contains role and status)
+    _roleSub = FirebaseDatabase.instance
+        .ref('users/$uid/profile')
+        .onValue
+        .listen((event) {
+      if (event.snapshot.value == null) {
+        if (mounted) setState(() => _loadingRole = false);
+        return;
+      }
+      final profile = DatabaseService.convertMap(event.snapshot.value as Map);
+      
+      final String? roleVal = profile['role'] as String?;
+      final String? statusVal = profile['status'] as String?;
+      debugPrint('[MainShell] User role: $roleVal, status: $statusVal');
+      
+      // Auto-kick if account is disabled in real-time
+      if (statusVal == 'disabled') {
+        _roleSub?.cancel();
+        _primarySub?.cancel();
+        FirebaseDatabase.instance.ref('users/$uid/fcmToken').remove().catchError((_) {});
+        FirebaseAuth.instance.signOut();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Your account has been disabled by the administrator.'),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const LoginScreen()),
+          );
+        }
+        return;
+      }
+
+      final hasControl = (roleVal == 'owner' || roleVal == 'admin');
+
+      if (mounted) {
+        setState(() {
+          _userRole = roleVal;
+          _isOwner = hasControl;
+          _loadingRole = false;
+        });
+      }
+    }, onError: (_) {
+      if (mounted) setState(() => _loadingRole = false);
+    });
+
+    // Also check legacy authorizedOperators (backward compat)
+    _primarySub = FirebaseDatabase.instance
+        .ref('system/authorizedOperators')
+        .onValue
+        .listen((event) {
+      final val = event.snapshot.value;
+      debugPrint('[MainShell] authorizedOperators value: $val');
+      bool isPrimary;
+      if (val == null) {
+        isPrimary = false;
+      } else if (val is Map) {
+        isPrimary = val.containsKey(uid) || val['UID'] == uid;
+      } else {
+        isPrimary = val.toString() == uid;
+      }
+      debugPrint('[MainShell] isPrimary (legacy) = $isPrimary');
+      if (isPrimary && mounted) {
+        setState(() {
+          _isOwner = true;
+          _loadingRole = false;
+        });
+      }
+    }, onError: (_) {
+      if (mounted) setState(() => _loadingRole = false);
+    });
   }
 
   Future<void> _loadPhoto() async {
@@ -63,21 +167,7 @@ class _MainShellState extends State<MainShell> {
     _analyticsKey.currentState?.scrollToChart(chartKey);
   }
 
-  // Isang beses lang i-create para iwas reload sa tab switch
-  late final List<Widget> _screens = [
-    DashboardScreen(
-      onViewGraph: _goToAnalytics,
-      onNavigate: (i) => setState(() => _currentIndex = i),
-      onTankTab: (tab) {
-        setState(() => _currentIndex = 2);
-        _tanksKey.currentState?.switchToTab(tab);
-      },
-    ),
-    AnalyticsScreen(key: _analyticsKey),
-    TanksScreen(key: _tanksKey),
-    const ControlsScreen(),
-    const NotificationsScreen(),
-  ];
+
 
   static const List<_NavItem> _navItems = [
     _NavItem(icon: Icons.dashboard_rounded, label: 'Dashboard'),
@@ -90,109 +180,146 @@ class _MainShellState extends State<MainShell> {
   @override
   Widget build(BuildContext context) {
     final photoImage = _photoImageProvider(_photoUrl);
+    final isOwner = _isOwner;
+    final bool isAdmin = _userRole == 'admin';
 
-    return Scaffold(
-      key: _scaffoldKey,
-      body: Column(
-        children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Color(0xFFF8FFFF), // #f8ffff
-                  Color(0xFFF2FDFD), // #f2fdfd
-                  Color(0xFFE8FAFA), // #e8fafa
-                  Color(0xFFDAF4F5), // #daf4f5
-                ],
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 300),
+      child: _loadingRole
+          ? const Scaffold(
+              key: ValueKey('loading_shell'),
+              backgroundColor: Color(0xFFF8FFFF),
+              body: Center(
+                child: CircularProgressIndicator(
+                  color: AppColors.primary,
+                ),
               ),
-              border: Border(
-                bottom: BorderSide(color: Color(0x0f000000), width: 1),
-              ),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
+            )
+          : Container(
+              key: const ValueKey('main_shell_view'),
+              child: Scaffold(
+                key: _scaffoldKey,
+                body: Column(
                   children: [
-                    Image.asset(
-                      'assets/images/logo.png',
-                      width: 42,
-                      height: 42,
-                    ),
-                    const SizedBox(width: 6),
-                    const Text(
-                      'Cray',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.dark,
-                        letterSpacing: -0.3,
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            Color(0xFFF8FFFF), // #f8ffff
+                            Color(0xFFF2FDFD), // #f2fdfd
+                            Color(0xFFE8FAFA), // #e8fafa
+                            Color(0xFFDAF4F5), // #daf4f5
+                          ],
+                        ),
+                        border: Border(
+                          bottom: BorderSide(color: Color(0x0f000000), width: 1),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Image.asset(
+                                'assets/images/logo.png',
+                                width: 42,
+                                height: 42,
+                              ),
+                              const SizedBox(width: 6),
+                              const Text(
+                                'Cray',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.dark,
+                                  letterSpacing: -0.3,
+                                ),
+                              ),
+                              const Text(
+                                'Care',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.primary,
+                                  letterSpacing: -0.3,
+                                ),
+                              ),
+                            ],
+                          ),
+                          GestureDetector(
+                            onTap: () async {
+                              final result = await Navigator.push<String>(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      SettingsScreen(initialPhotoUrl: _photoUrl, userRole: _userRole),
+                                ),
+                              );
+                              if (result != null && mounted) {
+                                setState(() => _setPhoto(result));
+                              }
+                            },
+                            child: Container(
+                              width: 42,
+                              height: 42,
+                              decoration: BoxDecoration(
+                                color: photoImage == null ? AppColors.primary : null,
+                                shape: BoxShape.circle,
+                                image: photoImage != null
+                                    ? DecorationImage(
+                                        image: photoImage,
+                                        fit: BoxFit.cover,
+                                      )
+                                    : null,
+                              ),
+                              child: photoImage == null
+                                  ? const Icon(
+                                      Icons.person,
+                                      color: Colors.white,
+                                      size: 20,
+                                    )
+                                  : null,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const Text(
-                      'Care',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.primary,
-                        letterSpacing: -0.3,
-                      ),
+                    Expanded(
+                      child: isAdmin
+                          ? const UserManagementForm()
+                          : IndexedStack(
+                              index: _currentIndex,
+                              children: [
+                                DashboardScreen(
+                                  onViewGraph: _goToAnalytics,
+                                  onNavigate: (i) => setState(() => _currentIndex = i),
+                                  onTankTab: (tab) {
+                                    setState(() => _currentIndex = 2);
+                                    _tanksKey.currentState?.switchToTab(tab);
+                                  },
+                                ),
+                                AnalyticsScreen(key: _analyticsKey),
+                                TanksScreen(key: _tanksKey, isOwner: isOwner),
+                                ControlsScreen(isOwner: isOwner),
+                                const NotificationsScreen(),
+                              ],
+                            ),
                     ),
+                    if (!isAdmin) _buildBottomNav(),
                   ],
                 ),
-                GestureDetector(
-                  onTap: () async {
-                    final result = await Navigator.push<String>(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) =>
-                            SettingsScreen(initialPhotoUrl: _photoUrl),
-                      ),
-                    );
-                    if (result != null && mounted) {
-                      setState(() => _setPhoto(result));
-                    }
-                  },
-                  child: Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: photoImage == null ? AppColors.primary : null,
-                      shape: BoxShape.circle,
-                      image: photoImage != null
-                          ? DecorationImage(
-                              image: photoImage,
-                              fit: BoxFit.cover,
-                            )
-                          : null,
-                    ),
-                    child: photoImage == null
-                        ? const Icon(
-                            Icons.person,
-                            color: Colors.white,
-                            size: 20,
-                          )
-                        : null,
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
-          Expanded(
-            child: IndexedStack(index: _currentIndex, children: _screens),
-          ),
-          _buildBottomNav(),
-        ],
-      ),
     );
   }
 
   Widget _buildBottomNav() {
+    final items = _navItems;
     return Container(
       padding: const EdgeInsets.fromLTRB(8, 10, 8, 10),
       decoration: BoxDecoration(
@@ -206,8 +333,8 @@ class _MainShellState extends State<MainShell> {
         ],
       ),
       child: Row(
-        children: List.generate(_navItems.length, (i) {
-          final item = _navItems[i];
+        children: List.generate(items.length, (i) {
+          final item = items[i];
           final isActive = i == _currentIndex;
           return Expanded(
             child: GestureDetector(
@@ -265,27 +392,6 @@ class _MainShellState extends State<MainShell> {
   }
 }
 
-class PlaceholderScreen extends StatelessWidget {
-  final String label;
-  const PlaceholderScreen({super.key, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      color: Colors.white,
-      child: Center(
-        child: Text(
-          label,
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-            color: AppColors.dark,
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 class _NavItem {
   final IconData icon;

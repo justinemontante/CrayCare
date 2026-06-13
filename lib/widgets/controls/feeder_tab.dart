@@ -13,6 +13,8 @@ class FeederTab extends StatelessWidget {
   final Set<String> fedToday;
   final String feederError;
 
+  final bool isOwner;
+
   const FeederTab({
     super.key,
     required this.schedules,
@@ -24,6 +26,7 @@ class FeederTab extends StatelessWidget {
     required this.feederLogs,
     this.fedToday = const {},
     this.feederError = '',
+    this.isOwner = true,
   });
 
   @override
@@ -157,31 +160,32 @@ class FeederTab extends StatelessWidget {
                     color: AppColors.dark,
                   ),
                 ),
-                GestureDetector(
-                  onTap: () => _showScheduleModal(ctx),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.add, size: 12, color: AppColors.primary),
-                        SizedBox(width: 4),
-                        Text(
-                          'Add Schedule',
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.primary,
+                if (isOwner)
+                  GestureDetector(
+                    onTap: () => _showScheduleModal(ctx),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.add, size: 12, color: AppColors.primary),
+                          SizedBox(width: 4),
+                          Text(
+                            'Add Schedule',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.primary,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
-                ),
               ],
             ),
             if (schedules.isNotEmpty) ...[
@@ -237,27 +241,31 @@ class FeederTab extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: onFeedNow,
+                onPressed: isOwner ? onFeedNow : null,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
+                  backgroundColor: isOwner ? AppColors.primary : Colors.grey.shade300,
+                  foregroundColor: isOwner ? Colors.white : Colors.grey.shade500,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   elevation: 0,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                child: const Row(
+                child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.play_arrow, size: 16, color: Colors.white),
-                    SizedBox(width: 8),
+                    Icon(
+                      isOwner ? Icons.play_arrow : Icons.lock_outline,
+                      size: 16,
+                      color: isOwner ? Colors.white : Colors.grey.shade500,
+                    ),
+                    const SizedBox(width: 8),
                     Text(
-                      'Feed Now',
+                      isOwner ? 'Feed Now' : 'Feed Now (Owner Only)',
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
-                        color: Colors.white,
+                        color: isOwner ? Colors.white : Colors.grey.shade500,
                       ),
                     ),
                   ],
@@ -597,16 +605,18 @@ class FeederTab extends StatelessWidget {
             onTap: () => _showScheduleInfo(ctx, s),
             child: Icon(Icons.info_outline, size: 14, color: AppColors.primaryWith(0.7)),
           ),
-          const SizedBox(width: 6),
-          GestureDetector(
-            onTap: () => _showScheduleModal(ctx, index: index, existing: s),
-            child: Icon(Icons.edit_outlined, size: 14, color: AppColors.primary),
-          ),
-          const SizedBox(width: 6),
-          GestureDetector(
-            onTap: () => _confirmDelete(ctx, index),
-            child: Icon(Icons.delete_outline, size: 14, color: AppColors.critical),
-          ),
+          if (isOwner) ...[
+            const SizedBox(width: 6),
+            GestureDetector(
+              onTap: () => _showScheduleModal(ctx, index: index, existing: s),
+              child: Icon(Icons.edit_outlined, size: 14, color: AppColors.primary),
+            ),
+            const SizedBox(width: 6),
+            GestureDetector(
+              onTap: () => _confirmDelete(ctx, index),
+              child: Icon(Icons.delete_outline, size: 14, color: AppColors.critical),
+            ),
+          ],
         ],
       ),
     );
@@ -664,37 +674,6 @@ class FeederTab extends StatelessWidget {
                       ],
                     ),
                   ],
-                ),
-                const SizedBox(height: 20),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: AppColors.darkWith(0.03),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.person_outline, size: 16, color: AppColors.primary),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Created by',
-                              style: TextStyle(fontSize: 10, color: AppColors.darkWith(0.45)),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              s.createdBy ?? 'Unknown',
-                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.dark),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
                 ),
                 const SizedBox(height: 20),
                 SizedBox(

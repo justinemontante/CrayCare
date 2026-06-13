@@ -9,47 +9,25 @@ from sklearn.metrics import accuracy_score, classification_report
 os.makedirs("models", exist_ok=True)
 
 df = pd.read_csv("dataset/craycare_dataset.csv")
+print(f"Loaded dataset with {len(df)} rows.")
 
-print("Dataset loaded.")
-print("Rows:", len(df))
-print(df["status"].value_counts())
-
-X = df[
-    [
-        "temperature",
-        "phLevel",
-        "dissolvedOxygen",
-        "turbidity",
-        "waterLevel",
-    ]
+FEATURES = [
+    "temperature", "phLevel", "dissolvedOxygen", "turbidity", "waterLevel",
+    "temp_rate", "do_rate", "turb_rate",
+    "temp_min", "temp_max", "ph_min", "ph_max", "do_min", "turb_max", "wl_min", "wl_max"
 ]
 
-y = df["status"]
+X = df[FEATURES]
+y_status = df["status"]
 
-X_train, X_test, y_train, y_test = train_test_split(
-    X,
-    y,
-    test_size=0.2,
-    random_state=42,
-    stratify=y,
-)
+print("\nTraining Overall Status Model...")
+X_train, X_test, y_train, y_test = train_test_split(X, y_status, test_size=0.2, random_state=42, stratify=y_status)
+model_status = RandomForestClassifier(n_estimators=50, random_state=42, n_jobs=-1)
+model_status.fit(X_train, y_train)
+acc_status = accuracy_score(y_test, model_status.predict(X_test))
+print(f"Overall Status Model Accuracy: {acc_status:.4f}")
+print(classification_report(y_test, model_status.predict(X_test)))
+joblib.dump(model_status, "models/craycare_status_model.pkl")
+print("Saved models/craycare_status_model.pkl")
 
-model = RandomForestClassifier(
-    n_estimators=100,
-    random_state=42,
-    class_weight="balanced",
-)
-
-model.fit(X_train, y_train)
-
-predictions = model.predict(X_test)
-
-print("\nAccuracy:")
-print(accuracy_score(y_test, predictions))
-
-print("\nClassification Report:")
-print(classification_report(y_test, predictions))
-
-joblib.dump(model, "models/craycare_model.pkl")
-
-print("\nModel saved to models/craycare_model.pkl")
+print("\nDynamic status model trained and saved.")

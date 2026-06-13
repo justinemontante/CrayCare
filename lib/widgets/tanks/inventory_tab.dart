@@ -11,6 +11,8 @@ class InventoryTab extends StatelessWidget {
   final bool hasSetup;
   final DateTime lastEdited;
 
+  final bool isOwner;
+
   const InventoryTab({
     super.key,
     required this.onShowInitModal,
@@ -19,6 +21,7 @@ class InventoryTab extends StatelessWidget {
     required this.onShowLogsModal,
     required this.hasSetup,
     required this.lastEdited,
+    this.isOwner = true,
   });
 
   @override
@@ -99,15 +102,15 @@ class InventoryTab extends StatelessWidget {
             ),
             const SizedBox(height: 28),
             ElevatedButton.icon(
-              onPressed: onShowInitModal,
-              icon: const Icon(Icons.add_rounded, size: 18),
-              label: const Text(
-                'Initialize Inventory',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+              onPressed: isOwner ? onShowInitModal : null,
+              icon: Icon(isOwner ? Icons.add_rounded : Icons.lock_outline, size: 18),
+              label: Text(
+                isOwner ? 'Initialize Inventory' : 'Initialize Inventory (Owner Only)',
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
               ),
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.white,
+                backgroundColor: isOwner ? AppColors.primary : Colors.grey.shade300,
+                foregroundColor: isOwner ? Colors.white : Colors.grey.shade500,
                 padding: const EdgeInsets.symmetric(
                   horizontal: 24,
                   vertical: 14,
@@ -545,19 +548,19 @@ class InventoryTab extends StatelessWidget {
       children: [
         Expanded(
           child: _buildActionBtn(
-            'Log Mortality',
-            Icons.healing_rounded,
-            AppColors.critical,
-            onShowMortalityModal,
+            isOwner ? 'Log Mortality' : 'Log Mortality (Owner)',
+            isOwner ? Icons.healing_rounded : Icons.lock_outline,
+            isOwner ? AppColors.critical : Colors.grey.shade400,
+            isOwner ? onShowMortalityModal : () {},
           ),
         ),
         const SizedBox(width: 8),
         Expanded(
           child: _buildActionBtn(
-            'Edit Setup',
-            Icons.edit_rounded,
-            AppColors.primary,
-            onShowEditModal,
+            isOwner ? 'Edit Setup' : 'Edit Setup (Owner)',
+            isOwner ? Icons.edit_rounded : Icons.lock_outline,
+            isOwner ? AppColors.primary : Colors.grey.shade400,
+            isOwner ? onShowEditModal : () {},
           ),
         ),
         const SizedBox(width: 8),

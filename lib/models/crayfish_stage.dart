@@ -41,6 +41,14 @@ class CrayfishStage {
 
   static CrayfishStage fromName(String name) =>
       all.firstWhere((s) => s.name == name, orElse: () => all[2]);
+
+  static CrayfishStage fromABW(double abw) {
+    CrayfishStage result = all[0];
+    for (final stage in all) {
+      if (abw >= stage.threshold) result = stage;
+    }
+    return result;
+  }
 }
 
 const Map<String, Map<String, Map<String, double>>> defaultStageRanges = {

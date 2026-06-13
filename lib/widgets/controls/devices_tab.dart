@@ -9,12 +9,17 @@ class DevicesTab extends StatelessWidget {
     String label,
     List<(String, String, String, String?)> devices,
   ) onShowGroupLog;
+  final Map<String, String> deviceRuntimeLabels;
+
+  final bool isOwner;
 
   const DevicesTab({
     super.key,
     required this.hwModes,
     required this.onSetMode,
     required this.onShowGroupLog,
+    required this.deviceRuntimeLabels,
+    this.isOwner = true,
   });
 
   @override
@@ -34,6 +39,8 @@ class DevicesTab extends StatelessWidget {
             hwModes: hwModes,
             onSetMode: onSetMode,
             onShowGroupLog: onShowGroupLog,
+            deviceRuntimeLabels: deviceRuntimeLabels,
+            isOwner: isOwner,
           ),
           const SizedBox(height: 14),
           HardwareGroup(
@@ -45,6 +52,8 @@ class DevicesTab extends StatelessWidget {
             hwModes: hwModes,
             onSetMode: onSetMode,
             onShowGroupLog: onShowGroupLog,
+            deviceRuntimeLabels: deviceRuntimeLabels,
+            isOwner: isOwner,
           ),
           const SizedBox(height: 32),
         ],

@@ -12,6 +12,9 @@ class HardwareGroup extends StatelessWidget {
     String label,
     List<(String, String, String, String?)> devices,
   ) onShowGroupLog;
+  final Map<String, String> deviceRuntimeLabels;
+
+  final bool isOwner;
 
   const HardwareGroup({
     super.key,
@@ -21,6 +24,8 @@ class HardwareGroup extends StatelessWidget {
     required this.hwModes,
     required this.onSetMode,
     required this.onShowGroupLog,
+    required this.deviceRuntimeLabels,
+    this.isOwner = true,
   });
 
   @override
@@ -39,19 +44,23 @@ class HardwareGroup extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  Icon(icon, size: 12, color: AppColors.primary),
-                  const SizedBox(width: 5),
-                  Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.darkWith(0.6),
+              Flexible(
+                flex: 0,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(icon, size: 12, color: AppColors.primary),
+                    const SizedBox(width: 5),
+                    Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.darkWith(0.6),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
               GestureDetector(
                 onTap: () => onShowGroupLog(context, label, devices),
@@ -135,67 +144,111 @@ class HardwareGroup extends StatelessWidget {
           ),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(12, 12, 14, 12),
-            child: Row(
-              children: [
-                if (imageAsset != null)
-                  Container(
-                    width: 70,
-                    height: 70,
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: Image.asset(
-                        imageAsset,
-                        fit: BoxFit.contain,
+              child: Row(
+                children: [
+                  if (imageAsset != null)
+                    Container(
+                      width: 70,
+                      height: 70,
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(14),
                       ),
-                    ),
-                  )
-                else
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: iconColor.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Icon(Icons.air, size: 18, color: iconColor),
-                  ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.dark,
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: Image.asset(
+                          imageAsset,
+                          fit: BoxFit.contain,
                         ),
                       ),
-                      Text(
-                        subtitle,
-                        style: TextStyle(
-                          fontSize: 9,
-                          color: AppColors.darkWith(0.4),
-                        ),
+                    )
+                  else
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: iconColor.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                    ],
+                      child: Icon(Icons.air, size: 18, color: iconColor),
+                    ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.dark,
+                          ),
+                        ),
+                        Text(
+                          subtitle,
+                          style: TextStyle(
+                            fontSize: 9,
+                            color: AppColors.darkWith(0.4),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        _buildRuntimeIndicator(deviceId),
+                      ],
+                    ),
                   ),
-                ),
-                _buildHwModeToggle(deviceId, mode),
-              ],
-            ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerRight,
+                      child: _buildHwModeToggle(deviceId, mode, context),
+                    ),
+                  ),
+                ],
+              ),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildHwModeToggle(String deviceId, String currentMode) {
+  Widget _buildRuntimeIndicator(String deviceId) {
+    final runtime = deviceRuntimeLabels[deviceId];
+    if (runtime == null || runtime.isEmpty) return const SizedBox.shrink();
+
+    final mode = hwModes[deviceId] ?? 'auto';
+    final color = mode == 'on'
+        ? AppColors.primary
+        : mode == 'auto'
+        ? AppColors.warning
+        : AppColors.darkWith(0.4);
+
+    return Row(
+      children: [
+        Icon(Icons.timer_outlined, size: 10, color: color),
+        const SizedBox(width: 4),
+        Text(
+          'Running: ',
+          style: TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.w400,
+            color: AppColors.darkWith(0.5),
+          ),
+        ),
+        Text(
+          runtime,
+          style: TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.w700,
+            color: color,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHwModeToggle(String deviceId, String currentMode, BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(2),
       decoration: BoxDecoration(
@@ -207,9 +260,20 @@ class HardwareGroup extends StatelessWidget {
         children: ['off', 'auto', 'on'].map((m) {
           final isActive = m == currentMode;
           return GestureDetector(
-            onTap: () => onSetMode(deviceId, m),
+            onTap: () {
+              if (isOwner) {
+                onSetMode(deviceId, m);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Control denied: Only owners can control hardware devices.'),
+                    backgroundColor: Colors.redAccent,
+                  ),
+                );
+              }
+            },
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
                 color: isActive ? Colors.white : Colors.transparent,
                 borderRadius: BorderRadius.circular(18),
@@ -226,7 +290,7 @@ class HardwareGroup extends StatelessWidget {
               child: Text(
                 m.toUpperCase(),
                 style: TextStyle(
-                  fontSize: 9,
+                  fontSize: 10,
                   fontWeight: FontWeight.w700,
                   color: isActive ? _modeColor(m) : AppColors.darkWith(0.4),
                 ),

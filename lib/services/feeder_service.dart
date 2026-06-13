@@ -8,20 +8,30 @@ class FeederService extends ChangeNotifier {
   static final FeederService instance = FeederService._();
   FeederService._();
 
+  static Map<String, dynamic> _convertMap(Object? value) {
+    if (value is Map) {
+      return value.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
+    }
+    return {};
+  }
+
   bool _initialized = false;
 
-  // ─── Firebase Refs (lazy) ───
-  DatabaseReference? _commandsRef;
-  DatabaseReference? _statusRef;
-  DatabaseReference? _schedulesRef;
-  DatabaseReference? _logsRef;
+  String get _userBase => 'feeder';
 
-  // ─── Subscriptions ───
+  DatabaseReference get _commandsRef =>
+      FirebaseDatabase.instance.ref('$_userBase/commands');
+  DatabaseReference get _statusRef =>
+      FirebaseDatabase.instance.ref('$_userBase/status');
+  DatabaseReference get _schedulesRef =>
+      FirebaseDatabase.instance.ref('$_userBase/schedules');
+  DatabaseReference get _logsRef =>
+      FirebaseDatabase.instance.ref('$_userBase/logs');
+
   StreamSubscription<DatabaseEvent>? _statusSub;
   StreamSubscription<DatabaseEvent>? _schedulesSub;
   StreamSubscription<DatabaseEvent>? _logsSub;
 
-  // ─── State ───
   bool _isRunning = false;
   String _feedSource = '';
   int _feedCount = 0;
@@ -38,7 +48,6 @@ class FeederService extends ChangeNotifier {
   final Set<String> _dispatchedToday = {};
   String _lastCheckDate = '';
 
-  // ─── Getters ───
   bool get isRunning => _isRunning;
   String get feedSource => _feedSource;
   int get feedCount => _feedCount;
@@ -53,43 +62,53 @@ class FeederService extends ChangeNotifier {
   List<LogEntry> get logs => List.unmodifiable(_logs);
   List<ScheduleItem> get schedules => List.unmodifiable(_schedules);
 
-  // ─── Init (call once from app startup) ───
   void init() {
     if (_initialized) return;
     _initialized = true;
     try {
-      _commandsRef = FirebaseDatabase.instance.ref('feeder/commands');
-      _statusRef = FirebaseDatabase.instance.ref('feeder/status');
-      _schedulesRef = FirebaseDatabase.instance.ref('feeder/schedules');
-      _logsRef = FirebaseDatabase.instance.ref('feeder/logs');
       _listenStatus();
       _listenSchedules();
       _listenLogs();
       _startScheduleTimer();
+      FirebaseAuth.instance.authStateChanges().listen((user) {
+        if (user != null) {
+          _cancelSubscriptions();
+          _listenStatus();
+          _listenSchedules();
+          _listenLogs();
+        }
+      });
     } catch (e) {
       debugPrint('[FeederService] Initialization error: $e');
     }
   }
 
-  // ─── Status Listener ───
+  void _cancelSubscriptions() {
+    _statusSub?.cancel();
+    _schedulesSub?.cancel();
+    _logsSub?.cancel();
+    _statusSub = null;
+    _schedulesSub = null;
+    _logsSub = null;
+  }
+
   void _listenStatus() {
-    if (_statusRef == null) return;
     _statusSub?.cancel();
     try {
-      _statusSub = _statusRef!.onValue.listen(
+      _statusSub = _statusRef.onValue.listen(
         (event) {
           _lastError = null;
           if (event.snapshot.value == null) return;
           try {
             final data =
-                Map<String, dynamic>.from(event.snapshot.value as Map);
+                _convertMap(event.snapshot.value as Map);
             _isRunning = data['isRunning'] == true;
             _feedSource = (data['feedSource'] as String?) ?? '';
             _feedCount = (data['feedCount'] as num?)?.toInt() ?? _feedCount;
             _hopperLevel = (data['hopperLevel'] as num?)?.toDouble() ?? 100;
             _feederError = (data['feederError'] as String?) ?? '';
             if (_feederError.isNotEmpty && !_isRunning) {
-              _statusRef!.update({'feederError': ''});
+              _statusRef.update({'feederError': ''});
               _feederError = '';
             }
             final seen = data['lastSeen'];
@@ -114,12 +133,10 @@ class FeederService extends ChangeNotifier {
     }
   }
 
-  // ─── Schedules Listener ───
   void _listenSchedules() {
-    if (_schedulesRef == null) return;
     _schedulesSub?.cancel();
     try {
-      _schedulesSub = _schedulesRef!.onValue.listen(
+      _schedulesSub = _schedulesRef.onValue.listen(
         (event) {
           try {
             final data = event.snapshot.value;
@@ -127,20 +144,19 @@ class FeederService extends ChangeNotifier {
             _scheduleKeys.clear();
             if (data != null && data is Map) {
               final entries =
-                  (Map<String, dynamic>.from(data)).entries.toList();
+                  (_convertMap(data)).entries.toList();
               entries.sort((a, b) {
-                final aVal = Map<String, dynamic>.from(a.value);
-                final bVal = Map<String, dynamic>.from(b.value);
+                final aVal = _convertMap(a.value);
+                final bVal = _convertMap(b.value);
                 return _toMinutes(aVal).compareTo(_toMinutes(bVal));
               });
               for (final entry in entries) {
-                final val = Map<String, dynamic>.from(entry.value);
+                final val = _convertMap(entry.value);
                 _scheduleKeys.add(entry.key);
                 _schedules.add(ScheduleItem(
                   val['time'] as String? ?? '6:00',
                   val['ampm'] as String? ?? 'AM',
                   enabled: val['enabled'] as bool? ?? true,
-                  createdBy: val['createdBy'] as String?,
                 ));
               }
             }
@@ -159,34 +175,33 @@ class FeederService extends ChangeNotifier {
     }
   }
 
-  // ─── Logs Listener ───
   void _listenLogs() {
-    if (_logsRef == null) return;
     _logsSub?.cancel();
     try {
-      _logsSub = _logsRef!.orderByChild('timestamp').limitToLast(50).onValue.listen(
+      _logsSub = _logsRef.orderByChild('timestamp').limitToLast(50).onValue.listen(
         (event) {
           try {
             final data = event.snapshot.value;
             _logs.clear();
             if (data != null && data is Map) {
               final entries =
-                  (Map<String, dynamic>.from(data)).entries.toList();
+                  (_convertMap(data)).entries.toList();
               entries.sort((a, b) {
-                final aVal = Map<String, dynamic>.from(a.value);
-                final bVal = Map<String, dynamic>.from(b.value);
+                final aVal = _convertMap(a.value);
+                final bVal = _convertMap(b.value);
                 final aTs = aVal['timestamp'] as int? ?? 0;
                 final bTs = bVal['timestamp'] as int? ?? 0;
                 return bTs.compareTo(aTs);
               });
               for (final entry in entries) {
-                final val = Map<String, dynamic>.from(entry.value);
+                final val = _convertMap(entry.value);
                 _logs.add(LogEntry(
                   val['action'] as String? ?? '',
                   val['type'] as String? ?? 'auto',
                   val['time'] as String? ?? '',
                   val['date'] as String? ?? '',
-                  userName: val['userName'] as String? ?? '',
+
+                  timestamp: val['timestamp'] as int? ?? 0,
                 ));
               }
             }
@@ -205,12 +220,9 @@ class FeederService extends ChangeNotifier {
     }
   }
 
-  // ─── Actions ───
-
-  void feedNow({String source = 'manual'}) {
-    if (_commandsRef == null) return;
+  void feedNow({String source = 'manual', String? scheduleKey}) {
     try {
-      _commandsRef!.push().set({
+      _commandsRef.push().set({
         'action': 'feed_now',
         'timestamp': ServerValue.timestamp,
         'source': 'flutter-app',
@@ -220,12 +232,16 @@ class FeederService extends ChangeNotifier {
           action: 'Auto feed dispensed',
           type: 'auto',
         );
+        final dateKey = '${DateTime.now().month}/${DateTime.now().day}';
+        if (scheduleKey != null) {
+          try {
+            _commandsRef.parent!.child('dispatched/$dateKey/$scheduleKey').set(true);
+          } catch (_) {}
+        }
       } else {
-        final name = _getUserName();
         _addLogEntry(
-          action: '$name manually fed',
+          action: 'Feed dispensed',
           type: 'manual',
-          userName: name,
         );
       }
     } catch (e) {
@@ -235,17 +251,13 @@ class FeederService extends ChangeNotifier {
   }
 
   void logFeedFailure() {
-    final name = _getUserName();
     _addLogEntry(
-      action: '$name \u2014 Feed failed to dispense',
+      action: 'Feed failed to dispense',
       type: 'error',
-      userName: name,
     );
   }
 
-  void _addLogEntry({required String action, required String type, String? userName}) {
-    if (_logsRef == null) return;
-    userName ??= _getUserName();
+  void _addLogEntry({required String action, required String type}) {
     final now = DateTime.now();
     final months = [
       'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -256,12 +268,11 @@ class FeederService extends ChangeNotifier {
     final ampm = now.hour >= 12 ? 'PM' : 'AM';
     final timeStr = '$h:${now.minute.toString().padLeft(2, '0')} $ampm';
     try {
-      _logsRef!.push().set({
+      _logsRef.push().set({
         'action': action,
         'type': type,
         'time': timeStr,
         'date': dateStr,
-        'userName': userName,
         'timestamp': ServerValue.timestamp,
       });
     } catch (e) {
@@ -270,19 +281,15 @@ class FeederService extends ChangeNotifier {
   }
 
   void addSchedule(String time, String ampm) {
-    if (_schedulesRef == null) return;
-    final name = _getUserName();
     try {
-      _schedulesRef!.push().set({
+      _schedulesRef.push().set({
         'time': time,
         'ampm': ampm,
         'enabled': true,
-        'createdBy': name,
       });
       _addLogEntry(
-        action: '$name scheduled auto feed at $time $ampm',
+        action: 'Scheduled auto feed at $time $ampm',
         type: 'auto',
-        userName: name,
       );
     } catch (e) {
       debugPrint('[FeederService] addSchedule error: $e');
@@ -297,16 +304,13 @@ class FeederService extends ChangeNotifier {
   }
 
   void deleteSchedule(int index) {
-    if (_schedulesRef == null) return;
     if (index < 0 || index >= _scheduleKeys.length) return;
-    final name = _getUserName();
     final timeStr = getScheduleTime(index);
     try {
-      _schedulesRef!.child(_scheduleKeys[index]).remove();
+      _schedulesRef.child(_scheduleKeys[index]).remove();
       _addLogEntry(
-        action: '$name removed schedule at $timeStr',
+        action: 'Removed schedule at $timeStr',
         type: 'auto',
-        userName: name,
       );
     } catch (e) {
       debugPrint('[FeederService] deleteSchedule error: $e');
@@ -319,27 +323,22 @@ class FeederService extends ChangeNotifier {
     required String ampm,
     bool? enabled,
   }) {
-    if (_schedulesRef == null) return;
     if (index < 0 || index >= _scheduleKeys.length) return;
-    final name = _getUserName();
     try {
-      _schedulesRef!.child(_scheduleKeys[index]).update({
+      _schedulesRef.child(_scheduleKeys[index]).update({
         'time': time,
         'ampm': ampm,
         if (enabled != null) 'enabled': enabled,
       });
       _addLogEntry(
-        action: '$name edited schedule to $time $ampm',
+        action: 'Edited schedule to $time $ampm',
         type: 'auto',
-        userName: name,
       );
     } catch (e) {
       debugPrint('[FeederService] editSchedule error: $e');
     }
     notifyListeners();
   }
-
-  // ─── Schedule Timer ───
 
   void _startScheduleTimer() {
     _scheduleTimer?.cancel();
@@ -355,27 +354,24 @@ class FeederService extends ChangeNotifier {
       _dispatchedToday.clear();
       _lastCheckDate = todayKey;
     }
-    for (final s in _schedules) {
+    for (int i = 0; i < _schedules.length; i++) {
+      final s = _schedules[i];
       if (!s.enabled) continue;
       int h = int.parse(s.time.split(':')[0]);
       final m = int.parse(s.time.split(':')[1]);
       if (s.ampm == 'PM' && h != 12) h += 12;
       if (s.ampm == 'AM' && h == 12) h = 0;
       if (now.hour == h && now.minute == m) {
-        final key = '${s.time}_${s.ampm}';
+        final key = i < _scheduleKeys.length
+            ? _scheduleKeys[i]
+            : '${s.time}_${s.ampm}';
         if (!_dispatchedToday.contains(key)) {
           _dispatchedToday.add(key);
-          feedNow(source: 'scheduled');
+          feedNow(source: 'scheduled', scheduleKey: key);
           debugPrint('[FeederService] Auto-dispatch: $key');
         }
       }
     }
-  }
-
-  // ─── Helpers ───
-
-  String _getUserName() {
-    return FirebaseAuth.instance.currentUser?.displayName ?? 'Unknown';
   }
 
   int _toMinutes(Map<String, dynamic> s) {
@@ -388,7 +384,6 @@ class FeederService extends ChangeNotifier {
     return h * 60 + m;
   }
 
-  // ─── Dispose ───
   @override
   void dispose() {
     _statusSub?.cancel();

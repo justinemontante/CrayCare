@@ -1,0 +1,29 @@
+{
+  "rules": {
+    "system": {
+      "authorizedOperators": {
+        ".read": "auth != null",
+        ".write": true
+      }
+    },
+    "sensor_readings": {
+      ".read": "auth != null",
+      ".write": true
+    },
+    "feeder": {
+      ".read": true,
+      ".write": "auth != null"
+    },
+    "devices": {
+      ".read": true,
+      ".write": "auth != null"
+    },
+    
+    "users": {
+      "$uid": {
+        ".read": "auth != null && auth.uid == $uid",
+        ".write": "auth.uid == $uid"
+      }
+    }
+  }
+}

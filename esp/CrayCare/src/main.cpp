@@ -1134,7 +1134,7 @@ void syncFeederSchedules() {
     FirebaseJsonData d;
 
     // Parse time "6:00" and ampm "AM"
-    String timeStr = "6:00";..........
+    String timeStr = "6:00";
     String ampm = "AM";
     if (item.get(d, "time")) timeStr = d.stringValue;
     if (item.get(d, "ampm")) ampm = d.stringValue;

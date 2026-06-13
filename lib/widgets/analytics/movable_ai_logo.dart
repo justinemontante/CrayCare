@@ -1,9 +1,8 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import '../../theme/app_colors.dart';
 import '../../services/sensor_service.dart';
 import '../../services/settings_service.dart';
+import '../../services/ml_service.dart';
 
 class MovableAiLogo extends StatefulWidget {
   const MovableAiLogo({super.key});
@@ -18,7 +17,6 @@ class _MovableAiLogoState extends State<MovableAiLogo>
   late AnimationController _pulseController;
   final double _logoSize = 60.0;
   bool _isInitialized = false;
-  int _retryTrigger = 0;
 
   @override
   void initState() {
@@ -27,12 +25,6 @@ class _MovableAiLogoState extends State<MovableAiLogo>
       vsync: this,
       duration: const Duration(milliseconds: 1500),
     )..repeat(reverse: true);
-  }
-
-  @override
-  void dispose() {
-    _pulseController.dispose();
-    super.dispose();
   }
 
   void _showAIInsights() {
@@ -44,108 +36,31 @@ class _MovableAiLogoState extends State<MovableAiLogo>
     );
   }
 
-  static const String _mlApiUrl = 'http://192.168.1.16:5000/predict';
 
-  static const Map<String, String> _sensorKeyMap = {
-    'temp': 'temperature',
-    'ph': 'phLevel',
-    'do': 'dissolvedOxygen',
-    'turb': 'turbidity',
-    'waterlevel': 'waterLevel',
-  };
 
-  Future<List<Map<String, dynamic>>> _fetchMLData() async {
-    final svc = SensorService.instance;
-    final settings = SettingsService.instance;
+  Map<String, dynamic>? _mlData;
+  bool _mlLoading = true;
+  String? _mlError;
 
-    final temp = svc.getLatestValue('temp');
-    final ph = svc.getLatestValue('ph');
-    final doVal = svc.getLatestValue('do');
-    final turb = svc.getLatestValue('turb');
-    final wl = svc.getLatestValue('waterlevel');
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    SensorService.instance.addListener(_onSensorOrSettingsChanged);
+    SettingsService.instance.addListener(_onSensorOrSettingsChanged);
+    MlService.instance.addListener(_onMlChanged);
+    _refreshInsights();
+  }
 
-    if (temp == 0 && ph == 0 && doVal == 0 && turb == 0 && wl == 0) {
-      throw Exception('No sensor data available. Make sure ESP32 is connected.');
+  void _onSensorOrSettingsChanged() {
+    _generateLocalInsights();
+  }
+
+  void _onMlChanged() {
+    if (MlService.instance.hasData) {
+      _useMlData(MlService.instance.latestPrediction!);
+    } else {
+      _generateLocalInsights();
     }
-
-    final thresholds = <String, Map<String, double>>{};
-    for (final entry in settings.currentRanges.entries) {
-      final mappedKey = _sensorKeyMap[entry.key];
-      if (mappedKey != null) {
-        thresholds[mappedKey] = entry.value;
-      }
-    }
-
-    final response = await http
-        .post(
-          Uri.parse(_mlApiUrl),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({
-            'temperature': temp,
-            'phLevel': ph,
-            'dissolvedOxygen': doVal,
-            'turbidity': turb,
-            'waterLevel': wl,
-            'thresholds': thresholds,
-          }),
-        )
-        .timeout(const Duration(seconds: 5));
-
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      final status = data['predictedStatus'] as String;
-      final isCritical = status == 'CRITICAL';
-      final statusLabel = isCritical ? 'Critical' : 'Optimal';
-      final statusColor = isCritical ? AppColors.critical : AppColors.success;
-      final insight = data['insight'] as String;
-      final prediction = data['prediction'] as String;
-      final recommendation = data['recommendation'] as String;
-
-      return [
-        {
-          'title': 'Temperature',
-          'iconPath': 'assets/icons/temperature.png',
-          'color': AppColors.warning,
-          'status': statusLabel,
-          'statusColor': statusColor,
-          'insight': 'Temperature at ${temp.toStringAsFixed(1)}°C. $insight',
-          'prediction': prediction,
-          'recommendation': recommendation,
-        },
-        {
-          'title': 'pH Level',
-          'iconPath': 'assets/icons/pH.png',
-          'color': AppColors.primary,
-          'status': statusLabel,
-          'statusColor': statusColor,
-          'insight': 'pH at ${ph.toStringAsFixed(1)}. $insight',
-          'prediction': prediction,
-          'recommendation': recommendation,
-        },
-        {
-          'title': 'Dissolved Oxygen',
-          'iconPath': 'assets/icons/DO.png',
-          'color': const Color(0xFF52c283),
-          'status': statusLabel,
-          'statusColor': statusColor,
-          'insight': 'DO at ${doVal.toStringAsFixed(1)} mg/L. $insight',
-          'prediction': prediction,
-          'recommendation': recommendation,
-        },
-        {
-          'title': 'Turbidity',
-          'iconPath': 'assets/icons/Turbidity.png',
-          'color': AppColors.critical,
-          'status': statusLabel,
-          'statusColor': statusColor,
-          'insight': 'Turbidity at ${turb.toStringAsFixed(1)} NTU. $insight',
-          'prediction': prediction,
-          'recommendation': recommendation,
-        },
-      ];
-    }
-
-    throw Exception('ML API returned status ${response.statusCode}');
   }
 
   Widget _buildAIInsightsSheet(BuildContext ctx) {
@@ -215,112 +130,251 @@ class _MovableAiLogoState extends State<MovableAiLogo>
           ),
           const SizedBox(height: 16),
 
-          // FUTURE BUILDER: Dito ginagawa ang Loading at List ng Data
+          // FIREBASE-DRIVEN ML INSIGHTS: No more HTTP call
           Expanded(
-            child: FutureBuilder<List<Map<String, dynamic>>>(
-              future: _fetchMLData(),
-              key: ValueKey(_retryTrigger),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return Center(
+            child: _mlLoading
+                ? const Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const CircularProgressIndicator(
-                          color: AppColors.primary,
-                        ),
-                        const SizedBox(height: 16),
+                        CircularProgressIndicator(color: AppColors.primary),
+                        SizedBox(height: 16),
                         Text(
                           'CrayAI is analyzing your tank data...',
                           style: TextStyle(
                             fontSize: 12,
-                            color: AppColors.dark.withValues(alpha: 0.6),
+                            color: AppColors.dark,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
                       ],
                     ),
-                  );
-                }
-
-                if (snapshot.hasError || !snapshot.hasData) {
-                  return Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.cloud_off_rounded,
-                            size: 40,
-                            color: AppColors.critical.withValues(alpha: 0.6),
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            snapshot.error?.toString() ?? 'Failed to load ML Insights',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: AppColors.dark.withValues(alpha: 0.6),
-                              height: 1.4,
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          ElevatedButton.icon(
-                            onPressed: () => setState(() => _retryTrigger++),
-                            icon: const Icon(Icons.refresh_rounded, size: 16),
-                            label: const Text('Retry'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.primary,
-                              foregroundColor: Colors.white,
-                              elevation: 0,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 20, vertical: 10,
+                  )
+                : _mlError != null || _mlData == null
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.cloud_off_rounded,
+                                size: 40,
+                                color: AppColors.critical.withValues(alpha: 0.6),
                               ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
+                              const SizedBox(height: 12),
+                              Text(
+                                _mlError ?? 'No ML data available',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: AppColors.dark.withValues(alpha: 0.6),
+                                  height: 1.4,
+                                ),
                               ),
-                            ),
+                            ],
                           ),
-                        ],
-                      ),
-                    ),
-                  );
-                }
-
-                final mlData = snapshot.data!;
-
-                return ListView.builder(
-                  padding: const EdgeInsets.only(bottom: 24),
-                  itemCount: mlData.length,
-                  itemBuilder: (context, index) {
-                    final item = mlData[index];
-                    return _buildSmartInsightCard(
-                      title: item['title'],
-                      iconPath: item['iconPath'],
-                      iconColor: item['color'],
-                      status: item['status'],
-                      statusColor: item['statusColor'],
-                      insight: item['insight'],
-                      prediction: item['prediction'],
-                      recommendation: item['recommendation'],
-                    );
-                  },
-                );
-              },
-            ),
+                        ),
+                      )
+                    : _buildMLResults(),
           ),
         ],
       ),
     );
   }
 
+  @override
+  void dispose() {
+    SensorService.instance.removeListener(_onSensorOrSettingsChanged);
+    SettingsService.instance.removeListener(_onSensorOrSettingsChanged);
+    MlService.instance.removeListener(_onMlChanged);
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  void _refreshInsights() {
+    if (MlService.instance.hasData) {
+      _useMlData(MlService.instance.latestPrediction!);
+    } else {
+      _generateLocalInsights();
+    }
+  }
+
+  void _useMlData(Map<String, dynamic> mlData) {
+    final rawSensors = mlData['sensors'] as List<dynamic>?;
+    if (rawSensors == null || rawSensors.isEmpty) {
+      _generateLocalInsights();
+      return;
+    }
+
+    final sensors = rawSensors.map((s) {
+      final map = s as Map<String, dynamic>;
+      final key = map['key'] as String? ?? '';
+      final fbKey = _localKeyToFbKey(key);
+      return {
+        'key': fbKey,
+        'status': map['status'] as String? ?? 'UNKNOWN',
+        'insight': map['insight'] as String? ?? '',
+        'prediction': map['prediction'] as String? ?? '',
+        'recommendation': map['recommendation'] as String? ?? '',
+      };
+    }).toList();
+
+    _mlData = {'sensors': sensors};
+    _mlError = null;
+    _mlLoading = false;
+    if (mounted) setState(() {});
+  }
+
+  String _localKeyToFbKey(String mlKey) {
+    switch (mlKey) {
+      case 'temperature': return 'temperature';
+      case 'phLevel': return 'phLevel';
+      case 'dissolvedOxygen': return 'dissolvedOxygen';
+      case 'turbidity': return 'turbidity';
+      case 'waterLevel': return 'waterLevel';
+      default: return mlKey;
+    }
+  }
+
+  void _generateLocalInsights() {
+    final ss = SensorService.instance;
+    final ranges = SettingsService.instance.currentRanges;
+    final sensorKeys = [
+      {'key': 'temperature', 'sensorKey': 'temp', 'unit': '°C'},
+      {'key': 'phLevel', 'sensorKey': 'ph', 'unit': ''},
+      {'key': 'dissolvedOxygen', 'sensorKey': 'do', 'unit': 'mg/L'},
+      {'key': 'turbidity', 'sensorKey': 'turb', 'unit': 'NTU'},
+      {'key': 'waterLevel', 'sensorKey': 'waterlevel', 'unit': 'cm'},
+    ];
+
+    final sensors = <Map<String, dynamic>>[];
+    for (final info in sensorKeys) {
+      final sensorKey = info['sensorKey'] as String;
+      final hasData = ss.hasSensorData(sensorKey);
+      final value = ss.getLatestValue(sensorKey);
+      final range = ranges[sensorKey];
+      final min = range?['min'] ?? 0.0;
+      final max = range?['max'] ?? 999.0;
+
+      String status;
+      if (!hasData) {
+        status = 'UNKNOWN';
+      } else if (value >= min && value <= max) {
+        status = 'OPTIMAL';
+      } else {
+        status = 'CRITICAL';
+      }
+
+      String insight, prediction, recommendation;
+      if (!hasData) {
+        insight = 'No sensor data available.';
+        prediction = 'Unable to predict.';
+        recommendation = 'Check sensor connection.';
+      } else {
+        final valStr = value.toStringAsFixed(2);
+        final minStr = min.toStringAsFixed(1);
+        final maxStr = max.toStringAsFixed(1);
+        final unit = info['unit'] as String;
+
+        if (status == 'OPTIMAL') {
+          insight = 'Current reading: $valStr$unit. Within optimal range ($minStr–$maxStr$unit).';
+          final midpoint = (min + max) / 2;
+          prediction = value > midpoint
+              ? 'Slightly above midpoint. Monitor for upward trend.'
+              : 'Stable within range. No immediate action needed.';
+          recommendation = 'Maintain current tank conditions.';
+        } else if (value < min) {
+          insight = 'Reading at $valStr$unit is below the minimum threshold ($minStr$unit).';
+          prediction = 'May cause stress if not addressed.';
+          recommendation = _recommendationFor(sensorKey, 'low');
+        } else {
+          insight = 'Reading at $valStr$unit exceeds the maximum threshold ($maxStr$unit).';
+          prediction = 'Risk of adverse effects if prolonged.';
+          recommendation = _recommendationFor(sensorKey, 'high');
+        }
+      }
+
+      sensors.add({
+        'key': info['key'],
+        'status': status,
+        'insight': insight,
+        'prediction': prediction,
+        'recommendation': recommendation,
+      });
+    }
+
+    _mlData = {'sensors': sensors};
+    _mlError = null;
+    _mlLoading = false;
+    if (mounted) setState(() {});
+  }
+
+  String _recommendationFor(String sensorKey, String direction) {
+    switch (sensorKey) {
+      case 'temp':
+        return direction == 'low'
+            ? 'Check heater. Gradually increase temperature.'
+            : 'Check cooler/aeration. Reduce temperature gradually.';
+      case 'ph':
+        return direction == 'low'
+            ? 'Add pH buffer. Check water source.'
+            : 'Add pH reducer. Check for contaminants.';
+      case 'do':
+        return direction == 'low'
+            ? 'Increase aeration. Check water surface agitation.'
+            : 'Reduce aeration. Check for algae bloom.';
+      case 'turb':
+        return direction == 'low'
+            ? 'Normal clarity. Monitor regularly.'
+            : 'Check filtration. Consider water change.';
+      case 'waterlevel':
+        return direction == 'low'
+            ? 'Add water. Check for leaks.'
+            : 'Drain excess water. Check drainage.';
+      default:
+        return 'Check sensor and tank conditions.';
+    }
+  }
+
+  static const _sensorDisplayInfo = {
+    'temperature': {'title': 'Temperature', 'icon': 'assets/icons/temperature.png', 'color': Color(0xFFf59e0b)},
+    'phLevel': {'title': 'pH Level', 'icon': 'assets/icons/pH.png', 'color': Color(0xFF1FA5A5)},
+    'dissolvedOxygen': {'title': 'Dissolved Oxygen', 'icon': 'assets/icons/DO.png', 'color': Color(0xFF52c283)},
+    'turbidity': {'title': 'Turbidity', 'icon': 'assets/icons/Turbidity.png', 'color': Color(0xFFE63946)},
+    'waterLevel': {'title': 'Water Level', 'icon': 'assets/images/waterLevel.png', 'color': Color(0xFF1FA5A5)},
+  };
+
+  Widget _buildMLResults() {
+    final data = _mlData!;
+    final rawSensors = data['sensors'] as List<dynamic>? ?? [];
+    if (rawSensors.isEmpty) {
+      return const Center(child: Text('No sensor data available.'));
+    }
+
+    final sensorsData = rawSensors.cast<Map<String, dynamic>>();
+
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 24),
+      children: sensorsData.map((s) {
+        final key = s['key'] as String? ?? '';
+        final display = _sensorDisplayInfo[key];
+        if (display == null) return const SizedBox.shrink();
+
+        return _buildSmartInsightCard(
+          title: display['title'] as String,
+          iconPath: display['icon'] as String,
+          insight: s['insight'] as String? ?? '',
+          prediction: s['prediction'] as String? ?? '',
+          recommendation: s['recommendation'] as String? ?? '',
+        );
+      }).toList(),
+    );
+  }
+
   Widget _buildSmartInsightCard({
     required String title,
     required String iconPath,
-    required Color iconColor,
-    required String status,
-    required Color statusColor,
     required String insight,
     required String prediction,
     required String recommendation,
@@ -346,7 +400,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // TITLE AND STATUS ROW
+          // TITLE ROW (no status badge)
           Row(
             children: [
               Image.asset(iconPath, width: 22, height: 22),
@@ -357,23 +411,6 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
                   color: AppColors.dark,
-                ),
-              ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  status,
-                  style: TextStyle(
-                    fontSize: 9,
-                    fontWeight: FontWeight.w800,
-                    color: statusColor,
-                    letterSpacing: 0.3,
-                  ),
                 ),
               ),
             ],

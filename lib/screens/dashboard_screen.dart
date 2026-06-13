@@ -136,6 +136,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: Column(
           children: [
             _buildGreeting(),
+            _buildConnectionBanner(),
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 4),
               child: SectionLabel(
@@ -278,6 +279,54 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  Widget _buildConnectionBanner() {
+    final ss = SensorService.instance;
+    final hasAnyData = SensorService.sensorKeys.any((k) => ss.hasSensorData(k));
+    final error = ss.lastError;
+
+    if (hasAnyData && error == null) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: error != null
+            ? const Color(0xFFFFF3F0)
+            : const Color(0xFFFFF8E1),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: error != null
+              ? const Color(0xFFFFCCBB)
+              : const Color(0xFFFFE082),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            error != null ? Icons.error_outline : Icons.info_outline,
+            size: 16,
+            color: error != null
+                ? const Color(0xFFD84315)
+                : const Color(0xFFF9A825),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              error ?? 'Waiting for sensor data...',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: error != null
+                    ? const Color(0xFFBF360C)
+                    : const Color(0xFF795548),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildGaugeGrid(BuildContext context) {
     final ss = SensorService.instance;
 
@@ -291,13 +340,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: _buildGaugeCard(
                   title: 'Temperature',
                   value: ss.hasSensorData('temp')
-                      ? ss.getLatestValue('temp').toStringAsFixed(1)
+                      ? ss.getLatestValue('temp').toStringAsFixed(2)
                       : '--',
                   unit: '\u00B0C',
                   ideal: _getIdealText('temp'),
                   iconPath: 'assets/images/temperature.png',
                   status: _getStatus('temp'),
                   statusColor: _getStatusColor('temp'),
+                  trend: ss.getTrend('temp'),
+                  trendRate: ss.getTrendRate('temp'),
                   onTap: () => _showGaugeDetail(
                     context,
                     sensorKey: 'temp',
@@ -313,13 +364,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: _buildGaugeCard(
                   title: 'pH Level',
                   value: ss.hasSensorData('ph')
-                      ? ss.getLatestValue('ph').toStringAsFixed(1)
+                      ? ss.getLatestValue('ph').toStringAsFixed(2)
                       : '--',
                   unit: 'pH',
                   ideal: _getIdealText('ph'),
                   iconPath: 'assets/images/pH.png',
                   status: _getStatus('ph'),
                   statusColor: _getStatusColor('ph'),
+                  trend: ss.getTrend('ph'),
+                  trendRate: ss.getTrendRate('ph'),
                   onTap: () => _showGaugeDetail(
                     context,
                     sensorKey: 'ph',
@@ -339,13 +392,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: _buildGaugeCard(
                   title: 'Dissolved O\u2082',
                   value: ss.hasSensorData('do')
-                      ? ss.getLatestValue('do').toStringAsFixed(1)
+                      ? ss.getLatestValue('do').toStringAsFixed(2)
                       : '--',
                   unit: 'mg/L',
                   ideal: _getIdealText('do'),
                   iconPath: 'assets/images/DO.png',
                   status: _getStatus('do'),
                   statusColor: _getStatusColor('do'),
+                  trend: ss.getTrend('do'),
+                  trendRate: ss.getTrendRate('do'),
                   onTap: () => _showGaugeDetail(
                     context,
                     sensorKey: 'do',
@@ -360,18 +415,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Expanded(
                 child: _buildGaugeCard(
                   title: 'Turbidity',
-                  value: ss.isTurbidityAir
-                      ? '--'
-                      : (ss.hasSensorData('turb')
-                            ? ss.getLatestValue('turb').toStringAsFixed(0)
-                            : '--'),
-                  unit: ss.isTurbidityAir ? '' : 'NTU',
+                  value: ss.hasSensorData('turb')
+                      ? ss.getLatestValue('turb').toStringAsFixed(2)
+                      : '--',
+                  unit: 'NTU',
                   ideal: _getIdealText('turb'),
                   iconPath: 'assets/images/Turbidity.png',
-                  status: ss.isTurbidityAir ? 'NO WATER' : _getStatus('turb'),
-                  statusColor: ss.isTurbidityAir
-                      ? AppColors.warning
-                      : _getStatusColor('turb'),
+                  status: _getStatus('turb'),
+                  statusColor: _getStatusColor('turb'),
+                  trend: ss.getTrend('turb'),
+                  trendRate: ss.getTrendRate('turb'),
                   onTap: () => _showGaugeDetail(
                     context,
                     sensorKey: 'turb',
@@ -433,6 +486,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (!ss.hasSensorData(key)) return AppColors.darkWith(0.3);
     final zone = ss.getZone(key);
     if (zone == 'OPTIMAL') return AppColors.success;
+    if (zone == 'WARNING') return AppColors.warning;
     if (zone == 'CRITICAL') return AppColors.critical;
     return AppColors.darkWith(0.4);
   }
@@ -445,6 +499,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     required String iconPath,
     required String status,
     required Color statusColor,
+    required String trend,
+    required double trendRate,
     VoidCallback? onTap,
   }) {
     return _GaugeCard(
@@ -455,6 +511,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       iconPath: iconPath,
       status: status,
       statusColor: statusColor,
+      trend: trend,
+      trendRate: trendRate,
       onTap: onTap,
     );
   }
@@ -466,13 +524,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: _buildGaugeCard(
         title: 'Water Level',
         value: ss.hasSensorData('waterlevel')
-            ? ss.getLatestValue('waterlevel').toStringAsFixed(0)
+            ? ss.getLatestValue('waterlevel').toStringAsFixed(2)
             : '--',
         unit: 'cm',
         ideal: _getIdealText('waterlevel'),
         iconPath: 'assets/images/waterLevel.png',
         status: _getStatus('waterlevel'),
         statusColor: _getStatusColor('waterlevel'),
+        trend: ss.getTrend('waterlevel'),
+        trendRate: ss.getTrendRate('waterlevel'),
         onTap: () => _showGaugeDetail(
           context,
           sensorKey: 'waterlevel',
@@ -658,92 +718,117 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ],
       ),
       child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                child: Row(
+                  children: [
+                    Icon(Icons.inventory_2_outlined, size: 18, color: AppColors.primary),
+                    const SizedBox(width: 10),
+                    const Text(
+                      'Tank Status',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.dark),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  children: [
+                    Expanded(child: _buildStatColumn('assets/images/InitialPopulationNo.png', hasData ? tank.initialCount.toString() : '--', 'initialPopulation')),
+                    Expanded(child: _buildStatColumn('assets/images/SurvivalRate.png', hasData ? '${tank.survivalRate.toStringAsFixed(1)}%' : '--', 'Survival Rate')),
+                    Expanded(child: _buildStatColumn('assets/images/AliveNo.png', hasData ? tank.liveCount.toString() : '--', 'Alive')),
+                    Expanded(child: _buildStatColumn('assets/images/mortalityNo.png', hasData ? tank.mortality.toString() : '--', 'Mortality')),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              _buildCurrentStageSection(tank),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: AppColors.darkWith(0.02),
+                  borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
+                ),
+                child: Column(
+                  children: [
+                    _buildDetailRow(Icons.hourglass_bottom, 'Days in Culture', hasData ? tank.daysInCulture.toString() : '--'),
+                    const SizedBox(height: 8),
+                    _buildDetailRow(Icons.history, 'Last Sampling', hasData && tank.samplingHistory.isNotEmpty ? _formatTankDate(tank.samplingHistory.last.date) : '--'),
+                    const SizedBox(height: 8),
+                    _buildNextSamplingRow(),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+  }
+
+  static const _stageRules = [
+    (label: 'Early Juvenile', min: 1.0, max: 5.0),
+    (label: 'Advanced Juvenile', min: 5.0, max: 15.0),
+    (label: 'Pre-Adult', min: 15.0, max: 50.0),
+    (label: 'Market Size', min: 50.0, max: 100.0),
+  ];
+
+  Widget _buildCurrentStageSection(TankService tank) {
+    final history = tank.samplingHistory;
+    final hasGrowthData = tank.isInitialized && tank.initialCount > 0;
+    final currentAbw = hasGrowthData ? (history.isNotEmpty ? history.last.abw : tank.initialWeight) : 0.0;
+    final currentAbl = hasGrowthData ? (history.isNotEmpty ? history.last.avgLength : tank.initialLength) : 0.0;
+
+    String stageLabel;
+    bool isReady;
+    if (!hasGrowthData) {
+      stageLabel = '--';
+      isReady = false;
+    } else {
+      int activeIndex = 0;
+      for (int i = 0; i < _stageRules.length; i++) {
+        final rule = _stageRules[i];
+        if (i == _stageRules.length - 1) {
+          if (currentAbw >= rule.min) activeIndex = i;
+        } else {
+          if (currentAbw >= rule.min && currentAbw < rule.max) activeIndex = i;
+        }
+      }
+      stageLabel = _stageRules[activeIndex].label;
+      isReady = true;
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.inventory_2_outlined,
-                  size: 18,
-                  color: AppColors.primary,
-                ),
-                const SizedBox(width: 10),
-                const Text(
-                  'Tank Status',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.dark,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: _buildStatColumn(
-                    'assets/images/InitialPopulationNo.png',
-                    hasData ? tank.initialCount.toString() : '--',
-                    'initialPopulation',
-                  ),
-                ),
-                Expanded(
-                  child: _buildStatColumn(
-                    'assets/images/SurvivalRate.png',
-                    hasData ? '${tank.survivalRate.toStringAsFixed(1)}%' : '--',
-                    'Survival Rate',
-                  ),
-                ),
-                Expanded(
-                  child: _buildStatColumn(
-                    'assets/images/AliveNo.png',
-                    hasData ? tank.liveCount.toString() : '--',
-                    'Alive',
-                  ),
-                ),
-                Expanded(
-                  child: _buildStatColumn(
-                    'assets/images/mortalityNo.png',
-                    hasData ? tank.mortality.toString() : '--',
-                    'Mortality',
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: AppColors.darkWith(0.02),
-              borderRadius: const BorderRadius.vertical(
-                bottom: Radius.circular(20),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.eco, size: 16, color: Color(0xFF9E9E9E)),
+                  const SizedBox(width: 6),
+                  Text('Current Crayfish Stage:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.7))),
+                ],
               ),
-            ),
-            child: Column(
-              children: [
-                _buildDetailRow(
-                  Icons.hourglass_bottom,
-                  'Days in Culture',
-                  hasData ? tank.daysInCulture.toString() : '--',
-                ),
-                const SizedBox(height: 8),
-                _buildDetailRow(
-                  Icons.history,
-                  'Last Sampling',
-                  hasData && tank.samplingHistory.isNotEmpty
-                      ? _formatTankDate(tank.samplingHistory.last.date)
-                      : '--',
-                ),
-                const SizedBox(height: 8),
-                _buildNextSamplingRow(),
-              ],
-            ),
+              Text(stageLabel, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: isReady ? AppColors.primary : AppColors.darkWith(0.4))),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text('ABW: ', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.5))),
+              Text(isReady ? '${currentAbw.toStringAsFixed(2)}g' : '--', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.primary)),
+              const SizedBox(width: 14),
+              Text('ABL: ', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.5))),
+              Text(isReady ? '${currentAbl.toStringAsFixed(2)}cm' : '--', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.primary)),
+            ],
           ),
         ],
       ),
@@ -1137,6 +1222,60 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return h * 60 + m;
   }
 
+  Widget _buildModalTrendIndicator(String trend, double rate) {
+    IconData icon;
+    Color color;
+    String label;
+    final sign = rate >= 0 ? '+' : '';
+    final rateStr = '$sign${rate.toStringAsFixed(3)}/rdg';
+    
+    switch (trend) {
+      case 'rising_fast':
+        icon = Icons.keyboard_double_arrow_up;
+        color = AppColors.critical;
+        label = 'Rising rapidly ($rateStr)';
+        break;
+      case 'rising':
+        icon = Icons.arrow_upward;
+        color = AppColors.warning;
+        label = 'Rising ($rateStr)';
+        break;
+      case 'falling_fast':
+        icon = Icons.keyboard_double_arrow_down;
+        color = AppColors.critical;
+        label = 'Falling rapidly ($rateStr)';
+        break;
+      case 'falling':
+        icon = Icons.arrow_downward;
+        color = AppColors.warning;
+        label = 'Falling ($rateStr)';
+        break;
+      case 'stable':
+      default:
+        icon = Icons.trending_flat;
+        color = AppColors.dark.withValues(alpha: 0.5);
+        label = 'Stable';
+        break;
+    }
+    
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(icon, size: 14, color: color),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: color,
+          ),
+        ),
+      ],
+    );
+  }
+
   void _showGaugeDetail(
     BuildContext context, {
     required String sensorKey,
@@ -1150,27 +1289,64 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final rMin = (range['min'] ?? 0.0).toDouble();
     final rMax = (range['max'] ?? 999.0).toDouble();
     final rUnit = _getUnit(sensorKey);
+
+    final isMaxBound = rMax < 999.0;
+    final rangeSpan = isMaxBound ? (rMax - rMin) : rMin;
+    final warningThreshold = rangeSpan * 0.15;
+    
+    final checkLower = rMin > 0.0;
+    final checkUpper = isMaxBound;
+
+    String optimalRangeText = '';
+    String warningRangeText = '';
+    String criticalRangeText = '';
+
+    if (checkLower && checkUpper) {
+      final lowWarnEnd = rMin + warningThreshold;
+      final highWarnStart = rMax - warningThreshold;
+      optimalRangeText = '${lowWarnEnd.toStringAsFixed(1)}$rUnit \u2013 ${highWarnStart.toStringAsFixed(1)}$rUnit';
+      warningRangeText = '${rMin.toStringAsFixed(1)}$rUnit \u2013 ${lowWarnEnd.toStringAsFixed(1)}$rUnit or ${highWarnStart.toStringAsFixed(1)}$rUnit \u2013 ${rMax.toStringAsFixed(1)}$rUnit';
+      criticalRangeText = '< ${rMin.toStringAsFixed(1)}$rUnit or > ${rMax.toStringAsFixed(1)}$rUnit';
+    } else if (checkLower) {
+      final lowWarnEnd = rMin + warningThreshold;
+      optimalRangeText = '> ${lowWarnEnd.toStringAsFixed(1)}$rUnit';
+      warningRangeText = '${rMin.toStringAsFixed(1)}$rUnit \u2013 ${lowWarnEnd.toStringAsFixed(1)}$rUnit';
+      criticalRangeText = '< ${rMin.toStringAsFixed(1)}$rUnit';
+    } else if (checkUpper) {
+      final highWarnStart = rMax - warningThreshold;
+      optimalRangeText = '< ${highWarnStart.toStringAsFixed(1)}$rUnit';
+      warningRangeText = '${highWarnStart.toStringAsFixed(1)}$rUnit \u2013 ${rMax.toStringAsFixed(1)}$rUnit';
+      criticalRangeText = '> ${rMax.toStringAsFixed(1)}$rUnit';
+    } else {
+      optimalRangeText = 'Optimal range';
+      warningRangeText = 'N/A';
+      criticalRangeText = 'N/A';
+    }
+
     final legends = [
       _LegendItem(
         'Optimal',
-        rMax >= 999
-            ? '> ${rMin.toStringAsFixed(1)}$rUnit'
-            : '${rMin.toStringAsFixed(1)}$rUnit \u2013 ${_formatMax(rMax)}$rUnit',
-        'Within optimal range for current stage.',
+        optimalRangeText,
+        'Stable and healthy environment.',
         AppColors.success,
       ),
       _LegendItem(
+        'Warning',
+        warningRangeText,
+        'Approaching threshold. Action recommended.',
+        AppColors.warning,
+      ),
+      _LegendItem(
         'Critical',
-        rMax >= 999
-            ? '< ${rMin.toStringAsFixed(1)}$rUnit'
-            : 'Outside ${rMin.toStringAsFixed(1)}$rUnit \u2013 ${_formatMax(rMax)}$rUnit',
-        'Outside optimal range.',
+        criticalRangeText,
+        'Dangerous levels. Immediate attention required.',
         AppColors.critical,
       ),
     ];
 
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -1185,26 +1361,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
             final ss = SensorService.instance;
             final hasData = ss.hasSensorData(sensorKey);
             final value = ss.getLatestValue(sensorKey);
-            final isTurbAir = sensorKey == 'turb' && ss.isTurbidityAir;
-            final status = isTurbAir ? 'NO WATER' : _getStatus(sensorKey);
-            final statusColor = isTurbAir
-                ? AppColors.warning
-                : _getStatusColor(sensorKey);
-            final formattedValue = isTurbAir
+            final status = _getStatus(sensorKey);
+            final statusColor = _getStatusColor(sensorKey);
+            final formattedValue = !hasData
                 ? '--'
-                : !hasData
-                ? '--'
-                : sensorKey == 'turb' || sensorKey == 'waterlevel'
-                ? value.toStringAsFixed(0)
-                : value.toStringAsFixed(1);
+                : value.toStringAsFixed(2);
 
             return SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -1300,29 +1470,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         color: const Color(0xFFf7f7f7),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.baseline,
-                        textBaseline: TextBaseline.alphabetic,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(
-                            formattedValue,
-                            style: const TextStyle(
-                              fontSize: 32,
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.dark,
-                              height: 1,
-                            ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.baseline,
+                            textBaseline: TextBaseline.alphabetic,
+                            children: [
+                              Text(
+                                formattedValue,
+                                style: const TextStyle(
+                                  fontSize: 32,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.dark,
+                                  height: 1,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                unit,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.darkWith(0.4),
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(width: 4),
-                          Text(
-                            unit,
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.darkWith(0.4),
-                            ),
-                          ),
+                          if (hasData) ...[
+                            const SizedBox(height: 6),
+                            _buildModalTrendIndicator(ss.getTrend(sensorKey), ss.getTrendRate(sensorKey)),
+                          ]
                         ],
                       ),
                     ),
@@ -1363,6 +1542,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ),
                     ),
                     const SizedBox(height: 6),
+                    if (hasData) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        'Recent Trend (Last 10 readings)',
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.darkWith(0.5),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Container(
+                        height: 50,
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFfcfcfc),
+                          border: Border.all(color: const Color(0xFFf0f0f0)),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: _Sparkline(
+                          data: ss.getData(sensorKey).length >= 10
+                              ? ss.getData(sensorKey).sublist(ss.getData(sensorKey).length - 10)
+                              : ss.getData(sensorKey),
+                          color: statusColor,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
                     ...legends.map(
                       (l) => Padding(
                         padding: const EdgeInsets.only(bottom: 4),
@@ -1448,8 +1655,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ],
                 ),
               ),
-            );
-          },
+            ),
+          );
+        },
         );
       },
     );
@@ -1472,6 +1680,8 @@ class _GaugeCard extends StatefulWidget {
   final String iconPath;
   final String status;
   final Color statusColor;
+  final String trend;
+  final double trendRate;
   final VoidCallback? onTap;
 
   const _GaugeCard({
@@ -1482,6 +1692,8 @@ class _GaugeCard extends StatefulWidget {
     required this.iconPath,
     required this.status,
     required this.statusColor,
+    required this.trend,
+    required this.trendRate,
     this.onTap,
   });
 
@@ -1491,6 +1703,62 @@ class _GaugeCard extends StatefulWidget {
 
 class _GaugeCardState extends State<_GaugeCard> {
   bool _isPressed = false;
+
+  Widget _buildTrendIndicator() {
+    IconData icon;
+    Color color;
+    String label;
+    
+    final rate = widget.trendRate;
+    final sign = rate >= 0 ? '+' : '';
+    final rateStr = '$sign${rate.toStringAsFixed(2)}/rdg';
+    
+    switch (widget.trend) {
+      case 'rising_fast':
+        icon = Icons.keyboard_double_arrow_up;
+        color = AppColors.critical;
+        label = rateStr;
+        break;
+      case 'rising':
+        icon = Icons.arrow_upward;
+        color = AppColors.warning;
+        label = rateStr;
+        break;
+      case 'falling_fast':
+        icon = Icons.keyboard_double_arrow_down;
+        color = AppColors.critical;
+        label = rateStr;
+        break;
+      case 'falling':
+        icon = Icons.arrow_downward;
+        color = AppColors.warning;
+        label = rateStr;
+        break;
+      case 'stable':
+      default:
+        icon = Icons.trending_flat;
+        color = AppColors.dark.withValues(alpha: 0.4);
+        label = 'Stable';
+        break;
+    }
+    
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(icon, size: 12, color: color),
+        const SizedBox(width: 2),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.w700,
+            color: color,
+          ),
+        ),
+      ],
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1585,6 +1853,8 @@ class _GaugeCardState extends State<_GaugeCard> {
                     ],
                   ),
                 ),
+                const SizedBox(height: 2),
+                _buildTrendIndicator(),
                 Container(
                   margin: const EdgeInsets.symmetric(vertical: 8),
                   padding: const EdgeInsets.symmetric(
@@ -1654,4 +1924,96 @@ class _QuickActionData {
   final String? status;
   final VoidCallback? onTap;
   const _QuickActionData(this.name, this.icon, this.status, {this.onTap});
+}
+
+class _Sparkline extends StatelessWidget {
+  final List<double> data;
+  final Color color;
+
+  const _Sparkline({
+    required this.data,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (data.isEmpty) return const SizedBox.shrink();
+    return CustomPaint(
+      size: const Size(double.infinity, 40),
+      painter: _SparklinePainter(data, color),
+    );
+  }
+}
+
+class _SparklinePainter extends CustomPainter {
+  final List<double> data;
+  final Color color;
+
+  _SparklinePainter(this.data, this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (data.length < 2) return;
+
+    final path = Path();
+    final fillPath = Path();
+    
+    double minVal = data[0];
+    double maxVal = data[0];
+    for (final v in data) {
+      if (v < minVal) minVal = v;
+      if (v > maxVal) maxVal = v;
+    }
+    
+    final range = maxVal - minVal;
+    final scaleY = range == 0 ? 0.5 : 1.0 / range;
+
+    final dx = size.width / (data.length - 1);
+    
+    for (int i = 0; i < data.length; i++) {
+      final x = i * dx;
+      final relativeY = range == 0 ? 0.5 : (data[i] - minVal) * scaleY;
+      final y = size.height - (relativeY * (size.height - 10) + 5);
+      
+      if (i == 0) {
+        path.moveTo(x, y);
+        fillPath.moveTo(x, size.height);
+        fillPath.lineTo(x, y);
+      } else {
+        path.lineTo(x, y);
+        fillPath.lineTo(x, y);
+      }
+      
+      if (i == data.length - 1) {
+        fillPath.lineTo(x, size.height);
+        fillPath.close();
+      }
+    }
+
+    final fillPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          color.withValues(alpha: 0.25),
+          color.withValues(alpha: 0.0),
+        ],
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height))
+      ..style = PaintingStyle.fill;
+
+    final linePaint = Paint()
+      ..color = color
+      ..strokeWidth = 2.0
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..style = PaintingStyle.stroke;
+
+    canvas.drawPath(fillPath, fillPaint);
+    canvas.drawPath(path, linePaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _SparklinePainter oldDelegate) {
+    return oldDelegate.data != data || oldDelegate.color != color;
+  }
 }
