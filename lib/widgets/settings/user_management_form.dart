@@ -17,6 +17,7 @@ class _UserManagementFormState extends State<UserManagementForm>
   String _searchQuery = '';
   String _filterRole = 'all'; // 'all', 'admin', 'owner', 'monitor'
 
+  final Stream<DatabaseEvent> _usersStream = DatabaseService.instance.getAllUsersStream();
   late AnimationController _animCtrl;
   late Animation<double> _fadeAnim;
 
@@ -45,7 +46,7 @@ class _UserManagementFormState extends State<UserManagementForm>
     return Container(
       color: const Color(0xFFF5F6FA),
       child: StreamBuilder<DatabaseEvent>(
-        stream: DatabaseService.instance.getAllUsersStream(),
+        stream: _usersStream,
         builder: (context, snapshot) {
           // Parse users list from snapshot for stats and list
           final usersList = <MapEntry<String, Map<String, dynamic>>>[];
@@ -103,12 +104,24 @@ class _UserManagementFormState extends State<UserManagementForm>
                 // Search Bar + Filters
                 _buildSearchAndFilters(),
 
-                // Users List
+                // Users List (with smooth crossfade on filter change)
                 Expanded(
-                  child: _buildUsersList(
-                    snapshot: snapshot,
-                    filteredUsers: filteredUsers,
-                    currentUid: currentUid,
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 250),
+                    switchInCurve: Curves.easeOut,
+                    switchOutCurve: Curves.easeIn,
+                    transitionBuilder: (child, animation) {
+                      return FadeTransition(
+                        opacity: animation,
+                        child: child,
+                      );
+                    },
+                    child: _buildUsersList(
+                      key: ValueKey('${_filterRole}_$_searchQuery'),
+                      snapshot: snapshot,
+                      filteredUsers: filteredUsers,
+                      currentUid: currentUid,
+                    ),
                   ),
                 ),
               ],
@@ -334,6 +347,13 @@ class _UserManagementFormState extends State<UserManagementForm>
   }
 
   Widget _buildSearchAndFilters() {
+    final tabs = [
+      (Icons.group_rounded, 'All', 'all'),
+      (Icons.admin_panel_settings_rounded, 'Admins', 'admin'),
+      (Icons.shield_rounded, 'Owners', 'owner'),
+      (Icons.visibility_rounded, 'Monitors', 'monitor'),
+    ];
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
       child: Column(
@@ -376,20 +396,63 @@ class _UserManagementFormState extends State<UserManagementForm>
             ),
             style: const TextStyle(fontSize: 13),
           ),
-          const SizedBox(height: 10),
-          // Filter chips
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
+          const SizedBox(height: 12),
+          // Filter Tabs (styled like the tank screen tabs)
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: AppColors.darkWith(0.03),
+              borderRadius: BorderRadius.circular(16),
+            ),
             child: Row(
-              children: [
-                _buildFilterChip('All', 'all'),
-                const SizedBox(width: 6),
-                _buildFilterChip('Admins', 'admin'),
-                const SizedBox(width: 6),
-                _buildFilterChip('Owners', 'owner'),
-                const SizedBox(width: 6),
-                _buildFilterChip('Monitors', 'monitor'),
-              ],
+              children: List.generate(tabs.length, (i) {
+                final isActive = _filterRole == tabs[i].$3;
+                return Expanded(
+                  child: GestureDetector(
+                    onTap: () => setState(() => _filterRole = tabs[i].$3),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      decoration: BoxDecoration(
+                        color: isActive ? Colors.white : Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: isActive
+                            ? [
+                                BoxShadow(
+                                  color: AppColors.darkWith(0.05),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ]
+                            : null,
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            tabs[i].$1,
+                            size: 13,
+                            color: isActive
+                                ? AppColors.primary
+                                : AppColors.darkWith(0.4),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            tabs[i].$2,
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: isActive
+                                  ? AppColors.primary
+                                  : AppColors.darkWith(0.4),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }),
             ),
           ),
         ],
@@ -397,51 +460,110 @@ class _UserManagementFormState extends State<UserManagementForm>
     );
   }
 
-  Widget _buildFilterChip(String label, String value) {
-    final isActive = _filterRole == value;
-    return GestureDetector(
-      onTap: () => setState(() => _filterRole = value),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-        decoration: BoxDecoration(
-          color: isActive ? AppColors.primary : Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: isActive ? AppColors.primary : AppColors.darkWith(0.08),
-          ),
-          boxShadow: isActive
-              ? [
-                  BoxShadow(
-                    color: AppColors.primary.withValues(alpha: 0.2),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ]
-              : [],
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            color: isActive ? Colors.white : AppColors.darkWith(0.5),
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildUsersList({
+    Key? key,
     required AsyncSnapshot<DatabaseEvent> snapshot,
     required List<MapEntry<String, Map<String, dynamic>>> filteredUsers,
     required String? currentUid,
   }) {
+    Widget content;
     if (snapshot.connectionState == ConnectionState.waiting) {
-      return const Center(
+      content = const Center(
         child: CircularProgressIndicator(color: AppColors.primary),
       );
+    } else if (snapshot.hasError) {
+      content = Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline, size: 48, color: Colors.redAccent),
+            const SizedBox(height: 12),
+            Text(
+              'Error loading users',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: AppColors.darkWith(0.6),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${snapshot.error}',
+              style: TextStyle(fontSize: 11, color: AppColors.darkWith(0.4)),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    } else if (filteredUsers.isEmpty) {
+      content = Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.people_outline,
+                size: 48, color: AppColors.darkWith(0.15)),
+            const SizedBox(height: 12),
+            Text(
+              _searchQuery.isNotEmpty
+                  ? 'No matching users found'
+                  : 'No users in this category',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppColors.darkWith(0.4),
+              ),
+            ),
+          ],
+        ),
+      );
+    } else {
+      String? currentOwnerUid;
+      String? currentOwnerName;
+      if (snapshot.hasData && snapshot.data?.snapshot.value != null) {
+        final rawUsers = snapshot.data!.snapshot.value as Map;
+        rawUsers.forEach((key, val) {
+          if (val is Map && val['profile'] != null) {
+            final profile = val['profile'] as Map;
+            if (profile['role'] == 'owner') {
+              currentOwnerUid = key.toString();
+              currentOwnerName = profile['displayName'] ?? profile['email'] ?? 'CrayCare Owner';
+            }
+          }
+        });
+      }
+
+      content = ListView.builder(
+        padding: const EdgeInsets.only(top: 6, bottom: 24),
+        itemCount: filteredUsers.length,
+        itemBuilder: (context, idx) {
+          final userEntry = filteredUsers[idx];
+          final uid = userEntry.key;
+          final profile = userEntry.value;
+
+          final String name = profile['displayName'] ?? 'CrayCare User';
+          final String email = profile['email'] ?? 'No email';
+          final String role = profile['role'] ?? 'monitor';
+          final String status = profile['status'] ?? 'active';
+          final String? photoUrl = profile['photoUrl'] as String?;
+          final bool isSelf = uid == currentUid;
+
+          return _buildUserTile(
+            uid: uid,
+            name: name,
+            email: email,
+            role: role,
+            status: status,
+            photoUrl: photoUrl,
+            isSelf: isSelf,
+            index: idx,
+            currentOwnerUid: currentOwnerUid,
+            currentOwnerName: currentOwnerName,
+          );
+        },
+      );
     }
+
+    return Container(key: key, child: content);
 
     if (snapshot.hasError) {
       return Center(
@@ -584,20 +706,7 @@ class _UserManagementFormState extends State<UserManagementForm>
     final colorIdx = name.hashCode.abs() % avatarColors.length;
     final avatarColor = isDisabled ? Colors.grey.shade400 : avatarColors[colorIdx];
 
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0.0, end: 1.0),
-      duration: Duration(milliseconds: 300 + (index * 50).clamp(0, 300)),
-      curve: Curves.easeOut,
-      builder: (context, value, child) {
-        return Opacity(
-          opacity: value,
-          child: Transform.translate(
-            offset: Offset(0, 12 * (1 - value)),
-            child: child,
-          ),
-        );
-      },
-      child: Container(
+    return Container(
         margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         decoration: BoxDecoration(
           color: isDisabled ? const Color(0xFFFAFAFA) : Colors.white,
@@ -803,8 +912,7 @@ class _UserManagementFormState extends State<UserManagementForm>
             ),
           ),
         ),
-      ),
-    );
+      );
   }
 
   void _showUserActionSheet(
