@@ -35,6 +35,7 @@
 #define SOUND_SPEED_CM_US   0.034
 #define MAX_DIST_CM         400
 #define ECHO_TIMEOUT_US     30000
+#define TANK_DEPTH_CM       100.0f  // SET THIS: distance from sensor to tank bottom (cm)
 
 // --- LCD ---
 #define LCD_ADDR    0x27
@@ -104,6 +105,12 @@ static int feedHour2 = 18, feedMin2 = 0;
 static bool fedAM = false, fedPM = false;
 static int lastFeedCheckMin = -1;
 
+// --- Schedule sync from Firebase ---
+static unsigned long lastSchedPoll = 0;
+static unsigned long lastSchedSync = 0;
+static int numFbSchedules = 0;
+#define SCHED_POLL_INTERVAL 30000  // poll Firebase every 30s
+
 static void loadFeederSchedule();
 static void saveFeederSchedule();
 
@@ -124,6 +131,8 @@ static void processSerialCommands();
 static void loadFeederSchedule();
 static void saveFeederSchedule();
 static void checkFeederSchedule();
+static void pollFirebaseSchedules();
+static void markScheduleDispatched();
 
 // =============================================================================
 // I2C HELPERS
@@ -169,9 +178,12 @@ static float readWaterLevelCm() {
     digitalWrite(TRIG_PIN, LOW);
     long duration = pulseIn(ECHO_PIN, HIGH, ECHO_TIMEOUT_US);
     if (duration == 0) return -1;
-    float distance = duration * SOUND_SPEED_CM_US / 2.0;
-    if (distance < 2 || distance > MAX_DIST_CM) return -1;
-    return distance;
+    float distToWater = duration * SOUND_SPEED_CM_US / 2.0;
+    if (distToWater < 2 || distToWater > MAX_DIST_CM) return -1;
+    float waterDepth = TANK_DEPTH_CM - distToWater;
+    if (waterDepth < 0) waterDepth = 0;
+    if (waterDepth > TANK_DEPTH_CM) waterDepth = TANK_DEPTH_CM;
+    return waterDepth;
 }
 
 // =============================================================================
@@ -256,6 +268,7 @@ static void doFeed(const String& cmdPath) {
     }
     executeServoCycle();
     feedCount++;
+    markScheduleDispatched();
     if (Firebase.ready()) {
         FirebaseJson j;
         j.add("isRunning", false); j.add("feedCount", feedCount);
@@ -368,6 +381,7 @@ static void loadFeederSchedule() {
     feedHour2 = prefs.getInt("hr2", 18);
     feedMin2 = prefs.getInt("min2", 0);
     prefs.end();
+    lastSchedSync = 0;
     Serial.printf("[FEEDER] Schedule loaded: %02d:%02d, %02d:%02d\n", feedHour1, feedMin1, feedHour2, feedMin2);
 }
 
@@ -413,6 +427,86 @@ static void checkFeederSchedule() {
     }
 }
 
+static void pollFirebaseSchedules() {
+    if (!Firebase.ready()) return;
+    unsigned long now = millis();
+    if (now - lastSchedPoll < SCHED_POLL_INTERVAL) return;
+    lastSchedPoll = now;
+
+    FirebaseJson j;
+    if (!Firebase.RTDB.getJSON(&fbW, "/feeder/schedules", &j)) {
+        Serial.println("[SCHED] Fetch failed");
+        return;
+    }
+
+    struct FbSched { int hour24; int min; };
+    FbSched scheds[8];
+    int count = 0;
+
+    size_t n = j.iteratorBegin();
+    for (size_t i = 0; i < n && count < 8; i++) {
+        int itType; String key, value;
+        j.iteratorGet(i, itType, key, value);
+        if (itType != FirebaseJson::JSON_OBJECT) continue;
+
+        FirebaseJson sub; sub.setJsonData(value);
+        FirebaseJsonData d;
+        bool enabled = false;
+        String timeStr = "", ampmStr = "";
+        if (sub.get(d, "enabled")) {
+            String ev = d.stringValue;
+            enabled = (ev == "true" || ev == "1");
+        }
+        if (sub.get(d, "time")) timeStr = d.stringValue;
+        if (sub.get(d, "ampm")) ampmStr = d.stringValue;
+        if (!enabled || timeStr.length() == 0) continue;
+
+        int colon = timeStr.indexOf(':');
+        if (colon < 0) continue;
+        int h = timeStr.substring(0, colon).toInt();
+        int m = timeStr.substring(colon + 1).toInt();
+        if (ampmStr == "PM" && h != 12) h += 12;
+        if (ampmStr == "AM" && h == 12) h = 0;
+
+        scheds[count].hour24 = h;
+        scheds[count].min = m;
+        count++;
+    }
+    j.iteratorEnd();
+
+    numFbSchedules = count;
+
+    // Sort by time-of-day
+    for (int i = 0; i < count - 1; i++) {
+        for (int j2 = i + 1; j2 < count; j2++) {
+            int ti = scheds[i].hour24 * 60 + scheds[i].min;
+            int tj = scheds[j2].hour24 * 60 + scheds[j2].min;
+            if (ti > tj) { FbSched tmp = scheds[i]; scheds[i] = scheds[j2]; scheds[j2] = tmp; }
+        }
+    }
+
+    int h1 = 9, m1 = 0, h2 = 18, m2 = 0;
+    if (count >= 1) { h1 = scheds[0].hour24; m1 = scheds[0].min; }
+    if (count >= 2) { h2 = scheds[1].hour24; m2 = scheds[1].min; }
+
+    if (h1 != feedHour1 || m1 != feedMin1 || h2 != feedHour2 || m2 != feedMin2) {
+        feedHour1 = h1; feedMin1 = m1; feedHour2 = h2; feedMin2 = m2;
+        saveFeederSchedule();
+        Serial.printf("[SCHED] Synced: %02d:%02d, %02d:%02d (%d schedule(s))\n",
+            feedHour1, feedMin1, feedHour2, feedMin2, count);
+    }
+    lastSchedSync = now;
+}
+
+static void markScheduleDispatched() {
+    struct tm t;
+    if (!getLocalTime(&t)) return;
+    char dateKey[20];
+    snprintf(dateKey, sizeof(dateKey), "%04d/%02d/%02d",
+        1900 + t.tm_year, t.tm_mon + 1, t.tm_mday);
+    Firebase.RTDB.setBool(&fbW, String("/feeder/dispatched/") + dateKey + "/esp_local", true);
+}
+
 // =============================================================================
 // LCD
 // =============================================================================
@@ -436,10 +530,11 @@ static void updateLCD() {
         lcd.printf("FD:%s %s", t1.c_str(), t2.c_str());
     } else {
         bool a1 = relays[0].active, a2 = relays[1].active, p = relays[2].active;
+        bool schedOk = (millis() - lastSchedSync < 120000);
         lcd.setCursor(0, 0);
         lcd.printf("A1:%s A2:%s", a1 ? "ON" : "OFF", a2 ? "ON" : "OFF");
         lcd.setCursor(0, 1);
-        lcd.printf("P:%s FB:%s", p ? "ON" : "OFF", Firebase.ready() ? "OK" : "..");
+        lcd.printf("P:%s Sched:%s", p ? "ON" : "OFF", schedOk ? "OK" : "--");
     }
 }
 
@@ -462,6 +557,7 @@ static void printHelp() {
     Serial.println("  feedtime1 <H> <M>    Set AM feed time (24h format)");
     Serial.println("  feedtime2 <H> <M>    Set PM feed time (24h format)");
     Serial.println("  feedtime             Show current feed schedule");
+    Serial.println("  schedulesync         Force Firebase schedule sync");
     Serial.println("");
     Serial.println("--- WiFi ---");
     Serial.println("  wifissid <SSID>      Save WiFi SSID");
@@ -562,6 +658,11 @@ static void processSerialCommands() {
     if (cmd == "feedtime") {
         Serial.printf("  AM: %s\n", fmtTime12(feedHour1, feedMin1).c_str());
         Serial.printf("  PM: %s\n", fmtTime12(feedHour2, feedMin2).c_str());
+        return;
+    }
+    if (cmd == "schedulesync") {
+        lastSchedPoll = 0;
+        Serial.println("[CMD] Schedule sync triggered");
         return;
     }
 
@@ -768,6 +869,8 @@ void loop() {
     if (Firebase.ready()) {
         pollModes();
         pollCommands();
+        pollFirebaseSchedules();
+        checkFeederSchedule();
         writeStatus();
 
         if (now - lastPublish >= PUBLISH_INTERVAL) {

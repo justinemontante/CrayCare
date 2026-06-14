@@ -1,0 +1,140 @@
+=============================================
+  CrayCare All-in-One — Serial Commands
+  Baud Rate: 115200
+=============================================
+
+--- RELAYS ---
+  n1on          Aerator 1 ON
+  n1off         Aerator 1 OFF
+  n2on          Aerator 2 ON
+  n2off         Aerator 2 OFF
+  n3on          Water Pump ON
+  n3off         Water Pump OFF
+  relay status  Show relay states and modes
+
+  EXAMPLE:
+    n1on            →  Aerator 1 turns ON
+    n1off           →  Aerator 1 turns OFF
+    n3on            →  Water Pump turns ON
+    relay status    →  Shows all 3 relay states
+
+--- SERVO / FEEDER ---
+  servopause <ms>    Set servo open pause (ms)
+  servocycle         Run one full feed cycle
+  feedtime1 <H> <M>  Set AM feed time (24h format)
+  feedtime2 <H> <M>  Set PM feed time (24h format)
+  feedtime           Show current feed schedule
+  schedulesync       Force sync schedules from Firebase
+
+  EXAMPLE:
+    servopause 2000      →  Servo stays open for 2 seconds
+    servocycle           →  Run full feed: open → pause → close
+    feedtime1 9 0         →  AM feed at 9:00 AM
+    feedtime1 6 30        →  AM feed at 6:30 AM
+    feedtime2 18 0        →  PM feed at 6:00 PM
+    feedtime2 21 30       →  PM feed at 9:30 PM
+    feedtime              →  Shows both scheduled times
+    schedulesync          →  Force sync from Firebase now
+
+--- WIFI ---
+  wifissid <SSID>    Save WiFi SSID (needs restart)
+  wifipass <PASS>    Save WiFi password (needs restart)
+  wifireset          Reset WiFi credentials to defaults
+  wifistatus         Show stored WiFi credentials and status
+
+  EXAMPLE:
+    wifissid MyHomeWiFi     →  Save SSID (then type 'restart')
+    wifipass MyPass123      →  Save password (then type 'restart')
+    wifireset               →  Clear saved credentials
+    wifistatus              →  Show current WiFi status
+
+--- TURBIDITY CALIBRATION ---
+  turbclear <V>      Set voltage for 0 NTU (clear water)
+  turbdirty <V>       Set voltage for ~500 NTU (dirty water)
+  turbair <V>         Set air threshold voltage
+  turblclear          (alias for turbclear)
+
+  EXAMPLE:
+    turbclear 1.48          →  Set clear water voltage to 1.48V
+    turbdirty 1.65          →  Set dirty water voltage to 1.65V
+    turbair 1.00            →  Set air threshold to 1.00V
+    turblclear 1.48          →  Same as turbclear
+
+  TIP: Use 'debugmode' to see raw voltage first, then
+       calibrate based on what you read in air and water.
+
+--- pH CALIBRATION ---
+  phcal7              Calibrate at pH 7.0 buffer
+  phcal4              Calibrate at pH 4.0 buffer
+
+  EXAMPLE:
+    phcal7                 →  Submerge probe in pH 7.0 buffer, type this
+    phcal4                 →  Submerge probe in pH 4.0 buffer, type this
+
+  CALIBRATION ORDER: Always do phcal7 FIRST, then phcal4.
+  Rinse probe with clean water between buffers.
+
+--- DO CALIBRATION ---
+  doclear             Calibrate DO sensor in air (100% saturation)
+
+  EXAMPLE:
+    doclear                  →  Put probe in bottle with damp cotton,
+                                wait for STABLE on LCD, then type this
+
+  PROCEDURE:
+    1. Wet cotton with water, squeeze until damp (not dripping)
+    2. Place cotton in bottom of bottle
+    3. Insert DO probe (tip above cotton, not touching water)
+    4. Cap bottle tightly
+    5. Wait 5-10 minutes for 100% humidity
+    6. Wait until LCD shows "** STABLE **"
+    7. Type: doclear
+    8. Remove probe, rinse, place in tank
+
+--- DEBUG ---
+  debugmode [0/1]     Toggle or set debug mode
+  debugstatus         Show full system status
+
+  EXAMPLE:
+    debugmode              →  Toggle debug ON/OFF
+    debugmode 1             →  Force debug ON
+    debugmode 0             →  Force debug OFF
+    debugstatus             →  Show all sensor values, WiFi, Firebase status
+
+--- SYSTEM ---
+  restart             Reboot ESP32
+  i2cscan             Scan I2C bus for devices
+  help / ?            Show this command list
+
+  EXAMPLE:
+    restart               →  Reboot (useful after wifissid/wifipass)
+    i2cscan               →  Scan for LCD and other I2C devices
+
+=============================================
+  FULL CALIBRATION WORKFLOW (SUMMARY)
+=============================================
+
+  1. DO (Dissolved Oxygen):
+       Bottle + damp cotton → wait STABLE → doclear
+
+  2. pH:
+       pH 7.0 buffer → phcal7
+       Rinse
+       pH 4.0 buffer → phcal4
+
+  3. Turbidity:
+       Probe in CLEAR water → debugmode → note voltage → turbclear <V>
+       Probe in DIRTY water → note voltage → turbdirty <V>
+       Probe in AIR → note voltage → turbair <V>
+
+=============================================
+  NOTES
+=============================================
+
+- All commands are case-insensitive
+- Calibration values are saved to NVS (persist across reboots)
+- WiFi SSID/password require 'restart' after saving
+- feedtime1/feedtime2 set LOCAL schedules (not Firebase)
+- Firebase schedules sync every 30 seconds automatically
+- Use 'schedulesync' to force an immediate Firebase sync
+- LCD cycles through 3 pages: pH/DO/Temp → Turb/Schedule → Relay/Sched status
