@@ -156,15 +156,18 @@ class NotificationService extends ChangeNotifier {
           enableVibration: true,
         ));
 
-        await manager.createNotificationChannel(const AndroidNotificationChannel(
+        // Vibration is strictly OFF on this channel
+        await manager.createNotificationChannel(AndroidNotificationChannel(
           'craycare_alerts_sound_only',
           'CrayCare Alerts (Sound Only)',
           description: 'Alerts with sound only',
           importance: Importance.high,
           playSound: true,
           enableVibration: false,
+          vibrationPattern: Int64List(0),
         ));
 
+        // Sound is strictly OFF on this channel
         await manager.createNotificationChannel(const AndroidNotificationChannel(
           'craycare_alerts_vibrate_only',
           'CrayCare Alerts (Vibration Only)',
@@ -172,15 +175,19 @@ class NotificationService extends ChangeNotifier {
           importance: Importance.high,
           playSound: false,
           enableVibration: true,
+          sound: null,
         ));
 
-        await manager.createNotificationChannel(const AndroidNotificationChannel(
+        // Sound and Vibration are strictly OFF on this channel
+        await manager.createNotificationChannel(AndroidNotificationChannel(
           'craycare_alerts_silent',
           'CrayCare Alerts (Silent)',
           description: 'Silent alerts',
-          importance: Importance.high,
+          importance: Importance.low, // Importance.low ensures no sound or vibration by system default
           playSound: false,
           enableVibration: false,
+          sound: null,
+          vibrationPattern: Int64List(0),
         ));
       }
 
@@ -252,10 +259,12 @@ class NotificationService extends ChangeNotifier {
         android: AndroidNotificationDetails(
           targetChannelId,
           'CrayCare Alert',
-          importance: Importance.high,
+          importance: _notifSound || _notifVibration ? Importance.high : Importance.low,
           priority: Priority.high,
           playSound: _notifSound,
           enableVibration: _notifVibration,
+          vibrationPattern: !_notifVibration ? Int64List(0) : null,
+          sound: !_notifSound ? null : RawResourceAndroidNotificationSound('default'),
         ),
       ),
     );
@@ -286,13 +295,14 @@ class NotificationService extends ChangeNotifier {
           enableVibration: true,
         ));
 
-        await manager.createNotificationChannel(const AndroidNotificationChannel(
+        await manager.createNotificationChannel(AndroidNotificationChannel(
           'craycare_alerts_sound_only',
           'CrayCare Alerts (Sound Only)',
           description: 'Alerts with sound only',
           importance: Importance.high,
           playSound: true,
           enableVibration: false,
+          vibrationPattern: Int64List(0),
         ));
 
         await manager.createNotificationChannel(const AndroidNotificationChannel(
@@ -302,15 +312,18 @@ class NotificationService extends ChangeNotifier {
           importance: Importance.high,
           playSound: false,
           enableVibration: true,
+          sound: null,
         ));
 
-        await manager.createNotificationChannel(const AndroidNotificationChannel(
+        await manager.createNotificationChannel(AndroidNotificationChannel(
           'craycare_alerts_silent',
           'CrayCare Alerts (Silent)',
           description: 'Silent alerts',
-          importance: Importance.high,
+          importance: Importance.low,
           playSound: false,
           enableVibration: false,
+          sound: null,
+          vibrationPattern: Int64List(0),
         ));
       }
 
@@ -341,10 +354,12 @@ class NotificationService extends ChangeNotifier {
           android: AndroidNotificationDetails(
             targetChannelId,
             'CrayCare Alert',
-            importance: Importance.high,
+            importance: playSound || vibrate ? Importance.high : Importance.low,
             priority: Priority.high,
             playSound: playSound,
             enableVibration: vibrate,
+            vibrationPattern: !vibrate ? Int64List(0) : null,
+            sound: !playSound ? null : RawResourceAndroidNotificationSound('default'),
           ),
         ),
       );
