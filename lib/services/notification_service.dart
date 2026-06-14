@@ -199,6 +199,13 @@ class NotificationService extends ChangeNotifier {
         sound: true,
       );
 
+      // Explicitly disable native system banners/alerts when the app is in the foreground
+      await messaging.setForegroundNotificationPresentationOptions(
+        alert: false, // Prevents popup banner
+        badge: false, // Prevents badge update in foreground
+        sound: false, // Prevents native system sound in foreground
+      );
+
       final token = await messaging.getToken();
       if (token != null) await _saveToken(token);
 
@@ -234,40 +241,9 @@ class NotificationService extends ChangeNotifier {
   }
 
   Future<void> _onForegroundMessage(RemoteMessage message) async {
-    // --- Respect notification settings ---
-    // Critical OFF → skip entirely
-    if (!_notifCritical) return;
-
-    final title = message.data['title'] ?? message.notification?.title ?? 'CrayCare Alert';
-    final body = message.data['body'] ?? message.notification?.body ?? '';
-
-    // Dynamically pick the right channel depending on app settings
-    String targetChannelId = 'craycare_alerts_silent';
-    if (_notifSound && _notifVibration) {
-      targetChannelId = 'craycare_alerts_sound_vibrate';
-    } else if (_notifSound) {
-      targetChannelId = 'craycare_alerts_sound_only';
-    } else if (_notifVibration) {
-      targetChannelId = 'craycare_alerts_vibrate_only';
-    }
-
-    await _localNotifications.show(
-      DateTime.now().millisecondsSinceEpoch ~/ 1000,
-      title,
-      body,
-      NotificationDetails(
-        android: AndroidNotificationDetails(
-          targetChannelId,
-          'CrayCare Alert',
-          importance: _notifSound || _notifVibration ? Importance.high : Importance.low,
-          priority: Priority.high,
-          playSound: _notifSound,
-          enableVibration: _notifVibration,
-          vibrationPattern: !_notifVibration ? Int64List(0) : null,
-          sound: !_notifSound ? null : RawResourceAndroidNotificationSound('default'),
-        ),
-      ),
-    );
+    // Standard Behavior: Skip showing the native push notification banner when user is already in-app.
+    // The UI database listeners will automatically catch and display the new record in the notification logs.
+    debugPrint('[NotificationService] Foreground message received, skipping native banner to follow app standards.');
   }
 
   @pragma('vm:entry-point')
@@ -391,6 +367,7 @@ class NotificationService extends ChangeNotifier {
   void _loadUserPrefs() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
+    _prefsSub?.cancel();
     _prefsSub = FirebaseDatabase.instance
         .ref('users/${user.uid}/notifPrefs')
         .onValue
@@ -403,6 +380,7 @@ class NotificationService extends ChangeNotifier {
       _notifCritical = map['critical'] as bool? ?? true;
       _notifFeeding = map['feeding'] as bool? ?? true;
       _notifSampling = map['sampling'] as bool? ?? false;
+      notifyListeners();
     });
   }
 
@@ -596,22 +574,8 @@ class NotificationService extends ChangeNotifier {
       debugPrint('[NotificationService] Failed to save: $e');
     });
 
-    _localNotifications.show(
-      timestamp.millisecondsSinceEpoch ~/ 1000,
-      title,
-      message,
-      NotificationDetails(
-        android: AndroidNotificationDetails(
-          _channelId,
-          _channelName,
-          channelDescription: _channelDesc,
-          importance: Importance.high,
-          priority: Priority.high,
-          playSound: _notifSound,
-          enableVibration: _notifVibration,
-        ),
-      ),
-    );
+    // DO NOT show native system popups when the app is in the foreground
+    debugPrint('[NotificationService] Local notification recorded in DB, skipping native banner in-app.');
   }
 
   void markAllRead() {
