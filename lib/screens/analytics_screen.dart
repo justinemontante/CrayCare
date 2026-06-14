@@ -125,20 +125,28 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
   Future<void> _generateData(String range) async {
     int pts;
+    int intervalMinutes;
     if (range == 'live') {
       pts = 8;
-    } else if (range == '24h')
-      pts = 24;
-    else if (range == '7d')
-      pts = 7;
-    else if (range == '30d')
-      pts = 30;
-    else if (range == 'custom') {
+      intervalMinutes = 0;
+    } else if (range == '24h') {
+      pts = 144; // every 10 minutes × 24h
+      intervalMinutes = 10;
+    } else if (range == '7d') {
+      pts = 168; // every hour × 7d
+      intervalMinutes = 60;
+    } else if (range == '30d') {
+      pts = 30; // every day
+      intervalMinutes = 0;
+    } else if (range == 'custom') {
       pts = _customEndDate.difference(_customStartDate).inDays + 1;
       if (pts < 1) pts = 1;
       if (pts > 365) pts = 365;
-    } else
+      intervalMinutes = 0;
+    } else {
       pts = 10;
+      intervalMinutes = 0;
+    }
 
     final now = DateTime.now();
     List<String> labels;
@@ -151,10 +159,14 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       });
 
       SensorService.sensorKeys.forEach((key) {
-        final raw = SensorService.instance.getData(key);
-        _data['$key-live'] = raw.length > 8
-            ? raw.sublist(raw.length - 8)
-            : List.from(raw);
+        if (SensorService.instance.hasFreshData(key)) {
+          final raw = SensorService.instance.getData(key);
+          _data['$key-live'] = raw.length > 8
+              ? raw.sublist(raw.length - 8)
+              : List.from(raw);
+        } else {
+          _data['$key-live'] = [];
+        }
       });
       _labels['live'] = labels;
       return;
@@ -162,10 +174,17 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
     if (range == '24h') {
       labels = List.generate(pts, (i) {
+        final d = now.subtract(Duration(minutes: (pts - 1 - i) * 10));
+        final h = d.hour > 12 ? d.hour - 12 : (d.hour == 0 ? 12 : d.hour);
+        final ampm = d.hour >= 12 ? 'PM' : 'AM';
+        return '${h}:${d.minute.toString().padLeft(2, '0')} $ampm';
+      });
+    } else if (range == '7d') {
+      labels = List.generate(pts, (i) {
         final d = now.subtract(Duration(hours: (pts - 1 - i)));
         final h = d.hour > 12 ? d.hour - 12 : (d.hour == 0 ? 12 : d.hour);
         final ampm = d.hour >= 12 ? 'PM' : 'AM';
-        return '$h $ampm';
+        return '${d.month}/${d.day} ${h}${ampm}';
       });
     } else if (range == 'custom') {
       labels = List.generate(pts, (i) {
@@ -173,23 +192,14 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
         return _formatDate(d);
       });
     } else {
+      // 30d
       labels = List.generate(pts, (i) {
         final days = (pts - 1 - i);
         final d = now.subtract(Duration(days: days));
         return [
-              'Jan',
-              'Feb',
-              'Mar',
-              'Apr',
-              'May',
-              'Jun',
-              'Jul',
-              'Aug',
-              'Sep',
-              'Oct',
-              'Nov',
-              'Dec',
-            ][d.month - 1] +
+          'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+        ][d.month - 1] +
             ' ${d.day}';
       });
     }
@@ -223,17 +233,26 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       return;
     }
 
-    final labelTimes = List<DateTime>.generate(pts, (i) {
-      if (range == '24h') {
+    List<DateTime> labelTimes;
+    if (range == '24h') {
+      labelTimes = List<DateTime>.generate(pts, (i) {
+        return now.subtract(Duration(minutes: (pts - 1 - i) * 10));
+      });
+    } else if (range == '7d') {
+      labelTimes = List<DateTime>.generate(pts, (i) {
         return now.subtract(Duration(hours: (pts - 1 - i)));
-      }
-      return now.subtract(Duration(days: (pts - 1 - i)));
-    });
+      });
+    } else {
+      labelTimes = List<DateTime>.generate(pts, (i) {
+        return now.subtract(Duration(days: (pts - 1 - i)));
+      });
+    }
 
     for (final key in SensorService.sensorKeys) {
       final fbKey = _firebaseKeyMap[key]!;
-      _data['$key-$range'] = _aggregateHistory(records, fbKey, labelTimes);
+      _data['$key-$range'] = _aggregateHistory(records, fbKey, labelTimes, intervalMinutes);
     }
+
   }
 
   DateTime _parseTimestamp(dynamic ts) {
@@ -246,11 +265,17 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     List<Map<String, dynamic>> records,
     String fbKey,
     List<DateTime> labelTimes,
+    int intervalMinutes,
   ) {
-    final interval = labelTimes.length > 1
-        ? labelTimes[1].difference(labelTimes[0])
-        : const Duration(minutes: 10);
-    final window = interval ~/ 2;
+    final Duration window;
+    if (intervalMinutes > 0) {
+      window = Duration(minutes: intervalMinutes ~/ 2);
+    } else {
+      final interval = labelTimes.length > 1
+          ? labelTimes[1].difference(labelTimes[0])
+          : const Duration(minutes: 10);
+      window = interval ~/ 2;
+    }
     return List<double>.generate(labelTimes.length, (i) {
       if (i < labelTimes.length - 1 &&
           labelTimes[i + 1].difference(labelTimes[i]).inDays >= 1) {

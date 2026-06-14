@@ -141,16 +141,55 @@ class NotificationService extends ChangeNotifier {
       );
       await _localNotifications.initialize(initSettings);
 
-      const androidChannel = AndroidNotificationChannel(
-        _channelId,
-        _channelName,
-        description: _channelDesc,
-        importance: Importance.high,
-      );
-      await _localNotifications
+      final manager = _localNotifications
           .resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin>()
-          ?.createNotificationChannel(androidChannel);
+              AndroidFlutterLocalNotificationsPlugin>();
+
+      if (manager != null) {
+        // Create 4 distinct channels for each combination of Sound & Vibration
+        await manager.createNotificationChannel(const AndroidNotificationChannel(
+          'craycare_alerts_sound_vibrate',
+          'CrayCare Alerts (Sound & Vibrate)',
+          description: 'Alerts with sound and vibration enabled',
+          importance: Importance.high,
+          playSound: true,
+          enableVibration: true,
+        ));
+
+        // Vibration is strictly OFF on this channel
+        await manager.createNotificationChannel(AndroidNotificationChannel(
+          'craycare_alerts_sound_only',
+          'CrayCare Alerts (Sound Only)',
+          description: 'Alerts with sound only',
+          importance: Importance.high,
+          playSound: true,
+          enableVibration: false,
+          vibrationPattern: Int64List(0),
+        ));
+
+        // Sound is strictly OFF on this channel
+        await manager.createNotificationChannel(const AndroidNotificationChannel(
+          'craycare_alerts_vibrate_only',
+          'CrayCare Alerts (Vibration Only)',
+          description: 'Alerts with vibration only',
+          importance: Importance.high,
+          playSound: false,
+          enableVibration: true,
+          sound: null,
+        ));
+
+        // Sound and Vibration are strictly OFF on this channel
+        await manager.createNotificationChannel(AndroidNotificationChannel(
+          'craycare_alerts_silent',
+          'CrayCare Alerts (Silent)',
+          description: 'Silent alerts',
+          importance: Importance.low, // Importance.low ensures no sound or vibration by system default
+          playSound: false,
+          enableVibration: false,
+          sound: null,
+          vibrationPattern: Int64List(0),
+        ));
+      }
 
       final messaging = FirebaseMessaging.instance;
 
@@ -158,6 +197,13 @@ class NotificationService extends ChangeNotifier {
         alert: true,
         badge: true,
         sound: true,
+      );
+
+      // Explicitly disable native system banners/alerts when the app is in the foreground
+      await messaging.setForegroundNotificationPresentationOptions(
+        alert: false, // Prevents popup banner
+        badge: false, // Prevents badge update in foreground
+        sound: false, // Prevents native system sound in foreground
       );
 
       final token = await messaging.getToken();
@@ -195,25 +241,9 @@ class NotificationService extends ChangeNotifier {
   }
 
   Future<void> _onForegroundMessage(RemoteMessage message) async {
-    final title = message.notification?.title ?? 'CrayCare Alert';
-    final body = message.notification?.body ?? '';
-
-    await _localNotifications.show(
-      DateTime.now().millisecondsSinceEpoch ~/ 1000,
-      title,
-      body,
-      NotificationDetails(
-        android: AndroidNotificationDetails(
-          _channelId,
-          _channelName,
-          channelDescription: _channelDesc,
-          importance: Importance.high,
-          priority: Priority.high,
-          playSound: _notifSound,
-          enableVibration: _notifVibration,
-        ),
-      ),
-    );
+    // Standard Behavior: Skip showing the native push notification banner when user is already in-app.
+    // The UI database listeners will automatically catch and display the new record in the notification logs.
+    debugPrint('[NotificationService] Foreground message received, skipping native banner to follow app standards.');
   }
 
   @pragma('vm:entry-point')
@@ -226,25 +256,86 @@ class NotificationService extends ChangeNotifier {
         android: androidSettings,
       ));
 
-      final title = message.notification?.title ??
-          message.data['title'] ??
-          'CrayCare Alert';
-      final body = message.notification?.body ??
-          message.data['message'] ??
-          message.data['body'] ??
-          '';
+      // Re-initialize dynamic channels in background context to ensure they exist for the system
+      final manager = localNotif
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>();
+
+      if (manager != null) {
+        await manager.createNotificationChannel(const AndroidNotificationChannel(
+          'craycare_alerts_sound_vibrate',
+          'CrayCare Alerts (Sound & Vibrate)',
+          description: 'Alerts with sound and vibration enabled',
+          importance: Importance.high,
+          playSound: true,
+          enableVibration: true,
+        ));
+
+        await manager.createNotificationChannel(AndroidNotificationChannel(
+          'craycare_alerts_sound_only',
+          'CrayCare Alerts (Sound Only)',
+          description: 'Alerts with sound only',
+          importance: Importance.high,
+          playSound: true,
+          enableVibration: false,
+          vibrationPattern: Int64List(0),
+        ));
+
+        await manager.createNotificationChannel(const AndroidNotificationChannel(
+          'craycare_alerts_vibrate_only',
+          'CrayCare Alerts (Vibration Only)',
+          description: 'Alerts with vibration only',
+          importance: Importance.high,
+          playSound: false,
+          enableVibration: true,
+          sound: null,
+        ));
+
+        await manager.createNotificationChannel(AndroidNotificationChannel(
+          'craycare_alerts_silent',
+          'CrayCare Alerts (Silent)',
+          description: 'Silent alerts',
+          importance: Importance.low,
+          playSound: false,
+          enableVibration: false,
+          sound: null,
+          vibrationPattern: Int64List(0),
+        ));
+      }
+
+      final data = message.data;
+      final showCritical = data['critical'] != 'false';
+      if (!showCritical) return;
+
+      final playSound = data['sound'] != 'false';
+      final vibrate = data['vibration'] != 'false';
+      final title = data['title'] ?? 'CrayCare Alert';
+      final body = data['body'] ?? data['message'] ?? '';
+
+      // Dynamically pick the right channel in background using payloads sent by FCM worker
+      String targetChannelId = 'craycare_alerts_silent';
+      if (playSound && vibrate) {
+        targetChannelId = 'craycare_alerts_sound_vibrate';
+      } else if (playSound) {
+        targetChannelId = 'craycare_alerts_sound_only';
+      } else if (vibrate) {
+        targetChannelId = 'craycare_alerts_vibrate_only';
+      }
 
       await localNotif.show(
         DateTime.now().millisecondsSinceEpoch ~/ 1000,
         title,
         body,
-        const NotificationDetails(
+        NotificationDetails(
           android: AndroidNotificationDetails(
-            _channelId,
-            _channelName,
-            channelDescription: _channelDesc,
-            importance: Importance.high,
+            targetChannelId,
+            'CrayCare Alert',
+            importance: playSound || vibrate ? Importance.high : Importance.low,
             priority: Priority.high,
+            playSound: playSound,
+            enableVibration: vibrate,
+            vibrationPattern: !vibrate ? Int64List(0) : null,
+            sound: !playSound ? null : RawResourceAndroidNotificationSound('default'),
           ),
         ),
       );
@@ -252,6 +343,7 @@ class NotificationService extends ChangeNotifier {
       debugPrint('[NotificationService] Background notification error: $e');
     }
   }
+
 
   @override
   void dispose() {
@@ -275,8 +367,9 @@ class NotificationService extends ChangeNotifier {
   void _loadUserPrefs() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
+    _prefsSub?.cancel();
     _prefsSub = FirebaseDatabase.instance
-        .ref('users/${user.uid}/notifications')
+        .ref('users/${user.uid}/notifPrefs')
         .onValue
         .listen((e) {
       if (!e.snapshot.exists || e.snapshot.value == null) return;
@@ -287,6 +380,7 @@ class NotificationService extends ChangeNotifier {
       _notifCritical = map['critical'] as bool? ?? true;
       _notifFeeding = map['feeding'] as bool? ?? true;
       _notifSampling = map['sampling'] as bool? ?? false;
+      notifyListeners();
     });
   }
 
@@ -480,22 +574,8 @@ class NotificationService extends ChangeNotifier {
       debugPrint('[NotificationService] Failed to save: $e');
     });
 
-    _localNotifications.show(
-      timestamp.millisecondsSinceEpoch ~/ 1000,
-      title,
-      message,
-      NotificationDetails(
-        android: AndroidNotificationDetails(
-          _channelId,
-          _channelName,
-          channelDescription: _channelDesc,
-          importance: Importance.high,
-          priority: Priority.high,
-          playSound: _notifSound,
-          enableVibration: _notifVibration,
-        ),
-      ),
-    );
+    // DO NOT show native system popups when the app is in the foreground
+    debugPrint('[NotificationService] Local notification recorded in DB, skipping native banner in-app.');
   }
 
   void markAllRead() {
