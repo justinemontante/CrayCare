@@ -141,16 +141,48 @@ class NotificationService extends ChangeNotifier {
       );
       await _localNotifications.initialize(initSettings);
 
-      const androidChannel = AndroidNotificationChannel(
-        _channelId,
-        _channelName,
-        description: _channelDesc,
-        importance: Importance.high,
-      );
-      await _localNotifications
+      final manager = _localNotifications
           .resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin>()
-          ?.createNotificationChannel(androidChannel);
+              AndroidFlutterLocalNotificationsPlugin>();
+
+      if (manager != null) {
+        // Create 4 distinct channels for each combination of Sound & Vibration
+        await manager.createNotificationChannel(const AndroidNotificationChannel(
+          'craycare_alerts_sound_vibrate',
+          'CrayCare Alerts (Sound & Vibrate)',
+          description: 'Alerts with sound and vibration enabled',
+          importance: Importance.high,
+          playSound: true,
+          enableVibration: true,
+        ));
+
+        await manager.createNotificationChannel(const AndroidNotificationChannel(
+          'craycare_alerts_sound_only',
+          'CrayCare Alerts (Sound Only)',
+          description: 'Alerts with sound only',
+          importance: Importance.high,
+          playSound: true,
+          enableVibration: false,
+        ));
+
+        await manager.createNotificationChannel(const AndroidNotificationChannel(
+          'craycare_alerts_vibrate_only',
+          'CrayCare Alerts (Vibration Only)',
+          description: 'Alerts with vibration only',
+          importance: Importance.high,
+          playSound: false,
+          enableVibration: true,
+        ));
+
+        await manager.createNotificationChannel(const AndroidNotificationChannel(
+          'craycare_alerts_silent',
+          'CrayCare Alerts (Silent)',
+          description: 'Silent alerts',
+          importance: Importance.high,
+          playSound: false,
+          enableVibration: false,
+        ));
+      }
 
       final messaging = FirebaseMessaging.instance;
 
@@ -202,19 +234,28 @@ class NotificationService extends ChangeNotifier {
     final title = message.data['title'] ?? message.notification?.title ?? 'CrayCare Alert';
     final body = message.data['body'] ?? message.notification?.body ?? '';
 
+    // Dynamically pick the right channel depending on app settings
+    String targetChannelId = 'craycare_alerts_silent';
+    if (_notifSound && _notifVibration) {
+      targetChannelId = 'craycare_alerts_sound_vibrate';
+    } else if (_notifSound) {
+      targetChannelId = 'craycare_alerts_sound_only';
+    } else if (_notifVibration) {
+      targetChannelId = 'craycare_alerts_vibrate_only';
+    }
+
     await _localNotifications.show(
       DateTime.now().millisecondsSinceEpoch ~/ 1000,
       title,
       body,
       NotificationDetails(
         android: AndroidNotificationDetails(
-          _channelId,
-          _channelName,
-          channelDescription: _channelDesc,
+          targetChannelId,
+          'CrayCare Alert',
           importance: Importance.high,
           priority: Priority.high,
-          playSound: _notifSound,           // Sound ON/OFF
-          enableVibration: _notifVibration,  // Vibration ON/OFF
+          playSound: _notifSound,
+          enableVibration: _notifVibration,
         ),
       ),
     );
@@ -230,6 +271,49 @@ class NotificationService extends ChangeNotifier {
         android: androidSettings,
       ));
 
+      // Re-initialize dynamic channels in background context to ensure they exist for the system
+      final manager = localNotif
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>();
+
+      if (manager != null) {
+        await manager.createNotificationChannel(const AndroidNotificationChannel(
+          'craycare_alerts_sound_vibrate',
+          'CrayCare Alerts (Sound & Vibrate)',
+          description: 'Alerts with sound and vibration enabled',
+          importance: Importance.high,
+          playSound: true,
+          enableVibration: true,
+        ));
+
+        await manager.createNotificationChannel(const AndroidNotificationChannel(
+          'craycare_alerts_sound_only',
+          'CrayCare Alerts (Sound Only)',
+          description: 'Alerts with sound only',
+          importance: Importance.high,
+          playSound: true,
+          enableVibration: false,
+        ));
+
+        await manager.createNotificationChannel(const AndroidNotificationChannel(
+          'craycare_alerts_vibrate_only',
+          'CrayCare Alerts (Vibration Only)',
+          description: 'Alerts with vibration only',
+          importance: Importance.high,
+          playSound: false,
+          enableVibration: true,
+        ));
+
+        await manager.createNotificationChannel(const AndroidNotificationChannel(
+          'craycare_alerts_silent',
+          'CrayCare Alerts (Silent)',
+          description: 'Silent alerts',
+          importance: Importance.high,
+          playSound: false,
+          enableVibration: false,
+        ));
+      }
+
       final data = message.data;
       final showCritical = data['critical'] != 'false';
       if (!showCritical) return;
@@ -239,15 +323,24 @@ class NotificationService extends ChangeNotifier {
       final title = data['title'] ?? 'CrayCare Alert';
       final body = data['body'] ?? data['message'] ?? '';
 
+      // Dynamically pick the right channel in background using payloads sent by FCM worker
+      String targetChannelId = 'craycare_alerts_silent';
+      if (playSound && vibrate) {
+        targetChannelId = 'craycare_alerts_sound_vibrate';
+      } else if (playSound) {
+        targetChannelId = 'craycare_alerts_sound_only';
+      } else if (vibrate) {
+        targetChannelId = 'craycare_alerts_vibrate_only';
+      }
+
       await localNotif.show(
         DateTime.now().millisecondsSinceEpoch ~/ 1000,
         title,
         body,
         NotificationDetails(
           android: AndroidNotificationDetails(
-            _channelId,
-            _channelName,
-            channelDescription: _channelDesc,
+            targetChannelId,
+            'CrayCare Alert',
             importance: Importance.high,
             priority: Priority.high,
             playSound: playSound,
@@ -259,6 +352,7 @@ class NotificationService extends ChangeNotifier {
       debugPrint('[NotificationService] Background notification error: $e');
     }
   }
+
 
   @override
   void dispose() {
