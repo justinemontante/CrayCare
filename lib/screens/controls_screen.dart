@@ -1,12 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import '../theme/app_colors.dart';
 import '../models/control_types.dart';
 import '../widgets/controls/feeder_tab.dart';
 import '../widgets/controls/devices_tab.dart';
 import '../services/feeder_service.dart';
+import '../services/database_service.dart';
 
 class ControlsScreen extends StatefulWidget {
   final bool isOwner;
@@ -57,7 +57,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
   }
 
   void _initDeviceModes() {
-    _devicesSub = _devicesRef.onValue.listen((event) {
+    _devicesSub = DatabaseService.instance.deviceModesStream.listen((event) {
       if (event.snapshot.value != null && event.snapshot.value is Map) {
         final data = _convertMap(event.snapshot.value as Map);
         final modes = <String, String>{};
@@ -70,18 +70,11 @@ class _ControlsScreenState extends State<ControlsScreen> {
   }
 
   void _initDeviceLogs() {
-    _devicesLogsSub = _devicesLogsRef
-        .orderByChild('timestamp')
-        .limitToLast(50)
-        .onValue
-        .listen((event) {
-      if (event.snapshot.value == null) return;
-      final data = _convertMap(event.snapshot.value as Map);
-      final logs = <String, List<LogEntry>>{};
-      for (final deviceEntry in data.entries) {
-        final deviceId = deviceEntry.key;
-        final entries = _convertMap(deviceEntry.value as Map);
-        final list = entries.values.map((e) {
+    for (final deviceId in ['aerator1', 'aerator2', 'pump']) {
+      final sub = DatabaseService.instance.deviceLogsStream(deviceId).listen((event) {
+        if (event.snapshot.value == null) return;
+        final data = _convertMap(event.snapshot.value as Map);
+        final list = data.values.map((e) {
           final map = _convertMap(e as Map);
           return LogEntry(
             map['action'] as String? ?? '',
@@ -91,13 +84,13 @@ class _ControlsScreenState extends State<ControlsScreen> {
             timestamp: map['timestamp'] as int? ?? 0,
           );
         }).toList()
-          ..sort((a, b) {
-            return b.timestamp.compareTo(a.timestamp);
-          });
-        logs[deviceId] = list;
-      }
-      if (mounted) setState(() => _hwLogs = logs);
-    });
+          ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+        if (mounted) {
+          setState(() => _hwLogs[deviceId] = list);
+        }
+      });
+      _deviceLogSubs.add(sub);
+    }
   }
 
   void _computeRuntimeLabels() {
@@ -148,7 +141,9 @@ class _ControlsScreenState extends State<ControlsScreen> {
   void dispose() {
     FeederService.instance.removeListener(_onFeederUpdate);
     _devicesSub?.cancel();
-    _devicesLogsSub?.cancel();
+    for (final sub in _deviceLogSubs) {
+      sub.cancel();
+    }
     _feedTimer?.cancel();
     _dispenseTimer?.cancel();
     _runtimeTimer?.cancel();
@@ -243,13 +238,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
     'pump': 'auto',
   };
   StreamSubscription<DatabaseEvent>? _devicesSub;
-  StreamSubscription<DatabaseEvent>? _devicesLogsSub;
-  DatabaseReference get _devicesRef =>
-      FirebaseDatabase.instance.ref('devices/modes');
-
-  DatabaseReference get _devicesLogsRef =>
-      FirebaseDatabase.instance.ref('devices/logs');
-
+  final List<StreamSubscription<DatabaseEvent>> _deviceLogSubs = [];
   Map<String, List<LogEntry>> _hwLogs = {};
   Map<String, String> _deviceRuntimeLabels = {};
   Timer? _runtimeTimer;
@@ -295,7 +284,6 @@ class _ControlsScreenState extends State<ControlsScreen> {
 
   void _setHwMode(String device, String mode) {
     setState(() => _hwModes[device] = mode);
-    _devicesRef.child(device).set(mode);
     final now = DateTime.now();
     final h = now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour);
     final ampm = now.hour >= 12 ? 'PM' : 'AM';
@@ -312,12 +300,23 @@ class _ControlsScreenState extends State<ControlsScreen> {
       'aerator2': 'Aerator 2',
       'pump': 'Water Pump',
     };
-    _devicesLogsRef.child(device).push().set({
-      'action': '${deviceNames[device] ?? device}: ${modeNames[mode] ?? mode}',
-      'type': mode,
-      'time': time,
-      'date': dateStr,
-      'timestamp': ServerValue.timestamp,
+    DatabaseService.instance.saveDeviceMode(
+      deviceId: device,
+      mode: mode,
+      deviceName: deviceNames[device] ?? device,
+      modeLabel: modeNames[mode] ?? mode,
+      time: time,
+      date: dateStr,
+    ).catchError((e) {
+      debugPrint('[Controls] ERROR saving $device: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to save $device mode: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
     });
   }
 

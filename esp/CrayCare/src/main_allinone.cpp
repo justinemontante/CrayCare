@@ -307,7 +307,8 @@ static void pollCommands() {
                 String path = String("/feeder/commands/") + key;
                 if (nowMs > 0 && nowMs - ts < 30000) {
                     Serial.printf("[CMD-POLL] Feed: %s\n", key.c_str());
-                    doFeed(path);
+                    Firebase.RTDB.deleteNode(&fbW, path);
+                    doFeed("");
                 } else if (nowMs > 0) {
                     Serial.printf("[CMD-POLL] Stale: %s\n", key.c_str());
                     Firebase.RTDB.deleteNode(&fbW, path);

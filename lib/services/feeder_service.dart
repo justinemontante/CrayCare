@@ -157,6 +157,7 @@ class FeederService extends ChangeNotifier {
                   val['time'] as String? ?? '6:00',
                   val['ampm'] as String? ?? 'AM',
                   enabled: val['enabled'] as bool? ?? true,
+                  isDone: val['isDone'] as bool? ?? false,
                 ));
               }
             }
@@ -224,7 +225,7 @@ class FeederService extends ChangeNotifier {
     try {
       _commandsRef.push().set({
         'action': 'feed_now',
-        'timestamp': ServerValue.timestamp,
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
         'source': 'flutter-app',
       });
       if (source == 'scheduled') {
@@ -273,7 +274,7 @@ class FeederService extends ChangeNotifier {
         'type': type,
         'time': timeStr,
         'date': dateStr,
-        'timestamp': ServerValue.timestamp,
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
       });
     } catch (e) {
       debugPrint('[FeederService] addLogEntry error: $e');
@@ -286,6 +287,7 @@ class FeederService extends ChangeNotifier {
         'time': time,
         'ampm': ampm,
         'enabled': true,
+        'isDone': false,
       });
       _addLogEntry(
         action: 'Scheduled auto feed at $time $ampm',
@@ -329,6 +331,7 @@ class FeederService extends ChangeNotifier {
         'time': time,
         'ampm': ampm,
         if (enabled != null) 'enabled': enabled,
+        'isDone': false,
       });
       _addLogEntry(
         action: 'Edited schedule to $time $ampm',
@@ -353,10 +356,18 @@ class FeederService extends ChangeNotifier {
     if (_lastCheckDate != todayKey) {
       _dispatchedToday.clear();
       _lastCheckDate = todayKey;
+      final updates = <String, dynamic>{};
+      for (final key in _scheduleKeys) {
+        updates['$key/isDone'] = false;
+      }
+      if (updates.isNotEmpty) {
+        _schedulesRef.update(updates);
+      }
     }
     for (int i = 0; i < _schedules.length; i++) {
       final s = _schedules[i];
       if (!s.enabled) continue;
+      if (s.isDone) continue;
       int h = int.parse(s.time.split(':')[0]);
       final m = int.parse(s.time.split(':')[1]);
       if (s.ampm == 'PM' && h != 12) h += 12;

@@ -125,12 +125,11 @@ static void applyMode(int idx, const String& modeStr) {
 
 
 
-static void doFeed(const String& cmdPath) {
+static void doFeed() {
     if (feedBusy) return;
     feedBusy = true;
     if (Firebase.ready()) {
         Firebase.RTDB.setBool(&fbW, "/feeder/status/isRunning", true);
-        Firebase.RTDB.deleteNode(&fbW, cmdPath);
     }
     executeServoCycle();
     feedCount++;
@@ -175,7 +174,9 @@ static void pollCommands() {
                 int64_t nowMs = (int64_t)getEpochMillis();
                 if (nowMs > 0 && nowMs - ts < 30000) {
                     Serial.printf("[POLL] Processing feed command %s\n", key.c_str());
-                    doFeed(String("/feeder/commands/") + key);
+                    String path = String("/feeder/commands/") + key;
+                    Firebase.RTDB.deleteNode(&fbW, path);
+                    doFeed();
                 } else if (nowMs > 0) {
                     Serial.printf("[POLL] Removing stale command %s\n", key.c_str());
                     Firebase.RTDB.deleteNode(&fbW, String("/feeder/commands/") + key);

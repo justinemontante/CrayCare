@@ -4,7 +4,8 @@ class ScheduleItem {
   final String time;
   final String ampm;
   final bool enabled;
-  ScheduleItem(this.time, this.ampm, {this.enabled = true});
+  final bool isDone;
+  ScheduleItem(this.time, this.ampm, {this.enabled = true, this.isDone = false});
 }
 
 class LogEntry {

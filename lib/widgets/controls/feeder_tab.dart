@@ -414,6 +414,7 @@ class FeederTab extends StatelessWidget {
   }
 
   String _scheduleStatus(ScheduleItem s) {
+    if (s.isDone) return 'completed';
     final key = '${s.time}_${s.ampm}';
     if (fedToday.contains(key)) return 'completed';
     final scheduleTimeStr = '${s.time} ${s.ampm}';

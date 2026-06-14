@@ -210,6 +210,37 @@ class DatabaseService {
     );
   }
 
+  // ─── Device Modes (Aerator 1, Aerator 2, Water Pump) ───────────
+
+  DatabaseReference get _devicesModesRef =>
+      _db.child('devices/modes');
+
+  DatabaseReference get _devicesLogsRef =>
+      _db.child('devices/logs');
+
+  Future<void> saveDeviceMode({
+    required String deviceId,
+    required String mode,
+    required String deviceName,
+    required String modeLabel,
+    required String time,
+    required String date,
+  }) async {
+    await _devicesModesRef.child(deviceId).set(mode);
+    await _devicesLogsRef.child(deviceId).push().set({
+      'action': '$deviceName: $modeLabel',
+      'type': mode,
+      'time': time,
+      'date': date,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    });
+  }
+
+  Stream<DatabaseEvent> get deviceModesStream => _devicesModesRef.onValue;
+
+  Stream<DatabaseEvent> deviceLogsStream(String deviceId) =>
+      _devicesLogsRef.child(deviceId).onValue;
+
   // ─── Per-User Notification Preferences ─────────────────────────
 
   Future<void> saveNotificationPrefs({

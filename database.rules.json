@@ -1,29 +1,31 @@
 {
   "rules": {
-    "system": {
-      "authorizedOperators": {
-        ".read": "auth != null",
-        ".write": true
+    "users": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('profile').child('role').val() === 'admin'",
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('profile').child('role').val() === 'admin')",
+        ".write": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('profile').child('role').val() === 'admin')"
       }
     },
     "sensor_readings": {
       ".read": "auth != null",
       ".write": true
     },
+    "notifications": {
+      ".read": "auth != null",
+      ".write": true
+    },
     "feeder": {
-      ".read": true,
-      ".write": "auth != null"
+      ".read": "auth != null",
+      ".write": true
     },
     "devices": {
-      ".read": true,
+      ".read": "auth != null",
       ".write": "auth != null"
     },
-    
-    "users": {
-      "$uid": {
-        ".read": "auth != null && auth.uid == $uid",
-        ".write": "auth.uid == $uid"
-      }
+    "system": {
+      ".read": "auth != null",
+      ".write": "auth != null"
     }
   }
 }
