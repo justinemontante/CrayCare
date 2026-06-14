@@ -601,21 +601,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final tank = widget.onTankTab;
     final actions = [
       _QuickActionData(
-        'Devices',
+        'Aerator 1',
         Icons.air,
-        '2 Aerators',
+        null,
+        onTap: nav != null ? () => nav(3) : null,
+      ),
+      _QuickActionData(
+        'Aerator 2',
+        Icons.air,
+        null,
         onTap: nav != null ? () => nav(3) : null,
       ),
       _QuickActionData(
         'Pump',
         Icons.water_drop,
-        'Idle',
+        null,
         onTap: nav != null ? () => nav(3) : null,
       ),
       _QuickActionData(
-        'Feed',
+        'Feeder',
         Icons.bubble_chart,
-        'Auto',
+        null,
         onTap: nav != null ? () => nav(3) : null,
       ),
       _QuickActionData(
@@ -1229,7 +1235,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return h * 60 + m;
   }
 
-  Widget _buildModalTrendIndicator(String trend, double rate) {
+  Widget _buildModalTrendIndicator(String trend, double rate, String status) {
     IconData icon;
     Color color;
     String label;
@@ -1261,7 +1267,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       default:
         icon = Icons.trending_flat;
         color = AppColors.dark.withValues(alpha: 0.5);
-        label = 'Stable';
+        label = status == 'OPTIMAL' ? 'Stable' : '';
         break;
     }
     
@@ -1270,15 +1276,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Icon(icon, size: 14, color: color),
-        const SizedBox(width: 4),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 10,
-            fontWeight: FontWeight.w700,
-            color: color,
+        if (label.isNotEmpty) ...[
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
           ),
-        ),
+        ],
       ],
     );
   }
@@ -1299,7 +1307,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     final isMaxBound = rMax < 999.0;
     final rangeSpan = isMaxBound ? (rMax - rMin) : rMin;
-    final warningThreshold = rangeSpan * 0.15;
+    final warningThreshold = rangeSpan * 0.10;
     
     final checkLower = rMin > 0.0;
     final checkUpper = isMaxBound;
@@ -1507,7 +1515,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ),
                           if (hasData) ...[
                             const SizedBox(height: 6),
-                            _buildModalTrendIndicator(ss.getTrend(sensorKey), ss.getTrendRate(sensorKey)),
+                            _buildModalTrendIndicator(ss.getTrend(sensorKey), ss.getTrendRate(sensorKey), status),
                           ]
                         ],
                       ),
@@ -1551,31 +1559,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     const SizedBox(height: 6),
                     if (hasData) ...[
                       const SizedBox(height: 4),
-                      Text(
-                        'Recent Trend (Last 10 readings)',
-                        style: TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.darkWith(0.5),
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Container(
-                        height: 50,
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFfcfcfc),
-                          border: Border.all(color: const Color(0xFFf0f0f0)),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: _Sparkline(
-                          data: ss.getData(sensorKey).length >= 10
-                              ? ss.getData(sensorKey).sublist(ss.getData(sensorKey).length - 10)
-                              : ss.getData(sensorKey),
-                          color: statusColor,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
                     ],
                     ...legends.map(
                       (l) => Padding(
@@ -1747,7 +1730,7 @@ class _GaugeCardState extends State<_GaugeCard> {
       default:
         icon = Icons.trending_flat;
         color = AppColors.dark.withValues(alpha: 0.4);
-        label = 'Stable';
+        label = widget.status == 'OPTIMAL' ? 'Stable' : '';
         break;
     }
     
@@ -1756,15 +1739,17 @@ class _GaugeCardState extends State<_GaugeCard> {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Icon(icon, size: 12, color: color),
-        const SizedBox(width: 2),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 9,
-            fontWeight: FontWeight.w700,
-            color: color,
+        if (label.isNotEmpty) ...[
+          const SizedBox(width: 2),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 9,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
           ),
-        ),
+        ],
       ],
     );
   }
@@ -1935,94 +1920,4 @@ class _QuickActionData {
   const _QuickActionData(this.name, this.icon, this.status, {this.onTap});
 }
 
-class _Sparkline extends StatelessWidget {
-  final List<double> data;
-  final Color color;
 
-  const _Sparkline({
-    required this.data,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    if (data.isEmpty) return const SizedBox.shrink();
-    return CustomPaint(
-      size: const Size(double.infinity, 40),
-      painter: _SparklinePainter(data, color),
-    );
-  }
-}
-
-class _SparklinePainter extends CustomPainter {
-  final List<double> data;
-  final Color color;
-
-  _SparklinePainter(this.data, this.color);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (data.length < 2) return;
-
-    final path = Path();
-    final fillPath = Path();
-    
-    double minVal = data[0];
-    double maxVal = data[0];
-    for (final v in data) {
-      if (v < minVal) minVal = v;
-      if (v > maxVal) maxVal = v;
-    }
-    
-    final range = maxVal - minVal;
-    final scaleY = range == 0 ? 0.5 : 1.0 / range;
-
-    final dx = size.width / (data.length - 1);
-    
-    for (int i = 0; i < data.length; i++) {
-      final x = i * dx;
-      final relativeY = range == 0 ? 0.5 : (data[i] - minVal) * scaleY;
-      final y = size.height - (relativeY * (size.height - 10) + 5);
-      
-      if (i == 0) {
-        path.moveTo(x, y);
-        fillPath.moveTo(x, size.height);
-        fillPath.lineTo(x, y);
-      } else {
-        path.lineTo(x, y);
-        fillPath.lineTo(x, y);
-      }
-      
-      if (i == data.length - 1) {
-        fillPath.lineTo(x, size.height);
-        fillPath.close();
-      }
-    }
-
-    final fillPaint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [
-          color.withValues(alpha: 0.25),
-          color.withValues(alpha: 0.0),
-        ],
-      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height))
-      ..style = PaintingStyle.fill;
-
-    final linePaint = Paint()
-      ..color = color
-      ..strokeWidth = 2.0
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round
-      ..style = PaintingStyle.stroke;
-
-    canvas.drawPath(fillPath, fillPaint);
-    canvas.drawPath(path, linePaint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _SparklinePainter oldDelegate) {
-    return oldDelegate.data != data || oldDelegate.color != color;
-  }
-}

@@ -233,7 +233,7 @@ class FeederService extends ChangeNotifier {
           action: 'Auto feed dispensed',
           type: 'auto',
         );
-        final dateKey = '${DateTime.now().month}/${DateTime.now().day}';
+        final dateKey = '${DateTime.now().year}-${DateTime.now().month}-${DateTime.now().day}';
         if (scheduleKey != null) {
           try {
             _commandsRef.parent!.child('dispatched/$dateKey/$scheduleKey').set(true);
@@ -352,7 +352,7 @@ class FeederService extends ChangeNotifier {
 
   void _checkSchedules() {
     final now = DateTime.now();
-    final todayKey = '${now.month}/${now.day}';
+    final todayKey = '${now.year}-${now.month}-${now.day}';
     if (_lastCheckDate != todayKey) {
       _dispatchedToday.clear();
       _lastCheckDate = todayKey;

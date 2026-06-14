@@ -64,7 +64,7 @@ class SensorService extends ChangeNotifier {
 
     final isMaxBound = max < 999.0;
     final rangeSpan = isMaxBound ? (max - min) : min;
-    final warningThreshold = rangeSpan * 0.15;
+    final warningThreshold = rangeSpan * 0.10;
     
     final checkLower = min > 0.0;
     final checkUpper = isMaxBound;

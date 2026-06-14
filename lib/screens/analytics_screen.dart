@@ -93,25 +93,6 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
               : List.from(raw);
         });
       });
-    } else if (_activeFilter.isNotEmpty && _data.isNotEmpty) {
-      final ss = SensorService.instance;
-      final anyData = SensorService.sensorKeys.any((k) => ss.hasSensorData(k));
-      if (!anyData) {
-        setState(() {
-          for (final key in SensorService.sensorKeys) {
-            _data['$key-${_activeFilter}'] = [];
-          }
-        });
-        return;
-      }
-      setState(() {
-        SensorService.sensorKeys.forEach((key) {
-          final arr = _data['$key-${_activeFilter}'];
-          if (arr != null && arr.isNotEmpty) {
-            arr[arr.length - 1] = ss.getLatestValue(key);
-          }
-        });
-      });
     }
   }
 
@@ -182,9 +163,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     } else if (range == '7d') {
       labels = List.generate(pts, (i) {
         final d = now.subtract(Duration(hours: (pts - 1 - i)));
-        final h = d.hour > 12 ? d.hour - 12 : (d.hour == 0 ? 12 : d.hour);
-        final ampm = d.hour >= 12 ? 'PM' : 'AM';
-        return '${d.month}/${d.day} ${h}${ampm}';
+        return '${d.month}/${d.day}';
       });
     } else if (range == 'custom') {
       labels = List.generate(pts, (i) {

@@ -16,7 +16,7 @@ class BackgroundHelper {
     if (uid.isEmpty) return;
     final db = FirebaseDatabase.instance;
     final now = DateTime.now();
-    final todayKey = '${now.month}/${now.day}';
+    final todayKey = '${now.year}-${now.month}-${now.day}';
 
     final schedSnap = await db.ref('feeder/schedules').get();
     if (!schedSnap.exists) return;
@@ -42,7 +42,7 @@ class BackgroundHelper {
 
       final dispatchedKey = '${entry.key}';
       final marker = await db
-          .ref('users/$uid/feeder/dispatched/$todayKey/$dispatchedKey')
+          .ref('feeder/dispatched/$todayKey/$dispatchedKey')
           .get();
       if (marker.exists) continue;
 
@@ -80,7 +80,7 @@ class BackgroundHelper {
     if (uid.isEmpty) return;
     final db = FirebaseDatabase.instance;
     final now = DateTime.now();
-    final todayKey = '${now.month}/${now.day}';
+    final todayKey = '${now.year}-${now.month}-${now.day}';
     final nowMins = now.hour * 60 + now.minute;
 
     final schedSnap = await db.ref('feeder/schedules').get();
@@ -165,7 +165,7 @@ class BackgroundHelper {
     if (uid.isEmpty) return;
     final db = FirebaseDatabase.instance;
     final now = DateTime.now();
-    final todayKey = '${now.month}/${now.day}';
+    final todayKey = '${now.year}-${now.month}-${now.day}';
     final markerKey = 'sampling_reminder_$todayKey';
 
     final marker = await db.ref('users/$uid/notifications/markers/$markerKey').get();
