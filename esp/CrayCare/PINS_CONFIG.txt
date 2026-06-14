@@ -1,0 +1,103 @@
+============================================
+  CRAYCARE ESP32 ALL-IN-ONE — PINOUT
+  Last Updated: 2026-06-14
+============================================
+
+RELAYS (Active LOW = LOW turns ON)
+┌────────┬───────┬──────────────────────┬──────────────────────────┐
+│  GPIO  │ Pin   │ Device               │ ESP Firebase ID          │
+├────────┼───────┼──────────────────────┼──────────────────────────┤
+│   26   │ PIN_A1│ Water Pump           │ DEV_A1 = "pump"          │
+│   27   │ PIN_A2│ Primary Aerator      │ DEV_A2 = "aerator1"      │
+│   14   │ PIN_P │ Secondary Aerator     │ DEV_P  = "aerator2"      │
+└────────┴───────┴──────────────────────┴──────────────────────────┘
+
+SENSORS
+┌────────┬───────┬──────────────────────┬──────────────────────────┐
+│  GPIO  │ Pin   │ Sensor               │ Product / Notes          │
+├────────┼───────┼──────────────────────┼──────────────────────────┤
+│   36   │ SVP   │ Dissolved Oxygen     │ DFRobot SEN0237          │
+│   35   │       │ pH Sensor            │ DFRobot SEN0161          │
+│   34   │       │ Turbidity            │ DFRobot SEN0189          │
+│    4   │       │ DS18B20 (Water Temp) │ Standard OneWire         │
+│   32   │ TRIG  │ HC-SR04 (Water Level)│ Ultrasonic Trig         │
+│   33   │ ECHO  │ HC-SR04 (Water Level)│ Ultrasonic Echo         │
+└────────┴───────┴──────────────────────┴──────────────────────────┘
+
+OTHER PERIPHERALS
+┌────────┬───────┬──────────────────────┬──────────────────────────┐
+│  GPIO  │ Pin   │ Device               │ Notes                    │
+├────────┼───────┼──────────────────────┼──────────────────────────┤
+│   21   │ SDA   │ LCD I2C              │ 16x2 LCD                 │
+│   22   │ SCL   │ LCD I2C              │ Address: 0x27 or 0x3F    │
+│   13   │       │ Servo (Feeder)       │ PWM control              │
+└────────┴───────┴──────────────────────┴──────────────────────────┘
+
+============================================
+  VOLTAGE DIVIDER CONFIGURATION
+============================================
+
+Sensor powered at 5V — verify each before connecting:
+
+┌──────────────┬────────────┬───────────────────────────────────┐
+│ Sensor       │ Divider    │ Ratio in Code   │ Status          │
+├──────────────┼────────────┼─────────────────┼─────────────────┤
+│ DO (SEN0237) │ 10k + 10k  │ 0.5f            │ KEEP RESISTORS  │
+│ pH (SEN0161) │ 10k + 10k  │ 0.5f            │ KEEP RESISTORS  │
+│ Turbidity    │ None needed│ N/A             │ Direct connect  │
+│              │ (if 3.3V)  │                 │ at 3.3V only    │
+└──────────────┴────────────┴─────────────────┴─────────────────┘
+
+⚠️  IMPORTANT: SEN0189 Turbidity at 5V outputs ~3.8-4.2V.
+    If powered at 5V, add voltage divider. Direct connect only
+    if powered at 3.3V.
+
+============================================
+  WATER LEVEL (HC-SR04)
+============================================
+
+Tank configuration:
+  - Sensor mounted at: 65cm above tank bottom
+  - Tank water depth:  23cm max
+  - Water depth = 65cm − measured_distance
+
+LCD display: "W:XXcm" (actual water depth)
+
+============================================
+  SERIAL COMMANDS
+============================================
+
+RELAYS
+  n1on / n1off         Water Pump ON/OFF       (GPIO 26)
+  n2on / n2off         Primary Aerator ON/OFF  (GPIO 27)
+  n3on / n3off         Secondary Aerator ON/OFF(GPIO 14)
+  relay status         Show relay states
+
+FEEDER
+  servopause <ms>      Set servo open pause
+  servocycle           Run one feed cycle
+  feedtime1 <H> <M>    Set slot1 feed time (24h)
+  feedtime2 <H> <M>    Set slot2 feed time (24h)
+  feedtime             Show current schedule
+  schedulesync         Force Firebase sync
+
+WIFI
+  wifissid <SSID>      Save WiFi SSID
+  wifipass <PASS>      Save WiFi password
+  wifireset            Reset WiFi credentials
+  wifistatus           Show WiFi status
+
+CALIBRATION
+  turbclear <V>        Turbidity 0 NTU voltage
+  turbdirty <V>        Turbidity ~500 NTU voltage
+  turbair <V>          Turbidity air threshold
+  phcal7               Calibrate pH 7.0
+  phcal4               Calibrate pH 4.0
+  doclear              Calibrate DO in air
+
+DEBUG / SYSTEM
+  debugmode [0/1]      Toggle debug mode
+  debugstatus          Show system status
+  restart              Reboot ESP32
+  i2cscan              Scan I2C devices
+  help / ?             Show commands

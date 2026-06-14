@@ -518,24 +518,12 @@ static void pollFirebaseSchedules() {
 static void markScheduleDispatched(const String& schedKey) {
     if (schedKey.isEmpty()) return;
 
-    // Write isDone: true to the specific schedule node
     if (Firebase.ready()) {
         Firebase.RTDB.setBool(&fbW,
             String("/feeder/schedules/") + schedKey + "/isDone", true);
         schedSyncPending = false;
         pendingSchedKey = "";
-
-        // Also write to dispatched path for app background helper
-        struct tm t;
-        if (getLocalTime(&t)) {
-            char dateKey[20];
-            snprintf(dateKey, sizeof(dateKey), "%04d/%02d/%02d",
-                1900 + t.tm_year, t.tm_mon + 1, t.tm_mday);
-            Firebase.RTDB.setBool(&fbW,
-                String("/feeder/dispatched/") + dateKey + "/" + schedKey, true);
-        }
     } else {
-        // Queue for sync when Firebase reconnects
         schedSyncPending = true;
         pendingSchedKey = schedKey;
         Serial.println("[FEEDER] isDone sync queued (offline)");
