@@ -35,7 +35,7 @@
 #define SOUND_SPEED_CM_US   0.034
 #define MAX_DIST_CM         400
 #define ECHO_TIMEOUT_US     30000
-#define TANK_DEPTH_CM       100.0f  // SET THIS: distance from sensor to tank bottom (cm)
+#define TANK_DEPTH_CM       65.0f   // HC-SR04 mounted 65cm above tank bottom; water depth = 65 - measured
 
 // --- LCD ---
 #define LCD_ADDR    0x27
@@ -46,9 +46,9 @@
 // RELAY / SERVO GLOBALS
 // =============================================================================
 
-#define DEV_A1 "aerator1"
-#define DEV_A2 "aerator2"
-#define DEV_P  "pump"
+#define DEV_A1 "pump"      // App "Pump" → GPIO 26 → Water Pump
+#define DEV_A2 "aerator1"  // App "Aerator 1" → GPIO 27 → Primary Aerator
+#define DEV_P  "aerator2"  // App "Aerator 2" → GPIO 14 → Secondary Aerator
 
 enum RMode { RM_OFF, RM_ON, RM_AUTO };
 
@@ -61,9 +61,9 @@ struct RelayCtx {
 };
 
 static RelayCtx relays[3] = {
-    {PIN_A1, RM_OFF, false, DEV_A1, "Aerator 1"},
-    {PIN_A2, RM_OFF, false, DEV_A2, "Aerator 2"},
-    {PIN_P,  RM_OFF, false, DEV_P,  "Water Pump"},
+    {PIN_A1, RM_OFF, false, DEV_A1, "Water Pump"},
+    {PIN_A2, RM_OFF, false, DEV_A2, "Primary Aer"},
+    {PIN_P,  RM_OFF, false, DEV_P,  "Sec Aerator"},
 };
 
 static FirebaseData fbW;
@@ -100,10 +100,14 @@ static bool initialConnectDone = false;
 static unsigned long lastWifiRetry = 0;
 
 // --- Feeder schedule ---
+static String fbSchedKey1 = "";  // Firebase key of slot 1
+static String fbSchedKey2 = "";  // Firebase key of slot 2
+static String pendingSchedKey = "";  // Key pending isDone sync when offline
 static int feedHour1 = 9, feedMin1 = 0;
 static int feedHour2 = 18, feedMin2 = 0;
-static bool fedAM = false, fedPM = false;
+static bool fedSlot1 = false, fedSlot2 = false;
 static int lastFeedCheckMin = -1;
+static bool schedSyncPending = false;
 
 // --- Schedule sync from Firebase ---
 static unsigned long lastSchedPoll = 0;
@@ -132,7 +136,7 @@ static void loadFeederSchedule();
 static void saveFeederSchedule();
 static void checkFeederSchedule();
 static void pollFirebaseSchedules();
-static void markScheduleDispatched();
+static void markScheduleDispatched(const String& schedKey);
 
 // =============================================================================
 // I2C HELPERS
@@ -259,16 +263,15 @@ static void pollModes() {
     if (j.get(d, DEV_P))  { Serial.printf("[MODES] %s=%s\n", DEV_P, d.stringValue.c_str()); applyMode(2, d.stringValue); }
 }
 
-static void doFeed(const String& cmdPath) {
+static void doFeed(const String& schedKey) {
     if (feedBusy) return;
     feedBusy = true;
     if (Firebase.ready()) {
         Firebase.RTDB.setBool(&fbW, "/feeder/status/isRunning", true);
-        Firebase.RTDB.deleteNode(&fbW, cmdPath);
     }
     executeServoCycle();
     feedCount++;
-    markScheduleDispatched();
+    markScheduleDispatched(schedKey);
     if (Firebase.ready()) {
         FirebaseJson j;
         j.add("isRunning", false); j.add("feedCount", feedCount);
@@ -380,9 +383,13 @@ static void loadFeederSchedule() {
     feedMin1 = prefs.getInt("min1", 0);
     feedHour2 = prefs.getInt("hr2", 18);
     feedMin2 = prefs.getInt("min2", 0);
+    fbSchedKey1 = prefs.getString("key1", "");
+    fbSchedKey2 = prefs.getString("key2", "");
     prefs.end();
     lastSchedSync = 0;
-    Serial.printf("[FEEDER] Schedule loaded: %02d:%02d, %02d:%02d\n", feedHour1, feedMin1, feedHour2, feedMin2);
+    schedSyncPending = false;
+    Serial.printf("[FEEDER] Schedule loaded: %02d:%02d, %02d:%02d (key1=%s key2=%s)\n",
+        feedHour1, feedMin1, feedHour2, feedMin2, fbSchedKey1.c_str(), fbSchedKey2.c_str());
 }
 
 static void saveFeederSchedule() {
@@ -391,6 +398,8 @@ static void saveFeederSchedule() {
     prefs.putInt("min1", feedMin1);
     prefs.putInt("hr2", feedHour2);
     prefs.putInt("min2", feedMin2);
+    prefs.putString("key1", fbSchedKey1);
+    prefs.putString("key2", fbSchedKey2);
     prefs.end();
     Serial.println("[FEEDER] Schedule saved to NVS");
 }
@@ -410,19 +419,21 @@ static void checkFeederSchedule() {
     int curM = t.tm_min;
     if (curM != lastFeedCheckMin) {
         lastFeedCheckMin = curM;
-        fedAM = false;
-        fedPM = false;
+        fedSlot1 = false;
+        fedSlot2 = false;
     }
     if (!feedBusy) {
-        if (!fedAM && curH == feedHour1 && curM == feedMin1) {
-            Serial.printf("[FEEDER] Auto-feed AM (%s)\n", fmtTime12(feedHour1, feedMin1).c_str());
-            doFeed("-");
-            fedAM = true;
+        if (!fedSlot1 && curH == feedHour1 && curM == feedMin1) {
+            Serial.printf("[FEEDER] Auto-feed slot1 (%s key=%s)\n",
+                fmtTime12(feedHour1, feedMin1).c_str(), fbSchedKey1.c_str());
+            doFeed(fbSchedKey1);
+            fedSlot1 = true;
         }
-        if (!fedPM && curH == feedHour2 && curM == feedMin2) {
-            Serial.printf("[FEEDER] Auto-feed PM (%s)\n", fmtTime12(feedHour2, feedMin2).c_str());
-            doFeed("-");
-            fedPM = true;
+        if (!fedSlot2 && curH == feedHour2 && curM == feedMin2) {
+            Serial.printf("[FEEDER] Auto-feed slot2 (%s key=%s)\n",
+                fmtTime12(feedHour2, feedMin2).c_str(), fbSchedKey2.c_str());
+            doFeed(fbSchedKey2);
+            fedSlot2 = true;
         }
     }
 }
@@ -439,7 +450,7 @@ static void pollFirebaseSchedules() {
         return;
     }
 
-    struct FbSched { int hour24; int min; };
+    struct FbSched { int hour24; int min; String key; };
     FbSched scheds[8];
     int count = 0;
 
@@ -470,6 +481,7 @@ static void pollFirebaseSchedules() {
 
         scheds[count].hour24 = h;
         scheds[count].min = m;
+        scheds[count].key = key;
         count++;
     }
     j.iteratorEnd();
@@ -486,25 +498,47 @@ static void pollFirebaseSchedules() {
     }
 
     int h1 = 9, m1 = 0, h2 = 18, m2 = 0;
-    if (count >= 1) { h1 = scheds[0].hour24; m1 = scheds[0].min; }
-    if (count >= 2) { h2 = scheds[1].hour24; m2 = scheds[1].min; }
+    String k1 = "", k2 = "";
+    if (count >= 1) { h1 = scheds[0].hour24; m1 = scheds[0].min; k1 = scheds[0].key; }
+    if (count >= 2) { h2 = scheds[1].hour24; m2 = scheds[1].min; k2 = scheds[1].key; }
 
-    if (h1 != feedHour1 || m1 != feedMin1 || h2 != feedHour2 || m2 != feedMin2) {
+    bool changed = (h1 != feedHour1 || m1 != feedMin1 || h2 != feedHour2 || m2 != feedMin2 ||
+                    k1 != fbSchedKey1 || k2 != fbSchedKey2);
+    if (changed) {
         feedHour1 = h1; feedMin1 = m1; feedHour2 = h2; feedMin2 = m2;
+        fbSchedKey1 = k1; fbSchedKey2 = k2;
         saveFeederSchedule();
-        Serial.printf("[SCHED] Synced: %02d:%02d, %02d:%02d (%d schedule(s))\n",
-            feedHour1, feedMin1, feedHour2, feedMin2, count);
+        Serial.printf("[SCHED] Synced: %02d:%02d(key=%s) %02d:%02d(key=%s) %d sched(s)\n",
+            feedHour1, feedMin1, fbSchedKey1.c_str(), feedHour2, feedMin2, fbSchedKey2.c_str(), count);
     }
     lastSchedSync = now;
 }
 
-static void markScheduleDispatched() {
-    struct tm t;
-    if (!getLocalTime(&t)) return;
-    char dateKey[20];
-    snprintf(dateKey, sizeof(dateKey), "%04d/%02d/%02d",
-        1900 + t.tm_year, t.tm_mon + 1, t.tm_mday);
-    Firebase.RTDB.setBool(&fbW, String("/feeder/dispatched/") + dateKey + "/esp_local", true);
+static void markScheduleDispatched(const String& schedKey) {
+    if (schedKey.isEmpty()) return;
+
+    // Write isDone: true to the specific schedule node
+    if (Firebase.ready()) {
+        Firebase.RTDB.setBool(&fbW,
+            String("/feeder/schedules/") + schedKey + "/isDone", true);
+        schedSyncPending = false;
+        pendingSchedKey = "";
+
+        // Also write to dispatched path for app background helper
+        struct tm t;
+        if (getLocalTime(&t)) {
+            char dateKey[20];
+            snprintf(dateKey, sizeof(dateKey), "%04d/%02d/%02d",
+                1900 + t.tm_year, t.tm_mon + 1, t.tm_mday);
+            Firebase.RTDB.setBool(&fbW,
+                String("/feeder/dispatched/") + dateKey + "/" + schedKey, true);
+        }
+    } else {
+        // Queue for sync when Firebase reconnects
+        schedSyncPending = true;
+        pendingSchedKey = schedKey;
+        Serial.println("[FEEDER] isDone sync queued (offline)");
+    }
 }
 
 // =============================================================================
@@ -532,9 +566,9 @@ static void updateLCD() {
         bool a1 = relays[0].active, a2 = relays[1].active, p = relays[2].active;
         bool schedOk = (millis() - lastSchedSync < 120000);
         lcd.setCursor(0, 0);
-        lcd.printf("A1:%s A2:%s", a1 ? "ON" : "OFF", a2 ? "ON" : "OFF");
+        lcd.printf("Pmp:%s PA1:%s", a1 ? "ON" : "OFF", a2 ? "ON" : "OFF");
         lcd.setCursor(0, 1);
-        lcd.printf("P:%s Sched:%s", p ? "ON" : "OFF", schedOk ? "OK" : "--");
+        lcd.printf("SA2:%s Sched:%s", p ? "ON" : "OFF", schedOk ? "OK" : "--");
     }
 }
 
@@ -546,9 +580,9 @@ static void printHelp() {
     Serial.println();
     Serial.println("========== CrayCare All-in-One Commands ==========");
     Serial.println("--- Relays ---");
-    Serial.println("  n1on / n1off         Aerator 1 ON/OFF");
-    Serial.println("  n2on / n2off         Aerator 2 ON/OFF");
-    Serial.println("  n3on / n3off         Pump ON/OFF");
+    Serial.println("  n1on / n1off         Water Pump ON/OFF");
+    Serial.println("  n2on / n2off         Primary Aerator ON/OFF");
+    Serial.println("  n3on / n3off         Secondary Aerator ON/OFF");
     Serial.println("  relay status         Show relay states");
     Serial.println("");
     Serial.println("--- Servo / Feeder ---");
@@ -602,12 +636,12 @@ static void processSerialCommands() {
     if (cmd == "help" || cmd == "?") { printHelp(); return; }
 
     // --- Relays ---
-    if (cmd == "n1on")  { digitalWrite(PIN_A1, LOW);  Serial.println("[CMD] Aerator 1 ON"); return; }
-    if (cmd == "n1off") { digitalWrite(PIN_A1, HIGH); Serial.println("[CMD] Aerator 1 OFF"); return; }
-    if (cmd == "n2on")  { digitalWrite(PIN_A2, LOW);  Serial.println("[CMD] Aerator 2 ON"); return; }
-    if (cmd == "n2off") { digitalWrite(PIN_A2, HIGH); Serial.println("[CMD] Aerator 2 OFF"); return; }
-    if (cmd == "n3on")  { digitalWrite(PIN_P, LOW);   Serial.println("[CMD] Pump ON"); return; }
-    if (cmd == "n3off") { digitalWrite(PIN_P, HIGH);  Serial.println("[CMD] Pump OFF"); return; }
+    if (cmd == "n1on")  { digitalWrite(PIN_A1, LOW);  Serial.println("[CMD] Water Pump ON"); return; }
+    if (cmd == "n1off") { digitalWrite(PIN_A1, HIGH); Serial.println("[CMD] Water Pump OFF"); return; }
+    if (cmd == "n2on")  { digitalWrite(PIN_A2, LOW);  Serial.println("[CMD] Primary Aerator ON"); return; }
+    if (cmd == "n2off") { digitalWrite(PIN_A2, HIGH); Serial.println("[CMD] Primary Aerator OFF"); return; }
+    if (cmd == "n3on")  { digitalWrite(PIN_P, LOW);   Serial.println("[CMD] Secondary Aerator ON"); return; }
+    if (cmd == "n3off") { digitalWrite(PIN_P, HIGH);  Serial.println("[CMD] Secondary Aerator OFF"); return; }
     if (cmd == "relay" && arg == "status") {
         for (int i = 0; i < 3; i++) {
             Serial.printf("  %s (GPIO%d): %s [mode: %s]\n",
@@ -809,34 +843,43 @@ void loop() {
     processSerialCommands();
     unsigned long now = millis();
 
-    // --- WiFi + Firebase init (retry) ---
+    // --- WiFi + Firebase init (one-time, retry until connected) ---
     if (!initialConnectDone) {
         if (WiFi.status() == WL_CONNECTED) {
-            Serial.println("[MAIN] WiFi OK — init Firebase...");
-            if (lcdAddress != 0) {
-                lcd.clear();
-                lcd.setCursor(0, 0);
-                lcd.print("WiFi OK!");
-                lcd.setCursor(0, 1);
-                lcd.print("Connecting FB...");
+            static bool timeChecked = false;
+            if (!timeChecked) {
+                initTime();
+                struct tm t;
+                if (!getLocalTime(&t)) {
+                    Serial.println("[MAIN] Time not ready — retrying...");
+                    if (lcdAddress != 0) {
+                        lcd.clear(); lcd.setCursor(0, 0); lcd.print("Time sync fail");
+                    }
+                    delay(2000);
+                    return;
+                }
+                timeChecked = true;
+                if (lcdAddress != 0) {
+                    lcd.clear(); lcd.setCursor(0, 0); lcd.print("WiFi OK!");
+                    lcd.setCursor(0, 1); lcd.print("Connecting FB...");
+                }
+                connectFirebase();
             }
-            initTime();
-            connectFirebase();
-            initialConnectDone = true;
-            Serial.println("[MAIN] Ready");
-            if (lcdAddress != 0) {
-                lcd.clear();
-                lcd.setCursor(0, 0);
-                lcd.print("System Ready!");
-                delay(1000);
+
+            if (Firebase.ready()) {
+                initialConnectDone = true;
+                timeChecked = false;
+                Serial.println("[MAIN] Ready");
+                if (lcdAddress != 0) {
+                    lcd.clear(); lcd.setCursor(0, 0); lcd.print("System Ready!");
+                    delay(1000);
+                }
             }
         } else if (now - lastWifiRetry >= 10000) {
             lastWifiRetry = now;
             Serial.println("[WIFI] Retrying...");
             if (lcdAddress != 0) {
-                lcd.clear();
-                lcd.setCursor(0, 0);
-                lcd.print("Retrying WiFi...");
+                lcd.clear(); lcd.setCursor(0, 0); lcd.print("Retrying WiFi...");
             }
             connectWiFi();
         }
@@ -867,6 +910,15 @@ void loop() {
 
     // --- Firebase operations ---
     if (Firebase.ready()) {
+        // Retry pending isDone sync (if we were offline when feed fired)
+        if (schedSyncPending && !pendingSchedKey.isEmpty()) {
+            Serial.printf("[FEEDER] Retrying isDone sync for %s...\n", pendingSchedKey.c_str());
+            Firebase.RTDB.setBool(&fbW,
+                String("/feeder/schedules/") + pendingSchedKey + "/isDone", true);
+            schedSyncPending = false;
+            pendingSchedKey = "";
+        }
+
         pollModes();
         pollCommands();
         pollFirebaseSchedules();

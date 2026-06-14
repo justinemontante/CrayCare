@@ -45,8 +45,8 @@ void connectWiFi() {
 }
 
 void initTime() {
-    // Configure NTP – required for Firebase token signing
-    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    // Configure NTP – UTC+8 for Philippines/Asia
+    configTime(8 * 3600, 0, "asia.pool.ntp.org", "time.google.com");
     struct tm timeInfo;
     if (!getLocalTime(&timeInfo)) {
         Serial.println("[TIME] Failed to obtain time");
@@ -57,8 +57,13 @@ void initTime() {
 
 #ifdef USE_REAL_FIREBASE
 void tokenStatusCallback(TokenInfo info) {
-    Serial.printf("[FIREBASE] Token status: %s\n",
-        info.status == token_status_ready ? "ready" : "update");
+    if (info.status == token_status_ready) {
+        Serial.println("[FIREBASE] Token READY");
+    } else if (info.status == token_status_error) {
+        Serial.printf("[FIREBASE] Token ERROR: %s\n", info.error.message.c_str());
+    } else {
+        Serial.printf("[FIREBASE] Token: processing...\n");
+    }
 }
 
 bool connectFirebase() {

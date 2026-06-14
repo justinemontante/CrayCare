@@ -4,18 +4,19 @@
 =============================================
 
 --- RELAYS ---
-  n1on          Aerator 1 ON
-  n1off         Aerator 1 OFF
-  n2on          Aerator 2 ON
-  n2off         Aerator 2 OFF
-  n3on          Water Pump ON
-  n3off         Water Pump OFF
+  n1on          Water Pump ON
+  n1off         Water Pump OFF
+  n2on          Primary Aerator ON
+  n2off         Primary Aerator OFF
+  n3on          Secondary Aerator ON
+  n3off         Secondary Aerator OFF
   relay status  Show relay states and modes
 
   EXAMPLE:
-    n1on            →  Aerator 1 turns ON
-    n1off           →  Aerator 1 turns OFF
-    n3on            →  Water Pump turns ON
+    n1on            →  Water Pump turns ON
+    n1off           →  Water Pump turns OFF
+    n2on            →  Primary Aerator turns ON
+    n3off           →  Secondary Aerator turns OFF
     relay status    →  Shows all 3 relay states
 
 --- SERVO / FEEDER ---
