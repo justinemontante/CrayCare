@@ -202,8 +202,22 @@ db.ref("sensor_readings/latest").on("value", async (snap) => {
           return;
         }
 
+        // Determine the target channel based on preferences
+        let targetChannelId = "craycare_alerts_silent";
+        if (sound && vibration) {
+          targetChannelId = "craycare_alerts_sound_vibrate";
+        } else if (sound) {
+          targetChannelId = "craycare_alerts_sound_only";
+        } else if (vibration) {
+          targetChannelId = "craycare_alerts_vibrate_only";
+        }
+
         await admin.messaging().send({
           token,
+          notification: {
+            title: notifPayload.title,
+            body: msgLines.join("\n"),
+          },
           data: {
             title: notifPayload.title,
             body: msgLines.join("\n"),
@@ -213,6 +227,10 @@ db.ref("sensor_readings/latest").on("value", async (snap) => {
           },
           android: {
             priority: "high",
+            notification: {
+              channelId: targetChannelId,
+              priority: "high",
+            }
           },
         });
 
