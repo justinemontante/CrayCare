@@ -195,6 +195,10 @@ class NotificationService extends ChangeNotifier {
   }
 
   Future<void> _onForegroundMessage(RemoteMessage message) async {
+    // --- Respect notification settings ---
+    // Critical OFF → skip entirely
+    if (!_notifCritical) return;
+
     final title = message.data['title'] ?? message.notification?.title ?? 'CrayCare Alert';
     final body = message.data['body'] ?? message.notification?.body ?? '';
 
@@ -209,8 +213,8 @@ class NotificationService extends ChangeNotifier {
           channelDescription: _channelDesc,
           importance: Importance.high,
           priority: Priority.high,
-          playSound: _notifSound,
-          enableVibration: _notifVibration,
+          playSound: _notifSound,           // Sound ON/OFF
+          enableVibration: _notifVibration,  // Vibration ON/OFF
         ),
       ),
     );
@@ -279,7 +283,7 @@ class NotificationService extends ChangeNotifier {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
     _prefsSub = FirebaseDatabase.instance
-        .ref('users/${user.uid}/notifications')
+        .ref('users/${user.uid}/notifPrefs')
         .onValue
         .listen((e) {
       if (!e.snapshot.exists || e.snapshot.value == null) return;

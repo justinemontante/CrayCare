@@ -220,7 +220,9 @@ class DatabaseService {
     required bool feeding,
     required bool sampling,
   }) async {
-    await _db.child('users/$uid/notifications').set({
+    // Stored in a dedicated 'notifPrefs' node — separate from notification
+    // records in 'notifications/' to avoid them overwriting each other.
+    await _db.child('users/$uid/notifPrefs').set({
       'sound': sound,
       'vibration': vibration,
       'critical': critical,
@@ -231,7 +233,7 @@ class DatabaseService {
   }
 
   Future<Map<String, dynamic>?> getNotificationPrefs(String uid) async {
-    final snapshot = await _db.child('users/$uid/notifications').get();
+    final snapshot = await _db.child('users/$uid/notifPrefs').get();
     if (snapshot.exists) {
       return convertMap(snapshot.value as Map);
     }

@@ -189,18 +189,23 @@ db.ref("sensor_readings/latest").on("value", async (snap) => {
         const token = tokenSnap.val();
         if (!token) return;
 
-        const prefsSnap = await db.ref(`users/${uid}/notifications`).once("value");
+        // Read prefs from dedicated 'notifPrefs' node (separate from notification records)
+        const prefsSnap = await db.ref(`users/${uid}/notifPrefs`).once("value");
         const prefs = prefsSnap.val() || {};
-        const sound = prefs.sound !== false;
-        const vibration = prefs.vibration !== false;
-        const critical = prefs.critical !== false;
+        const sound = prefs.sound !== false;       // default: true
+        const vibration = prefs.vibration !== false; // default: true
+        const critical = prefs.critical !== false;  // default: true
 
-        if (!critical) return;
+        // Respect user's critical setting — skip FCM entirely if turned off
+        if (!critical) {
+          console.log(`[${new Date().toLocaleTimeString()}] Skipping FCM for ${uid} — critical alerts disabled`);
+          return;
+        }
 
         await admin.messaging().send({
           token,
           data: {
-            title: "CrayCare Alert",
+            title: notifPayload.title,
             body: msgLines.join("\n"),
             sound: String(sound),
             vibration: String(vibration),
