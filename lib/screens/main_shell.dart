@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import '../theme/app_colors.dart';
 import '../services/database_service.dart';
+import '../services/notification_service.dart';
 import 'dashboard_screen.dart';
 import 'analytics_screen.dart';
 import 'controls_screen.dart';
@@ -57,6 +58,10 @@ class _MainShellState extends State<MainShell> {
     super.initState();
     _loadPhoto();
     _checkPrimaryUser();
+    
+    // Register NotificationService listener to update badges dynamically
+    NotificationService.instance.addListener(_onNotificationChange);
+
     // Safety fallback: if DB role checking takes too long, stop loading after 2.5 seconds
     Future.delayed(const Duration(milliseconds: 2500), () {
       if (mounted && _loadingRole) {
@@ -69,7 +74,35 @@ class _MainShellState extends State<MainShell> {
   void dispose() {
     _roleSub?.cancel();
     _primarySub?.cancel();
+    NotificationService.instance.removeListener(_onNotificationChange);
     super.dispose();
+  }
+
+  void _onNotificationChange() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Widget _buildBadge(int count) {
+    if (count <= 0) return const SizedBox.shrink();
+    return Container(
+      padding: const EdgeInsets.all(2),
+      decoration: const BoxDecoration(
+        color: Colors.red,
+        shape: BoxShape.circle,
+      ),
+      constraints: const BoxConstraints(minWidth: 14, minHeight: 14),
+      child: Text(
+        count > 99 ? '99+' : '$count',
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 8,
+          fontWeight: FontWeight.bold,
+        ),
+        textAlign: TextAlign.center,
+      ),
+    );
   }
 
   void _checkPrimaryUser() {
@@ -338,7 +371,12 @@ class _MainShellState extends State<MainShell> {
           final isActive = i == _currentIndex;
           return Expanded(
             child: GestureDetector(
-              onTap: () => setState(() => _currentIndex = i),
+              onTap: () {
+                setState(() => _currentIndex = i);
+                if (i == 4) {
+                  NotificationService.instance.markAllRead();
+                }
+              },
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
                 decoration: BoxDecoration(
@@ -350,12 +388,25 @@ class _MainShellState extends State<MainShell> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(
-                      item.icon,
-                      size: 22,
-                      color: isActive
-                          ? AppColors.primary
-                          : AppColors.darkWith(0.3),
+                    Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        Icon(
+                          item.icon,
+                          size: 22,
+                          color: isActive
+                              ? AppColors.primary
+                              : AppColors.darkWith(0.3),
+                        ),
+                        if (i == 4 && i != _currentIndex)
+                          Positioned(
+                            right: -6,
+                            top: -4,
+                            child: _buildBadge(
+                              NotificationService.instance.unreadCount,
+                            ),
+                          ),
+                      ],
                     ),
                     const SizedBox(height: 2),
                     FittedBox(
