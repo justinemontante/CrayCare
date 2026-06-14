@@ -153,7 +153,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
 
   String _todayKey() {
     final now = DateTime.now();
-    return '${now.month}/${now.day}';
+    return '${now.year}-${now.month}-${now.day}';
   }
 
   void _checkDateReset() {
@@ -211,7 +211,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
         });
       }
       _lastFeedCount = svc.feedCount;
-      _markNearestScheduleFed();
+      if (svc.feedSource == 'scheduled') _markNearestScheduleFed();
     }
 
     if (mounted) setState(() {});

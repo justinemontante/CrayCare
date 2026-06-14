@@ -529,7 +529,7 @@ static void markScheduleDispatched(const String& schedKey) {
         struct tm t;
         if (getLocalTime(&t)) {
             char dateKey[20];
-            snprintf(dateKey, sizeof(dateKey), "%04d/%02d/%02d",
+            snprintf(dateKey, sizeof(dateKey), "%04d-%02d-%02d",
                 1900 + t.tm_year, t.tm_mon + 1, t.tm_mday);
             Firebase.RTDB.setBool(&fbW,
                 String("/feeder/dispatched/") + dateKey + "/" + schedKey, true);
