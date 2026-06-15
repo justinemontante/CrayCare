@@ -14,6 +14,8 @@ class FeederTab extends StatelessWidget {
   final String feederError;
 
   final bool isOwner;
+  final bool isOnline;
+  final bool isRunning;
 
   const FeederTab({
     super.key,
@@ -27,6 +29,8 @@ class FeederTab extends StatelessWidget {
     this.fedToday = const {},
     this.feederError = '',
     this.isOwner = true,
+    this.isOnline = true,
+    this.isRunning = false,
   });
 
   @override
@@ -241,10 +245,14 @@ class FeederTab extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: isOwner ? onFeedNow : null,
+                onPressed: isOwner && isOnline && !isRunning ? onFeedNow : null,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: isOwner ? AppColors.primary : Colors.grey.shade300,
-                  foregroundColor: isOwner ? Colors.white : Colors.grey.shade500,
+                  backgroundColor: isOwner && isOnline
+                      ? AppColors.primary
+                      : Colors.grey.shade300,
+                  foregroundColor: isOwner && isOnline
+                      ? Colors.white
+                      : Colors.grey.shade500,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   elevation: 0,
                   shape: RoundedRectangleBorder(
@@ -255,17 +263,33 @@ class FeederTab extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(
-                      isOwner ? Icons.play_arrow : Icons.lock_outline,
+                      !isOwner
+                          ? Icons.lock_outline
+                          : isRunning
+                          ? Icons.hourglass_top
+                          : !isOnline
+                          ? Icons.wifi_off
+                          : Icons.play_arrow,
                       size: 16,
-                      color: isOwner ? Colors.white : Colors.grey.shade500,
+                      color: isOwner && isOnline
+                          ? Colors.white
+                          : Colors.grey.shade500,
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      isOwner ? 'Feed Now' : 'Feed Now (Owner Only)',
+                      !isOwner
+                          ? 'Feed Now (Owner Only)'
+                          : isRunning
+                          ? 'Feeding...'
+                          : !isOnline
+                          ? 'Feeder Offline'
+                          : 'Feed Now',
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
-                        color: isOwner ? Colors.white : Colors.grey.shade500,
+                        color: isOwner && isOnline
+                            ? Colors.white
+                            : Colors.grey.shade500,
                       ),
                     ),
                   ],

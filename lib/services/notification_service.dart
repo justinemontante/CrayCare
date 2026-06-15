@@ -5,6 +5,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:timezone/timezone.dart' as tz;
+import 'package:timezone/data/latest.dart' as tz;
 import 'sensor_service.dart';
 import 'tank_service.dart';
 import '../models/notification_item.dart';
@@ -27,10 +29,12 @@ class NotificationService extends ChangeNotifier {
   bool _notifSampling = false;
 
   final Set<String> _feedingReminderSent = {};
+  final Set<String> _pendingTimers = {};
   String _lastSamplingReminderDate = '';
 
-  DatabaseReference get _notifRef =>
-      FirebaseDatabase.instance.ref('users/${FirebaseAuth.instance.currentUser?.uid ?? ""}/notifications');
+  DatabaseReference get _notifRef => FirebaseDatabase.instance.ref(
+    'users/${FirebaseAuth.instance.currentUser?.uid ?? ""}/notifications',
+  );
   String? _userRole;
   StreamSubscription<DatabaseEvent>? _profileSub;
   StreamSubscription<DatabaseEvent>? _notifSub;
@@ -82,7 +86,9 @@ class NotificationService extends ChangeNotifier {
     _loadUserPrefs();
     SensorService.instance.addListener(_onSensorUpdate);
     _initPreviousStates();
+    tz.initializeTimeZones();
     _startReminderTimer();
+    FeedState.schedules.addListener(_checkFeedingReminders);
     FirebaseAuth.instance.authStateChanges().listen((user) {
       _notifications.clear();
       _notifSub?.cancel();
@@ -106,98 +112,108 @@ class NotificationService extends ChangeNotifier {
         .ref('users/${user.uid}/profile')
         .onValue
         .listen((event) async {
-      if (event.snapshot.value == null) return;
-      final profile = DatabaseService.convertMap(event.snapshot.value as Map);
-      _userRole = profile['role'] as String?;
+          if (event.snapshot.value == null) return;
+          final profile = DatabaseService.convertMap(
+            event.snapshot.value as Map,
+          );
+          _userRole = profile['role'] as String?;
 
-      if (_userRole == 'admin') {
-        _notifSub?.cancel();
-        _notifRemovedSub?.cancel();
-        _prefsSub?.cancel();
-        _notifications.clear();
-        FirebaseDatabase.instance
-            .ref('users/${user.uid}/fcmToken')
-            .remove()
-            .catchError((_) {});
-        notifyListeners();
-      } else {
-        _listenFirebase();
-        _loadUserPrefs();
-        final messaging = FirebaseMessaging.instance;
-        try {
-          final token = await messaging.getToken();
-          if (token != null) _saveToken(token);
-        } catch (_) {}
-      }
-    });
+          if (_userRole == 'admin') {
+            _notifSub?.cancel();
+            _notifRemovedSub?.cancel();
+            _prefsSub?.cancel();
+            _notifications.clear();
+            FirebaseDatabase.instance
+                .ref('users/${user.uid}/fcmToken')
+                .remove()
+                .catchError((_) {});
+            notifyListeners();
+          } else {
+            _listenFirebase();
+            _loadUserPrefs();
+            final messaging = FirebaseMessaging.instance;
+            try {
+              final token = await messaging.getToken();
+              if (token != null) _saveToken(token);
+            } catch (_) {}
+          }
+        });
   }
 
   Future<void> initFCM() async {
     try {
-      const androidSettings =
-          AndroidInitializationSettings('@mipmap/ic_launcher');
-      const initSettings = InitializationSettings(
-        android: androidSettings,
+      const androidSettings = AndroidInitializationSettings(
+        '@mipmap/ic_launcher',
       );
+      const initSettings = InitializationSettings(android: androidSettings);
       await _localNotifications.initialize(initSettings);
 
       final manager = _localNotifications
           .resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin>();
+            AndroidFlutterLocalNotificationsPlugin
+          >();
 
       if (manager != null) {
         // Create 4 distinct channels for each combination of Sound & Vibration
-        await manager.createNotificationChannel(const AndroidNotificationChannel(
-          'craycare_alerts_sound_vibrate',
-          'CrayCare Alerts (Sound & Vibrate)',
-          description: 'Alerts with sound and vibration enabled',
-          importance: Importance.high,
-          playSound: true,
-          enableVibration: true,
-        ));
+        await manager.createNotificationChannel(
+          const AndroidNotificationChannel(
+            'craycare_alerts_sound_vibrate',
+            'CrayCare Alerts (Sound & Vibrate)',
+            description: 'Alerts with sound and vibration enabled',
+            importance: Importance.high,
+            playSound: true,
+            enableVibration: true,
+          ),
+        );
 
         // Vibration is strictly OFF on this channel
-        await manager.createNotificationChannel(AndroidNotificationChannel(
-          'craycare_alerts_sound_only',
-          'CrayCare Alerts (Sound Only)',
-          description: 'Alerts with sound only',
-          importance: Importance.high,
-          playSound: true,
-          enableVibration: false,
-          vibrationPattern: Int64List(0),
-        ));
+        await manager.createNotificationChannel(
+          AndroidNotificationChannel(
+            'craycare_alerts_sound_only',
+            'CrayCare Alerts (Sound Only)',
+            description: 'Alerts with sound only',
+            importance: Importance.high,
+            playSound: true,
+            enableVibration: false,
+            vibrationPattern: Int64List(0),
+          ),
+        );
 
         // Sound is strictly OFF on this channel
-        await manager.createNotificationChannel(const AndroidNotificationChannel(
-          'craycare_alerts_vibrate_only',
-          'CrayCare Alerts (Vibration Only)',
-          description: 'Alerts with vibration only',
-          importance: Importance.high,
-          playSound: false,
-          enableVibration: true,
-          sound: null,
-        ));
+        await manager.createNotificationChannel(
+          const AndroidNotificationChannel(
+            'craycare_alerts_vibrate_only',
+            'CrayCare Alerts (Vibration Only)',
+            description: 'Alerts with vibration only',
+            importance: Importance.high,
+            playSound: false,
+            enableVibration: true,
+            sound: null,
+          ),
+        );
 
         // Sound and Vibration are strictly OFF on this channel
-        await manager.createNotificationChannel(AndroidNotificationChannel(
-          'craycare_alerts_silent',
-          'CrayCare Alerts (Silent)',
-          description: 'Silent alerts',
-          importance: Importance.low, // Importance.low ensures no sound or vibration by system default
-          playSound: false,
-          enableVibration: false,
-          sound: null,
-          vibrationPattern: Int64List(0),
-        ));
+        await manager.createNotificationChannel(
+          AndroidNotificationChannel(
+            'craycare_alerts_silent',
+            'CrayCare Alerts (Silent)',
+            description: 'Silent alerts',
+            importance: Importance
+                .low, // Importance.low ensures no sound or vibration by system default
+            playSound: false,
+            enableVibration: false,
+            sound: null,
+            vibrationPattern: Int64List(0),
+          ),
+        );
+
+        await manager.requestExactAlarmsPermission();
+        await manager.requestNotificationsPermission();
       }
 
       final messaging = FirebaseMessaging.instance;
 
-      await messaging.requestPermission(
-        alert: true,
-        badge: true,
-        sound: true,
-      );
+      await messaging.requestPermission(alert: true, badge: true, sound: true);
 
       // Explicitly disable native system banners/alerts when the app is in the foreground
       await messaging.setForegroundNotificationPresentationOptions(
@@ -216,6 +232,9 @@ class NotificationService extends ChangeNotifier {
       FirebaseMessaging.onBackgroundMessage(_onBackgroundMessage);
 
       debugPrint('[NotificationService] FCM initialized');
+
+      _pendingTimers.clear();
+      _checkFeedingReminders();
     } catch (e) {
       debugPrint('[NotificationService] FCM init error: $e');
     }
@@ -243,7 +262,9 @@ class NotificationService extends ChangeNotifier {
   Future<void> _onForegroundMessage(RemoteMessage message) async {
     // Standard Behavior: Skip showing the native push notification banner when user is already in-app.
     // The UI database listeners will automatically catch and display the new record in the notification logs.
-    debugPrint('[NotificationService] Foreground message received, skipping native banner to follow app standards.');
+    debugPrint(
+      '[NotificationService] Foreground message received, skipping native banner to follow app standards.',
+    );
   }
 
   @pragma('vm:entry-point')
@@ -251,56 +272,67 @@ class NotificationService extends ChangeNotifier {
     debugPrint('[NotificationService] Background msg: ${message.messageId}');
     try {
       final localNotif = FlutterLocalNotificationsPlugin();
-      const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-      await localNotif.initialize(const InitializationSettings(
-        android: androidSettings,
-      ));
+      const androidSettings = AndroidInitializationSettings(
+        '@mipmap/ic_launcher',
+      );
+      await localNotif.initialize(
+        const InitializationSettings(android: androidSettings),
+      );
 
       // Re-initialize dynamic channels in background context to ensure they exist for the system
       final manager = localNotif
           .resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin>();
+            AndroidFlutterLocalNotificationsPlugin
+          >();
 
       if (manager != null) {
-        await manager.createNotificationChannel(const AndroidNotificationChannel(
-          'craycare_alerts_sound_vibrate',
-          'CrayCare Alerts (Sound & Vibrate)',
-          description: 'Alerts with sound and vibration enabled',
-          importance: Importance.high,
-          playSound: true,
-          enableVibration: true,
-        ));
+        await manager.createNotificationChannel(
+          const AndroidNotificationChannel(
+            'craycare_alerts_sound_vibrate',
+            'CrayCare Alerts (Sound & Vibrate)',
+            description: 'Alerts with sound and vibration enabled',
+            importance: Importance.high,
+            playSound: true,
+            enableVibration: true,
+          ),
+        );
 
-        await manager.createNotificationChannel(AndroidNotificationChannel(
-          'craycare_alerts_sound_only',
-          'CrayCare Alerts (Sound Only)',
-          description: 'Alerts with sound only',
-          importance: Importance.high,
-          playSound: true,
-          enableVibration: false,
-          vibrationPattern: Int64List(0),
-        ));
+        await manager.createNotificationChannel(
+          AndroidNotificationChannel(
+            'craycare_alerts_sound_only',
+            'CrayCare Alerts (Sound Only)',
+            description: 'Alerts with sound only',
+            importance: Importance.high,
+            playSound: true,
+            enableVibration: false,
+            vibrationPattern: Int64List(0),
+          ),
+        );
 
-        await manager.createNotificationChannel(const AndroidNotificationChannel(
-          'craycare_alerts_vibrate_only',
-          'CrayCare Alerts (Vibration Only)',
-          description: 'Alerts with vibration only',
-          importance: Importance.high,
-          playSound: false,
-          enableVibration: true,
-          sound: null,
-        ));
+        await manager.createNotificationChannel(
+          const AndroidNotificationChannel(
+            'craycare_alerts_vibrate_only',
+            'CrayCare Alerts (Vibration Only)',
+            description: 'Alerts with vibration only',
+            importance: Importance.high,
+            playSound: false,
+            enableVibration: true,
+            sound: null,
+          ),
+        );
 
-        await manager.createNotificationChannel(AndroidNotificationChannel(
-          'craycare_alerts_silent',
-          'CrayCare Alerts (Silent)',
-          description: 'Silent alerts',
-          importance: Importance.low,
-          playSound: false,
-          enableVibration: false,
-          sound: null,
-          vibrationPattern: Int64List(0),
-        ));
+        await manager.createNotificationChannel(
+          AndroidNotificationChannel(
+            'craycare_alerts_silent',
+            'CrayCare Alerts (Silent)',
+            description: 'Silent alerts',
+            importance: Importance.low,
+            playSound: false,
+            enableVibration: false,
+            sound: null,
+            vibrationPattern: Int64List(0),
+          ),
+        );
       }
 
       final data = message.data;
@@ -335,7 +367,9 @@ class NotificationService extends ChangeNotifier {
             playSound: playSound,
             enableVibration: vibrate,
             vibrationPattern: !vibrate ? Int64List(0) : null,
-            sound: !playSound ? null : RawResourceAndroidNotificationSound('default'),
+            sound: !playSound
+                ? null
+                : RawResourceAndroidNotificationSound('default'),
           ),
         ),
       );
@@ -343,7 +377,6 @@ class NotificationService extends ChangeNotifier {
       debugPrint('[NotificationService] Background notification error: $e');
     }
   }
-
 
   @override
   void dispose() {
@@ -353,6 +386,7 @@ class NotificationService extends ChangeNotifier {
     _prefsSub?.cancel();
     _profileSub?.cancel();
     _reminderTimer?.cancel();
+    FeedState.schedules.removeListener(_checkFeedingReminders);
     SensorService.instance.removeListener(_onSensorUpdate);
     super.dispose();
   }
@@ -372,16 +406,18 @@ class NotificationService extends ChangeNotifier {
         .ref('users/${user.uid}/notifPrefs')
         .onValue
         .listen((e) {
-      if (!e.snapshot.exists || e.snapshot.value == null) return;
-      final raw = e.snapshot.value as Map<Object?, Object?>;
-      final map = raw.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
-      _notifSound = map['sound'] as bool? ?? true;
-      _notifVibration = map['vibration'] as bool? ?? true;
-      _notifCritical = map['critical'] as bool? ?? true;
-      _notifFeeding = map['feeding'] as bool? ?? true;
-      _notifSampling = map['sampling'] as bool? ?? false;
-      notifyListeners();
-    });
+          if (!e.snapshot.exists || e.snapshot.value == null) return;
+          final raw = e.snapshot.value as Map<Object?, Object?>;
+          final map = raw.map<String, dynamic>(
+            (k, v) => MapEntry(k.toString(), v),
+          );
+          _notifSound = map['sound'] as bool? ?? true;
+          _notifVibration = map['vibration'] as bool? ?? true;
+          _notifCritical = map['critical'] as bool? ?? true;
+          _notifFeeding = map['feeding'] as bool? ?? true;
+          _notifSampling = map['sampling'] as bool? ?? false;
+          notifyListeners();
+        });
   }
 
   void _startReminderTimer() {
@@ -407,18 +443,118 @@ class NotificationService extends ChangeNotifier {
 
       final schedMins = h * 60 + m;
       final nowMins = now.hour * 60 + now.minute;
-      if (schedMins > 0 && nowMins == schedMins - 1) {
-        final key = '${todayKey}_${s.time}_${s.ampm}';
-        if (_feedingReminderSent.contains(key)) return;
-        _feedingReminderSent.add(key);
+      final key = '${todayKey}_${s.time}_${s.ampm}';
+      if (_feedingReminderSent.contains(key)) continue;
+      if (schedMins <= 0) continue;
 
-        _addNotification(
-          type: 'reminder',
-          title: 'Feeding Reminder',
-          message: 'Scheduled feeding at ${s.time} ${s.ampm} starts in 1 minute.',
-          timestamp: now,
-        );
+      final target = DateTime(now.year, now.month, now.day, h, m).subtract(const Duration(minutes: 5));
+      final diff = target.difference(now);
+
+      if (diff >= Duration.zero) {
+        if (!_pendingTimers.contains(key)) {
+          _pendingTimers.add(key);
+          debugPrint('[NotificationService] Scheduling 5-min timer for ${s.time} ${s.ampm} in ${diff.inSeconds}s');
+          Future.delayed(diff, () => _fireReminder(key, s, scheduledAt: target));
+          _scheduleOSReminder(key, s, target);
+        }
+      } else if (nowMins >= schedMins - 5 && nowMins < schedMins) {
+        _fireReminder(key, s, scheduledAt: target);
       }
+    }
+  }
+
+  void _scheduleOSReminder(String key, ScheduleItem s, DateTime target) {
+    if (target.isBefore(DateTime.now())) return;
+    try {
+      final loc = tz.local;
+      final tzTarget = tz.TZDateTime.from(target, loc);
+      String channelId = 'craycare_alerts_silent';
+      if (_notifSound && _notifVibration) {
+        channelId = 'craycare_alerts_sound_vibrate';
+      } else if (_notifSound) {
+        channelId = 'craycare_alerts_sound_only';
+      } else if (_notifVibration) {
+        channelId = 'craycare_alerts_vibrate_only';
+      }
+      _localNotifications.zonedSchedule(
+        key.hashCode,
+        'Feeding Reminder',
+        'Your feeding schedule at ${s.time} ${s.ampm} will be dispensed in 5 minutes.',
+        tzTarget,
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            channelId,
+            'CrayCare Alerts',
+            importance: _notifSound || _notifVibration ? Importance.high : Importance.low,
+            priority: Priority.high,
+            playSound: _notifSound,
+            enableVibration: _notifVibration,
+            vibrationPattern: !_notifVibration ? Int64List(0) : null,
+            sound: !_notifSound ? null : RawResourceAndroidNotificationSound('default'),
+          ),
+        ),
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+      );
+      debugPrint('[NotificationService] OS scheduled reminder for ${s.time} ${s.ampm} at $target (id=${key.hashCode})');
+    } catch (e) {
+      debugPrint('[NotificationService] OS schedule error: $e');
+    }
+  }
+
+  void _fireReminder(String key, ScheduleItem s, {bool showSystemNotif = true, DateTime? scheduledAt}) {
+    if (_feedingReminderSent.contains(key)) return;
+    _feedingReminderSent.add(key);
+    _localNotifications.cancel(key.hashCode);
+
+    final msg = 'Your feeding schedule at ${s.time} ${s.ampm} will be dispensed in 5 minutes.';
+
+    debugPrint('[NotificationService] Firing reminder for ${s.time} ${s.ampm}');
+
+    final scheduleLabel = '${s.time} ${s.ampm}';
+    final alreadyAdded = _notifications.any(
+      (n) => n.type == 'reminder' && n.message.contains(scheduleLabel),
+    );
+
+    if (!alreadyAdded) {
+      _addNotification(
+        type: 'reminder',
+        title: 'Feeding Reminder',
+        message: msg,
+        timestamp: scheduledAt ?? DateTime.now(),
+      );
+    }
+
+    if (!showSystemNotif) return;
+
+    try {
+      String channelId = 'craycare_alerts_silent';
+      if (_notifSound && _notifVibration) {
+        channelId = 'craycare_alerts_sound_vibrate';
+      } else if (_notifSound) {
+        channelId = 'craycare_alerts_sound_only';
+      } else if (_notifVibration) {
+        channelId = 'craycare_alerts_vibrate_only';
+      }
+      _localNotifications.show(
+        DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        'Feeding Reminder',
+        msg,
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            channelId,
+            'CrayCare Alerts',
+            importance: _notifSound || _notifVibration ? Importance.high : Importance.low,
+            priority: Priority.high,
+            playSound: _notifSound,
+            enableVibration: _notifVibration,
+            vibrationPattern: !_notifVibration ? Int64List(0) : null,
+            sound: !_notifSound ? null : RawResourceAndroidNotificationSound('default'),
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('[NotificationService] Local notification error: $e');
     }
   }
 
@@ -460,7 +596,8 @@ class NotificationService extends ChangeNotifier {
       _addNotification(
         type: 'reminder',
         title: 'Sampling Reminder',
-        message: 'It\'s been ${tank.daysSinceLastSampling} days since last sampling. Time to record growth data!',
+        message:
+            'It\'s been ${tank.daysSinceLastSampling} days since last sampling. Time to record growth data!',
         timestamp: now,
       );
     }
@@ -564,18 +701,22 @@ class NotificationService extends ChangeNotifier {
     _notifications.insert(0, notif);
     notifyListeners();
 
-    fbRef.set({
-      'type': notif.type,
-      'title': notif.title,
-      'message': notif.message,
-      'timestamp': notif.timestamp.millisecondsSinceEpoch,
-      'unread': notif.unread,
-    }).catchError((e) {
-      debugPrint('[NotificationService] Failed to save: $e');
-    });
+    fbRef
+        .set({
+          'type': notif.type,
+          'title': notif.title,
+          'message': notif.message,
+          'timestamp': notif.timestamp.millisecondsSinceEpoch,
+          'unread': notif.unread,
+        })
+        .catchError((e) {
+          debugPrint('[NotificationService] Failed to save: $e');
+        });
 
     // DO NOT show native system popups when the app is in the foreground
-    debugPrint('[NotificationService] Local notification recorded in DB, skipping native banner in-app.');
+    debugPrint(
+      '[NotificationService] Local notification recorded in DB, skipping native banner in-app.',
+    );
   }
 
   void markAllRead() {
@@ -619,5 +760,4 @@ class NotificationService extends ChangeNotifier {
     final now = DateTime.now();
     return dt.day == now.day && dt.month == now.month && dt.year == now.year;
   }
-
 }

@@ -106,6 +106,7 @@ static String pendingSchedKey = "";  // Key pending isDone sync when offline
 static int feedHour1 = 9, feedMin1 = 0;
 static int feedHour2 = 18, feedMin2 = 0;
 static bool fedSlot1 = false, fedSlot2 = false;
+static bool missedLogged1 = false, missedLogged2 = false;
 static int lastFeedCheckMin = -1;
 static bool schedSyncPending = false;
 
@@ -422,6 +423,8 @@ static void checkFeederSchedule() {
         lastFeedCheckMin = curM;
         fedSlot1 = false;
         fedSlot2 = false;
+        missedLogged1 = false;
+        missedLogged2 = false;
     }
     if (!feedBusy) {
         if (!fedSlot1 && curH == feedHour1 && curM == feedMin1) {
@@ -435,6 +438,25 @@ static void checkFeederSchedule() {
                 fmtTime12(feedHour2, feedMin2).c_str(), fbSchedKey2.c_str());
             doFeed(fbSchedKey2);
             fedSlot2 = true;
+        }
+
+        // Missed feed detection — 10 min past schedule, still not fed
+        int curMins = curH * 60 + curM;
+        int sched1 = feedHour1 * 60 + feedMin1;
+        int sched2 = feedHour2 * 60 + feedMin2;
+        if (!fedSlot1 && !missedLogged1 && sched1 > 0 &&
+            curMins >= sched1 + 10 && curMins < sched1 + 15) {
+            logFeedAction("Feed skipped", "missed");
+            Serial.printf("[FEEDER] Slot1 missed — no feed at %s\n",
+                fmtTime12(feedHour1, feedMin1).c_str());
+            missedLogged1 = true;
+        }
+        if (!fedSlot2 && !missedLogged2 && sched2 > 0 &&
+            curMins >= sched2 + 10 && curMins < sched2 + 15) {
+            logFeedAction("Feed skipped", "missed");
+            Serial.printf("[FEEDER] Slot2 missed — no feed at %s\n",
+                fmtTime12(feedHour2, feedMin2).c_str());
+            missedLogged2 = true;
         }
     }
 }
@@ -508,6 +530,7 @@ static void pollFirebaseSchedules() {
     if (changed) {
         feedHour1 = h1; feedMin1 = m1; feedHour2 = h2; feedMin2 = m2;
         fbSchedKey1 = k1; fbSchedKey2 = k2;
+        missedLogged1 = false; missedLogged2 = false;
         saveFeederSchedule();
         Serial.printf("[SCHED] Synced: %02d:%02d(key=%s) %02d:%02d(key=%s) %d sched(s)\n",
             feedHour1, feedMin1, fbSchedKey1.c_str(), feedHour2, feedMin2, fbSchedKey2.c_str(), count);
@@ -521,6 +544,12 @@ static void markScheduleDispatched(const String& schedKey) {
     if (Firebase.ready()) {
         Firebase.RTDB.setBool(&fbW,
             String("/feeder/schedules/") + schedKey + "/isDone", true);
+
+        // Write dispatched path so app/background helper can see it was fed
+        String datePath = fmtDatePath();
+        Firebase.RTDB.setBool(&fbW,
+            String("/feeder/dispatched/") + datePath + "/" + schedKey, true);
+
         schedSyncPending = false;
         pendingSchedKey = "";
     } else {

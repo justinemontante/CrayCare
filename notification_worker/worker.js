@@ -38,10 +38,67 @@ const SENSOR_MAP = {
   waterLevel: "waterlevel",
 };
 
+const LABELS = {
+  temp: "Temperature",
+  ph: "pH Level",
+  do: "Dissolved Oxygen",
+  turb: "Turbidity",
+  waterlevel: "Water Level",
+};
+const UNITS = {
+  temp: "°C",
+  ph: "",
+  do: "mg/L",
+  turb: "NTU",
+  waterlevel: "cm",
+};
+
 // Sensor state tracker — ON/OFF per sensor
 const sensorStates = {}; // { temp: false, ph: false, ... }
 // Flag para hindi mag-spam ng "resolved" sa umpisa
 let firstRun = true;
+
+async function getAuthorizedUids() {
+  const authSnap = await db.ref("system/authorizedOperators").once("value");
+  const authVal = authSnap.val();
+  let uids = [];
+
+  if (authVal === null) {
+    const usersSnap = await db.ref("users").once("value");
+    if (usersSnap.exists()) {
+      usersSnap.forEach((child) => {
+        const userData = child.val();
+        const role = userData && userData.profile && userData.profile.role;
+        if (!role || String(role).toLowerCase() !== "admin") {
+          uids.push(child.key);
+        }
+      });
+    }
+  } else if (typeof authVal === "object") {
+    if (authVal.UID && typeof authVal.UID === "string") {
+      uids = authVal.UID.split(",").map(u => u.trim()).filter(Boolean);
+    } else {
+      for (const [key, val] of Object.entries(authVal)) {
+        if (val === true) uids.push(key);
+      }
+    }
+
+    // Filter out admin accounts from uids
+    const filteredUids = [];
+    await Promise.all(
+      uids.map(async (uid) => {
+        const roleSnap = await db.ref(`users/${uid}/profile/role`).once("value");
+        const role = roleSnap.val();
+        if (!role || String(role).toLowerCase() !== "admin") {
+          filteredUids.push(uid);
+        }
+      })
+    );
+    uids = filteredUids;
+  }
+
+  return uids;
+}
 
 db.ref("sensor_readings/latest").on("value", async (snap) => {
   const data = snap.val();
@@ -57,21 +114,6 @@ db.ref("sensor_readings/latest").on("value", async (snap) => {
     const selectedStage = config.selectedStage;
     if (!selectedStage || !config[selectedStage]) return;
     const thresholds = config[selectedStage];
-
-    const LABELS = {
-      temp: "Temperature",
-      ph: "pH Level",
-      do: "Dissolved Oxygen",
-      turb: "Turbidity",
-      waterlevel: "Water Level",
-    };
-    const UNITS = {
-      temp: "°C",
-      ph: "",
-      do: "mg/L",
-      turb: "NTU",
-      waterlevel: "cm",
-    };
 
     // Check each sensor for state changes (ON / OFF)
     const stateChanges = [];
@@ -140,43 +182,7 @@ db.ref("sensor_readings/latest").on("value", async (snap) => {
     };
 
     // Get authorized users
-    const authSnap = await db.ref("system/authorizedOperators").once("value");
-    const authVal = authSnap.val();
-    let uids = [];
-
-    if (authVal === null) {
-      const usersSnap = await db.ref("users").once("value");
-      if (usersSnap.exists()) {
-        usersSnap.forEach((child) => {
-          const userData = child.val();
-          const role = userData && userData.profile && userData.profile.role;
-          if (!role || String(role).toLowerCase() !== "admin") {
-            uids.push(child.key);
-          }
-        });
-      }
-    } else if (typeof authVal === "object") {
-      if (authVal.UID && typeof authVal.UID === "string") {
-        uids = authVal.UID.split(",").map(u => u.trim()).filter(Boolean);
-      } else {
-        for (const [key, val] of Object.entries(authVal)) {
-          if (val === true) uids.push(key);
-        }
-      }
-
-      // Filter out admin accounts from uids
-      const filteredUids = [];
-      await Promise.all(
-        uids.map(async (uid) => {
-          const roleSnap = await db.ref(`users/${uid}/profile/role`).once("value");
-          const role = roleSnap.val();
-          if (!role || String(role).toLowerCase() !== "admin") {
-            filteredUids.push(uid);
-          }
-        })
-      );
-      uids = filteredUids;
-    }
+    const uids = await getAuthorizedUids();
 
     let successCount = 0;
     let failureCount = 0;
@@ -254,5 +260,115 @@ db.ref("sensor_readings/latest").on("value", async (snap) => {
   }
 });
 
+// ─── Feeding Schedule Reminder Checker ───────────────────────────────────────
+setInterval(async () => {
+  try {
+    const now = new Date();
+    const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
+    const manilaNow = new Date(now.getTime() + MANILA_OFFSET_MS);
+    const todayKey = `${manilaNow.getUTCFullYear()}-${manilaNow.getUTCMonth() + 1}-${manilaNow.getUTCDate()}`;
+    const nowMins = manilaNow.getUTCHours() * 60 + manilaNow.getUTCMinutes();
+
+    const schedSnap = await db.ref("feeder/schedules").once("value");
+    if (!schedSnap.exists()) return;
+    const schedData = schedSnap.val();
+
+    for (const [key, s] of Object.entries(schedData)) {
+      if (!s || s.enabled !== true) continue;
+
+      const time = s.time || "6:00";
+      const ampm = s.ampm || "AM";
+      let h = parseInt(time.split(":")[0]);
+      const m = parseInt(time.split(":")[1]);
+      if (ampm === "PM" && h !== 12) h += 12;
+      if (ampm === "AM" && h === 12) h = 0;
+
+      const schedMins = h * 60 + m;
+      if (schedMins <= 0) continue;
+
+      // Check if within 5-minute window
+      if (nowMins < schedMins - 5 || nowMins >= schedMins) continue;
+
+      const reminderKey = `reminder_${todayKey}_${key}`;
+      const uids = await getAuthorizedUids();
+      if (uids.length === 0) continue;
+
+      const h12 = h > 12 ? h - 12 : (h === 0 ? 12 : h);
+      const ampmStr = h >= 12 ? "PM" : "AM";
+      const timeStr = `${h12}:${m.toString().padStart(2, "0")} ${ampmStr}`;
+
+      await Promise.allSettled(uids.map(async (uid) => {
+        try {
+          const markerSnap = await db.ref(`users/${uid}/notifications/markers/${reminderKey}`).once("value");
+          if (markerSnap.exists()) return;
+
+          const prefsSnap = await db.ref(`users/${uid}/notifPrefs`).once("value");
+          const prefs = prefsSnap.val() || {};
+          if (prefs.feeding === false) return;
+
+          const sound = prefs.sound !== false;
+          const vibration = prefs.vibration !== false;
+          const msg = `Your feeding schedule at ${time} ${ampm} will be dispensed in 5 minutes.`;
+
+          const scheduleEpoch = Date.UTC(manilaNow.getUTCFullYear(), manilaNow.getUTCMonth(), manilaNow.getUTCDate(), h, m) - MANILA_OFFSET_MS;
+          const reminderTimestamp = scheduleEpoch - 5 * 60 * 1000;
+
+          await db.ref(`users/${uid}/notifications`).push().set({
+            type: "reminder",
+            title: "Feeding Reminder",
+            message: msg,
+            timestamp: reminderTimestamp,
+            unread: true,
+          });
+
+          const tokenSnap = await db.ref(`users/${uid}/fcmToken`).once("value");
+          const token = tokenSnap.val();
+          if (token) {
+            let targetChannelId = "craycare_alerts_silent";
+            if (sound && vibration) targetChannelId = "craycare_alerts_sound_vibrate";
+            else if (sound) targetChannelId = "craycare_alerts_sound_only";
+            else if (vibration) targetChannelId = "craycare_alerts_vibrate_only";
+
+            await admin.messaging().send({
+              token,
+              notification: {
+                title: "Feeding Reminder",
+                body: msg,
+              },
+              data: {
+                title: "Feeding Reminder",
+                body: msg,
+                sound: String(sound),
+                vibration: String(vibration),
+                feeding: "true",
+              },
+              android: {
+                priority: "high",
+                notification: {
+                  channelId: targetChannelId,
+                  priority: "high",
+                }
+              },
+            });
+          }
+
+          await db.ref(`users/${uid}/notifications/markers/${reminderKey}`).set(true);
+          console.log(`[${new Date().toLocaleTimeString()}] Feeding reminder sent to ${uid} for ${time} ${ampm}`);
+        } catch (err) {
+          if (err.code === "messaging/invalid-registration-token" ||
+              err.code === "messaging/registration-token-not-registered") {
+            await db.ref(`users/${uid}/fcmToken`).remove();
+          } else {
+            console.error(`Feeding reminder failed for ${uid}:`, err.message);
+          }
+        }
+      }));
+    }
+  } catch (e) {
+    console.error("Feeding schedule checker error:", e.message);
+  }
+}, 30000);
+
 console.log("CrayCare Notification Worker started.");
 console.log("Monitoring sensor_readings/latest for threshold alerts...");
+console.log("Checking feeder/schedules for 5-min feeding reminders...");

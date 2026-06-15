@@ -45,7 +45,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           _buildKpiRow(svc),
           _buildFilterRow(),
           _buildHeaderRow(),
-          Expanded(child: _filtered.isEmpty ? _buildEmptyState() : _buildList()),
+          Expanded(
+            child: _filtered.isEmpty ? _buildEmptyState() : _buildList(),
+          ),
         ],
       ),
     );
@@ -62,7 +64,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           const SizedBox(width: 6),
           _buildKpiCard('Critical', '${svc.criticalCount}', AppColors.critical),
           const SizedBox(width: 6),
-          _buildKpiCard('Reminders', '${svc.reminderCount}', AppColors.warningDark),
+          _buildKpiCard(
+            'Reminders',
+            '${svc.reminderCount}',
+            AppColors.warningDark,
+          ),
         ],
       ),
     );
@@ -79,9 +85,24 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         ),
         child: Column(
           children: [
-            Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: color)),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: color,
+              ),
+            ),
             const SizedBox(height: 2),
-            Text(label, style: TextStyle(fontSize: 8, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.6), letterSpacing: 0.2)),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 8,
+                fontWeight: FontWeight.w600,
+                color: AppColors.darkWith(0.6),
+                letterSpacing: 0.2,
+              ),
+            ),
           ],
         ),
       ),
@@ -89,7 +110,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Widget _buildFilterRow() {
-    final filters = ['all', 'critical', 'warning', 'operational', 'reminders'];
+    // FIX: Changed 'reminders' to 'reminder' para mag-match sa object n.type
+    final filters = ['all', 'critical', 'warning', 'operational', 'reminder'];
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
       padding: const EdgeInsets.all(5),
@@ -119,7 +141,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       : null,
                 ),
                 child: Text(
-                  f == 'all' ? 'All' : '${f[0].toUpperCase()}${f.substring(1)}',
+                  // FIX: Custom text label format to still show 'Reminders' correctly
+                  f == 'all'
+                      ? 'All'
+                      : (f == 'reminder'
+                            ? 'Reminders'
+                            : '${f[0].toUpperCase()}${f.substring(1)}'),
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 9,
@@ -143,8 +170,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text('${_filtered.length} notification${_filtered.length == 1 ? '' : 's'}',
-            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.5)),
+          Text(
+            '${_filtered.length} notification${_filtered.length == 1 ? '' : 's'}',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: AppColors.darkWith(0.5),
+            ),
           ),
         ],
       ),
@@ -166,7 +198,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(2, 8, 2, 4),
-              child: Text(entry.key, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.primary)),
+              child: Text(
+                entry.key,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.primary,
+                ),
+              ),
             ),
             ...entry.value.map((n) => _buildNotificationItem(n)),
           ],
@@ -194,8 +233,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
-              width: 28, height: 28,
-              decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(8)),
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
+              ),
               child: Icon(_typeIcon(n.type), size: 14, color: color),
             ),
             const SizedBox(width: 10),
@@ -205,15 +248,45 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 children: [
                   Row(
                     children: [
-                      Expanded(child: Text(n.title, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.dark))),
+                      Expanded(
+                        child: Text(
+                          n.title,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.dark,
+                          ),
+                        ),
+                      ),
                       if (n.unread)
-                        Container(width: 7, height: 7, decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle)),
+                        Container(
+                          width: 7,
+                          height: 7,
+                          decoration: const BoxDecoration(
+                            color: AppColors.primary,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
                     ],
                   ),
                   const SizedBox(height: 2),
-                  Text(n.message, style: TextStyle(fontSize: 10, color: AppColors.darkWith(0.6)), maxLines: 2, overflow: TextOverflow.ellipsis),
+                  Text(
+                    n.message,
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: AppColors.darkWith(0.6),
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                   const SizedBox(height: 4),
-                  Text(_timeAgo(n.timestamp), style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.4))),
+                  Text(
+                    _timeAgo(n.timestamp),
+                    style: TextStyle(
+                      fontSize: 9,
+                      color: AppColors.darkWith(0.4),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -228,9 +301,20 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.notifications_off_outlined, size: 48, color: AppColors.darkWith(0.15)),
+          Icon(
+            Icons.notifications_off_outlined,
+            size: 48,
+            color: AppColors.darkWith(0.15),
+          ),
           const SizedBox(height: 12),
-          Text('No notifications', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.4))),
+          Text(
+            'No notifications',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: AppColors.darkWith(0.4),
+            ),
+          ),
         ],
       ),
     );
@@ -241,7 +325,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
       builder: (ctx) {
         return SafeArea(
           child: Padding(
@@ -250,13 +336,26 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Center(child: Container(width: 36, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)))),
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 12),
                 Row(
                   children: [
                     Container(
-                      width: 40, height: 40,
-                      decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(12)),
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                       child: Icon(_typeIcon(n.type), size: 20, color: color),
                     ),
                     const SizedBox(width: 12),
@@ -264,8 +363,21 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(n.title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppColors.dark)),
-                          Text(_timeAgo(n.timestamp), style: TextStyle(fontSize: 10, color: AppColors.darkWith(0.4))),
+                          Text(
+                            n.title,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.dark,
+                            ),
+                          ),
+                          Text(
+                            _timeAgo(n.timestamp),
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: AppColors.darkWith(0.4),
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -280,7 +392,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: AppColors.darkWith(0.08)),
                   ),
-                  child: Text(n.message, style: TextStyle(fontSize: 12, color: AppColors.darkWith(0.8), height: 1.5)),
+                  child: Text(
+                    n.message,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppColors.darkWith(0.8),
+                      height: 1.5,
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 16),
                 SizedBox(
@@ -291,9 +410,17 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       backgroundColor: AppColors.primary,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
-                    child: const Text('Close', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                    child: const Text(
+                      'Close',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -306,21 +433,31 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   Color _typeColor(String type) {
     switch (type) {
-      case 'critical': return AppColors.critical;
-      case 'warning': return AppColors.warning;
-      case 'operational': return AppColors.primary;
-      case 'reminder': return AppColors.warningDark;
-      default: return AppColors.primary;
+      case 'critical':
+        return AppColors.critical;
+      case 'warning':
+        return AppColors.warning;
+      case 'operational':
+        return AppColors.primary;
+      case 'reminder':
+        return AppColors.warningDark;
+      default:
+        return AppColors.primary;
     }
   }
 
   IconData _typeIcon(String type) {
     switch (type) {
-      case 'critical': return Icons.warning_rounded;
-      case 'warning': return Icons.info_outline;
-      case 'operational': return Icons.check_circle_outline;
-      case 'reminder': return Icons.notifications_outlined;
-      default: return Icons.circle;
+      case 'critical':
+        return Icons.warning_rounded;
+      case 'warning':
+        return Icons.info_outline;
+      case 'operational':
+        return Icons.check_circle_outline;
+      case 'reminder':
+        return Icons.notifications_outlined;
+      default:
+        return Icons.circle;
     }
   }
 

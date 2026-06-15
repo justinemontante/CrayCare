@@ -116,11 +116,12 @@ class BackgroundHelper {
           .ref('users/$uid/notifications/markers/$confirmKey')
           .get();
 
-      if (!reminderMarker.exists && nowMins == schedMins - 1) {
+      if (!reminderMarker.exists && nowMins >= schedMins - 15 && nowMins < schedMins) {
+        final msg = 'Your feeding schedule at $time $ampm will be dispensed in 5 minutes.';
         await localNotif.show(
           '${now.millisecondsSinceEpoch}_reminder'.hashCode,
           'Feeding Reminder',
-          'Scheduled feeding at $time $ampm starts in 1 minute.',
+          msg,
           const NotificationDetails(
             android: AndroidNotificationDetails(
               _notifChannelId,
