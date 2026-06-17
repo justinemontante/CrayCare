@@ -5,6 +5,7 @@
 #include "do_ctrl.h"
 #include <LiquidCrystal_I2C.h>
 #include <Wire.h>
+#include "esp_task_wdt.h"
 
 // =============================================================================
 // CONFIGURATION
@@ -35,7 +36,8 @@
 #define SOUND_SPEED_CM_US   0.034
 #define MAX_DIST_CM         400
 #define ECHO_TIMEOUT_US     30000
-#define TANK_DEPTH_CM       65.0f   // HC-SR04 mounted 65cm above tank bottom; water depth = 65 - measured
+#define SENSOR_HEIGHT_DEFAULT  67.0f   // HC-SR04 mounted height above tank bottom (cm)
+#define MAX_WATER_DEPTH_DEFAULT 23.0f  // Tank maximum water depth (cm)
 
 // --- LCD ---
 #define LCD_ADDR    0x27
@@ -96,8 +98,30 @@ static float currentDO = 5.0;
 static float currentWaterCm = -1;
 static bool debugMode = false;
 
+// --- HC-SR04 moving average filter (smooth ripples) ---
+#define HC_BUF_SIZE 10
+static float hcBuffer[HC_BUF_SIZE];
+static int hcBufIdx = 0;
+static int hcBufCount = 0;
+
+// --- Tank calibration (configurable via serial, NVS-persisted) ---
+static float sensorHeight = SENSOR_HEIGHT_DEFAULT;
+static float maxWaterDepth = MAX_WATER_DEPTH_DEFAULT;
+
+// --- Offline ring buffer (RAM, lost on reboot) ---
+#define BUFFER_MAX 720
+struct SensorReading {
+    unsigned long timestamp;
+    float temperature, phLevel, dissolvedOxygen, turbidity, waterLevel;
+};
+static SensorReading readingBuffer[BUFFER_MAX];
+static int bufferWritePos = 0;
+static int bufferCount = 0;
+
 static bool initialConnectDone = false;
 static unsigned long lastWifiRetry = 0;
+static unsigned long lastFirebaseOK = 0;
+static unsigned long lastLoopTime = 0;
 
 // --- Feeder schedule ---
 static String fbSchedKey1 = "";  // Firebase key of slot 1
@@ -127,6 +151,10 @@ static void doFeed(const String& cmdPath);
 static void scanI2C();
 static bool detectLCD();
 static float readWaterLevelCm();
+static float readWaterLevelFiltered();
+static void addToBuffer(float temp, float ph, float do_, float turb, float water);
+static void flushBufferTick();
+static String fmtDatePath();
 static void publishSensors();
 static void publishHistory();
 static void updateLCD();
@@ -137,6 +165,8 @@ static void saveFeederSchedule();
 static void checkFeederSchedule();
 static void pollFirebaseSchedules();
 static void markScheduleDispatched(const String& schedKey);
+static void loadWaterLevelCalibration();
+static void saveWaterLevelCalibration();
 
 // =============================================================================
 // I2C HELPERS
@@ -184,10 +214,74 @@ static float readWaterLevelCm() {
     if (duration == 0) return -1;
     float distToWater = duration * SOUND_SPEED_CM_US / 2.0;
     if (distToWater < 2 || distToWater > MAX_DIST_CM) return -1;
-    float waterDepth = TANK_DEPTH_CM - distToWater;
+    float waterDepth = sensorHeight - distToWater;
     if (waterDepth < 0) waterDepth = 0;
-    if (waterDepth > TANK_DEPTH_CM) waterDepth = TANK_DEPTH_CM;
+    if (waterDepth > maxWaterDepth) waterDepth = maxWaterDepth;
     return waterDepth;
+}
+
+static float readWaterLevelFiltered() {
+    float result = readWaterLevelCm();
+    if (result >= 0) {
+        hcBuffer[hcBufIdx++] = result;
+        if (hcBufIdx >= HC_BUF_SIZE) hcBufIdx = 0;
+        if (hcBufCount < HC_BUF_SIZE) hcBufCount++;
+        float sum = 0;
+        for (int i = 0; i < hcBufCount; i++) sum += hcBuffer[i];
+        return sum / hcBufCount;
+    }
+    return currentWaterCm;
+}
+
+static void addToBuffer(float temp, float ph, float do_, float turb, float water) {
+    struct SensorReading* r = &readingBuffer[bufferWritePos];
+    r->timestamp = getEpochMillis() / 1000;
+    r->temperature = temp;
+    r->phLevel = ph;
+    r->dissolvedOxygen = do_;
+    r->turbidity = turb;
+    r->waterLevel = water;
+    bufferWritePos = (bufferWritePos + 1) % BUFFER_MAX;
+    if (bufferCount < BUFFER_MAX) bufferCount++;
+}
+
+static void flushBufferTick() {
+    if (bufferCount == 0 || !Firebase.ready()) return;
+
+    int start = (bufferWritePos - bufferCount + BUFFER_MAX) % BUFFER_MAX;
+    struct SensorReading* r = &readingBuffer[start];
+
+    FirebaseJson j;
+    j.add("temperature", r->temperature);
+    j.add("phLevel", r->phLevel);
+    j.add("dissolvedOxygen", r->dissolvedOxygen);
+    j.add("turbidity", r->turbidity);
+    j.add("waterLevel", r->waterLevel >= 0 ? r->waterLevel : 0);
+    j.add("timestamp", (double)r->timestamp);
+
+    String path = String("/sensor_readings/history/") + fmtDatePath();
+    if (Firebase.RTDB.pushJSON(&fbS, path, &j)) {
+        bufferCount--;
+        Serial.printf("[FB] Flushed buffered reading (%d remaining)\n", bufferCount);
+    }
+}
+
+static void loadWaterLevelCalibration() {
+    prefs.begin("watercal", false);
+    sensorHeight  = prefs.getFloat("sh", SENSOR_HEIGHT_DEFAULT);
+    maxWaterDepth = prefs.getFloat("mwd", MAX_WATER_DEPTH_DEFAULT);
+    prefs.end();
+    Serial.printf("[NVS] Water cal loaded: sensorHeight=%.1fcm, maxDepth=%.1fcm\n",
+        sensorHeight, maxWaterDepth);
+}
+
+static void saveWaterLevelCalibration() {
+    prefs.begin("watercal", false);
+    prefs.putFloat("sh", sensorHeight);
+    prefs.putFloat("mwd", maxWaterDepth);
+    prefs.end();
+    Serial.printf("[NVS] Water cal saved: sensorHeight=%.1fcm, maxDepth=%.1fcm\n",
+        sensorHeight, maxWaterDepth);
 }
 
 // =============================================================================
@@ -321,6 +415,9 @@ static void pollCommands() {
 
 static void writeStatus() {
     if (!Firebase.ready()) return;
+    unsigned long now = millis();
+    if (now - lastStatusWrite < STATUS_INTERVAL) return;
+    lastStatusWrite = now;
     FirebaseJson j;
     j.add("isRunning", feedBusy); j.add("feedCount", feedCount);
     j.add("lastSeen", (double)getEpochMillis());
@@ -334,18 +431,24 @@ static void writeStatus() {
 // =============================================================================
 
 static void publishSensors() {
-    if (!Firebase.ready()) return;
-    FirebaseJson j;
-    j.add("temperature", currentTemp);
-    j.add("phLevel", currentPH);
-    j.add("dissolvedOxygen", currentDO);
-    j.add("turbidity", currentTurbNTU);
-    j.add("waterLevel", currentWaterCm >= 0 ? currentWaterCm : 0);
-    j.add("timestamp", (double)(getEpochMillis() / 1000));
-    if (Firebase.RTDB.setJSON(&fbS, "/sensor_readings/latest", &j)) {
-        Serial.println("[FB] Sensor data published");
+    unsigned long now = getEpochMillis() / 1000;
+
+    if (Firebase.ready()) {
+        FirebaseJson j;
+        j.add("temperature", currentTemp);
+        j.add("phLevel", currentPH);
+        j.add("dissolvedOxygen", currentDO);
+        j.add("turbidity", currentTurbNTU);
+        j.add("waterLevel", currentWaterCm >= 0 ? currentWaterCm : 0);
+        j.add("timestamp", (double)now);
+        if (Firebase.RTDB.setJSON(&fbS, "/sensor_readings/latest", &j)) {
+            Serial.println("[FB] Sensor data published");
+        } else {
+            Serial.printf("[FB] Sensor publish failed: %s\n", fbS.errorReason());
+        }
     } else {
-        Serial.printf("[FB] Sensor publish failed: %s\n", fbS.errorReason());
+        Serial.println("[FB] Offline, queuing sensor reading");
+        addToBuffer(currentTemp, currentPH, currentDO, currentTurbNTU, currentWaterCm);
     }
 }
 
@@ -600,6 +703,11 @@ static void printHelp() {
     Serial.println("--- DO Calibration ---");
     Serial.println("  doclear              Calibrate in air (100% sat)");
     Serial.println("");
+    Serial.println("--- Water Level Calibration ---");
+    Serial.println("  tankheight <cm>      Set sensor height above tank bottom");
+    Serial.println("  tankdepth <cm>       Set tank max water depth");
+    Serial.println("  tankcal              Show current water level settings");
+    Serial.println("");
     Serial.println("--- Debug ---");
     Serial.println("  debugmode [0/1]      Show raw voltage on LCD/serial");
     Serial.println("  debugstatus          Show system status");
@@ -644,7 +752,10 @@ static void processSerialCommands() {
     // --- Servo ---
     if (cmd == "servopause") {
         uint32_t v = (uint32_t)arg.toInt();
-        if (v > 0) { servoPauseMs = v; Serial.printf("[CMD] Servo pause = %u ms\n", v); }
+        if (v > 0) {
+            servoPauseMs = v;
+            saveServoPause(v);
+        }
         return;
     }
     if (cmd == "servocycle") {
@@ -743,6 +854,35 @@ static void processSerialCommands() {
     // --- DO calibration ---
     if (cmd == "doclear") { calibrateDOInAir(); return; }
 
+    // --- Water level calibration ---
+    if (cmd == "tankheight") {
+        float v = arg.toFloat();
+        if (v >= 10 && v <= 500) {
+            sensorHeight = v;
+            saveWaterLevelCalibration();
+            Serial.printf("[CMD] sensorHeight=%.1fcm\n", sensorHeight);
+        } else {
+            Serial.println("[CMD] Invalid height (10-500cm)");
+        }
+        return;
+    }
+    if (cmd == "tankdepth") {
+        float v = arg.toFloat();
+        if (v >= 1 && v <= 500) {
+            maxWaterDepth = v;
+            saveWaterLevelCalibration();
+            Serial.printf("[CMD] maxWaterDepth=%.1fcm\n", maxWaterDepth);
+        } else {
+            Serial.println("[CMD] Invalid depth (1-500cm)");
+        }
+        return;
+    }
+    if (cmd == "tankcal") {
+        Serial.printf("  sensorHeight=%.1fcm (sensor to tank bottom)\n", sensorHeight);
+        Serial.printf("  maxWaterDepth=%.1fcm (tank capacity)\n", maxWaterDepth);
+        return;
+    }
+
     // --- Debug ---
     if (cmd == "debugmode") {
         if (arg.length() > 0) debugMode = (arg.toInt() != 0);
@@ -795,6 +935,7 @@ void setup() {
     pinMode(ECHO_PIN, INPUT);
     digitalWrite(TRIG_PIN, LOW);
     loadTurbidityFromNVS();
+    loadWaterLevelCalibration();
     initTemperatureSensor();
     initPHSensor();
     initDOSensor();
@@ -816,6 +957,10 @@ void setup() {
     loadWifiFromNVS();
     connectWiFi();
 
+    esp_task_wdt_init(10, true);
+    esp_task_wdt_add(NULL);
+    Serial.println("[WDT] Hardware watchdog enabled (10s timeout)");
+
     Serial.println("[MAIN] Setup complete");
     if (lcdAddress != 0) {
         lcd.clear();
@@ -829,6 +974,7 @@ void setup() {
 // =============================================================================
 
 void loop() {
+    esp_task_wdt_reset();
     processSerialCommands();
     unsigned long now = millis();
 
@@ -857,6 +1003,8 @@ void loop() {
 
             if (Firebase.ready()) {
                 initialConnectDone = true;
+                lastFirebaseOK = millis();
+                lastLoopTime = millis();
                 timeChecked = false;
                 Serial.println("[MAIN] Ready");
                 if (lcdAddress != 0) {
@@ -875,6 +1023,22 @@ void loop() {
         return;
     }
 
+    // --- Software watchdog: reboot if Firebase stuck or loop stalled ---
+    if (Firebase.ready()) {
+        lastFirebaseOK = now;
+    }
+    if (now - lastFirebaseOK > 1800000) {
+        Serial.printf("[WDT] Firebase unreachable for %lums, rebooting...\n", now - lastFirebaseOK);
+        delay(100);
+        ESP.restart();
+    }
+    if (now - lastLoopTime > 120000) {
+        Serial.printf("[WDT] Loop stalled for %lums, rebooting...\n", now - lastLoopTime);
+        delay(100);
+        ESP.restart();
+    }
+    lastLoopTime = now;
+
     // --- Sensor reads ---
     if (now - lastSensorRead >= SENSOR_INTERVAL) {
         lastSensorRead = now;
@@ -884,8 +1048,7 @@ void loop() {
         currentTurbNTU = ntuFromVoltage(currentTurbV);
         currentPH = readPH();
         currentDO = readDO(currentTemp);
-        currentWaterCm = readWaterLevelCm();
-
+        currentWaterCm = readWaterLevelFiltered();
         if (debugMode) {
             Serial.printf("[DEBUG] T=%.1fC pH=%.2f DO=%.1f Turb V=%.3fV NTU=%.0f%s Water=%.0fcm\n",
                 currentTemp, currentPH, currentDO, currentTurbV, currentTurbNTU,
@@ -897,7 +1060,13 @@ void loop() {
         }
     }
 
-    // --- Firebase operations ---
+    // --- publishSensors() on its own clock, buffers when offline ---
+    if (now - lastPublish >= PUBLISH_INTERVAL) {
+        lastPublish = now;
+        publishSensors();
+    }
+
+    // --- All other Firebase ops grouped ---
     if (Firebase.ready()) {
         // Retry pending isDone sync (if we were offline when feed fired)
         if (schedSyncPending && !pendingSchedKey.isEmpty()) {
@@ -914,16 +1083,14 @@ void loop() {
         checkFeederSchedule();
         writeStatus();
 
-        if (now - lastPublish >= PUBLISH_INTERVAL) {
-            lastPublish = now;
-            publishSensors();
-        }
-
         if (now - lastHistoryPublish >= HISTORY_INTERVAL) {
             lastHistoryPublish = now;
             publishHistory();
         }
     }
+
+    // --- Flush one buffered reading per loop (non-blocking) ---
+    flushBufferTick();
 
     // --- LCD ---
     if (now - lastLcdUpdate >= LCD_INTERVAL) {

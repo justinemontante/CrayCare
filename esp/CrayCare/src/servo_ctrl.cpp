@@ -1,25 +1,39 @@
 #include "servo_ctrl.h"
+#include <Preferences.h>
 
 // ----- Pin / PWM configuration -----
-const int SERVO_PIN = 13;        // GPIO13 (chosen by the original sketch)
-const int SERVO_CHANNEL = 0;     // First LEDC channel
-const int SERVO_FREQ = 50;       // 50 Hz – typical servo frequency
-const int SERVO_RESOLUTION = 16; // 16‑bit resolution gives fine granularity
+const int SERVO_PIN = 13;
+const int SERVO_CHANNEL = 0;
+const int SERVO_FREQ = 50;
+const int SERVO_RESOLUTION = 16;
 
-// ----- Runtime configuration (RAM only) -----
-uint32_t servoPauseMs = 2000; // default 2 s open pause
-uint32_t servoCycleMs = 0;     // 0 = use pause + fixed close duration (20 s total default)
+// ----- Runtime configuration -----
+uint32_t servoPauseMs = 2000;
+uint32_t servoCycleMs = 0;
 
-static const int SERVO_MIN_US = 500; // 0° pulse width in µs
-static const int SERVO_MAX_US = 2500; // 180° pulse width in µs
+static Preferences servoPrefs;
+static const char* SERVO_NS = "servo";
+
+static const int SERVO_MIN_US = 500;
+static const int SERVO_MAX_US = 2500;
 
 void initServo() {
-    // Configure LEDC channel for the servo pin
+    servoPrefs.begin(SERVO_NS, false);
+    servoPauseMs = servoPrefs.getUInt("pause", 2000);
+    servoPrefs.end();
+    Serial.printf("[SERVO] Pause loaded: %u ms\n", servoPauseMs);
+
     ledcSetup(SERVO_CHANNEL, SERVO_FREQ, SERVO_RESOLUTION);
     ledcAttachPin(SERVO_PIN, SERVO_CHANNEL);
-    // Start at closed position (0°)
     setServoAngle(0);
     Serial.println("[SERVO] Initialized on GPIO" + String(SERVO_PIN));
+}
+
+void saveServoPause(uint32_t v) {
+    servoPrefs.begin(SERVO_NS, false);
+    servoPrefs.putUInt("pause", v);
+    servoPrefs.end();
+    Serial.printf("[SERVO] Pause saved: %u ms\n", v);
 }
 
 static int usFromAngle(int angle) {

@@ -1,3 +1,4 @@
+
 ============================================
   CRAYCARE ESP32 ALL-IN-ONE — PINOUT
   Last Updated: 2026-06-14

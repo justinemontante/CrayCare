@@ -15,3 +15,4 @@ extern uint32_t servoCycleMs;   // Full period between cycles (ms). 0 = use paus
 void initServo();
 void setServoAngle(int angle); // 0‑180 degrees
 void executeServoCycle(); // open → pause → close (once)
+void saveServoPause(uint32_t v);
