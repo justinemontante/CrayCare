@@ -21,10 +21,6 @@
       ".read": "auth != null",
       ".write": true
     },
-    "notifications": {
-      ".read": "auth != null",
-      ".write": true
-    },
     "feeder": {
       ".read": "auth != null",
       ".write": true

@@ -58,6 +58,20 @@ const sensorStates = {}; // { temp: false, ph: false, ... }
 // Flag para hindi mag-spam ng "resolved" sa umpisa
 let firstRun = true;
 
+// Returns the UID where notifications should be saved for a given user.
+// Monitors → saves under owner's UID (shared inbox).
+// Owners → saves under own UID.
+async function getNotificationTargetUid(uid) {
+  const roleSnap = await db.ref(`users/${uid}/profile/role`).once("value");
+  const role = roleSnap.val();
+  if (String(role).toLowerCase() === "monitor") {
+    const ownerUidSnap = await db.ref(`users/${uid}/profile/ownerUid`).once("value");
+    const ownerUid = ownerUidSnap.val();
+    if (ownerUid) return ownerUid;
+  }
+  return uid;
+}
+
 async function getAuthorizedUids() {
   const authSnap = await db.ref("system/authorizedOperators").once("value");
   const authVal = authSnap.val();
@@ -99,6 +113,8 @@ async function getAuthorizedUids() {
 
   return uids;
 }
+
+async function getAuthorizedUids() {
 
 db.ref("sensor_readings/latest").on("value", async (snap) => {
   const data = snap.val();
@@ -189,7 +205,8 @@ db.ref("sensor_readings/latest").on("value", async (snap) => {
 
     await Promise.allSettled(uids.map(async (uid) => {
       try {
-        await db.ref(`users/${uid}/notifications`).push().set(notifPayload);
+        const notifTarget = await getNotificationTargetUid(uid);
+        await db.ref(`users/${notifTarget}/notifications`).push().set(notifPayload);
 
         const tokenSnap = await db.ref(`users/${uid}/fcmToken`).once("value");
         const token = tokenSnap.val();
@@ -299,7 +316,8 @@ setInterval(async () => {
 
       await Promise.allSettled(uids.map(async (uid) => {
         try {
-          const markerSnap = await db.ref(`users/${uid}/notifications/markers/${reminderKey}`).once("value");
+          const notifTarget = await getNotificationTargetUid(uid);
+          const markerSnap = await db.ref(`users/${notifTarget}/notifications/markers/${reminderKey}`).once("value");
           if (markerSnap.exists()) return;
 
           const prefsSnap = await db.ref(`users/${uid}/notifPrefs`).once("value");
@@ -313,7 +331,7 @@ setInterval(async () => {
           const scheduleEpoch = Date.UTC(manilaNow.getUTCFullYear(), manilaNow.getUTCMonth(), manilaNow.getUTCDate(), h, m) - MANILA_OFFSET_MS;
           const reminderTimestamp = scheduleEpoch - 5 * 60 * 1000;
 
-          await db.ref(`users/${uid}/notifications`).push().set({
+          await db.ref(`users/${notifTarget}/notifications`).push().set({
             type: "reminder",
             title: "Feeding Reminder",
             message: msg,
@@ -352,7 +370,7 @@ setInterval(async () => {
             });
           }
 
-          await db.ref(`users/${uid}/notifications/markers/${reminderKey}`).set(true);
+          await db.ref(`users/${notifTarget}/notifications/markers/${reminderKey}`).set(true);
           console.log(`[${new Date().toLocaleTimeString()}] Feeding reminder sent to ${uid} for ${time} ${ampm}`);
         } catch (err) {
           if (err.code === "messaging/invalid-registration-token" ||
@@ -383,7 +401,8 @@ setInterval(async () => {
 
           await Promise.allSettled(confirmUids.map(async (uid) => {
             try {
-              const markerSnap = await db.ref(`users/${uid}/notifications/markers/${confirmKey}`).once("value");
+              const notifTarget = await getNotificationTargetUid(uid);
+              const markerSnap = await db.ref(`users/${notifTarget}/notifications/markers/${confirmKey}`).once("value");
               if (markerSnap.exists()) return;
 
               const prefsSnap = await db.ref(`users/${uid}/notifPrefs`).once("value");
@@ -394,7 +413,7 @@ setInterval(async () => {
               const vibration = prefs.vibration !== false;
               const msg = `Scheduled feed at ${time2} ${ampm2} has been dispensed.`;
 
-              await db.ref(`users/${uid}/notifications`).push().set({
+              await db.ref(`users/${notifTarget}/notifications`).push().set({
                 type: "reminder",
                 title: "Feeding Complete",
                 message: msg,
@@ -427,7 +446,7 @@ setInterval(async () => {
                 });
               }
 
-              await db.ref(`users/${uid}/notifications/markers/${confirmKey}`).set(true);
+              await db.ref(`users/${notifTarget}/notifications/markers/${confirmKey}`).set(true);
               console.log(`[${new Date().toLocaleTimeString()}] Feeding complete sent to ${uid} for ${time2} ${ampm2}`);
             } catch (err) {
               if (err.code === "messaging/invalid-registration-token" ||
@@ -455,11 +474,13 @@ setInterval(async () => {
 
     await Promise.allSettled(uids.map(async (uid) => {
       try {
+        const notifTarget = await getNotificationTargetUid(uid);
+
         const prefsSnap = await db.ref(`users/${uid}/notifPrefs`).once("value");
         const prefs = prefsSnap.val() || {};
         if (prefs.sampling === false) return;
 
-        const configSnap = await db.ref(`users/${uid}/tank/config`).once("value");
+        const configSnap = await db.ref(`tank_data/${notifTarget}/inventory`).once("value");
         if (!configSnap.exists()) return;
         const config = configSnap.val();
         if (!config.isInitialized) return;
@@ -471,7 +492,7 @@ setInterval(async () => {
         const daysSince = Math.floor((now - lastSample) / (1000 * 60 * 60 * 24));
         if (daysSince < 7) return;
 
-        const markerSnap = await db.ref(`users/${uid}/notifications/markers/sampling_reminder`).once("value");
+        const markerSnap = await db.ref(`users/${notifTarget}/notifications/markers/sampling_reminder`).once("value");
         if (markerSnap.exists()) {
           const lastReminderTs = markerSnap.val();
           if (lastReminderTs > 0) {
@@ -482,7 +503,7 @@ setInterval(async () => {
 
         const msg = `It's been ${daysSince} days since last sampling. Time to record growth data!`;
 
-        await db.ref(`users/${uid}/notifications`).push().set({
+        await db.ref(`users/${notifTarget}/notifications`).push().set({
           type: "reminder",
           title: "Sampling Reminder",
           message: msg,
@@ -523,7 +544,7 @@ setInterval(async () => {
           });
         }
 
-        await db.ref(`users/${uid}/notifications/markers/sampling_reminder`).set(Date.now());
+        await db.ref(`users/${notifTarget}/notifications/markers/sampling_reminder`).set(Date.now());
         console.log(`[${new Date().toLocaleTimeString()}] Sampling reminder sent to ${uid} (${daysSince} days)`);
       } catch (err) {
         console.error(`Sampling reminder failed for ${uid}:`, err.message);

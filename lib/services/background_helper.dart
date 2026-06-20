@@ -79,6 +79,12 @@ class BackgroundHelper {
     final uid = _userId;
     if (uid.isEmpty) return;
     final db = FirebaseDatabase.instance;
+
+    final profileSnap = await db.ref('users/$uid/profile').get();
+    final profile = profileSnap.value is Map ? profileSnap.value as Map : {};
+    final ownerUid = profile['ownerUid'] as String?;
+    final notifTargetUid = (ownerUid != null && ownerUid.isNotEmpty) ? ownerUid : uid;
+
     final now = DateTime.now();
     final todayKey = '${now.year}-${now.month}-${now.day}';
     final nowMins = now.hour * 60 + now.minute;
@@ -110,10 +116,10 @@ class BackgroundHelper {
       final confirmKey = 'confirm_${todayKey}_${entry.key}';
 
       final reminderMarker = await db
-          .ref('users/$uid/notifications/markers/$reminderKey')
+          .ref('users/$notifTargetUid/notifications/markers/$reminderKey')
           .get();
       final confirmMarker = await db
-          .ref('users/$uid/notifications/markers/$confirmKey')
+          .ref('users/$notifTargetUid/notifications/markers/$confirmKey')
           .get();
 
       if (!reminderMarker.exists && nowMins >= schedMins - 15 && nowMins < schedMins) {
@@ -132,7 +138,7 @@ class BackgroundHelper {
             ),
           ),
         );
-        await db.ref('users/$uid/notifications/markers/$reminderKey').set(true);
+        await db.ref('users/$notifTargetUid/notifications/markers/$reminderKey').set(true);
       }
 
       if (!confirmMarker.exists && nowMins > schedMins && nowMins <= schedMins + 15) {
@@ -155,7 +161,7 @@ class BackgroundHelper {
               ),
             ),
           );
-          await db.ref('users/$uid/notifications/markers/$confirmKey').set(true);
+          await db.ref('users/$notifTargetUid/notifications/markers/$confirmKey').set(true);
         }
       }
     }
@@ -195,7 +201,7 @@ class BackgroundHelper {
     if (daysSince < 7) return;
 
     const markerKey = 'sampling_reminder';
-    final marker = await db.ref('users/$uid/notifications/markers/$markerKey').get();
+    final marker = await db.ref('users/$tankOwnerUid/notifications/markers/$markerKey').get();
     if (marker.exists) {
       final lastReminderTs = marker.value is int ? marker.value as int : 0;
       if (lastReminderTs > 0) {
@@ -225,7 +231,7 @@ class BackgroundHelper {
       ),
     );
 
-    await db.ref('users/$uid/notifications/markers/$markerKey')
+    await db.ref('users/$tankOwnerUid/notifications/markers/$markerKey')
         .set(now.millisecondsSinceEpoch);
   }
 }
