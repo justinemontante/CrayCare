@@ -1,0 +1,17 @@
+# PlatformIO
+.pio/
+.pioenvs/
+.piolib/
+.piolibdeps/
+.clang_complete
+.gcc_flags
+.DS_Store
+.vscode/settings.json
+.vscode/extensions.json
+
+# Compiled
+*.o
+*.d
+*.elf
+*.hex
+*.bin
