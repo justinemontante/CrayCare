@@ -45,8 +45,8 @@ class FeederService extends ChangeNotifier {
   final List<String> _scheduleKeys = [];
 
   Timer? _scheduleTimer;
-  final Set<String> _dispatchedToday = {};
   String _lastCheckDate = '';
+  final Set<String> _missedLogged = {};
 
   bool get isRunning => _isRunning;
   String get feedSource => _feedSource;
@@ -354,8 +354,8 @@ class FeederService extends ChangeNotifier {
     final now = DateTime.now();
     final todayKey = '${now.year}-${now.month}-${now.day}';
     if (_lastCheckDate != todayKey) {
-      _dispatchedToday.clear();
       _lastCheckDate = todayKey;
+      _missedLogged.clear();
       final updates = <String, dynamic>{};
       for (final key in _scheduleKeys) {
         updates['$key/isDone'] = false;
@@ -364,23 +364,30 @@ class FeederService extends ChangeNotifier {
         _schedulesRef.update(updates);
       }
     }
+
     for (int i = 0; i < _schedules.length; i++) {
       final s = _schedules[i];
-      if (!s.enabled) continue;
-      if (s.isDone) continue;
+      if (!s.enabled || s.isDone) continue;
+      final key = i < _scheduleKeys.length
+          ? _scheduleKeys[i]
+          : '${s.time}_${s.ampm}';
+      if (_missedLogged.contains(key)) continue;
+
       int h = int.parse(s.time.split(':')[0]);
       final m = int.parse(s.time.split(':')[1]);
       if (s.ampm == 'PM' && h != 12) h += 12;
       if (s.ampm == 'AM' && h == 12) h = 0;
-      if (now.hour == h && now.minute == m) {
-        final key = i < _scheduleKeys.length
-            ? _scheduleKeys[i]
-            : '${s.time}_${s.ampm}';
-        if (!_dispatchedToday.contains(key)) {
-          _dispatchedToday.add(key);
-          feedNow(source: 'scheduled', scheduleKey: key);
-          debugPrint('[FeederService] Auto-dispatch: $key');
-        }
+      final scheduleDt = DateTime(now.year, now.month, now.day, h, m);
+      if (now.difference(scheduleDt).inMinutes >= 5) {
+        _missedLogged.add(key);
+        final reason = isOnline
+            ? 'Feeder did not respond'
+            : 'ESP was offline';
+        _addLogEntry(
+          action: 'Feed skipped - $reason',
+          type: 'missed',
+        );
+        debugPrint('[FeederService] Missed schedule: $key ($reason)');
       }
     }
   }

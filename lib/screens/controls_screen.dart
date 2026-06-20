@@ -244,7 +244,28 @@ class _ControlsScreenState extends State<ControlsScreen> {
   Timer? _runtimeTimer;
 
   void _feedNow() {
-    FeederService.instance.feedNow();
+    final svc = FeederService.instance;
+    if (!svc.isOnline) {
+      setState(() => _feedState = _FeedState.failed);
+      _feedTimer?.cancel();
+      _feedTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted) setState(() => _feedState = _FeedState.hidden);
+      });
+      return;
+    }
+    _feedCountAtStart = svc.feedCount;
+    _dispenseTimer?.cancel();
+    _dispenseTimer = Timer(const Duration(seconds: 60), () {
+      if (!mounted) return;
+      FeederService.instance.logFeedFailure();
+      _feedState = _FeedState.failed;
+      _feedTimer?.cancel();
+      _feedTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted) setState(() => _feedState = _FeedState.hidden);
+      });
+      if (mounted) setState(() {});
+    });
+    svc.feedNow();
     setState(() => _feedState = _FeedState.dispensing);
   }
 
@@ -346,6 +367,8 @@ class _ControlsScreenState extends State<ControlsScreen> {
                       fedToday: _fedToday,
                       feederError: FeederService.instance.feederError,
                       isOwner: widget.isOwner,
+                      isOnline: FeederService.instance.isOnline,
+                      isRunning: FeederService.instance.isRunning,
                     ),
                     DevicesTab(
                       hwModes: _hwModes,

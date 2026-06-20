@@ -42,7 +42,7 @@ void main() async {
 
   await SettingsService.instance.init();
   NotificationService.instance.init();
-  NotificationService.instance.initFCM();
+  await NotificationService.instance.initFCM();
   FeederService.instance.init();
   TankService.instance.init();
   MlService.instance.init();

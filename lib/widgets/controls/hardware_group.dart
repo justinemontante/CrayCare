@@ -11,7 +11,8 @@ class HardwareGroup extends StatelessWidget {
     BuildContext context,
     String label,
     List<(String, String, String, String?)> devices,
-  ) onShowGroupLog;
+  )
+  onShowGroupLog;
   final Map<String, String> deviceRuntimeLabels;
 
   final bool isOwner;
@@ -144,69 +145,70 @@ class HardwareGroup extends StatelessWidget {
           ),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(12, 12, 14, 12),
-              child: Row(
-                children: [
-                  if (imageAsset != null)
-                    Container(
-                      width: 70,
-                      height: 70,
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: Image.asset(
-                          imageAsset,
-                          fit: BoxFit.contain,
-                        ),
-                      ),
-                    )
-                  else
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: iconColor.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(Icons.air, size: 18, color: iconColor),
+            child: Row(
+              children: [
+                if (imageAsset != null)
+                  Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.dark,
-                          ),
-                        ),
-                        Text(
-                          subtitle,
-                          style: TextStyle(
-                            fontSize: 9,
-                            color: AppColors.darkWith(0.4),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        _buildRuntimeIndicator(deviceId),
-                      ],
+                    child: Padding(
+                      padding: const EdgeInsets.all(6),
+                      child: Image.asset(imageAsset, fit: BoxFit.contain),
                     ),
+                  )
+                else
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: iconColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(Icons.air, size: 16, color: iconColor),
                   ),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerRight,
-                      child: _buildHwModeToggle(deviceId, mode, context),
-                    ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              maxLines: 1, // Fixes wrap overflow
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.dark,
+                              ),
+                            ),
+                            Text(
+                              subtitle,
+                              maxLines: 1, // Fixes wrap overflow
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 9,
+                                color: AppColors.darkWith(0.4),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            _buildRuntimeIndicator(deviceId),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 6), // Slightly reduced spacing
+                      _buildHwModeToggle(deviceId, mode, context),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -228,32 +230,45 @@ class HardwareGroup extends StatelessWidget {
       children: [
         Icon(Icons.timer_outlined, size: 10, color: color),
         const SizedBox(width: 4),
-        Text(
-          'Running: ',
-          style: TextStyle(
-            fontSize: 9,
-            fontWeight: FontWeight.w400,
-            color: AppColors.darkWith(0.5),
-          ),
-        ),
-        Text(
-          runtime,
-          style: TextStyle(
-            fontSize: 9,
-            fontWeight: FontWeight.w700,
-            color: color,
+        Expanded(
+          // Ensures long runtime strings don't overflow
+          child: Text.rich(
+            TextSpan(
+              text: 'Running: ',
+              style: TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.w400,
+                color: AppColors.darkWith(0.5),
+              ),
+              children: [
+                TextSpan(
+                  text: runtime,
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    color: color,
+                  ),
+                ),
+              ],
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ),
       ],
     );
   }
 
-  Widget _buildHwModeToggle(String deviceId, String currentMode, BuildContext context) {
+  Widget _buildHwModeToggle(
+    String deviceId,
+    String currentMode,
+    BuildContext context,
+  ) {
     return Container(
-      padding: const EdgeInsets.all(2),
+      padding: const EdgeInsets.all(1),
       decoration: BoxDecoration(
         color: AppColors.darkWith(0.06),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -266,17 +281,19 @@ class HardwareGroup extends StatelessWidget {
               } else {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
-                    content: Text('Control denied: Only owners can control hardware devices.'),
+                    content: Text(
+                      'Control denied: Only owners can control hardware devices.',
+                    ),
                     backgroundColor: Colors.redAccent,
                   ),
                 );
               }
             },
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
               decoration: BoxDecoration(
                 color: isActive ? Colors.white : Colors.transparent,
-                borderRadius: BorderRadius.circular(18),
+                borderRadius: BorderRadius.circular(14),
                 boxShadow: isActive
                     ? [
                         BoxShadow(
@@ -290,7 +307,7 @@ class HardwareGroup extends StatelessWidget {
               child: Text(
                 m.toUpperCase(),
                 style: TextStyle(
-                  fontSize: 10,
+                  fontSize: 9, // Slightly smaller to match reduced padding
                   fontWeight: FontWeight.w700,
                   color: isActive ? _modeColor(m) : AppColors.darkWith(0.4),
                 ),
