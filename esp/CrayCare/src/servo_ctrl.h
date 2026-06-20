@@ -11,8 +11,11 @@ extern const int SERVO_RESOLUTION; // bits of resolution (e.g., 16)
 // Runtime configuration (in‑RAM only)
 extern uint32_t servoPauseMs;   // How long the servo stays open (ms)
 extern uint32_t servoCycleMs;   // Full period between cycles (ms). 0 = use pause + fixed close time.
+extern int servoOpenAngle;      // Servo angle for open position (0-180)
+extern int servoCloseAngle;     // Servo angle for close position (0-180)
 
 void initServo();
 void setServoAngle(int angle); // 0‑180 degrees
 void executeServoCycle(); // open → pause → close (once)
 void saveServoPause(uint32_t v);
+void saveServoAngles(int openAng, int closeAng);

@@ -10,6 +10,8 @@ const int SERVO_RESOLUTION = 16;
 // ----- Runtime configuration -----
 uint32_t servoPauseMs = 2000;
 uint32_t servoCycleMs = 0;
+int servoOpenAngle = 180;   // Angle for open position
+int servoCloseAngle = 0;    // Angle for close position
 
 static Preferences servoPrefs;
 static const char* SERVO_NS = "servo";
@@ -20,13 +22,16 @@ static const int SERVO_MAX_US = 2500;
 void initServo() {
     servoPrefs.begin(SERVO_NS, false);
     servoPauseMs = servoPrefs.getUInt("pause", 2000);
+    servoOpenAngle = servoPrefs.getInt("openAng", 180);
+    servoCloseAngle = servoPrefs.getInt("closeAng", 0);
     servoPrefs.end();
-    Serial.printf("[SERVO] Pause loaded: %u ms\n", servoPauseMs);
+    Serial.printf("[SERVO] Pause: %ums, Open: %d°, Close: %d°\n",
+        servoPauseMs, servoOpenAngle, servoCloseAngle);
 
     ledcSetup(SERVO_CHANNEL, SERVO_FREQ, SERVO_RESOLUTION);
     ledcAttachPin(SERVO_PIN, SERVO_CHANNEL);
-    setServoAngle(0);
-    Serial.println("[SERVO] Initialized on GPIO" + String(SERVO_PIN));
+    setServoAngle(servoCloseAngle);
+    Serial.printf("[SERVO] Initialized on GPIO%d\n", SERVO_PIN);
 }
 
 void saveServoPause(uint32_t v) {
@@ -34,6 +39,16 @@ void saveServoPause(uint32_t v) {
     servoPrefs.putUInt("pause", v);
     servoPrefs.end();
     Serial.printf("[SERVO] Pause saved: %u ms\n", v);
+}
+
+void saveServoAngles(int openAng, int closeAng) {
+    servoOpenAngle = openAng;
+    servoCloseAngle = closeAng;
+    servoPrefs.begin(SERVO_NS, false);
+    servoPrefs.putInt("openAng", servoOpenAngle);
+    servoPrefs.putInt("closeAng", servoCloseAngle);
+    servoPrefs.end();
+    Serial.printf("[SERVO] Angles saved: Open=%d°, Close=%d°\n", servoOpenAngle, servoCloseAngle);
 }
 
 static int usFromAngle(int angle) {
@@ -51,13 +66,11 @@ void setServoAngle(int angle) {
 }
 
 void executeServoCycle() {
-    // Open (90°)
-    setServoAngle(180);
-    Serial.println("[SERVO] Open (90°) – waiting pause");
+    setServoAngle(servoOpenAngle);
+    Serial.printf("[SERVO] Open (%d°) – waiting pause\n", servoOpenAngle);
     delay(servoPauseMs);
-    // Close (0°)
-    setServoAngle(0);
-    Serial.println("[SERVO] Closed (0°)");
+    setServoAngle(servoCloseAngle);
+    Serial.printf("[SERVO] Closed (%d°)\n", servoCloseAngle);
     // If a full cycle interval is defined, wait the remaining time.
     if (servoCycleMs > 0) {
         uint32_t elapsed = servoPauseMs; // open + pause (close is immediate)

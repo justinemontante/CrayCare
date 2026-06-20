@@ -55,8 +55,7 @@ void calibratePH7() {
 
 void calibratePH4() {
     float v = readPHRawVoltage();
-    // At pH 4.0: slope = (neutralV - V_at_pH4) / (7.0 - 4.0)
-    phSlope = (phNeutralVoltage - v) / 3.0f;
+    phSlope = fabs((phNeutralVoltage - v) / 3.0f);
     if (phSlope < 0.01f) phSlope = 0.18f;
     savePHCalibration();
     Serial.printf("[PH] Calibrated pH 4.0 → slope = %.4f V/pH (neutral=%.3fV, pH4=%.3fV)\n",

@@ -15,12 +15,14 @@
   EXAMPLE:
     n1on            →  Water Pump turns ON
     n1off           →  Water Pump turns OFF
-    n2on            →  Primary Aerator turns ON
+    n2on    
+    n3on        →  Primary Aerator turns ON
     n3off           →  Secondary Aerator turns OFF
     relay status    →  Shows all 3 relay states
 
 --- SERVO / FEEDER ---
   servopause <ms>    Set servo open pause (ms)
+  servoangle <open> <close>  Set open/close angles (0-180)
   servocycle         Run one full feed cycle
   feedtime1 <H> <M>  Set AM feed time (24h format)
   feedtime2 <H> <M>  Set PM feed time (24h format)
@@ -29,12 +31,10 @@
 
   EXAMPLE:
     servopause 2000      →  Servo stays open for 2 seconds
-    servopause 150
+    servoangle 90 0      →  Open at 90°, Close at 0°, stored in NVS
     servocycle           →  Run full feed: open → pause → close
     feedtime1 9 0         →  AM feed at 9:00 AM
-    feedtime1 6 30        →  AM feed at 6:30 AM
     feedtime2 18 0        →  PM feed at 6:00 PM
-    feedtime2 21 30       →  PM feed at 9:30 PM
     feedtime              →  Shows both scheduled times
     schedulesync          →  Force sync from Firebase now
 
@@ -66,15 +66,48 @@
        calibrate based on what you read in air and water.
 
 --- pH CALIBRATION ---
-  phcal7              Calibrate at pH 7.0 buffer
-  phcal4              Calibrate at pH 4.0 buffer
+  phcal7              Calibrate at pH 7.0 buffer (all-in-one)
+  phcal4              Calibrate at pH 4.0 buffer (all-in-one)
+
+  --- Standalone pH Calibrator only (esp32dev_ph_calibrator) ---
+  686                 Auto-detect dip + monitor stability at pH 6.86
+  401                 Auto-detect dip + monitor stability at pH 4.01
+  read                One-shot pH reading
+  raw                 Toggle live voltage + pH stream (every 500ms)
+  verify              Test calibration on both buffers (manual save)
+  show                Display saved calibration values
+  reset               Reset calibration to defaults
 
   EXAMPLE:
     phcal7                 →  Submerge probe in pH 7.0 buffer, type this
     phcal4                 →  Submerge probe in pH 4.0 buffer, type this
 
-  CALIBRATION ORDER: Always do phcal7 FIRST, then phcal4.
-  Rinse probe with clean water between buffers.
+  STANDALONE CALIBRATOR WORKFLOW (manual save):
+    1. Type "686" → dip probe in pH 6.86 buffer
+       → Shows live V + drift every 500ms
+       → When stable (✅), type "save" to record
+       → Type "abort" to cancel
+    2. Rinse probe, then type "401" → dip in pH 4.01 buffer
+       → Same as above, type "save" when satisfied
+    3. Type "verify" → test both buffers
+    4. Type "read" anytime for one-shot pH, "raw" for continuous
+
+  Tip: Wait 1-2 minutes extra after stability indicator for best accuracy.
+  Type "save" only when voltage has been stable for a while.
+
+--- WATER LEVEL CALIBRATION ---
+  tankheight <cm>     Set HC-SR04 height above tank bottom
+  tankdepth <cm>      Set tank max water depth
+  tankcal             Show current water level settings
+
+  EXAMPLE:
+    tankheight 67          →  Sensor is 67cm above tank bottom
+    tankdepth 23           →  Tank holds max 23cm water
+    tankcal                →  Shows: sensorHeight=67.0cm, maxDepth=23.0cm
+
+  FORMULA:
+    waterDepth = sensorHeight - distToSensor
+    Example: sensorHeight=67cm, distToSensor=44cm = waterDepth=23cm
 
 --- DO CALIBRATION ---
   doclear             Calibrate DO sensor in air (100% saturation)
@@ -83,7 +116,7 @@
     doclear                  →  Put probe in bottle with damp cotton,
                                 wait for STABLE on LCD, then type this
 
-   PROCEDURE:
+  PROCEDURE:
     1. Wet cotton with water, squeeze until damp (not dripping)
     2. Place cotton in bottom of bottle
     3. Insert DO probe (tip above cotton, not touching water)
@@ -92,21 +125,6 @@
     6. Wait until LCD shows "** STABLE **"
     7. Type: doclear
     8. Remove probe, rinse, place in tank
-
---- WATER LEVEL CALIBRATION ---
-  tankheight <cm>   Set HC-SR04 height above tank bottom (NVS)
-  tankdepth <cm>    Set tank max water depth (NVS)
-  tankcal           Show current sensorHeight and maxWaterDepth
-
-  FORMULA:
-    waterDepth = sensorHeight - distToSensor
-    Example: sensorHeight=67cm, distToSensor=44cm
-             waterDepth = 67 - 44 = 23cm ✅
-
-  EXAMPLE:
-    tankheight 67           →  Sensor is 67cm above tank bottom
-    tankdepth 23            →  Tank holds max 23cm water
-    tankcal                 →  Shows: sensorHeight=67.0cm, maxDepth=23.0cm
 
 --- DEBUG ---
   debugmode [0/1]     Toggle or set debug mode
@@ -134,20 +152,26 @@
   1. DO (Dissolved Oxygen):
        Bottle + damp cotton → wait STABLE → doclear
 
-  2. pH:
+  2. pH — Standalone calibrator (esp32dev_ph_calibrator):
+       Type "686" → dip in pH 6.86 buffer → wait stable → type "save"
+       Rinse
+       Type "401" → dip in pH 4.01 buffer → wait stable → type "save"
+       Type "verify" to validate
+
+  3. pH — All-in-one:
        pH 7.0 buffer → phcal7
        Rinse
        pH 4.0 buffer → phcal4
 
-   3. Turbidity:
-        Probe in CLEAR water → debugmode → note voltage → turbclear <V>
-        Probe in DIRTY water → note voltage → turbdirty <V>
-        Probe in AIR → note voltage → turbair <V>
+  4. Turbidity:
+       Probe in CLEAR water → debugmode → note voltage → turbclear <V>
+       Probe in DIRTY water → note voltage → turbdirty <V>
+       Probe in AIR → note voltage → turbair <V>
 
-   4. Water Level:
-        Measure sensor height (cm from sensor to tank bottom) → tankheight <cm>
-        Set tank max water depth → tankdepth <cm>
-        Type 'tankcal' to verify both values
+  5. Water Level:
+       Measure sensor height (cm from sensor to tank bottom) → tankheight <cm>
+       Set tank max water depth → tankdepth <cm>
+       Type 'tankcal' to verify both values
 
 =============================================
   NOTES
@@ -160,4 +184,3 @@
 - Firebase schedules sync every 30 seconds automatically
 - Use 'schedulesync' to force an immediate Firebase sync
 - LCD cycles through 3 pages: pH/DO/Temp → Turb/Schedule → Relay/Sched status
-- Water level uses hardware pulseIn (reliable) with 10-sample moving average (smooth)

@@ -679,6 +679,7 @@ static void printHelp() {
     Serial.println("");
     Serial.println("--- Servo / Feeder ---");
     Serial.println("  servopause <ms>      Set servo open pause");
+    Serial.println("  servoangle <open> <close>  Set open/close angles (0-180)");
     Serial.println("  servocycle           Run one feed cycle");
     Serial.println("  feedtime1 <H> <M>    Set AM feed time (24h format)");
     Serial.println("  feedtime2 <H> <M>    Set PM feed time (24h format)");
@@ -755,6 +756,22 @@ static void processSerialCommands() {
         if (v > 0) {
             servoPauseMs = v;
             saveServoPause(v);
+        }
+        return;
+    }
+    if (cmd == "servoangle") {
+        int sp2 = arg.indexOf(' ');
+        if (sp2 > 0) {
+            int openAng = arg.substring(0, sp2).toInt();
+            int closeAng = arg.substring(sp2 + 1).toInt();
+            if (openAng >= 0 && openAng <= 180 && closeAng >= 0 && closeAng <= 180) {
+                saveServoAngles(openAng, closeAng);
+                Serial.printf("[CMD] Servo angles: Open=%d°, Close=%d°\n", openAng, closeAng);
+            } else {
+                Serial.println("[CMD] Invalid angles (must be 0-180)");
+            }
+        } else {
+            Serial.printf("[CMD] Servo: Open=%d°, Close=%d°\n", servoOpenAngle, servoCloseAngle);
         }
         return;
     }
