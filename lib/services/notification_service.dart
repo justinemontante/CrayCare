@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -26,29 +25,46 @@ class NotificationService extends ChangeNotifier {
   bool _notifVibration = true;
   bool _notifCritical = true;
   bool _notifFeeding = true;
-  bool _notifSampling = false;
+  bool _notifSampling = true;
 
   final Set<String> _feedingReminderSent = {};
   final Set<String> _pendingTimers = {};
   String _lastSamplingReminderDate = '';
 
+  String? _effectiveUid;
   DatabaseReference get _notifRef => FirebaseDatabase.instance.ref(
-    'users/${FirebaseAuth.instance.currentUser?.uid ?? ""}/notifications',
+    'users/${_effectiveUid ?? FirebaseAuth.instance.currentUser?.uid ?? ""}/notifications',
   );
   String? _userRole;
   StreamSubscription<DatabaseEvent>? _profileSub;
   StreamSubscription<DatabaseEvent>? _notifSub;
+  StreamSubscription<DatabaseEvent>? _notifChangedSub;
   StreamSubscription<DatabaseEvent>? _notifRemovedSub;
   StreamSubscription<DatabaseEvent>? _prefsSub;
   Timer? _reminderTimer;
 
+  bool unreadStatus(String id) {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (uid.isEmpty) return false;
+    final idx = _notifications.indexWhere((n) => n.id == id);
+    if (idx == -1) return false;
+    return _notifications[idx].isUnreadBy(uid);
+  }
+
+  Future<void> setEffectiveUid(String uid) async {
+    _cancelSubscriptions();
+    _effectiveUid = uid;
+    _listenFirebase();
+    _loadUserPrefs();
+    _initPreviousStates();
+    notifyListeners();
+  }
+
+  bool get _isMonitor => _effectiveUid != null;
+
   final FlutterLocalNotificationsPlugin _localNotifications =
       FlutterLocalNotificationsPlugin();
   StreamSubscription? _tokenSub;
-
-  static const String _channelId = 'craycare_alerts';
-  static const String _channelName = 'CrayCare Alerts';
-  static const String _channelDesc = 'Sensor threshold alerts';
 
   static const _sensorLabels = {
     'temp': 'Water Temperature',
@@ -68,7 +84,10 @@ class NotificationService extends ChangeNotifier {
 
   List<NotificationItem> get notifications => List.unmodifiable(_notifications);
 
-  int get unreadCount => _notifications.where((n) => n.unread).length;
+  int get unreadCount {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    return uid.isEmpty ? 0 : _notifications.where((n) => n.isUnreadBy(uid)).length;
+  }
   int get criticalCount =>
       _notifications.where((n) => n.type == 'critical').length;
 
@@ -91,10 +110,8 @@ class NotificationService extends ChangeNotifier {
     FeedState.schedules.addListener(_checkFeedingReminders);
     FirebaseAuth.instance.authStateChanges().listen((user) {
       _notifications.clear();
-      _notifSub?.cancel();
-      _notifRemovedSub?.cancel();
-      _prefsSub?.cancel();
-      _profileSub?.cancel();
+      _effectiveUid = null;
+      _cancelSubscriptions();
       _userRole = null;
       if (user != null) {
         _listenProfile();
@@ -415,7 +432,7 @@ class NotificationService extends ChangeNotifier {
           _notifVibration = map['vibration'] as bool? ?? true;
           _notifCritical = map['critical'] as bool? ?? true;
           _notifFeeding = map['feeding'] as bool? ?? true;
-          _notifSampling = map['sampling'] as bool? ?? false;
+          _notifSampling = map['sampling'] as bool? ?? true;
           notifyListeners();
         });
   }
@@ -430,6 +447,7 @@ class NotificationService extends ChangeNotifier {
 
   void _checkFeedingReminders() {
     if (_userRole == 'admin') return;
+    if (_isMonitor) return;
     if (!_notifFeeding) return;
     final now = DateTime.now();
     final todayKey = '${now.month}/${now.day}';
@@ -560,6 +578,7 @@ class NotificationService extends ChangeNotifier {
 
   void _confirmFeedingComplete() {
     if (_userRole == 'admin') return;
+    if (_isMonitor) return;
     if (!_notifFeeding) return;
     final now = DateTime.now();
     final todayKey = '${now.month}/${now.day}';
@@ -585,13 +604,26 @@ class NotificationService extends ChangeNotifier {
 
   void _checkSamplingReminders() {
     if (_userRole == 'admin') return;
+    if (_isMonitor) return;
     if (!_notifSampling) return;
     final now = DateTime.now();
     final todayKey = '${now.month}/${now.day}';
     if (_lastSamplingReminderDate == todayKey) return;
 
     final tank = TankService.instance;
-    if (tank.daysSinceLastSampling >= 7 && tank.canSample) {
+    if (tank.daysSinceLastSampling < 7) return;
+
+    // Check if last reminder was within 7 days (Firebase persisted marker)
+    final markerKey = 'sampling_reminder';
+    _notifRef.child('markers/$markerKey').once().then((marker) {
+      if (marker.snapshot.exists) {
+        final lastTs = marker.snapshot.value is int ? marker.snapshot.value as int : 0;
+        if (lastTs > 0) {
+          final lastReminder = DateTime.fromMillisecondsSinceEpoch(lastTs);
+          if (now.difference(lastReminder).inDays < 7) return;
+        }
+      }
+
       _lastSamplingReminderDate = todayKey;
       _addNotification(
         type: 'reminder',
@@ -600,7 +632,18 @@ class NotificationService extends ChangeNotifier {
             'It\'s been ${tank.daysSinceLastSampling} days since last sampling. Time to record growth data!',
         timestamp: now,
       );
-    }
+
+      _notifRef.child('markers/$markerKey')
+          .set(now.millisecondsSinceEpoch);
+    });
+  }
+
+  void _cancelSubscriptions() {
+    _notifSub?.cancel();
+    _notifChangedSub?.cancel();
+    _notifRemovedSub?.cancel();
+    _prefsSub?.cancel();
+    _profileSub?.cancel();
   }
 
   void _listenFirebase() {
@@ -611,6 +654,7 @@ class NotificationService extends ChangeNotifier {
 
       final raw = e.snapshot.value as Map<Object?, Object?>;
       final map = raw.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
+      final readByRaw = map['readBy'] as Map<String, dynamic>? ?? {};
       _notifications.add(
         NotificationItem(
           id: key,
@@ -620,11 +664,24 @@ class NotificationService extends ChangeNotifier {
           timestamp: DateTime.fromMillisecondsSinceEpoch(
             (map['timestamp'] as num).toInt(),
           ),
-          unread: map['unread'] == true,
+          readBy: readByRaw.map((k, v) => MapEntry(k, v == true)),
         ),
       );
       _notifications.sort((a, b) => b.timestamp.compareTo(a.timestamp));
       notifyListeners();
+    });
+
+    _notifChangedSub = _notifRef.onChildChanged.listen((e) {
+      final key = e.snapshot.key;
+      if (key == null || e.snapshot.value == null) return;
+      final raw = e.snapshot.value as Map<Object?, Object?>;
+      final map = raw.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
+      final readByRaw = map['readBy'] as Map<String, dynamic>? ?? {};
+      final idx = _notifications.indexWhere((n) => n.id == key);
+      if (idx != -1) {
+        _notifications[idx].readBy = readByRaw.map((k, v) => MapEntry(k, v == true));
+        notifyListeners();
+      }
     });
 
     _notifRemovedSub = _notifRef.onChildRemoved.listen((e) {
@@ -637,6 +694,7 @@ class NotificationService extends ChangeNotifier {
 
   void _onSensorUpdate() {
     if (_userRole == 'admin') return;
+    if (_isMonitor) return;
     final hasData = SensorService.sensorKeys.any(
       (k) => SensorService.instance.getZone(k) != 'UNKNOWN',
     );
@@ -695,7 +753,6 @@ class NotificationService extends ChangeNotifier {
       title: title,
       message: message,
       timestamp: timestamp,
-      unread: true,
     );
 
     _notifications.insert(0, notif);
@@ -707,7 +764,7 @@ class NotificationService extends ChangeNotifier {
           'title': notif.title,
           'message': notif.message,
           'timestamp': notif.timestamp.millisecondsSinceEpoch,
-          'unread': notif.unread,
+          'readBy': {},
         })
         .catchError((e) {
           debugPrint('[NotificationService] Failed to save: $e');
@@ -720,29 +777,27 @@ class NotificationService extends ChangeNotifier {
   }
 
   void markAllRead() {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (uid.isEmpty) return;
     for (final n in _notifications) {
-      n.unread = false;
+      n.readBy[uid] = true;
     }
     notifyListeners();
-    _updateUnreadInFirebase();
+    for (final n in _notifications) {
+      _notifRef.child(n.id).child('readBy').child(uid).set(true).catchError((_) {});
+    }
   }
 
   void markAsRead(String id) {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (uid.isEmpty) return;
     for (final n in _notifications) {
       if (n.id == id) {
-        n.unread = false;
+        n.readBy[uid] = true;
         notifyListeners();
-        _updateUnreadInFirebase();
+        _notifRef.child(n.id).child('readBy').child(uid).set(true).catchError((_) {});
         return;
       }
-    }
-  }
-
-  void _updateUnreadInFirebase() async {
-    for (final n in _notifications.where((n) => !n.unread)) {
-      try {
-        await _notifRef.child(n.id).child('unread').set(false);
-      } catch (_) {}
     }
   }
 

@@ -139,7 +139,6 @@ class _LoginScreenState extends State<LoginScreen> {
   void _forgotPassword() {
     final emailCtl = TextEditingController(text: _emailController.text.trim());
     final formKey = GlobalKey<FormState>();
-    bool isLoading = false;
 
     showDialog(
       context: context,
@@ -165,7 +164,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 TextFormField(
                   controller: emailCtl,
                   keyboardType: TextInputType.emailAddress,
-                  enabled: !isLoading,
+                  enabled: !_isResetLoading,
                   decoration: InputDecoration(
                     hintText: 'Email address',
                     filled: true,
@@ -190,25 +189,28 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
           actions: [
             TextButton(
-              onPressed: isLoading ? null : () => Navigator.pop(ctx),
+              onPressed: _isResetLoading ? null : () => Navigator.pop(ctx),
               child: const Text('Cancel'),
             ),
             ElevatedButton(
-              onPressed: isLoading
+              onPressed: _isResetLoading
                   ? null
                   : () async {
                       if (!formKey.currentState!.validate()) return;
-                      setDialogState(() => isLoading = true);
+                      setState(() => _isResetLoading = true);
+                      setDialogState(() {});
                       try {
                         await FirebaseAuth.instance
                             .sendPasswordResetEmail(email: emailCtl.text.trim());
                         if (!ctx.mounted) return;
                         Navigator.pop(ctx);
+                        setState(() => _isResetLoading = false);
                         _showSuccessSnackBar(
                           'Password reset link sent to ${emailCtl.text.trim()}!',
                         );
                       } catch (e) {
-                        setDialogState(() => isLoading = false);
+                        setState(() => _isResetLoading = false);
+                        setDialogState(() {});
                         _showErrorSnackBar(
                           e.toString().replaceAll('Exception: ', ''),
                         );
@@ -221,7 +223,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   borderRadius: BorderRadius.circular(10),
                 ),
               ),
-              child: isLoading
+              child: _isResetLoading
                   ? const SizedBox(
                       width: 16,
                       height: 16,

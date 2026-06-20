@@ -49,7 +49,7 @@ for sensor_name, target_col in SENSOR_TARGETS.items():
         X, y, test_size=0.2, random_state=42, stratify=y
     )
 
-    model = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1)
+    model = RandomForestClassifier(n_estimators=10, random_state=42, n_jobs=-1)
     model.fit(X_train, y_train)
 
     y_pred = model.predict(X_test)
@@ -80,7 +80,7 @@ X_train, X_test, y_train, y_test = train_test_split(
     X, y_status, test_size=0.2, random_state=42, stratify=y_status
 )
 
-model_status = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1)
+model_status = RandomForestClassifier(n_estimators=10, random_state=42, n_jobs=-1)
 model_status.fit(X_train, y_train)
 
 y_pred = model_status.predict(X_test)

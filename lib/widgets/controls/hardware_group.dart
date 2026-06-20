@@ -31,7 +31,6 @@ class HardwareGroup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final firstId = devices.isNotEmpty ? devices.first.$1 : '';
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
       decoration: BoxDecoration(
@@ -203,7 +202,7 @@ class HardwareGroup extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 6), // Slightly reduced spacing
-                      _buildHwModeToggle(deviceId, mode, context),
+                      _buildHwModeToggle(deviceId, mode),
                     ],
                   ),
                 ),
@@ -262,7 +261,6 @@ class HardwareGroup extends StatelessWidget {
   Widget _buildHwModeToggle(
     String deviceId,
     String currentMode,
-    BuildContext context,
   ) {
     return Container(
       padding: const EdgeInsets.all(1),
@@ -275,20 +273,7 @@ class HardwareGroup extends StatelessWidget {
         children: ['off', 'auto', 'on'].map((m) {
           final isActive = m == currentMode;
           return GestureDetector(
-            onTap: () {
-              if (isOwner) {
-                onSetMode(deviceId, m);
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text(
-                      'Control denied: Only owners can control hardware devices.',
-                    ),
-                    backgroundColor: Colors.redAccent,
-                  ),
-                );
-              }
-            },
+            onTap: isOwner ? () => onSetMode(deviceId, m) : null,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
               decoration: BoxDecoration(

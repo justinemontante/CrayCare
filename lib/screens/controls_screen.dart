@@ -2,9 +2,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
 import '../theme/app_colors.dart';
-import '../models/control_types.dart';
+import '../widgets/common/read_only_banner.dart';
 import '../widgets/controls/feeder_tab.dart';
 import '../widgets/controls/devices_tab.dart';
+import '../models/control_types.dart';
 import '../services/feeder_service.dart';
 import '../services/database_service.dart';
 
@@ -13,12 +14,16 @@ class ControlsScreen extends StatefulWidget {
   const ControlsScreen({super.key, this.isOwner = true});
 
   @override
-  State<ControlsScreen> createState() => _ControlsScreenState();
+  State<ControlsScreen> createState() => ControlsScreenState();
 }
 
 enum _FeedState { hidden, dispensing, done, failed }
 
-class _ControlsScreenState extends State<ControlsScreen> {
+class ControlsScreenState extends State<ControlsScreen> {
+  void switchToTab(int index) {
+    if (index < 0 || index > 1) return;
+    setState(() => _activeTab = index);
+  }
   static Map<String, dynamic> _convertMap(Object? value) {
     if (value is Map) {
       return value.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
@@ -239,11 +244,12 @@ class _ControlsScreenState extends State<ControlsScreen> {
   };
   StreamSubscription<DatabaseEvent>? _devicesSub;
   final List<StreamSubscription<DatabaseEvent>> _deviceLogSubs = [];
-  Map<String, List<LogEntry>> _hwLogs = {};
+  final Map<String, List<LogEntry>> _hwLogs = {};
   Map<String, String> _deviceRuntimeLabels = {};
   Timer? _runtimeTimer;
 
   void _feedNow() {
+    if (!widget.isOwner) return;
     final svc = FeederService.instance;
     if (!svc.isOnline) {
       setState(() => _feedState = _FeedState.failed);
@@ -280,6 +286,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
   }
 
   void _addSchedule() {
+    if (!widget.isOwner) return;
     if (_timeCtl.text.isEmpty) return;
     final formatted = _formatTimeInput(_timeCtl.text);
     final isPM = formatted.contains('PM');
@@ -291,10 +298,12 @@ class _ControlsScreenState extends State<ControlsScreen> {
   }
 
   void _deleteSchedule(int index) {
+    if (!widget.isOwner) return;
     FeederService.instance.deleteSchedule(index);
   }
 
   void _editSchedule(int index, ScheduleItem item) {
+    if (!widget.isOwner) return;
     FeederService.instance.editSchedule(
       index,
       time: item.time,
@@ -304,6 +313,7 @@ class _ControlsScreenState extends State<ControlsScreen> {
   }
 
   void _setHwMode(String device, String mode) {
+    if (!widget.isOwner) return;
     setState(() => _hwModes[device] = mode);
     final now = DateTime.now();
     final h = now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour);
@@ -469,100 +479,9 @@ class _ControlsScreenState extends State<ControlsScreen> {
   }
 
   Widget _buildReadOnlyBanner() {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(14, 0, 14, 10),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Color(0xFFFFFDF5),
-            Color(0xFFFFF9E6),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: const Color(0xFFFCD34D).withValues(alpha: 0.35),
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFFD97706).withValues(alpha: 0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: Stack(
-          children: [
-            // Decorative subtle background bubble
-            Positioned(
-              right: -15,
-              top: -15,
-              child: Container(
-                width: 50,
-                height: 50,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: const Color(0xFFFCD34D).withValues(alpha: 0.1),
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Icon container with modern circle backdrop
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFCD34D).withValues(alpha: 0.2),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.lock_outline_rounded,
-                      size: 16,
-                      color: Color(0xFFD97706),
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  // Text instructions
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text(
-                          'Read-Only Mode',
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFFB45309),
-                            letterSpacing: -0.1,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Only owner accounts can trigger manual feeding, toggle active devices, or modify schedules.',
-                          style: TextStyle(
-                            fontSize: 9.5,
-                            fontWeight: FontWeight.w500,
-                            color: const Color(0xFFB45309).withValues(alpha: 0.8),
-                            height: 1.35,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+    return const ReadOnlyBanner(
+      message:
+          'You can view all farm data, logs, and records. Only the Farm Owner can control hardware, manage feeding schedules, or modify settings.',
     );
   }
 
@@ -709,18 +628,6 @@ class _ControlsScreenState extends State<ControlsScreen> {
         }),
       ),
     );
-  }
-
-  void _showHwLog(
-    BuildContext context,
-    String deviceId,
-    String title,
-    String subtitle,
-  ) {
-    final mode = _hwModes[deviceId] ?? 'auto';
-    final logs = _hwLogs[deviceId] ?? [];
-
-    _showDeviceLogSheet(context, title, subtitle, mode, logs, deviceId);
   }
 
   void _showHwGroupLog(

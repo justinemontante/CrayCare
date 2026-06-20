@@ -233,9 +233,9 @@ class InventoryTab extends StatelessWidget {
               const SizedBox(height: 6),
               Row(
                 children: [
-                  Expanded(child: _buildMetricCard(Image.asset('assets/images/TotalWeight.png', width: 20, height: 20), 'Initial Sample Weight', '${(service.initialWeight * service.sampleCount).toStringAsFixed(0)} g', 'ABW: ${service.initialWeight.toStringAsFixed(1)} g', onTap: () => _showMetricDetail(context, 'Initial Sample Weight', '${(service.initialWeight * service.sampleCount).toStringAsFixed(0)} g', 'Average Body Weight (ABW): ${service.initialWeight.toStringAsFixed(1)} g', 'assets/images/TotalWeight.png', 'Total weight of ${service.sampleCount} samples taken during initialization. Average Body Weight (ABW): ${service.initialWeight.toStringAsFixed(1)} g. This is the baseline for growth monitoring.', Icons.monitor_weight_rounded))),
+                  Expanded(child: _buildMetricCard(Image.asset('assets/images/TotalWeight.png', width: 20, height: 20), 'Initial Total Sample Weight', '${service.initialTotalWeight.toStringAsFixed(0)} g', 'ABW: ${service.initialWeight.toStringAsFixed(1)} g', onTap: () => _showMetricDetail(context, 'Initial Total Sample Weight', '${service.initialTotalWeight.toStringAsFixed(0)} g', 'Average Body Weight (ABW): ${service.initialWeight.toStringAsFixed(1)} g', 'assets/images/TotalWeight.png', 'Total weight of ${service.sampleCount} samples taken during initialization. Average Body Weight (ABW): ${service.initialWeight.toStringAsFixed(1)} g. This is the baseline for growth monitoring.', Icons.monitor_weight_rounded))),
                   const SizedBox(width: 6),
-                  Expanded(child: _buildMetricCard(Image.asset('assets/images/TotalLength.png', width: 20, height: 20), 'Initial Sample Length', '${(service.initialLength * service.sampleCount).toStringAsFixed(0)} cm', 'ABL: ${service.initialLength.toStringAsFixed(1)} cm', onTap: () => _showMetricDetail(context, 'Initial Sample Length', '${(service.initialLength * service.sampleCount).toStringAsFixed(0)} cm', 'Average Body Length (ABL): ${service.initialLength.toStringAsFixed(1)} cm', 'assets/images/TotalLength.png', 'Total length of ${service.sampleCount} samples taken during initialization. Average Body Length (ABL): ${service.initialLength.toStringAsFixed(1)} cm. This is the baseline for growth monitoring.', Icons.straighten_rounded))),
+                  Expanded(child: _buildMetricCard(Image.asset('assets/images/TotalLength.png', width: 20, height: 20), 'Initial Total Sample Length', '${service.initialTotalLength.toStringAsFixed(0)} cm', 'ABL: ${service.initialLength.toStringAsFixed(1)} cm', onTap: () => _showMetricDetail(context, 'Initial Total Sample Length', '${service.initialTotalLength.toStringAsFixed(0)} cm', 'Average Body Length (ABL): ${service.initialLength.toStringAsFixed(1)} cm', 'assets/images/TotalLength.png', 'Total length of ${service.sampleCount} samples taken during initialization. Average Body Length (ABL): ${service.initialLength.toStringAsFixed(1)} cm. This is the baseline for growth monitoring.', Icons.straighten_rounded))),
                 ],
               ),
               const SizedBox(height: 6),
@@ -548,7 +548,7 @@ class InventoryTab extends StatelessWidget {
       children: [
         Expanded(
           child: _buildActionBtn(
-            isOwner ? 'Log Mortality' : 'Log Mortality (Owner)',
+            isOwner ? 'Log Mortality' : 'Log Mortality (Owner Only)',
             isOwner ? Icons.healing_rounded : Icons.lock_outline,
             isOwner ? AppColors.critical : Colors.grey.shade400,
             isOwner ? onShowMortalityModal : () {},
@@ -557,10 +557,18 @@ class InventoryTab extends StatelessWidget {
         const SizedBox(width: 8),
         Expanded(
           child: _buildActionBtn(
-            isOwner ? 'Edit Setup' : 'Edit Setup (Owner)',
-            isOwner ? Icons.edit_rounded : Icons.lock_outline,
-            isOwner ? AppColors.primary : Colors.grey.shade400,
-            isOwner ? onShowEditModal : () {},
+            isOwner && !TankService.instance.samplingHistory.isNotEmpty
+                ? 'Edit Setup'
+                : 'Edit Setup',
+            isOwner && !TankService.instance.samplingHistory.isNotEmpty
+                ? Icons.edit_rounded
+                : Icons.lock_outline,
+            isOwner && !TankService.instance.samplingHistory.isNotEmpty
+                ? AppColors.primary
+                : Colors.grey.shade400,
+            isOwner && !TankService.instance.samplingHistory.isNotEmpty
+                ? onShowEditModal
+                : () {},
           ),
         ),
         const SizedBox(width: 8),

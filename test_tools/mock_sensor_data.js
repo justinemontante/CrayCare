@@ -182,6 +182,9 @@ async function writeDefaultConfig() {
 }
 
 // ─── 9. Main ──────────────────────────────────────────────────
+process.on('SIGINT', () => { console.log('\nStopping mock...'); process.exit(); });
+process.on('SIGTERM', () => process.exit());
+
 async function main() {
   const args = process.argv.slice(2);
   const doBackfill = args.includes('--backfill');

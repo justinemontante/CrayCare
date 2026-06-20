@@ -19,7 +19,7 @@ enum GrowthStage {
     'Pre-Grow-out',
     'Queensland Gov',
   ),
-  growOut('Grow-out Phase', '15-50g', '6-10cm', 'Active Growth', 'FAO / SRAC'),
+  preAdult('Pre-Adult', '15-50g', '6-10cm', 'Active Growth', 'FAO / SRAC'),
   marketSize(
     'Market Size / Adult',
     '50-120g+',
@@ -105,23 +105,27 @@ class TankService extends ChangeNotifier {
   bool _isInitialized = false;
   bool _setupComplete = false;
   DateTime _stockingDate = DateTime.now();
+  DateTime _lastSampleDate = DateTime.now();
 
-  // ─── Firebase refs (per-user: bawat account ay may kanya-kanyang data) ───
-  String get _userId => FirebaseAuth.instance.currentUser?.uid ?? '';
-  DatabaseReference get _configRef =>
-      FirebaseDatabase.instance.ref('users/$_userId/tank/config');
+  // ─── Firebase refs (shared tank_data path: lahat ay pwedeng magbasa, owner lang magsulat) ───
+  String _tankOwnerUid = '';
+  DatabaseReference get _inventoryRef =>
+      FirebaseDatabase.instance.ref('tank_data/$_tankOwnerUid/inventory');
   DatabaseReference get _samplingRef =>
-      FirebaseDatabase.instance.ref('users/$_userId/tank/sampling');
+      FirebaseDatabase.instance.ref('tank_data/$_tankOwnerUid/sampling');
   DatabaseReference get _mortalityRef =>
-      FirebaseDatabase.instance.ref('users/$_userId/tank/mortality');
+      FirebaseDatabase.instance.ref('tank_data/$_tankOwnerUid/mortality');
   DatabaseReference get _activitiesRef =>
-      FirebaseDatabase.instance.ref('users/$_userId/tank/activities');
+      FirebaseDatabase.instance.ref('tank_data/$_tankOwnerUid/logs');
 
   // Baseline Sampling Data
   int _sampleCount = 0;
-  double _initialWeight = 0.0;
-  double _initialLength = 0.0;
+  double _initialWeight = 0.0;   // ABW (average body weight) — computed from total / sampleCount
+  double _initialLength = 0.0;   // ABL (average body length) — computed from total / sampleCount
+  double _totalSampleWeight = 0.0;  // Raw total weight entered by user
+  double _totalSampleLength = 0.0;  // Raw total length entered by user
   List<SamplingEntry> _samplingHistory = [];
+  String? _lastSamplingPushKey;
   List<TankActivity> _activities = [];
   List<MortalityEntry> _mortalityHistory = [];
 
@@ -155,8 +159,10 @@ class TankService extends ChangeNotifier {
   }
 
   int get sampleCount => _sampleCount;
-  double get initialWeight => _initialWeight;
-  double get initialLength => _initialLength;
+  double get initialWeight => _initialWeight;      // ABW
+  double get initialLength => _initialLength;      // ABL
+  double get initialTotalWeight => _totalSampleWeight;   // Total weight of initial sample
+  double get initialTotalLength => _totalSampleLength;   // Total length of initial sample
 
   List<SamplingEntry> get samplingHistory =>
       List.unmodifiable(_samplingHistory);
@@ -171,34 +177,82 @@ class TankService extends ChangeNotifier {
   GrowthStage get currentGrowthStage {
     final latest = _samplingHistory.isNotEmpty ? _samplingHistory.last : null;
     final abw = latest?.abw ?? _initialWeight;
-    if (abw < 5) return GrowthStage.earlyJuvenile;
-    if (abw < 15) return GrowthStage.advancedJuvenile;
-    if (abw < 50) return GrowthStage.growOut;
+    final abl = latest?.avgLength ?? _initialLength;
+    if (abw < 5 || abl < 4) return GrowthStage.earlyJuvenile;
+    if (abw < 15 || abl < 6) return GrowthStage.advancedJuvenile;
+    if (abw < 50 || abl < 10) return GrowthStage.preAdult;
     return GrowthStage.marketSize;
   }
 
+  bool _firstAuthEvent = true;
+
   // --- INITIALIZATION ---
   void init() async {
+    _tankOwnerUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    // Check profile early to detect monitor and load correct data from the start
+    await _checkProfileForMonitor();
     await _loadConfig();
     _listenFirebase();
     FirebaseAuth.instance.authStateChanges().listen((user) {
+      if (_firstAuthEvent) {
+        _firstAuthEvent = false;
+        return;
+      }
+      _cancelSubscriptions();
       if (user != null) {
-        _cancelSubscriptions();
+        _tankOwnerUid = user.uid;
         _loadConfig();
         _listenFirebase();
+      } else {
+        _resetAll();
       }
     });
   }
 
+  Future<void> _checkProfileForMonitor() async {
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null) return;
+      final snap = await FirebaseDatabase.instance
+          .ref('users/$uid/profile/ownerUid')
+          .get();
+      final ownerUid = snap.value as String?;
+      if (ownerUid != null && ownerUid.isNotEmpty) {
+        debugPrint('[TankService] Monitor detected in init, ownerUid=$ownerUid');
+        _tankOwnerUid = ownerUid;
+      }
+    } catch (e) {
+      debugPrint('[TankService] _checkProfileForMonitor error: $e');
+    }
+  }
+
+  /// Called by [MainShell] when profile confirms user is a monitor.
+  /// Switches all reads to the owner's tank_data path.
+  Future<void> switchToOwnerUid(String ownerUid) async {
+    if (ownerUid == _tankOwnerUid) return;
+    debugPrint('[TankService] switchToOwnerUid -> $ownerUid (was $_tankOwnerUid)');
+    _cancelSubscriptions();
+    _tankOwnerUid = ownerUid;
+    await _loadConfig();
+    _listenFirebase();
+    notifyListeners();
+  }
+
   Future<void> _loadConfig() async {
     try {
-      final snap = await _configRef.get();
-      if (!snap.exists) return;
+      final path = _inventoryRef.path;
+      debugPrint('[TankService] _loadConfig from path: $path');
+      final snap = await _inventoryRef.get();
+      if (!snap.exists) {
+        debugPrint('[TankService] _loadConfig: snapshot does NOT exist at $path');
+        return;
+      }
       final data = _convertMap(snap.value as Map);
       final isInit = (data['isInitialized'] as bool?) ?? false;
+      debugPrint('[TankService] _loadConfig: exists, isInitialized=$isInit');
       if (!isInit) {
         _resetAll();
-        await _configRef.remove();
+        await _inventoryRef.remove();
         await _mortalityRef.remove();
         await _samplingRef.remove();
         await _activitiesRef.remove();
@@ -210,13 +264,25 @@ class TankService extends ChangeNotifier {
         (data['stockingDate'] as int?) ?? DateTime.now().millisecondsSinceEpoch,
       );
       _sampleCount = (data['sampleCount'] as int?) ?? 0;
-      _initialWeight = (data['initialSampleWeight'] as num?)?.toDouble() ?? 0.0;
-      _initialLength = (data['initialSampleLength'] as num?)?.toDouble() ?? 0.0;
+      _totalSampleWeight = (data['initialTotalSampleWeight'] as num?)?.toDouble() ?? 0.0;
+      _totalSampleLength = (data['initialTotalSampleLength'] as num?)?.toDouble() ?? 0.0;
+      if (data.containsKey('initialSampleWeight')) {
+        _initialWeight = (data['initialSampleWeight'] as num?)?.toDouble() ?? 0.0;
+        _initialLength = (data['initialSampleLength'] as num?)?.toDouble() ?? 0.0;
+        _totalSampleWeight = _initialWeight * _sampleCount;
+        _totalSampleLength = _initialLength * _sampleCount;
+      } else {
+        _initialWeight = _sampleCount > 0 ? _totalSampleWeight / _sampleCount : 0.0;
+        _initialLength = _sampleCount > 0 ? _totalSampleLength / _sampleCount : 0.0;
+      }
+      _lastSampleDate = DateTime.fromMillisecondsSinceEpoch(
+        (data['lastSampleDate'] as int?) ?? _stockingDate.millisecondsSinceEpoch,
+      );
       _isInitialized = isInit;
       _setupComplete = isInit;
       notifyListeners();
     } catch (e) {
-      debugPrint('[TankService] loadConfig error: $e');
+      debugPrint('[TankService] loadConfig ERROR: $e');
     }
   }
 
@@ -226,6 +292,8 @@ class TankService extends ChangeNotifier {
     _sampleCount = 0;
     _initialWeight = 0.0;
     _initialLength = 0.0;
+    _totalSampleWeight = 0.0;
+    _totalSampleLength = 0.0;
     _isInitialized = false;
     _setupComplete = false;
     _samplingHistory.clear();
@@ -234,77 +302,24 @@ class TankService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _loadHistoryData() async {
-    try {
-      final mSnap = await _mortalityRef.get();
-      if (mSnap.exists) {
-        final mData = _convertMap(mSnap.value as Map);
-        _mortalityHistory = mData.values.map((e) {
-          final map = _convertMap(e as Map);
-          return MortalityEntry(
-            date: DateTime.fromMillisecondsSinceEpoch(map['date']),
-            count: map['count'],
-          );
-        }).toList()..sort((a, b) => a.date.compareTo(b.date));
-      }
-
-      final sSnap = await _samplingRef.get();
-      if (sSnap.exists) {
-        final sData = _convertMap(sSnap.value as Map);
-        _samplingHistory = sData.values.map((e) {
-          final map = _convertMap(e as Map);
-          return SamplingEntry(
-            date: DateTime.fromMillisecondsSinceEpoch(map['date']),
-            abw: (map['abw'] as num).toDouble(),
-            avgLength: (map['avgLength'] as num).toDouble(),
-            sampleSize: map['sampleSize'],
-            totalWeight: (map['totalWeight'] as num).toDouble(),
-            totalLength: (map['totalLength'] as num).toDouble(),
-            biomass: (map['biomass'] as num).toDouble(),
-            liveCount: map['liveCount'],
-            isBaseline: map['isBaseline'] == true,
-          );
-        }).toList()..sort((a, b) => a.date.compareTo(b.date));
-      }
-
-      final aSnap = await _activitiesRef.get();
-      if (aSnap.exists) {
-        final aData = _convertMap(aSnap.value as Map);
-        _activities = aData.values.map((e) {
-          final map = _convertMap(e as Map);
-          return TankActivity(
-            action: map['action'],
-            date: map['date'],
-            time: map['time'],
-            type: map['type'],
-            timestamp: map['timestamp'] ?? 0,
-          );
-        }).toList()..sort((a, b) => a.timestamp.compareTo(b.timestamp));
-      }
-      notifyListeners();
-    } catch (e) {
-      debugPrint('[TankService] loadHistory error: $e');
-    }
-  }
-
-  StreamSubscription<DatabaseEvent>? _configSub;
+  StreamSubscription<DatabaseEvent>? _inventorySub;
   StreamSubscription<DatabaseEvent>? _mortalitySub;
   StreamSubscription<DatabaseEvent>? _samplingSub;
   StreamSubscription<DatabaseEvent>? _activitiesSub;
 
   void _cancelSubscriptions() {
-    _configSub?.cancel();
+    _inventorySub?.cancel();
     _mortalitySub?.cancel();
     _samplingSub?.cancel();
     _activitiesSub?.cancel();
-    _configSub = null;
+    _inventorySub = null;
     _mortalitySub = null;
     _samplingSub = null;
     _activitiesSub = null;
   }
 
   void _listenFirebase() {
-    _configSub = _configRef.onValue.listen((e) {
+    _inventorySub = _inventoryRef.onValue.listen((e) {
       if (!e.snapshot.exists) {
         _resetAll();
         return;
@@ -312,14 +327,23 @@ class TankService extends ChangeNotifier {
       final data = _convertMap(e.snapshot.value as Map);
       final isInit = (data['isInitialized'] as bool?) ?? false;
       if (!isInit) return;
+      _isInitialized = true;
+      _setupComplete = true;
       _initialCount = (data['initialPopulation'] as int?) ?? _initialCount;
       _mortality = (data['Mortality'] as int?) ?? _mortality;
       _sampleCount = (data['sampleCount'] as int?) ?? _sampleCount;
-      _initialWeight = (data['initialSampleWeight'] as num?)?.toDouble() ?? 0.0;
-      _initialLength = (data['initialSampleLength'] as num?)?.toDouble() ?? 0.0;
+      _totalSampleWeight = (data['initialTotalSampleWeight'] as num?)?.toDouble() ?? _totalSampleWeight;
+      _totalSampleLength = (data['initialTotalSampleLength'] as num?)?.toDouble() ?? _totalSampleLength;
+      _initialWeight = _sampleCount > 0 ? _totalSampleWeight / _sampleCount : 0.0;
+      _initialLength = _sampleCount > 0 ? _totalSampleLength / _sampleCount : 0.0;
       if (data.containsKey('stockingDate')) {
         _stockingDate = DateTime.fromMillisecondsSinceEpoch(
           data['stockingDate'] as int,
+        );
+      }
+      if (data.containsKey('lastSampleDate')) {
+        _lastSampleDate = DateTime.fromMillisecondsSinceEpoch(
+          data['lastSampleDate'] as int,
         );
       }
       notifyListeners();
@@ -328,14 +352,19 @@ class TankService extends ChangeNotifier {
     _samplingSub = _samplingRef.onValue.listen((e) {
       if (!e.snapshot.exists) {
         _samplingHistory.clear();
+        _lastSamplingPushKey = null;
         notifyListeners();
         return;
       }
       final sData = _convertMap(e.snapshot.value as Map);
-      _samplingHistory = sData.values.map((e) {
-        final map = _convertMap(e as Map);
-        return SamplingEntry(
-          date: DateTime.fromMillisecondsSinceEpoch(map['date']),
+      final entries = <SamplingEntry>[];
+      String? lastKey;
+      DateTime? lastDate;
+      for (final entry in sData.entries) {
+        final map = _convertMap(entry.value as Map);
+        final date = DateTime.fromMillisecondsSinceEpoch(map['date']);
+        entries.add(SamplingEntry(
+          date: date,
           abw: (map['abw'] as num).toDouble(),
           avgLength: (map['avgLength'] as num).toDouble(),
           sampleSize: map['sampleSize'],
@@ -344,8 +373,15 @@ class TankService extends ChangeNotifier {
           biomass: (map['biomass'] as num).toDouble(),
           liveCount: map['liveCount'],
           isBaseline: map['isBaseline'] == true,
-        );
-      }).toList()..sort((a, b) => a.date.compareTo(b.date));
+        ));
+        if (lastDate == null || date.isAfter(lastDate)) {
+          lastDate = date;
+          lastKey = entry.key;
+        }
+      }
+      entries.sort((a, b) => a.date.compareTo(b.date));
+      _samplingHistory = entries;
+      _lastSamplingPushKey = lastKey;
       notifyListeners();
     });
 
@@ -390,13 +426,14 @@ class TankService extends ChangeNotifier {
   Future<void> _saveConfig() async {
     if (!_setupComplete) return;
     try {
-      await _configRef.set({
+      await _inventoryRef.set({
         'initialPopulation': _initialCount,
         'stockingDate': _stockingDate.millisecondsSinceEpoch,
+        'lastSampleDate': _lastSampleDate.millisecondsSinceEpoch,
         'Mortality': _mortality,
         'sampleCount': _sampleCount,
-        'initialSampleWeight': _initialWeight,
-        'initialSampleLength': _initialLength,
+        'initialTotalSampleWeight': _totalSampleWeight,
+        'initialTotalSampleLength': _totalSampleLength,
         'Alive': _initialCount - _mortality,
         'isInitialized': _isInitialized,
         'updatedAt': ServerValue.timestamp,
@@ -412,6 +449,8 @@ class TankService extends ChangeNotifier {
     _sampleCount = 0;
     _initialWeight = 0.0;
     _initialLength = 0.0;
+    _totalSampleWeight = 0.0;
+    _totalSampleLength = 0.0;
     _isInitialized = false;
     _setupComplete = false;
 
@@ -419,7 +458,7 @@ class TankService extends ChangeNotifier {
     _mortalityHistory.clear();
     _activities.clear();
 
-    await _configRef.remove();
+    await _inventoryRef.remove();
     await _samplingRef.remove();
     await _mortalityRef.remove();
     await _activitiesRef.remove();
@@ -437,8 +476,13 @@ class TankService extends ChangeNotifier {
     bool isNewSetup = !_isInitialized;
 
     _initialCount = initial;
-    _stockingDate = date;
+    if (isNewSetup) {
+      _stockingDate = date;
+      _lastSampleDate = date;
+    }
     _sampleCount = sampleCount;
+    _totalSampleWeight = totalWeight;
+    _totalSampleLength = totalLength;
     _initialWeight = sampleCount > 0 ? (totalWeight / sampleCount) : 0.0;
     _initialLength = sampleCount > 0 ? (totalLength / sampleCount) : 0.0;
     _isInitialized = true;
@@ -464,16 +508,18 @@ class TankService extends ChangeNotifier {
     );
 
     await _saveConfig();
-    SettingsService.instance.autoDetectStage(_initialWeight);
+    SettingsService.instance.autoDetectStage(_initialWeight, _initialLength);
     notifyListeners();
   }
 
   void addSamplingEntry(int count, double weight, double length) {
     _setupComplete = true;
+    final now = DateTime.now();
+    _lastSampleDate = now;
     final abw = weight / count;
     final avgLength = length / count;
     final entry = SamplingEntry(
-      date: DateTime.now(),
+      date: now,
       abw: abw,
       avgLength: avgLength,
       sampleSize: count,
@@ -500,7 +546,37 @@ class TankService extends ChangeNotifier {
       'sampling',
     );
     _saveConfig();
-    SettingsService.instance.autoDetectStage(abw);
+    SettingsService.instance.autoDetectStage(abw, avgLength);
+    notifyListeners();
+  }
+
+  void updateLastSamplingEntry(int count, double weight, double length) {
+    if (_lastSamplingPushKey == null || _samplingHistory.isEmpty) return;
+    final abw = weight / count;
+    final avgLength = length / count;
+    final updated = SamplingEntry(
+      date: _samplingHistory.last.date,
+      abw: abw,
+      avgLength: avgLength,
+      sampleSize: count,
+      totalWeight: weight,
+      totalLength: length,
+      biomass: liveCount * abw,
+      liveCount: liveCount,
+    );
+    _samplingHistory.last = updated;
+    _samplingRef.child(_lastSamplingPushKey!).update({
+      'abw': updated.abw,
+      'avgLength': updated.avgLength,
+      'sampleSize': updated.sampleSize,
+      'totalWeight': updated.totalWeight,
+      'totalLength': updated.totalLength,
+      'biomass': updated.biomass,
+      'liveCount': updated.liveCount,
+      'timestamp': ServerValue.timestamp,
+    });
+    _saveConfig();
+    SettingsService.instance.autoDetectStage(abw, avgLength);
     notifyListeners();
   }
 

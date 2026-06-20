@@ -147,9 +147,9 @@ class SettingsService extends ChangeNotifier {
     await prefs.setBool('autoDetect', value);
   }
 
-  Future<void> autoDetectStage(double abw) async {
+  Future<void> autoDetectStage(double abw, double abl) async {
     if (!_autoDetect) return;
-    final detected = CrayfishStage.fromABW(abw);
+    final detected = CrayfishStage.fromMeasurements(abw, abl);
     if (detected.name != _currentStage) {
       await setCurrentStage(detected.name);
       try {

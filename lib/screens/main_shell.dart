@@ -6,6 +6,7 @@ import 'package:firebase_database/firebase_database.dart';
 import '../theme/app_colors.dart';
 import '../services/database_service.dart';
 import '../services/notification_service.dart';
+import '../services/tank_service.dart';
 import 'dashboard_screen.dart';
 import 'analytics_screen.dart';
 import 'controls_screen.dart';
@@ -14,6 +15,7 @@ import 'notifications_screen.dart';
 import 'settings_screen.dart';
 import 'login_screen.dart';
 import '../widgets/settings/user_management_form.dart';
+
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -27,10 +29,10 @@ class _MainShellState extends State<MainShell> {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
   final _analyticsKey = GlobalKey<AnalyticsScreenState>();
   final _tanksKey = GlobalKey<TanksScreenState>();
+  final _controlsKey = GlobalKey<ControlsScreenState>();
   String? _photoUrl;
   String? _userRole;
   bool _isOwner = false;
-  bool _loadingRole = true;
   StreamSubscription<DatabaseEvent>? _roleSub;
   StreamSubscription<DatabaseEvent>? _primarySub;
 
@@ -61,13 +63,6 @@ class _MainShellState extends State<MainShell> {
     
     // Register NotificationService listener to update badges dynamically
     NotificationService.instance.addListener(_onNotificationChange);
-
-    // Safety fallback: if DB role checking takes too long, stop loading after 2.5 seconds
-    Future.delayed(const Duration(milliseconds: 2500), () {
-      if (mounted && _loadingRole) {
-        setState(() => _loadingRole = false);
-      }
-    });
   }
 
   @override
@@ -114,16 +109,22 @@ class _MainShellState extends State<MainShell> {
     _roleSub = FirebaseDatabase.instance
         .ref('users/$uid/profile')
         .onValue
-        .listen((event) {
+        .listen((event) async {
       if (event.snapshot.value == null) {
-        if (mounted) setState(() => _loadingRole = false);
         return;
       }
       final profile = DatabaseService.convertMap(event.snapshot.value as Map);
       
       final String? roleVal = profile['role'] as String?;
       final String? statusVal = profile['status'] as String?;
-      debugPrint('[MainShell] User role: $roleVal, status: $statusVal');
+      final String? ownerUid = profile['ownerUid'] as String?;
+      debugPrint('[MainShell] User role: $roleVal, status: $statusVal, ownerUid: $ownerUid');
+      
+      // Point TankService and NotificationService to owner's data if this is a monitor user
+      if (ownerUid != null && ownerUid.isNotEmpty) {
+        await TankService.instance.switchToOwnerUid(ownerUid);
+        await NotificationService.instance.setEffectiveUid(ownerUid);
+      }
       
       // Auto-kick if account is disabled in real-time
       if (statusVal == 'disabled') {
@@ -152,11 +153,10 @@ class _MainShellState extends State<MainShell> {
         setState(() {
           _userRole = roleVal;
           _isOwner = hasControl;
-          _loadingRole = false;
         });
       }
     }, onError: (_) {
-      if (mounted) setState(() => _loadingRole = false);
+      if (mounted) setState(() {});
     });
 
     // Also check legacy authorizedOperators (backward compat)
@@ -178,11 +178,10 @@ class _MainShellState extends State<MainShell> {
       if (isPrimary && mounted) {
         setState(() {
           _isOwner = true;
-          _loadingRole = false;
         });
       }
     }, onError: (_) {
-      if (mounted) setState(() => _loadingRole = false);
+      if (mounted) setState(() {});
     });
   }
 
@@ -216,23 +215,9 @@ class _MainShellState extends State<MainShell> {
     final isOwner = _isOwner;
     final bool isAdmin = _userRole == 'admin';
 
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 300),
-      child: _loadingRole
-          ? const Scaffold(
-              key: ValueKey('loading_shell'),
-              backgroundColor: Color(0xFFF8FFFF),
-              body: Center(
-                child: CircularProgressIndicator(
-                  color: AppColors.primary,
-                ),
-              ),
-            )
-          : Container(
-              key: const ValueKey('main_shell_view'),
-              child: Scaffold(
-                key: _scaffoldKey,
-                body: Column(
+    return Scaffold(
+      key: _scaffoldKey,
+      body: Column(
                   children: [
                     Container(
                       width: double.infinity,
@@ -335,10 +320,14 @@ class _MainShellState extends State<MainShell> {
                                     setState(() => _currentIndex = 2);
                                     _tanksKey.currentState?.switchToTab(tab);
                                   },
+                                  onControlTab: (tab) {
+                                    setState(() => _currentIndex = 3);
+                                    _controlsKey.currentState?.switchToTab(tab);
+                                  },
                                 ),
                                 AnalyticsScreen(key: _analyticsKey),
                                 TanksScreen(key: _tanksKey, isOwner: isOwner),
-                                ControlsScreen(isOwner: isOwner),
+                                ControlsScreen(key: _controlsKey, isOwner: isOwner),
                                 const NotificationsScreen(),
                               ],
                             ),
@@ -346,8 +335,6 @@ class _MainShellState extends State<MainShell> {
                     if (!isAdmin) _buildBottomNav(),
                   ],
                 ),
-              ),
-            ),
     );
   }
 

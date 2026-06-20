@@ -5,8 +5,6 @@ import '../firebase_options.dart';
 class FirebaseRestClient {
   static final String _baseUrl =
       DefaultFirebaseOptions.android.databaseURL ?? '';
-  static final String _apiKey =
-      DefaultFirebaseOptions.android.apiKey ?? '';
 
   static Future<Map<String, dynamic>?> get(String path) async {
     final uri = Uri.parse('$_baseUrl/$path.json');

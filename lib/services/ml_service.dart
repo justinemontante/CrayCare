@@ -17,6 +17,14 @@ class MlService extends ChangeNotifier {
 
   bool get hasData => _latestPrediction != null;
 
+  bool get hasFreshData {
+    if (_latestPrediction == null) return false;
+    final ts = _latestPrediction!['timestamp'];
+    if (ts is! num) return false;
+    final age = DateTime.now().millisecondsSinceEpoch - ts.toInt();
+    return age < 2 * 60 * 1000;
+  }
+
   void init() {
     _sub?.cancel();
     _sub = FirebaseDatabase.instance

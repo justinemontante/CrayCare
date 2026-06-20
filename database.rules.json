@@ -3,9 +3,19 @@
     "users": {
       ".read": "auth != null && root.child('users').child(auth.uid).child('profile').child('role').val() === 'admin'",
       "$uid": {
-        ".read": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('profile').child('role').val() === 'admin')",
+        ".read": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('profile').child('role').val() === 'admin' || root.child('users').child(auth.uid).child('profile').child('ownerUid').val() === $uid)",
         ".write": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('profile').child('role').val() === 'admin')"
       }
+    },
+    "tank_data": {
+      "$ownerUid": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid === $ownerUid && root.child('users').child(auth.uid).child('profile').child('role').val() === 'owner'"
+      }
+    },
+    "ml_predictions": {
+      ".read": "auth != null",
+      ".write": true
     },
     "sensor_readings": {
       ".read": "auth != null",

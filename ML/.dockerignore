@@ -1,0 +1,7 @@
+__pycache__
+*.pyc
+dataset/*.csv
+.vscode
+.git
+.gitignore
+*.md

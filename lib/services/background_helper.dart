@@ -166,13 +166,14 @@ class BackgroundHelper {
     if (uid.isEmpty) return;
     final db = FirebaseDatabase.instance;
     final now = DateTime.now();
-    final todayKey = '${now.year}-${now.month}-${now.day}';
-    final markerKey = 'sampling_reminder_$todayKey';
 
-    final marker = await db.ref('users/$uid/notifications/markers/$markerKey').get();
-    if (marker.exists) return;
+    // Check if current user is a monitor, read owner's tank data
+    final profileSnap = await db.ref('users/$uid/profile').get();
+    final profile = profileSnap.value is Map ? profileSnap.value as Map : {};
+    final ownerUid = profile['ownerUid'] as String?;
+    final tankOwnerUid = (ownerUid != null && ownerUid.isNotEmpty) ? ownerUid : uid;
 
-    final tankSnap = await db.ref('users/$uid/tank/config').get();
+    final tankSnap = await db.ref('tank_data/$tankOwnerUid/inventory').get();
     if (!tankSnap.exists) return;
     final tank = tankSnap.value;
     if (tank is! Map) return;
@@ -180,35 +181,51 @@ class BackgroundHelper {
     final isInitialized = tank['isInitialized'] as bool? ?? false;
     if (!isInitialized) return;
 
-    final stockingDate = tank['stockingDate'] as int? ?? 0;
-    final sampleCount = tank['sampleCount'] as int? ?? 0;
-    final daysSince = stockingDate > 0
-        ? now.difference(DateTime.fromMillisecondsSinceEpoch(stockingDate)).inDays
-        : 999;
-
-    if (daysSince >= 7 && sampleCount > 0) {
-      final localNotif = FlutterLocalNotificationsPlugin();
-      const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-      await localNotif.initialize(const InitializationSettings(
-        android: androidSettings,
-      ));
-
-      await localNotif.show(
-        '${now.millisecondsSinceEpoch}_sampling'.hashCode,
-        'Sampling Reminder',
-        "It's been $daysSince days since last sampling. Time to record growth data!",
-        const NotificationDetails(
-          android: AndroidNotificationDetails(
-            _notifChannelId,
-            _notifChannelName,
-            channelDescription: _notifChannelDesc,
-            importance: Importance.high,
-            priority: Priority.high,
-          ),
-        ),
-      );
-
-      await db.ref('users/$uid/notifications/markers/$markerKey').set(true);
+    final int lastSampleTs;
+    if (tank.containsKey('lastSampleDate')) {
+      lastSampleTs = tank['lastSampleDate'] as int;
+    } else {
+      lastSampleTs = tank['stockingDate'] as int? ?? 0;
     }
+    if (lastSampleTs <= 0) return;
+
+    final lastSampleDate = DateTime.fromMillisecondsSinceEpoch(lastSampleTs);
+    final daysSince = now.difference(lastSampleDate).inDays;
+
+    if (daysSince < 7) return;
+
+    const markerKey = 'sampling_reminder';
+    final marker = await db.ref('users/$uid/notifications/markers/$markerKey').get();
+    if (marker.exists) {
+      final lastReminderTs = marker.value is int ? marker.value as int : 0;
+      if (lastReminderTs > 0) {
+        final lastReminder = DateTime.fromMillisecondsSinceEpoch(lastReminderTs);
+        if (now.difference(lastReminder).inDays < 7) return;
+      }
+    }
+
+    final localNotif = FlutterLocalNotificationsPlugin();
+    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    await localNotif.initialize(const InitializationSettings(
+      android: androidSettings,
+    ));
+
+    await localNotif.show(
+      '${now.millisecondsSinceEpoch}_sampling'.hashCode,
+      'Sampling Reminder',
+      "It's been $daysSince days since last sampling. Time to record growth data!",
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          _notifChannelId,
+          _notifChannelName,
+          channelDescription: _notifChannelDesc,
+          importance: Importance.high,
+          priority: Priority.high,
+        ),
+      ),
+    );
+
+    await db.ref('users/$uid/notifications/markers/$markerKey')
+        .set(now.millisecondsSinceEpoch);
   }
 }

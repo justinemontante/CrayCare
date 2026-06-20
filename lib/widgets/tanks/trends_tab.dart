@@ -44,6 +44,8 @@ class _TrendsTabState extends State<TrendsTab> {
         children: [
           _buildChartContainer(),
           const SizedBox(height: 16),
+          _buildBiomassChartContainer(),
+          const SizedBox(height: 16),
           _buildMortalityChartContainer(),
           const SizedBox(height: 16),
           GrowthStagePanel(onInfoTap: widget.onInfoTap ?? () {}),
@@ -399,6 +401,338 @@ class _TrendsTabState extends State<TrendsTab> {
           ),
           Text(
             '+${weekly.toStringAsFixed(2)} $unit',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: weekly >= 0
+                  ? const Color(0xFF1FA5A5)
+                  : AppColors.critical,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildBiomassChartContainer() {
+    final service = TankService.instance;
+    final history = service.samplingHistory;
+
+    final data = <double>[];
+    final initialBiomass = service.initialWeight > 0
+        ? service.initialCount * service.initialWeight / 1000
+        : 0.0;
+    data.add(initialBiomass);
+    data.addAll(
+      history.where((e) => !e.isBaseline).map((e) => e.biomass / 1000),
+    );
+
+    final hasData = data.any((v) => v > 0);
+    final unit = 'kg';
+
+    final labels = List.generate(
+      data.length,
+      (i) => i == 0 ? 'Initial' : 'Week $i',
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFCFCFC),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.darkWith(0.12),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.monitor_weight_outlined, size: 16, color: AppColors.primary),
+              const SizedBox(width: 6),
+              const Expanded(
+                child: Text(
+                  'Estimated Biomass',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.dark,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Biomass = live count \u00D7 ABW',
+              style: TextStyle(
+                fontSize: 9,
+                color: AppColors.darkWith(0.4),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            height: 180,
+            child: !hasData
+                ? Center(
+                    child: Text(
+                      'No biomass data',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppColors.darkWith(0.4),
+                      ),
+                    ),
+                  )
+                : data.length == 1
+                    ? Center(
+                        child: Text(
+                          '${data[0].toStringAsFixed(2)} $unit',
+                          style: const TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                      )
+                    : _buildBiomassLineChart(data, unit, labels),
+          ),
+          if (hasData) ...[
+            const SizedBox(height: 12),
+            _buildBiomassFooter(data, unit),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBiomassLineChart(
+      List<double> data, String unit, List<String> labels) {
+    final spots = data
+        .asMap()
+        .entries
+        .map((e) => FlSpot(e.key.toDouble(), e.value))
+        .toList();
+
+    final maxVal = data.reduce(max);
+    final chartMaxY = maxVal > 0 ? (maxVal * 1.2).ceilToDouble() : 1.0;
+
+    return LineChart(
+      LineChartData(
+        minX: 0,
+        maxX: (data.length - 1).toDouble(),
+        minY: 0,
+        maxY: chartMaxY,
+        gridData: FlGridData(
+          show: true,
+          drawVerticalLine: false,
+          horizontalInterval: chartMaxY / 4,
+          getDrawingHorizontalLine: (value) => FlLine(
+            color: AppColors.darkWith(0.04),
+            strokeWidth: 1,
+          ),
+        ),
+        titlesData: FlTitlesData(
+          topTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          rightTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              interval: data.length > 8
+                  ? (data.length / 4).ceilToDouble()
+                  : (data.length > 5 ? 2.0 : 1.0),
+              getTitlesWidget: (value, meta) {
+                final i = value.toInt();
+                if (i >= 0 && i < labels.length) {
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      labels[i],
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: AppColors.darkWith(0.4),
+                      ),
+                    ),
+                  );
+                }
+                return const SizedBox.shrink();
+              },
+            ),
+          ),
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 44,
+              getTitlesWidget: (value, meta) {
+                if (value == meta.min || value == meta.max) {
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: Text(
+                      '${value.toStringAsFixed(1)} $unit',
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: AppColors.darkWith(0.4),
+                      ),
+                    ),
+                  );
+                }
+                final mid = (meta.max + meta.min) / 2;
+                if ((value - mid).abs() < 0.5) {
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: Text(
+                      '${value.toStringAsFixed(1)} $unit',
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: AppColors.darkWith(0.4),
+                      ),
+                    ),
+                  );
+                }
+                return const SizedBox.shrink();
+              },
+            ),
+          ),
+        ),
+        borderData: FlBorderData(show: false),
+        lineTouchData: LineTouchData(
+          enabled: true,
+          touchTooltipData: LineTouchTooltipData(
+            getTooltipItems: (touchedSpots) {
+              return touchedSpots.map((spot) {
+                final i = spot.spotIndex;
+                return LineTooltipItem(
+                  '${spot.y.toStringAsFixed(2)} $unit',
+                  TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                  children: [
+                    TextSpan(
+                      text: '\n${labels[i]}',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.7),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                );
+              }).toList();
+            },
+          ),
+        ),
+        lineBarsData: [
+          LineChartBarData(
+            spots: spots,
+            isCurved: true,
+            curveSmoothness: 0.3,
+            color: const Color(0xFF1FA5A5),
+            barWidth: 2.5,
+            isStrokeCapRound: true,
+            dotData: FlDotData(
+              show: true,
+              getDotPainter: (spot, percent, barData, index) =>
+                  FlDotCirclePainter(
+                radius: 4,
+                color: const Color(0xFF1FA5A5),
+                strokeWidth: 2,
+                strokeColor: Colors.white,
+              ),
+            ),
+            belowBarData: BarAreaData(
+              show: true,
+              color: const Color(0xFF1FA5A5).withValues(alpha: 0.13),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBiomassFooter(List<double> data, String unit) {
+    if (data.length < 2) {
+      return Row(
+        children: [
+          Icon(Icons.info_outline_rounded,
+              size: 12, color: AppColors.darkWith(0.35)),
+          const SizedBox(width: 4),
+          Text(
+            'Keep sampling to track biomass',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w500,
+              color: AppColors.darkWith(0.45),
+            ),
+          ),
+        ],
+      );
+    }
+
+    final firstVal = data.first;
+    final lastVal = data.last;
+    final gain = lastVal - firstVal;
+    final weekly = gain / (data.length - 1);
+
+    return Row(
+      children: [
+        Icon(Icons.trending_up_rounded,
+            size: 14, color: gain >= 0 ? const Color(0xFF1FA5A5) : AppColors.critical),
+        const SizedBox(width: 4),
+        Text(
+          'Total: ',
+          style: TextStyle(
+            fontSize: 10,
+            color: AppColors.darkWith(0.45),
+          ),
+        ),
+        Text(
+          '${lastVal.toStringAsFixed(2)} $unit',
+          style: const TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF1FA5A5),
+          ),
+        ),
+        const SizedBox(width: 16),
+        Text(
+          'Change: ',
+          style: TextStyle(
+            fontSize: 10,
+            color: AppColors.darkWith(0.45),
+          ),
+        ),
+        Text(
+          '${gain >= 0 ? "+" : ""}${gain.toStringAsFixed(2)} $unit',
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: gain >= 0 ? const Color(0xFF1FA5A5) : AppColors.critical,
+          ),
+        ),
+        if (data.length > 2) ...[
+          const SizedBox(width: 16),
+          Text(
+            'Weekly: ',
+            style: TextStyle(
+              fontSize: 10,
+              color: AppColors.darkWith(0.45),
+            ),
+          ),
+          Text(
+            '${weekly >= 0 ? "+" : ""}${weekly.toStringAsFixed(2)} $unit',
             style: TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.w700,

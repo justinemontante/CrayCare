@@ -16,8 +16,6 @@ class DatabaseService {
 
   final DatabaseReference _db = FirebaseDatabase.instance.ref();
 
-  String get _uid => FirebaseAuth.instance.currentUser?.uid ?? '';
-
   /// I-save ang profile name, email, at photo URL ng user sa RTDB
   /// [role] — 'monitor' (default for new users) or 'owner' or 'admin'
   /// [status] — 'active' or 'disabled'

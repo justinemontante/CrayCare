@@ -3,13 +3,15 @@ class CrayfishStage {
   final String label;
   final String description;
 
-  final double threshold;
+  final double abwThreshold;
+  final double ablThreshold;
 
   const CrayfishStage({
     required this.name,
     required this.label,
     required this.description,
-    required this.threshold,
+    required this.abwThreshold,
+    required this.ablThreshold,
   });
 
   static const List<CrayfishStage> all = [
@@ -17,35 +19,41 @@ class CrayfishStage {
       name: 'early_juvenile',
       label: 'Early Juvenile',
       description: 'Newly stocked young crayfish',
-      threshold: 0.0,
+      abwThreshold: 0.0,
+      ablThreshold: 0.0,
     ),
     CrayfishStage(
       name: 'advanced_juvenile',
       label: 'Advanced Juvenile',
       description: 'Active early growth',
-      threshold: 5.0,
+      abwThreshold: 5.0,
+      ablThreshold: 4.0,
     ),
     CrayfishStage(
       name: 'pre_adult',
       label: 'Pre-Adult',
       description: 'Preparing for full maturity',
-      threshold: 15.0,
+      abwThreshold: 15.0,
+      ablThreshold: 6.0,
     ),
     CrayfishStage(
       name: 'market_size',
       label: 'Market Size',
       description: 'Ready for harvest',
-      threshold: 50.0,
+      abwThreshold: 50.0,
+      ablThreshold: 10.0,
     ),
   ];
 
   static CrayfishStage fromName(String name) =>
       all.firstWhere((s) => s.name == name, orElse: () => all[2]);
 
-  static CrayfishStage fromABW(double abw) {
+  static CrayfishStage fromMeasurements(double abw, double abl) {
     CrayfishStage result = all[0];
     for (final stage in all) {
-      if (abw >= stage.threshold) result = stage;
+      if (abw >= stage.abwThreshold && abl >= stage.ablThreshold) {
+        result = stage;
+      }
     }
     return result;
   }

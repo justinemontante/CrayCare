@@ -4,7 +4,7 @@ class NotificationItem {
   final String title;
   final String message;
   final DateTime timestamp;
-  bool unread;
+  Map<String, bool> readBy;
 
   NotificationItem({
     required this.id,
@@ -12,6 +12,8 @@ class NotificationItem {
     required this.title,
     required this.message,
     required this.timestamp,
-    this.unread = true,
-  });
+    Map<String, bool>? readBy,
+  }) : readBy = readBy ?? {};
+
+  bool isUnreadBy(String uid) => uid.isEmpty || !readBy.containsKey(uid) || readBy[uid] != true;
 }

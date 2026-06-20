@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
-import '../../services/sensor_service.dart';
-import '../../services/settings_service.dart';
 import '../../services/ml_service.dart';
 
 class MovableAiLogo extends StatefulWidget {
@@ -17,6 +15,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
   late AnimationController _pulseController;
   final double _logoSize = 60.0;
   bool _isInitialized = false;
+  bool _listenersAdded = false;
 
   @override
   void initState() {
@@ -45,21 +44,28 @@ class _MovableAiLogoState extends State<MovableAiLogo>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    SensorService.instance.addListener(_onSensorOrSettingsChanged);
-    SettingsService.instance.addListener(_onSensorOrSettingsChanged);
-    MlService.instance.addListener(_onMlChanged);
-    _refreshInsights();
-  }
-
-  void _onSensorOrSettingsChanged() {
-    _generateLocalInsights();
+    if (!_listenersAdded) {
+      _listenersAdded = true;
+      MlService.instance.addListener(_onMlChanged);
+      _refreshInsights();
+    }
   }
 
   void _onMlChanged() {
-    if (MlService.instance.hasData) {
+    if (MlService.instance.hasFreshData) {
       _useMlData(MlService.instance.latestPrediction!);
+    } else if (MlService.instance.error != null) {
+      if (mounted) setState(() {
+        _mlLoading = false;
+        _mlData = null;
+        _mlError = MlService.instance.error;
+      });
     } else {
-      _generateLocalInsights();
+      if (mounted) setState(() {
+        _mlLoading = false;
+        _mlData = null;
+        _mlError = 'No recent ML data available.';
+      });
     }
   }
 
@@ -185,30 +191,45 @@ class _MovableAiLogoState extends State<MovableAiLogo>
 
   @override
   void dispose() {
-    SensorService.instance.removeListener(_onSensorOrSettingsChanged);
-    SettingsService.instance.removeListener(_onSensorOrSettingsChanged);
     MlService.instance.removeListener(_onMlChanged);
     _pulseController.dispose();
     super.dispose();
   }
 
   void _refreshInsights() {
-    if (MlService.instance.hasData) {
+    if (MlService.instance.hasFreshData) {
       _useMlData(MlService.instance.latestPrediction!);
     } else {
-      _generateLocalInsights();
+      if (mounted) setState(() {
+        _mlLoading = false;
+        _mlData = null;
+        _mlError = 'No recent ML data available.';
+      });
     }
   }
 
   void _useMlData(Map<String, dynamic> mlData) {
-    final rawSensors = mlData['sensors'] as List<dynamic>?;
-    if (rawSensors == null || rawSensors.isEmpty) {
-      _generateLocalInsights();
+    final raw = mlData['sensors'];
+    List<dynamic> rawSensors;
+    if (raw is List) {
+      rawSensors = raw;
+    } else if (raw is Map) {
+      rawSensors = (raw as Map).values.toList();
+    } else {
+      rawSensors = const [];
+    }
+    if (rawSensors.isEmpty) {
+      if (mounted) setState(() {
+        _mlLoading = false;
+        _mlData = null;
+        _mlError = 'No ML data available from server.';
+      });
       return;
     }
 
     final sensors = rawSensors.map((s) {
-      final map = s as Map<String, dynamic>;
+      final raw = s as Map;
+      final map = raw.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
       final key = map['key'] as String? ?? '';
       final fbKey = _localKeyToFbKey(key);
       return {
@@ -237,105 +258,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
     }
   }
 
-  void _generateLocalInsights() {
-    final ss = SensorService.instance;
-    final ranges = SettingsService.instance.currentRanges;
-    final sensorKeys = [
-      {'key': 'temperature', 'sensorKey': 'temp', 'unit': '°C'},
-      {'key': 'phLevel', 'sensorKey': 'ph', 'unit': ''},
-      {'key': 'dissolvedOxygen', 'sensorKey': 'do', 'unit': 'mg/L'},
-      {'key': 'turbidity', 'sensorKey': 'turb', 'unit': 'NTU'},
-      {'key': 'waterLevel', 'sensorKey': 'waterlevel', 'unit': 'cm'},
-    ];
 
-    final sensors = <Map<String, dynamic>>[];
-    for (final info in sensorKeys) {
-      final sensorKey = info['sensorKey'] as String;
-      final hasData = ss.hasSensorData(sensorKey);
-      final value = ss.getLatestValue(sensorKey);
-      final range = ranges[sensorKey];
-      final min = range?['min'] ?? 0.0;
-      final max = range?['max'] ?? 999.0;
-
-      String status;
-      if (!hasData) {
-        status = 'UNKNOWN';
-      } else if (value >= min && value <= max) {
-        status = 'OPTIMAL';
-      } else {
-        status = 'CRITICAL';
-      }
-
-      String insight, prediction, recommendation;
-      if (!hasData) {
-        insight = 'No sensor data available.';
-        prediction = 'Unable to predict.';
-        recommendation = 'Check sensor connection.';
-      } else {
-        final valStr = value.toStringAsFixed(2);
-        final minStr = min.toStringAsFixed(1);
-        final maxStr = max.toStringAsFixed(1);
-        final unit = info['unit'] as String;
-
-        if (status == 'OPTIMAL') {
-          insight = 'Current reading: $valStr$unit. Within optimal range ($minStr–$maxStr$unit).';
-          final midpoint = (min + max) / 2;
-          prediction = value > midpoint
-              ? 'Slightly above midpoint. Monitor for upward trend.'
-              : 'Stable within range. No immediate action needed.';
-          recommendation = 'Maintain current tank conditions.';
-        } else if (value < min) {
-          insight = 'Reading at $valStr$unit is below the minimum threshold ($minStr$unit).';
-          prediction = 'May cause stress if not addressed.';
-          recommendation = _recommendationFor(sensorKey, 'low');
-        } else {
-          insight = 'Reading at $valStr$unit exceeds the maximum threshold ($maxStr$unit).';
-          prediction = 'Risk of adverse effects if prolonged.';
-          recommendation = _recommendationFor(sensorKey, 'high');
-        }
-      }
-
-      sensors.add({
-        'key': info['key'],
-        'status': status,
-        'insight': insight,
-        'prediction': prediction,
-        'recommendation': recommendation,
-      });
-    }
-
-    _mlData = {'sensors': sensors};
-    _mlError = null;
-    _mlLoading = false;
-    if (mounted) setState(() {});
-  }
-
-  String _recommendationFor(String sensorKey, String direction) {
-    switch (sensorKey) {
-      case 'temp':
-        return direction == 'low'
-            ? 'Check heater. Gradually increase temperature.'
-            : 'Check cooler/aeration. Reduce temperature gradually.';
-      case 'ph':
-        return direction == 'low'
-            ? 'Add pH buffer. Check water source.'
-            : 'Add pH reducer. Check for contaminants.';
-      case 'do':
-        return direction == 'low'
-            ? 'Increase aeration. Check water surface agitation.'
-            : 'Reduce aeration. Check for algae bloom.';
-      case 'turb':
-        return direction == 'low'
-            ? 'Normal clarity. Monitor regularly.'
-            : 'Check filtration. Consider water change.';
-      case 'waterlevel':
-        return direction == 'low'
-            ? 'Add water. Check for leaks.'
-            : 'Drain excess water. Check drainage.';
-      default:
-        return 'Check sensor and tank conditions.';
-    }
-  }
 
   static const _sensorDisplayInfo = {
     'temperature': {'title': 'Temperature', 'icon': 'assets/icons/temperature.png', 'color': Color(0xFFf59e0b)},

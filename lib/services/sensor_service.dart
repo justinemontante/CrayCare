@@ -36,6 +36,7 @@ class SensorService extends ChangeNotifier {
   DateTime _lastUpdated = DateTime.fromMillisecondsSinceEpoch(0);
   String? _lastError;
 
+  bool get initialDataLoaded => _initialDataLoaded;
   DateTime get lastUpdated => _lastUpdated;
   String? get lastError => _lastError;
 
@@ -201,6 +202,8 @@ class SensorService extends ChangeNotifier {
     }
     if (value == 0 && !_latest.containsKey(key)) return;
 
+    if (!_isValidReading(key, value)) return;
+
     _latest[key] = value;
 
     if (_history[key] == null) _history[key] = [];
@@ -208,6 +211,23 @@ class SensorService extends ChangeNotifier {
     _history[key]!.add(value);
     if (_history[key]!.length > 60) {
       _history[key]!.removeAt(0);
+    }
+  }
+
+  bool _isValidReading(String key, double value) {
+    switch (key) {
+      case 'temp':
+        return value >= 0 && value <= 60;
+      case 'ph':
+        return value >= 2 && value <= 12;
+      case 'do':
+        return value >= 0 && value <= 15;
+      case 'turb':
+        return value >= 0 && value <= 200;
+      case 'waterlevel':
+        return value >= 10 && value <= 300;
+      default:
+        return true;
     }
   }
 

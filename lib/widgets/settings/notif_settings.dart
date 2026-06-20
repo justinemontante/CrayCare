@@ -145,7 +145,7 @@ class NotifSettings extends StatelessWidget {
               child: Switch(
                 value: value,
                 onChanged: onChanged,
-                activeColor: AppColors.primary,
+                activeThumbColor: AppColors.primary,
                 activeTrackColor: AppColors.primaryWith(0.2),
                 inactiveTrackColor: AppColors.darkWith(0.1),
               ),

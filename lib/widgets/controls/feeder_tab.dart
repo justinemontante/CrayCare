@@ -129,18 +129,24 @@ class FeederTab extends StatelessWidget {
                           Container(
                             width: 8,
                             height: 8,
-                            decoration: const BoxDecoration(
-                              color: AppColors.success,
+                            decoration: BoxDecoration(
+                              color: schedules.isNotEmpty
+                                  ? AppColors.success
+                                  : AppColors.darkWith(0.3),
                               shape: BoxShape.circle,
                             ),
                           ),
                           const SizedBox(width: 6),
-                          const Text(
-                            'Schedules Active',
+                          Text(
+                            schedules.isNotEmpty
+                                ? 'Schedules Active'
+                                : 'No Schedules',
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w600,
-                              color: AppColors.success,
+                              color: schedules.isNotEmpty
+                                  ? AppColors.success
+                                  : AppColors.darkWith(0.4),
                             ),
                           ),
                         ],
@@ -164,32 +170,39 @@ class FeederTab extends StatelessWidget {
                     color: AppColors.dark,
                   ),
                 ),
-                if (isOwner)
-                  GestureDetector(
-                    onTap: () => _showScheduleModal(ctx),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.add, size: 12, color: AppColors.primary),
-                          SizedBox(width: 4),
-                          Text(
-                            'Add Schedule',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.primary,
-                            ),
+                GestureDetector(
+                  onTap: isOwner ? () => _showScheduleModal(ctx) : null,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: isOwner
+                          ? AppColors.primary.withValues(alpha: 0.1)
+                          : AppColors.darkWith(0.05),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          isOwner ? Icons.add : Icons.lock_outline,
+                          size: 12,
+                          color: isOwner ? AppColors.primary : AppColors.darkWith(0.4),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          isOwner ? 'Add Schedule' : 'Add Schedule (Owner Only)',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: isOwner
+                                ? AppColors.primary
+                                : AppColors.darkWith(0.4),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
+                ),
               ],
             ),
             if (schedules.isNotEmpty) ...[
@@ -630,18 +643,24 @@ class FeederTab extends StatelessWidget {
             onTap: () => _showScheduleInfo(ctx, s),
             child: Icon(Icons.info_outline, size: 14, color: AppColors.primaryWith(0.7)),
           ),
-          if (isOwner) ...[
-            const SizedBox(width: 6),
-            GestureDetector(
-              onTap: () => _showScheduleModal(ctx, index: index, existing: s),
-              child: Icon(Icons.edit_outlined, size: 14, color: AppColors.primary),
+          const SizedBox(width: 6),
+          GestureDetector(
+            onTap: isOwner ? () => _showScheduleModal(ctx, index: index, existing: s) : null,
+            child: Icon(
+              Icons.edit_outlined,
+              size: 14,
+              color: isOwner ? AppColors.primary : AppColors.darkWith(0.2),
             ),
-            const SizedBox(width: 6),
-            GestureDetector(
-              onTap: () => _confirmDelete(ctx, index),
-              child: Icon(Icons.delete_outline, size: 14, color: AppColors.critical),
+          ),
+          const SizedBox(width: 6),
+          GestureDetector(
+            onTap: isOwner ? () => _confirmDelete(ctx, index) : null,
+            child: Icon(
+              Icons.delete_outline,
+              size: 14,
+              color: isOwner ? AppColors.critical : AppColors.darkWith(0.2),
             ),
-          ],
+          ),
         ],
       ),
     );

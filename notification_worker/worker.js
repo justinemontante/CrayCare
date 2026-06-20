@@ -364,11 +364,177 @@ setInterval(async () => {
         }
       }));
     }
+
+    // ─── Feeding Complete Confirmation Checker ──────────────────────
+    const dispSnap = await db.ref(`feeder/dispatched/${todayKey}`).once("value");
+    if (dispSnap.exists()) {
+      const dispatched = dispSnap.val();
+      const confirmUids = await getAuthorizedUids();
+      if (confirmUids.length > 0) {
+        for (const [schedKey] of Object.entries(dispatched)) {
+          const s2Snap = await db.ref(`feeder/schedules/${schedKey}`).once("value");
+          const s2 = s2Snap.val();
+          if (!s2) continue;
+          if (s2.enabled !== true) continue;
+
+          const time2 = s2.time || "6:00";
+          const ampm2 = s2.ampm || "AM";
+          const confirmKey = `confirm_${todayKey}_${schedKey}`;
+
+          await Promise.allSettled(confirmUids.map(async (uid) => {
+            try {
+              const markerSnap = await db.ref(`users/${uid}/notifications/markers/${confirmKey}`).once("value");
+              if (markerSnap.exists()) return;
+
+              const prefsSnap = await db.ref(`users/${uid}/notifPrefs`).once("value");
+              const prefs = prefsSnap.val() || {};
+              if (prefs.feeding === false) return;
+
+              const sound = prefs.sound !== false;
+              const vibration = prefs.vibration !== false;
+              const msg = `Scheduled feed at ${time2} ${ampm2} has been dispensed.`;
+
+              await db.ref(`users/${uid}/notifications`).push().set({
+                type: "reminder",
+                title: "Feeding Complete",
+                message: msg,
+                timestamp: Date.now(),
+                unread: true,
+              });
+
+              const tokenSnap = await db.ref(`users/${uid}/fcmToken`).once("value");
+              const token = tokenSnap.val();
+              if (token) {
+                let targetChannelId = "craycare_alerts_silent";
+                if (sound && vibration) targetChannelId = "craycare_alerts_sound_vibrate";
+                else if (sound) targetChannelId = "craycare_alerts_sound_only";
+                else if (vibration) targetChannelId = "craycare_alerts_vibrate_only";
+
+                await admin.messaging().send({
+                  token,
+                  notification: { title: "Feeding Complete", body: msg },
+                  data: {
+                    title: "Feeding Complete",
+                    body: msg,
+                    sound: String(sound),
+                    vibration: String(vibration),
+                    feeding: "true",
+                  },
+                  android: {
+                    priority: "high",
+                    notification: { channelId: targetChannelId, priority: "high" }
+                  },
+                });
+              }
+
+              await db.ref(`users/${uid}/notifications/markers/${confirmKey}`).set(true);
+              console.log(`[${new Date().toLocaleTimeString()}] Feeding complete sent to ${uid} for ${time2} ${ampm2}`);
+            } catch (err) {
+              if (err.code === "messaging/invalid-registration-token" ||
+                  err.code === "messaging/registration-token-not-registered") {
+                await db.ref(`users/${uid}/fcmToken`).remove();
+              } else {
+                console.error(`Feeding complete failed for ${uid}:`, err.message);
+              }
+            }
+          }));
+        }
+      }
+    }
   } catch (e) {
     console.error("Feeding schedule checker error:", e.message);
   }
 }, 30000);
 
+// ─── Sampling Reminder Checker ──────────────────────────────────────────────
+setInterval(async () => {
+  try {
+    const now = new Date();
+    const uids = await getAuthorizedUids();
+    if (uids.length === 0) return;
+
+    await Promise.allSettled(uids.map(async (uid) => {
+      try {
+        const prefsSnap = await db.ref(`users/${uid}/notifPrefs`).once("value");
+        const prefs = prefsSnap.val() || {};
+        if (prefs.sampling === false) return;
+
+        const configSnap = await db.ref(`users/${uid}/tank/config`).once("value");
+        if (!configSnap.exists()) return;
+        const config = configSnap.val();
+        if (!config.isInitialized) return;
+
+        const lastSampleTs = config.lastSampleDate || config.stockingDate;
+        if (!lastSampleTs) return;
+
+        const lastSample = new Date(lastSampleTs);
+        const daysSince = Math.floor((now - lastSample) / (1000 * 60 * 60 * 24));
+        if (daysSince < 7) return;
+
+        const markerSnap = await db.ref(`users/${uid}/notifications/markers/sampling_reminder`).once("value");
+        if (markerSnap.exists()) {
+          const lastReminderTs = markerSnap.val();
+          if (lastReminderTs > 0) {
+            const daysSinceReminder = Math.floor((now - lastReminderTs) / (1000 * 60 * 60 * 24));
+            if (daysSinceReminder < 7) return;
+          }
+        }
+
+        const msg = `It's been ${daysSince} days since last sampling. Time to record growth data!`;
+
+        await db.ref(`users/${uid}/notifications`).push().set({
+          type: "reminder",
+          title: "Sampling Reminder",
+          message: msg,
+          timestamp: Date.now(),
+          unread: true,
+        });
+
+        const tokenSnap = await db.ref(`users/${uid}/fcmToken`).once("value");
+        const token = tokenSnap.val();
+        if (token) {
+          const sound = prefs.sound !== false;
+          const vibration = prefs.vibration !== false;
+          let targetChannelId = "craycare_alerts_silent";
+          if (sound && vibration) targetChannelId = "craycare_alerts_sound_vibrate";
+          else if (sound) targetChannelId = "craycare_alerts_sound_only";
+          else if (vibration) targetChannelId = "craycare_alerts_vibrate_only";
+
+          await admin.messaging().send({
+            token,
+            notification: {
+              title: "Sampling Reminder",
+              body: msg,
+            },
+            data: {
+              title: "Sampling Reminder",
+              body: msg,
+              sound: String(sound),
+              vibration: String(vibration),
+              sampling: "true",
+            },
+            android: {
+              priority: "high",
+              notification: {
+                channelId: targetChannelId,
+                priority: "high",
+              }
+            },
+          });
+        }
+
+        await db.ref(`users/${uid}/notifications/markers/sampling_reminder`).set(Date.now());
+        console.log(`[${new Date().toLocaleTimeString()}] Sampling reminder sent to ${uid} (${daysSince} days)`);
+      } catch (err) {
+        console.error(`Sampling reminder failed for ${uid}:`, err.message);
+      }
+    }));
+  } catch (e) {
+    console.error("Sampling reminder checker error:", e.message);
+  }
+}, 60000);
+
 console.log("CrayCare Notification Worker started.");
 console.log("Monitoring sensor_readings/latest for threshold alerts...");
-console.log("Checking feeder/schedules for 5-min feeding reminders...");
+console.log("Checking feeder/schedules for 5-min feeding reminders and confirmations...");
+console.log("Checking tank/config for sampling reminders...");

@@ -12,25 +12,37 @@ class DashboardScreen extends StatefulWidget {
   final ValueChanged<String>? onViewGraph;
   final ValueChanged<int>? onNavigate;
   final ValueChanged<int>? onTankTab;
+  final ValueChanged<int>? onControlTab;
 
   const DashboardScreen({
     super.key,
     this.onViewGraph,
     this.onNavigate,
     this.onTankTab,
+    this.onControlTab,
   });
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen> {
+class _DashboardScreenState extends State<DashboardScreen>
+    with SingleTickerProviderStateMixin {
   final ScrollController _quickActionsController = ScrollController();
   Timer? _countdownTimer;
+  late AnimationController _pulseController;
+  late Animation<double> _pulseAnimation;
 
   @override
   void initState() {
     super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat(reverse: true);
+    _pulseAnimation = Tween<double>(begin: 0.4, end: 1.0).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
     SensorService.instance.addListener(_refreshUI);
     SettingsService.instance.addListener(_refreshUI);
     TankService.instance.addListener(_refreshUI);
@@ -46,6 +58,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     SettingsService.instance.removeListener(_refreshUI);
     TankService.instance.removeListener(_refreshUI);
     _countdownTimer?.cancel();
+    _pulseController.dispose();
     super.dispose();
   }
 
@@ -350,6 +363,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     trend: ss.getTrend('temp'),
                     trendRate: ss.getTrendRate('temp'),
                     hasData: ss.hasSensorData('temp'),
+                    sensorKey: 'temp',
+                    rawValue: ss.getLatestValue('temp'),
                   onTap: () => _showGaugeDetail(
                     context,
                     sensorKey: 'temp',
@@ -375,6 +390,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     trend: ss.getTrend('ph'),
                     trendRate: ss.getTrendRate('ph'),
                     hasData: ss.hasSensorData('ph'),
+                    sensorKey: 'ph',
+                    rawValue: ss.getLatestValue('ph'),
                   onTap: () => _showGaugeDetail(
                     context,
                     sensorKey: 'ph',
@@ -404,6 +421,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     trend: ss.getTrend('do'),
                     trendRate: ss.getTrendRate('do'),
                     hasData: ss.hasSensorData('do'),
+                    sensorKey: 'do',
+                    rawValue: ss.getLatestValue('do'),
                   onTap: () => _showGaugeDetail(
                     context,
                     sensorKey: 'do',
@@ -429,6 +448,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     trend: ss.getTrend('turb'),
                     trendRate: ss.getTrendRate('turb'),
                     hasData: ss.hasSensorData('turb'),
+                    sensorKey: 'turb',
+                    rawValue: ss.getLatestValue('turb'),
                   onTap: () => _showGaugeDetail(
                     context,
                     sensorKey: 'turb',
@@ -495,6 +516,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return AppColors.darkWith(0.4);
   }
 
+  Color _getTrendColor(String key, double value, String trend, double rate, String status) {
+    if (status == 'OPTIMAL' || trend == 'stable' || rate == 0) {
+      switch (trend) {
+        case 'rising_fast':
+        case 'falling_fast':
+          return AppColors.critical;
+        case 'rising':
+        case 'falling':
+          return AppColors.warning;
+        default:
+          return AppColors.dark.withValues(alpha: 0.4);
+      }
+    }
+
+    final ranges = SettingsService.instance.currentRanges;
+    final range = ranges[key];
+    if (range == null) return AppColors.warning;
+    final min = range['min'] ?? 0.0;
+    final max = range['max'] ?? 999.0;
+
+    final bool improving;
+    if (value < min) {
+      improving = rate > 0;
+    } else if (value > max && max < 999.0) {
+      improving = rate < 0;
+    } else {
+      final mid = (min + (max < 999 ? max : min * 2)) / 2;
+      improving = rate > 0 ? value < mid : value > mid;
+    }
+
+    if (improving) return AppColors.success;
+    if (status == 'CRITICAL') return AppColors.critical;
+    return AppColors.warning;
+  }
+
   Widget _buildGaugeCard({
     required String title,
     required String value,
@@ -506,8 +562,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     required String trend,
     required double trendRate,
     required bool hasData,
+    required String sensorKey,
+    required double rawValue,
     VoidCallback? onTap,
   }) {
+    final trendColor = _getTrendColor(sensorKey, rawValue, trend, trendRate, status);
     return _GaugeCard(
       title: title,
       value: value,
@@ -518,7 +577,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       statusColor: statusColor,
       trend: trend,
       trendRate: trendRate,
+      trendColor: trendColor,
       hasData: hasData,
+      sensorKey: sensorKey,
+      rawValue: rawValue,
       onTap: onTap,
     );
   }
@@ -540,6 +602,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         trend: ss.getTrend('waterlevel'),
         trendRate: ss.getTrendRate('waterlevel'),
         hasData: ss.hasSensorData('waterlevel'),
+        sensorKey: 'waterlevel',
+        rawValue: ss.getLatestValue('waterlevel'),
         onTap: () => _showGaugeDetail(
           context,
           sensorKey: 'waterlevel',
@@ -597,32 +661,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildQuickActions() {
-    final nav = widget.onNavigate;
     final tank = widget.onTankTab;
+    final control = widget.onControlTab;
     final actions = [
       _QuickActionData(
         'Aerator 1',
         Icons.air,
         null,
-        onTap: nav != null ? () => nav(3) : null,
+        onTap: control != null ? () => control(1) : null,
       ),
       _QuickActionData(
         'Aerator 2',
         Icons.air,
         null,
-        onTap: nav != null ? () => nav(3) : null,
+        onTap: control != null ? () => control(1) : null,
       ),
       _QuickActionData(
         'Pump',
         Icons.water_drop,
         null,
-        onTap: nav != null ? () => nav(3) : null,
+        onTap: control != null ? () => control(1) : null,
       ),
       _QuickActionData(
         'Feeder',
         Icons.bubble_chart,
         null,
-        onTap: nav != null ? () => nav(3) : null,
+        onTap: control != null ? () => control(0) : null,
       ),
       _QuickActionData(
         'Inventory',
@@ -768,6 +832,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 child: Column(
                   children: [
+                    _buildEstimatedBiomassRow(tank, hasData),
+                    const SizedBox(height: 8),
                     _buildDetailRow(Icons.hourglass_bottom, 'Days in Culture', hasData ? tank.daysInCulture.toString() : '--'),
                     const SizedBox(height: 8),
                     _buildDetailRow(Icons.history, 'Last Sampling', hasData && tank.samplingHistory.isNotEmpty ? _formatTankDate(tank.samplingHistory.last.date) : '--'),
@@ -837,10 +903,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text('ABW: ', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.5))),
-              Text(isReady ? '${currentAbw.toStringAsFixed(2)}g' : '--', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.primary)),
-              const SizedBox(width: 14),
+              Text(isReady ? '${currentAbw.toStringAsFixed(2)}g' : '--', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.dark)),
+              const SizedBox(width: 16),
               Text('ABL: ', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.5))),
-              Text(isReady ? '${currentAbl.toStringAsFixed(2)}cm' : '--', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.primary)),
+              Text(isReady ? '${currentAbl.toStringAsFixed(2)}cm' : '--', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.dark)),
             ],
           ),
         ],
@@ -878,6 +944,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
             fontWeight: FontWeight.w600,
             color: AppColors.darkWith(0.6),
             letterSpacing: 0.3,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEstimatedBiomassRow(TankService tank, bool hasData) {
+    final history = tank.samplingHistory;
+    final latestAbw = hasData && history.isNotEmpty
+        ? history.last.abw
+        : tank.initialWeight;
+    final biomassKg = hasData && latestAbw > 0
+        ? tank.liveCount * latestAbw / 1000
+        : 0.0;
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.monitor_weight_outlined, size: 14, color: AppColors.darkWith(0.5)),
+            const SizedBox(width: 8),
+            Text(
+              'Estimated Biomass',
+              style: TextStyle(fontSize: 11, color: AppColors.darkWith(0.6)),
+            ),
+          ],
+        ),
+        Text(
+          hasData ? '${biomassKg.toStringAsFixed(2)} kg' : '--',
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: AppColors.dark,
           ),
         ),
       ],
@@ -960,8 +1061,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           '${months[nextDate.month - 1]} ${nextDate.day}, ${nextDate.year}';
     }
 
-    final daysLeftColor = AppColors.primary;
-
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -984,30 +1083,50 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ],
         ),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(
-              isReady ? 'Ready!' : nextDateStr,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: isReady ? AppColors.success : AppColors.dark,
+        isReady
+            ? GestureDetector(
+                onTap: () => widget.onTankTab?.call(1),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      'Ready!',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.success,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    FadeTransition(
+                      opacity: _pulseAnimation,
+                      child: Text(
+                        'Tap to record',
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.success,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    nextDateStr,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.dark,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  _AnimatedDaysLeft(daysLeft: daysLeft),
+                ],
               ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              isReady
-                  ? 'Tap to record'
-                  : '$daysLeft day${daysLeft == 1 ? '' : 's'} left',
-              style: TextStyle(
-                fontSize: 9,
-                fontWeight: FontWeight.w600,
-                color: daysLeftColor,
-              ),
-            ),
-          ],
-        ),
       ],
     );
   }
@@ -1239,29 +1358,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
     IconData icon;
     Color color;
     String label;
-    final sign = rate >= 0 ? '+' : '';
-    final rateStr = '$sign${rate.toStringAsFixed(3)}/rdg';
-    
+
     switch (trend) {
       case 'rising_fast':
         icon = Icons.keyboard_double_arrow_up;
         color = AppColors.critical;
-        label = 'Rising rapidly ($rateStr)';
+        label = 'Rising Fast';
         break;
       case 'rising':
         icon = Icons.arrow_upward;
         color = AppColors.warning;
-        label = 'Rising ($rateStr)';
+        label = 'Rising';
         break;
       case 'falling_fast':
         icon = Icons.keyboard_double_arrow_down;
         color = AppColors.critical;
-        label = 'Falling rapidly ($rateStr)';
+        label = 'Falling Fast';
         break;
       case 'falling':
         icon = Icons.arrow_downward;
         color = AppColors.warning;
-        label = 'Falling ($rateStr)';
+        label = 'Falling';
         break;
       case 'stable':
       default:
@@ -1672,7 +1789,10 @@ class _GaugeCard extends StatefulWidget {
   final Color statusColor;
   final String trend;
   final double trendRate;
+  final Color trendColor;
   final bool hasData;
+  final String sensorKey;
+  final double rawValue;
   final VoidCallback? onTap;
 
   const _GaugeCard({
@@ -1685,7 +1805,10 @@ class _GaugeCard extends StatefulWidget {
     required this.statusColor,
     required this.trend,
     required this.trendRate,
+    required this.trendColor,
     required this.hasData,
+    required this.sensorKey,
+    required this.rawValue,
     this.onTap,
   });
 
@@ -1698,42 +1821,33 @@ class _GaugeCardState extends State<_GaugeCard> {
 
   Widget _buildTrendIndicator() {
     IconData icon;
-    Color color;
     String label;
-    
-    final rate = widget.trendRate;
-    final sign = rate >= 0 ? '+' : '';
-    final rateStr = '$sign${rate.toStringAsFixed(2)}/rdg';
-    
+    final color = widget.trendColor;
+
     switch (widget.trend) {
       case 'rising_fast':
         icon = Icons.keyboard_double_arrow_up;
-        color = AppColors.critical;
-        label = rateStr;
+        label = 'Rising Fast';
         break;
       case 'rising':
         icon = Icons.arrow_upward;
-        color = AppColors.warning;
-        label = rateStr;
+        label = 'Rising';
         break;
       case 'falling_fast':
         icon = Icons.keyboard_double_arrow_down;
-        color = AppColors.critical;
-        label = rateStr;
+        label = 'Falling Fast';
         break;
       case 'falling':
         icon = Icons.arrow_downward;
-        color = AppColors.warning;
-        label = rateStr;
+        label = 'Falling';
         break;
       case 'stable':
       default:
         icon = Icons.trending_flat;
-        color = AppColors.dark.withValues(alpha: 0.4);
         label = widget.status == 'OPTIMAL' ? 'Stable' : '';
         break;
     }
-    
+
     return Row(
       mainAxisSize: MainAxisSize.min,
       mainAxisAlignment: MainAxisAlignment.center,
@@ -1918,6 +2032,51 @@ class _QuickActionData {
   final String? status;
   final VoidCallback? onTap;
   const _QuickActionData(this.name, this.icon, this.status, {this.onTap});
+}
+
+class _AnimatedDaysLeft extends StatefulWidget {
+  final int daysLeft;
+  const _AnimatedDaysLeft({required this.daysLeft});
+
+  @override
+  State<_AnimatedDaysLeft> createState() => _AnimatedDaysLeftState();
+}
+
+class _AnimatedDaysLeftState extends State<_AnimatedDaysLeft>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _animation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat(reverse: true);
+    _animation = Tween<double>(begin: 0.6, end: 1.0).animate(_controller);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _animation,
+      child: Text(
+        '${widget.daysLeft} day${widget.daysLeft == 1 ? '' : 's'} left',
+        style: const TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w600,
+          color: AppColors.primary,
+        ),
+      ),
+    );
+  }
 }
 
 

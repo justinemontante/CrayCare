@@ -258,7 +258,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           ),
                         ),
                       ),
-                      if (n.unread)
+                      if (NotificationService.instance.unreadStatus(n.id))
                         Container(
                           width: 7,
                           height: 7,

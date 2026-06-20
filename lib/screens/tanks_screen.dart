@@ -6,86 +6,7 @@ import '../services/tank_service.dart';
 import '../widgets/tanks/inventory_tab.dart';
 import '../widgets/tanks/sampling_tab.dart';
 import '../widgets/tanks/trends_tab.dart';
-
-// Helper for beautiful snackbars
-void showBeautifulSnackbar(
-  BuildContext context,
-  String message,
-  bool isSuccess,
-) {
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Row(
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.2),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              isSuccess
-                  ? Icons.check_circle_rounded
-                  : Icons.warning_amber_rounded,
-              color: Colors.white,
-              size: 20,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  isSuccess ? 'Success' : 'Error',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 13,
-                    color: Colors.white,
-                  ),
-                ),
-                Text(
-                  message,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w500,
-                    fontSize: 11,
-                    color: Colors.white.withValues(alpha: 0.9),
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Icon(
-              Icons.close_rounded,
-              color: Colors.white,
-              size: 16,
-            ),
-          ),
-        ],
-      ),
-      backgroundColor: isSuccess
-          ? const Color(0xFF059669)
-          : const Color(0xFFDC2626),
-      behavior: SnackBarBehavior.floating,
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      elevation: 12,
-      duration: const Duration(seconds: 3),
-    ),
-  );
-}
+import '../utils/snackbar_helper.dart';
 
 class TanksScreen extends StatefulWidget {
   final bool isOwner;
@@ -103,9 +24,6 @@ class TanksScreenState extends State<TanksScreen> {
     if (index < 0 || index > 2) return;
     setState(() => _activeTab = index);
   }
-  final _sampleCountController = TextEditingController();
-  final _sampleWeightController = TextEditingController();
-  final _sampleLengthController = TextEditingController();
 
   @override
   void initState() {
@@ -115,9 +33,6 @@ class TanksScreenState extends State<TanksScreen> {
 
   @override
   void dispose() {
-    _sampleCountController.dispose();
-    _sampleWeightController.dispose();
-    _sampleLengthController.dispose();
     TankService.instance.removeListener(_refreshUI);
     super.dispose();
   }
@@ -149,9 +64,6 @@ class TanksScreenState extends State<TanksScreen> {
                 ),
                 SamplingTab(
                   lastEdited: _lastEdited,
-                  sampleCountController: _sampleCountController,
-                  sampleWeightController: _sampleWeightController,
-                  sampleLengthController: _sampleLengthController,
                   isOwner: widget.isOwner,
                 ),
                 TrendsTab(
@@ -355,16 +267,6 @@ class TanksScreenState extends State<TanksScreen> {
                     letterSpacing: -0.2,
                   ),
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  'Based on SRAC Publication No. 244 & Queensland Guidelines.',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                    color: AppColors.dark.withValues(alpha: 0.5),
-                    height: 1.4,
-                  ),
-                ),
                 const SizedBox(height: 24),
                 SizedBox(
                   width: double.infinity,
@@ -551,16 +453,12 @@ class TanksScreenState extends State<TanksScreen> {
     );
     final totalWeightCtrl = TextEditingController(
       text: isEdit
-          ? (TankService.instance.initialWeight *
-                    TankService.instance.sampleCount)
-                .toStringAsFixed(1)
+          ? TankService.instance.initialTotalWeight.toStringAsFixed(1)
           : '',
     );
     final totalLengthCtrl = TextEditingController(
       text: isEdit
-          ? (TankService.instance.initialLength *
-                    TankService.instance.sampleCount)
-                .toStringAsFixed(1)
+          ? TankService.instance.initialTotalLength.toStringAsFixed(1)
           : '',
     );
 
@@ -682,7 +580,7 @@ class TanksScreenState extends State<TanksScreen> {
                         width: 24,
                         height: 24,
                       ),
-                      'Initial Sample\nWeight (g)',
+                      'Initial Total\nSample Weight (g)',
                       'Total weight of sampled group',
                       totalWeightCtrl,
                     ),
@@ -692,7 +590,7 @@ class TanksScreenState extends State<TanksScreen> {
                         width: 24,
                         height: 24,
                       ),
-                      'Initial Sample\nLength (cm)',
+                      'Initial Total\nSample Length (cm)',
                       'Total length of sampled group',
                       totalLengthCtrl,
                     ),

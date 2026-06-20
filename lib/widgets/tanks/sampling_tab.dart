@@ -2,69 +2,15 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
 import '../../services/tank_service.dart';
-
-
-// Copying helper to use within sampling UI
-void showBeautifulSnackbar(
-  BuildContext context,
-  String message,
-  bool isSuccess,
-) {
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.2),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              isSuccess
-                  ? Icons.check_circle_rounded
-                  : Icons.warning_amber_rounded,
-              color: Colors.white,
-              size: 20,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              message,
-              style: const TextStyle(
-                fontWeight: FontWeight.w700,
-                fontSize: 13,
-                color: Colors.white,
-              ),
-            ),
-          ),
-        ],
-      ),
-      backgroundColor: isSuccess ? AppColors.success : AppColors.critical,
-      behavior: SnackBarBehavior.floating,
-      margin: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      elevation: 10,
-      duration: const Duration(seconds: 3),
-    ),
-  );
-}
+import '../../utils/snackbar_helper.dart';
 
 class SamplingTab extends StatelessWidget {
   final DateTime lastEdited;
-  final TextEditingController sampleCountController;
-  final TextEditingController sampleWeightController;
-  final TextEditingController sampleLengthController;
-
   final bool isOwner;
 
   const SamplingTab({
     super.key,
     required this.lastEdited,
-    required this.sampleCountController,
-    required this.sampleWeightController,
-    required this.sampleLengthController,
     this.isOwner = true,
   });
 
@@ -775,18 +721,6 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
     }
   }
 
-  double _computeAbw() {
-    final count = int.tryParse(_countController.text) ?? 0;
-    final weight = double.tryParse(_weightController.text) ?? 0;
-    return count > 0 ? weight / count : 0;
-  }
-
-  double _computeAbl() {
-    final count = int.tryParse(_countController.text) ?? 0;
-    final length = double.tryParse(_lengthController.text) ?? 0;
-    return count > 0 ? length / count : 0;
-  }
-
   void _handleCompute() {
     _revalidateCount();
     if (_countError != null) return;
@@ -801,20 +735,39 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
         count > 0 &&
         weight > 0 &&
         length > 0) {
-      TankService.instance.addSamplingEntry(count, weight, length);
+      final wasEditing = _isEditing;
+      if (wasEditing) {
+        TankService.instance.updateLastSamplingEntry(count, weight, length);
+      } else {
+        TankService.instance.addSamplingEntry(count, weight, length);
+      }
       setState(() {
         _isRecorded = true;
         _isEditing = false;
       });
       showBeautifulSnackbar(
         context,
-        'Sampling successfully recorded & computed!',
+        wasEditing ? 'Sampling successfully updated!' : 'Sampling successfully recorded & computed!',
         true,
       );
     }
   }
 
+  bool _isToday(DateTime date) {
+    final now = DateTime.now();
+    return date.year == now.year && date.month == now.month && date.day == now.day;
+  }
+
   void _handleEdit() {
+    final lastEntry = TankService.instance.samplingHistory.last.date;
+    if (!_isToday(lastEntry)) {
+      showBeautifulSnackbar(
+        context,
+        'Sampling data can only be edited on the same day it was recorded.',
+        false,
+      );
+      return;
+    }
     setState(() {
       _isRecorded = false;
       _isEditing = true;
@@ -827,6 +780,9 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
     final service = TankService.instance;
     final daysSince = service.daysSinceLastSampling;
     final daysRemaining = daysSince >= 7 ? 0 : 7 - daysSince;
+    final lastEntryIsToday = service.samplingHistory.isNotEmpty
+        ? _isToday(service.samplingHistory.last.date)
+        : false;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -934,7 +890,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
                     ),
                 ],
               ),
-              if (_isRecorded && widget.isOwner)
+              if (_isRecorded && widget.isOwner && lastEntryIsToday)
                 TextButton(
                   onPressed: _handleEdit,
                   child: const Text(
@@ -1001,115 +957,6 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
               ),
             ],
           ),
-          if (_isRecorded) ...[
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: AppColors.success.withValues(alpha: 0.06),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: AppColors.success.withValues(alpha: 0.2),
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.check_circle_rounded,
-                        size: 14,
-                        color: AppColors.success,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        'After Sampling',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.success,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Column(
-                            children: [
-                              Text(
-                                'Average ABW',
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.darkWith(0.5),
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '${_computeAbw().toStringAsFixed(1)} g/crayfish',
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w900,
-                                  color: AppColors.primary,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Column(
-                            children: [
-                              Text(
-                                'Average ABL',
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.darkWith(0.5),
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '${_computeAbl().toStringAsFixed(1)} cm/crayfish',
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w900,
-                                  color: AppColors.success,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
           if (_countError != null && !_isRecorded) ...[
             const SizedBox(height: 8),
             Padding(
@@ -1376,7 +1223,7 @@ class GrowthStagePanel extends StatelessWidget {
     switch (stage) {
       case GrowthStage.earlyJuvenile: return 0;
       case GrowthStage.advancedJuvenile: return 1;
-      case GrowthStage.growOut: return 2;
+      case GrowthStage.preAdult: return 2;
       case GrowthStage.marketSize: return 3;
     }
   }
