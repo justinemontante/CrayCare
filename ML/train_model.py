@@ -116,7 +116,7 @@ def train_and_evaluate(name: str, X, y, model_path: str):
 
     # ── Save model ──
     joblib.dump(model, model_path)
-    print(f"\n  [OK] Saved → {model_path}")
+    print(f"\n  [OK] Saved -> {model_path}")
 
     cr = classification_report(y_test, y_pred, output_dict=True)
     return {
@@ -159,7 +159,7 @@ print(summary_df.to_string(index=False))
 
 # Save summary as JSON for reference
 summary_df.to_json("models/training_summary.json", orient="records", indent=2)
-print("\n  [OK] Summary saved → models/training_summary.json")
+print("\n  [OK] Summary saved -> models/training_summary.json")
 
 # ── Defensibility note ─────────────────────────────────────────────────────────
 print("""

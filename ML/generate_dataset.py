@@ -61,8 +61,8 @@ STAGES = list(STAGE_DEFAULTS.keys())
 
 WARN_BAND = 0.12   # 12% of span = warning zone
 
-NUM_SEQUENCES    = 2500
-READINGS_PER_SEQ = 20   # 50,000 total rows
+NUM_SEQUENCES    = 1000
+READINGS_PER_SEQ = 20   # 20,000 total rows
 
 
 def sample_thresholds(stage):

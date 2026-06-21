@@ -216,18 +216,21 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   Widget _buildNotificationItem(NotificationItem n) {
     final color = _typeColor(n.type);
+    final isUnread = NotificationService.instance.unreadStatus(n.id);
     return GestureDetector(
-      onTap: () {
-        NotificationService.instance.markAsRead(n.id);
-        _showDetail(n);
-      },
-      child: Container(
+      onTap: () => _showDetail(n),  // markAsRead happens inside _showDetail
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
         margin: const EdgeInsets.only(bottom: 6),
         padding: const EdgeInsets.fromLTRB(10, 10, 6, 10),
         decoration: BoxDecoration(
-          color: Colors.white,
+          // Unread items have a subtle tinted background
+          color: isUnread ? color.withValues(alpha: 0.04) : Colors.white,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppColors.darkWith(0.08)),
+          border: Border.all(
+            color: isUnread ? color.withValues(alpha: 0.25) : AppColors.darkWith(0.08),
+            width: isUnread ? 1.5 : 1.0,
+          ),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -322,9 +325,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   void _showDetail(NotificationItem n) {
     final color = _typeColor(n.type);
+    // Mark as read as soon as the user opens the detail — per-user via readBy/{uid} in Firebase.
+    // Each user's read state is independent; tapping here only marks IT for the current user.
+    NotificationService.instance.markAsRead(n.id);
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.white,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -336,6 +344,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Drag handle
                 Center(
                   child: Container(
                     width: 36,
@@ -347,7 +356,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
+                // Header: icon + title + time
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Container(
                       width: 40,
@@ -371,6 +382,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                               color: AppColors.dark,
                             ),
                           ),
+                          const SizedBox(height: 2),
                           Text(
                             _timeAgo(n.timestamp),
                             style: TextStyle(
@@ -381,9 +393,37 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         ],
                       ),
                     ),
+                    // Per-user read receipt chip
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.done_all_rounded,
+                            size: 12,
+                            color: AppColors.primary,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Read by you',
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 16),
+                // Message body
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(14),
@@ -397,11 +437,24 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     style: TextStyle(
                       fontSize: 12,
                       color: AppColors.darkWith(0.8),
-                      height: 1.5,
+                      height: 1.6,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                // Timestamp detail
+                Padding(
+                  padding: const EdgeInsets.only(left: 2),
+                  child: Text(
+                    '${n.timestamp.month}/${n.timestamp.day}/${n.timestamp.year} · ${n.timestamp.hour.toString().padLeft(2, '0')}:${n.timestamp.minute.toString().padLeft(2, '0')}',
+                    style: TextStyle(
+                      fontSize: 9,
+                      color: AppColors.darkWith(0.35),
                     ),
                   ),
                 ),
                 const SizedBox(height: 16),
+                // Close button
                 SizedBox(
                   width: double.infinity,
                   child: TextButton(
@@ -415,7 +468,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       ),
                     ),
                     child: const Text(
-                      'Close',
+                      'Got it',
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w700,

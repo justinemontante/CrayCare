@@ -102,12 +102,16 @@ class SensorService extends ChangeNotifier {
         fastThreshold = 0.2;
         break;
       case 'turb':
-        stableThreshold = 0.1;
-        fastThreshold = 1.0;
+        // Turbidity sensors have ±0.5–2 NTU noise; 0.1 caused false positives.
+        // 0.5 NTU stable threshold only flags real, sustained changes.
+        stableThreshold = 0.5;
+        fastThreshold = 2.0;
         break;
       case 'waterlevel':
-        stableThreshold = 0.1;
-        fastThreshold = 1.0;
+        // Ultrasonic sensors (HC-SR04 type) have ±0.5–1 cm noise.
+        // 0.5 cm stable threshold prevents noise from being flagged as drift.
+        stableThreshold = 0.5;
+        fastThreshold = 1.5;
         break;
       default:
         stableThreshold = 0.05;

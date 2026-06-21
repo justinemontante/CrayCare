@@ -1,10 +1,19 @@
 {
   "rules": {
     "users": {
-      ".read": "auth != null && root.child('users').child(auth.uid).child('profile').child('role').val() === 'admin'",
+      ".read": "auth != null",
       "$uid": {
         ".read": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('profile').child('role').val() === 'admin' || root.child('users').child(auth.uid).child('profile').child('ownerUid').val() === $uid)",
-        ".write": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('profile').child('role').val() === 'admin')"
+        ".write": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('profile').child('role').val() === 'admin')",
+        "notifications": {
+          "$notifId": {
+            "readBy": {
+              "$readerUid": {
+                ".write": "auth != null && auth.uid === $readerUid && root.child('users').child(auth.uid).child('profile').child('ownerUid').val() === $uid"
+              }
+            }
+          }
+        }
       }
     },
     "tank_data": {
@@ -18,6 +27,10 @@
       ".write": true
     },
     "sensor_readings": {
+      ".read": "auth != null",
+      ".write": true
+    },
+    "notifications": {
       ".read": "auth != null",
       ".write": true
     },
