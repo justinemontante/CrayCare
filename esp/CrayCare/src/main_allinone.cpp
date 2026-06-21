@@ -1189,8 +1189,10 @@ void loop() {
         float rawPHV = readPHRawVoltage();
         float rawDOV = readDORaw();
         float rawDist = readWaterLevelCm();
-        Serial.printf("[RAW] pH_V=%.3f | DO_mV=%.0f | Turb_V=%.3f | HC-SR04=%.1fcm → Water=%.1fcm\n",
-            rawPHV, rawDOV * 1000, currentTurbV,
+        bool phProbeOK = (rawPHV >= 0.5f && rawPHV <= 2.8f);
+        Serial.printf("[RAW] pH_V=%s | DO_mV=%.0f | Turb_V=%.3f | HC-SR04=%.1fcm → Water=%.1fcm\n",
+            phProbeOK ? String(rawPHV, 3).c_str() : "--",
+            rawDOV * 1000, currentTurbV,
             rawDist >= 0 ? rawDist : 0,
             currentWaterCm >= 0 ? currentWaterCm : 0);
     }
