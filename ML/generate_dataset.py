@@ -1,158 +1,313 @@
+"""
+CrayCare ML Dataset Generator - v4.0
+=====================================
+Uses the EXACT 4 stages and default ranges from crayfish_stage.dart:
+  - early_juvenile   : temp 26-28, ph 7.5-8.0, do>=5.0, turb<=25, wl 120-160
+  - advanced_juvenile: temp 25-30, ph 7.0-8.5, do>=5.0, turb<=30, wl 120-170
+  - pre_adult        : temp 24-30, ph 7.0-8.5, do>=4.5, turb<=35, wl 130-180
+  - market_size      : temp 24-28, ph 7.0-8.0, do>=4.0, turb<=40, wl 130-180
+
+Key design:
+  - User can adjust ranges +/-10% from defaults (jitter)
+  - Ratio features so model adapts to any user-defined range
+  - Physics-aware correlation (temp up -> DO drops)
+  - Balanced OPTIMAL/WARNING/CRITICAL per-sensor
+  - 100,000 rows total (5000 sequences x 20 readings)
+"""
+
 import random
+import numpy as np
 import pandas as pd
 import os
 
+random.seed(42)
+np.random.seed(42)
+
 os.makedirs("dataset", exist_ok=True)
 
-NUM_SEQUENCES = 3000
-READINGS_PER_SEQUENCE = 20
-TOTAL_ROWS = NUM_SEQUENCES * READINGS_PER_SEQUENCE
+# ── EXACT stages from crayfish_stage.dart (defaultStageRanges) ─────────────────
+STAGE_DEFAULTS = {
+    "early_juvenile": {
+        "temp":      (26.0, 28.0),
+        "ph":        (7.5,  8.0),
+        "do_min":    5.0,
+        "turb_max":  25.0,
+        "wl":        (120.0, 160.0),
+    },
+    "advanced_juvenile": {
+        "temp":      (25.0, 30.0),
+        "ph":        (7.0,  8.5),
+        "do_min":    5.0,
+        "turb_max":  30.0,
+        "wl":        (120.0, 170.0),
+    },
+    "pre_adult": {
+        "temp":      (24.0, 30.0),
+        "ph":        (7.0,  8.5),
+        "do_min":    4.5,
+        "turb_max":  35.0,
+        "wl":        (130.0, 180.0),
+    },
+    "market_size": {
+        "temp":      (24.0, 28.0),
+        "ph":        (7.0,  8.0),
+        "do_min":    4.0,
+        "turb_max":  40.0,
+        "wl":        (130.0, 180.0),
+    },
+}
 
+STAGES = list(STAGE_DEFAULTS.keys())
+
+WARN_BAND = 0.12   # 12% of span = warning zone
+
+NUM_SEQUENCES    = 2500
+READINGS_PER_SEQ = 20   # 50,000 total rows
+
+
+def sample_thresholds(stage):
+    """Sample thresholds with small user-adjustment jitter (+-10%)."""
+    base = STAGE_DEFAULTS[stage]
+    jitter = lambda v, pct: round(v * (1 + random.uniform(-pct, pct)), 2)
+
+    t_min, t_max = base["temp"]
+    p_min, p_max = base["ph"]
+    wl_min, wl_max = base["wl"]
+
+    return {
+        "temp_min":  jitter(t_min,  0.05),
+        "temp_max":  jitter(t_max,  0.05),
+        "ph_min":    jitter(p_min,  0.04),
+        "ph_max":    jitter(p_max,  0.04),
+        "do_min":    jitter(base["do_min"],  0.08),
+        "turb_max":  jitter(base["turb_max"], 0.10),
+        "wl_min":    jitter(wl_min, 0.05),
+        "wl_max":    jitter(wl_max, 0.05),
+    }
+
+
+def compute_ratio(val, vmin, vmax):
+    span = vmax - vmin
+    return (val - vmin) / span if span > 0 else 0.5
+
+
+def label_bounded(ratio, rate, rate_warn):
+    """Both-sided bounded sensor (temp, ph, wl)."""
+    if ratio < 0 or ratio > 1:
+        return "CRITICAL"
+    if ratio < WARN_BAND or ratio > (1 - WARN_BAND):
+        return "WARNING"
+    if rate < -rate_warn and ratio < 0.30:
+        return "WARNING"
+    if rate >  rate_warn and ratio > 0.70:
+        return "WARNING"
+    return "OPTIMAL"
+
+
+def label_do(val, do_min, rate):
+    """DO: only minimum bound — more is always better."""
+    margin = val - do_min
+    ratio  = margin / max(do_min, 0.1)
+    if val < do_min:
+        return "CRITICAL"
+    if ratio < WARN_BAND:
+        return "WARNING"
+    if rate < -0.08 and ratio < 0.40:
+        return "WARNING"
+    return "OPTIMAL"
+
+
+def label_turb(val, turb_max, rate):
+    """Turbidity: only maximum bound — less is always better."""
+    if val > turb_max:
+        return "CRITICAL"
+    ratio = val / max(turb_max, 0.1)
+    if ratio > (1 - WARN_BAND):
+        return "WARNING"
+    if rate > 1.0 and ratio > 0.70:
+        return "WARNING"
+    return "OPTIMAL"
+
+
+def overall_status(statuses):
+    order = {"OPTIMAL": 0, "WARNING": 1, "CRITICAL": 2}
+    return max(statuses, key=lambda s: order[s])
+
+
+def choose_zone():
+    """Choose starting zone with realistic proportions."""
+    return random.choices(
+        ["OPTIMAL", "WARNING", "CRITICAL"],
+        weights=[0.45, 0.30, 0.25],
+    )[0]
+
+
+def initial_bounded(vmin, vmax, zone):
+    span = vmax - vmin
+    warn = WARN_BAND * span
+    if zone == "OPTIMAL":
+        lo, hi = vmin + warn + 0.01, vmax - warn - 0.01
+    elif zone == "WARNING":
+        if random.random() < 0.5:
+            lo, hi = vmin, vmin + warn
+        else:
+            lo, hi = vmax - warn, vmax
+    else:  # CRITICAL
+        if random.random() < 0.5:
+            lo, hi = vmin - 0.35 * span, vmin - 0.01
+        else:
+            lo, hi = vmax + 0.01, vmax + 0.35 * span
+    lo = min(lo, hi - 0.01)
+    return random.uniform(lo, hi)
+
+
+def initial_do(do_min, zone):
+    span = do_min
+    warn = WARN_BAND * span
+    if zone == "OPTIMAL":
+        return random.uniform(do_min + warn + 0.1, do_min + 4.0)
+    elif zone == "WARNING":
+        return random.uniform(do_min, do_min + warn)
+    else:
+        return random.uniform(max(0.5, do_min - 2.5), do_min - 0.01)
+
+
+def initial_turb(turb_max, zone):
+    warn_hi = turb_max * (1 - WARN_BAND)
+    if zone == "OPTIMAL":
+        return random.uniform(0.0, warn_hi - 0.5)
+    elif zone == "WARNING":
+        return random.uniform(warn_hi, turb_max)
+    else:
+        return random.uniform(turb_max + 0.5, turb_max * 1.4)
+
+
+# ── Main generation loop ───────────────────────────────────────────────────────
 rows = []
-all_statuses = []
 
 for seq_idx in range(NUM_SEQUENCES):
-    temp_min = round(random.uniform(22.0, 26.0), 1)
-    temp_max = round(random.uniform(28.0, 32.0), 1)
-    ph_min = round(random.uniform(6.5, 7.5), 1)
-    ph_max = round(random.uniform(8.0, 9.0), 1)
-    do_min = round(random.uniform(4.0, 6.0), 1)
-    turb_max = round(random.uniform(20.0, 40.0), 1)
-    wl_min = round(random.uniform(100.0, 140.0), 1)
-    wl_max = round(random.uniform(160.0, 200.0), 1)
+    stage  = random.choice(STAGES)
+    thresh = sample_thresholds(stage)
 
-    temp = random.uniform(temp_min + 1.5, temp_max - 1.5)
-    ph = random.uniform(ph_min + 0.4, ph_max - 0.4)
-    do = random.uniform(do_min + 0.8, do_min + 2.5)
-    turb = random.uniform(1.0, turb_max * 0.4)
-    wl = random.uniform(wl_min + 15, wl_max - 15)
+    t_min, t_max   = thresh["temp_min"],  thresh["temp_max"]
+    p_min, p_max   = thresh["ph_min"],    thresh["ph_max"]
+    do_min         = thresh["do_min"]
+    turb_max       = thresh["turb_max"]
+    wl_min, wl_max = thresh["wl_min"],    thresh["wl_max"]
 
-    temp_drift = random.choice([-0.25, -0.12, 0, 0.12, 0.25])
-    ph_drift = random.choice([-0.04, -0.02, 0, 0.02, 0.04])
-    do_drift = random.choice([-0.12, -0.06, 0, 0.06])
-    turb_drift = random.choice([-0.4, 0, 0.4, 0.8, 1.5])
-    wl_drift = random.choice([-0.8, -0.3, 0, 0.3, 0.8])
+    # Starting values per chosen zone
+    temp = initial_bounded(t_min,  t_max,  choose_zone())
+    ph   = initial_bounded(p_min,  p_max,  choose_zone())
+    do   = initial_do(do_min,              choose_zone())
+    turb = initial_turb(turb_max,          choose_zone())
+    wl   = initial_bounded(wl_min, wl_max, choose_zone())
+
+    # Drifts — physics-aware correlation
+    temp_drift = random.choice([-0.30, -0.15, -0.05, 0, 0.05, 0.15, 0.30])
+    ph_drift   = random.choice([-0.05, -0.02, 0, 0.02, 0.05])
+    # DO inversely correlated with temperature (warmer water holds less O2)
+    do_drift   = (-abs(temp_drift) * 0.07) + random.uniform(-0.07, 0.04)
+    turb_drift = random.choice([-0.5, 0, 0.5, 1.0, 2.0])
+    wl_drift   = random.choice([-1.0, -0.4, 0, 0.4, 1.0])
 
     prev_temp = temp
-    prev_ph = ph
-    prev_do = do
+    prev_ph   = ph
+    prev_do   = do
     prev_turb = turb
-    prev_wl = wl
+    prev_wl   = wl
 
-    for rd_idx in range(READINGS_PER_SEQUENCE):
-        temp += temp_drift + random.uniform(-0.08, 0.08)
-        ph += ph_drift + random.uniform(-0.015, 0.015)
-        do += do_drift + random.uniform(-0.04, 0.04)
-        turb += turb_drift + random.uniform(-0.15, 0.15)
-        wl += wl_drift + random.uniform(-0.4, 0.4)
+    for rd_idx in range(READINGS_PER_SEQ):
+        # Advance with drift + gaussian noise
+        temp += temp_drift  + random.gauss(0, 0.05)
+        ph   += ph_drift    + random.gauss(0, 0.01)
+        do   += do_drift    + random.gauss(0, 0.03)
+        turb += turb_drift  + random.gauss(0, 0.10)
+        wl   += wl_drift    + random.gauss(0, 0.30)
 
-        temp = max(18.0, min(35.0, temp))
-        ph = max(5.5, min(10.0, ph))
-        do = max(1.0, min(10.0, do))
-        turb = max(0.0, min(100.0, turb))
-        wl = max(80.0, min(220.0, wl))
+        # Physical clamps (absolute extremes)
+        temp = max(15.0,  min(38.0,  temp))
+        ph   = max(4.5,   min(10.5,  ph))
+        do   = max(0.2,   min(15.0,  do))
+        turb = max(0.0,   min(200.0, turb))
+        wl   = max(60.0,  min(250.0, wl))
 
+        # Rates
         if rd_idx == 0:
-            temp_rate = round(random.uniform(-0.08, 0.08), 3)
-            ph_rate = round(random.uniform(-0.015, 0.015), 3)
-            do_rate = round(random.uniform(-0.04, 0.04), 3)
-            turb_rate = round(random.uniform(-0.15, 0.15), 3)
-            wl_rate = round(random.uniform(-0.4, 0.4), 3)
+            temp_rate = round(temp_drift, 3)
+            ph_rate   = round(ph_drift,   3)
+            do_rate   = round(do_drift,   3)
+            turb_rate = round(turb_drift, 3)
+            wl_rate   = round(wl_drift,   3)
         else:
             temp_rate = round(temp - prev_temp, 3)
-            ph_rate = round(ph - prev_ph, 3)
-            do_rate = round(do - prev_do, 3)
+            ph_rate   = round(ph   - prev_ph,   3)
+            do_rate   = round(do   - prev_do,   3)
             turb_rate = round(turb - prev_turb, 3)
-            wl_rate = round(wl - prev_wl, 3)
+            wl_rate   = round(wl   - prev_wl,   3)
 
-        prev_temp, prev_ph = temp, ph
-        prev_do, prev_turb, prev_wl = do, turb, wl
+        prev_temp, prev_ph, prev_do, prev_turb, prev_wl = temp, ph, do, turb, wl
 
-        def label_status(val, vmin, vmax, rate, rate_threshold):
-            is_max_bound = vmax < 999.0
-            range_span = (vmax - vmin) if is_max_bound else vmin
-            warn_span = range_span * 0.15
+        # Ratio features
+        temp_ratio = round(compute_ratio(temp, t_min,  t_max),  4)
+        ph_ratio   = round(compute_ratio(ph,   p_min,  p_max),  4)
+        do_ratio   = round((do - do_min) / max(do_min, 0.1),    4)
+        turb_ratio = round(turb / max(turb_max, 0.1),           4)
+        wl_ratio   = round(compute_ratio(wl,  wl_min, wl_max),  4)
 
-            if val < vmin or (is_max_bound and val > vmax):
-                return "CRITICAL"
+        # Labels
+        temp_status = label_bounded(temp_ratio, temp_rate, 0.12)
+        ph_status   = label_bounded(ph_ratio,   ph_rate,   0.03)
+        do_status   = label_do(do,   do_min,   do_rate)
+        turb_status = label_turb(turb, turb_max, turb_rate)
+        wl_status   = label_bounded(wl_ratio,   wl_rate,   0.40)
 
-            near_lower = (val - vmin) < warn_span
-            near_upper = is_max_bound and (vmax - val) < warn_span
+        ov = overall_status([temp_status, ph_status, do_status, turb_status, wl_status])
 
-            if near_lower or near_upper:
-                return "WARNING"
-
-            if rate is not None and rate_threshold is not None:
-                if (
-                    rate > 0
-                    and rate > rate_threshold
-                    and is_max_bound
-                    and (vmax - val) < warn_span * 2
-                ):
-                    return "WARNING"
-                if (
-                    rate < 0
-                    and abs(rate) > rate_threshold
-                    and (val - vmin) < warn_span * 2
-                ):
-                    return "WARNING"
-
-            return "OPTIMAL"
-
-        temp_status = label_status(temp, temp_min, temp_max, temp_rate, 0.15)
-        ph_status = label_status(ph, ph_min, ph_max, ph_rate, 0.03)
-        do_status = label_status(do, do_min, 999.0, do_rate, 0.08)
-        turb_status = label_status(turb, 0.0, turb_max, turb_rate, 1.0)
-        wl_status = label_status(wl, wl_min, wl_max, wl_rate, 0.5)
-
-        status_order = {"OPTIMAL": 0, "WARNING": 1, "CRITICAL": 2}
-        all_sensor_statuses = [
-            temp_status,
-            ph_status,
-            do_status,
-            turb_status,
-            wl_status,
-        ]
-        max_level = max(status_order[s] for s in all_sensor_statuses)
-        overall_status = {0: "OPTIMAL", 1: "WARNING", 2: "CRITICAL"}[max_level]
-
-        rows.append(
-            {
-                "temperature": round(temp, 2),
-                "phLevel": round(ph, 2),
-                "dissolvedOxygen": round(do, 2),
-                "turbidity": round(turb, 2),
-                "waterLevel": round(wl, 2),
-                "temp_rate": temp_rate,
-                "ph_rate": ph_rate,
-                "do_rate": do_rate,
-                "turb_rate": turb_rate,
-                "wl_rate": wl_rate,
-                "temp_min": temp_min,
-                "temp_max": temp_max,
-                "ph_min": ph_min,
-                "ph_max": ph_max,
-                "do_min": do_min,
-                "turb_max": turb_max,
-                "wl_min": wl_min,
-                "wl_max": wl_max,
-                "temp_status": temp_status,
-                "ph_status": ph_status,
-                "do_status": do_status,
-                "turb_status": turb_status,
-                "wl_status": wl_status,
-                "status": overall_status,
-            }
-        )
-        all_statuses.append(overall_status)
+        rows.append({
+            # Raw readings
+            "temperature":      round(temp, 3),
+            "phLevel":          round(ph,   3),
+            "dissolvedOxygen":  round(do,   3),
+            "turbidity":        round(turb, 3),
+            "waterLevel":       round(wl,   3),
+            # Rates
+            "temp_rate":        temp_rate,
+            "ph_rate":          ph_rate,
+            "do_rate":          do_rate,
+            "turb_rate":        turb_rate,
+            "wl_rate":          wl_rate,
+            # User-defined thresholds
+            "temp_min":  t_min,   "temp_max": t_max,
+            "ph_min":    p_min,   "ph_max":   p_max,
+            "do_min":    do_min,
+            "turb_max":  turb_max,
+            "wl_min":    wl_min,  "wl_max":   wl_max,
+            # Ratio features
+            "temp_ratio":  temp_ratio,
+            "ph_ratio":    ph_ratio,
+            "do_ratio":    do_ratio,
+            "turb_ratio":  turb_ratio,
+            "wl_ratio":    wl_ratio,
+            # Stage
+            "stage":       stage,
+            # Targets
+            "temp_status": temp_status,
+            "ph_status":   ph_status,
+            "do_status":   do_status,
+            "turb_status": turb_status,
+            "wl_status":   wl_status,
+            "status":      ov,
+        })
 
 df = pd.DataFrame(rows)
 df.to_csv("dataset/craycare_dataset.csv", index=False)
-print(f"Generated {len(df)} rows with per-sensor labels.")
-print(f"Columns: {list(df.columns)}")
+
+print(f"[OK] Generated {len(df):,} rows | {len(df.columns)} features")
+print(f"\nStage distribution:")
+print(df["stage"].value_counts())
 print(f"\nOverall Status distribution:")
 print(df["status"].value_counts())
-print(f"\nPer-sensor status distribution:")
-for col in ["temp_status", "ph_status", "do_status", "turb_status", "wl_status"]:
-    print(f"\n{col}:")
+print(f"\nPer-sensor status distributions:")
+for col in ["temp_status","ph_status","do_status","turb_status","wl_status"]:
+    print(f"\n  {col}:")
     print(df[col].value_counts())

@@ -136,6 +136,7 @@ class NextSamplingPanel extends StatelessWidget {
     final service = TankService.instance;
     final daysSince = service.daysSinceLastSampling;
     final daysRemaining = daysSince >= 7 ? 0 : 7 - daysSince;
+    final nextWeekNum = service.samplingHistory.where((e) => !e.isBaseline).length;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -152,89 +153,105 @@ class NextSamplingPanel extends StatelessWidget {
         ],
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // ── Header Row inside container ──
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.calendar_today,
-                          color: daysRemaining == 0
-                              ? AppColors.critical
-                              : AppColors.primary,
-                          size: 12,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          'Next sampling:',
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w500,
-                            color: AppColors.darkWith(0.45),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      daysRemaining == 0
-                          ? 'Sampling Day!'
-                          : '$daysRemaining days remaining',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                        color: daysRemaining == 0
-                            ? AppColors.critical
-                            : AppColors.dark,
-                      ),
-                    ),
-                  ],
+              const Icon(
+                Icons.calendar_today_rounded,
+                color: AppColors.primary,
+                size: 14,
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'Sampling Schedule',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.dark,
                 ),
               ),
-              const SizedBox(width: 16),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 3,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  'Week $nextWeekNum',
+                  style: const TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.primary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Divider(height: 1, thickness: 1, color: AppColors.dark.withValues(alpha: 0.05)),
+          const SizedBox(height: 12),
+
+          // ── Details Row (Clean, Non-Redundant) ──
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Next Session',
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.darkWith(0.45),
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    daysRemaining == 0
+                        ? 'Today (Due)'
+                        : _formatDate(DateTime.now().add(Duration(days: daysRemaining))),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ],
+              ),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      'Sampling Week ${service.samplingHistory.where((e) => !e.isBaseline).length}',
-                      style: const TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.primary,
-                      ),
+                  Text(
+                    'Time Remaining',
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.darkWith(0.45),
                     ),
                   ),
+                  const SizedBox(height: 3),
                   Text(
-                    'Scheduled: ${daysRemaining == 0 ? "Today" : _formatDate(DateTime.now().add(Duration(days: daysRemaining)))}',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: daysRemaining == 0
-                          ? AppColors.critical
-                          : AppColors.darkWith(0.5),
+                    daysRemaining == 0
+                        ? 'Ready to record'
+                        : '$daysRemaining days left',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.primary,
                     ),
                   ),
                 ],
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          Divider(height: 1, thickness: 1, color: AppColors.faintBorder),
-          const SizedBox(height: 14),
+          const SizedBox(height: 16),
           _buildStepTracker(daysSince >= 7 ? 7 : daysSince, 7),
         ],
       ),
@@ -340,6 +357,116 @@ class NextSamplingPanel extends StatelessWidget {
 class GrowthOverviewPanel extends StatelessWidget {
   const GrowthOverviewPanel({super.key});
 
+  void _showModal(
+    BuildContext context,
+    String title,
+    String value,
+    String subtitle,
+    IconData icon,
+    Color iconColor,
+    Color iconBgColor,
+    String description,
+  ) {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierColor: Colors.black.withValues(alpha: 0.4),
+      builder: (ctx) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: iconBgColor,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: iconColor, size: 26),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.dark,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.primary,
+                  height: 1.1,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.dark.withValues(alpha: 0.5),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.05),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  description,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.dark.withValues(alpha: 0.7),
+                    height: 1.4,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: const Text(
+                    'Close',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final service = TankService.instance;
@@ -383,29 +510,76 @@ class GrowthOverviewPanel extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          Row(
-            children: [
-              _buildMiniCard(
-                'Initial Baseline',
-                _formatDate(service.stockingDate),
-                initialW,
-                initialL,
-                false,
-              ),
-              const SizedBox(width: 12),
-              hasWeeklySampling
-                  ? _buildMiniCard(
-                      'Latest Sampling',
-                      _formatDate(latest!.date),
-                      latestW,
-                      latestL,
-                      true,
-                    )
-                  : _buildAwaitingCard(),
-            ],
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildMiniCard(
+                  'Initial Baseline',
+                  _formatDate(service.stockingDate),
+                  initialW,
+                  initialL,
+                  false,
+                  () => _showModal(
+                    context,
+                    'Initial Baseline',
+                    'ABW: ${initialW.toStringAsFixed(2)} g  |  ABL: ${initialL.toStringAsFixed(2)} cm',
+                    'Stocked on ${_formatDate(service.stockingDate)}',
+                    Icons.calendar_today_outlined,
+                    const Color(0xFF0891B2),
+                    const Color(0xFFECFEFF),
+                    'These are the initial size measurements of the crayfish recorded at grow-out initialization. They serve as the starting baseline for growth rates and population development.',
+                  ),
+                ),
+                const SizedBox(width: 12),
+                hasWeeklySampling
+                    ? _buildMiniCard(
+                        'Latest Sampling',
+                        _formatDate(latest!.date),
+                        latestW,
+                        latestL,
+                        true,
+                        () => _showModal(
+                          context,
+                          'Latest Sampling',
+                          'ABW: ${latestW.toStringAsFixed(2)} g  |  ABL: ${latestL.toStringAsFixed(2)} cm',
+                          'Recorded on ${_formatDate(latest.date)}',
+                          Icons.science_outlined,
+                          const Color(0xFF0F766E),
+                          const Color(0xFFF0FDFA),
+                          'This represents the most recent growth measurements. Regular updates help track weekly changes in Average Body Weight and Average Body Length.',
+                        ),
+                      )
+                    : _buildAwaitingCard(
+                        () => _showModal(
+                          context,
+                          'Latest Sampling',
+                          'Awaiting Week 1',
+                          'Pending session',
+                          Icons.hourglass_empty_rounded,
+                          AppColors.darkWith(0.35),
+                          AppColors.darkWith(0.06),
+                          'No weekly growth data has been recorded yet. The app is waiting for your Week 1 sampling session to begin compiling growth rates.',
+                        ),
+                      ),
+              ],
+            ),
           ),
           const SizedBox(height: 12),
-          _buildGrowthFullCard(diffW, diffL),
+          _buildGrowthFullCard(
+            diffW,
+            diffL,
+            () => _showModal(
+              context,
+              'Growth Change',
+              'Weight: ${diffW >= 0 ? "+" : ""}${diffW.toStringAsFixed(2)} g  |  Length: ${diffL >= 0 ? "+" : ""}${diffL.toStringAsFixed(2)} cm',
+              'Total Gain since Stocking',
+              Icons.trending_up_rounded,
+              AppColors.primary,
+              AppColors.primary.withValues(alpha: 0.1),
+              'This illustrates the overall change in average crayfish weight and length since grow-out stocking initialization.',
+            ),
+          ),
         ],
       ),
     );
@@ -417,106 +591,250 @@ class GrowthOverviewPanel extends StatelessWidget {
     double weight,
     double length,
     bool isLatest,
+    VoidCallback onTap,
   ) {
+    final iconColor = isLatest ? const Color(0xFF0F766E) : const Color(0xFF0891B2);
+    final iconBgColor = isLatest ? const Color(0xFFF0FDFA) : const Color(0xFFECFEFF);
+    final iconData = isLatest ? Icons.science_outlined : Icons.calendar_today_outlined;
+    final titleColor = isLatest ? const Color(0xFF0F766E) : const Color(0xFF0891B2);
+
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.dark.withValues(alpha: 0.06)),
+          border: Border.all(color: AppColors.dark.withValues(alpha: 0.08)),
           boxShadow: [
             BoxShadow(
-              color: AppColors.darkWith(0.06),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
+              color: AppColors.darkWith(0.04),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
             ),
           ],
         ),
-        child: Column(
-          children: [
-            Text(
-              title,
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w800,
-                color: isLatest ? AppColors.primary : AppColors.darkWith(0.5),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // ── Icon centered at top ──
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: iconBgColor,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(iconData, size: 16, color: iconColor),
+                  ),
+                  const SizedBox(height: 6),
+                  // ── Title & subtitle centered ──
+                  Text(
+                    title,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      color: titleColor,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subTitle,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.darkWith(0.5),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  // ── Full-width divider ──
+                  Container(
+                    height: 1,
+                    width: double.infinity,
+                    color: AppColors.dark.withValues(alpha: 0.06),
+                  ),
+                  const SizedBox(height: 8),
+                  // ── ABW and ABL inline ──
+                  IntrinsicHeight(
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            children: [
+                              Text(
+                                'ABW',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.darkWith(0.45),
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                '${weight.toStringAsFixed(2)} g',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.dark,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        // vertical separator
+                        Container(
+                          width: 1,
+                          color: AppColors.dark.withValues(alpha: 0.08),
+                        ),
+                        Expanded(
+                          child: Column(
+                            children: [
+                              Text(
+                                'ABL',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.darkWith(0.45),
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                '${length.toStringAsFixed(2)} cm',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.dark,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 4),
-            Text(
-              subTitle,
-              style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.5)),
-            ),
-            const SizedBox(height: 12),
-            _buildDataRow(
-              'ABW:',
-              '${weight.toStringAsFixed(1)} g',
-              center: true,
-            ),
-            _buildDataRow(
-              'ABL:',
-              '${length.toStringAsFixed(1)} cm',
-              center: true,
-            ),
-          ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildAwaitingCard() {
+  Widget _buildAwaitingCard(VoidCallback onTap) {
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.dark.withValues(alpha: 0.06)),
+          border: Border.all(color: AppColors.dark.withValues(alpha: 0.08)),
           boxShadow: [
             BoxShadow(
-              color: AppColors.darkWith(0.06),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
+              color: AppColors.darkWith(0.04),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
             ),
           ],
         ),
-        child: Column(
-          children: [
-            Text(
-              'Latest Sampling',
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w800,
-                color: AppColors.primary,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // ── Icon centered at top ──
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFF0FDFA),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.science_outlined,
+                      size: 16,
+                      color: Color(0xFF0F766E),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  // ── Title & subtitle centered ──
+                  const Text(
+                    'Latest Sampling',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF0F766E),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Pending',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.darkWith(0.5),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  // ── Full-width divider ──
+                  Container(
+                    height: 1,
+                    width: double.infinity,
+                    color: AppColors.dark.withValues(alpha: 0.06),
+                  ),
+                  const SizedBox(height: 8),
+                  // ── Centered awaiting placeholder ──
+                  Expanded(
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.hourglass_empty_rounded,
+                            size: 20,
+                            color: AppColors.darkWith(0.2),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Awaiting Week 1',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.darkWith(0.35),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 4),
-            Text(
-              'Awaiting Week 1\nSampling',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 9,
-                fontWeight: FontWeight.w500,
-                color: AppColors.darkWith(0.45),
-                height: 1.3,
-              ),
-            ),
-            const SizedBox(height: 4),
-            _buildDataRow('ABW:', '—', center: true),
-            _buildDataRow('ABL:', '—', center: true),
-          ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildGrowthFullCard(double weight, double length) {
+  Widget _buildGrowthFullCard(double weight, double length, VoidCallback onTap) {
     final isPosW = weight >= 0;
     final isPosL = length >= 0;
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -529,37 +847,47 @@ class GrowthOverviewPanel extends StatelessWidget {
           ),
         ],
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          const Text(
-            'Growth Change',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w800,
-              color: AppColors.dark,
-            ),
-          ),
-          IntrinsicHeight(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _buildGrowthMetric(
-                  'Weight Gain',
-                  '${isPosW ? '+' : ''}${weight.toStringAsFixed(1)}g',
-                  isPosW,
+                const Text(
+                  'Growth Change',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.dark,
+                  ),
                 ),
-                const SizedBox(width: 10),
-                Container(width: 1, color: AppColors.darkWith(0.25)),
-                const SizedBox(width: 10),
-                _buildGrowthMetric(
-                  'Length Gain',
-                  '${isPosL ? '+' : ''}${length.toStringAsFixed(1)}cm',
-                  isPosL,
+                IntrinsicHeight(
+                  child: Row(
+                    children: [
+                      _buildGrowthMetric(
+                        'Weight Gain',
+                        '${isPosW ? '+' : ''}${weight.toStringAsFixed(1)}g',
+                        isPosW,
+                      ),
+                      const SizedBox(width: 10),
+                      Container(width: 1, color: AppColors.darkWith(0.25)),
+                      const SizedBox(width: 10),
+                      _buildGrowthMetric(
+                        'Length Gain',
+                        '${isPosL ? '+' : ''}${length.toStringAsFixed(1)}cm',
+                        isPosL,
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -722,6 +1050,10 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
   }
 
   void _handleCompute() {
+    if (!widget.isOwner) {
+      showBeautifulSnackbar(context, 'Sampling is for owners only', false);
+      return;
+    }
     _revalidateCount();
     if (_countError != null) return;
 
@@ -736,6 +1068,35 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
         weight > 0 &&
         length > 0) {
       final wasEditing = _isEditing;
+      final service = TankService.instance;
+      final history = service.samplingHistory;
+
+      // Get previous values to compare against
+      final lastEntry = (wasEditing && history.length > 1)
+          ? history[history.length - 2]
+          : (history.isNotEmpty ? history.last : null);
+
+      final lastTotalWeight = lastEntry != null ? lastEntry.totalWeight : service.initialTotalWeight;
+      final lastTotalLength = lastEntry != null ? lastEntry.totalLength : service.initialTotalLength;
+
+      final List<String> errors = [];
+      if (weight < lastTotalWeight) {
+        errors.add('weight must be at least ${lastTotalWeight.toStringAsFixed(1)} g');
+      }
+      if (length < lastTotalLength) {
+        errors.add('length must be at least ${lastTotalLength.toStringAsFixed(1)} cm');
+      }
+
+      if (errors.isNotEmpty) {
+        final errorMsg = 'Sample ${errors.join(' and ')}';
+        showBeautifulSnackbar(
+          context,
+          errorMsg,
+          false,
+        );
+        return;
+      }
+
       if (wasEditing) {
         TankService.instance.updateLastSamplingEntry(count, weight, length);
       } else {
@@ -801,66 +1162,6 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Dynamic Call-To-Action Banner inside the Card
-          if (daysRemaining == 0 && !_isRecorded) ...[
-            Container(
-              margin: const EdgeInsets.only(bottom: 14),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFFFFF7ED), Color(0xFFFFF1F2)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: AppColors.critical.withValues(alpha: 0.25),
-                  width: 1,
-                ),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFFECACA),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      Icons.notification_important_rounded,
-                      size: 16,
-                      color: AppColors.critical,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Weekly Sampling Due!',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF991B1B),
-                          ),
-                        ),
-                        const SizedBox(height: 1),
-                        Text(
-                          '7 days passed since your last log. Update metrics now.',
-                          style: TextStyle(
-                            fontSize: 8.5,
-                            fontWeight: FontWeight.w500,
-                            color: const Color(0xFF991B1B).withValues(alpha: 0.8),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -871,23 +1172,6 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
                     style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(width: 8),
-                  if (daysRemaining == 0 && !_isRecorded)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: AppColors.critical.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        'DUE',
-                        style: TextStyle(
-                          fontSize: 8,
-                          fontWeight: FontWeight.w900,
-                          color: AppColors.critical,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                    ),
                 ],
               ),
               if (_isRecorded && widget.isOwner && lastEntryIsToday)
@@ -904,6 +1188,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
                 ),
             ],
           ),
+          const SizedBox(height: 12),
           const SizedBox(height: 12),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -992,30 +1277,52 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
           if (!_isRecorded && (canSample || _isEditing))
             SizedBox(
               width: double.infinity,
-              child: ElevatedButton(
-                onPressed: widget.isOwner && _countError == null ? _handleCompute : null,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: widget.isOwner && _countError == null
-                      ? AppColors.primary
-                      : AppColors.dark.withValues(alpha: 0.2),
-                  foregroundColor: widget.isOwner && _countError == null
-                      ? Colors.white
-                      : Colors.white.withValues(alpha: 0.4),
-                  disabledBackgroundColor: AppColors.dark.withValues(
-                    alpha: 0.2,
-                  ),
-                  disabledForegroundColor: Colors.white.withValues(alpha: 0.4),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: Text(
-                  widget.isOwner ? 'Compute Results' : 'Compute Results (Owner Only)',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                ),
-              ),
+              child: widget.isOwner
+                  ? ElevatedButton(
+                      onPressed: _countError == null ? _handleCompute : null,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _countError == null
+                            ? AppColors.primary
+                            : AppColors.dark.withValues(alpha: 0.2),
+                        foregroundColor: _countError == null
+                            ? Colors.white
+                            : Colors.white.withValues(alpha: 0.4),
+                        disabledBackgroundColor: AppColors.dark.withValues(
+                          alpha: 0.2,
+                        ),
+                        disabledForegroundColor: Colors.white.withValues(alpha: 0.4),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text(
+                        'Compute Results',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                    )
+                  : ElevatedButton.icon(
+                      onPressed: () {
+showBeautifulSnackbar(context, 'Sampling is for owners only', false, title: 'Notice');
+                      },
+                      icon: const Icon(Icons.lock_outlined, size: 18),
+                      label: const Text(
+                        'Compute Results',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.grey.shade400,
+                        foregroundColor: Colors.white,
+                        disabledBackgroundColor: Colors.grey.shade400,
+                        disabledForegroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
             ),
           if (!_isRecorded && !canSample && !_isEditing)
             SizedBox(
@@ -1261,105 +1568,114 @@ class GrowthStagePanel extends StatelessWidget {
     final progress = ((activeIndex * 0.25) + (stageProgress * 0.25)).clamp(0.0, 1.0);
 
     return Container(
-      padding: const EdgeInsets.all(18),
+      clipBehavior: Clip.antiAlias,
+      padding: const EdgeInsets.only(top: 20),
       decoration: BoxDecoration(
-        color: AppColors.white,
+        color: const Color(0xFFFCFCFC),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.faintBorder),
+        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: AppColors.darkWith(0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
+            color: AppColors.darkWith(0.12),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Growth Stage',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.dark,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Growth Stage',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.dark,
+                      ),
                     ),
-                  ),
-                  Text(
-                    'Current: ${_labels[activeIndex]}',
-                    style: const TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.primary,
+                    Text(
+                      'Current: ${_labels[activeIndex]}',
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.primary,
+                      ),
                     ),
-                  ),
-                ],
-              ),
-              GestureDetector(
-                onTap: onInfoTap,
-                child: const Icon(
-                  Icons.info_outline,
-                  size: 16,
-                  color: AppColors.primary,
+                  ],
                 ),
-              ),
-            ],
+                GestureDetector(
+                  onTap: onInfoTap,
+                  child: const Icon(
+                    Icons.info_outline,
+                    size: 16,
+                    color: AppColors.primary,
+                  ),
+                ),
+              ],
+            ),
           ),
 
           const SizedBox(height: 20),
 
-          ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: LinearProgressIndicator(
-              value: progress,
-              minHeight: 8,
-              backgroundColor: AppColors.darkWith(0.06),
-              valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: LinearProgressIndicator(
+                value: progress,
+                minHeight: 8,
+                backgroundColor: AppColors.darkWith(0.06),
+                valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
+              ),
             ),
           ),
 
           const SizedBox(height: 12),
 
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: List.generate(_labels.length, (i) {
-              final isThisActive = i == activeIndex;
-              final isReached = i <= activeIndex;
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: List.generate(_labels.length, (i) {
+                final isThisActive = i == activeIndex;
+                final isReached = i <= activeIndex;
 
-              return Expanded(
-                child: Text(
-                  _labels[i],
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 8,
-                    fontWeight: isThisActive
-                        ? FontWeight.w800
-                        : FontWeight.w600,
-                    color: isThisActive
-                        ? AppColors.primary
-                        : isReached
-                        ? AppColors.darkWith(0.7)
-                        : AppColors.darkWith(0.3),
+                return Expanded(
+                  child: Text(
+                    _labels[i],
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 8,
+                      fontWeight: isThisActive
+                          ? FontWeight.w800
+                          : FontWeight.w600,
+                      color: isThisActive
+                          ? AppColors.primary
+                          : isReached
+                          ? AppColors.darkWith(0.7)
+                          : AppColors.darkWith(0.3),
+                    ),
                   ),
-                ),
-              );
-            }),
+                );
+              }),
+            ),
           ),
 
           const SizedBox(height: 16),
 
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             decoration: BoxDecoration(
               color: AppColors.primary.withValues(alpha: 0.06),
-              borderRadius: BorderRadius.circular(10),
             ),
             child: Column(
               children: [

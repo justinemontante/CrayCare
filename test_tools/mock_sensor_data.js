@@ -111,18 +111,8 @@ async function appendHistory(critical = false) {
   console.log(`[${now.toLocaleTimeString()}] HISTORY #${historyCount}  →  ${dateStr}`);
 }
 
-// ─── 6. Write test notification ───────────────────────────────
-async function writeNotification(type, title, message) {
-  const notifRef = db.ref('notifications').push();
-  await notifRef.set({
-    type,
-    title,
-    message,
-    timestamp: Date.now(),
-    unread: true,
-  });
-  console.log(`🔔 NOTIF: "${title}"`);
-}
+// NOTE: Tinanggal na natin ang Section 6 (Write test notification) 
+// para maiwasan ang pagsusulat ng kalat sa root ng database niyo.
 
 // ─── 7. Backfill history ──────────────────────────────────────
 async function backfillHistory({ hours, label }) {
@@ -213,9 +203,10 @@ async function main() {
 
     await appendHistory(criticalMode);
     setInterval(() => appendHistory(criticalMode), 10 * 60 * 1000);
-
-    setTimeout(() => writeNotification('operational', 'System Online', 'Mock data generator started.'), 2000);
-    setTimeout(() => writeNotification('critical', '⚠️ Critical: Temperature', 'Sensor values exceeded safe range!'), 15000);
+    
+    // NOTE: Tinanggal na natin ang mga setTimeout ng writeNotification dito.
+    // Ngayon, ang sensors na lang ang gagalaw, at ang Hugging Face worker 
+    // ang awtomatikong gagawa ng totoong notifications kapag lumampas sa limits!
   }
 }
 

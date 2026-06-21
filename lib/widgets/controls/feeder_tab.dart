@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
 import '../../models/control_types.dart';
+import '../../utils/snackbar_helper.dart';
 
 class FeederTab extends StatelessWidget {
   final List<ScheduleItem> schedules;
@@ -171,7 +172,9 @@ class FeederTab extends StatelessWidget {
                   ),
                 ),
                 GestureDetector(
-                  onTap: isOwner ? () => _showScheduleModal(ctx) : null,
+                  onTap: isOwner
+                      ? () => _showScheduleModal(ctx)
+                      : () => showBeautifulSnackbar(ctx, 'Adding schedules is for owners only', false, title: 'Notice'),
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                     decoration: BoxDecoration(
@@ -190,7 +193,7 @@ class FeederTab extends StatelessWidget {
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          isOwner ? 'Add Schedule' : 'Add Schedule (Owner Only)',
+                          'Add Schedule',
                           style: TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.w700,
@@ -257,57 +260,65 @@ class FeederTab extends StatelessWidget {
             const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
-              child: ElevatedButton(
-                onPressed: isOwner && isOnline && !isRunning ? onFeedNow : null,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: isOwner && isOnline
-                      ? AppColors.primary
-                      : Colors.grey.shade300,
-                  foregroundColor: isOwner && isOnline
-                      ? Colors.white
-                      : Colors.grey.shade500,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      !isOwner
-                          ? Icons.lock_outline
-                          : isRunning
-                          ? Icons.hourglass_top
-                          : !isOnline
-                          ? Icons.wifi_off
-                          : Icons.play_arrow,
-                      size: 16,
-                      color: isOwner && isOnline
+              child: Builder(
+                  builder: (context) => ElevatedButton(
+                    onPressed: isOwner && isOnline && !isRunning
+                        ? onFeedNow
+                        : () {
+                            if (!isOwner) {
+                              showBeautifulSnackbar(context, 'Feed Now is for owners only', false, title: 'Notice');
+                            }
+                          },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isOwner && isOnline
+                          ? AppColors.primary
+                          : Colors.grey.shade300,
+                      foregroundColor: isOwner && isOnline
                           ? Colors.white
                           : Colors.grey.shade500,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      !isOwner
-                          ? 'Feed Now (Owner Only)'
-                          : isRunning
-                          ? 'Feeding...'
-                          : !isOnline
-                          ? 'Feeder Offline'
-                          : 'Feed Now',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: isOwner && isOnline
-                            ? Colors.white
-                            : Colors.grey.shade500,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
                       ),
                     ),
-                  ],
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          !isOwner
+                              ? Icons.lock_outline
+                              : isRunning
+                              ? Icons.hourglass_top
+                              : !isOnline
+                              ? Icons.wifi_off
+                              : Icons.play_arrow,
+                          size: 16,
+                          color: isOwner && isOnline
+                              ? Colors.white
+                              : Colors.grey.shade500,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          !isOwner
+                              ? 'Feed Now'
+                              : isRunning
+                              ? 'Feeding...'
+                              : !isOnline
+                              ? 'Feeder Offline'
+                              : 'Feed Now',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: isOwner && isOnline
+                                ? Colors.white
+                                : Colors.grey.shade500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
             ),
           ],
         ),

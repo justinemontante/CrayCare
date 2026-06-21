@@ -90,6 +90,13 @@ class _UserManagementFormState extends State<UserManagementForm>
             return matchesSearch && matchesFilter;
           }).toList();
 
+          // Get current user role
+          final currentUserEntry = usersList.firstWhere(
+            (e) => e.key == currentUid,
+            orElse: () => MapEntry('', {}),
+          );
+          final String currentUserRole = currentUserEntry.value['role'] ?? 'admin';
+
           return FadeTransition(
             opacity: _fadeAnim,
             child: Column(
@@ -101,6 +108,7 @@ class _UserManagementFormState extends State<UserManagementForm>
                   disabled: disabledUsers,
                   owners: ownerCount,
                   monitors: monitorCount,
+                  currentUserRole: currentUserRole,
                 ),
 
                 // Search Bar + Filters
@@ -175,6 +183,7 @@ class _UserManagementFormState extends State<UserManagementForm>
     required int disabled,
     required int owners,
     required int monitors,
+    required String currentUserRole,
   }) {
     return Column(
       children: [
@@ -225,7 +234,7 @@ class _UserManagementFormState extends State<UserManagementForm>
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
-                            '${_getGreetingTime()}, Admin',
+                            '${_getGreetingTime()}, ${currentUserRole[0].toUpperCase()}${currentUserRole.substring(1)}',
                             style: const TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w700,
@@ -276,7 +285,6 @@ class _UserManagementFormState extends State<UserManagementForm>
           ),
         ),
 
-        // Compact Stats Row
         Padding(
           padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
           child: Row(
@@ -292,21 +300,21 @@ class _UserManagementFormState extends State<UserManagementForm>
                 icon: Icons.check_circle_outline,
                 label: 'Active',
                 count: active,
-                color: const Color(0xFF16a34a),
+                color: AppColors.successLight,
               ),
               const SizedBox(width: 6),
               _buildMiniStat(
                 icon: Icons.block,
                 label: 'Disabled',
                 count: disabled,
-                color: const Color(0xFFef4444),
+                color: AppColors.critical,
               ),
               const SizedBox(width: 6),
               _buildMiniStat(
                 icon: Icons.shield_outlined,
                 label: 'Owners',
                 count: owners,
-                color: const Color(0xFF2563eb),
+                color: AppColors.dark,
               ),
             ],
           ),
@@ -583,6 +591,20 @@ class _UserManagementFormState extends State<UserManagementForm>
     return Container(key: key, child: content);
   }
 
+  Color _getAvatarColor(String name, bool isDisabled) {
+    if (isDisabled) return Colors.grey.shade400;
+    final avatarColors = [
+      AppColors.primary,
+      const Color(0xFF0F766E),
+      const Color(0xFF0891B2),
+      AppColors.dark,
+      const Color(0xFF0E7490),
+      const Color(0xFF0F766E),
+    ];
+    final colorIdx = name.hashCode.abs() % avatarColors.length;
+    return avatarColors[colorIdx];
+  }
+
   Widget _buildUserTile({
     required String uid,
     required String name,
@@ -602,34 +624,22 @@ class _UserManagementFormState extends State<UserManagementForm>
     IconData roleIcon;
     switch (role) {
       case 'admin':
-        roleBgColor = const Color(0xFFfee2e2);
-        roleTextColor = const Color(0xFFef4444);
-        roleIcon = Icons.shield_rounded;
+        roleBgColor = AppColors.primary.withValues(alpha: 0.12);
+        roleTextColor = AppColors.primary;
+        roleIcon = Icons.admin_panel_settings_rounded;
         break;
       case 'owner':
-        roleBgColor = const Color(0xFFdbeafe);
-        roleTextColor = const Color(0xFF2563eb);
-        roleIcon = Icons.shield_outlined;
+        roleBgColor = AppColors.dark.withValues(alpha: 0.12);
+        roleTextColor = AppColors.dark;
+        roleIcon = Icons.shield_rounded;
         break;
       default:
-        roleBgColor = const Color(0xFFe2fbf0); // Light green-teal
-        roleTextColor = const Color(0xFF10b981); // Emerald green
+        roleBgColor = AppColors.subtitleText.withValues(alpha: 0.12);
+        roleTextColor = AppColors.subtitleText;
         roleIcon = Icons.visibility_rounded;
     }
 
-    // Initials avatar color (derived from name hash)
-    final avatarColors = [
-      const Color(0xFF0D9488),
-      const Color(0xFF7C3AED),
-      const Color(0xFFDB2777),
-      const Color(0xFFEA580C),
-      const Color(0xFF2563EB),
-      const Color(0xFF059669),
-    ];
-    final colorIdx = name.hashCode.abs() % avatarColors.length;
-    final avatarColor = isDisabled
-        ? Colors.grey.shade400
-        : avatarColors[colorIdx];
+    final avatarColor = _getAvatarColor(name, isDisabled);
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -743,7 +753,7 @@ class _UserManagementFormState extends State<UserManagementForm>
                                 vertical: 2.5,
                               ),
                               decoration: BoxDecoration(
-                                color: const Color(0xFFE2F9F6), // Light teal
+                                color: AppColors.primary.withValues(alpha: 0.12),
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: const Text(
@@ -751,7 +761,7 @@ class _UserManagementFormState extends State<UserManagementForm>
                                 style: TextStyle(
                                   fontSize: 8,
                                   fontWeight: FontWeight.w900,
-                                  color: Color(0xFF0D9488), // Teal
+                                  color: AppColors.primary,
                                 ),
                               ),
                             ),
@@ -922,17 +932,7 @@ class _UserManagementFormState extends State<UserManagementForm>
                     children: [
                       Builder(
                         builder: (context) {
-                          final avatarColors = [
-                            const Color(0xFF0D9488),
-                            const Color(0xFF7C3AED),
-                            const Color(0xFFDB2777),
-                            const Color(0xFFEA580C),
-                            const Color(0xFF2563EB),
-                            const Color(0xFF059669),
-                          ];
-                          final colorIdx =
-                              targetName.hashCode.abs() % avatarColors.length;
-                          final avatarColor = avatarColors[colorIdx];
+                          final avatarColor = _getAvatarColor(targetName, isDisabled);
                           return Container(
                             width: 44,
                             height: 44,
@@ -998,7 +998,7 @@ class _UserManagementFormState extends State<UserManagementForm>
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w800,
-                      color: Color(0xFF0F172A), // Dark navy
+                      color: AppColors.dark,
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -1008,36 +1008,34 @@ class _UserManagementFormState extends State<UserManagementForm>
                         label: 'Monitor',
                         subtitle: 'View only',
                         icon: Icons.visibility_rounded,
-                        color: const Color(0xFF10b981), // Green
-                        bgColor: const Color(0xFFe2fbf0),
+                        color: AppColors.subtitleText,
+                        bgColor: AppColors.subtitleText.withValues(alpha: 0.12),
                         isSelected: selectedRole == 'monitor',
                         onTap: () =>
                             setSheetState(() => selectedRole = 'monitor'),
                       ),
                       const SizedBox(width: 8),
                       _buildRoleOption(
+                        label: 'Admin',
+                        subtitle: 'Manage users',
+                        icon: Icons.admin_panel_settings_rounded,
+                        color: AppColors.primary,
+                        bgColor: AppColors.primary.withValues(alpha: 0.12),
+                        isSelected: selectedRole == 'admin',
+                        onTap: () =>
+                            setSheetState(() => selectedRole = 'admin'),
+                      ),
+                      const SizedBox(width: 8),
+                      _buildRoleOption(
                         label: 'Owner',
                         subtitle: 'Full control',
                         icon: Icons.shield_rounded,
-                        color: const Color(0xFF2563eb), // Blue
-                        bgColor: const Color(0xFFdbeafe),
+                        color: AppColors.dark,
+                        bgColor: AppColors.dark.withValues(alpha: 0.12),
                         isSelected: selectedRole == 'owner',
                         onTap: () =>
                             setSheetState(() => selectedRole = 'owner'),
                       ),
-                      if (currentRole == 'admin') ...[
-                        const SizedBox(width: 8),
-                        _buildRoleOption(
-                          label: 'Admin',
-                          subtitle: 'Manage users',
-                          icon: Icons.admin_panel_settings_rounded,
-                          color: const Color(0xFFef4444), // Red
-                          bgColor: const Color(0xFFfee2e2),
-                          isSelected: selectedRole == 'admin',
-                          onTap: () =>
-                              setSheetState(() => selectedRole = 'admin'),
-                        ),
-                      ],
                     ],
                   ),
 
@@ -1051,13 +1049,13 @@ class _UserManagementFormState extends State<UserManagementForm>
                     ),
                     decoration: BoxDecoration(
                       color: isDisabled
-                          ? const Color(0xFFfef2f2)
-                          : const Color(0xFFf0fdf4),
+                          ? AppColors.critical.withValues(alpha: 0.1)
+                          : AppColors.successLight.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(
                         color: isDisabled
-                            ? const Color(0xFFfecaca)
-                            : const Color(0xFFbbf7d0),
+                            ? AppColors.critical.withValues(alpha: 0.2)
+                            : AppColors.successLight.withValues(alpha: 0.2),
                       ),
                     ),
                     child: Row(
@@ -1066,8 +1064,8 @@ class _UserManagementFormState extends State<UserManagementForm>
                           isDisabled ? Icons.block : Icons.check_circle_rounded,
                           size: 20,
                           color: isDisabled
-                              ? const Color(0xFFef4444)
-                              : const Color(0xFF16a34a),
+                              ? AppColors.critical
+                              : AppColors.successLight,
                         ),
                         const SizedBox(width: 12),
                         Expanded(
@@ -1080,8 +1078,8 @@ class _UserManagementFormState extends State<UserManagementForm>
                                   fontSize: 13,
                                   fontWeight: FontWeight.w700,
                                   color: isDisabled
-                                      ? const Color(0xFFef4444)
-                                      : const Color(0xFF16a34a),
+                                      ? AppColors.critical
+                                      : AppColors.successLight,
                                 ),
                               ),
                               const SizedBox(height: 2),
@@ -1099,9 +1097,9 @@ class _UserManagementFormState extends State<UserManagementForm>
                         ),
                         Switch(
                           value: !isDisabled,
-                          activeTrackColor: const Color(0xFF10b981),
+                          activeTrackColor: AppColors.primary,
                           activeThumbColor: Colors.white,
-                          inactiveTrackColor: const Color(0xFFe5e7eb),
+                          inactiveTrackColor: AppColors.dark.withValues(alpha: 0.1),
                           inactiveThumbColor: Colors.white,
                           onChanged: (active) {
                             setSheetState(() {
@@ -1125,16 +1123,16 @@ class _UserManagementFormState extends State<UserManagementForm>
                         vertical: 12,
                       ),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFFFFBEB),
+                        color: AppColors.warning.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: const Color(0xFFFDE68A)),
+                        border: Border.all(color: AppColors.warning.withValues(alpha: 0.2)),
                       ),
                       child: Row(
                         children: [
                           const Icon(
                             Icons.info_outline,
                             size: 20,
-                            color: Color(0xFFD97706),
+                            color: AppColors.warning,
                           ),
                           const SizedBox(width: 12),
                           Expanded(
@@ -1142,7 +1140,7 @@ class _UserManagementFormState extends State<UserManagementForm>
                               'Promoting this user will automatically demote the current Owner ($currentOwnerName) to Monitor.',
                               style: TextStyle(
                                 fontSize: 11,
-                                color: const Color(0xFFB45309),
+                                color: AppColors.warningDark,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -1306,7 +1304,7 @@ class _UserManagementFormState extends State<UserManagementForm>
           children: [
             Icon(
               Icons.warning_amber_rounded,
-              color: Color(0xFFf59e0b),
+              color: AppColors.warning,
               size: 22,
             ),
             SizedBox(width: 8),
@@ -1357,16 +1355,16 @@ class _UserManagementFormState extends State<UserManagementForm>
                 child: Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFFFBEB),
+                    color: AppColors.warning.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFFFDE68A)),
+                    border: Border.all(color: AppColors.warning.withValues(alpha: 0.2)),
                   ),
                   child: Row(
                     children: [
                       const Icon(
                         Icons.swap_horiz_rounded,
                         size: 16,
-                        color: Color(0xFFD97706),
+                        color: AppColors.warningDark,
                       ),
                       const SizedBox(width: 6),
                       Expanded(
@@ -1374,7 +1372,7 @@ class _UserManagementFormState extends State<UserManagementForm>
                           'Current Owner ($currentOwnerName) will be demoted to Monitor.',
                           style: TextStyle(
                             fontSize: 10,
-                            color: const Color(0xFFB45309),
+                            color: AppColors.warningDark,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -1389,19 +1387,20 @@ class _UserManagementFormState extends State<UserManagementForm>
                 child: Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFfef2f2),
+                    color: AppColors.critical.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.critical.withValues(alpha: 0.2)),
                   ),
                   child: const Row(
                     children: [
-                      Icon(Icons.warning, size: 14, color: Color(0xFFef4444)),
+                      Icon(Icons.warning, size: 14, color: AppColors.critical),
                       SizedBox(width: 6),
                       Expanded(
                         child: Text(
                           'This user will be signed out immediately.',
                           style: TextStyle(
                             fontSize: 10,
-                            color: Color(0xFFef4444),
+                            color: AppColors.critical,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -1455,7 +1454,7 @@ class _UserManagementFormState extends State<UserManagementForm>
                           ),
                         ],
                       ),
-                      backgroundColor: const Color(0xFF16a34a),
+                      backgroundColor: AppColors.successLight,
                       behavior: SnackBarBehavior.floating,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
@@ -1484,7 +1483,7 @@ class _UserManagementFormState extends State<UserManagementForm>
                           ),
                         ],
                       ),
-                      backgroundColor: Colors.redAccent,
+                      backgroundColor: AppColors.critical,
                       behavior: SnackBarBehavior.floating,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),

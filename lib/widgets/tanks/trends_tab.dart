@@ -195,16 +195,19 @@ class _TrendsTabState extends State<TrendsTab> {
         .map((e) => FlSpot(e.key.toDouble(), e.value))
         .toList();
 
+    final maxVal = data.isNotEmpty ? data.reduce(max) : 0.0;
+    final chartMaxY = maxVal > 0 ? (maxVal * 1.15).ceilToDouble() : 1.0;
+
     return LineChart(
       LineChartData(
         minX: 0,
         maxX: (data.length - 1).toDouble(),
         minY: 0,
-        maxY: (data.reduce(max) * 1.15).ceilToDouble(),
+        maxY: chartMaxY,
         gridData: FlGridData(
           show: true,
           drawVerticalLine: false,
-          horizontalInterval: ((data.reduce(max) * 1.15).ceilToDouble()) / 3,
+          horizontalInterval: chartMaxY / 3,
           getDrawingHorizontalLine: (value) => FlLine(
             color: AppColors.darkWith(0.04),
             strokeWidth: 1,

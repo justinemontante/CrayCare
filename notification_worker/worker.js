@@ -16,20 +16,20 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT) {
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
-  databaseURL:
-    "https://craycare-8436c-default-rtdb.asia-southeast1.firebasedatabase.app",
+  databaseURL: "https://craycare-8436c-default-rtdb.asia-southeast1.firebasedatabase.app",
 });
 
 const db = admin.database();
 
-// Simple HTTP server to bind to port for hosting providers like Render
+// Simple HTTP server to bind to port for hosting providers like Hugging Face
 const PORT = process.env.PORT || 7860;
 http.createServer((req, res) => {
   res.writeHead(200, { "Content-Type": "text/plain" });
-  res.end("CrayCare Worker is running...\n");
-}).listen(PORT, () => {
+  res.end("CrayCare Notification Worker is running...\n");
+}).listen(PORT, "0.0.0.0", () => {
   console.log(`HTTP server listening on port ${PORT}`);
 });
+
 const SENSOR_MAP = {
   temperature: "temp",
   phLevel: "ph",
@@ -45,6 +45,7 @@ const LABELS = {
   turb: "Turbidity",
   waterlevel: "Water Level",
 };
+
 const UNITS = {
   temp: "°C",
   ph: "",
@@ -54,8 +55,7 @@ const UNITS = {
 };
 
 // Sensor state tracker — ON/OFF per sensor
-const sensorStates = {}; // { temp: false, ph: false, ... }
-// Flag para hindi mag-spam ng "resolved" sa umpisa
+const sensorStates = {}; 
 let firstRun = true;
 
 // Returns the UID where notifications should be saved for a given user.
@@ -114,16 +114,13 @@ async function getAuthorizedUids() {
   return uids;
 }
 
-async function getAuthorizedUids() {
-
+// ─── Sensor Readings Listener ────────────────────────────────────────────────
 db.ref("sensor_readings/latest").on("value", async (snap) => {
   const data = snap.val();
   if (!data) return;
 
   try {
-    const configSnap = await db
-      .ref("sensor_readings/config")
-      .once("value");
+    const configSnap = await db.ref("sensor_readings/config").once("value");
     const config = configSnap.val();
     if (!config) return;
 
@@ -131,7 +128,6 @@ db.ref("sensor_readings/latest").on("value", async (snap) => {
     if (!selectedStage || !config[selectedStage]) return;
     const thresholds = config[selectedStage];
 
-    // Check each sensor for state changes (ON / OFF)
     const stateChanges = [];
 
     for (const [espKey, svcKey] of Object.entries(SENSOR_MAP)) {
@@ -144,7 +140,6 @@ db.ref("sensor_readings/latest").on("value", async (snap) => {
       const wasCritical = sensorStates[svcKey] || false;
 
       if (isCritical && !wasCritical) {
-        // normal → critical : send ON alert
         sensorStates[svcKey] = true;
         let dir, threshold;
         if (range.min != null && val < range.min) {
@@ -157,23 +152,17 @@ db.ref("sensor_readings/latest").on("value", async (snap) => {
         stateChanges.push({ svcKey, val, threshold, dir, state: "critical" });
       } else if (!isCritical && wasCritical) {
         if (!firstRun) {
-          // critical → normal : send OFF alert
           sensorStates[svcKey] = false;
           stateChanges.push({ svcKey, val, state: "resolved" });
         } else {
-          // First run — just mark as normal, no alert
           sensorStates[svcKey] = false;
         }
       }
-      // else: no state change → skip
     }
 
     firstRun = false;
-
-    // Walang state change → huwag mag-send
     if (stateChanges.length === 0) return;
 
-    // Build notification messages
     const msgLines = stateChanges.map(({ svcKey, val, threshold, dir, state }) => {
       const label = LABELS[svcKey] || svcKey;
       const unit = UNITS[svcKey] || "";
@@ -197,43 +186,41 @@ db.ref("sensor_readings/latest").on("value", async (snap) => {
       unread: true,
     };
 
-    // Get authorized users
     const uids = await getAuthorizedUids();
 
+    // 1. Isave sa database nang ISANG BESES lang per Owner target (Iwas duplicate sa Database)
+    const uniqueTargets = new Set();
+    await Promise.all(uids.map(async (uid) => {
+      const target = await getNotificationTargetUid(uid);
+      uniqueTargets.add(target);
+    }));
+
+    await Promise.all(Array.from(uniqueTargets).map(async (targetUid) => {
+      await db.ref(`users/${targetUid}/notifications`).push().set(notifPayload);
+    }));
+
+    // 2. I-send ang Push Notifications (FCM) sa lahat ng kasaping devices
     let successCount = 0;
     let failureCount = 0;
 
     await Promise.allSettled(uids.map(async (uid) => {
       try {
-        const notifTarget = await getNotificationTargetUid(uid);
-        await db.ref(`users/${notifTarget}/notifications`).push().set(notifPayload);
-
         const tokenSnap = await db.ref(`users/${uid}/fcmToken`).once("value");
         const token = tokenSnap.val();
         if (!token) return;
 
-        // Read prefs from dedicated 'notifPrefs' node (separate from notification records)
         const prefsSnap = await db.ref(`users/${uid}/notifPrefs`).once("value");
         const prefs = prefsSnap.val() || {};
-        const sound = prefs.sound !== false;       // default: true
-        const vibration = prefs.vibration !== false; // default: true
-        const critical = prefs.critical !== false;  // default: true
+        const sound = prefs.sound !== false;       
+        const vibration = prefs.vibration !== false; 
+        const critical = prefs.critical !== false;  
 
-        // Respect user's critical setting — skip FCM entirely if turned off
-        if (!critical) {
-          console.log(`[${new Date().toLocaleTimeString()}] Skipping FCM for ${uid} — critical alerts disabled`);
-          return;
-        }
+        if (!critical) return;
 
-        // Determine the target channel based on preferences
         let targetChannelId = "craycare_alerts_silent";
-        if (sound && vibration) {
-          targetChannelId = "craycare_alerts_sound_vibrate";
-        } else if (sound) {
-          targetChannelId = "craycare_alerts_sound_only";
-        } else if (vibration) {
-          targetChannelId = "craycare_alerts_vibrate_only";
-        }
+        if (sound && vibration) targetChannelId = "craycare_alerts_sound_vibrate";
+        else if (sound) targetChannelId = "craycare_alerts_sound_only";
+        else if (vibration) targetChannelId = "craycare_alerts_vibrate_only";
 
         await admin.messaging().send({
           token,
@@ -258,15 +245,12 @@ db.ref("sensor_readings/latest").on("value", async (snap) => {
         });
 
         successCount++;
-        console.log(`[${new Date().toLocaleTimeString()}] Alert sent to ${uid}`);
+        console.log(`[${new Date().toLocaleTimeString()}] Push alert sent to ${uid}`);
       } catch (err) {
         failureCount++;
         if (err.code === "messaging/invalid-registration-token" ||
             err.code === "messaging/registration-token-not-registered") {
           await db.ref(`users/${uid}/fcmToken`).remove();
-          console.log(`Removed invalid token for ${uid}`);
-        } else {
-          console.error(`FCM failed for ${uid}:`, err.message);
         }
       }
     }));
@@ -303,41 +287,47 @@ setInterval(async () => {
       const schedMins = h * 60 + m;
       if (schedMins <= 0) continue;
 
-      // Check if within 5-minute window
       if (nowMins < schedMins - 5 || nowMins >= schedMins) continue;
 
       const reminderKey = `reminder_${todayKey}_${key}`;
       const uids = await getAuthorizedUids();
       if (uids.length === 0) continue;
 
-      const h12 = h > 12 ? h - 12 : (h === 0 ? 12 : h);
-      const ampmStr = h >= 12 ? "PM" : "AM";
-      const timeStr = `${h12}:${m.toString().padStart(2, "0")} ${ampmStr}`;
+      // 1. Isave ang feeding reminder sa DB nang isang beses lang per Owner target
+      const uniqueTargets = new Set();
+      await Promise.all(uids.map(async (uid) => {
+        const target = await getNotificationTargetUid(uid);
+        uniqueTargets.add(target);
+      }));
 
+      const msg = `Your feeding schedule at ${time} ${ampm} will be dispensed in 5 minutes.`;
+      const scheduleEpoch = Date.UTC(manilaNow.getUTCFullYear(), manilaNow.getUTCMonth(), manilaNow.getUTCDate(), h, m) - MANILA_OFFSET_MS;
+      const reminderTimestamp = scheduleEpoch - 5 * 60 * 1000;
+
+      await Promise.all(Array.from(uniqueTargets).map(async (targetUid) => {
+        const markerSnap = await db.ref(`users/${targetUid}/notifications/markers/${reminderKey}`).once("value");
+        if (markerSnap.exists()) return;
+
+        await db.ref(`users/${targetUid}/notifications`).push().set({
+          type: "reminder",
+          title: "Feeding Reminder",
+          message: msg,
+          timestamp: reminderTimestamp,
+          unread: true,
+        });
+
+        await db.ref(`users/${targetUid}/notifications/markers/${reminderKey}`).set(true);
+      }));
+
+      // 2. I-send ang Push Alerts sa bawat phone ng users
       await Promise.allSettled(uids.map(async (uid) => {
         try {
-          const notifTarget = await getNotificationTargetUid(uid);
-          const markerSnap = await db.ref(`users/${notifTarget}/notifications/markers/${reminderKey}`).once("value");
-          if (markerSnap.exists()) return;
-
           const prefsSnap = await db.ref(`users/${uid}/notifPrefs`).once("value");
           const prefs = prefsSnap.val() || {};
           if (prefs.feeding === false) return;
 
           const sound = prefs.sound !== false;
           const vibration = prefs.vibration !== false;
-          const msg = `Your feeding schedule at ${time} ${ampm} will be dispensed in 5 minutes.`;
-
-          const scheduleEpoch = Date.UTC(manilaNow.getUTCFullYear(), manilaNow.getUTCMonth(), manilaNow.getUTCDate(), h, m) - MANILA_OFFSET_MS;
-          const reminderTimestamp = scheduleEpoch - 5 * 60 * 1000;
-
-          await db.ref(`users/${notifTarget}/notifications`).push().set({
-            type: "reminder",
-            title: "Feeding Reminder",
-            message: msg,
-            timestamp: reminderTimestamp,
-            unread: true,
-          });
 
           const tokenSnap = await db.ref(`users/${uid}/fcmToken`).once("value");
           const token = tokenSnap.val();
@@ -349,10 +339,7 @@ setInterval(async () => {
 
             await admin.messaging().send({
               token,
-              notification: {
-                title: "Feeding Reminder",
-                body: msg,
-              },
+              notification: { title: "Feeding Reminder", body: msg },
               data: {
                 title: "Feeding Reminder",
                 body: msg,
@@ -362,22 +349,14 @@ setInterval(async () => {
               },
               android: {
                 priority: "high",
-                notification: {
-                  channelId: targetChannelId,
-                  priority: "high",
-                }
+                notification: { channelId: targetChannelId, priority: "high" }
               },
             });
           }
-
-          await db.ref(`users/${notifTarget}/notifications/markers/${reminderKey}`).set(true);
-          console.log(`[${new Date().toLocaleTimeString()}] Feeding reminder sent to ${uid} for ${time} ${ampm}`);
+          console.log(`[${new Date().toLocaleTimeString()}] Feeding reminder push alert processed for ${uid}`);
         } catch (err) {
-          if (err.code === "messaging/invalid-registration-token" ||
-              err.code === "messaging/registration-token-not-registered") {
+          if (err.code === "messaging/invalid-registration-token" || err.code === "messaging/registration-token-not-registered") {
             await db.ref(`users/${uid}/fcmToken`).remove();
-          } else {
-            console.error(`Feeding reminder failed for ${uid}:`, err.message);
           }
         }
       }));
@@ -392,34 +371,45 @@ setInterval(async () => {
         for (const [schedKey] of Object.entries(dispatched)) {
           const s2Snap = await db.ref(`feeder/schedules/${schedKey}`).once("value");
           const s2 = s2Snap.val();
-          if (!s2) continue;
-          if (s2.enabled !== true) continue;
+          if (!s2 || s2.enabled !== true) continue;
 
           const time2 = s2.time || "6:00";
           const ampm2 = s2.ampm || "AM";
           const confirmKey = `confirm_${todayKey}_${schedKey}`;
 
+          // Isave ang Complete log sa DB ng isang beses lang per Owner target
+          const uniqueTargets = new Set();
+          await Promise.all(confirmUids.map(async (uid) => {
+            const target = await getNotificationTargetUid(uid);
+            uniqueTargets.add(target);
+          }));
+
+          const msg = `Scheduled feed at ${time2} ${ampm2} has been dispensed.`;
+
+          await Promise.all(Array.from(uniqueTargets).map(async (targetUid) => {
+            const markerSnap = await db.ref(`users/${targetUid}/notifications/markers/${confirmKey}`).once("value");
+            if (markerSnap.exists()) return;
+
+            await db.ref(`users/${targetUid}/notifications`).push().set({
+              type: "reminder",
+              title: "Feeding Complete",
+              message: msg,
+              timestamp: Date.now(),
+              unread: true,
+            });
+
+            await db.ref(`users/${targetUid}/notifications/markers/${confirmKey}`).set(true);
+          }));
+
+          // I-send ang confirmation push sa lahat ng phones
           await Promise.allSettled(confirmUids.map(async (uid) => {
             try {
-              const notifTarget = await getNotificationTargetUid(uid);
-              const markerSnap = await db.ref(`users/${notifTarget}/notifications/markers/${confirmKey}`).once("value");
-              if (markerSnap.exists()) return;
-
               const prefsSnap = await db.ref(`users/${uid}/notifPrefs`).once("value");
               const prefs = prefsSnap.val() || {};
               if (prefs.feeding === false) return;
 
               const sound = prefs.sound !== false;
               const vibration = prefs.vibration !== false;
-              const msg = `Scheduled feed at ${time2} ${ampm2} has been dispensed.`;
-
-              await db.ref(`users/${notifTarget}/notifications`).push().set({
-                type: "reminder",
-                title: "Feeding Complete",
-                message: msg,
-                timestamp: Date.now(),
-                unread: true,
-              });
 
               const tokenSnap = await db.ref(`users/${uid}/fcmToken`).once("value");
               const token = tokenSnap.val();
@@ -445,15 +435,9 @@ setInterval(async () => {
                   },
                 });
               }
-
-              await db.ref(`users/${notifTarget}/notifications/markers/${confirmKey}`).set(true);
-              console.log(`[${new Date().toLocaleTimeString()}] Feeding complete sent to ${uid} for ${time2} ${ampm2}`);
             } catch (err) {
-              if (err.code === "messaging/invalid-registration-token" ||
-                  err.code === "messaging/registration-token-not-registered") {
+              if (err.code === "messaging/invalid-registration-token" || err.code === "messaging/registration-token-not-registered") {
                 await db.ref(`users/${uid}/fcmToken`).remove();
-              } else {
-                console.error(`Feeding complete failed for ${uid}:`, err.message);
               }
             }
           }));
@@ -472,10 +456,55 @@ setInterval(async () => {
     const uids = await getAuthorizedUids();
     if (uids.length === 0) return;
 
+    // Isave ang Sampling reminder sa DB ng isang beses lang per Owner target
+    const uniqueTargets = new Set();
+    await Promise.all(uids.map(async (uid) => {
+      const target = await getNotificationTargetUid(uid);
+      uniqueTargets.add(target);
+    }));
+
+    await Promise.all(Array.from(uniqueTargets).map(async (targetUid) => {
+      const configSnap = await db.ref(`tank_data/${targetUid}/inventory`).once("value");
+      if (!configSnap.exists()) return;
+      const config = configSnap.val();
+      if (!config.isInitialized) return;
+
+      const lastSampleTs = config.lastSampleDate || config.stockingDate;
+      if (!lastSampleTs) return;
+
+      const lastSample = new Date(lastSampleTs);
+      const daysSince = Math.floor((now - lastSample) / (1000 * 60 * 60 * 24));
+      if (daysSince < 7) return;
+
+      const markerSnap = await db.ref(`users/${targetUid}/notifications/markers/sampling_reminder`).once("value");
+      if (markerSnap.exists()) {
+        const lastReminderTs = markerSnap.val();
+        if (lastReminderTs > 0) {
+          const daysSinceReminder = Math.floor((now - lastReminderTs) / (1000 * 60 * 60 * 24));
+          if (daysSinceReminder < 7) return;
+        }
+      }
+
+      const msg = `It's been ${daysSince} days since last sampling. Time to record growth data!`;
+
+      await db.ref(`users/${targetUid}/notifications`).push().set({
+        type: "reminder",
+        title: "Sampling Reminder",
+        message: msg,
+        timestamp: Date.now(),
+        unread: true,
+      });
+
+      await db.ref(`users/${targetUid}/notifications/markers/sampling_reminder`).set(Date.now());
+      console.log(`[${new Date().toLocaleTimeString()}] Sampling reminder written to DB for owner: ${targetUid}`);
+    }));
+
+    // I-send ang sampling push alert sa phones
     await Promise.allSettled(uids.map(async (uid) => {
       try {
         const notifTarget = await getNotificationTargetUid(uid);
-
+        
+        // Basahin ang user preferences
         const prefsSnap = await db.ref(`users/${uid}/notifPrefs`).once("value");
         const prefs = prefsSnap.val() || {};
         if (prefs.sampling === false) return;
@@ -492,24 +521,7 @@ setInterval(async () => {
         const daysSince = Math.floor((now - lastSample) / (1000 * 60 * 60 * 24));
         if (daysSince < 7) return;
 
-        const markerSnap = await db.ref(`users/${notifTarget}/notifications/markers/sampling_reminder`).once("value");
-        if (markerSnap.exists()) {
-          const lastReminderTs = markerSnap.val();
-          if (lastReminderTs > 0) {
-            const daysSinceReminder = Math.floor((now - lastReminderTs) / (1000 * 60 * 60 * 24));
-            if (daysSinceReminder < 7) return;
-          }
-        }
-
         const msg = `It's been ${daysSince} days since last sampling. Time to record growth data!`;
-
-        await db.ref(`users/${notifTarget}/notifications`).push().set({
-          type: "reminder",
-          title: "Sampling Reminder",
-          message: msg,
-          timestamp: Date.now(),
-          unread: true,
-        });
 
         const tokenSnap = await db.ref(`users/${uid}/fcmToken`).once("value");
         const token = tokenSnap.val();
@@ -523,10 +535,7 @@ setInterval(async () => {
 
           await admin.messaging().send({
             token,
-            notification: {
-              title: "Sampling Reminder",
-              body: msg,
-            },
+            notification: { title: "Sampling Reminder", body: msg },
             data: {
               title: "Sampling Reminder",
               body: msg,
@@ -536,18 +545,12 @@ setInterval(async () => {
             },
             android: {
               priority: "high",
-              notification: {
-                channelId: targetChannelId,
-                priority: "high",
-              }
+              notification: { channelId: targetChannelId, priority: "high" }
             },
           });
         }
-
-        await db.ref(`users/${notifTarget}/notifications/markers/sampling_reminder`).set(Date.now());
-        console.log(`[${new Date().toLocaleTimeString()}] Sampling reminder sent to ${uid} (${daysSince} days)`);
       } catch (err) {
-        console.error(`Sampling reminder failed for ${uid}:`, err.message);
+        console.error(`Sampling push reminder failed for ${uid}:`, err.message);
       }
     }));
   } catch (e) {

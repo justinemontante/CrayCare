@@ -83,6 +83,18 @@ class SettingsMenu extends StatelessWidget {
               ]),
               const SizedBox(height: 10),
             ],
+            if (userRole?.toLowerCase() == 'owner') ...[
+              _buildMenuSection('Administration', [
+                _buildMenuItem(
+                  'User Management',
+                  Icons.people_rounded,
+                  AppColors.primary,
+                  chevron: true,
+                  onTap: () => onGoTo(5),
+                ),
+              ]),
+              const SizedBox(height: 10),
+            ],
             _buildMenuItem(
               'Logout',
               Icons.logout,
@@ -178,26 +190,26 @@ class SettingsMenu extends StatelessWidget {
   Color _getRoleBgColor(String? role) {
     switch (role?.toLowerCase()) {
       case 'admin':
-        return const Color(0xFFfee2e2); // Light red
+        return AppColors.primary.withValues(alpha: 0.12);
       case 'owner':
-        return const Color(0xFFdbeafe); // Light blue
+        return AppColors.dark.withValues(alpha: 0.12);
       case 'monitor':
-        return const Color(0xFFe2fbf0); // Light teal-green
+        return AppColors.subtitleText.withValues(alpha: 0.12);
       default:
-        return const Color(0xFFf3f4f6); // Light grey
+        return AppColors.darkWith(0.04);
     }
   }
 
   Color _getRoleTextColor(String? role) {
     switch (role?.toLowerCase()) {
       case 'admin':
-        return const Color(0xFFef4444); // Red
+        return AppColors.primary;
       case 'owner':
-        return const Color(0xFF2563eb); // Blue
+        return AppColors.dark;
       case 'monitor':
-        return const Color(0xFF0f766e); // Teal
+        return AppColors.subtitleText;
       default:
-        return const Color(0xFF4b5563); // Grey
+        return AppColors.darkWith(0.5);
     }
   }
 

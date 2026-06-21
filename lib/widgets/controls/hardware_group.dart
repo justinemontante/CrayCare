@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
+import '../../utils/snackbar_helper.dart';
 
 class HardwareGroup extends StatelessWidget {
   final String label;
@@ -202,7 +203,7 @@ class HardwareGroup extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 6), // Slightly reduced spacing
-                      _buildHwModeToggle(deviceId, mode),
+                      _buildHwModeToggle(deviceId, mode, context),
                     ],
                   ),
                 ),
@@ -261,6 +262,7 @@ class HardwareGroup extends StatelessWidget {
   Widget _buildHwModeToggle(
     String deviceId,
     String currentMode,
+    BuildContext context,
   ) {
     return Container(
       padding: const EdgeInsets.all(1),
@@ -273,7 +275,11 @@ class HardwareGroup extends StatelessWidget {
         children: ['off', 'auto', 'on'].map((m) {
           final isActive = m == currentMode;
           return GestureDetector(
-            onTap: isOwner ? () => onSetMode(deviceId, m) : null,
+            onTap: isOwner
+              ? () => onSetMode(deviceId, m)
+              : () {
+                  showBeautifulSnackbar(context, 'Device controls are for owners only', false, title: 'Notice');
+                },
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
               decoration: BoxDecoration(

@@ -2,13 +2,19 @@ import 'package:flutter/material.dart';
 
 class ReadOnlyBanner extends StatelessWidget {
   final String message;
+  final double? horizontalMargin;
 
-  const ReadOnlyBanner({super.key, required this.message});
+  const ReadOnlyBanner({
+    super.key,
+    required this.message,
+    this.horizontalMargin,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final hMargin = horizontalMargin ?? 14.0;
     return Container(
-      margin: const EdgeInsets.fromLTRB(14, 0, 14, 10),
+      margin: EdgeInsets.fromLTRB(hMargin, 0, hMargin, 10),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           begin: Alignment.topLeft,

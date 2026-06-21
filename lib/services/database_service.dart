@@ -23,9 +23,10 @@ class DatabaseService {
     required String uid,
     required String name,
     required String email,
-    String? photoUrl, // Optional — kung may profile picture
-    String? role, // Optional — only written on first signup
-    String? status, // Optional — defaults to 'active' on first signup
+    String? photoUrl,
+    String? role,
+    String? status,
+    String? ownerUid,
   }) async {
     final data = <String, dynamic>{
       'displayName': name,
@@ -37,14 +38,30 @@ class DatabaseService {
     if (status != null) {
       data['status'] = status;
     } else {
-      // Kung wala pang profile, default status is 'active'
       final existing = await getUserProfile(uid);
       if (existing == null || existing['status'] == null) {
         data['status'] = 'active';
       }
     }
-    // Use update() para hindi ma-overwrite ang existing 'role'/'status' kung hindi naka-pass
+    if (ownerUid != null) data['ownerUid'] = ownerUid;
     await _db.child('users/$uid/profile').update(data);
+  }
+
+  /// Finds the UID of the single owner in the database (role == 'owner').
+  /// Returns null if no owner is found.
+  Future<String?> findOwnerUid() async {
+    final snapshot = await _db.child('users').get();
+    if (!snapshot.exists || snapshot.value is! Map) return null;
+    final users = convertMap(snapshot.value as Map);
+    for (final entry in users.entries) {
+      final userData = entry.value is Map ? convertMap(entry.value as Map) : {};
+      final profile = userData['profile'] is Map ? userData['profile'] as Map : null;
+      final role = profile?['role'] as String?;
+      if (role != null && role.toLowerCase() == 'owner') {
+        return entry.key;
+      }
+    }
+    return null;
   }
 
   /// Kunin ang naka-save na profile ng user galing RTDB

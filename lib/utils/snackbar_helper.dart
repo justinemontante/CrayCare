@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 void showBeautifulSnackbar(
   BuildContext context,
   String message,
-  bool isSuccess,
-) {
+  bool isSuccess, {
+  String? title,
+}) {
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
       content: Row(
@@ -31,7 +32,7 @@ void showBeautifulSnackbar(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  isSuccess ? 'Success' : 'Error',
+                  title ?? (isSuccess ? 'Success' : 'Error'),
                   style: const TextStyle(
                     fontWeight: FontWeight.w800,
                     fontSize: 13,
@@ -52,16 +53,19 @@ void showBeautifulSnackbar(
             ),
           ),
           const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Icon(
-              Icons.close_rounded,
-              color: Colors.white,
-              size: 16,
+          GestureDetector(
+            onTap: () => ScaffoldMessenger.of(context).hideCurrentSnackBar(),
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.close_rounded,
+                color: Colors.white,
+                size: 16,
+              ),
             ),
           ),
         ],

@@ -33,6 +33,7 @@ class _MainShellState extends State<MainShell> {
   String? _photoUrl;
   String? _userRole;
   bool _isOwner = false;
+  bool _isLoading = true;
   StreamSubscription<DatabaseEvent>? _roleSub;
   StreamSubscription<DatabaseEvent>? _primarySub;
 
@@ -111,6 +112,11 @@ class _MainShellState extends State<MainShell> {
         .onValue
         .listen((event) async {
       if (event.snapshot.value == null) {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
         return;
       }
       final profile = DatabaseService.convertMap(event.snapshot.value as Map);
@@ -153,10 +159,15 @@ class _MainShellState extends State<MainShell> {
         setState(() {
           _userRole = roleVal;
           _isOwner = hasControl;
+          _isLoading = false;
         });
       }
     }, onError: (_) {
-      if (mounted) setState(() {});
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     });
 
     // Also check legacy authorizedOperators (backward compat)
@@ -178,10 +189,15 @@ class _MainShellState extends State<MainShell> {
       if (isPrimary && mounted) {
         setState(() {
           _isOwner = true;
+          _isLoading = false;
         });
       }
     }, onError: (_) {
-      if (mounted) setState(() {});
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     });
   }
 
@@ -211,6 +227,15 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        backgroundColor: Colors.white,
+        body: Center(
+          child: CircularProgressIndicator(color: AppColors.primary),
+        ),
+      );
+    }
+
     final photoImage = _photoImageProvider(_photoUrl);
     final isOwner = _isOwner;
     final bool isAdmin = _userRole == 'admin';

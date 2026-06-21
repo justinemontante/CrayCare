@@ -510,6 +510,7 @@ class _StageSettingsState extends State<StageSettings> {
             const ReadOnlyBanner(
               message:
                   'You can view the current growth stage and sensor thresholds. Only the Farm Owner can select a growth stage or customize thresholds.',
+              horizontalMargin: 0,
             ),
           ],
           if (_saving)

@@ -22,21 +22,18 @@ class AuthService {
       User? user = result.user;
 
       if (user != null) {
-        // I-save ang Full Name sa Firebase Profile
         await user.updateDisplayName(name);
-
-        // Mag-send ng Verification Email
         if (!user.emailVerified) {
           await user.sendEmailVerification();
         }
-        // Save profile to RTDB for a record (preserve existing photoUrl kung mayron)
-        // Auto-assign 'monitor' role and 'active' status for all new signups
+        final ownerUid = await DatabaseService.instance.findOwnerUid();
         await DatabaseService.instance.saveUserProfile(
           uid: user.uid,
           name: name,
           email: email,
           role: 'monitor',
           status: 'active',
+          ownerUid: ownerUid,
         );
       }
 
@@ -127,13 +124,19 @@ class AuthService {
 
         final String? existingRole = profile?['role'] as String?;
         final String? existingStatus = profile?['status'] as String?;
+        final String? existingOwnerUid = profile?['ownerUid'] as String?;
+        String? ownerUid = existingOwnerUid;
+        if (ownerUid == null || ownerUid.isEmpty) {
+          ownerUid = await DatabaseService.instance.findOwnerUid();
+        }
         await DatabaseService.instance.saveUserProfile(
           uid: user.uid,
           name: user.displayName ?? 'Google User',
           email: user.email ?? '',
           photoUrl: profile?['photoUrl'] as String?,
-          role: existingRole ?? 'monitor', // Kung walang role, gawing 'monitor'
+          role: existingRole ?? 'monitor',
           status: existingStatus ?? 'active',
+          ownerUid: ownerUid,
         );
       }
 

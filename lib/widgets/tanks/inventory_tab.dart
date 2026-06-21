@@ -2,6 +2,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
 import '../../services/tank_service.dart';
+import '../../utils/snackbar_helper.dart';
 
 class InventoryTab extends StatelessWidget {
   final VoidCallback onShowInitModal;
@@ -35,7 +36,7 @@ class InventoryTab extends StatelessWidget {
           const SizedBox(height: 8),
           _buildWarningBanner(),
           const SizedBox(height: 8),
-          _buildActionButtons(),
+          _buildActionButtons(context),
           const SizedBox(height: 8),
           _buildInfoCard(),
           const SizedBox(height: 10),
@@ -299,7 +300,7 @@ class InventoryTab extends StatelessWidget {
               Text(
                 value,
                 style: const TextStyle(
-                  fontSize: 32,
+                  fontSize: 22,
                   fontWeight: FontWeight.w900,
                   color: AppColors.primary,
                   height: 1.1,
@@ -543,32 +544,33 @@ class InventoryTab extends StatelessWidget {
     );
   }
 
-  Widget _buildActionButtons() {
+  Widget _buildActionButtons(BuildContext context) {
+    final canEditSetup = isOwner && TankService.instance.samplingHistory.isEmpty;
     return Row(
       children: [
         Expanded(
           child: _buildActionBtn(
-            isOwner ? 'Log Mortality' : 'Log Mortality (Owner Only)',
+            'Log Mortality',
             isOwner ? Icons.healing_rounded : Icons.lock_outline,
             isOwner ? AppColors.critical : Colors.grey.shade400,
-            isOwner ? onShowMortalityModal : () {},
+            isOwner ? onShowMortalityModal : () {
+              showBeautifulSnackbar(context, 'Log Mortality is for owners only', false, title: 'Notice');
+            },
           ),
         ),
         const SizedBox(width: 8),
         Expanded(
           child: _buildActionBtn(
-            isOwner && !TankService.instance.samplingHistory.isNotEmpty
-                ? 'Edit Setup'
-                : 'Edit Setup',
-            isOwner && !TankService.instance.samplingHistory.isNotEmpty
-                ? Icons.edit_rounded
-                : Icons.lock_outline,
-            isOwner && !TankService.instance.samplingHistory.isNotEmpty
-                ? AppColors.primary
-                : Colors.grey.shade400,
-            isOwner && !TankService.instance.samplingHistory.isNotEmpty
-                ? onShowEditModal
-                : () {},
+            'Edit Setup',
+            canEditSetup ? Icons.edit_rounded : Icons.lock_outline,
+            canEditSetup ? AppColors.primary : Colors.grey.shade400,
+            canEditSetup ? onShowEditModal : () {
+              if (!isOwner) {
+                showBeautifulSnackbar(context, 'Edit Setup is for owners only', false, title: 'Notice');
+              } else {
+                showBeautifulSnackbar(context, 'Cannot edit after first sampling', false, title: 'Notice');
+              }
+            },
           ),
         ),
         const SizedBox(width: 8),

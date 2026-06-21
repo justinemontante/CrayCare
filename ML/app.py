@@ -51,6 +51,11 @@ FEATURE_ORDER = [
     "turb_max",
     "wl_min",
     "wl_max",
+    "temp_ratio",
+    "ph_ratio",
+    "do_ratio",
+    "turb_ratio",
+    "wl_ratio",
 ]
 
 # ─── Service Account Key ────────────────────────────────────────────────────
@@ -161,17 +166,56 @@ def get_current_stage_ranges(ref):
     return stage, ranges
 
 
-def generate_insight(label, val, unit, status, rate, r_min, r_max):
+def generate_insight(label, val, unit, status, rate, r_min, r_max, stage=None, sensor_key=None):
     is_max_bound = r_max < 999.0
     unit_str = unit if unit else ""
     sign = "+" if rate >= 0 else ""
+
+    # ── Absolute Biological Override ──────────────────────────────────────────
+    # If the farmer sets an absurdly wrong "ideal range", the ML and logic must 
+    # override it if it hits absolute lethal limits for crayfish.
+    absolute_critical = False
+    override_msg = ""
+    if sensor_key == "do" and val < 3.0:
+        absolute_critical, override_msg = True, "BIOLOGICAL HAZARD: DO < 3.0 mg/L is lethal to crayfish regardless of custom settings!"
+    elif sensor_key == "temp" and (val < 15.0 or val > 35.0):
+        absolute_critical, override_msg = True, "BIOLOGICAL HAZARD: Temperature outside 15-35°C is highly lethal to crayfish!"
+    elif sensor_key == "ph" and (val < 5.5 or val > 9.5):
+        absolute_critical, override_msg = True, "BIOLOGICAL HAZARD: pH level is chemically burning the crayfish gills!"
+    elif sensor_key == "wl" and val < 50.0:
+        absolute_critical, override_msg = True, "BIOLOGICAL HAZARD: Water level is dangerously shallow. Risk of overheating and predation!"
+
+    if absolute_critical:
+        status = "CRITICAL"
+
+    # ── Hardware / Physical Recommendations Logic ─────────────────────────────
+    hardware_rec = ""
+    if status != "OPTIMAL" and sensor_key:
+        if sensor_key == "do" and (val < r_min or absolute_critical):
+            hardware_rec = "⚙️ AUTOMATION: Ensure both automated aerators are running. Physical Check: Clean clogged air stones."
+        elif sensor_key == "turb":
+            hardware_rec = "⚙️ AUTOMATION: Automated water pump should cycle water. Physical Check: Inspect filtration system and clean filter media."
+        elif sensor_key == "temp" and (val > r_max or val > 35.0):
+            hardware_rec = "Physical Check: Check if tank covers/shade nets are missing ('walang tabon'). Block direct sunlight."
+        elif sensor_key == "temp" and (val < r_min or val < 15.0):
+            hardware_rec = "Physical Check: Ensure tank is protected from cold drafts. Use covers at night to retain heat."
+        elif sensor_key == "wl" and (val < r_min or val < 50.0):
+            hardware_rec = "Physical Check: URGENT! Inspect tank and plumbing for leaks ('baka may butas'). Check automated refill."
+        elif sensor_key == "wl" and val > r_max:
+            hardware_rec = "Physical Check: Verify if overflow pipes are clogged."
+        elif sensor_key == "ph":
+            hardware_rec = "Physical Check: Add agricultural lime for low pH, or perform partial water change for high pH."
+
     if status == "CRITICAL":
-        if val < r_min:
-            insight = f"{label} is critical at {val}{unit_str} (below ideal min of {r_min}{unit_str})."
-            recommendation = f"Urgent action required: Increase {label.lower()}."
+        if absolute_critical:
+            insight = f"⚠️ {override_msg} Current {label}: {val}{unit_str}."
+            recommendation = f"EMERGENCY ACTION REQUIRED IMMEDIATELY! {hardware_rec}"
+        elif val < r_min:
+            insight = f"{label} is critical at {val}{unit_str} (below custom min of {r_min}{unit_str})."
+            recommendation = f"Urgent action required: Increase {label.lower()}. {hardware_rec}"
         else:
-            insight = f"{label} is critical at {val}{unit_str} (above ideal max of {r_max}{unit_str})."
-            recommendation = f"Urgent action required: Reduce {label.lower()}."
+            insight = f"{label} is critical at {val}{unit_str} (above custom max of {r_max}{unit_str})."
+            recommendation = f"Urgent action required: Reduce {label.lower()}. {hardware_rec}"
         prediction = (
             "Crayfish are under high physiological stress. Mortality risk if prolonged."
         )
@@ -179,11 +223,11 @@ def generate_insight(label, val, unit, status, rate, r_min, r_max):
         range_mid = (r_min + r_max) / 2 if is_max_bound else r_min * 1.5
         if val < range_mid:
             insight = f"{label} is warning-low at {val}{unit_str} (approaching {r_min}{unit_str})."
-            recommendation = f"Adjust parameters: Raise {label.lower()} soon."
+            recommendation = f"Adjust parameters: Raise {label.lower()} soon. {hardware_rec}"
         else:
             max_display = r_max if is_max_bound else "\u221e"
             insight = f"{label} is warning-high at {val}{unit_str} (approaching {max_display}{unit_str})."
-            recommendation = f"Adjust parameters: Lower {label.lower()} soon."
+            recommendation = f"Adjust parameters: Lower {label.lower()} soon. {hardware_rec}"
         prediction = f"Reading is warning-close to limits and moving at {sign}{rate:.3f}{unit_str}/rdg."
     else:
         max_display = r_max if is_max_bound else "\u221e"
@@ -226,8 +270,19 @@ def on_sensor_change(event):
     do_rate = histories["do"].get_rate()
     turb_rate = histories["turb"].get_rate()
     wl_rate = histories["waterlevel"].get_rate()
-
     stage, ranges = get_current_stage_ranges(config_ref)
+    t_min = float(ranges["temp"]["min"])
+    t_max = float(ranges["temp"]["max"])
+    p_min = float(ranges["ph"]["min"])
+    p_max = float(ranges["ph"]["max"])
+    do_min = float(ranges["do"]["min"])
+    turb_max = float(ranges["turb"]["max"])
+    wl_min = float(ranges["waterlevel"]["min"])
+    wl_max = float(ranges["waterlevel"]["max"])
+
+    def compute_ratio(val, vmin, vmax):
+        span = vmax - vmin
+        return (val - vmin) / span if span > 0 else 0.5
 
     features = {
         "temperature": float(temp),
@@ -240,14 +295,19 @@ def on_sensor_change(event):
         "do_rate": float(do_rate),
         "turb_rate": float(turb_rate),
         "wl_rate": float(wl_rate),
-        "temp_min": float(ranges["temp"]["min"]),
-        "temp_max": float(ranges["temp"]["max"]),
-        "ph_min": float(ranges["ph"]["min"]),
-        "ph_max": float(ranges["ph"]["max"]),
-        "do_min": float(ranges["do"]["min"]),
-        "turb_max": float(ranges["turb"]["max"]),
-        "wl_min": float(ranges["waterlevel"]["min"]),
-        "wl_max": float(ranges["waterlevel"]["max"]),
+        "temp_min": t_min,
+        "temp_max": t_max,
+        "ph_min": p_min,
+        "ph_max": p_max,
+        "do_min": do_min,
+        "turb_max": turb_max,
+        "wl_min": wl_min,
+        "wl_max": wl_max,
+        "temp_ratio": round(compute_ratio(float(temp), t_min, t_max), 4),
+        "ph_ratio": round(compute_ratio(float(ph), p_min, p_max), 4),
+        "do_ratio": round((float(d_o) - do_min) / max(do_min, 0.1), 4),
+        "turb_ratio": round(float(turb) / max(turb_max, 0.1), 4),
+        "wl_ratio": round(compute_ratio(float(wl), wl_min, wl_max), 4),
     }
 
     X = pd.DataFrame([features])[FEATURE_ORDER]
@@ -292,7 +352,7 @@ def on_sensor_change(event):
             confidence = 1.0
 
         insight, prediction, recommendation = generate_insight(
-            cfg["label"], val, unit, sensor_status, rate, r_min, r_max
+            cfg["label"], val, unit, sensor_status, rate, r_min, r_max, stage, model_key
         )
 
         if model_key == "do" and rate < -0.05:
@@ -400,6 +460,19 @@ def home():
 def predict():
     data = request.get_json()
     try:
+        t_min = float(data["temp_min"])
+        t_max = float(data["temp_max"])
+        p_min = float(data["ph_min"])
+        p_max = float(data["ph_max"])
+        do_min = float(data["do_min"])
+        turb_max = float(data["turb_max"])
+        wl_min = float(data["wl_min"])
+        wl_max = float(data["wl_max"])
+
+        def compute_ratio(val, vmin, vmax):
+            span = vmax - vmin
+            return (val - vmin) / span if span > 0 else 0.5
+
         features = {
             "temperature": float(data["temperature"]),
             "phLevel": float(data["phLevel"]),
@@ -411,14 +484,19 @@ def predict():
             "do_rate": float(data.get("do_rate", 0.0)),
             "turb_rate": float(data.get("turb_rate", 0.0)),
             "wl_rate": float(data.get("wl_rate", 0.0)),
-            "temp_min": float(data["temp_min"]),
-            "temp_max": float(data["temp_max"]),
-            "ph_min": float(data["ph_min"]),
-            "ph_max": float(data["ph_max"]),
-            "do_min": float(data["do_min"]),
-            "turb_max": float(data["turb_max"]),
-            "wl_min": float(data["wl_min"]),
-            "wl_max": float(data["wl_max"]),
+            "temp_min": t_min,
+            "temp_max": t_max,
+            "ph_min": p_min,
+            "ph_max": p_max,
+            "do_min": do_min,
+            "turb_max": turb_max,
+            "wl_min": wl_min,
+            "wl_max": wl_max,
+            "temp_ratio": round(compute_ratio(float(data["temperature"]), t_min, t_max), 4),
+            "ph_ratio": round(compute_ratio(float(data["phLevel"]), p_min, p_max), 4),
+            "do_ratio": round((float(data["dissolvedOxygen"]) - do_min) / max(do_min, 0.1), 4),
+            "turb_ratio": round(float(data["turbidity"]) / max(turb_max, 0.1), 4),
+            "wl_ratio": round(compute_ratio(float(data["waterLevel"]), wl_min, wl_max), 4),
         }
     except KeyError as e:
         return jsonify({"error": f"Missing required parameter: {e.args[0]}"}), 400

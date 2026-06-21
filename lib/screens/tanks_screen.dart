@@ -6,6 +6,7 @@ import '../services/tank_service.dart';
 import '../widgets/tanks/inventory_tab.dart';
 import '../widgets/tanks/sampling_tab.dart';
 import '../widgets/tanks/trends_tab.dart';
+import '../widgets/common/read_only_banner.dart';
 import '../utils/snackbar_helper.dart';
 
 class TanksScreen extends StatefulWidget {
@@ -49,6 +50,7 @@ class TanksScreenState extends State<TanksScreen> {
         children: [
           _buildHeader(),
           _buildTabBar(),
+          if (!widget.isOwner) _buildReadOnlyBanner(),
           Expanded(
             child: IndexedStack(
               index: _activeTab,
@@ -1239,6 +1241,13 @@ class TanksScreenState extends State<TanksScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildReadOnlyBanner() {
+    return const ReadOnlyBanner(
+      message:
+          'You can view all tank data, sampling history, and trends. Only the Farm Owner can modify setup, record sampling, or manage inventory.',
     );
   }
 }
