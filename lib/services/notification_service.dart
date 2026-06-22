@@ -517,7 +517,7 @@ class NotificationService extends ChangeNotifier {
     }
   }
 
-  void _fireReminder(String key, ScheduleItem s, {bool showSystemNotif = true, DateTime? scheduledAt}) {
+  Future<void> _fireReminder(String key, ScheduleItem s, {bool showSystemNotif = true, DateTime? scheduledAt}) async {
     if (_feedingReminderSent.contains(key)) return;
     _feedingReminderSent.add(key);
     _localNotifications.cancel(key.hashCode);
@@ -525,6 +525,16 @@ class NotificationService extends ChangeNotifier {
     final msg = 'Your feeding schedule at ${s.time} ${s.ampm} will be dispensed in 5 minutes.';
 
     debugPrint('[NotificationService] Firing reminder for ${s.time} ${s.ampm}');
+
+    final now = DateTime.now();
+    final todayKey = '${now.year}-${now.month}-${now.day}';
+    final reminderKey = 'reminder_${todayKey}_${key}';
+
+    final markerExists = await _notifRef
+        .child('markers/$reminderKey')
+        .once()
+        .then((s) => s.snapshot.exists);
+    if (markerExists) return;
 
     final scheduleLabel = '${s.time} ${s.ampm}';
     final alreadyAdded = _notifications.any(
@@ -536,8 +546,11 @@ class NotificationService extends ChangeNotifier {
         type: 'reminder',
         title: 'Feeding Reminder',
         message: msg,
-        timestamp: scheduledAt ?? DateTime.now(),
+        timestamp: scheduledAt ?? now,
       );
+      await _notifRef
+          .child('markers/$reminderKey')
+          .set(now.millisecondsSinceEpoch);
     }
 
     if (!showSystemNotif) return;
@@ -573,7 +586,7 @@ class NotificationService extends ChangeNotifier {
     }
   }
 
-  void _confirmFeedingComplete() {
+  Future<void> _confirmFeedingComplete() async {
     if (_userRole == 'admin') return;
     if (_isMonitor) return;
     if (!_notifFeeding) return;
@@ -587,15 +600,24 @@ class NotificationService extends ChangeNotifier {
       if (log.timestamp <= 0 || log.timestamp < oneMinAgo) continue;
 
       final confirmKey = 'confirm_${todayKey}_${log.timestamp}';
-      if (_feedingReminderSent.contains(confirmKey)) return;
-      _feedingReminderSent.add(confirmKey);
+      if (_feedingReminderSent.contains(confirmKey)) continue;
 
+      final markerExists = await _notifRef
+          .child('markers/$confirmKey')
+          .once()
+          .then((s) => s.snapshot.exists);
+      if (markerExists) continue;
+
+      _feedingReminderSent.add(confirmKey);
       _addNotification(
         type: 'reminder',
         title: 'Feeding Complete',
         message: 'Feed has been dispensed successfully.',
         timestamp: now,
       );
+      await _notifRef
+          .child('markers/$confirmKey')
+          .set(now.millisecondsSinceEpoch);
     }
   }
 
