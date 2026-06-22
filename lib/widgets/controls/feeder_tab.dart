@@ -7,7 +7,7 @@ class FeederTab extends StatelessWidget {
   final List<ScheduleItem> schedules;
   final TextEditingController timeCtl;
   final VoidCallback onFeedNow;
-  final VoidCallback onAddSchedule;
+  final void Function(double? grams) onAddSchedule;
   final void Function(int index) onDeleteSchedule;
   final void Function(int index, ScheduleItem item) onEditSchedule;
   final List<LogEntry> feederLogs;
@@ -605,17 +605,33 @@ class FeederTab extends StatelessWidget {
                   Icon(statusIcon, size: 12, color: dotColor),
                   const SizedBox(width: 6),
                   Expanded(
-                    child: Text(
-                      '${s.time} ${s.ampm}',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.dark,
-                        decoration: status == 'completed'
-                            ? TextDecoration.lineThrough
-                            : null,
-                        decorationColor: AppColors.darkWith(0.3),
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${s.time} ${s.ampm}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.dark,
+                            decoration: status == 'completed'
+                                ? TextDecoration.lineThrough
+                                : null,
+                            decorationColor: AppColors.darkWith(0.3),
+                          ),
+                        ),
+                        if (s.grams != null) ...[  
+                          const SizedBox(height: 2),
+                          Text(
+                            '${s.grams!.toStringAsFixed(1)}g',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                   Container(
@@ -731,6 +747,32 @@ class FeederTab extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 20),
+                if (s.grams != null) ...[  
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.06),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.scale_outlined, size: 14, color: AppColors.primary),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Amount: ${s.grams!.toStringAsFixed(1)}g',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 SizedBox(
                   width: double.infinity,
                   child: TextButton(
@@ -963,6 +1005,9 @@ class FeederTab extends StatelessWidget {
     } else {
       selectedTime = const TimeOfDay(hour: 6, minute: 0);
     }
+    final gramsCtl = TextEditingController(
+      text: existing?.grams != null ? existing!.grams!.toStringAsFixed(1) : '',
+    );
 
     showModalBottomSheet(
       context: ctx,
@@ -974,6 +1019,16 @@ class FeederTab extends StatelessWidget {
       builder: (sheetCtx) {
         return StatefulBuilder(
           builder: (sheetCtx, setSheetState) {
+            String? gramsError;
+            if (gramsCtl.text.isNotEmpty) {
+              final v = double.tryParse(gramsCtl.text);
+              if (v == null) {
+                gramsError = 'Enter a valid number';
+              } else if (v <= 0) {
+                gramsError = 'Grams must be greater than 0';
+              }
+            }
+
             return Padding(
               padding: EdgeInsets.fromLTRB(
                 20,
@@ -1005,6 +1060,7 @@ class FeederTab extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 16),
+                  // Time picker
                   GestureDetector(
                     onTap: () async {
                       final picked = await showTimePicker(
@@ -1047,47 +1103,78 @@ class FeederTab extends StatelessWidget {
                       ),
                     ),
                   ),
+                  const SizedBox(height: 12),
+                  // Grams field
+                  TextField(
+                    controller: gramsCtl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    onChanged: (_) => setSheetState(() {}),
+                    decoration: InputDecoration(
+                      labelText: 'Grams (optional)',
+                      hintText: 'e.g. 50',
+                      suffixText: 'g',
+                      errorText: gramsError,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: AppColors.primary, width: 2),
+                      ),
+                      errorBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: AppColors.critical, width: 1.5),
+                      ),
+                      focusedErrorBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: AppColors.critical, width: 2),
+                      ),
+                    ),
+                  ),
                   const SizedBox(height: 20),
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: () {
-                        final h = selectedTime.hour;
-                        final m = selectedTime.minute;
-                        final ampm = h >= 12 ? 'PM' : 'AM';
-                        final h12 = h % 12 == 0 ? 12 : h % 12;
-                        final timeStr =
-                            '$h12:${m.toString().padLeft(2, '0')}';
-                        // Check duplicate
-                        final duplicate = schedules.any((s) =>
-                            s.time == timeStr &&
-                            s.ampm == ampm &&
-                            (isEdit ? schedules.indexOf(s) != index : true));
-                        if (duplicate) {
-                          ScaffoldMessenger.of(ctx).showSnackBar(
-                            SnackBar(
-                              content: const Text('A schedule at this time already exists'),
-                              behavior: SnackBarBehavior.floating,
-                              backgroundColor: AppColors.critical,
-                              duration: const Duration(seconds: 2),
-                            ),
-                          );
-                          return;
-                        }
-                        if (isEdit) {
-                          onEditSchedule(
-                            index!,
-                            ScheduleItem(timeStr, ampm),
-                          );
-                        } else {
-                          timeCtl.text = '$timeStr:$ampm';
-                          onAddSchedule();
-                        }
-                        Navigator.pop(sheetCtx);
-                      },
+                      onPressed: gramsError != null
+                          ? null
+                          : () {
+                              final h = selectedTime.hour;
+                              final m = selectedTime.minute;
+                              final ampm = h >= 12 ? 'PM' : 'AM';
+                              final h12 = h % 12 == 0 ? 12 : h % 12;
+                              final timeStr =
+                                  '$h12:${m.toString().padLeft(2, '0')}';
+                              // Check duplicate
+                              final duplicate = schedules.any((s) =>
+                                  s.time == timeStr &&
+                                  s.ampm == ampm &&
+                                  (isEdit ? schedules.indexOf(s) != index : true));
+                              if (duplicate) {
+                                ScaffoldMessenger.of(ctx).showSnackBar(
+                                  SnackBar(
+                                    content: const Text('A schedule at this time already exists'),
+                                    behavior: SnackBarBehavior.floating,
+                                    backgroundColor: AppColors.critical,
+                                    duration: const Duration(seconds: 2),
+                                  ),
+                                );
+                                return;
+                              }
+                              final grams = double.tryParse(gramsCtl.text);
+                              if (isEdit) {
+                                onEditSchedule(
+                                  index!,
+                                  ScheduleItem(timeStr, ampm, grams: grams),
+                                );
+                              } else {
+                                timeCtl.text = '$timeStr:$ampm';
+                                onAddSchedule(grams);
+                              }
+                              Navigator.pop(sheetCtx);
+                            },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
+                        disabledBackgroundColor: Colors.grey.shade300,
                         foregroundColor: Colors.white,
+                        disabledForegroundColor: Colors.grey.shade500,
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         elevation: 0,
                         shape: RoundedRectangleBorder(

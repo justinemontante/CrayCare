@@ -158,6 +158,7 @@ class FeederService extends ChangeNotifier {
                   val['ampm'] as String? ?? 'AM',
                   enabled: val['enabled'] as bool? ?? true,
                   isDone: val['isDone'] as bool? ?? false,
+                  grams: (val['grams'] as num?)?.toDouble(),
                 ));
               }
             }
@@ -221,16 +222,21 @@ class FeederService extends ChangeNotifier {
     }
   }
 
-  void feedNow({String source = 'manual', String? scheduleKey}) {
+  void feedNow({String source = 'manual', String? scheduleKey, double? grams}) {
     try {
-      _commandsRef.push().set({
+      final Map<String, dynamic> cmd = {
         'action': 'feed_now',
         'timestamp': DateTime.now().millisecondsSinceEpoch,
         'source': 'flutter-app',
-      });
+      };
+      if (grams != null) {
+        cmd['grams'] = grams;
+      }
+      _commandsRef.push().set(cmd);
+      final gramsStr = grams != null ? ' (${grams.toStringAsFixed(1)}g)' : '';
       if (source == 'scheduled') {
         _addLogEntry(
-          action: 'Auto feed dispensed',
+          action: 'Auto feed dispensed$gramsStr',
           type: 'auto',
         );
         final dateKey = '${DateTime.now().year}-${DateTime.now().month}-${DateTime.now().day}';
@@ -241,7 +247,7 @@ class FeederService extends ChangeNotifier {
         }
       } else {
         _addLogEntry(
-          action: 'Feed dispensed',
+          action: 'Feed dispensed$gramsStr',
           type: 'manual',
         );
       }
@@ -281,16 +287,18 @@ class FeederService extends ChangeNotifier {
     }
   }
 
-  void addSchedule(String time, String ampm) {
+  void addSchedule(String time, String ampm, {double? grams}) {
     try {
       _schedulesRef.push().set({
         'time': time,
         'ampm': ampm,
         'enabled': true,
         'isDone': false,
+        'grams': grams,
       });
+      final gramsStr = grams != null ? ' (${grams.toStringAsFixed(1)}g)' : '';
       _addLogEntry(
-        action: 'Scheduled auto feed at $time $ampm',
+        action: 'Scheduled auto feed at $time $ampm$gramsStr',
         type: 'auto',
       );
     } catch (e) {
@@ -324,17 +332,21 @@ class FeederService extends ChangeNotifier {
     required String time,
     required String ampm,
     bool? enabled,
+    double? grams,
+    bool clearGrams = false,
   }) {
     if (index < 0 || index >= _scheduleKeys.length) return;
     try {
       _schedulesRef.child(_scheduleKeys[index]).update({
         'time': time,
         'ampm': ampm,
-        if (enabled != null) 'enabled': enabled,
+        'enabled': enabled ?? true,
         'isDone': false,
+        'grams': grams,
       });
+      final gramsStr = grams != null ? ' (${grams.toStringAsFixed(1)}g)' : '';
       _addLogEntry(
-        action: 'Edited schedule to $time $ampm',
+        action: 'Edited schedule to $time $ampm$gramsStr',
         type: 'auto',
       );
     } catch (e) {

@@ -46,11 +46,17 @@ class BackgroundHelper {
           .get();
       if (marker.exists) continue;
 
-      await db.ref('feeder/commands').push().set({
+      final grams = (s['grams'] as num?)?.toDouble();
+
+      final Map<String, dynamic> cmd = {
         'action': 'feed_now',
         'timestamp': ServerValue.timestamp,
         'source': 'background',
-      });
+      };
+      if (grams != null) {
+        cmd['grams'] = grams;
+      }
+      await db.ref('feeder/commands').push().set(cmd);
 
       final months = [
         'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -60,9 +66,10 @@ class BackgroundHelper {
       final ampmStr = h >= 12 ? 'PM' : 'AM';
       final timeStr = '$h12:${m.toString().padLeft(2, '0')} $ampmStr';
       final dateStr = '${months[now.month - 1]} ${now.day}, ${now.year}';
+      final gramsStr = grams != null ? ' (${grams.toStringAsFixed(1)}g)' : '';
 
       await db.ref('feeder/logs').push().set({
-        'action': 'Auto feed dispensed',
+        'action': 'Auto feed dispensed$gramsStr',
         'type': 'auto',
         'time': timeStr,
         'date': dateStr,
@@ -71,7 +78,7 @@ class BackgroundHelper {
 
       await db.ref('feeder/dispatched/$todayKey/$dispatchedKey').set(true);
 
-      debugPrint('[BackgroundHelper] Dispatched feed for $time $ampm');
+      debugPrint('[BackgroundHelper] Dispatched feed for $time $ampm$gramsStr');
     }
   }
 

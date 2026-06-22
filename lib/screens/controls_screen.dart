@@ -248,7 +248,7 @@ class ControlsScreenState extends State<ControlsScreen> {
   Map<String, String> _deviceRuntimeLabels = {};
   Timer? _runtimeTimer;
 
-  void _feedNow() {
+  void _feedNow({double? grams}) {
     if (!widget.isOwner) return;
     final svc = FeederService.instance;
     if (!svc.isOnline) {
@@ -271,8 +271,126 @@ class ControlsScreenState extends State<ControlsScreen> {
       });
       if (mounted) setState(() {});
     });
-    svc.feedNow();
+    svc.feedNow(grams: grams);
     setState(() => _feedState = _FeedState.dispensing);
+  }
+
+  void _showFeedNowDialog() {
+    if (!widget.isOwner) return;
+    final gramsCtl = TextEditingController();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetCtx) {
+        return StatefulBuilder(
+          builder: (sheetCtx, setModalState) {
+            String? gramsError;
+            if (gramsCtl.text.isNotEmpty) {
+              final raw = double.tryParse(gramsCtl.text);
+              if (raw == null) {
+                gramsError = 'Please enter a valid number';
+              } else if (raw <= 0) {
+                gramsError = 'Grams must be greater than 0';
+              }
+            }
+            return Padding(
+              padding: EdgeInsets.fromLTRB(20, 10, 20, 20 + MediaQuery.of(sheetCtx).viewInsets.bottom),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36, height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Container(
+                        width: 42, height: 42,
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.play_arrow_rounded, size: 22, color: AppColors.primary),
+                      ),
+                      const SizedBox(width: 12),
+                      const Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Feed Now', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.dark)),
+                          SizedBox(height: 2),
+                          Text('Optional: set grams to dispense', style: TextStyle(fontSize: 10, color: Color(0x80000000))),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  TextField(
+                    controller: gramsCtl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    onChanged: (_) => setModalState(() {}),
+                    decoration: InputDecoration(
+                      labelText: 'Grams (optional)',
+                      hintText: 'e.g. 50',
+                      suffixText: 'g',
+                      errorText: gramsError,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: AppColors.primary, width: 2),
+                      ),
+                      errorBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: AppColors.critical, width: 1.5),
+                      ),
+                      focusedErrorBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: AppColors.critical, width: 2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: gramsError != null
+                          ? null
+                          : () {
+                              final grams = gramsCtl.text.isNotEmpty
+                                  ? double.tryParse(gramsCtl.text)
+                                  : null;
+                              Navigator.pop(sheetCtx);
+                              _feedNow(grams: grams);
+                            },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        disabledBackgroundColor: Colors.grey.shade300,
+                        foregroundColor: Colors.white,
+                        disabledForegroundColor: Colors.grey.shade500,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: const Text('Dispense Feed', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   String _formatTimeInput(String val) {
@@ -285,7 +403,7 @@ class ControlsScreenState extends State<ControlsScreen> {
     return '$h12:$m $ampm';
   }
 
-  void _addSchedule() {
+  void _addSchedule({double? grams}) {
     if (!widget.isOwner) return;
     if (_timeCtl.text.isEmpty) return;
     final formatted = _formatTimeInput(_timeCtl.text);
@@ -293,7 +411,7 @@ class ControlsScreenState extends State<ControlsScreen> {
     final hStr = formatted.split(':')[0];
     final hour = int.tryParse(hStr) ?? 6;
     final timeStr = '$hour:${formatted.split(':')[1].split(' ')[0]}';
-    FeederService.instance.addSchedule(timeStr, isPM ? 'PM' : 'AM');
+    FeederService.instance.addSchedule(timeStr, isPM ? 'PM' : 'AM', grams: grams);
     _timeCtl.clear();
   }
 
@@ -309,6 +427,8 @@ class ControlsScreenState extends State<ControlsScreen> {
       time: item.time,
       ampm: item.ampm,
       enabled: item.enabled,
+      grams: item.grams,
+      clearGrams: item.grams == null,
     );
   }
 
@@ -369,8 +489,8 @@ class ControlsScreenState extends State<ControlsScreen> {
                     FeederTab(
                       schedules: FeederService.instance.schedules,
                       timeCtl: _timeCtl,
-                      onFeedNow: _feedNow,
-                      onAddSchedule: _addSchedule,
+                      onFeedNow: _showFeedNowDialog,
+                      onAddSchedule: (grams) => _addSchedule(grams: grams),
                       onDeleteSchedule: _deleteSchedule,
                       onEditSchedule: _editSchedule,
                       feederLogs: FeederService.instance.logs,

@@ -1260,6 +1260,24 @@ class _DashboardScreenState extends State<DashboardScreen>
                         color: AppColors.dark,
                       ),
                     ),
+                    if (lastFed?.grams != null) ...[
+                      const SizedBox(height: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          '${lastFed!.grams!.toStringAsFixed(1)}g',
+                          style: const TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -1300,6 +1318,24 @@ class _DashboardScreenState extends State<DashboardScreen>
                         color: AppColors.dark,
                       ),
                     ),
+                    if (nextFeed?.grams != null) ...[
+                      const SizedBox(height: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          '${nextFeed!.grams!.toStringAsFixed(1)}g',
+                          style: const TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),

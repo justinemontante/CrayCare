@@ -5,7 +5,8 @@ class ScheduleItem {
   final String ampm;
   final bool enabled;
   final bool isDone;
-  ScheduleItem(this.time, this.ampm, {this.enabled = true, this.isDone = false});
+  final double? grams;
+  ScheduleItem(this.time, this.ampm, {this.enabled = true, this.isDone = false, this.grams});
 }
 
 class LogEntry {
