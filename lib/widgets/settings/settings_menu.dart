@@ -83,7 +83,7 @@ class SettingsMenu extends StatelessWidget {
               ]),
               const SizedBox(height: 10),
             ],
-            if (userRole?.toLowerCase() == 'owner') ...[
+            if (userRole?.toLowerCase() == 'admin') ...[
               _buildMenuSection('Administration', [
                 _buildMenuItem(
                   'User Management',
