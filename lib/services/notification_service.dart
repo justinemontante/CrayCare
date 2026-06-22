@@ -18,6 +18,15 @@ import 'database_service.dart';
 @pragma('vm:entry-point')
 Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
   debugPrint('[FCM] Background msg: ${message.messageId}');
+
+  // Skip showing local notification if FCM has a 'notification' payload.
+  // When app is background/terminated, the Android system auto-displays it
+  // using the notification channel specified in the worker payload.
+  if (message.notification != null) {
+    debugPrint('[FCM] Notification payload present, system will handle display.');
+    return;
+  }
+
   try {
     final localNotif = FlutterLocalNotificationsPlugin();
     const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -25,7 +34,6 @@ Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
       const InitializationSettings(android: androidSettings),
     );
 
-    // Re-create channels in background isolate so they exist before showing
     final manager = localNotif
         .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
 
@@ -77,17 +85,13 @@ Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
     }
 
     final data = message.data;
-    
-    // Check if the notification is a feeding or sampling notification
+
     final isFeeding = data['feeding'] == 'true';
     final isSampling = data['sampling'] == 'true';
-    
-    // If the worker says critical=false, skip
+
     final showCritical = data['critical'] != 'false';
     if (!showCritical && !isFeeding && !isSampling) return;
 
-    // Check user settings on Firebase RTDB before displaying background push notification.
-    // In background message handler, we can fetch preferences directly from database.
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
@@ -95,7 +99,7 @@ Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
         if (snap.exists && snap.value != null) {
           final raw = snap.value as Map<Object?, Object?>;
           final map = raw.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
-          
+
           if (isFeeding && map['feeding'] == false) {
             debugPrint('[FCM] Skipping feeding notification because it is turned off in preferences.');
             return;
