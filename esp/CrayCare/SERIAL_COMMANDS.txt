@@ -31,7 +31,7 @@
 
   EXAMPLE:
     servopause 2000      →  Servo stays open for 2 seconds
-    servoangle 90 0      →  Open at 90°, Close at 0°, stored in NVS
+    servoangle 180 0      →  Open at 90°, Close at 0°, stored in NVS
     servocycle           →  Run full feed: open → pause → close
     feedtime1 9 0         →  AM feed at 9:00 AM
     feedtime2 18 0        →  PM feed at 6:00 PM
@@ -69,31 +69,28 @@
   phcal7              Calibrate at pH 7.0 buffer (all-in-one)
   phcal4              Calibrate at pH 4.0 buffer (all-in-one)
 
-  --- Standalone pH Calibrator only (esp32dev_ph_calibrator) ---
-  686                 Auto-detect dip + monitor stability at pH 6.86
-  401                 Auto-detect dip + monitor stability at pH 4.01
-  read                One-shot pH reading
-  raw                 Toggle live voltage + pH stream (every 500ms)
-  verify              Test calibration on both buffers (manual save)
-  show                Display saved calibration values
-  reset               Reset calibration to defaults
+  --- pH 6.86 / 4.01 Calibration (all-in-one) ---
+  686                 Auto-detect dip + monitor at pH 6.86 buffer
+  401                 Auto-detect dip + monitor at pH 4.01 buffer
+  phread              Show raw voltage + calculated pH
+  phshow              Display all pH calibration values
+  phreset             Reset 686/401 calibration
 
-  EXAMPLE:
-    phcal7                 →  Submerge probe in pH 7.0 buffer, type this
-    phcal4                 →  Submerge probe in pH 4.0 buffer, type this
-
-  STANDALONE CALIBRATOR WORKFLOW (manual save):
+  WORKFLOW (all-in-one — same as standalone):
     1. Type "686" → dip probe in pH 6.86 buffer
-       → Shows live V + drift every 500ms
-       → When stable (✅), type "save" to record
-       → Type "abort" to cancel
-    2. Rinse probe, then type "401" → dip in pH 4.01 buffer
-       → Same as above, type "save" when satisfied
-    3. Type "verify" → test both buffers
-    4. Type "read" anytime for one-shot pH, "raw" for continuous
+       → Auto-detects dip, shows live V + drift every 500ms
+       → When ✅ STABLE, type "save" to record (or "abort" to cancel)
+    2. Rinse probe
+    3. Type "401" → dip probe in pH 4.01 buffer
+       → Same flow, type "save" when satisfied
+    4. Type "phshow" to see full calibration values
+    5. Type "phread" anytime for one-shot pH reading
 
-  Tip: Wait 1-2 minutes extra after stability indicator for best accuracy.
-  Type "save" only when voltage has been stable for a while.
+  NOTE: phcal7/phcal4 and 686/401 are separate calibrations.
+  The ESP prefers 686/401 if both exist, otherwise falls back.
+
+  --- Standalone pH Calibrator only (esp32dev_ph_calibrator) ---
+  686, 401, read, raw, verify, show, reset — same commands, standalone only
 
 --- WATER LEVEL CALIBRATION ---
   tankheight <cm>     Set HC-SR04 height above tank bottom
@@ -130,11 +127,21 @@
   debugmode [0/1]     Toggle or set debug mode
   debugstatus         Show full system status
 
+--- PLOTTER / RAW OUTPUT ---
+  plotter              Toggle CSV stream for PlatformIO Serial Plotter (every 5s)
+  raw                  Toggle raw sensor voltages (every 5s)
+
+  PLOTTER OUTPUT: epoch,pH,Temp,DO,Turb,Water
+    Example: 1709654321,7.12,28.5,3.20,45.0,12.3
+    → Open PlatformIO Serial Plotter (baud 115200) to visualize
+
+  RAW OUTPUT: pH_V, DO_mV, Turb_V, HC-SR04_distance, Water_depth
+    Example: [RAW] pH_V=2.504 | DO_mV=1420 | Turb_V=1.853 | HC-SR04=44.3cm → Water=22.7cm
+    → Use for verifying sensor response during calibration
+
   EXAMPLE:
-    debugmode              →  Toggle debug ON/OFF
-    debugmode 1             →  Force debug ON
-    debugmode 0             →  Force debug OFF
-    debugstatus             →  Show all sensor values, WiFi, Firebase status
+    plotter               →  Toggle CSV stream ON/OFF
+    raw                   →  Toggle raw voltages ON/OFF
 
 --- SYSTEM ---
   restart             Reboot ESP32
@@ -152,19 +159,14 @@
   1. DO (Dissolved Oxygen):
        Bottle + damp cotton → wait STABLE → doclear
 
-  2. pH — Standalone calibrator (esp32dev_ph_calibrator):
+  2. pH — use 686/401 calibration (all-in-one):
        Type "686" → dip in pH 6.86 buffer → wait stable → type "save"
        Rinse
        Type "401" → dip in pH 4.01 buffer → wait stable → type "save"
-       Type "verify" to validate
+       Type "phshow" to verify
 
-  3. pH — All-in-one:
-       pH 7.0 buffer → phcal7
-       Rinse
-       pH 4.0 buffer → phcal4
-
-  4. Turbidity:
-       Probe in CLEAR water → debugmode → note voltage → turbclear <V>
+  3. Turbidity:
+       Probe in CLEAR water → raw mode → note voltage → turbclear <V>
        Probe in DIRTY water → note voltage → turbdirty <V>
        Probe in AIR → note voltage → turbair <V>
 

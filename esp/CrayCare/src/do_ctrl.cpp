@@ -19,6 +19,17 @@ void initDOSensor() {
     loadDOCalibration();
 }
 
+float saturationDO(float tempC);
+
+float readDORaw() {
+    uint32_t sum = 0;
+    for (size_t i = 0; i < 10; i++) {
+        sum += analogRead(DO_PIN);
+        delay(1);
+    }
+    return (sum / 10.0f) * (3.3f / 4095.0f) / DO_DIVIDER_RATIO;
+}
+
 static float readDORawVoltage() {
     uint32_t sum = 0;
     for (size_t i = 0; i < 10; i++) {

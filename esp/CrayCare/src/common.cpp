@@ -162,7 +162,7 @@ String getStoredWifiPassword() {
 uint64_t getEpochMillis() {
     struct tm timeInfo;
     if (!getLocalTime(&timeInfo)) {
-        return 0;
+        return (uint64_t)millis();  // fallback to uptime when NTP not synced
     }
     return (uint64_t)mktime(&timeInfo) * 1000ULL;
 }

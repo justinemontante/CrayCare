@@ -12,3 +12,4 @@ void calibrateDOInAir();
 void loadDOCalibration();
 void saveDOCalibration();
 float saturationDO(float tempC);
+float readDORaw();

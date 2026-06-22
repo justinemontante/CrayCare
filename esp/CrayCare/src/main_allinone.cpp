@@ -86,6 +86,7 @@ static unsigned long lastSensorRead = 0;
 static unsigned long lastPublish = 0;
 static unsigned long lastHistoryPublish = 0;
 static unsigned long lastLcdUpdate = 0;
+static unsigned long lastRawOutput = 0;
 static int lcdPage = 0;
 static uint8_t lcdAddress = 0;
 
@@ -97,6 +98,8 @@ static float currentPH = 7.0;
 static float currentDO = 5.0;
 static float currentWaterCm = -1;
 static bool debugMode = false;
+static bool plotterMode = false;
+static bool rawMode = false;
 
 // --- HC-SR04 moving average filter (smooth ripples) ---
 #define HC_BUF_SIZE 10
@@ -451,6 +454,12 @@ static void publishSensors() {
         Serial.println("[FB] Offline, queuing sensor reading");
         addToBuffer(currentTemp, currentPH, currentDO, currentTurbNTU, currentWaterCm);
     }
+
+    if (plotterMode) {
+        Serial.printf("%lu,%.2f,%.1f,%.2f,%.1f,%.1f\n",
+            now, currentPH, currentTemp, currentDO, currentTurbNTU,
+            currentWaterCm >= 0 ? currentWaterCm : 0);
+    }
 }
 
 static String fmtDatePath() {
@@ -729,6 +738,11 @@ static void printHelp() {
     Serial.println("--- pH Calibration ---");
     Serial.println("  phcal7               Calibrate at pH 7.0 buffer");
     Serial.println("  phcal4               Calibrate at pH 4.0 buffer");
+    Serial.println("  686                  Calibrate at pH 6.86 buffer (auto-detect)");
+    Serial.println("  401                  Calibrate at pH 4.01 buffer (auto-detect)");
+    Serial.println("  phread               Show raw voltage + calculated pH");
+    Serial.println("  phshow               Show all pH calibration values");
+    Serial.println("  phreset              Reset pH calibration (686/401)");
     Serial.println("");
     Serial.println("--- DO Calibration ---");
     Serial.println("  doclear              Calibrate in air (100% sat)");
@@ -737,6 +751,10 @@ static void printHelp() {
     Serial.println("  tankheight <cm>      Set sensor height above tank bottom");
     Serial.println("  tankdepth <cm>       Set tank max water depth");
     Serial.println("  tankcal              Show current water level settings");
+    Serial.println("");
+    Serial.println("--- Plotter / Raw ---");
+    Serial.println("  plotter              Toggle CSV stream for Serial Plotter (5s interval)");
+    Serial.println("  raw                  Toggle raw sensor voltages (5s interval)");
     Serial.println("");
     Serial.println("--- Debug ---");
     Serial.println("  debugmode [0/1]      Show raw voltage on LCD/serial");
@@ -948,6 +966,27 @@ static void processSerialCommands() {
         return;
     }
 
+    // --- pH 686/401 calibration (standalone-style) ---
+    if (cmd == "686") { calibratePH686(); return; }
+    if (cmd == "401") { calibratePH401(); return; }
+    if (cmd == "phread") { readPHVoltage(); return; }
+    if (cmd == "phshow") { showPHCalibration(); return; }
+    if (cmd == "phreset") { resetPHCalibration(); return; }
+
+    // --- Plotter / Raw mode ---
+    if (cmd == "plotter") {
+        plotterMode = !plotterMode;
+        Serial.printf("[CMD] Plotter mode: %s\n", plotterMode ? "ON" : "OFF");
+        if (plotterMode) Serial.println("  CSV: epoch,pH,Temp,DO,Turb,Water");
+        return;
+    }
+    if (cmd == "raw") {
+        rawMode = !rawMode;
+        Serial.printf("[CMD] Raw mode: %s\n", rawMode ? "ON" : "OFF");
+        if (rawMode) Serial.println("  Output every 5s: pH_V, DO_mV, Turb_V, HC-SR04, Water");
+        return;
+    }
+
     // --- System ---
     if (cmd == "restart") { Serial.println("[CMD] Rebooting..."); delay(500); ESP.restart(); }
     if (cmd == "i2cscan") { scanI2C(); return; }
@@ -1142,5 +1181,19 @@ void loop() {
     if (now - lastLcdUpdate >= LCD_INTERVAL) {
         lastLcdUpdate = now;
         updateLCD();
+    }
+
+    // --- Raw sensor output (every PUBLISH_INTERVAL) ---
+    if (rawMode && now - lastRawOutput >= PUBLISH_INTERVAL) {
+        lastRawOutput = now;
+        float rawPHV = readPHRawVoltage();
+        float rawDOV = readDORaw();
+        float rawDist = readWaterLevelCm();
+        bool phProbeOK = (rawPHV >= 0.5f && rawPHV <= 2.8f);
+        Serial.printf("[RAW] pH_V=%s | DO_mV=%.0f | Turb_V=%.3f | HC-SR04=%.1fcm → Water=%.1fcm\n",
+            phProbeOK ? String(rawPHV, 3).c_str() : "--",
+            rawDOV * 1000, currentTurbV,
+            rawDist >= 0 ? rawDist : 0,
+            currentWaterCm >= 0 ? currentWaterCm : 0);
     }
 }
