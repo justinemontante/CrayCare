@@ -322,10 +322,10 @@ setInterval(async () => {
           unread: true,
         });
 
-        await db.ref(`users/${targetUid}/notifications/markers/${reminderKey}`).set(true);
+        await db.ref(`users/${targetUid}/notifications/markers/${reminderKey}`).set(Date.now());
       }));
 
-      // 2. I-send ang Push Alerts sa bawat phone ng users (kung may marker)
+      // 2. I-send ang Push Alerts sa bawat phone ng users (kung kakasend lang ng reminder)
       await Promise.allSettled(uids.map(async (uid) => {
         try {
           const prefsSnap = await db.ref(`users/${uid}/notifPrefs`).once("value");
@@ -335,6 +335,8 @@ setInterval(async () => {
           const targetUid = await getNotificationTargetUid(uid);
           const markerSnap = await db.ref(`users/${targetUid}/notifications/markers/${reminderKey}`).once("value");
           if (!markerSnap.exists()) return;
+          const markerTs = markerSnap.val();
+          if (typeof markerTs === 'number' && now - markerTs > 120000) return;
 
           const sound = prefs.sound !== false;
           const vibration = prefs.vibration !== false;
@@ -413,10 +415,10 @@ setInterval(async () => {
               unread: true,
             });
 
-            await db.ref(`users/${targetUid}/notifications/markers/${confirmKey}`).set(true);
+            await db.ref(`users/${targetUid}/notifications/markers/${confirmKey}`).set(Date.now());
           }));
 
-          // I-send ang confirmation push sa lahat ng phones (kung may marker)
+          // I-send ang confirmation push sa lahat ng phones (kung kakasend lang ng confirmation)
           await Promise.allSettled(confirmUids.map(async (uid) => {
             try {
               const prefsSnap = await db.ref(`users/${uid}/notifPrefs`).once("value");
@@ -426,6 +428,8 @@ setInterval(async () => {
               const targetUid = await getNotificationTargetUid(uid);
               const markerSnap = await db.ref(`users/${targetUid}/notifications/markers/${confirmKey}`).once("value");
               if (!markerSnap.exists()) return;
+              const markerTs = markerSnap.val();
+              if (typeof markerTs === 'number' && now - markerTs > 120000) return;
 
               const sound = prefs.sound !== false;
               const vibration = prefs.vibration !== false;
