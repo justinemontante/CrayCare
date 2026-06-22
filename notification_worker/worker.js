@@ -271,6 +271,10 @@ setInterval(async () => {
     const todayKey = `${manilaNow.getUTCMonth() + 1}/${manilaNow.getUTCDate()}`;
     const nowMins = manilaNow.getUTCHours() * 60 + manilaNow.getUTCMinutes();
 
+    const yr = manilaNow.getUTCFullYear();
+    const mo = String(manilaNow.getUTCMonth() + 1).padStart(2, '0');
+    const dy = String(manilaNow.getUTCDate()).padStart(2, '0');
+
     const schedSnap = await db.ref("feeder/schedules").once("value");
     if (!schedSnap.exists()) return;
     const schedData = schedSnap.val();
@@ -290,7 +294,8 @@ setInterval(async () => {
 
       if (nowMins < schedMins - 5 || nowMins >= schedMins) continue;
 
-      const reminderKey = `reminder_${todayKey}_${key}`;
+      const hhmm = `${String(h).padStart(2, '0')}${String(m).padStart(2, '0')}`;
+      const reminderKey = `reminder_${yr}-${mo}-${dy}_${hhmm}`;
       const uids = await getAuthorizedUids();
       if (uids.length === 0) continue;
 
@@ -380,7 +385,12 @@ setInterval(async () => {
 
           const time2 = s2.time || "6:00";
           const ampm2 = s2.ampm || "AM";
-          const confirmKey = `confirm_${todayKey}_${schedKey}`;
+          let h2 = parseInt(time2.split(":")[0]);
+          const m2 = parseInt(time2.split(":")[1]);
+          if (ampm2 === "PM" && h2 !== 12) h2 += 12;
+          if (ampm2 === "AM" && h2 === 12) h2 = 0;
+          const hhmm2 = `${String(h2).padStart(2, '0')}${String(m2).padStart(2, '0')}`;
+          const confirmKey = `confirm_${yr}-${mo}-${dy}_${hhmm2}`;
 
           // Isave ang Complete log sa DB ng isang beses lang per Owner target
           const uniqueTargets = new Set();

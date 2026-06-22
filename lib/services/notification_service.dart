@@ -600,8 +600,15 @@ class NotificationService extends ChangeNotifier {
     debugPrint('[NotificationService] Firing reminder for ${s.time} ${s.ampm}');
 
     final now = DateTime.now();
-    final todayKey = '${now.year}-${now.month}-${now.day}';
-    final reminderKey = 'reminder_${todayKey}_${key}';
+    int h = int.parse(s.time.split(':')[0]);
+    final m = int.parse(s.time.split(':')[1]);
+    if (s.ampm == 'PM' && h != 12) h += 12;
+    if (s.ampm == 'AM' && h == 12) h = 0;
+    final hhmm = '${h.toString().padLeft(2, '0')}${m.toString().padLeft(2, '0')}';
+    final y = now.year.toString();
+    final mo = now.month.toString().padLeft(2, '0');
+    final d = now.day.toString().padLeft(2, '0');
+    final reminderKey = 'reminder_${y}-${mo}-${d}_$hhmm';
 
     final markerExists = await _notifRef
         .child('markers/$reminderKey')
@@ -663,7 +670,6 @@ class NotificationService extends ChangeNotifier {
     if (_userRole == 'admin') return;
     if (!_notifFeeding) return;
     final now = DateTime.now();
-    final todayKey = '${now.month}/${now.day}';
     final oneMinAgo = now.millisecondsSinceEpoch - 60000;
 
     for (final log in FeedState.feederLogs.value) {
@@ -671,25 +677,9 @@ class NotificationService extends ChangeNotifier {
       if (!log.action.contains('Auto feed dispensed')) continue;
       if (log.timestamp <= 0 || log.timestamp < oneMinAgo) continue;
 
-      final confirmKey = 'confirm_${todayKey}_${log.timestamp}';
+      final confirmKey = 'confirm_${now.month}/${now.day}_${log.timestamp}';
       if (_feedingReminderSent.contains(confirmKey)) continue;
-
-      final markerExists = await _notifRef
-          .child('markers/$confirmKey')
-          .once()
-          .then((s) => s.snapshot.exists);
-      if (markerExists) continue;
-
       _feedingReminderSent.add(confirmKey);
-      _addNotification(
-        type: 'reminder',
-        title: 'Feeding Complete',
-        message: 'Feed has been dispensed successfully.',
-        timestamp: now,
-      );
-      await _notifRef
-          .child('markers/$confirmKey')
-          .set(now.millisecondsSinceEpoch);
     }
   }
 
