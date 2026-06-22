@@ -1018,6 +1018,9 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   Widget _buildNextSamplingRow() {
     final tank = TankService.instance;
+    if (!tank.isInitialized) {
+      return _buildDetailRow(Icons.calendar_today, 'Next Sampling', '--');
+    }
     final daysLeft = tank.daysUntilNextSampling;
     final isReady = daysLeft == 0;
 

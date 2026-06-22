@@ -224,10 +224,6 @@ db.ref("sensor_readings/latest").on("value", async (snap) => {
 
         await admin.messaging().send({
           token,
-          notification: {
-            title: notifPayload.title,
-            body: msgLines.join("\n"),
-          },
           data: {
             title: notifPayload.title,
             body: msgLines.join("\n"),
@@ -237,10 +233,6 @@ db.ref("sensor_readings/latest").on("value", async (snap) => {
           },
           android: {
             priority: "high",
-            notification: {
-              channelId: targetChannelId,
-              priority: "high",
-            }
           },
         });
 
@@ -344,7 +336,6 @@ setInterval(async () => {
 
             await admin.messaging().send({
               token,
-              notification: { title: "Feeding Reminder", body: msg },
               data: {
                 title: "Feeding Reminder",
                 body: msg,
@@ -354,7 +345,6 @@ setInterval(async () => {
               },
               android: {
                 priority: "high",
-                notification: { channelId: targetChannelId, priority: "high" }
               },
             });
           }
@@ -430,7 +420,6 @@ setInterval(async () => {
 
                 await admin.messaging().send({
                   token,
-                  notification: { title: "Feeding Complete", body: msg },
                   data: {
                     title: "Feeding Complete",
                     body: msg,
@@ -440,7 +429,6 @@ setInterval(async () => {
                   },
                   android: {
                     priority: "high",
-                    notification: { channelId: targetChannelId, priority: "high" }
                   },
                 });
               }
@@ -549,7 +537,6 @@ setInterval(async () => {
 
           await admin.messaging().send({
             token,
-            notification: { title: "Sampling Reminder", body: msg },
             data: {
               title: "Sampling Reminder",
               body: msg,
@@ -559,7 +546,6 @@ setInterval(async () => {
             },
             android: {
               priority: "high",
-              notification: { channelId: targetChannelId, priority: "high" }
             },
           });
         }

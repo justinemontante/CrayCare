@@ -384,9 +384,6 @@ class NotificationService extends ChangeNotifier {
 
       FirebaseMessaging.onMessage.listen(_onForegroundMessage);
 
-      // Use the TOP-LEVEL handler (required by Firebase for background/terminated state)
-      FirebaseMessaging.onBackgroundMessage(firebaseBackgroundMessageHandler);
-
       debugPrint('[NotificationService] FCM initialized');
 
       _pendingTimers.clear();
@@ -416,11 +413,51 @@ class NotificationService extends ChangeNotifier {
   }
 
   Future<void> _onForegroundMessage(RemoteMessage message) async {
-    // Standard Behavior: Skip showing the native push notification banner when user is already in-app.
-    // The UI database listeners will automatically catch and display the new record in the notification logs.
-    debugPrint(
-      '[NotificationService] Foreground message received, skipping native banner to follow app standards.',
-    );
+    final data = message.data;
+    final isFeeding = data['feeding'] == 'true';
+    final isSampling = data['sampling'] == 'true';
+    final showCritical = data['critical'] != 'false';
+    if (!showCritical && !isFeeding && !isSampling) return;
+
+    if (isFeeding && !_notifFeeding) return;
+    if (isSampling && !_notifSampling) return;
+    if (!isFeeding && !isSampling && !_notifCritical) return;
+
+    final playSound = data['sound'] != 'false' && _notifSound;
+    final vibrate = data['vibration'] != 'false' && _notifVibration;
+    final title = data['title'] ?? message.notification?.title ?? 'CrayCare Alert';
+    final body = data['body'] ?? message.notification?.body ?? data['message'] ?? '';
+
+    String channelId = 'craycare_alerts_silent';
+    if (playSound && vibrate) {
+      channelId = 'craycare_alerts_sound_vibrate';
+    } else if (playSound) {
+      channelId = 'craycare_alerts_sound_only';
+    } else if (vibrate) {
+      channelId = 'craycare_alerts_vibrate_only';
+    }
+
+    try {
+      await _localNotifications.show(
+        DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        title,
+        body,
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            channelId,
+            'CrayCare Alert',
+            importance: playSound || vibrate ? Importance.high : Importance.low,
+            priority: Priority.high,
+            playSound: playSound,
+            enableVibration: vibrate,
+            vibrationPattern: !vibrate ? Int64List(0) : null,
+            sound: !playSound ? null : const RawResourceAndroidNotificationSound('default'),
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('[NotificationService] Foreground notification error: $e');
+    }
   }
 
   // Background handler is now a top-level function: firebaseBackgroundMessageHandler (above the class)
@@ -477,7 +514,6 @@ class NotificationService extends ChangeNotifier {
 
   void _checkFeedingReminders() {
     if (_userRole == 'admin') return;
-    if (_isMonitor) return;
     if (!_notifFeeding) return;
     final now = DateTime.now();
     final todayKey = '${now.month}/${now.day}';
@@ -621,7 +657,6 @@ class NotificationService extends ChangeNotifier {
 
   Future<void> _confirmFeedingComplete() async {
     if (_userRole == 'admin') return;
-    if (_isMonitor) return;
     if (!_notifFeeding) return;
     final now = DateTime.now();
     final todayKey = '${now.month}/${now.day}';
@@ -656,7 +691,6 @@ class NotificationService extends ChangeNotifier {
 
   void _checkSamplingReminders() {
     if (_userRole == 'admin') return;
-    if (_isMonitor) return;
     if (!_notifSampling) return;
     final now = DateTime.now();
     final todayKey = '${now.month}/${now.day}';
