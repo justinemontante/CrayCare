@@ -267,7 +267,8 @@ setInterval(async () => {
     const now = new Date();
     const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
     const manilaNow = new Date(now.getTime() + MANILA_OFFSET_MS);
-    const todayKey = `${manilaNow.getUTCFullYear()}-${manilaNow.getUTCMonth() + 1}-${manilaNow.getUTCDate()}`;
+    // Align with Flutter App's month/day (M/D) format
+    const todayKey = `${manilaNow.getUTCMonth() + 1}/${manilaNow.getUTCDate()}`;
     const nowMins = manilaNow.getUTCHours() * 60 + manilaNow.getUTCMinutes();
 
     const schedSnap = await db.ref("feeder/schedules").once("value");
@@ -319,12 +320,16 @@ setInterval(async () => {
         await db.ref(`users/${targetUid}/notifications/markers/${reminderKey}`).set(true);
       }));
 
-      // 2. I-send ang Push Alerts sa bawat phone ng users
+      // 2. I-send ang Push Alerts sa bawat phone ng users (kung may marker)
       await Promise.allSettled(uids.map(async (uid) => {
         try {
           const prefsSnap = await db.ref(`users/${uid}/notifPrefs`).once("value");
           const prefs = prefsSnap.val() || {};
           if (prefs.feeding === false) return;
+
+          const targetUid = await getNotificationTargetUid(uid);
+          const markerSnap = await db.ref(`users/${targetUid}/notifications/markers/${reminderKey}`).once("value");
+          if (!markerSnap.exists()) return;
 
           const sound = prefs.sound !== false;
           const vibration = prefs.vibration !== false;
@@ -401,12 +406,16 @@ setInterval(async () => {
             await db.ref(`users/${targetUid}/notifications/markers/${confirmKey}`).set(true);
           }));
 
-          // I-send ang confirmation push sa lahat ng phones
+          // I-send ang confirmation push sa lahat ng phones (kung may marker)
           await Promise.allSettled(confirmUids.map(async (uid) => {
             try {
               const prefsSnap = await db.ref(`users/${uid}/notifPrefs`).once("value");
               const prefs = prefsSnap.val() || {};
               if (prefs.feeding === false) return;
+
+              const targetUid = await getNotificationTargetUid(uid);
+              const markerSnap = await db.ref(`users/${targetUid}/notifications/markers/${confirmKey}`).once("value");
+              if (!markerSnap.exists()) return;
 
               const sound = prefs.sound !== false;
               const vibration = prefs.vibration !== false;
@@ -499,11 +508,16 @@ setInterval(async () => {
       console.log(`[${new Date().toLocaleTimeString()}] Sampling reminder written to DB for owner: ${targetUid}`);
     }));
 
-    // I-send ang sampling push alert sa phones
+    // I-send ang sampling push alert sa phones (kung kakasend lang ng reminder)
     await Promise.allSettled(uids.map(async (uid) => {
       try {
         const notifTarget = await getNotificationTargetUid(uid);
-        
+
+        const markerSnap = await db.ref(`users/${notifTarget}/notifications/markers/sampling_reminder`).once("value");
+        if (!markerSnap.exists()) return;
+        const markerTs = markerSnap.val();
+        if (typeof markerTs === 'number' && now - markerTs > 120000) return;
+
         // Basahin ang user preferences
         const prefsSnap = await db.ref(`users/${uid}/notifPrefs`).once("value");
         const prefs = prefsSnap.val() || {};

@@ -77,9 +77,42 @@ Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
     }
 
     final data = message.data;
+    
+    // Check if the notification is a feeding or sampling notification
+    final isFeeding = data['feeding'] == 'true';
+    final isSampling = data['sampling'] == 'true';
+    
     // If the worker says critical=false, skip
     final showCritical = data['critical'] != 'false';
-    if (!showCritical) return;
+    if (!showCritical && !isFeeding && !isSampling) return;
+
+    // Check user settings on Firebase RTDB before displaying background push notification.
+    // In background message handler, we can fetch preferences directly from database.
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final snap = await FirebaseDatabase.instance.ref('users/${user.uid}/notifPrefs').get();
+        if (snap.exists && snap.value != null) {
+          final raw = snap.value as Map<Object?, Object?>;
+          final map = raw.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
+          
+          if (isFeeding && map['feeding'] == false) {
+            debugPrint('[FCM] Skipping feeding notification because it is turned off in preferences.');
+            return;
+          }
+          if (isSampling && map['sampling'] == false) {
+            debugPrint('[FCM] Skipping sampling notification because it is turned off in preferences.');
+            return;
+          }
+          if (!isFeeding && !isSampling && map['critical'] == false) {
+            debugPrint('[FCM] Skipping critical notification because it is turned off in preferences.');
+            return;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[FCM] Error reading preferences in background: $e');
+    }
 
     final playSound = data['sound'] != 'false';
     final vibrate = data['vibration'] != 'false';
