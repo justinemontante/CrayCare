@@ -83,18 +83,7 @@ class SettingsMenu extends StatelessWidget {
               ]),
               const SizedBox(height: 10),
             ],
-            if (userRole?.toLowerCase() == 'admin') ...[
-              _buildMenuSection('Administration', [
-                _buildMenuItem(
-                  'User Management',
-                  Icons.people_rounded,
-                  AppColors.primary,
-                  chevron: true,
-                  onTap: () => onGoTo(5),
-                ),
-              ]),
-              const SizedBox(height: 10),
-            ],
+
             _buildMenuItem(
               'Logout',
               Icons.logout,
