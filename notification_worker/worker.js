@@ -269,7 +269,6 @@ setInterval(async () => {
     const manilaNow = new Date(now.getTime() + MANILA_OFFSET_MS);
     // Align with Flutter App's month/day (M/D) format
     const todayKey = `${manilaNow.getUTCMonth() + 1}/${manilaNow.getUTCDate()}`;
-    const nowMins = manilaNow.getUTCHours() * 60 + manilaNow.getUTCMinutes();
 
     const yr = manilaNow.getUTCFullYear();
     const mo = String(manilaNow.getUTCMonth() + 1).padStart(2, '0');
@@ -289,10 +288,9 @@ setInterval(async () => {
       if (ampm === "PM" && h !== 12) h += 12;
       if (ampm === "AM" && h === 12) h = 0;
 
-      const schedMins = h * 60 + m;
-      if (schedMins <= 0) continue;
-
-      if (nowMins < schedMins - 5 || nowMins >= schedMins) continue;
+      const scheduleDate = new Date(Date.UTC(manilaNow.getUTCFullYear(), manilaNow.getUTCMonth(), manilaNow.getUTCDate(), h, m));
+      const fiveMinBefore = new Date(scheduleDate.getTime() - 5 * 60 * 1000);
+      if (manilaNow < fiveMinBefore || manilaNow >= scheduleDate) continue;
 
       const hhmm = `${String(h).padStart(2, '0')}${String(m).padStart(2, '0')}`;
       const reminderKey = `reminder_${yr}-${mo}-${dy}_${hhmm}`;

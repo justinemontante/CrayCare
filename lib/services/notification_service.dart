@@ -509,7 +509,7 @@ class NotificationService extends ChangeNotifier {
   }
 
   void _startReminderTimer() {
-    _reminderTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+    _reminderTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       _checkFeedingReminders();
       _confirmFeedingComplete();
       _checkSamplingReminders();
@@ -529,24 +529,25 @@ class NotificationService extends ChangeNotifier {
       if (s.ampm == 'PM' && h != 12) h += 12;
       if (s.ampm == 'AM' && h == 12) h = 0;
 
-      final schedMins = h * 60 + m;
-      final nowMins = now.hour * 60 + now.minute;
       final key = '${todayKey}_${s.time}_${s.ampm}';
       if (_feedingReminderSent.contains(key)) continue;
-      if (schedMins <= 0) continue;
+      if (h * 60 + m <= 0) continue;
 
       final target = DateTime(now.year, now.month, now.day, h, m).subtract(const Duration(minutes: 5));
+      final scheduleDt = DateTime(now.year, now.month, now.day, h, m);
       final diff = target.difference(now);
+      final schedDiff = scheduleDt.difference(now);
 
-      if (diff >= Duration.zero) {
+      if (schedDiff > Duration.zero && schedDiff <= const Duration(minutes: 5)) {
         if (!_pendingTimers.contains(key)) {
           _pendingTimers.add(key);
-          debugPrint('[NotificationService] Scheduling 5-min timer for ${s.time} ${s.ampm} in ${diff.inSeconds}s');
-          Future.delayed(diff, () => _fireReminder(key, s, scheduledAt: target));
+          if (diff > Duration.zero) {
+            Future.delayed(diff, () => _fireReminder(key, s, scheduledAt: target));
+          } else {
+            _fireReminder(key, s, scheduledAt: target);
+          }
           _scheduleOSReminder(key, s, target);
         }
-      } else if (nowMins >= schedMins - 5 && nowMins < schedMins) {
-        _fireReminder(key, s, scheduledAt: target);
       }
     }
   }
