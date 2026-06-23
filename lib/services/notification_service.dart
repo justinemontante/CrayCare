@@ -184,6 +184,7 @@ class NotificationService extends ChangeNotifier {
   StreamSubscription<DatabaseEvent>? _notifRemovedSub;
   StreamSubscription<DatabaseEvent>? _prefsSub;
   Timer? _reminderTimer;
+  Timer? _slowTimer;
 
   bool unreadStatus(String id) {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
@@ -474,6 +475,7 @@ class NotificationService extends ChangeNotifier {
     _prefsSub?.cancel();
     _profileSub?.cancel();
     _reminderTimer?.cancel();
+    _slowTimer?.cancel();
     FeedState.schedules.removeListener(_checkFeedingReminders);
     SensorService.instance.removeListener(_onSensorUpdate);
     super.dispose();
@@ -509,8 +511,11 @@ class NotificationService extends ChangeNotifier {
   }
 
   void _startReminderTimer() {
-    _reminderTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+    _checkFeedingReminders();
+    _reminderTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       _checkFeedingReminders();
+    });
+    _slowTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       _confirmFeedingComplete();
       _checkSamplingReminders();
     });
