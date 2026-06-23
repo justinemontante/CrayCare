@@ -610,12 +610,6 @@ class NotificationService extends ChangeNotifier {
     final d = now.day.toString().padLeft(2, '0');
     final reminderKey = 'reminder_${y}-${mo}-${d}_$hhmm';
 
-    final markerExists = await _notifRef
-        .child('markers/$reminderKey')
-        .once()
-        .then((s) => s.snapshot.exists);
-    if (markerExists) return;
-
     final scheduleLabel = '${s.time} ${s.ampm}';
     final alreadyAdded = _notifications.any(
       (n) => n.type == 'reminder' && n.message.contains(scheduleLabel),
@@ -628,10 +622,21 @@ class NotificationService extends ChangeNotifier {
         message: msg,
         timestamp: scheduledAt ?? now,
       );
-      await _notifRef
-          .child('markers/$reminderKey')
-          .set(now.millisecondsSinceEpoch);
     }
+
+    final markerExists = await _notifRef
+        .child('markers/$reminderKey')
+        .once()
+        .then((s) => s.snapshot.exists);
+
+    if (markerExists) {
+      debugPrint('[NotificationService] Marker exists — worker already handled. Skipping local notif to avoid duplicate.');
+      return;
+    }
+
+    await _notifRef
+        .child('markers/$reminderKey')
+        .set(now.millisecondsSinceEpoch);
 
     if (!showSystemNotif) return;
 

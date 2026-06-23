@@ -310,6 +310,8 @@ setInterval(async () => {
       const scheduleEpoch = Date.UTC(manilaNow.getUTCFullYear(), manilaNow.getUTCMonth(), manilaNow.getUTCDate(), h, m) - MANILA_OFFSET_MS;
       const reminderTimestamp = scheduleEpoch - 5 * 60 * 1000;
 
+      let workerWroteMarker = false;
+
       await Promise.all(Array.from(uniqueTargets).map(async (targetUid) => {
         const markerSnap = await db.ref(`users/${targetUid}/notifications/markers/${reminderKey}`).once("value");
         if (markerSnap.exists()) return;
@@ -323,55 +325,54 @@ setInterval(async () => {
         });
 
         await db.ref(`users/${targetUid}/notifications/markers/${reminderKey}`).set(Date.now());
+        workerWroteMarker = true;
       }));
 
-      // 2. I-send ang Push Alerts sa bawat phone ng users (kung kakasend lang ng reminder)
-      await Promise.allSettled(uids.map(async (uid) => {
-        try {
-          const prefsSnap = await db.ref(`users/${uid}/notifPrefs`).once("value");
-          const prefs = prefsSnap.val() || {};
-          if (prefs.feeding === false) return;
+      // 2. I-send ang Push Alerts sa bawat phone (kung worker ang unang nag-handle)
+      if (!workerWroteMarker) {
+        console.log(`[${new Date().toLocaleTimeString()}] Marker already set — app handled it. Skipping FCM push for reminder ${reminderKey}.`);
+      } else {
+        await Promise.allSettled(uids.map(async (uid) => {
+          try {
+            const prefsSnap = await db.ref(`users/${uid}/notifPrefs`).once("value");
+            const prefs = prefsSnap.val() || {};
+            if (prefs.feeding === false) return;
 
-          const targetUid = await getNotificationTargetUid(uid);
-          const markerSnap = await db.ref(`users/${targetUid}/notifications/markers/${reminderKey}`).once("value");
-          if (!markerSnap.exists()) return;
-          const markerTs = markerSnap.val();
-          if (typeof markerTs === 'number' && now - markerTs > 120000) return;
+            const sound = prefs.sound !== false;
+            const vibration = prefs.vibration !== false;
 
-          const sound = prefs.sound !== false;
-          const vibration = prefs.vibration !== false;
+            const tokenSnap = await db.ref(`users/${uid}/fcmToken`).once("value");
+            const token = tokenSnap.val();
+            if (token) {
+              let targetChannelId = "craycare_alerts_silent";
+              if (sound && vibration) targetChannelId = "craycare_alerts_sound_vibrate";
+              else if (sound) targetChannelId = "craycare_alerts_sound_only";
+              else if (vibration) targetChannelId = "craycare_alerts_vibrate_only";
 
-          const tokenSnap = await db.ref(`users/${uid}/fcmToken`).once("value");
-          const token = tokenSnap.val();
-          if (token) {
-            let targetChannelId = "craycare_alerts_silent";
-            if (sound && vibration) targetChannelId = "craycare_alerts_sound_vibrate";
-            else if (sound) targetChannelId = "craycare_alerts_sound_only";
-            else if (vibration) targetChannelId = "craycare_alerts_vibrate_only";
-
-            await admin.messaging().send({
-              token,
-              notification: { title: "Feeding Reminder", body: msg },
-              data: {
-                title: "Feeding Reminder",
-                body: msg,
-                sound: String(sound),
-                vibration: String(vibration),
-                feeding: "true",
-              },
-              android: {
-                priority: "high",
-                notification: { channelId: targetChannelId, priority: "high" }
-              },
-            });
+              await admin.messaging().send({
+                token,
+                notification: { title: "Feeding Reminder", body: msg },
+                data: {
+                  title: "Feeding Reminder",
+                  body: msg,
+                  sound: String(sound),
+                  vibration: String(vibration),
+                  feeding: "true",
+                },
+                android: {
+                  priority: "high",
+                  notification: { channelId: targetChannelId, priority: "high" }
+                },
+              });
+            }
+            console.log(`[${new Date().toLocaleTimeString()}] Feeding reminder push alert sent to ${uid}`);
+          } catch (err) {
+            if (err.code === "messaging/invalid-registration-token" || err.code === "messaging/registration-token-not-registered") {
+              await db.ref(`users/${uid}/fcmToken`).remove();
+            }
           }
-          console.log(`[${new Date().toLocaleTimeString()}] Feeding reminder push alert processed for ${uid}`);
-        } catch (err) {
-          if (err.code === "messaging/invalid-registration-token" || err.code === "messaging/registration-token-not-registered") {
-            await db.ref(`users/${uid}/fcmToken`).remove();
-          }
-        }
-      }));
+        }));
+      }
     }
 
     // ─── Feeding Complete Confirmation Checker ──────────────────────
@@ -402,6 +403,7 @@ setInterval(async () => {
           }));
 
           const msg = `Scheduled feed at ${time2} ${ampm2} has been dispensed.`;
+          let confirmWroteMarker = false;
 
           await Promise.all(Array.from(uniqueTargets).map(async (targetUid) => {
             const markerSnap = await db.ref(`users/${targetUid}/notifications/markers/${confirmKey}`).once("value");
@@ -416,54 +418,53 @@ setInterval(async () => {
             });
 
             await db.ref(`users/${targetUid}/notifications/markers/${confirmKey}`).set(Date.now());
+            confirmWroteMarker = true;
           }));
 
-          // I-send ang confirmation push sa lahat ng phones (kung kakasend lang ng confirmation)
-          await Promise.allSettled(confirmUids.map(async (uid) => {
-            try {
-              const prefsSnap = await db.ref(`users/${uid}/notifPrefs`).once("value");
-              const prefs = prefsSnap.val() || {};
-              if (prefs.feeding === false) return;
+          // I-send ang confirmation push (kung worker ang unang nag-handle)
+          if (!confirmWroteMarker) {
+            console.log(`[${new Date().toLocaleTimeString()}] Confirm marker exists — app handled it. Skipping FCM push for ${confirmKey}.`);
+          } else {
+            await Promise.allSettled(confirmUids.map(async (uid) => {
+              try {
+                const prefsSnap = await db.ref(`users/${uid}/notifPrefs`).once("value");
+                const prefs = prefsSnap.val() || {};
+                if (prefs.feeding === false) return;
 
-              const targetUid = await getNotificationTargetUid(uid);
-              const markerSnap = await db.ref(`users/${targetUid}/notifications/markers/${confirmKey}`).once("value");
-              if (!markerSnap.exists()) return;
-              const markerTs = markerSnap.val();
-              if (typeof markerTs === 'number' && now - markerTs > 120000) return;
+                const sound = prefs.sound !== false;
+                const vibration = prefs.vibration !== false;
 
-              const sound = prefs.sound !== false;
-              const vibration = prefs.vibration !== false;
+                const tokenSnap = await db.ref(`users/${uid}/fcmToken`).once("value");
+                const token = tokenSnap.val();
+                if (token) {
+                  let targetChannelId = "craycare_alerts_silent";
+                  if (sound && vibration) targetChannelId = "craycare_alerts_sound_vibrate";
+                  else if (sound) targetChannelId = "craycare_alerts_sound_only";
+                  else if (vibration) targetChannelId = "craycare_alerts_vibrate_only";
 
-              const tokenSnap = await db.ref(`users/${uid}/fcmToken`).once("value");
-              const token = tokenSnap.val();
-              if (token) {
-                let targetChannelId = "craycare_alerts_silent";
-                if (sound && vibration) targetChannelId = "craycare_alerts_sound_vibrate";
-                else if (sound) targetChannelId = "craycare_alerts_sound_only";
-                else if (vibration) targetChannelId = "craycare_alerts_vibrate_only";
-
-                await admin.messaging().send({
-                  token,
-                  notification: { title: "Feeding Complete", body: msg },
-                  data: {
-                    title: "Feeding Complete",
-                    body: msg,
-                    sound: String(sound),
-                    vibration: String(vibration),
-                    feeding: "true",
-                  },
-                  android: {
-                    priority: "high",
-                    notification: { channelId: targetChannelId, priority: "high" }
-                  },
-                });
+                  await admin.messaging().send({
+                    token,
+                    notification: { title: "Feeding Complete", body: msg },
+                    data: {
+                      title: "Feeding Complete",
+                      body: msg,
+                      sound: String(sound),
+                      vibration: String(vibration),
+                      feeding: "true",
+                    },
+                    android: {
+                      priority: "high",
+                      notification: { channelId: targetChannelId, priority: "high" }
+                    },
+                  });
+                }
+              } catch (err) {
+                if (err.code === "messaging/invalid-registration-token" || err.code === "messaging/registration-token-not-registered") {
+                  await db.ref(`users/${uid}/fcmToken`).remove();
+                }
               }
-            } catch (err) {
-              if (err.code === "messaging/invalid-registration-token" || err.code === "messaging/registration-token-not-registered") {
-                await db.ref(`users/${uid}/fcmToken`).remove();
-              }
-            }
-          }));
+            }));
+          }
         }
       }
     }
@@ -522,7 +523,7 @@ setInterval(async () => {
       console.log(`[${new Date().toLocaleTimeString()}] Sampling reminder written to DB for owner: ${targetUid}`);
     }));
 
-    // I-send ang sampling push alert sa phones (kung kakasend lang ng reminder)
+    // I-send ang sampling push alert sa phones
     await Promise.allSettled(uids.map(async (uid) => {
       try {
         const notifTarget = await getNotificationTargetUid(uid);
