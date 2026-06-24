@@ -93,109 +93,111 @@ class _MovableAiLogoState extends State<MovableAiLogo>
           topRight: Radius.circular(28),
         ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // HEADER
-          Row(
-            children: [
-              // CRAY AI LOGO
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: ClipOval(
-                  child: Padding(
-                    padding: const EdgeInsets.all(4),
-                    child: Image.asset(
-                      'assets/images/AI_InsightLogo.png',
-                      fit: BoxFit.contain,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              const Text(
-                'CrayAI Analytics',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.dark,
-                ),
-              ),
-              const Spacer(),
-              // CLOSE BUTTON
-              Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(20),
-                  onTap: () => Navigator.pop(ctx),
-                  child: Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: Icon(
-                      Icons.close,
-                      size: 20,
-                      color: AppColors.dark.withValues(alpha: 0.5),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
+      child: ListenableBuilder(
+        listenable: MlService.instance,
+        builder: (context, _) {
+          final data = _parseLiveMlData();
 
-          // FIREBASE-DRIVEN ML INSIGHTS: No more HTTP call
-          Expanded(
-            child: _mlLoading
-                ? const Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        CircularProgressIndicator(color: AppColors.primary),
-                        SizedBox(height: 16),
-                        Text(
-                          'CrayAI is analyzing your tank data...',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: AppColors.dark,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.1),
+                      shape: BoxShape.circle,
                     ),
-                  )
-                : _mlError != null || _mlData == null
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 20),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.cloud_off_rounded,
-                                size: 40,
-                                color: AppColors.critical.withValues(alpha: 0.6),
+                    child: ClipOval(
+                      child: Padding(
+                        padding: const EdgeInsets.all(4),
+                        child: Image.asset(
+                          'assets/images/AI_InsightLogo.png',
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Text(
+                    'CrayAI Analytics',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.dark,
+                    ),
+                  ),
+                  const Spacer(),
+                  Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(20),
+                      onTap: () => Navigator.pop(ctx),
+                      child: Padding(
+                        padding: const EdgeInsets.all(8.0),
+                        child: Icon(
+                          Icons.close,
+                          size: 20,
+                          color: AppColors.dark.withValues(alpha: 0.5),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: data.loading
+                    ? const Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            CircularProgressIndicator(color: AppColors.primary),
+                            SizedBox(height: 16),
+                            Text(
+                              'CrayAI is analyzing your tank data...',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppColors.dark,
+                                fontWeight: FontWeight.w500,
                               ),
-                              const SizedBox(height: 12),
-                              Text(
-                                _mlError ?? 'No ML data available',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: AppColors.dark.withValues(alpha: 0.6),
-                                  height: 1.4,
-                                ),
-                              ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
                       )
-                    : _buildMLResults(),
-          ),
-        ],
+                    : data.error != null
+                        ? Center(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 20),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.cloud_off_rounded,
+                                    size: 40,
+                                    color: AppColors.critical.withValues(alpha: 0.6),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    data.error!,
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: AppColors.dark.withValues(alpha: 0.6),
+                                      height: 1.4,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          )
+                        : _buildMLResultsFromSensors(data.sensors!),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -217,6 +219,66 @@ class _MovableAiLogoState extends State<MovableAiLogo>
         _mlError = 'No recent ML data available.';
       });
     }
+  }
+
+  ({bool loading, String? error, List<Map<String, dynamic>>? sensors}) _parseLiveMlData() {
+    if (_mlLoading) return (loading: true, error: null, sensors: null);
+    if (MlService.instance.hasFreshData) {
+      final mlData = MlService.instance.latestPrediction!;
+      final raw = mlData['sensors'];
+      List<dynamic> rawSensors;
+      if (raw is List) {
+        rawSensors = raw;
+      } else if (raw is Map) {
+        rawSensors = (raw as Map).values.toList();
+      } else {
+        rawSensors = const [];
+      }
+      if (rawSensors.isEmpty) {
+        return (loading: false, error: 'No sensor data available from CrayAI.', sensors: null);
+      }
+      final sensors = rawSensors.map((s) {
+        final raw = s as Map;
+        final map = raw.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
+        final key = map['key'] as String? ?? '';
+        final fbKey = _localKeyToFbKey(key);
+        final rawConf = map['confidence'];
+        final conf = (rawConf is num) ? rawConf.toDouble() : 0.0;
+        return {
+          'key': fbKey,
+          'status': map['status'] as String? ?? 'UNKNOWN',
+          'confidence': conf,
+          'insight': map['insight'] as String? ?? '',
+          'prediction': map['prediction'] as String? ?? '',
+          'recommendation': map['recommendation'] as String? ?? '',
+        };
+      }).toList();
+      return (loading: false, error: null, sensors: sensors);
+    }
+    if (MlService.instance.error != null) {
+      return (loading: false, error: MlService.instance.error, sensors: null);
+    }
+    return (loading: false, error: 'CrayAI is waiting for sensor data...', sensors: null);
+  }
+
+  Widget _buildMLResultsFromSensors(List<Map<String, dynamic>> sensorsData) {
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 24),
+      children: sensorsData.map((s) {
+        final key = s['key'] as String? ?? '';
+        final display = _sensorDisplayInfo[key];
+        if (display == null) return const SizedBox.shrink();
+        return _buildSmartInsightCard(
+          title: display['title'] as String,
+          iconPath: display['icon'] as String,
+          status: s['status'] as String? ?? 'UNKNOWN',
+          confidence: (s['confidence'] as num?)?.toDouble() ?? 0.0,
+          insight: s['insight'] as String? ?? '',
+          prediction: s['prediction'] as String? ?? '',
+          recommendation: s['recommendation'] as String? ?? '',
+        );
+      }).toList(),
+    );
   }
 
   void _useMlData(Map<String, dynamic> mlData) {
