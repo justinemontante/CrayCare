@@ -20,8 +20,8 @@ CORS(app)
 MODELS_DIR = os.path.join(os.path.dirname(__file__), "models")
 
 overall_model = None
-encoders      = None
-feature_cols  = None
+encoders = None
+feature_cols = None
 
 try:
     with open(os.path.join(MODELS_DIR, "overall_model.pkl"), "rb") as f:
@@ -38,8 +38,10 @@ except Exception as e:
 READING_INTERVAL_SEC = 5
 
 STAGE_MAP = {
-    "early_juvenile": 0, "advanced_juvenile": 1,
-    "pre_adult": 2, "market_size": 3,
+    "early_juvenile": 0,
+    "advanced_juvenile": 1,
+    "pre_adult": 2,
+    "market_size": 3,
 }
 STAGE_LABELS = {
     "early_juvenile": "Early Juvenile",
@@ -48,12 +50,20 @@ STAGE_LABELS = {
     "market_size": "Market Size",
 }
 SHORT_TO_LABEL = {
-    "temp": "Temperature", "ph": "pH Level",
-    "do": "Dissolved Oxygen", "turb": "Turbidity", "wl": "Water Level",
+    "temp": "Temperature",
+    "ph": "pH Level",
+    "do": "Dissolved Oxygen",
+    "turb": "Turbidity",
+    "wl": "Water Level",
 }
 SHORT_TO_UNIT = {
-    "temp": "°C", "ph": "", "do": "mg/L", "turb": "NTU", "wl": "cm",
+    "temp": "°C",
+    "ph": "",
+    "do": "mg/L",
+    "turb": "NTU",
+    "wl": "cm",
 }
+
 
 # ── Sensor History ────────────────────────────────────────────
 class SensorHistory:
@@ -71,28 +81,60 @@ class SensorHistory:
             return 0.0
         return (self.history[-1] - self.history[0]) / (len(self.history) - 1)
 
+
 histories = {k: SensorHistory() for k in ["temp", "ph", "do", "turb", "wl"]}
+
 
 # ── Feature Engineering ───────────────────────────────────────
 def build_feature_row(
-    temp, ph, do_, turb, wl,
-    temp_rate, ph_rate, do_rate, turb_rate, wl_rate,
-    t_min, t_max, p_min, p_max,
-    d_min, d_max, tr_min, tr_max,
-    wl_min, wl_max, stage_str,
+    temp,
+    ph,
+    do_,
+    turb,
+    wl,
+    temp_rate,
+    ph_rate,
+    do_rate,
+    turb_rate,
+    wl_rate,
+    t_min,
+    t_max,
+    p_min,
+    p_max,
+    d_min,
+    d_max,
+    tr_min,
+    tr_max,
+    wl_min,
+    wl_max,
+    stage_str,
 ):
-    stage_enc = encoders["growth_stage"].transform([stage_str])[0] \
-                if encoders else STAGE_MAP.get(stage_str, 2)
+    stage_enc = (
+        encoders["growth_stage"].transform([stage_str])[0]
+        if encoders
+        else STAGE_MAP.get(stage_str, 2)
+    )
     row = {
-        "temperature": temp, "phLevel": ph,
-        "dissolvedOxygen": do_, "turbidity": turb, "waterLevel": wl,
-        "temp_rate": temp_rate, "ph_rate": ph_rate,
-        "do_rate": do_rate, "turb_rate": turb_rate, "wl_rate": wl_rate,
-        "temp_min": t_min, "temp_max": t_max,
-        "ph_min": p_min, "ph_max": p_max,
-        "do_min": d_min, "do_max": d_max,
-        "turb_min": tr_min, "turb_max": tr_max,
-        "wl_min": wl_min, "wl_max": wl_max,
+        "temperature": temp,
+        "phLevel": ph,
+        "dissolvedOxygen": do_,
+        "turbidity": turb,
+        "waterLevel": wl,
+        "temp_rate": temp_rate,
+        "ph_rate": ph_rate,
+        "do_rate": do_rate,
+        "turb_rate": turb_rate,
+        "wl_rate": wl_rate,
+        "temp_min": t_min,
+        "temp_max": t_max,
+        "ph_min": p_min,
+        "ph_max": p_max,
+        "do_min": d_min,
+        "do_max": d_max,
+        "turb_min": tr_min,
+        "turb_max": tr_max,
+        "wl_min": wl_min,
+        "wl_max": wl_max,
         "growth_stage": stage_enc,
     }
     return pd.DataFrame([row], columns=feature_cols)
@@ -102,12 +144,15 @@ def predict_status(X):
     """Run ML model — returns (overall_status, confidence)."""
     if overall_model is None:
         return "OPTIMAL", 0.5
-    pred       = overall_model.predict(X)[0]
-    probs      = overall_model.predict_proba(X)[0]
-    status_str = encoders[overall_model.classes_[0].__class__.__name__
-                          if False else "health_status"].inverse_transform([pred])[0] \
-                 if "health_status" in encoders \
-                 else ["CRITICAL", "OPTIMAL", "WARNING"][pred]
+    pred = overall_model.predict(X)[0]
+    probs = overall_model.predict_proba(X)[0]
+    status_str = (
+        encoders[
+            overall_model.classes_[0].__class__.__name__ if False else "health_status"
+        ].inverse_transform([pred])[0]
+        if "health_status" in encoders
+        else ["CRITICAL", "OPTIMAL", "WARNING"][pred]
+    )
     # Safer fallback using encoder
     try:
         status_str = encoders["health_status"].inverse_transform([pred])[0]
@@ -130,9 +175,21 @@ def get_sensor_status(val, vmin, vmax):
 
 
 # ── Sensor combination detection ──────────────────────────────
-def detect_combinations(sensor_statuses, temp, ph, do_, turb,
-                        t_min, t_max, p_min, p_max,
-                        d_min, d_max, tr_min, tr_max):
+def detect_combinations(
+    sensor_statuses,
+    temp,
+    ph,
+    do_,
+    turb,
+    t_min,
+    t_max,
+    p_min,
+    p_max,
+    d_min,
+    d_max,
+    tr_min,
+    tr_max,
+):
     """
     Returns a list of active dangerous combinations.
     Each combo is a dict with: sensors, insight, prediction_note, recommendation
@@ -140,153 +197,165 @@ def detect_combinations(sensor_statuses, temp, ph, do_, turb,
     combos = []
 
     temp_s = sensor_statuses.get("temp_status", "OPTIMAL")
-    ph_s   = sensor_statuses.get("ph_status",   "OPTIMAL")
-    do_s   = sensor_statuses.get("do_status",   "OPTIMAL")
+    ph_s = sensor_statuses.get("ph_status", "OPTIMAL")
+    do_s = sensor_statuses.get("do_status", "OPTIMAL")
     turb_s = sensor_statuses.get("turb_status", "OPTIMAL")
 
     temp_high = temp > t_max and temp_s in ("WARNING", "CRITICAL")
-    temp_low  = temp < t_min and temp_s in ("WARNING", "CRITICAL")
-    ph_low    = ph   < p_min and ph_s   in ("WARNING", "CRITICAL")
-    ph_high   = ph   > p_max and ph_s   in ("WARNING", "CRITICAL")
-    do_low    = do_  < d_min and do_s   in ("WARNING", "CRITICAL")
+    temp_low = temp < t_min and temp_s in ("WARNING", "CRITICAL")
+    ph_low = ph < p_min and ph_s in ("WARNING", "CRITICAL")
+    ph_high = ph > p_max and ph_s in ("WARNING", "CRITICAL")
+    do_low = do_ < d_min and do_s in ("WARNING", "CRITICAL")
     turb_high = turb > tr_max and turb_s in ("WARNING", "CRITICAL")
 
     # HIGH TEMP + LOW DO — most dangerous combination
     if temp_high and do_low:
-        combos.append({
-            "sensors": ["Temperature", "Dissolved Oxygen"],
-            "insight": (
-                f"Temperature is elevated at {round(temp, 1)}°C while Dissolved Oxygen "
-                f"is critically low at {round(do_, 1)} mg/L. This is a heat-oxygen cycle — "
-                f"warm water naturally holds less dissolved oxygen, meaning your crayfish "
-                f"are experiencing heat stress and oxygen deprivation at the same time. "
-                f"This is the most dangerous water quality combination in aquaculture."
-            ),
-            "prediction_note": (
-                "As temperature continues to rise, dissolved oxygen will drop further "
-                "even without additional changes. Both trends will worsen each other."
-            ),
-            "recommendation": (
-                "Address temperature first — cooling the water will naturally help oxygen "
-                "recover. Check for direct sunlight or heat sources near the tank. "
-                "Add shade or improve ventilation immediately. The aerator has activated "
-                "automatically, but it cannot fully compensate for heat-induced oxygen loss. "
-                "Do a partial water exchange with cooler water if temperature does not drop."
-            ),
-        })
+        combos.append(
+            {
+                "sensors": ["Temperature", "Dissolved Oxygen"],
+                "insight": (
+                    f"Temperature is elevated at {round(temp, 1)}°C while Dissolved Oxygen "
+                    f"is critically low at {round(do_, 1)} mg/L. This is a heat-oxygen cycle — "
+                    f"warm water naturally holds less dissolved oxygen, meaning your crayfish "
+                    f"are experiencing heat stress and oxygen deprivation at the same time. "
+                    f"This is the most dangerous water quality combination in aquaculture."
+                ),
+                "prediction_note": (
+                    "As temperature continues to rise, dissolved oxygen will drop further "
+                    "even without additional changes. Both trends will worsen each other."
+                ),
+                "recommendation": (
+                    "Address temperature first — cooling the water will naturally help oxygen "
+                    "recover. Check for direct sunlight or heat sources near the tank. "
+                    "Add shade or improve ventilation immediately. The aerator has activated "
+                    "automatically, but it cannot fully compensate for heat-induced oxygen loss. "
+                    "Do a partial water exchange with cooler water if temperature does not drop."
+                ),
+            }
+        )
 
     # LOW pH + LOW DO
     elif ph_low and do_low:
-        combos.append({
-            "sensors": ["pH Level", "Dissolved Oxygen"],
-            "insight": (
-                f"pH Level is acidic at {round(ph, 2)} while Dissolved Oxygen is low "
-                f"at {round(do_, 1)} mg/L. Acidic water reduces the ability of crayfish "
-                f"blood to carry oxygen — even if DO improves, your crayfish may still "
-                f"struggle to absorb it. Shell corrosion and gill damage are likely "
-                f"if this combination persists."
-            ),
-            "prediction_note": (
-                "Restoring DO alone will not be enough — pH must be corrected first "
-                "for the crayfish to properly utilize available oxygen."
-            ),
-            "recommendation": (
-                "Fix pH first before expecting DO to recover. Apply pH buffer slowly "
-                "to raise pH toward the safe range. Wait 15 minutes and re-test before "
-                "adding more. The aerator has activated automatically to assist DO. "
-                "Do not increase feeding during this period — uneaten food worsens both "
-                "pH and oxygen levels."
-            ),
-        })
+        combos.append(
+            {
+                "sensors": ["pH Level", "Dissolved Oxygen"],
+                "insight": (
+                    f"pH Level is acidic at {round(ph, 2)} while Dissolved Oxygen is low "
+                    f"at {round(do_, 1)} mg/L. Acidic water reduces the ability of crayfish "
+                    f"blood to carry oxygen — even if DO improves, your crayfish may still "
+                    f"struggle to absorb it. Shell corrosion and gill damage are likely "
+                    f"if this combination persists."
+                ),
+                "prediction_note": (
+                    "Restoring DO alone will not be enough — pH must be corrected first "
+                    "for the crayfish to properly utilize available oxygen."
+                ),
+                "recommendation": (
+                    "Fix pH first before expecting DO to recover. Apply pH buffer slowly "
+                    "to raise pH toward the safe range. Wait 15 minutes and re-test before "
+                    "adding more. The aerator has activated automatically to assist DO. "
+                    "Do not increase feeding during this period — uneaten food worsens both "
+                    "pH and oxygen levels."
+                ),
+            }
+        )
 
     # HIGH TURBIDITY + LOW DO
     elif turb_high and do_low:
-        combos.append({
-            "sensors": ["Turbidity", "Dissolved Oxygen"],
-            "insight": (
-                f"Turbidity is high at {round(turb, 1)} NTU while Dissolved Oxygen "
-                f"is low at {round(do_, 1)} mg/L. High turbidity from organic matter "
-                f"and bacteria in suspension is actively consuming oxygen in your tank. "
-                f"The cloudier the water, the faster oxygen depletes."
-            ),
-            "prediction_note": (
-                "Dissolved oxygen will continue to drop as long as turbidity remains high. "
-                "Clearing the water is the priority — DO will recover once organic load reduces."
-            ),
-            "recommendation": (
-                "The RAS water pump has activated automatically to circulate water through "
-                "the filter. Check that the pump is running and the filter media is not clogged. "
-                "The aerator is also running to boost DO. Do a partial water change if turbidity "
-                "does not improve within 30 minutes. Reduce feeding temporarily to lower "
-                "organic load in the tank."
-            ),
-        })
+        combos.append(
+            {
+                "sensors": ["Turbidity", "Dissolved Oxygen"],
+                "insight": (
+                    f"Turbidity is high at {round(turb, 1)} NTU while Dissolved Oxygen "
+                    f"is low at {round(do_, 1)} mg/L. High turbidity from organic matter "
+                    f"and bacteria in suspension is actively consuming oxygen in your tank. "
+                    f"The cloudier the water, the faster oxygen depletes."
+                ),
+                "prediction_note": (
+                    "Dissolved oxygen will continue to drop as long as turbidity remains high. "
+                    "Clearing the water is the priority — DO will recover once organic load reduces."
+                ),
+                "recommendation": (
+                    "The RAS water pump has activated automatically to circulate water through "
+                    "the filter. Check that the pump is running and the filter media is not clogged. "
+                    "The aerator is also running to boost DO. Do a partial water change if turbidity "
+                    "does not improve within 30 minutes. Reduce feeding temporarily to lower "
+                    "organic load in the tank."
+                ),
+            }
+        )
 
     # HIGH TEMP + HIGH TURBIDITY
     elif temp_high and turb_high:
-        combos.append({
-            "sensors": ["Temperature", "Turbidity"],
-            "insight": (
-                f"Temperature is elevated at {round(temp, 1)}°C and turbidity is high "
-                f"at {round(turb, 1)} NTU. Warm, cloudy water is an ideal environment "
-                f"for rapid bacterial and algae growth. Dissolved oxygen is likely to "
-                f"crash soon if both parameters are not addressed immediately."
-            ),
-            "prediction_note": (
-                "If temperature and turbidity both remain elevated, expect dissolved "
-                "oxygen to drop to critical levels within the next 1–2 hours."
-            ),
-            "recommendation": (
-                "The RAS water pump has activated to filter the water. Reduce heat exposure "
-                "by adding shade or improving ventilation. Do not feed until both parameters "
-                "are back in the safe range — additional organic matter will accelerate "
-                "bacterial growth and oxygen depletion. Monitor DO closely."
-            ),
-        })
+        combos.append(
+            {
+                "sensors": ["Temperature", "Turbidity"],
+                "insight": (
+                    f"Temperature is elevated at {round(temp, 1)}°C and turbidity is high "
+                    f"at {round(turb, 1)} NTU. Warm, cloudy water is an ideal environment "
+                    f"for rapid bacterial and algae growth. Dissolved oxygen is likely to "
+                    f"crash soon if both parameters are not addressed immediately."
+                ),
+                "prediction_note": (
+                    "If temperature and turbidity both remain elevated, expect dissolved "
+                    "oxygen to drop to critical levels within the next 1–2 hours."
+                ),
+                "recommendation": (
+                    "The RAS water pump has activated to filter the water. Reduce heat exposure "
+                    "by adding shade or improving ventilation. Do not feed until both parameters "
+                    "are back in the safe range — additional organic matter will accelerate "
+                    "bacterial growth and oxygen depletion. Monitor DO closely."
+                ),
+            }
+        )
 
     # LOW pH + HIGH TURBIDITY
     elif ph_low and turb_high:
-        combos.append({
-            "sensors": ["pH Level", "Turbidity"],
-            "insight": (
-                f"pH Level is acidic at {round(ph, 2)} while turbidity is high at "
-                f"{round(turb, 1)} NTU. Acidic, cloudy water often indicates organic "
-                f"decomposition in the tank — rotting waste and uneaten food produce "
-                f"acids that lower pH and increase turbidity simultaneously."
-            ),
-            "prediction_note": (
-                "Both parameters will continue to worsen if organic waste is not removed. "
-                "Dissolved oxygen is at risk of dropping next."
-            ),
-            "recommendation": (
-                "The RAS water pump has activated to circulate water through the filter. "
-                "Correct pH manually with buffer while the pump runs. Remove any visible "
-                "uneaten food or waste from the tank. Check filter media and clean if needed. "
-                "Avoid overfeeding until conditions stabilize."
-            ),
-        })
+        combos.append(
+            {
+                "sensors": ["pH Level", "Turbidity"],
+                "insight": (
+                    f"pH Level is acidic at {round(ph, 2)} while turbidity is high at "
+                    f"{round(turb, 1)} NTU. Acidic, cloudy water often indicates organic "
+                    f"decomposition in the tank — rotting waste and uneaten food produce "
+                    f"acids that lower pH and increase turbidity simultaneously."
+                ),
+                "prediction_note": (
+                    "Both parameters will continue to worsen if organic waste is not removed. "
+                    "Dissolved oxygen is at risk of dropping next."
+                ),
+                "recommendation": (
+                    "The RAS water pump has activated to circulate water through the filter. "
+                    "Correct pH manually with buffer while the pump runs. Remove any visible "
+                    "uneaten food or waste from the tank. Check filter media and clean if needed. "
+                    "Avoid overfeeding until conditions stabilize."
+                ),
+            }
+        )
 
     # HIGH pH + LOW DO
     elif ph_high and do_low:
-        combos.append({
-            "sensors": ["pH Level", "Dissolved Oxygen"],
-            "insight": (
-                f"pH Level is alkaline at {round(ph, 2)} while Dissolved Oxygen is low "
-                f"at {round(do_, 1)} mg/L. High pH can indicate an algae bloom — "
-                f"algae consume CO2 during the day raising pH, but consume oxygen at night, "
-                f"causing DO to crash. Check for green water or algae on tank walls."
-            ),
-            "prediction_note": (
-                "If this is an algae bloom, DO will fluctuate with the light cycle — "
-                "higher during daylight, dangerously low at night."
-            ),
-            "recommendation": (
-                "The aerator has activated to boost DO. Manually correct pH with buffer. "
-                "Check for algae growth and reduce light exposure to the tank if present. "
-                "Do a partial water change to dilute algae concentration. Monitor DO "
-                "closely overnight as it may drop further in the dark."
-            ),
-        })
+        combos.append(
+            {
+                "sensors": ["pH Level", "Dissolved Oxygen"],
+                "insight": (
+                    f"pH Level is alkaline at {round(ph, 2)} while Dissolved Oxygen is low "
+                    f"at {round(do_, 1)} mg/L. High pH can indicate an algae bloom — "
+                    f"algae consume CO2 during the day raising pH, but consume oxygen at night, "
+                    f"causing DO to crash. Check for green water or algae on tank walls."
+                ),
+                "prediction_note": (
+                    "If this is an algae bloom, DO will fluctuate with the light cycle — "
+                    "higher during daylight, dangerously low at night."
+                ),
+                "recommendation": (
+                    "The aerator has activated to boost DO. Manually correct pH with buffer. "
+                    "Check for algae growth and reduce light exposure to the tank if present. "
+                    "Do a partial water change to dilute algae concentration. Monitor DO "
+                    "closely overnight as it may drop further in the dark."
+                ),
+            }
+        )
 
     return combos
 
@@ -300,22 +369,40 @@ def format_time(seconds):
         return f"{minutes} minute{'s' if minutes > 1 else ''}"
     else:
         total_hours = seconds / 3600
-        hours   = int(total_hours)
+        hours = int(total_hours)
         minutes = int((total_hours - hours) * 60)
         if hours >= 5:
             return f"about {hours} hours"
         elif minutes == 0:
             return f"{hours} hour{'s' if hours > 1 else ''}"
         else:
-            return (f"{hours} hour{'s' if hours > 1 else ''} "
-                    f"and {minutes} minute{'s' if minutes > 1 else ''}")
+            return (
+                f"{hours} hour{'s' if hours > 1 else ''} "
+                f"and {minutes} minute{'s' if minutes > 1 else ''}"
+            )
 
 
 # ── OVERALL TEXT GENERATORS ───────────────────────────────────
 
-def generate_insight(overall_status, sensor_statuses, stage, ranges,
-                     temp, ph, do_, turb,
-                     t_min, t_max, p_min, p_max, d_min, d_max, tr_min, tr_max):
+
+def generate_insight(
+    overall_status,
+    sensor_statuses,
+    stage,
+    ranges,
+    temp,
+    ph,
+    do_,
+    turb,
+    t_min,
+    t_max,
+    p_min,
+    p_max,
+    d_min,
+    d_max,
+    tr_min,
+    tr_max,
+):
     stage_label = STAGE_LABELS.get(stage, stage.replace("_", " ").title())
 
     if overall_status == "OPTIMAL":
@@ -327,8 +414,19 @@ def generate_insight(overall_status, sensor_statuses, stage, ranges,
 
     # Check for dangerous sensor combinations first
     combos = detect_combinations(
-        sensor_statuses, temp, ph, do_, turb,
-        t_min, t_max, p_min, p_max, d_min, d_max, tr_min, tr_max
+        sensor_statuses,
+        temp,
+        ph,
+        do_,
+        turb,
+        t_min,
+        t_max,
+        p_min,
+        p_max,
+        d_min,
+        d_max,
+        tr_min,
+        tr_max,
     )
     if combos:
         return combos[0]["insight"]
@@ -336,8 +434,11 @@ def generate_insight(overall_status, sensor_statuses, stage, ranges,
     # Single-sensor problems
     critical_sensors, warning_sensors = [], []
     for short, target in [
-        ("temp", "temp_status"), ("ph", "ph_status"), ("do", "do_status"),
-        ("turb", "turb_status"), ("wl", "wl_status"),
+        ("temp", "temp_status"),
+        ("ph", "ph_status"),
+        ("do", "do_status"),
+        ("turb", "turb_status"),
+        ("wl", "wl_status"),
     ]:
         s = sensor_statuses.get(target, "OPTIMAL")
         if s == "CRITICAL":
@@ -346,7 +447,7 @@ def generate_insight(overall_status, sensor_statuses, stage, ranges,
             warning_sensors.append(SHORT_TO_LABEL[short])
 
     all_problems = critical_sensors + warning_sensors
-    problem_str  = ", ".join(all_problems) if all_problems else "some parameters"
+    problem_str = ", ".join(all_problems) if all_problems else "some parameters"
 
     if overall_status == "WARNING":
         return (
@@ -366,17 +467,46 @@ def generate_insight(overall_status, sensor_statuses, stage, ranges,
 
 
 def generate_prediction(
-    overall_status, sensor_statuses, stage, ranges,
-    temp, ph, do_, turb, wl,
-    temp_rate, ph_rate, do_rate, turb_rate, wl_rate,
-    t_min, t_max, p_min, p_max, d_min, d_max, tr_min, tr_max,
+    overall_status,
+    sensor_statuses,
+    stage,
+    ranges,
+    temp,
+    ph,
+    do_,
+    turb,
+    wl,
+    temp_rate,
+    ph_rate,
+    do_rate,
+    turb_rate,
+    wl_rate,
+    t_min,
+    t_max,
+    p_min,
+    p_max,
+    d_min,
+    d_max,
+    tr_min,
+    tr_max,
 ):
     stage_label = STAGE_LABELS.get(stage, stage.replace("_", " ").title())
 
     # Check combinations first — they get a compound forecast
     combos = detect_combinations(
-        sensor_statuses, temp, ph, do_, turb,
-        t_min, t_max, p_min, p_max, d_min, d_max, tr_min, tr_max
+        sensor_statuses,
+        temp,
+        ph,
+        do_,
+        turb,
+        t_min,
+        t_max,
+        p_min,
+        p_max,
+        d_min,
+        d_max,
+        tr_min,
+        tr_max,
     )
 
     combo_note = ""
@@ -385,19 +515,24 @@ def generate_prediction(
 
     # Individual trend forecasts
     sensors_data = [
-        ("temp", temp, temp_rate, t_min,  t_max),
-        ("ph",   ph,   ph_rate,   p_min,  p_max),
-        ("do",   do_,  do_rate,   d_min,  d_max),
+        ("temp", temp, temp_rate, t_min, t_max),
+        ("ph", ph, ph_rate, p_min, p_max),
+        ("do", do_, do_rate, d_min, d_max),
         ("turb", turb, turb_rate, tr_min, tr_max),
-        ("wl",   wl,   wl_rate,   ranges.get("waterlevel", {}).get("min", 8.0),
-                                  ranges.get("waterlevel", {}).get("max", 15.0)),
+        (
+            "wl",
+            wl,
+            wl_rate,
+            ranges.get("waterlevel", {}).get("min", 8.0),
+            ranges.get("waterlevel", {}).get("max", 15.0),
+        ),
     ]
 
-    MAX_SEC  = 5 * 3600
+    MAX_SEC = 5 * 3600
     forecasts = []
 
     for short, val, rate, r_min, r_max in sensors_data:
-        label  = SHORT_TO_LABEL[short]
+        label = SHORT_TO_LABEL[short]
         status = sensor_statuses.get(f"{short}_status", "OPTIMAL")
         if status == "CRITICAL" or rate == 0:
             continue
@@ -448,9 +583,22 @@ def generate_prediction(
     return base + combo_note + forecast_text
 
 
-def generate_recommendation(overall_status, sensor_statuses,
-                             temp, ph, do_, turb,
-                             t_min, t_max, p_min, p_max, d_min, d_max, tr_min, tr_max):
+def generate_recommendation(
+    overall_status,
+    sensor_statuses,
+    temp,
+    ph,
+    do_,
+    turb,
+    t_min,
+    t_max,
+    p_min,
+    p_max,
+    d_min,
+    d_max,
+    tr_min,
+    tr_max,
+):
     if overall_status == "OPTIMAL":
         return (
             "No action needed right now. "
@@ -459,8 +607,19 @@ def generate_recommendation(overall_status, sensor_statuses,
 
     # Combination-aware recommendation first
     combos = detect_combinations(
-        sensor_statuses, temp, ph, do_, turb,
-        t_min, t_max, p_min, p_max, d_min, d_max, tr_min, tr_max
+        sensor_statuses,
+        temp,
+        ph,
+        do_,
+        turb,
+        t_min,
+        t_max,
+        p_min,
+        p_max,
+        d_min,
+        d_max,
+        tr_min,
+        tr_max,
     )
     if combos:
         prefix = "Action needed: " if overall_status == "CRITICAL" else ""
@@ -528,15 +687,20 @@ def generate_recommendation(overall_status, sensor_statuses,
             "slowly if needed."
         )
 
-    base = " ".join(actions) if actions else "Inspect the tank manually to identify the issue."
+    base = (
+        " ".join(actions)
+        if actions
+        else "Inspect the tank manually to identify the issue."
+    )
     return f"Action needed: {base}" if overall_status == "CRITICAL" else base
 
 
 # ── PER-SENSOR TEXT GENERATORS ────────────────────────────────
 
+
 def generate_sensor_insight(short, val, status, r_min, r_max):
-    label   = SHORT_TO_LABEL[short]
-    unit    = SHORT_TO_UNIT[short]
+    label = SHORT_TO_LABEL[short]
+    unit = SHORT_TO_UNIT[short]
     val_str = f"{val}{unit}"
 
     context = {
@@ -586,7 +750,7 @@ def generate_sensor_insight(short, val, status, r_min, r_max):
 
 
 def generate_sensor_prediction(short, val, rate, r_min, r_max, status, confidence):
-    label    = SHORT_TO_LABEL[short]
+    label = SHORT_TO_LABEL[short]
     conf_pct = int(confidence * 100)
 
     if status == "CRITICAL":
@@ -604,7 +768,7 @@ def generate_sensor_prediction(short, val, rate, r_min, r_max, status, confidenc
     if rate < 0 and val > r_min:
         secs = ((val - r_min) / abs(rate)) * READING_INTERVAL_SEC
         if secs <= MAX_SEC:
-            t        = format_time(secs)
+            t = format_time(secs)
             boundary = "a critical low" if status == "WARNING" else "the safe minimum"
             return (
                 f"CrayAI is {conf_pct}% confident that {label} is trending downward. "
@@ -613,7 +777,7 @@ def generate_sensor_prediction(short, val, rate, r_min, r_max, status, confidenc
     elif rate > 0 and val < r_max:
         secs = ((r_max - val) / abs(rate)) * READING_INTERVAL_SEC
         if secs <= MAX_SEC:
-            t        = format_time(secs)
+            t = format_time(secs)
             boundary = "a critical high" if status == "WARNING" else "the safe maximum"
             return (
                 f"CrayAI is {conf_pct}% confident that {label} is trending upward. "
@@ -704,14 +868,14 @@ def resolve_credentials():
 
 def get_current_stage_ranges(config_ref):
     config = config_ref.get() or {}
-    stage  = config.get("selectedStage") or "pre_adult"
+    stage = config.get("selectedStage") or "pre_adult"
     stage_config = config.get(stage, {})
     defaults = {
-        "temp":       {"min": 24.0, "max": 30.0},
-        "ph":         {"min": 7.0,  "max": 8.5},
-        "do":         {"min": 4.5,  "max": 10.0},
-        "turb":       {"min": 0.0,  "max": 35.0},
-        "waterlevel": {"min": 8.0,  "max": 15.0},
+        "temp": {"min": 24.0, "max": 30.0},
+        "ph": {"min": 7.0, "max": 8.5},
+        "do": {"min": 4.5, "max": 10.0},
+        "turb": {"min": 0.0, "max": 35.0},
+        "waterlevel": {"min": 8.0, "max": 15.0},
     }
     ranges = {}
     for key in defaults:
@@ -728,83 +892,127 @@ def get_current_stage_ranges(config_ref):
 
 
 prediction_ref = None
-config_ref     = None
-latest_ref     = None
+config_ref = None
+latest_ref = None
 
 
-def _build_result(temp, ph, do_, turb, wl,
-                  temp_rate, ph_rate, do_rate, turb_rate, wl_rate,
-                  stage, ranges):
-    t_min,  t_max  = ranges["temp"]["min"],       ranges["temp"]["max"]
-    p_min,  p_max  = ranges["ph"]["min"],          ranges["ph"]["max"]
-    d_min,  d_max  = ranges["do"]["min"],           ranges["do"]["max"]
-    tr_min, tr_max = ranges["turb"]["min"],         ranges["turb"]["max"]
-    wl_min, wl_max = ranges["waterlevel"]["min"],   ranges["waterlevel"]["max"]
+def _build_result(
+    temp,
+    ph,
+    do_,
+    turb,
+    wl,
+    temp_rate,
+    ph_rate,
+    do_rate,
+    turb_rate,
+    wl_rate,
+    stage,
+    ranges,
+):
+    t_min, t_max = ranges["temp"]["min"], ranges["temp"]["max"]
+    p_min, p_max = ranges["ph"]["min"], ranges["ph"]["max"]
+    d_min, d_max = ranges["do"]["min"], ranges["do"]["max"]
+    tr_min, tr_max = ranges["turb"]["min"], ranges["turb"]["max"]
+    wl_min, wl_max = ranges["waterlevel"]["min"], ranges["waterlevel"]["max"]
 
     X = build_feature_row(
-        temp, ph, do_, turb, wl,
-        temp_rate, ph_rate, do_rate, turb_rate, wl_rate,
-        t_min, t_max, p_min, p_max,
-        d_min, d_max, tr_min, tr_max,
-        wl_min, wl_max, stage,
+        temp,
+        ph,
+        do_,
+        turb,
+        wl,
+        temp_rate,
+        ph_rate,
+        do_rate,
+        turb_rate,
+        wl_rate,
+        t_min,
+        t_max,
+        p_min,
+        p_max,
+        d_min,
+        d_max,
+        tr_min,
+        tr_max,
+        wl_min,
+        wl_max,
+        stage,
     )
     overall_status, confidence = predict_status(X)
 
     # Per-sensor status from rules (no separate ML model needed)
     sensor_statuses = {
         "temp_status": get_sensor_status(temp, t_min, t_max),
-        "ph_status":   get_sensor_status(ph,   p_min, p_max),
-        "do_status":   get_sensor_status(do_,  d_min, d_max),
+        "ph_status": get_sensor_status(ph, p_min, p_max),
+        "do_status": get_sensor_status(do_, d_min, d_max),
         "turb_status": get_sensor_status(turb, tr_min, tr_max),
-        "wl_status":   get_sensor_status(wl,   wl_min, wl_max),
+        "wl_status": get_sensor_status(wl, wl_min, wl_max),
     }
-
-    rate_map = {
-        "temp": temp_rate, "ph": ph_rate, "do": do_rate,
-        "turb": turb_rate, "wl": wl_rate,
-    }
-
-    sensors_dict = {}
-    for sk, short, r_min, r_max in [
-        ("temperature",     "temp", t_min,  t_max),
-        ("phLevel",         "ph",   p_min,  p_max),
-        ("dissolvedOxygen", "do",   d_min,  d_max),
-        ("turbidity",       "turb", tr_min, tr_max),
-        ("waterLevel",      "wl",   wl_min, wl_max),
-    ]:
-        status = sensor_statuses.get(f"{short}_status", "OPTIMAL")
-        val    = {"temp": temp, "ph": ph, "do": do_, "turb": turb, "wl": wl}[short]
-        sensors_dict[sk] = {
-            "key":            sk,
-            "label":          SHORT_TO_LABEL[short],
-            "status":         status,
-            "confidence":     confidence,
-            "insight":        generate_sensor_insight(short, val, status, r_min, r_max),
-            "prediction":     generate_sensor_prediction(
-                                  short, val, rate_map[short], r_min, r_max,
-                                  status, confidence),
-            "recommendation": generate_sensor_recommendation(short, status),
-        }
 
     return {
         "predictedStatus": overall_status,
-        "confidence":      confidence,
-        "stage":           stage,
-        "sensors":         sensors_dict,
-        "insight":         generate_insight(
-                               overall_status, sensor_statuses, stage, ranges,
-                               temp, ph, do_, turb,
-                               t_min, t_max, p_min, p_max, d_min, d_max, tr_min, tr_max),
-        "prediction":      generate_prediction(
-                               overall_status, sensor_statuses, stage, ranges,
-                               temp, ph, do_, turb, wl,
-                               temp_rate, ph_rate, do_rate, turb_rate, wl_rate,
-                               t_min, t_max, p_min, p_max, d_min, d_max, tr_min, tr_max),
-        "recommendation":  generate_recommendation(
-                               overall_status, sensor_statuses,
-                               temp, ph, do_, turb,
-                               t_min, t_max, p_min, p_max, d_min, d_max, tr_min, tr_max),
-        "timestamp":       int(time.time() * 1000),
+        "confidence": confidence,
+        "stage": stage,
+        "insight": generate_insight(
+            overall_status,
+            sensor_statuses,
+            stage,
+            ranges,
+            temp,
+            ph,
+            do_,
+            turb,
+            t_min,
+            t_max,
+            p_min,
+            p_max,
+            d_min,
+            d_max,
+            tr_min,
+            tr_max,
+        ),
+        "prediction": generate_prediction(
+            overall_status,
+            sensor_statuses,
+            stage,
+            ranges,
+            temp,
+            ph,
+            do_,
+            turb,
+            wl,
+            temp_rate,
+            ph_rate,
+            do_rate,
+            turb_rate,
+            wl_rate,
+            t_min,
+            t_max,
+            p_min,
+            p_max,
+            d_min,
+            d_max,
+            tr_min,
+            tr_max,
+        ),
+        "recommendation": generate_recommendation(
+            overall_status,
+            sensor_statuses,
+            temp,
+            ph,
+            do_,
+            turb,
+            t_min,
+            t_max,
+            p_min,
+            p_max,
+            d_min,
+            d_max,
+            tr_min,
+            tr_max,
+        ),
+        "timestamp": int(time.time() * 1000),
     }
 
 
@@ -815,34 +1023,46 @@ def on_sensor_change(event):
             return
 
         temp = data.get("temperature")
-        ph   = data.get("phLevel")
-        do_  = data.get("dissolvedOxygen")
+        ph = data.get("phLevel")
+        do_ = data.get("dissolvedOxygen")
         turb = data.get("turbidity")
-        wl   = data.get("waterLevel")
+        wl = data.get("waterLevel")
         if any(v is None for v in [temp, ph, do_, turb, wl]):
             return
 
-        for k, v in [("temp", temp), ("ph", ph), ("do", do_),
-                     ("turb", turb), ("wl", wl)]:
+        for k, v in [
+            ("temp", temp),
+            ("ph", ph),
+            ("do", do_),
+            ("turb", turb),
+            ("wl", wl),
+        ]:
             histories[k].add(v)
 
         temp_rate = histories["temp"].get_rate()
-        ph_rate   = histories["ph"].get_rate()
-        do_rate   = histories["do"].get_rate()
+        ph_rate = histories["ph"].get_rate()
+        do_rate = histories["do"].get_rate()
         turb_rate = histories["turb"].get_rate()
-        wl_rate   = histories["wl"].get_rate()
+        wl_rate = histories["wl"].get_rate()
 
         stage, ranges = get_current_stage_ranges(config_ref)
         result = _build_result(
-            temp, ph, do_, turb, wl,
-            temp_rate, ph_rate, do_rate, turb_rate, wl_rate,
-            stage, ranges,
+            temp,
+            ph,
+            do_,
+            turb,
+            wl,
+            temp_rate,
+            ph_rate,
+            do_rate,
+            turb_rate,
+            wl_rate,
+            stage,
+            ranges,
         )
 
         conf_pct = int(result["confidence"] * 100)
         print(f"[ML] Stage={stage} Overall={result['predictedStatus']} ({conf_pct}%)")
-        for sk, sd in result["sensors"].items():
-            print(f"  {sd['label']:20s}: {sd['status']}")
 
         prediction_ref.set(result)
 
@@ -850,7 +1070,8 @@ def on_sensor_change(event):
         if now_sec - getattr(on_sensor_change, "_last_log", 0) >= 600:
             on_sensor_change._last_log = now_sec
             from datetime import datetime, timezone
-            dt       = datetime.now(timezone.utc)
+
+            dt = datetime.now(timezone.utc)
             date_key = dt.strftime("%Y-%m-%d")
             time_key = dt.strftime("%H:%M")
             db.reference(f"ml_predictions/history/{date_key}/{time_key}").set(result)
@@ -858,6 +1079,7 @@ def on_sensor_change(event):
     except Exception as e:
         print(f"[ML] Listener error: {e}")
         import traceback
+
         traceback.print_exc()
 
 
@@ -868,8 +1090,8 @@ def start_listener():
         firebase_admin.initialize_app(cred, {"databaseURL": DATABASE_URL})
         print("[ML] Firebase Admin initialized")
         prediction_ref = db.reference("ml_predictions/latest")
-        config_ref     = db.reference("sensor_readings/config")
-        latest_ref     = db.reference("sensor_readings/latest")
+        config_ref = db.reference("sensor_readings/config")
+        latest_ref = db.reference("sensor_readings/latest")
         print("[ML] Listening to sensor_readings/latest...")
         latest_ref.listen(on_sensor_change)
     except Exception as e:
@@ -879,48 +1101,69 @@ def start_listener():
 # ── Flask Routes ──────────────────────────────────────────────
 @app.route("/")
 def home():
-    return jsonify({
-        "message":        "CrayCare ML Worker v4",
-        "status":         "running",
-        "model_loaded":   overall_model is not None,
-        "listener_active": prediction_ref is not None,
-    })
+    return jsonify(
+        {
+            "message": "CrayCare ML Worker v4",
+            "status": "running",
+            "model_loaded": overall_model is not None,
+            "listener_active": prediction_ref is not None,
+        }
+    )
 
 
 @app.route("/predict", methods=["POST"])
 def predict():
     data = request.get_json()
     try:
-        temp  = float(data["temperature"])
-        ph    = float(data["phLevel"])
-        do_   = float(data["dissolvedOxygen"])
-        turb  = float(data["turbidity"])
-        wl    = float(data["waterLevel"])
+        temp = float(data["temperature"])
+        ph = float(data["phLevel"])
+        do_ = float(data["dissolvedOxygen"])
+        turb = float(data["turbidity"])
+        wl = float(data["waterLevel"])
         stage = data.get("stage", "pre_adult")
 
         temp_rate = float(data.get("temp_rate", 0.0))
-        ph_rate   = float(data.get("ph_rate",   0.0))
-        do_rate   = float(data.get("do_rate",   0.0))
+        ph_rate = float(data.get("ph_rate", 0.0))
+        do_rate = float(data.get("do_rate", 0.0))
         turb_rate = float(data.get("turb_rate", 0.0))
-        wl_rate   = float(data.get("wl_rate",   0.0))
+        wl_rate = float(data.get("wl_rate", 0.0))
 
         ranges = {
-            "temp":       {"min": float(data.get("temp_min", 24.0)),
-                           "max": float(data.get("temp_max", 30.0))},
-            "ph":         {"min": float(data.get("ph_min",  7.0)),
-                           "max": float(data.get("ph_max",  8.5))},
-            "do":         {"min": float(data.get("do_min",  4.5)),
-                           "max": float(data.get("do_max",  10.0))},
-            "turb":       {"min": float(data.get("turb_min", 0.0)),
-                           "max": float(data.get("turb_max", 35.0))},
-            "waterlevel": {"min": float(data.get("wl_min",  8.0)),
-                           "max": float(data.get("wl_max",  15.0))},
+            "temp": {
+                "min": float(data.get("temp_min", 24.0)),
+                "max": float(data.get("temp_max", 30.0)),
+            },
+            "ph": {
+                "min": float(data.get("ph_min", 7.0)),
+                "max": float(data.get("ph_max", 8.5)),
+            },
+            "do": {
+                "min": float(data.get("do_min", 4.5)),
+                "max": float(data.get("do_max", 10.0)),
+            },
+            "turb": {
+                "min": float(data.get("turb_min", 0.0)),
+                "max": float(data.get("turb_max", 35.0)),
+            },
+            "waterlevel": {
+                "min": float(data.get("wl_min", 8.0)),
+                "max": float(data.get("wl_max", 15.0)),
+            },
         }
 
         result = _build_result(
-            temp, ph, do_, turb, wl,
-            temp_rate, ph_rate, do_rate, turb_rate, wl_rate,
-            stage, ranges,
+            temp,
+            ph,
+            do_,
+            turb,
+            wl,
+            temp_rate,
+            ph_rate,
+            do_rate,
+            turb_rate,
+            wl_rate,
+            stage,
+            ranges,
         )
         return jsonify(result)
 
