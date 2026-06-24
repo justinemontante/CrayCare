@@ -1151,11 +1151,11 @@ class _DashboardScreenState extends State<DashboardScreen>
     int completed = 0;
 
     for (final s in sorted) {
-      final sMin = _toScheduleMinutes(s);
-      if (sMin <= nowMin) {
+      final status = _scheduleStatus(s, now, nowMin);
+      if (status == 'completed') {
         lastFed = s;
         completed++;
-      } else {
+      } else if (status == 'upcoming') {
         nextFeed ??= s;
       }
     }
@@ -1391,6 +1391,37 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (s.ampm == 'PM' && h != 12) h += 12;
     if (s.ampm == 'AM' && h == 12) h = 0;
     return h * 60 + m;
+  }
+
+  String _logDateString() {
+    final now = DateTime.now();
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return '${months[now.month - 1]} ${now.day}, ${now.year}';
+  }
+
+  String _scheduleStatus(ScheduleItem s, DateTime now, int nowMin) {
+    if (s.isDone) return 'completed';
+    final scheduleTimeStr = '${s.time} ${s.ampm}';
+    final todayStr = _logDateString();
+    for (final log in FeedState.feederLogs.value) {
+      if (log.action == 'Auto feed dispensed' &&
+          log.time == scheduleTimeStr &&
+          log.date == todayStr) {
+        return 'completed';
+      }
+    }
+    int h = int.tryParse(s.time.split(':')[0]) ?? 6;
+    final m = int.tryParse(s.time.split(':')[1]) ?? 0;
+    if (s.ampm == 'PM' && h != 12) h += 12;
+    if (s.ampm == 'AM' && h == 12) h = 0;
+    final scheduleDt = DateTime(now.year, now.month, now.day, h, m);
+    final diffSec = now.difference(scheduleDt).inSeconds;
+    if (diffSec > 120) return 'skipped';
+    if (diffSec >= 0) return 'pending';
+    return 'upcoming';
   }
 
   Widget _buildModalTrendIndicator(String trend, double rate, String status) {

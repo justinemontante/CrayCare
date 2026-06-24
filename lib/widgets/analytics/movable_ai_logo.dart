@@ -41,6 +41,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
   bool _mlLoading = true;
   String? _mlError;
 
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -64,10 +65,20 @@ class _MovableAiLogoState extends State<MovableAiLogo>
       if (mounted) setState(() {
         _mlLoading = false;
         _mlData = null;
-        _mlError = 'No recent ML data available.';
+        _mlError = 'CrayAI is waiting for sensor data...';
       });
     }
   }
+
+  Color _statusColor(String? status) {
+    switch (status) {
+      case 'OPTIMAL': return const Color(0xFF22c55e);
+      case 'WARNING': return const Color(0xFFf59e0b);
+      case 'CRITICAL': return const Color(0xFFef4444);
+      default: return AppColors.dark.withValues(alpha: 0.3);
+    }
+  }
+
 
   Widget _buildAIInsightsSheet(BuildContext ctx) {
     return Container(
@@ -85,10 +96,10 @@ class _MovableAiLogoState extends State<MovableAiLogo>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // HEADER NG BOTTOM SHEET
+          // HEADER
           Row(
             children: [
-              // PINALITAN NATIN YUNG ICON NG IMAGE.ASSET PARA SA CRAY AI LOGO
+              // CRAY AI LOGO
               Container(
                 width: 36,
                 height: 36,
@@ -209,6 +220,8 @@ class _MovableAiLogoState extends State<MovableAiLogo>
   }
 
   void _useMlData(Map<String, dynamic> mlData) {
+    // Parse top-level fields
+
     final raw = mlData['sensors'];
     List<dynamic> rawSensors;
     if (raw is List) {
@@ -222,7 +235,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
       if (mounted) setState(() {
         _mlLoading = false;
         _mlData = null;
-        _mlError = 'No ML data available from server.';
+        _mlError = 'No sensor data available from CrayAI.';
       });
       return;
     }
@@ -232,9 +245,12 @@ class _MovableAiLogoState extends State<MovableAiLogo>
       final map = raw.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
       final key = map['key'] as String? ?? '';
       final fbKey = _localKeyToFbKey(key);
+      final rawConf = map['confidence'];
+      final conf = (rawConf is num) ? rawConf.toDouble() : 0.0;
       return {
         'key': fbKey,
         'status': map['status'] as String? ?? 'UNKNOWN',
+        'confidence': conf,
         'insight': map['insight'] as String? ?? '',
         'prediction': map['prediction'] as String? ?? '',
         'recommendation': map['recommendation'] as String? ?? '',
@@ -287,6 +303,8 @@ class _MovableAiLogoState extends State<MovableAiLogo>
         return _buildSmartInsightCard(
           title: display['title'] as String,
           iconPath: display['icon'] as String,
+          status: s['status'] as String? ?? 'UNKNOWN',
+          confidence: (s['confidence'] as num?)?.toDouble() ?? 0.0,
           insight: s['insight'] as String? ?? '',
           prediction: s['prediction'] as String? ?? '',
           recommendation: s['recommendation'] as String? ?? '',
@@ -295,16 +313,33 @@ class _MovableAiLogoState extends State<MovableAiLogo>
     );
   }
 
+  String _cleanMlText(String text) {
+    if (text.isEmpty) return text;
+    return text
+        .replaceAll('\u2192', '->')
+        .replaceAll('\u2191', '↑')
+        .replaceAll('\u2193', '↓')
+        .replaceAll('—', ' - ')
+        .replaceAll('–', '-')
+        .replaceAll('  ', ' ')
+        .replaceAll('( ', '(')
+        .replaceAll(' )', ')')
+        .trim();
+  }
+
   Widget _buildSmartInsightCard({
     required String title,
     required String iconPath,
+    required String status,
+    required double confidence,
     required String insight,
     required String prediction,
     required String recommendation,
   }) {
+    final statusColor = _statusColor(status);
+
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -314,61 +349,63 @@ class _MovableAiLogoState extends State<MovableAiLogo>
         ),
         boxShadow: [
           BoxShadow(
-            color: AppColors.dark.withValues(alpha: 0.03),
-            blurRadius: 8,
+            color: statusColor.withValues(alpha: 0.06),
+            blurRadius: 10,
             offset: const Offset(0, 2),
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // TITLE ROW (no status badge)
-          Row(
-            children: [
-              Image.asset(iconPath, width: 22, height: 22),
-              const SizedBox(width: 8),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.dark,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // TITLE ROW WITH STATUS BADGE + CONFIDENCE
+                    Row(
+                      children: [
+                        Image.asset(iconPath, width: 20, height: 20),
+                        const SizedBox(width: 8),
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.dark,
+                          ),
+                        ),
+
+                      ],
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Divider(
+                        color: AppColors.dark.withValues(alpha: 0.05),
+                        thickness: 1,
+                      ),
+                    ),
+                    _buildDetailRow(
+                      'Insight',
+                      _cleanMlText(insight),
+                      Icons.lightbulb_outline,
+                      AppColors.primary,
+                    ),
+                    const SizedBox(height: 10),
+                    _buildDetailRow(
+                      'Prediction',
+                      _cleanMlText(prediction),
+                      Icons.trending_up,
+                      const Color(0xFF8E44AD),
+                    ),
+                    const SizedBox(height: 10),
+                    _buildDetailRow(
+                      'Recommendation',
+                      _cleanMlText(recommendation),
+                      Icons.build_circle_outlined,
+                      const Color(0xFFE67E22),
+                    ),
+                  ],
                 ),
               ),
-            ],
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Divider(
-              color: AppColors.dark.withValues(alpha: 0.05),
-              thickness: 1,
-            ),
-          ),
-
-          // ML OUTPUTS
-          _buildDetailRow(
-            'Insight',
-            insight,
-            Icons.lightbulb_outline,
-            AppColors.primary,
-          ),
-          const SizedBox(height: 10),
-          _buildDetailRow(
-            'Prediction',
-            prediction,
-            Icons.trending_up,
-            const Color(0xFF8E44AD),
-          ),
-          const SizedBox(height: 10),
-          _buildDetailRow(
-            'Recommendation',
-            recommendation,
-            Icons.build_circle_outlined,
-            const Color(0xFFE67E22),
-          ),
-        ],
-      ),
     );
   }
 

@@ -585,7 +585,82 @@ setInterval(async () => {
   }
 }, 60000);
 
+// ─── Pre-arm Checker (sends silent FCM to wake app for exact OS alarm) ──
+setInterval(async () => {
+  try {
+    const now = new Date();
+    const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
+    const manilaNow = new Date(now.getTime() + MANILA_OFFSET_MS);
+
+    const schedSnap = await db.ref("feeder/schedules").once("value");
+    if (!schedSnap.exists()) return;
+    const schedData = schedSnap.val();
+
+    for (const [key, s] of Object.entries(schedData)) {
+      if (!s || s.enabled !== true) continue;
+
+      const time = s.time || "6:00";
+      const ampm = s.ampm || "AM";
+      let h = parseInt(time.split(":")[0]);
+      const m = parseInt(time.split(":")[1]);
+      if (ampm === "PM" && h !== 12) h += 12;
+      if (ampm === "AM" && h === 12) h = 0;
+
+      const scheduleDate = new Date(Date.UTC(manilaNow.getUTCFullYear(), manilaNow.getUTCMonth(), manilaNow.getUTCDate(), h, m));
+      const twelveMinBefore = new Date(scheduleDate.getTime() - 12 * 60 * 1000);
+      const fiveMinBefore = new Date(scheduleDate.getTime() - 5 * 60 * 1000);
+
+      // 7-minute window: T-12m to T-5m — wide enough to never miss
+      if (manilaNow < twelveMinBefore || manilaNow >= fiveMinBefore) continue;
+
+      const yr = manilaNow.getUTCFullYear();
+      const mo = String(manilaNow.getUTCMonth() + 1).padStart(2, '0');
+      const dy = String(manilaNow.getUTCDate()).padStart(2, '0');
+      const hhmm = `${String(h).padStart(2, '0')}${String(m).padStart(2, '0')}`;
+      const preArmKey = `prearm_${yr}-${mo}-${dy}_${hhmm}`;
+
+      // Pass the exact schedule epoch so Flutter doesn't need timezone math
+      const scheduleEpoch = Date.UTC(
+        manilaNow.getUTCFullYear(), manilaNow.getUTCMonth(),
+        manilaNow.getUTCDate(), h, m
+      ) - MANILA_OFFSET_MS;
+
+      const uids = await getAuthorizedUids();
+      await Promise.allSettled(uids.map(async (uid) => {
+        const tokenSnap = await db.ref(`users/${uid}/fcmToken`).once("value");
+        const token = tokenSnap.val();
+        if (!token) return;
+
+        const prefsSnap = await db.ref(`users/${uid}/notifPrefs`).once("value");
+        const prefs = prefsSnap.val() || {};
+        if (prefs.feeding === false) return;
+
+        // Marker: isang beses lang mag-pre-arm per schedule per user
+        const markerSnap = await db.ref(`users/${uid}/notifications/markers/${preArmKey}`).once("value");
+        if (markerSnap.exists()) return;
+
+        await admin.messaging().send({
+          token,
+          data: {
+            type: "pre_arm",
+            scheduleTime: time,
+            scheduleAmPm: ampm,
+            scheduleEpoch: String(scheduleEpoch),
+          },
+          android: { priority: "high" },
+        });
+
+        await db.ref(`users/${uid}/notifications/markers/${preArmKey}`).set(Date.now());
+        console.log(`[Pre-arm] Sent to ${uid} for ${time} ${ampm} (epoch=${scheduleEpoch})`);
+      }));
+    }
+  } catch (e) {
+    console.error("Pre-arm checker error:", e.message);
+  }
+}, 60000);
+
 console.log("CrayCare Notification Worker started.");
 console.log("Monitoring sensor_readings/latest for threshold alerts...");
 console.log("Checking feeder/schedules for 5-min feeding reminders and confirmations...");
+console.log("Pre-arming OS alarms via silent FCM (T-12m to T-5m window)...");
 console.log("Checking tank/config for sampling reminders...");

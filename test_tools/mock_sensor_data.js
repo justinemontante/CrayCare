@@ -72,7 +72,7 @@ const HOUR_CYCLE = (hour) => ({
 // Bawat segundo, konting galaw lang — gaya ng totoong tubig
 
 const IDEAL = {
-  temperature:     32.0,  // 🔴 critical (>30)
+  temperature:     26.0,  // 🟢 optimal (24-30)
   dissolvedOxygen: 6.0,   // 🟢 optimal (>5.0)
   phLevel:         7.8,   // 🟢 optimal
   turbidity:       33.0,  // 🟡 warning (31.5-35)
@@ -103,8 +103,49 @@ function _driftTo(target, current, speed) {
   return current + (Math.random() - 0.5) * speed * 0.9;
 }
 
+// ─── Temperature Phase Cycle ──────────────────────────────────
+// Para ma-demo ang iba't ibang trend: stable, rising, falling, etc.
+const TEMP_PHASES = [
+  { label: 'Stable (26-28)',        target: 27.0, speed: 0.02, ticks: 20 },
+  { label: 'Slow Rise (→30)',       target: 30.5, speed: 0.08, ticks: 25 },
+  { label: 'Fast Rise (→critical)', target: 33.0, speed: 0.25, ticks: 15 },
+  { label: 'Slow Fall (←28)',       target: 28.0, speed: 0.06, ticks: 30 },
+  { label: 'Stable (28)',           target: 28.0, speed: 0.02, ticks: 20 },
+  { label: 'Fast Fall (→26)',       target: 26.0, speed: 0.20, ticks: 12 },
+  { label: 'Slow Rise (→29)',       target: 29.0, speed: 0.05, ticks: 25 },
+  { label: 'Stable (29)',           target: 29.0, speed: 0.02, ticks: 15 },
+  { label: 'Fast Rise (→34)',       target: 34.0, speed: 0.30, ticks: 15 },
+  { label: 'Fast Fall (→25)',       target: 25.0, speed: 0.25, ticks: 18 },
+];
+let _tempPhaseIdx = 0;
+let _tempTick = 0;
+
+function _updateTemperature() {
+  const phase = TEMP_PHASES[_tempPhaseIdx];
+  const current = _state.temperature;
+  const diff = phase.target - current;
+  const absDiff = Math.abs(diff);
+
+  if (absDiff > phase.speed) {
+    _state.temperature += Math.sign(diff) * phase.speed;
+  } else {
+    // Near target — micro-wobble to look natural
+    _state.temperature += (Math.random() - 0.5) * phase.speed * 0.3;
+  }
+
+  _tempTick++;
+  if (_tempTick >= phase.ticks) {
+    _tempPhaseIdx = (_tempPhaseIdx + 1) % TEMP_PHASES.length;
+    _tempTick = 0;
+    console.log(`  🔄 Temp phase: ${TEMP_PHASES[_tempPhaseIdx].label}`);
+  }
+}
+
 function generateReading() {
-  for (const key of LATEST_KEYS) {
+  _updateTemperature();
+
+  // Other sensors: normal drift
+  for (const key of ['dissolvedOxygen', 'phLevel', 'turbidity', 'waterLevel']) {
     _state[key] = _driftTo(IDEAL[key], _state[key], DRIFT_SPEED[key]);
     const r = RANGES[key];
     _state[key] = Math.max(r.min, Math.min(r.max, _state[key]));
@@ -235,16 +276,13 @@ async function main() {
 
   if (!doBackfill && !args.includes('--no-live')) {
     console.log('\n🚀 Starting real-time simulation…');
-    console.log('   Every 1s  → sensor_readings/latest');
+    console.log('   Every 5s  → sensor_readings/latest');
     console.log('   Every 30m → sensor_readings/history');
-    console.log(`   🔴 ${ALWAYS_CRITICAL.join(', ')}     ~${ALWAYS_CRITICAL.map(k => IDEAL[k]).join('/')} (critical)`);
-    console.log(`   🟡 ${ALWAYS_WARNING.join(', ')}   ~${ALWAYS_WARNING.map(k => IDEAL[k]).join('/')} (warning)`);
-    const optimal = LATEST_KEYS.filter(k => !ALWAYS_CRITICAL.includes(k) && !ALWAYS_WARNING.includes(k));
-    console.log(`   🟢 ${optimal.join(', ')}  ~${optimal.map(k => IDEAL[k]).join('/')} (optimal)`);
+    console.log('   🌡️  Temperature cycles: stable → slow rise → fast rise → fall → stable → fast fall → ...');
     console.log('   Press Ctrl+C to stop.\n');
 
     await writeLatest();
-    setInterval(() => writeLatest(), 1000);
+    setInterval(() => writeLatest(), 5000);
 
     await appendHistory();
     setInterval(() => appendHistory(), 30 * 60 * 1000);
