@@ -130,6 +130,7 @@ static unsigned long lastLoopTime = 0;
 static String fbSchedKey1 = "";  // Firebase key of slot 1
 static String fbSchedKey2 = "";  // Firebase key of slot 2
 static String pendingSchedKey = "";  // Key pending isDone sync when offline
+static double feedGrams1 = 0, feedGrams2 = 0;
 static int feedHour1 = 9, feedMin1 = 0;
 static int feedHour2 = 18, feedMin2 = 0;
 static bool fedSlot1 = false, fedSlot2 = false;
@@ -151,7 +152,7 @@ static void saveFeederSchedule();
 // =============================================================================
 
 static void applyMode(int idx, const String& modeStr);
-static void doFeed(const String& cmdPath);
+static void doFeed(const String& schedKey, double grams = 0);
 static void scanI2C();
 static bool detectLCD();
 static float readWaterLevelCm();
@@ -215,12 +216,23 @@ static float readWaterLevelCm() {
     delayMicroseconds(10);
     digitalWrite(TRIG_PIN, LOW);
     long duration = pulseIn(ECHO_PIN, HIGH, ECHO_TIMEOUT_US);
-    if (duration == 0) return -1;
+    if (duration == 0) {
+        if (debugMode) Serial.println("[HC-SR04] TIMEOUT - no echo (sensor unplugged or target out of range)");
+        return -1;
+    }
     float distToWater = duration * SOUND_SPEED_CM_US / 2.0;
-    if (distToWater < 2 || distToWater > MAX_DIST_CM) return -1;
+    if (distToWater < 2 || distToWater > MAX_DIST_CM) {
+        if (debugMode) Serial.printf("[HC-SR04] OUT OF RANGE: duration=%ldus dist=%.1fcm\n", duration, distToWater);
+        return -1;
+    }
     float waterDepth = sensorHeight - distToWater;
+    float rawDepth = waterDepth;
     if (waterDepth < 0) waterDepth = 0;
     if (waterDepth > maxWaterDepth) waterDepth = maxWaterDepth;
+    if (debugMode) {
+        Serial.printf("[HC-SR04] duration=%ldus dist=%.1fcm rawDepth=%.1fcm depth=%.1fcm (sensorH=%.1f maxD=%.1f)\n",
+            duration, distToWater, rawDepth, waterDepth, sensorHeight, maxWaterDepth);
+    }
     return waterDepth;
 }
 
@@ -361,13 +373,17 @@ static void pollModes() {
     if (j.get(d, DEV_P))  { Serial.printf("[MODES] %s=%s\n", DEV_P, d.stringValue.c_str()); applyMode(2, d.stringValue); }
 }
 
-static void doFeed(const String& schedKey) {
+static void doFeed(const String& schedKey, double grams) {
     if (feedBusy) return;
     feedBusy = true;
     if (Firebase.ready()) {
         Firebase.RTDB.setBool(&fbW, "/feeder/status/isRunning", true);
     }
-    executeServoCycle();
+    if (grams > 0) {
+        executeServoCycleFromTable(grams);
+    } else {
+        executeServoCycle();
+    }
     feedCount++;
     markScheduleDispatched(schedKey);
     if (Firebase.ready()) {
@@ -377,7 +393,13 @@ static void doFeed(const String& schedKey) {
         j.add("hopperLevel", 100.0); j.add("feedSource", "esp32");
         j.add("feederError", "");
         Firebase.RTDB.setJSON(&fbW, "/feeder/status", &j);
-        logFeedAction("Feed dispensed", "auto");
+        if (grams > 0) {
+            char buf[48];
+            snprintf(buf, sizeof(buf), "Feed dispensed (%.1fg)", grams);
+            logFeedAction(buf, "auto");
+        } else {
+            logFeedAction("Feed dispensed", "auto");
+        }
     }
     feedBusy = false;
 }
@@ -402,11 +424,13 @@ static void pollCommands() {
                 sub.get(d, "timestamp");
                 int64_t ts = (int64_t)d.doubleValue;
                 int64_t nowMs = (int64_t)getEpochMillis();
+                double gramsCmd = 0;
+                if (sub.get(d, "grams")) gramsCmd = d.doubleValue;
                 String path = String("/feeder/commands/") + key;
                 if (nowMs > 0 && nowMs - ts < 30000) {
-                    Serial.printf("[CMD-POLL] Feed: %s\n", key.c_str());
+                    Serial.printf("[CMD-POLL] Feed: %s (%.1fg)\n", key.c_str(), gramsCmd);
                     Firebase.RTDB.deleteNode(&fbW, path);
-                    doFeed("");
+                    doFeed("", gramsCmd);
                 } else if (nowMs > 0) {
                     Serial.printf("[CMD-POLL] Stale: %s\n", key.c_str());
                     Firebase.RTDB.deleteNode(&fbW, path);
@@ -499,11 +523,14 @@ static void loadFeederSchedule() {
     feedMin2 = prefs.getInt("min2", 0);
     fbSchedKey1 = prefs.getString("key1", "");
     fbSchedKey2 = prefs.getString("key2", "");
+    feedGrams1 = prefs.getFloat("g1", 0);
+    feedGrams2 = prefs.getFloat("g2", 0);
     prefs.end();
     lastSchedSync = 0;
     schedSyncPending = false;
-    Serial.printf("[FEEDER] Schedule loaded: %02d:%02d, %02d:%02d (key1=%s key2=%s)\n",
-        feedHour1, feedMin1, feedHour2, feedMin2, fbSchedKey1.c_str(), fbSchedKey2.c_str());
+    Serial.printf("[FEEDER] Schedule loaded: %02d:%02d(%.1fg) %02d:%02d(%.1fg) (key1=%s key2=%s)\n",
+        feedHour1, feedMin1, feedGrams1, feedHour2, feedMin2, feedGrams2,
+        fbSchedKey1.c_str(), fbSchedKey2.c_str());
 }
 
 static void saveFeederSchedule() {
@@ -514,6 +541,8 @@ static void saveFeederSchedule() {
     prefs.putInt("min2", feedMin2);
     prefs.putString("key1", fbSchedKey1);
     prefs.putString("key2", fbSchedKey2);
+    prefs.putFloat("g1", (float)feedGrams1);
+    prefs.putFloat("g2", (float)feedGrams2);
     prefs.end();
     Serial.println("[FEEDER] Schedule saved to NVS");
 }
@@ -542,13 +571,13 @@ static void checkFeederSchedule() {
         if (!fedSlot1 && curH == feedHour1 && curM == feedMin1) {
             Serial.printf("[FEEDER] Auto-feed slot1 (%s key=%s)\n",
                 fmtTime12(feedHour1, feedMin1).c_str(), fbSchedKey1.c_str());
-            doFeed(fbSchedKey1);
+            doFeed(fbSchedKey1, feedGrams1);
             fedSlot1 = true;
         }
         if (!fedSlot2 && curH == feedHour2 && curM == feedMin2) {
             Serial.printf("[FEEDER] Auto-feed slot2 (%s key=%s)\n",
                 fmtTime12(feedHour2, feedMin2).c_str(), fbSchedKey2.c_str());
-            doFeed(fbSchedKey2);
+            doFeed(fbSchedKey2, feedGrams2);
             fedSlot2 = true;
         }
 
@@ -585,7 +614,7 @@ static void pollFirebaseSchedules() {
         return;
     }
 
-    struct FbSched { int hour24; int min; String key; };
+    struct FbSched { int hour24; int min; String key; double grams; };
     FbSched scheds[8];
     int count = 0;
 
@@ -617,6 +646,8 @@ static void pollFirebaseSchedules() {
         scheds[count].hour24 = h;
         scheds[count].min = m;
         scheds[count].key = key;
+        scheds[count].grams = 0;
+        if (sub.get(d, "grams")) scheds[count].grams = d.doubleValue;
         count++;
     }
     j.iteratorEnd();
@@ -634,18 +665,22 @@ static void pollFirebaseSchedules() {
 
     int h1 = 9, m1 = 0, h2 = 18, m2 = 0;
     String k1 = "", k2 = "";
-    if (count >= 1) { h1 = scheds[0].hour24; m1 = scheds[0].min; k1 = scheds[0].key; }
-    if (count >= 2) { h2 = scheds[1].hour24; m2 = scheds[1].min; k2 = scheds[1].key; }
+    double g1 = 0, g2 = 0;
+    if (count >= 1) { h1 = scheds[0].hour24; m1 = scheds[0].min; k1 = scheds[0].key; g1 = scheds[0].grams; }
+    if (count >= 2) { h2 = scheds[1].hour24; m2 = scheds[1].min; k2 = scheds[1].key; g2 = scheds[1].grams; }
 
     bool changed = (h1 != feedHour1 || m1 != feedMin1 || h2 != feedHour2 || m2 != feedMin2 ||
-                    k1 != fbSchedKey1 || k2 != fbSchedKey2);
+                    k1 != fbSchedKey1 || k2 != fbSchedKey2 ||
+                    g1 != feedGrams1 || g2 != feedGrams2);
     if (changed) {
         feedHour1 = h1; feedMin1 = m1; feedHour2 = h2; feedMin2 = m2;
         fbSchedKey1 = k1; fbSchedKey2 = k2;
+        feedGrams1 = g1; feedGrams2 = g2;
         missedLogged1 = false; missedLogged2 = false;
         saveFeederSchedule();
-        Serial.printf("[SCHED] Synced: %02d:%02d(key=%s) %02d:%02d(key=%s) %d sched(s)\n",
-            feedHour1, feedMin1, fbSchedKey1.c_str(), feedHour2, feedMin2, fbSchedKey2.c_str(), count);
+        Serial.printf("[SCHED] Synced: %02d:%02d(%.1fg key=%s) %02d:%02d(%.1fg key=%s) %d sched(s)\n",
+            feedHour1, feedMin1, feedGrams1, fbSchedKey1.c_str(),
+            feedHour2, feedMin2, feedGrams2, fbSchedKey2.c_str(), count);
     }
     lastSchedSync = now;
 }
@@ -719,6 +754,11 @@ static void printHelp() {
     Serial.println("  servopause <ms>      Set servo open pause");
     Serial.println("  servoangle <open> <close>  Set open/close angles (0-180)");
     Serial.println("  servocycle           Run one feed cycle");
+    Serial.println("  calrec <g> <ang> <ms>  Record: dispense g grams at angle/pause");
+    Serial.println("  caldel <g>            Delete record for grams g");
+    Serial.println("  callist               List all calibration records");
+    Serial.println("  calclear              Clear all calibration records");
+    Serial.println("  caltest <g>           Test: run feed cycle for g grams from table");
     Serial.println("  feedtime1 <H> <M>    Set AM feed time (24h format)");
     Serial.println("  feedtime2 <H> <M>    Set PM feed time (24h format)");
     Serial.println("  feedtime             Show current feed schedule");
@@ -746,6 +786,7 @@ static void printHelp() {
     Serial.println("");
     Serial.println("--- DO Calibration ---");
     Serial.println("  doclear              Calibrate in air (100% sat)");
+    Serial.println("  doread               Read raw DO voltage (no save)");
     Serial.println("");
     Serial.println("--- Water Level Calibration ---");
     Serial.println("  tankheight <cm>      Set sensor height above tank bottom");
@@ -825,6 +866,106 @@ static void processSerialCommands() {
     if (cmd == "servocycle") {
         Serial.println("[CMD] Manual feed cycle");
         executeServoCycle();
+        return;
+    }
+    if (cmd == "gramspause" || cmd == "gramsshift" || cmd == "gramscal") {
+        Serial.println("[CMD] Calibration table is primary — use 'calrec'/'callist' instead");
+        return;
+    }
+    if (cmd == "calrec") {
+        int sp1 = arg.indexOf(' ');
+        int sp2 = arg.lastIndexOf(' ');
+        if (sp1 > 0 && sp2 > sp1) {
+            double g = arg.substring(0, sp1).toDouble();
+            int a = arg.substring(sp1 + 1, sp2).toInt();
+            uint32_t p = (uint32_t)arg.substring(sp2 + 1).toInt();
+            if (g > 0 && a >= 0 && a <= 180 && p >= 100 && p <= 10000) {
+                int insertIdx = calCount;
+                for (int i = 0; i < calCount; i++) {
+                    if (fabs(calTable[i].grams - g) < 0.01) {
+                        calTable[i].angle = a;
+                        calTable[i].pauseMs = p;
+                        saveCalTable();
+                        Serial.printf("[CMD] Cal record updated: %.1fg → angle=%d° pause=%ums\n", g, a, p);
+                        return;
+                    }
+                    if (calTable[i].grams > g) {
+                        insertIdx = i;
+                        break;
+                    }
+                }
+                if (calCount >= CAL_MAX_RECORDS) {
+                    Serial.println("[CMD] Cal table full (16/16) — delete a record first");
+                    return;
+                }
+                for (int i = calCount; i > insertIdx; i--) {
+                    calTable[i] = calTable[i - 1];
+                }
+                calTable[insertIdx].grams = g;
+                calTable[insertIdx].angle = a;
+                calTable[insertIdx].pauseMs = p;
+                calCount++;
+                saveCalTable();
+                Serial.printf("[CMD] Cal record added: %.1fg → angle=%d° pause=%ums (%d/%d)\n",
+                    g, a, p, calCount, CAL_MAX_RECORDS);
+            } else {
+                Serial.println("[CMD] Invalid: calrec <grams> <angle(0-180)> <pauseMs(100-10000)>");
+            }
+        } else {
+            Serial.println("[CMD] Usage: calrec <grams> <angle> <pauseMs>");
+        }
+        return;
+    }
+    if (cmd == "caldel") {
+        double g = arg.toDouble();
+        if (g > 0 && calCount > 0) {
+            int bestIdx = 0;
+            double bestDiff = fabs(g - calTable[0].grams);
+            for (int i = 1; i < calCount; i++) {
+                double diff = fabs(g - calTable[i].grams);
+                if (diff < bestDiff) {
+                    bestDiff = diff;
+                    bestIdx = i;
+                }
+            }
+            Serial.printf("[CMD] Cal record deleted: %.1fg (was %.1fg → angle=%d° pause=%ums)\n",
+                g, calTable[bestIdx].grams, calTable[bestIdx].angle, calTable[bestIdx].pauseMs);
+            for (int i = bestIdx; i < calCount - 1; i++) {
+                calTable[i] = calTable[i + 1];
+            }
+            calCount--;
+            saveCalTable();
+        } else {
+            Serial.println("[CMD] No records to delete or invalid grams");
+        }
+        return;
+    }
+    if (cmd == "callist") {
+        if (calCount == 0) {
+            Serial.println("[CMD] Calibration table empty. Use 'calrec <g> <angle> <pauseMs>' to add records.");
+        } else {
+            Serial.printf("[CMD] Calibration table (%d/%d records):\n", calCount, CAL_MAX_RECORDS);
+            for (int i = 0; i < calCount; i++) {
+                Serial.printf("  #%d: %.1fg → angle=%d° pause=%ums\n",
+                    i, calTable[i].grams, calTable[i].angle, calTable[i].pauseMs);
+            }
+        }
+        return;
+    }
+    if (cmd == "calclear") {
+        calCount = 0;
+        saveCalTable();
+        Serial.println("[CMD] Calibration table cleared");
+        return;
+    }
+    if (cmd == "caltest") {
+        double g = arg.toDouble();
+        if (g > 0) {
+            Serial.printf("[CMD] Test feed: %.1fg (from calibration table)\n", g);
+            executeServoCycleFromTable(g);
+        } else {
+            Serial.println("[CMD] Usage: caltest <grams>");
+        }
         return;
     }
     if (cmd == "feedtime1") {
@@ -917,6 +1058,11 @@ static void processSerialCommands() {
 
     // --- DO calibration ---
     if (cmd == "doclear") { calibrateDOInAir(); return; }
+    if (cmd == "doread") {
+        float v = readDORaw();
+        Serial.printf("[DO] Raw voltage = %.3f V (%.0f mV)\n", v, v * 1000);
+        return;
+    }
 
     // --- Water level calibration ---
     if (cmd == "tankheight") {
@@ -1000,7 +1146,16 @@ static void processSerialCommands() {
 
 void setup() {
     Serial.begin(115200);
-    Serial.println("=== CrayCare All-in-One Firmware ===");
+    for (int i = 0; i < 10; i++) {
+        delay(300);
+        Serial.print(".");
+    }
+    Serial.println();
+    Serial.println("========== CRAY CARE ==========");
+    Serial.println("Firmware: All-in-One v2.0");
+    Serial.println("Baud rate: 115200");
+    Serial.println("SYNC_OK_115200");
+    Serial.flush();
 
     // ADC config for stable analog readings
     analogSetAttenuation(ADC_11db);
@@ -1036,6 +1191,9 @@ void setup() {
         lcd.print("CrayCare AIO");
         lcd.setCursor(0, 1);
         lcd.print("Starting...");
+        Serial.println("[LCD] Detected and initialized");
+    } else {
+        Serial.println("[LCD] NOT DETECTED — check wiring (VCC=5V, GND, SDA=21, SCL=22, addr 0x27/0x3F)");
     }
 
     // WiFi
@@ -1135,8 +1293,9 @@ void loop() {
         currentDO = readDO(currentTemp);
         currentWaterCm = readWaterLevelFiltered();
         if (debugMode) {
-            Serial.printf("[DEBUG] T=%.1fC pH=%.2f DO=%.1f Turb V=%.3fV NTU=%.0f%s Water=%.0fcm\n",
-                currentTemp, currentPH, currentDO, currentTurbV, currentTurbNTU,
+            float rawDOV = readDORaw();
+            Serial.printf("[DEBUG] T=%.1fC pH=%.2f DO=%.1f(% .0fmV) Turb V=%.3fV NTU=%.0f%s Water=%.0fcm\n",
+                currentTemp, currentPH, currentDO, rawDOV * 1000, currentTurbV, currentTurbNTU,
                 currentTurbAir ? " AIR" : "", currentWaterCm >= 0 ? currentWaterCm : 0);
         } else {
             Serial.printf("[SENSORS] T=%.1fC pH=%.2f DO=%.1f Turb=%.0fNTU%s Water=%.0fcm\n",

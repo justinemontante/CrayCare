@@ -13,6 +13,10 @@ uint32_t servoCycleMs = 0;
 int servoOpenAngle = 180;   // Angle for open position
 int servoCloseAngle = 0;    // Angle for close position
 
+// ----- Calibration table -----
+CalRecord calTable[CAL_MAX_RECORDS];
+int calCount = 0;
+
 static Preferences servoPrefs;
 static const char* SERVO_NS = "servo";
 
@@ -27,6 +31,9 @@ void initServo() {
     servoPrefs.end();
     Serial.printf("[SERVO] Pause: %ums, Open: %d°, Close: %d°\n",
         servoPauseMs, servoOpenAngle, servoCloseAngle);
+
+    loadCalTable();
+    Serial.printf("[SERVO] Calibration table: %d records\n", calCount);
 
     ledcSetup(SERVO_CHANNEL, SERVO_FREQ, SERVO_RESOLUTION);
     ledcAttachPin(SERVO_PIN, SERVO_CHANNEL);
@@ -81,4 +88,72 @@ void executeServoCycle() {
         }
     }
     Serial.println("[SERVO] Feeding cycle complete");
+}
+
+// ----- Calibration table -----
+
+void loadCalTable() {
+    servoPrefs.begin(SERVO_NS, true);
+    calCount = servoPrefs.getInt("calCount", 0);
+    if (calCount > CAL_MAX_RECORDS) calCount = CAL_MAX_RECORDS;
+    for (int i = 0; i < calCount; i++) {
+        String gk = "cr_g_" + String(i);
+        String ak = "cr_a_" + String(i);
+        String pk = "cr_p_" + String(i);
+        calTable[i].grams = servoPrefs.getFloat(gk.c_str(), 0.0f);
+        calTable[i].angle = servoPrefs.getInt(ak.c_str(), 0);
+        calTable[i].pauseMs = servoPrefs.getUInt(pk.c_str(), 0);
+    }
+    servoPrefs.end();
+}
+
+void saveCalTable() {
+    servoPrefs.begin(SERVO_NS, false);
+    servoPrefs.putInt("calCount", calCount);
+    for (int i = 0; i < calCount; i++) {
+        String gk = "cr_g_" + String(i);
+        String ak = "cr_a_" + String(i);
+        String pk = "cr_p_" + String(i);
+        servoPrefs.putFloat(gk.c_str(), (float)calTable[i].grams);
+        servoPrefs.putInt(ak.c_str(), calTable[i].angle);
+        servoPrefs.putUInt(pk.c_str(), calTable[i].pauseMs);
+    }
+    servoPrefs.end();
+}
+
+void executeServoCycleFromTable(double grams) {
+    if (calCount == 0 || grams <= 0) {
+        Serial.println("[CAL] No calibration table or invalid grams — using default cycle");
+        executeServoCycle();
+        return;
+    }
+
+    int bestIdx = 0;
+    double bestDiff = fabs(grams - calTable[0].grams);
+    for (int i = 1; i < calCount; i++) {
+        double diff = fabs(grams - calTable[i].grams);
+        if (diff < bestDiff) {
+            bestDiff = diff;
+            bestIdx = i;
+        }
+    }
+
+    int angle = calTable[bestIdx].angle;
+    uint32_t pause = calTable[bestIdx].pauseMs;
+
+    setServoAngle(angle);
+    Serial.printf("[CAL] %.1fg → nearest: %.1fg → angle=%d° pause=%ums\n",
+        grams, calTable[bestIdx].grams, angle, pause);
+    delay(pause);
+    setServoAngle(servoCloseAngle);
+
+    if (servoCycleMs > 0) {
+        uint32_t elapsed = pause;
+        if (servoCycleMs > elapsed) {
+            uint32_t remaining = servoCycleMs - elapsed;
+            Serial.printf("[SERVO] Waiting remaining %ums for next cycle\n", remaining);
+            delay(remaining);
+        }
+    }
+    Serial.println("[CAL] Feeding cycle complete");
 }

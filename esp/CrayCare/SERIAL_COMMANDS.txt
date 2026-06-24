@@ -24,15 +24,27 @@
   servopause <ms>    Set servo open pause (ms)
   servoangle <open> <close>  Set open/close angles (0-180)
   servocycle         Run one full feed cycle
+  calrec <g> <ang> <ms>  Record: dispense g grams at angle/pause (NVS)
+  caldel <g>            Delete record for grams g
+  callist               List all calibration records
+  calclear              Clear all calibration records
+  caltest <g>           Test: run feed cycle for g grams from table
   feedtime1 <H> <M>  Set AM feed time (24h format)
   feedtime2 <H> <M>  Set PM feed time (24h format)
   feedtime           Show current feed schedule
   schedulesync       Force sync schedules from Firebase
 
   EXAMPLE:
-    servopause 2000      →  Servo stays open for 2 seconds
+    servopause 2000       →  Servo stays open for 2 seconds
     servoangle 180 0      →  Open at 90°, Close at 0°, stored in NVS
-    servocycle           →  Run full feed: open → pause → close
+    servocycle            →  Run full feed: open → pause → close
+    calrec 5 180 500      →  Record: 5g needs 180° at 500ms pause
+    calrec 9 180 900      →  Record: 9g needs 180° at 900ms pause
+    calrec 15 180 1400    →  Record: 15g needs 180° at 1400ms pause
+    caldel 5              →  Delete the 5g calibration record
+    callist               →  Show all recorded calibration points
+    calclear              →  Wipe entire calibration table
+    caltest 9             →  Immediate test feed looking up 9g in table
     feedtime1 9 0         →  AM feed at 9:00 AM
     feedtime2 18 0        →  PM feed at 6:00 PM
     feedtime              →  Shows both scheduled times
@@ -108,10 +120,17 @@
 
 --- DO CALIBRATION ---
   doclear             Calibrate DO sensor in air (100% saturation)
+  doread              Read raw DO voltage (display only, no save)
 
   EXAMPLE:
-    doclear                  →  Put probe in bottle with damp cotton,
-                                wait for STABLE on LCD, then type this
+    doread                   →  Check raw voltage first
+    doclear                  →  If satisfied, save as calibration
+
+  FULL PROCEDURE:
+    Put probe in bottle with damp cotton (not submerged),
+    wait for STABLE reading on LCD, then:
+    1. Type: doread        → see actual raw voltage
+    2. If reading looks correct, type: doclear  → saves to NVS
 
   PROCEDURE:
     1. Wet cotton with water, squeeze until damp (not dripping)
@@ -186,3 +205,8 @@
 - Firebase schedules sync every 30 seconds automatically
 - Use 'schedulesync' to force an immediate Firebase sync
 - LCD cycles through 3 pages: pH/DO/Temp → Turb/Schedule → Relay/Sched status
+- Calibration table approach: you test and record actual (grams → angle + pause) data points
+- When feeding, ESP finds the nearest recorded point and uses its angle/pause
+- Table stored in NVS (persists across reboots), up to 16 records
+- Empty table → ESP falls back to default servo cycle (fixed angle + pause)
+- Use 'caltest <g>' to run a feed cycle from the table without going through Firebase
