@@ -9,6 +9,7 @@ import '../models/control_types.dart';
 import '../services/feeder_service.dart';
 import '../services/sensor_service.dart';
 import '../services/settings_service.dart';
+import '../services/esp_service.dart';
 import '../services/database_service.dart';
 
 class ControlsScreen extends StatefulWidget {
@@ -54,6 +55,8 @@ class ControlsScreenState extends State<ControlsScreen> {
     _lastDateKey = _todayKey();
     svc.addListener(_onFeederUpdate);
     SensorService.instance.addListener(_onSensorDataUpdate);
+    EspService.instance.addListener(_onEspUpdate);
+    EspService.instance.init();
     _initDeviceModes();
     _initDeviceLogs();
     _runtimeTimer = Timer.periodic(
@@ -149,10 +152,15 @@ class ControlsScreenState extends State<ControlsScreen> {
     if (mounted) setState(() {});
   }
 
+  void _onEspUpdate() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
     FeederService.instance.removeListener(_onFeederUpdate);
     SensorService.instance.removeListener(_onSensorDataUpdate);
+    EspService.instance.removeListener(_onEspUpdate);
     _devicesSub?.cancel();
     for (final sub in _deviceLogSubs) {
       sub.cancel();
@@ -538,6 +546,7 @@ class ControlsScreenState extends State<ControlsScreen> {
                       onShowGroupLog: _showHwGroupLog,
                       deviceRuntimeLabels: _deviceRuntimeLabels,
                       isOwner: widget.isOwner,
+                      isOnline: EspService.instance.isEspOnline,
                     ),
                   ],
                 ),

@@ -12,6 +12,7 @@ class DevicesTab extends StatelessWidget {
   final Map<String, String> deviceRuntimeLabels;
 
   final bool isOwner;
+  final bool isOnline;
 
   const DevicesTab({
     super.key,
@@ -20,6 +21,7 @@ class DevicesTab extends StatelessWidget {
     required this.onShowGroupLog,
     required this.deviceRuntimeLabels,
     this.isOwner = true,
+    this.isOnline = true,
   });
 
   @override
@@ -41,6 +43,7 @@ class DevicesTab extends StatelessWidget {
             onShowGroupLog: onShowGroupLog,
             deviceRuntimeLabels: deviceRuntimeLabels,
             isOwner: isOwner,
+            isOnline: isOnline,
           ),
           const SizedBox(height: 14),
           HardwareGroup(
@@ -54,6 +57,7 @@ class DevicesTab extends StatelessWidget {
             onShowGroupLog: onShowGroupLog,
             deviceRuntimeLabels: deviceRuntimeLabels,
             isOwner: isOwner,
+            isOnline: isOnline,
           ),
           const SizedBox(height: 32),
         ],

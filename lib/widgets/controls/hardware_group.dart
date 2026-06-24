@@ -17,6 +17,7 @@ class HardwareGroup extends StatelessWidget {
   final Map<String, String> deviceRuntimeLabels;
 
   final bool isOwner;
+  final bool isOnline;
 
   const HardwareGroup({
     super.key,
@@ -28,6 +29,7 @@ class HardwareGroup extends StatelessWidget {
     required this.onShowGroupLog,
     required this.deviceRuntimeLabels,
     this.isOwner = true,
+    this.isOnline = true,
   });
 
   @override
@@ -114,12 +116,17 @@ class HardwareGroup extends StatelessWidget {
     BuildContext context,
   ) {
     final mode = hwModes[deviceId] ?? 'auto';
-    final borderColor = mode == 'on'
+    final offline = !isOnline;
+    final borderColor = offline
+        ? AppColors.darkWith(0.1)
+        : mode == 'on'
         ? AppColors.primaryWith(0.4)
         : mode == 'auto'
         ? AppColors.warning.withValues(alpha: 0.35)
         : AppColors.darkWith(0.1);
-    final iconColor = mode == 'on'
+    final iconColor = offline
+        ? AppColors.darkWith(0.3)
+        : mode == 'on'
         ? AppColors.primary
         : mode == 'auto'
         ? AppColors.warning
@@ -178,23 +185,47 @@ class HardwareGroup extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              title,
-                              maxLines: 1, // Fixes wrap overflow
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.dark,
-                              ),
+                            Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    title,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      color: offline ? AppColors.darkWith(0.4) : AppColors.dark,
+                                    ),
+                                  ),
+                                ),
+                                if (offline) ...[
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.critical.withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: const Text(
+                                      'OFFLINE',
+                                      style: TextStyle(
+                                        fontSize: 8,
+                                        fontWeight: FontWeight.w700,
+                                        color: AppColors.critical,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
                             Text(
                               subtitle,
-                              maxLines: 1, // Fixes wrap overflow
+                              maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 fontSize: 9,
-                                color: AppColors.darkWith(0.4),
+                                color: AppColors.darkWith(offline ? 0.25 : 0.4),
                               ),
                             ),
                             const SizedBox(height: 4),
@@ -202,8 +233,8 @@ class HardwareGroup extends StatelessWidget {
                           ],
                         ),
                       ),
-                      const SizedBox(width: 6), // Slightly reduced spacing
-                      _buildHwModeToggle(deviceId, mode, context),
+                      const SizedBox(width: 6),
+                      _buildHwModeToggle(deviceId, mode, context, offline: offline),
                     ],
                   ),
                 ),
@@ -262,8 +293,9 @@ class HardwareGroup extends StatelessWidget {
   Widget _buildHwModeToggle(
     String deviceId,
     String currentMode,
-    BuildContext context,
-  ) {
+    BuildContext context, {
+    bool offline = false,
+  }) {
     return Container(
       padding: const EdgeInsets.all(1),
       decoration: BoxDecoration(
@@ -275,7 +307,9 @@ class HardwareGroup extends StatelessWidget {
         children: ['off', 'auto', 'on'].map((m) {
           final isActive = m == currentMode;
           return GestureDetector(
-            onTap: isOwner
+            onTap: offline
+              ? null
+              : isOwner
               ? () => onSetMode(deviceId, m)
               : () {
                   showBeautifulSnackbar(context, 'Device controls are for owners only', false, title: 'Notice');
