@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
 import '../../services/ml_service.dart';
+import '../../services/sensor_service.dart';
 
 class MovableAiLogo extends StatefulWidget {
   const MovableAiLogo({super.key});
@@ -261,17 +262,69 @@ class _MovableAiLogoState extends State<MovableAiLogo>
     return (loading: false, error: 'CrayAI is waiting for sensor data...', sensors: null);
   }
 
+  String _mlKeyToSensorKey(String mlKey) {
+    switch (mlKey) {
+      case 'temperature': return 'temp';
+      case 'phLevel': return 'ph';
+      case 'dissolvedOxygen': return 'do';
+      case 'turbidity': return 'turb';
+      case 'waterLevel': return 'waterlevel';
+      default: return mlKey;
+    }
+  }
+
+  Widget _buildNoReadingCard(String title, String iconPath) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: AppColors.dark.withValues(alpha: 0.08),
+          width: 1.5,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            Image.asset(iconPath, width: 20, height: 20),
+            const SizedBox(width: 8),
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: AppColors.dark,
+              ),
+            ),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: AppColors.dark.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                'No reading',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.dark.withValues(alpha: 0.4),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildMLResultsFromSensors(List<Map<String, dynamic>> sensorsData) {
     final sensorMap = {for (final s in sensorsData) s['key'] as String? ?? '': s};
     final ordered = _sensorOrder
         .map((k) => sensorMap[k])
         .where((s) => s != null)
-        .where((s) {
-          final insight = s!['insight'] as String? ?? '';
-          final prediction = s['prediction'] as String? ?? '';
-          final recommendation = s['recommendation'] as String? ?? '';
-          return insight.isNotEmpty || prediction.isNotEmpty || recommendation.isNotEmpty;
-        })
         .cast<Map<String, dynamic>>()
         .toList();
 
@@ -285,6 +338,17 @@ class _MovableAiLogoState extends State<MovableAiLogo>
         final key = s['key'] as String? ?? '';
         final display = _sensorDisplayInfo[key];
         if (display == null) return const SizedBox.shrink();
+
+        final short = _mlKeyToSensorKey(key);
+        final hasData = SensorService.instance.hasSensorData(short);
+
+        if (!hasData) {
+          return _buildNoReadingCard(
+            display['title'] as String,
+            display['icon'] as String,
+          );
+        }
+
         return _buildSmartInsightCard(
           title: display['title'] as String,
           iconPath: display['icon'] as String,
