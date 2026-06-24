@@ -262,9 +262,26 @@ class _MovableAiLogoState extends State<MovableAiLogo>
   }
 
   Widget _buildMLResultsFromSensors(List<Map<String, dynamic>> sensorsData) {
+    final sensorMap = {for (final s in sensorsData) s['key'] as String? ?? '': s};
+    final ordered = _sensorOrder
+        .map((k) => sensorMap[k])
+        .where((s) => s != null)
+        .where((s) {
+          final insight = s!['insight'] as String? ?? '';
+          final prediction = s['prediction'] as String? ?? '';
+          final recommendation = s['recommendation'] as String? ?? '';
+          return insight.isNotEmpty || prediction.isNotEmpty || recommendation.isNotEmpty;
+        })
+        .cast<Map<String, dynamic>>()
+        .toList();
+
+    if (ordered.isEmpty) {
+      return const Center(child: Text('No sensor data available.'));
+    }
+
     return ListView(
       padding: const EdgeInsets.only(bottom: 24),
-      children: sensorsData.map((s) {
+      children: ordered.map((s) {
         final key = s['key'] as String? ?? '';
         final display = _sensorDisplayInfo[key];
         if (display == null) return const SizedBox.shrink();
@@ -338,6 +355,10 @@ class _MovableAiLogoState extends State<MovableAiLogo>
 
 
 
+  static const _sensorOrder = [
+    'temperature', 'phLevel', 'dissolvedOxygen', 'turbidity', 'waterLevel',
+  ];
+
   static const _sensorDisplayInfo = {
     'temperature': {'title': 'Temperature', 'icon': 'assets/icons/temperature.png', 'color': Color(0xFFf59e0b)},
     'phLevel': {'title': 'pH Level', 'icon': 'assets/icons/pH.png', 'color': Color(0xFF1FA5A5)},
@@ -345,35 +366,6 @@ class _MovableAiLogoState extends State<MovableAiLogo>
     'turbidity': {'title': 'Turbidity', 'icon': 'assets/icons/Turbidity.png', 'color': Color(0xFFE63946)},
     'waterLevel': {'title': 'Water Level', 'icon': 'assets/images/waterLevel.png', 'color': Color(0xFF1FA5A5)},
   };
-
-  Widget _buildMLResults() {
-    final data = _mlData!;
-    final rawSensors = data['sensors'] as List<dynamic>? ?? [];
-    if (rawSensors.isEmpty) {
-      return const Center(child: Text('No sensor data available.'));
-    }
-
-    final sensorsData = rawSensors.cast<Map<String, dynamic>>();
-
-    return ListView(
-      padding: const EdgeInsets.only(bottom: 24),
-      children: sensorsData.map((s) {
-        final key = s['key'] as String? ?? '';
-        final display = _sensorDisplayInfo[key];
-        if (display == null) return const SizedBox.shrink();
-
-        return _buildSmartInsightCard(
-          title: display['title'] as String,
-          iconPath: display['icon'] as String,
-          status: s['status'] as String? ?? 'UNKNOWN',
-          confidence: (s['confidence'] as num?)?.toDouble() ?? 0.0,
-          insight: s['insight'] as String? ?? '',
-          prediction: s['prediction'] as String? ?? '',
-          recommendation: s['recommendation'] as String? ?? '',
-        );
-      }).toList(),
-    );
-  }
 
   String _cleanMlText(String text) {
     if (text.isEmpty) return text;
