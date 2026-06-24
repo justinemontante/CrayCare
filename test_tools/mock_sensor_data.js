@@ -1,5 +1,5 @@
 const admin = require('firebase-admin');
-const { getDatabase } = require('firebase-admin/database');
+const { getDatabase, ServerValue } = require('firebase-admin/database');
 const path = require('path');
 const fs = require('fs');
 
@@ -38,6 +38,20 @@ const LATEST_KEYS = [
   'waterLevel',
 ];
 
+// Always-critical sensors (laging lumalampas sa threshold)
+const ALWAYS_CRITICAL = ['temperature'];
+// Always-warning sensors (laging nasa 10% boundary ng threshold)
+const ALWAYS_WARNING = ['turbidity'];
+
+// Config thresholds (pre_adult default — matched sa writeDefaultConfig)
+const CONFIG_RANGES = {
+  temperature:     { min: 24, max: 30 },
+  phLevel:         { min: 7.0, max: 8.5 },
+  dissolvedOxygen: { min: 4.5, max: 999 },
+  turbidity:       { min: 0,   max: 35 },
+  waterLevel:      { min: 130, max: 180 },
+};
+
 const RANGES = {
   temperature:     { min: 24, max: 34 },
   phLevel:         { min: 6.5, max: 9.0 },
@@ -54,32 +68,92 @@ const HOUR_CYCLE = (hour) => ({
   waterLevel:      15 * Math.sin(((hour - 8) / 24) * 2 * Math.PI),
 });
 
-// ─── 3. Generate reading ──────────────────────────────────────
-function pickRandom(arr, count) {
-  const shuffled = [...arr].sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, count);
+// ─── 3. State-based gradual readings ──────────────────────────
+// Bawat segundo, konting galaw lang — gaya ng totoong tubig
+
+const IDEAL = {
+  temperature:     26.0,  // 🟢 optimal (24-30)
+  dissolvedOxygen: 6.0,   // 🟢 optimal (>5.0)
+  phLevel:         7.8,   // 🟢 optimal
+  turbidity:       33.0,  // 🟡 warning (31.5-35)
+  waterLevel:      155.0, // 🟢 optimal
+};
+
+// Max na paggalaw per second (sapat para may pagbabago, hindi drastic)
+const DRIFT_SPEED = {
+  temperature:     0.15,
+  dissolvedOxygen: 0.08,
+  phLevel:         0.03,
+  turbidity:       0.4,
+  waterLevel:      0.2,
+};
+
+const _state = {};
+for (const key of LATEST_KEYS) {
+  _state[key] = IDEAL[key];
 }
 
-function generateReading(date = new Date(), critical = false) {
-  const hour = date.getHours() + date.getMinutes() / 60;
-  const cycle = HOUR_CYCLE(hour);
-  const reading = {};
+function _driftTo(target, current, speed) {
+  const diff = target - current;
+  // Pag malayo sa target, bumalik dahan-dahan
+  if (Math.abs(diff) > speed * 2) {
+    return current + Math.sign(diff) * speed * 0.4;
+  }
+  // Pag nasa target area, random walk lang
+  return current + (Math.random() - 0.5) * speed * 0.9;
+}
 
-  const critKeys = critical ? pickRandom(LATEST_KEYS, 1 + Math.floor(Math.random() * 2)) : [];
+// ─── Temperature Phase Cycle ──────────────────────────────────
+// Para ma-demo ang iba't ibang trend: stable, rising, falling, etc.
+const TEMP_PHASES = [
+  { label: 'Stable (26-28)',        target: 27.0, speed: 0.02, ticks: 20 },
+  { label: 'Slow Rise (→30)',       target: 30.5, speed: 0.08, ticks: 25 },
+  { label: 'Fast Rise (→critical)', target: 33.0, speed: 0.25, ticks: 15 },
+  { label: 'Slow Fall (←28)',       target: 28.0, speed: 0.06, ticks: 30 },
+  { label: 'Stable (28)',           target: 28.0, speed: 0.02, ticks: 20 },
+  { label: 'Fast Fall (→26)',       target: 26.0, speed: 0.20, ticks: 12 },
+  { label: 'Slow Rise (→29)',       target: 29.0, speed: 0.05, ticks: 25 },
+  { label: 'Stable (29)',           target: 29.0, speed: 0.02, ticks: 15 },
+  { label: 'Fast Rise (→34)',       target: 34.0, speed: 0.30, ticks: 15 },
+  { label: 'Fast Fall (→25)',       target: 25.0, speed: 0.25, ticks: 18 },
+];
+let _tempPhaseIdx = 0;
+let _tempTick = 0;
 
-  for (const key of LATEST_KEYS) {
+function _updateTemperature() {
+  const phase = TEMP_PHASES[_tempPhaseIdx];
+  const current = _state.temperature;
+  const diff = phase.target - current;
+  const absDiff = Math.abs(diff);
+
+  if (absDiff > phase.speed) {
+    _state.temperature += Math.sign(diff) * phase.speed;
+  } else {
+    // Near target — micro-wobble to look natural
+    _state.temperature += (Math.random() - 0.5) * phase.speed * 0.3;
+  }
+
+  _tempTick++;
+  if (_tempTick >= phase.ticks) {
+    _tempPhaseIdx = (_tempPhaseIdx + 1) % TEMP_PHASES.length;
+    _tempTick = 0;
+    console.log(`  🔄 Temp phase: ${TEMP_PHASES[_tempPhaseIdx].label}`);
+  }
+}
+
+function generateReading() {
+  _updateTemperature();
+
+  // Other sensors: normal drift
+  for (const key of ['dissolvedOxygen', 'phLevel', 'turbidity', 'waterLevel']) {
+    _state[key] = _driftTo(IDEAL[key], _state[key], DRIFT_SPEED[key]);
     const r = RANGES[key];
-    const mid = (r.min + r.max) / 2;
-    const amp = (r.max - r.min) / 2;
-    let val = mid + cycle[key] + (Math.random() - 0.5) * amp * 0.3;
+    _state[key] = Math.max(r.min, Math.min(r.max, _state[key]));
+  }
 
-    if (critKeys.includes(key)) {
-      const exceed = Math.random() * 2 + 0.5;
-      val = Math.random() < 0.5 ? r.max + exceed : r.min - exceed;
-      reading[key] = parseFloat(val.toFixed(1));
-    } else {
-      reading[key] = parseFloat(Math.max(r.min, Math.min(r.max, val)).toFixed(1));
-    }
+  const reading = {};
+  for (const key of LATEST_KEYS) {
+    reading[key] = parseFloat(_state[key].toFixed(2));
   }
   return reading;
 }
@@ -87,28 +161,38 @@ function generateReading(date = new Date(), critical = false) {
 // ─── 4. Write latest ──────────────────────────────────────────
 const latestRef = db.ref('sensor_readings/latest');
 
-async function writeLatest(critical = false) {
-  const now = new Date();
-  const data = generateReading(now, critical);
-  data.timestamp = Math.floor(now.getTime() / 1000);
-  await latestRef.set(data);
-  const ts = new Date().toLocaleTimeString();
-  const vals = LATEST_KEYS.map(k => `${data[k]}`).join(' | ');
-  console.log(`[${ts}] LATEST  →  ${vals}`);
+async function writeLatest() {
+  try {
+    const data = generateReading();
+    // Firebase server timestamp para walang clock mismatch
+    data.timestamp = ServerValue.TIMESTAMP;
+    await latestRef.set(data);
+    const ts = new Date().toLocaleTimeString();
+    const vals = LATEST_KEYS.map(k => `${data[k]}`).join(' | ');
+    console.log(`[${ts}]  ${vals}`);
+  } catch (err) {
+    console.error('❌ Write error:', err.message);
+  }
 }
 
 // ─── 5. Append history ────────────────────────────────────────
 let historyCount = 0;
 
-async function appendHistory(critical = false) {
-  const now = new Date();
-  const dateStr = now.toISOString().slice(0, 10);
-  const reading = generateReading(now, critical);
-  reading.timestamp = Math.floor(now.getTime() / 1000);
-  const ref = db.ref(`sensor_readings/history/${dateStr}`).push();
-  await ref.set(reading);
-  historyCount++;
-  console.log(`[${now.toLocaleTimeString()}] HISTORY #${historyCount}  →  ${dateStr}`);
+async function appendHistory() {
+  try {
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10);
+    const reading = generateReading();
+    reading.timestamp = ServerValue.TIMESTAMP;
+    const ref = db.ref(`sensor_readings/history/${dateStr}`).push();
+    await ref.set(reading);
+    historyCount++;
+    if (historyCount % 6 === 0) { // every 3 hours
+      console.log(`📝 HISTORY #${historyCount} written to ${dateStr}`);
+    }
+  } catch (err) {
+    console.error('❌ History write error:', err.message);
+  }
 }
 
 // NOTE: Tinanggal na natin ang Section 6 (Write test notification) 
@@ -126,7 +210,7 @@ async function backfillHistory({ hours, label }) {
     const ts = now - i * intervalMs;
     const date = new Date(ts);
     const dateStr = date.toISOString().slice(0, 10);
-    const reading = generateReading(date);
+    const reading = generateReading();
     reading.timestamp = Math.floor(ts / 1000);
     await db.ref(`sensor_readings/history/${dateStr}`).push().set(reading);
     written++;
@@ -178,7 +262,6 @@ process.on('SIGTERM', () => process.exit());
 async function main() {
   const args = process.argv.slice(2);
   const doBackfill = args.includes('--backfill');
-  const criticalMode = args.includes('--critical');
 
   if (args.includes('--config')) {
     await writeDefaultConfig();
@@ -194,15 +277,15 @@ async function main() {
   if (!doBackfill && !args.includes('--no-live')) {
     console.log('\n🚀 Starting real-time simulation…');
     console.log('   Every 5s  → sensor_readings/latest');
-    console.log('   Every 10m → sensor_readings/history');
-    if (criticalMode) console.log('   ⚠️  CRITICAL MODE — 1-2 sensors slightly exceed thresholds');
+    console.log('   Every 30m → sensor_readings/history');
+    console.log('   🌡️  Temperature cycles: stable → slow rise → fast rise → fall → stable → fast fall → ...');
     console.log('   Press Ctrl+C to stop.\n');
 
-    await writeLatest(criticalMode);
-    setInterval(() => writeLatest(criticalMode), 5000);
+    await writeLatest();
+    setInterval(() => writeLatest(), 5000);
 
-    await appendHistory(criticalMode);
-    setInterval(() => appendHistory(criticalMode), 10 * 60 * 1000);
+    await appendHistory();
+    setInterval(() => appendHistory(), 30 * 60 * 1000);
     
     // NOTE: Tinanggal na natin ang mga setTimeout ng writeNotification dito.
     // Ngayon, ang sensors na lang ang gagalaw, at ang Hugging Face worker 

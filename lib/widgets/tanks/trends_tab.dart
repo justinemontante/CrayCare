@@ -55,49 +55,7 @@ class _TrendsTabState extends State<TrendsTab> {
   }
 
   Widget _buildEmptyState() {
-    return Center(
-      child: Container(
-        margin: const EdgeInsets.all(24),
-        padding: const EdgeInsets.all(32),
-        decoration: BoxDecoration(
-          color: AppColors.primary.withValues(alpha: 0.03),
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(
-            color: AppColors.primary.withValues(alpha: 0.15),
-            width: 2,
-          ),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.trending_up_rounded,
-              size: 40,
-              color: AppColors.primary,
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              'No Trend Data',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                color: AppColors.dark,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Initialize the tank inventory to visualize live growth and mortality trends.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: AppColors.dark.withValues(alpha: 0.5),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+    return const SizedBox.shrink();
   }
 
   Widget _buildChartContainer() {
@@ -672,12 +630,14 @@ class _TrendsTabState extends State<TrendsTab> {
           Icon(Icons.info_outline_rounded,
               size: 12, color: AppColors.darkWith(0.35)),
           const SizedBox(width: 4),
-          Text(
-            'Keep sampling to track biomass',
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w500,
-              color: AppColors.darkWith(0.45),
+          Flexible(
+            child: Text(
+              'Keep sampling to track biomass',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w500,
+                color: AppColors.darkWith(0.45),
+              ),
             ),
           ),
         ],
@@ -689,7 +649,10 @@ class _TrendsTabState extends State<TrendsTab> {
     final gain = lastVal - firstVal;
     final weekly = gain / (data.length - 1);
 
-    return Row(
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.centerLeft,
+      child: Row(
       children: [
         Icon(Icons.trending_up_rounded,
             size: 14, color: gain >= 0 ? const Color(0xFF1FA5A5) : AppColors.critical),
@@ -746,6 +709,7 @@ class _TrendsTabState extends State<TrendsTab> {
           ),
         ],
       ],
+      ),
     );
   }
 

@@ -129,7 +129,12 @@ class BackgroundHelper {
           .ref('users/$notifTargetUid/notifications/markers/$confirmKey')
           .get();
 
-      if (!reminderMarker.exists && nowMins >= schedMins - 15 && nowMins < schedMins) {
+      // Read user preference for feeding notification
+      final prefsSnap = await db.ref('users/$notifTargetUid/notifPrefs').get();
+      final prefs = prefsSnap.value is Map ? prefsSnap.value as Map : {};
+      final isFeedingEnabled = prefs['feeding'] != false;
+
+      if (isFeedingEnabled && !reminderMarker.exists && nowMins >= schedMins - 15 && nowMins < schedMins) {
         final msg = 'Your feeding schedule at $time $ampm will be dispensed in 5 minutes.';
         await localNotif.show(
           '${now.millisecondsSinceEpoch}_reminder'.hashCode,
@@ -148,7 +153,7 @@ class BackgroundHelper {
         await db.ref('users/$notifTargetUid/notifications/markers/$reminderKey').set(true);
       }
 
-      if (!confirmMarker.exists && nowMins > schedMins && nowMins <= schedMins + 15) {
+      if (isFeedingEnabled && !confirmMarker.exists && nowMins > schedMins && nowMins <= schedMins + 15) {
         final dispatchedMarker = '${entry.key}';
         final dispatched = await db
             .ref('feeder/dispatched/$todayKey/$dispatchedMarker')

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../theme/app_colors.dart';
 import '../../models/control_types.dart';
 import '../../utils/snackbar_helper.dart';
@@ -1107,13 +1108,20 @@ class FeederTab extends StatelessWidget {
                   // Grams field
                   TextField(
                     controller: gramsCtl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: false),
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$')),
+                    ],
                     onChanged: (_) => setSheetState(() {}),
                     decoration: InputDecoration(
                       labelText: 'Grams (optional)',
                       hintText: 'e.g. 50',
                       suffixText: 'g',
                       errorText: gramsError,
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: AppColors.darkWith(0.15), width: 1.5),
+                      ),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),

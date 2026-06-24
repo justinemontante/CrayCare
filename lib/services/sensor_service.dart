@@ -156,11 +156,23 @@ class SensorService extends ChangeNotifier {
   void _parseAndUpdate(Map<String, dynamic> data) {
     final dataTimestamp = _toInt(data['timestamp']);
     if (dataTimestamp != null) {
-      final dt = DateTime.fromMillisecondsSinceEpoch(
-        dataTimestamp < 100000000000 ? dataTimestamp * 1000 : dataTimestamp,
-      );
-      if (DateTime.now().difference(dt) >= _staleTimeout) {
-        debugPrint('[SensorService] Skipping stale cached data from ${dt.toIso8601String()}');
+      // Handle both second and millisecond Unix timestamps
+      final tsMs = dataTimestamp < 100000000000
+          ? dataTimestamp * 1000
+          : dataTimestamp;
+      var dt = DateTime.fromMillisecondsSinceEpoch(tsMs);
+      // Guard against ESP32 clock being wrong — if timestamp is >24hr in
+      // the future or >5min in the past, treat as "now" to avoid rejecting
+      // valid data due to clock sync issues
+      final now = DateTime.now();
+      final diff = now.difference(dt);
+      if (diff.isNegative && diff.abs() > const Duration(hours: 24)) {
+        dt = now;
+      } else if (!diff.isNegative && diff > const Duration(minutes: 5)) {
+        dt = now;
+      }
+      if (now.difference(dt) >= _staleTimeout) {
+        debugPrint('[SensorService] Skipping stale data (ESP32 clock may be off): ${dt.toIso8601String()}');
         if (!_initialDataLoaded) {
           _initialDataLoaded = true;
           _markStale();
@@ -227,9 +239,9 @@ class SensorService extends ChangeNotifier {
       case 'do':
         return value >= 0 && value <= 15;
       case 'turb':
-        return value >= 0 && value <= 200;
+        return value >= 0 && value <= 500;
       case 'waterlevel':
-        return value >= 10 && value <= 300;
+        return value >= 0 && value <= 300;
       default:
         return true;
     }

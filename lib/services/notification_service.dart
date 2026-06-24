@@ -18,6 +18,22 @@ import 'database_service.dart';
 @pragma('vm:entry-point')
 Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
   debugPrint('[FCM] Background msg: ${message.messageId}');
+
+  // Pre-arm FCM — wake the app and schedule exact OS alarm at T-5m
+  if (message.data['type'] == 'pre_arm') {
+    debugPrint('[FCM] Pre-arm received — scheduling OS alarm');
+    await _handlePreArm(message.data.cast<String, String>());
+    return;
+  }
+
+  // Skip showing local notification if FCM has a 'notification' payload.
+  // When app is background/terminated, the Android system auto-displays it
+  // using the notification channel specified in the worker payload.
+  if (message.notification != null) {
+    debugPrint('[FCM] Notification payload present, system will handle display.');
+    return;
+  }
+
   try {
     final localNotif = FlutterLocalNotificationsPlugin();
     const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -25,7 +41,6 @@ Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
       const InitializationSettings(android: androidSettings),
     );
 
-    // Re-create channels in background isolate so they exist before showing
     final manager = localNotif
         .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
 
@@ -77,9 +92,38 @@ Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
     }
 
     final data = message.data;
-    // If the worker says critical=false, skip
+
+    final isFeeding = data['feeding'] == 'true';
+    final isSampling = data['sampling'] == 'true';
+
     final showCritical = data['critical'] != 'false';
-    if (!showCritical) return;
+    if (!showCritical && !isFeeding && !isSampling) return;
+
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final snap = await FirebaseDatabase.instance.ref('users/${user.uid}/notifPrefs').get();
+        if (snap.exists && snap.value != null) {
+          final raw = snap.value as Map<Object?, Object?>;
+          final map = raw.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
+
+          if (isFeeding && map['feeding'] == false) {
+            debugPrint('[FCM] Skipping feeding notification because it is turned off in preferences.');
+            return;
+          }
+          if (isSampling && map['sampling'] == false) {
+            debugPrint('[FCM] Skipping sampling notification because it is turned off in preferences.');
+            return;
+          }
+          if (!isFeeding && !isSampling && map['critical'] == false) {
+            debugPrint('[FCM] Skipping critical notification because it is turned off in preferences.');
+            return;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[FCM] Error reading preferences in background: $e');
+    }
 
     final playSound = data['sound'] != 'false';
     final vibrate = data['vibration'] != 'false';
@@ -117,9 +161,124 @@ Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
   }
 }
 
+/// Top-level handler for pre-arm FCM — schedules exact OS alarm at T-5m.
+@pragma('vm:entry-point')
+Future<void> _handlePreArm(Map<String, String> data) async {
+  try {
+    tz.initializeTimeZones();
+    final timeStr = data['scheduleTime'] ?? '';
+    final ampm = data['scheduleAmPm'] ?? 'AM';
+    if (timeStr.isEmpty) return;
+
+    DateTime scheduleDt;
+    final epochStr = data['scheduleEpoch'];
+    if (epochStr != null) {
+      final ms = int.tryParse(epochStr);
+      if (ms == null) return;
+      scheduleDt = DateTime.fromMillisecondsSinceEpoch(ms);
+    } else {
+      int h = int.parse(timeStr.split(':')[0]);
+      final m = int.parse(timeStr.split(':')[1]);
+      if (ampm == 'PM' && h != 12) h += 12;
+      if (ampm == 'AM' && h == 12) h = 0;
+      final now = DateTime.now();
+      scheduleDt = DateTime(now.year, now.month, now.day, h, m);
+    }
+
+    final target = scheduleDt.subtract(const Duration(minutes: 5));
+    final now = DateTime.now();
+
+    final localNotif = FlutterLocalNotificationsPlugin();
+    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    await localNotif.initialize(const InitializationSettings(android: androidSettings));
+
+    bool playSound = true;
+    bool vibrate = true;
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final snap = await FirebaseDatabase.instance
+            .ref('users/${user.uid}/notifPrefs').get();
+        if (snap.exists && snap.value != null) {
+          final raw = snap.value as Map<Object?, Object?>;
+          final prefs = raw.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
+          playSound = prefs['sound'] != false;
+          vibrate = prefs['vibration'] != false;
+        }
+      }
+    } catch (_) {}
+
+    String channelId = 'craycare_alerts_silent';
+    if (playSound && vibrate) {
+      channelId = 'craycare_alerts_sound_vibrate';
+    } else if (playSound) {
+      channelId = 'craycare_alerts_sound_only';
+    } else if (vibrate) {
+      channelId = 'craycare_alerts_vibrate_only';
+    }
+
+    final alarmId = 'prearm_${timeStr}_$ampm'.hashCode;
+    final msg = 'Your feeding schedule at $timeStr $ampm will be dispensed in 5 minutes.';
+
+    if (target.isAfter(now)) {
+      final loc = tz.local;
+      final tzTarget = tz.TZDateTime.from(target, loc);
+
+      await localNotif.zonedSchedule(
+        alarmId,
+        'Feeding Reminder',
+        msg,
+        tzTarget,
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            channelId, 'CrayCare Alerts',
+            importance: playSound || vibrate ? Importance.high : Importance.low,
+            priority: Priority.high,
+            playSound: playSound,
+            enableVibration: vibrate,
+            vibrationPattern: !vibrate ? Int64List(0) : null,
+            sound: !playSound ? null : const RawResourceAndroidNotificationSound('default'),
+          ),
+        ),
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+      );
+
+      debugPrint('[FCM pre-arm] OS alarm set for $target (id=$alarmId, ${target.difference(now).inSeconds}s away)');
+      NotificationService._preArmed.add('${timeStr}_$ampm');
+    } else if (now.isBefore(scheduleDt)) {
+      // Target passed but schedule hasn't — FCM arrived late, fire immediately
+      await localNotif.show(
+        alarmId,
+        'Feeding Reminder',
+        msg,
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            channelId, 'CrayCare Alerts',
+            importance: playSound || vibrate ? Importance.high : Importance.low,
+            priority: Priority.high,
+            playSound: playSound,
+            enableVibration: vibrate,
+            vibrationPattern: !vibrate ? Int64List(0) : null,
+            sound: !playSound ? null : const RawResourceAndroidNotificationSound('default'),
+          ),
+        ),
+      );
+      debugPrint('[FCM pre-arm] Target passed — fired immediately (${scheduleDt.difference(now).inSeconds}s before schedule)');
+      NotificationService._preArmed.add('${timeStr}_$ampm');
+    } else {
+      debugPrint('[FCM pre-arm] Schedule already passed — skipping');
+    }
+  } catch (e) {
+    debugPrint('[FCM pre-arm] Error: $e');
+  }
+}
+
 class NotificationService extends ChangeNotifier {
   static final NotificationService instance = NotificationService._();
   NotificationService._();
+
+  static final Set<String> _preArmed = {};
 
   final List<NotificationItem> _notifications = [];
   final Map<String, String> _previousZones = {};
@@ -134,6 +293,7 @@ class NotificationService extends ChangeNotifier {
 
   final Set<String> _feedingReminderSent = {};
   final Set<String> _pendingTimers = {};
+  final Set<String> _osScheduled = {};
   String _lastSamplingReminderDate = '';
 
   String? _effectiveUid;
@@ -147,6 +307,7 @@ class NotificationService extends ChangeNotifier {
   StreamSubscription<DatabaseEvent>? _notifRemovedSub;
   StreamSubscription<DatabaseEvent>? _prefsSub;
   Timer? _reminderTimer;
+  Timer? _slowTimer;
 
   bool unreadStatus(String id) {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
@@ -212,7 +373,7 @@ class NotificationService extends ChangeNotifier {
     _initPreviousStates();
     tz.initializeTimeZones();
     _startReminderTimer();
-    FeedState.schedules.addListener(_checkFeedingReminders);
+    FeedState.schedules.addListener(_onSchedulesChanged);
     FirebaseAuth.instance.authStateChanges().listen((user) {
       _notifications.clear();
       _effectiveUid = null;
@@ -351,9 +512,6 @@ class NotificationService extends ChangeNotifier {
 
       FirebaseMessaging.onMessage.listen(_onForegroundMessage);
 
-      // Use the TOP-LEVEL handler (required by Firebase for background/terminated state)
-      FirebaseMessaging.onBackgroundMessage(firebaseBackgroundMessageHandler);
-
       debugPrint('[NotificationService] FCM initialized');
 
       _pendingTimers.clear();
@@ -383,11 +541,58 @@ class NotificationService extends ChangeNotifier {
   }
 
   Future<void> _onForegroundMessage(RemoteMessage message) async {
-    // Standard Behavior: Skip showing the native push notification banner when user is already in-app.
-    // The UI database listeners will automatically catch and display the new record in the notification logs.
-    debugPrint(
-      '[NotificationService] Foreground message received, skipping native banner to follow app standards.',
-    );
+    final data = message.data;
+
+    if (data['type'] == 'pre_arm') {
+      debugPrint('[NotificationService] Foreground pre-arm received — scheduling OS alarm');
+      await _handlePreArm(data.cast<String, String>());
+      return;
+    }
+
+    final isFeeding = data['feeding'] == 'true';
+    final isSampling = data['sampling'] == 'true';
+    final showCritical = data['critical'] != 'false';
+    if (!showCritical && !isFeeding && !isSampling) return;
+
+    if (isFeeding && !_notifFeeding) return;
+    if (isSampling && !_notifSampling) return;
+    if (!isFeeding && !isSampling && !_notifCritical) return;
+
+    final playSound = data['sound'] != 'false' && _notifSound;
+    final vibrate = data['vibration'] != 'false' && _notifVibration;
+    final title = data['title'] ?? message.notification?.title ?? 'CrayCare Alert';
+    final body = data['body'] ?? message.notification?.body ?? data['message'] ?? '';
+
+    String channelId = 'craycare_alerts_silent';
+    if (playSound && vibrate) {
+      channelId = 'craycare_alerts_sound_vibrate';
+    } else if (playSound) {
+      channelId = 'craycare_alerts_sound_only';
+    } else if (vibrate) {
+      channelId = 'craycare_alerts_vibrate_only';
+    }
+
+    try {
+      await _localNotifications.show(
+        DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        title,
+        body,
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            channelId,
+            'CrayCare Alert',
+            importance: playSound || vibrate ? Importance.high : Importance.low,
+            priority: Priority.high,
+            playSound: playSound,
+            enableVibration: vibrate,
+            vibrationPattern: !vibrate ? Int64List(0) : null,
+            sound: !playSound ? null : const RawResourceAndroidNotificationSound('default'),
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('[NotificationService] Foreground notification error: $e');
+    }
   }
 
   // Background handler is now a top-level function: firebaseBackgroundMessageHandler (above the class)
@@ -400,7 +605,8 @@ class NotificationService extends ChangeNotifier {
     _prefsSub?.cancel();
     _profileSub?.cancel();
     _reminderTimer?.cancel();
-    FeedState.schedules.removeListener(_checkFeedingReminders);
+    _slowTimer?.cancel();
+    FeedState.schedules.removeListener(_onSchedulesChanged);
     SensorService.instance.removeListener(_onSensorUpdate);
     super.dispose();
   }
@@ -435,16 +641,24 @@ class NotificationService extends ChangeNotifier {
   }
 
   void _startReminderTimer() {
-    _reminderTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+    _preScheduleOSReminders();
+    _checkFeedingReminders();
+    _reminderTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       _checkFeedingReminders();
+    });
+    _slowTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       _confirmFeedingComplete();
       _checkSamplingReminders();
     });
   }
 
+  void _onSchedulesChanged() {
+    _preScheduleOSReminders();
+    _checkFeedingReminders();
+  }
+
   void _checkFeedingReminders() {
     if (_userRole == 'admin') return;
-    if (_isMonitor) return;
     if (!_notifFeeding) return;
     final now = DateTime.now();
     final todayKey = '${now.month}/${now.day}';
@@ -456,30 +670,55 @@ class NotificationService extends ChangeNotifier {
       if (s.ampm == 'PM' && h != 12) h += 12;
       if (s.ampm == 'AM' && h == 12) h = 0;
 
-      final schedMins = h * 60 + m;
-      final nowMins = now.hour * 60 + now.minute;
       final key = '${todayKey}_${s.time}_${s.ampm}';
       if (_feedingReminderSent.contains(key)) continue;
-      if (schedMins <= 0) continue;
+      if (h * 60 + m <= 0) continue;
 
       final target = DateTime(now.year, now.month, now.day, h, m).subtract(const Duration(minutes: 5));
+      final scheduleDt = DateTime(now.year, now.month, now.day, h, m);
       final diff = target.difference(now);
+      final schedDiff = scheduleDt.difference(now);
 
-      if (diff >= Duration.zero) {
+      if (schedDiff > Duration.zero && schedDiff <= const Duration(minutes: 5)) {
         if (!_pendingTimers.contains(key)) {
           _pendingTimers.add(key);
-          debugPrint('[NotificationService] Scheduling 5-min timer for ${s.time} ${s.ampm} in ${diff.inSeconds}s');
-          Future.delayed(diff, () => _fireReminder(key, s, scheduledAt: target));
+          if (diff > Duration.zero) {
+            Future.delayed(diff, () => _fireReminder(key, s, scheduledAt: target));
+          } else {
+            _fireReminder(key, s, scheduledAt: target);
+          }
           _scheduleOSReminder(key, s, target);
         }
-      } else if (nowMins >= schedMins - 5 && nowMins < schedMins) {
-        _fireReminder(key, s, scheduledAt: target);
       }
     }
   }
 
+  void _preScheduleOSReminders() {
+    if (_userRole == 'admin') return;
+    final now = DateTime.now();
+    final todayKey = '${now.month}/${now.day}';
+
+    for (final s in FeedState.schedules.value) {
+      if (!s.enabled) continue;
+      int h = int.parse(s.time.split(':')[0]);
+      final m = int.parse(s.time.split(':')[1]);
+      if (s.ampm == 'PM' && h != 12) h += 12;
+      if (s.ampm == 'AM' && h == 12) h = 0;
+
+      final key = '${todayKey}_${s.time}_${s.ampm}';
+      if (_osScheduled.contains(key)) continue;
+
+      final target = DateTime(now.year, now.month, now.day, h, m).subtract(const Duration(minutes: 5));
+      if (target.isBefore(now)) continue;
+
+      _scheduleOSReminder(key, s, target);
+    }
+  }
+
   void _scheduleOSReminder(String key, ScheduleItem s, DateTime target) {
+    if (_osScheduled.contains(key)) return;
     if (target.isBefore(DateTime.now())) return;
+    _osScheduled.add(key);
     try {
       final loc = tz.local;
       final tzTarget = tz.TZDateTime.from(target, loc);
@@ -517,7 +756,7 @@ class NotificationService extends ChangeNotifier {
     }
   }
 
-  void _fireReminder(String key, ScheduleItem s, {bool showSystemNotif = true, DateTime? scheduledAt}) {
+  Future<void> _fireReminder(String key, ScheduleItem s, {bool showSystemNotif = true, DateTime? scheduledAt}) async {
     if (_feedingReminderSent.contains(key)) return;
     _feedingReminderSent.add(key);
     _localNotifications.cancel(key.hashCode);
@@ -525,6 +764,17 @@ class NotificationService extends ChangeNotifier {
     final msg = 'Your feeding schedule at ${s.time} ${s.ampm} will be dispensed in 5 minutes.';
 
     debugPrint('[NotificationService] Firing reminder for ${s.time} ${s.ampm}');
+
+    final now = DateTime.now();
+    int h = int.parse(s.time.split(':')[0]);
+    final m = int.parse(s.time.split(':')[1]);
+    if (s.ampm == 'PM' && h != 12) h += 12;
+    if (s.ampm == 'AM' && h == 12) h = 0;
+    final hhmm = '${h.toString().padLeft(2, '0')}${m.toString().padLeft(2, '0')}';
+    final y = now.year.toString();
+    final mo = now.month.toString().padLeft(2, '0');
+    final d = now.day.toString().padLeft(2, '0');
+    final reminderKey = 'reminder_${y}-${mo}-${d}_$hhmm';
 
     final scheduleLabel = '${s.time} ${s.ampm}';
     final alreadyAdded = _notifications.any(
@@ -536,9 +786,31 @@ class NotificationService extends ChangeNotifier {
         type: 'reminder',
         title: 'Feeding Reminder',
         message: msg,
-        timestamp: scheduledAt ?? DateTime.now(),
+        timestamp: scheduledAt ?? now,
       );
     }
+
+    if (NotificationService._preArmed.contains('${s.time}_${s.ampm}')) {
+      debugPrint('[NotificationService] Pre-arm active — OS alarm will fire at exact time, skipping system notification');
+      await _notifRef
+          .child('markers/$reminderKey')
+          .set(now.millisecondsSinceEpoch);
+      return;
+    }
+
+    final markerExists = await _notifRef
+        .child('markers/$reminderKey')
+        .once()
+        .then((s) => s.snapshot.exists);
+
+    if (markerExists) {
+      debugPrint('[NotificationService] Marker exists — worker already handled. Skipping local notif to avoid duplicate.');
+      return;
+    }
+
+    await _notifRef
+        .child('markers/$reminderKey')
+        .set(now.millisecondsSinceEpoch);
 
     if (!showSystemNotif) return;
 
@@ -573,12 +845,10 @@ class NotificationService extends ChangeNotifier {
     }
   }
 
-  void _confirmFeedingComplete() {
+  Future<void> _confirmFeedingComplete() async {
     if (_userRole == 'admin') return;
-    if (_isMonitor) return;
     if (!_notifFeeding) return;
     final now = DateTime.now();
-    final todayKey = '${now.month}/${now.day}';
     final oneMinAgo = now.millisecondsSinceEpoch - 60000;
 
     for (final log in FeedState.feederLogs.value) {
@@ -586,22 +856,14 @@ class NotificationService extends ChangeNotifier {
       if (!log.action.contains('Auto feed dispensed')) continue;
       if (log.timestamp <= 0 || log.timestamp < oneMinAgo) continue;
 
-      final confirmKey = 'confirm_${todayKey}_${log.timestamp}';
-      if (_feedingReminderSent.contains(confirmKey)) return;
+      final confirmKey = 'confirm_${now.month}/${now.day}_${log.timestamp}';
+      if (_feedingReminderSent.contains(confirmKey)) continue;
       _feedingReminderSent.add(confirmKey);
-
-      _addNotification(
-        type: 'reminder',
-        title: 'Feeding Complete',
-        message: 'Feed has been dispensed successfully.',
-        timestamp: now,
-      );
     }
   }
 
   void _checkSamplingReminders() {
     if (_userRole == 'admin') return;
-    if (_isMonitor) return;
     if (!_notifSampling) return;
     final now = DateTime.now();
     final todayKey = '${now.month}/${now.day}';
