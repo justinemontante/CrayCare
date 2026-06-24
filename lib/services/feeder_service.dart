@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import '../models/control_types.dart';
+import 'sensor_service.dart';
+import 'settings_service.dart';
 
 class FeederService extends ChangeNotifier {
   static final FeederService instance = FeederService._();
@@ -81,6 +83,15 @@ class FeederService extends ChangeNotifier {
     } catch (e) {
       debugPrint('[FeederService] Initialization error: $e');
     }
+  }
+
+  bool canFeedNow() {
+    final ranges = SettingsService.instance.currentRanges;
+    final turbMax = ranges['turb']?['max'] ?? 999.0;
+    final turb = SensorService.instance.getLatestValue('turb');
+    if (SensorService.instance.turbidityAir) return false;
+    if (turb > turbMax) return false;
+    return true;
   }
 
   void _cancelSubscriptions() {

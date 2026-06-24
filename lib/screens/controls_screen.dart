@@ -7,6 +7,8 @@ import '../widgets/controls/feeder_tab.dart';
 import '../widgets/controls/devices_tab.dart';
 import '../models/control_types.dart';
 import '../services/feeder_service.dart';
+import '../services/sensor_service.dart';
+import '../services/settings_service.dart';
 import '../services/database_service.dart';
 
 class ControlsScreen extends StatefulWidget {
@@ -51,6 +53,7 @@ class ControlsScreenState extends State<ControlsScreen> {
     _feedCountAtStart = svc.feedCount;
     _lastDateKey = _todayKey();
     svc.addListener(_onFeederUpdate);
+    SensorService.instance.addListener(_onSensorDataUpdate);
     _initDeviceModes();
     _initDeviceLogs();
     _runtimeTimer = Timer.periodic(
@@ -142,9 +145,14 @@ class ControlsScreenState extends State<ControlsScreen> {
     return '${days}d ${hrs}h';
   }
 
+  void _onSensorDataUpdate() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
     FeederService.instance.removeListener(_onFeederUpdate);
+    SensorService.instance.removeListener(_onSensorDataUpdate);
     _devicesSub?.cancel();
     for (final sub in _deviceLogSubs) {
       sub.cancel();
@@ -247,6 +255,28 @@ class ControlsScreenState extends State<ControlsScreen> {
   final Map<String, List<LogEntry>> _hwLogs = {};
   Map<String, String> _deviceRuntimeLabels = {};
   Timer? _runtimeTimer;
+
+  bool get _canFeed {
+    if (!widget.isOwner) return false;
+    if (!FeederService.instance.isOnline) return false;
+    final svc = SensorService.instance;
+    final ranges = SettingsService.instance.currentRanges;
+    if (svc.turbidityAir) return false;
+    final turbMax = ranges['turb']?['max'] ?? 999.0;
+    final turb = svc.getLatestValue('turb');
+    if (turb > turbMax) return false;
+    return true;
+  }
+
+  String get _feedBlockedReason {
+    final svc = SensorService.instance;
+    if (svc.turbidityAir) return 'Feed blocked: turbidity sensor in air';
+    final ranges = SettingsService.instance.currentRanges;
+    final turbMax = ranges['turb']?['max'] ?? 999.0;
+    final turb = svc.getLatestValue('turb');
+    if (turb > turbMax) return 'Feed blocked: turbidity too high (${turb.toStringAsFixed(0)} > ${turbMax.toStringAsFixed(0)} NTU)';
+    return '';
+  }
 
   void _feedNow({double? grams}) {
     if (!widget.isOwner) return;
@@ -499,6 +529,8 @@ class ControlsScreenState extends State<ControlsScreen> {
                       isOwner: widget.isOwner,
                       isOnline: FeederService.instance.isOnline,
                       isRunning: FeederService.instance.isRunning,
+                      canFeed: _canFeed,
+                      feedBlockedReason: _feedBlockedReason,
                     ),
                     DevicesTab(
                       hwModes: _hwModes,

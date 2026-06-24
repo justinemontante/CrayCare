@@ -111,9 +111,13 @@ static int hcBufCount = 0;
 static float sensorHeight = SENSOR_HEIGHT_DEFAULT;
 static float maxWaterDepth = MAX_WATER_DEPTH_DEFAULT;
 
-// --- Auto-control hysteresis ---
-#define DO_HYSTERESIS 0.5f
-#define WATER_HYSTERESIS 2.0f
+// --- Auto-control hysteresis (moved to globals for NVS persistence) ---
+static float DO_HYSTERESIS = 0.5f;
+static float WATER_HYSTERESIS = 2.0f;
+static float PH_HYSTERESIS = 0.3f;
+static float TEMP_HYSTERESIS = 1.0f;
+static unsigned long PUMP_COOLDOWN_MS = 60000;
+static unsigned long lastPumpOffTime = 0;
 
 // --- Auto-control thresholds (cached from Firebase /sensor_readings/config/ranges/) ---
 static float threshTempMin = 26.0f, threshTempMax = 30.0f;
@@ -412,29 +416,60 @@ static void autoControlLoop() {
     for (int i = 0; i < 3; i++) {
         if (relays[i].mode != RM_AUTO) continue;
         bool wantOn = relays[i].active;
+        String reason = "";
 
         if (i == 1 || i == 2) {
             // Aerators: controlled by DO with hysteresis
             if (currentDO < threshDOMin) {
                 wantOn = true;
+                reason = "DO dropped to " + String(currentDO, 1) + " mg/L (below " + String(threshDOMin, 1) + " mg/L)";
             } else if (currentDO >= threshDOMin + DO_HYSTERESIS) {
                 wantOn = false;
+                reason = "DO normalized to " + String(currentDO, 1) + " mg/L (above " + String(threshDOMin, 1) + " mg/L)";
             }
         } else if (i == 0) {
-            // Pump: controlled by water level with hysteresis
-            if (currentWaterCm >= 0 && currentWaterCm < threshWaterMin) {
+            // Pump: ON if water level low OR pH out of range OR temp out of range
+            // OFF only when ALL three are normal (with hysteresis)
+            unsigned long nowMs = millis();
+            bool waterLow = currentWaterCm >= 0 && currentWaterCm < threshWaterMin;
+            bool waterNormal = currentWaterCm >= 0 && currentWaterCm >= threshWaterMin + WATER_HYSTERESIS;
+            bool pHLow = currentPH < threshPHMin;
+            bool pHHigh = currentPH > threshPHMax;
+            bool pHNormal = currentPH >= threshPHMin + PH_HYSTERESIS && currentPH <= threshPHMax - PH_HYSTERESIS;
+            bool tempLow = currentTemp < threshTempMin;
+            bool tempHigh = currentTemp > threshTempMax;
+            bool tempNormal = currentTemp >= threshTempMin + TEMP_HYSTERESIS && currentTemp <= threshTempMax - TEMP_HYSTERESIS;
+
+            // Pump cooldown: prevent rapid cycling after turning off
+            if (!wantOn && nowMs - lastPumpOffTime < PUMP_COOLDOWN_MS) continue;
+
+            if (waterLow || pHLow || pHHigh || tempLow || tempHigh) {
                 wantOn = true;
-            } else if (currentWaterCm >= 0 && currentWaterCm >= threshWaterMin + WATER_HYSTERESIS) {
+                if (waterLow) reason = "water level low (" + String(currentWaterCm, 1) + " cm)";
+                else if (pHLow) reason = "pH low (" + String(currentPH, 2) + ")";
+                else if (pHHigh) reason = "pH high (" + String(currentPH, 2) + ")";
+                else if (tempLow) reason = "temp low (" + String(currentTemp, 1) + " C)";
+                else if (tempHigh) reason = "temp high (" + String(currentTemp, 1) + " C)";
+            } else if (waterNormal && pHNormal && tempNormal) {
                 wantOn = false;
+                reason = "all parameters normalized";
+                if (!relays[i].active) lastPumpOffTime = nowMs;
             }
         }
 
         if (wantOn != relays[i].active) {
             relays[i].active = wantOn;
             digitalWrite(relays[i].pin, wantOn ? LOW : HIGH);
-            Serial.printf("[AUTO] %s = %s\n", relays[i].label, wantOn ? "ON" : "OFF");
-            logDeviceAction(relays[i].devId,
-                wantOn ? "Switched ON (AUTO)" : "Switched OFF (AUTO)", "auto");
+            const char* label = relays[i].label;
+            if (wantOn) {
+                Serial.printf("[AUTO] %s ON (%s)\n", label, reason.c_str());
+                logDeviceAction(relays[i].devId,
+                    (String("Switched ON (AUTO) - ") + reason).c_str(), "auto");
+            } else {
+                Serial.printf("[AUTO] %s OFF (%s)\n", label, reason.c_str());
+                logDeviceAction(relays[i].devId,
+                    (String("Switched OFF (AUTO) - ") + reason).c_str(), "auto");
+            }
         }
     }
 }
@@ -513,20 +548,6 @@ static void pollConfig() {
 static bool canFeed() {
     if (currentTurbAir) {
         Serial.println("[FEED-SAFE] BLOCKED: turbidity sensor in air, no water");
-        return false;
-    }
-    if (currentDO < threshDOMin) {
-        Serial.printf("[FEED-SAFE] BLOCKED: DO too low (%.1f < %.1f)\n", currentDO, threshDOMin);
-        return false;
-    }
-    if (currentPH < threshPHMin || currentPH > threshPHMax) {
-        Serial.printf("[FEED-SAFE] BLOCKED: pH out of range (%.2f, need %.1f-%.1f)\n",
-            currentPH, threshPHMin, threshPHMax);
-        return false;
-    }
-    if (currentTemp < threshTempMin || currentTemp > threshTempMax) {
-        Serial.printf("[FEED-SAFE] BLOCKED: temp out of range (%.1f, need %.1f-%.1f)\n",
-            currentTemp, threshTempMin, threshTempMax);
         return false;
     }
     if (currentTurbNTU > threshTurbMax) {
@@ -635,6 +656,7 @@ static void publishSensors() {
         j.add("phLevel", currentPH);
         j.add("dissolvedOxygen", currentDO);
         j.add("turbidity", currentTurbNTU);
+        j.add("turbidityAir", currentTurbAir ? true : false);
         j.add("waterLevel", currentWaterCm >= 0 ? currentWaterCm : 0);
         j.add("timestamp", (double)now);
         if (Firebase.RTDB.setJSON(&fbS, "/sensor_readings/latest", &j)) {

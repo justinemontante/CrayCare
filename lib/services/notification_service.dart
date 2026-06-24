@@ -285,6 +285,16 @@ class NotificationService extends ChangeNotifier {
   int _idCounter = 0;
   bool _initialized = false;
 
+  // Auto-control notification tracking
+  final Set<String> _seenAutoLogKeys = {};
+  bool _autoControlWarmup = true;
+  final Map<String, String> _deviceLabels = {
+    'aerator1': 'Aerator 1',
+    'aerator2': 'Aerator 2',
+    'pump': 'Water Pump',
+  };
+  final List<StreamSubscription<DatabaseEvent>> _autoControlSubs = [];
+
   bool _notifSound = true;
   bool _notifVibration = true;
   bool _notifCritical = true;
@@ -373,11 +383,13 @@ class NotificationService extends ChangeNotifier {
     _initPreviousStates();
     tz.initializeTimeZones();
     _startReminderTimer();
+    _initAutoControlListener();
     FeedState.schedules.addListener(_onSchedulesChanged);
     FirebaseAuth.instance.authStateChanges().listen((user) {
       _notifications.clear();
       _effectiveUid = null;
       _cancelSubscriptions();
+      _cancelAutoControlSubs();
       _userRole = null;
       if (user != null) {
         _listenProfile();
@@ -606,6 +618,7 @@ class NotificationService extends ChangeNotifier {
     _profileSub?.cancel();
     _reminderTimer?.cancel();
     _slowTimer?.cancel();
+    _cancelAutoControlSubs();
     FeedState.schedules.removeListener(_onSchedulesChanged);
     SensorService.instance.removeListener(_onSensorUpdate);
     super.dispose();
@@ -638,6 +651,60 @@ class NotificationService extends ChangeNotifier {
           _notifSampling = map['sampling'] as bool? ?? true;
           notifyListeners();
         });
+  }
+
+  void _initAutoControlListener() {
+    _cancelAutoControlSubs();
+    _seenAutoLogKeys.clear();
+    _autoControlWarmup = true;
+
+    for (final deviceId in _deviceLabels.keys) {
+      final ref = FirebaseDatabase.instance.ref('devices/logs/$deviceId');
+      final sub = ref.onChildAdded.listen((event) {
+        if (event.snapshot.value == null) return;
+        final raw = event.snapshot.value as Map<Object?, Object?>;
+        final map = raw.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
+        final action = map['action'] as String? ?? '';
+        final key = event.snapshot.key;
+        if (key == null) return;
+
+        _seenAutoLogKeys.add(key);
+
+        // Skip during warmup to avoid notifying for existing log entries
+        if (_autoControlWarmup) return;
+
+        if (!action.contains('(AUTO)')) return;
+
+        final tsRaw = map['timestamp'] as num? ?? 0;
+        final tsMs = tsRaw < 100000000000 ? tsRaw * 1000 : tsRaw;
+        final ts = DateTime.fromMillisecondsSinceEpoch(tsMs.toInt());
+        final label = _deviceLabels[deviceId] ?? deviceId;
+
+        String title, message;
+        if (action.contains('ON')) {
+          title = '$label turned ON';
+          message = action.replaceFirst('Switched ON (AUTO) - ', '');
+        } else {
+          title = '$label turned OFF';
+          message = action.replaceFirst('Switched OFF (AUTO) - ', '');
+        }
+
+        _addNotification(type: 'operational', title: title, message: message, timestamp: ts);
+      });
+      _autoControlSubs.add(sub);
+    }
+
+    // Warmup period: absorb existing log entries without creating notifications
+    Future.delayed(const Duration(seconds: 3), () {
+      _autoControlWarmup = false;
+    });
+  }
+
+  void _cancelAutoControlSubs() {
+    for (final sub in _autoControlSubs) {
+      sub.cancel();
+    }
+    _autoControlSubs.clear();
   }
 
   void _startReminderTimer() {
@@ -903,6 +970,8 @@ class NotificationService extends ChangeNotifier {
     _notifRemovedSub?.cancel();
     _prefsSub?.cancel();
     _profileSub?.cancel();
+    _profileSub = null;
+    _cancelAutoControlSubs();
   }
 
   void _listenFirebase() {

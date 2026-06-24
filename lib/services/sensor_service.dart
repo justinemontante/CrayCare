@@ -27,6 +27,9 @@ class SensorService extends ChangeNotifier {
 
   final Map<String, List<double>> _history = {};
   final Map<String, double> _latest = {};
+  bool? _turbidityAir;
+
+  bool get turbidityAir => _turbidityAir ?? false;
 
   bool _initialDataLoaded = false;
 
@@ -191,6 +194,8 @@ class SensorService extends ChangeNotifier {
     final doRaw = _toDouble(data['dissolvedOxygen']);
     final phRaw = _toDouble(data['phLevel']);
     final wlRaw = _toDouble(data['waterLevel']);
+    final turbAirRaw = data['turbidityAir'];
+    _turbidityAir = turbAirRaw is bool ? turbAirRaw : (turbAirRaw == true);
 
     _updateSensor('temp', tempRaw);
     _updateSensor('turb', turbRaw);

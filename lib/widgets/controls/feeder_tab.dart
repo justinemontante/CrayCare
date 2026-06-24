@@ -18,6 +18,8 @@ class FeederTab extends StatelessWidget {
   final bool isOwner;
   final bool isOnline;
   final bool isRunning;
+  final bool canFeed;
+  final String feedBlockedReason;
 
   const FeederTab({
     super.key,
@@ -33,6 +35,8 @@ class FeederTab extends StatelessWidget {
     this.isOwner = true,
     this.isOnline = true,
     this.isRunning = false,
+    this.canFeed = true,
+    this.feedBlockedReason = '',
   });
 
   @override
@@ -262,12 +266,25 @@ class FeederTab extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: Builder(
-                  builder: (context) => ElevatedButton(
-                    onPressed: isOwner && isOnline && !isRunning
+                  builder: (context) => Tooltip(
+                    message: !canFeed && isOwner && isOnline
+                        ? feedBlockedReason
+                        : '',
+                    decoration: BoxDecoration(
+                      color: AppColors.critical,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    textStyle: const TextStyle(fontSize: 12, color: Colors.white),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    waitDuration: const Duration(milliseconds: 100),
+                    child: ElevatedButton(
+                    onPressed: isOwner && isOnline && !isRunning && canFeed
                         ? onFeedNow
                         : () {
                             if (!isOwner) {
                               showBeautifulSnackbar(context, 'Feed Now is for owners only', false, title: 'Notice');
+                            } else if (!canFeed) {
+                              showBeautifulSnackbar(context, feedBlockedReason, false, title: 'Feed Blocked');
                             }
                           },
                     style: ElevatedButton.styleFrom(
@@ -293,6 +310,8 @@ class FeederTab extends StatelessWidget {
                               ? Icons.hourglass_top
                               : !isOnline
                               ? Icons.wifi_off
+                              : !canFeed
+                              ? Icons.block
                               : Icons.play_arrow,
                           size: 16,
                           color: isOwner && isOnline
@@ -307,6 +326,8 @@ class FeederTab extends StatelessWidget {
                               ? 'Feeding...'
                               : !isOnline
                               ? 'Feeder Offline'
+                              : !canFeed
+                              ? 'Feed Blocked'
                               : 'Feed Now',
                           style: TextStyle(
                             fontSize: 14,
@@ -319,6 +340,7 @@ class FeederTab extends StatelessWidget {
                       ],
                     ),
                   ),
+                ),
                 ),
             ),
           ],

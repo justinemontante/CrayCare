@@ -23,6 +23,31 @@ class BackgroundHelper {
     final schedData = schedSnap.value;
     if (schedData is! Map) return;
 
+    // Check feed safety before dispatching any scheduled feed
+    final latestSnap = await db.ref('sensor_readings/latest').get();
+    bool feedSafe = true;
+    String blockReason = '';
+    if (latestSnap.exists && latestSnap.value is Map) {
+      final latest = Map<String, dynamic>.from(latestSnap.value as Map);
+      final turbAir = latest['turbidityAir'] == true;
+      final turb = (latest['turbidity'] as num?)?.toDouble() ?? 0.0;
+
+      final rangesSnap = await db.ref('sensor_readings/config/ranges/turb').get();
+      double turbMax = 25.0;
+      if (rangesSnap.exists && rangesSnap.value is Map) {
+        final r = Map<String, dynamic>.from(rangesSnap.value as Map);
+        turbMax = (r['max'] as num?)?.toDouble() ?? 25.0;
+      }
+
+      if (turbAir) {
+        feedSafe = false;
+        blockReason = 'turbidity sensor in air';
+      } else if (turb > turbMax) {
+        feedSafe = false;
+        blockReason = 'turbidity too high (${turb.toStringAsFixed(0)} > ${turbMax.toStringAsFixed(0)} NTU)';
+      }
+    }
+
     for (final entry in schedData.entries) {
       final s = entry.value;
       if (s is! Map) continue;
@@ -45,6 +70,27 @@ class BackgroundHelper {
           .ref('feeder/dispatched/$todayKey/$dispatchedKey')
           .get();
       if (marker.exists) continue;
+
+      if (!feedSafe) {
+        final months = [
+          'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+        ];
+        final h12 = h > 12 ? h - 12 : (h == 0 ? 12 : h);
+        final ampmStr = h >= 12 ? 'PM' : 'AM';
+        final timeStr = '$h12:${m.toString().padLeft(2, '0')} $ampmStr';
+        final dateStr = '${months[now.month - 1]} ${now.day}, ${now.year}';
+
+        await db.ref('feeder/logs').push().set({
+          'action': 'Scheduled feed skipped: $blockReason',
+          'type': 'skipped',
+          'time': timeStr,
+          'date': dateStr,
+          'timestamp': now.millisecondsSinceEpoch,
+        });
+        debugPrint('[BackgroundHelper] Skipped feed for $time $ampm: $blockReason');
+        continue;
+      }
 
       final grams = (s['grams'] as num?)?.toDouble();
 
