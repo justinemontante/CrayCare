@@ -142,6 +142,32 @@
     7. Type: doclear
     8. Remove probe, rinse, place in tank
 
+--- AUTO-CONTROL THRESHOLDS ---
+  showthresholds        Show current auto-control thresholds
+  setthreshold <sensor> <min> [max]  Set threshold (temp/ph/do/turb/waterlevel)
+
+  EXAMPLE:
+    showthresholds                     →  Show all thresholds + hysteresis
+    setthreshold do 5.0                →  Aerator ON when DO < 5.0 mg/L
+    setthreshold waterlevel 5 20       →  Pump ON when water < 5cm, max 20cm
+    setthreshold ph 7.0 8.5            →  Feed safety pH range 7.0-8.5
+
+  HYSTERESIS:
+    DO:       0.5 mg/L (aerator OFF when DO ≥ threshold + 0.5)
+    Water:    2.0 cm   (pump OFF when water ≥ threshold + 2.0)
+
+  AUTO-CONTROL LOGIC:
+    When devices/modes/{device} = "auto":
+      aerator1/aerator2: ON if DO < do_min, OFF if DO ≥ do_min + 0.5
+      pump:              ON if water < water_min, OFF if water ≥ water_min + 2.0
+    (mode stays "auto" in Firebase, only physical relay toggles)
+
+  FEED SAFETY:
+    Feed is BLOCKED if any condition is outside thresholds:
+      DO too low (< do_min), pH out of range, temp out of range,
+      turbidity too high (> turb_max), or turbidity sensor in air
+    Blocked feed is logged to /feeder/logs with type "error"
+
 --- DEBUG ---
   debugmode [0/1]     Toggle or set debug mode
   debugstatus         Show full system status

@@ -111,6 +111,19 @@ static int hcBufCount = 0;
 static float sensorHeight = SENSOR_HEIGHT_DEFAULT;
 static float maxWaterDepth = MAX_WATER_DEPTH_DEFAULT;
 
+// --- Auto-control hysteresis ---
+#define DO_HYSTERESIS 0.5f
+#define WATER_HYSTERESIS 2.0f
+
+// --- Auto-control thresholds (cached from Firebase /sensor_readings/config/ranges/) ---
+static float threshTempMin = 26.0f, threshTempMax = 30.0f;
+static float threshPHMin = 7.5f, threshPHMax = 8.0f;
+static float threshDOMin = 5.0f, threshDOMax = 999.0f;
+static float threshTurbMin = 0.0f, threshTurbMax = 25.0f;
+static float threshWaterMin = 120.0f, threshWaterMax = 160.0f;
+static unsigned long lastConfigPoll = 0;
+#define CONFIG_POLL_INTERVAL 30000
+
 // --- Offline ring buffer (RAM, lost on reboot) ---
 #define BUFFER_MAX 720
 struct SensorReading {
@@ -172,6 +185,11 @@ static void pollFirebaseSchedules();
 static void markScheduleDispatched(const String& schedKey);
 static void loadWaterLevelCalibration();
 static void saveWaterLevelCalibration();
+static void autoControlLoop();
+static void pollConfig();
+static void saveAutoConfig();
+static void loadAutoConfig();
+static bool canFeed();
 
 // =============================================================================
 // I2C HELPERS
@@ -346,17 +364,30 @@ static void logFeedAction(const char* action, const char* type) {
 static void applyMode(int idx, const String& modeStr) {
     RelayCtx* r = &relays[idx];
     String m = modeStr; m.toLowerCase();
-    RMode newMode; bool newActive;
-    if (m == "on") { newMode = RM_ON; newActive = true; }
-    else if (m == "off") { newMode = RM_OFF; newActive = false; }
-    else { newMode = RM_AUTO; newActive = false; }
-    if (r->mode == newMode && r->active == newActive) return;
-    bool wasActive = r->active;
-    r->mode = newMode; r->active = newActive;
-    digitalWrite(r->pin, newActive ? LOW : HIGH);
-    Serial.printf("[RELAY] %s (GPIO%d) = %s\n", r->label, r->pin, newActive ? "ON" : "OFF");
-    if (wasActive != newActive && newMode == RM_AUTO) {
-        logDeviceAction(r->devId, newActive ? "Switched ON (AUTO)" : "Switched OFF (AUTO)", "auto");
+    RMode newMode;
+    if (m == "on") newMode = RM_ON;
+    else if (m == "off") newMode = RM_OFF;
+    else newMode = RM_AUTO;
+    if (r->mode == newMode) return;
+    RMode oldMode = r->mode;
+    r->mode = newMode;
+    if (newMode == RM_ON) {
+        r->active = true;
+        digitalWrite(r->pin, LOW);
+        Serial.printf("[RELAY] %s = ON (manual)\n", r->label);
+        logDeviceAction(r->devId, "Switched ON (manual)", "on");
+    } else if (newMode == RM_OFF) {
+        r->active = false;
+        digitalWrite(r->pin, HIGH);
+        Serial.printf("[RELAY] %s = OFF (manual)\n", r->label);
+        logDeviceAction(r->devId, "Switched OFF (manual)", "off");
+    } else {
+        if (oldMode == RM_ON) {
+            r->active = false;
+            digitalWrite(r->pin, HIGH);
+        }
+        Serial.printf("[RELAY] %s = AUTO\n", r->label);
+        logDeviceAction(r->devId, "Switched to AUTO mode", "auto");
     }
 }
 
@@ -373,8 +404,145 @@ static void pollModes() {
     if (j.get(d, DEV_P))  { Serial.printf("[MODES] %s=%s\n", DEV_P, d.stringValue.c_str()); applyMode(2, d.stringValue); }
 }
 
+// =============================================================================
+// AUTO-CONTROL LOGIC
+// =============================================================================
+
+static void autoControlLoop() {
+    for (int i = 0; i < 3; i++) {
+        if (relays[i].mode != RM_AUTO) continue;
+        bool wantOn = relays[i].active;
+
+        if (i == 1 || i == 2) {
+            // Aerators: controlled by DO with hysteresis
+            if (currentDO < threshDOMin) {
+                wantOn = true;
+            } else if (currentDO >= threshDOMin + DO_HYSTERESIS) {
+                wantOn = false;
+            }
+        } else if (i == 0) {
+            // Pump: controlled by water level with hysteresis
+            if (currentWaterCm >= 0 && currentWaterCm < threshWaterMin) {
+                wantOn = true;
+            } else if (currentWaterCm >= 0 && currentWaterCm >= threshWaterMin + WATER_HYSTERESIS) {
+                wantOn = false;
+            }
+        }
+
+        if (wantOn != relays[i].active) {
+            relays[i].active = wantOn;
+            digitalWrite(relays[i].pin, wantOn ? LOW : HIGH);
+            Serial.printf("[AUTO] %s = %s\n", relays[i].label, wantOn ? "ON" : "OFF");
+            logDeviceAction(relays[i].devId,
+                wantOn ? "Switched ON (AUTO)" : "Switched OFF (AUTO)", "auto");
+        }
+    }
+}
+
+// =============================================================================
+// CONFIG POLL — read thresholds from Firebase
+// =============================================================================
+
+static void saveAutoConfig() {
+    prefs.begin("autocfg", false);
+    prefs.putFloat("tMin", threshTempMin); prefs.putFloat("tMax", threshTempMax);
+    prefs.putFloat("pMin", threshPHMin);   prefs.putFloat("pMax", threshPHMax);
+    prefs.putFloat("dMin", threshDOMin);   prefs.putFloat("dMax", threshDOMax);
+    prefs.putFloat("trMin", threshTurbMin); prefs.putFloat("trMax", threshTurbMax);
+    prefs.putFloat("wMin", threshWaterMin); prefs.putFloat("wMax", threshWaterMax);
+    prefs.end();
+    Serial.println("[CONFIG] Thresholds saved to NVS");
+}
+
+static void loadAutoConfig() {
+    prefs.begin("autocfg", false);
+    threshTempMin = prefs.getFloat("tMin", threshTempMin);
+    threshTempMax = prefs.getFloat("tMax", threshTempMax);
+    threshPHMin   = prefs.getFloat("pMin", threshPHMin);
+    threshPHMax   = prefs.getFloat("pMax", threshPHMax);
+    threshDOMin   = prefs.getFloat("dMin", threshDOMin);
+    threshDOMax   = prefs.getFloat("dMax", threshDOMax);
+    threshTurbMin = prefs.getFloat("trMin", threshTurbMin);
+    threshTurbMax = prefs.getFloat("trMax", threshTurbMax);
+    threshWaterMin = prefs.getFloat("wMin", threshWaterMin);
+    threshWaterMax = prefs.getFloat("wMax", threshWaterMax);
+    prefs.end();
+    Serial.printf("[CONFIG] Loaded from NVS: temp %.1f-%.1f ph %.1f-%.1f do %.1f-%.1f turb %.1f-%.1f water %.1f-%.1f\n",
+        threshTempMin, threshTempMax, threshPHMin, threshPHMax,
+        threshDOMin, threshDOMax, threshTurbMin, threshTurbMax,
+        threshWaterMin, threshWaterMax);
+}
+
+static void pollConfig() {
+    if (!Firebase.ready()) return;
+    unsigned long now = millis();
+    if (now - lastConfigPoll < CONFIG_POLL_INTERVAL) return;
+    lastConfigPoll = now;
+
+    FirebaseJson j;
+    if (!Firebase.RTDB.getJSON(&fbW, "/sensor_readings/config/ranges", &j)) {
+        return;
+    }
+
+    FirebaseJsonData d;
+    #define READ_SUB_SENSOR(key, varMin, varMax) do { \
+        if (j.get(d, key)) { \
+            FirebaseJson sub; sub.setJsonData(d.stringValue); \
+            if (sub.get(d, "min")) { float v = d.floatValue; if (v >= 0) varMin = v; } \
+            if (sub.get(d, "max")) { float v = d.floatValue; if (v >= 0) varMax = v; } \
+        } \
+    } while(0)
+
+    READ_SUB_SENSOR("temp",       threshTempMin, threshTempMax);
+    READ_SUB_SENSOR("ph",         threshPHMin, threshPHMax);
+    READ_SUB_SENSOR("do",         threshDOMin, threshDOMax);
+    READ_SUB_SENSOR("turb",       threshTurbMin, threshTurbMax);
+    READ_SUB_SENSOR("waterlevel", threshWaterMin, threshWaterMax);
+
+    saveAutoConfig();
+    Serial.printf("[CONFIG] Polled: temp %.1f-%.1f ph %.1f-%.1f do %.1f-%.1f turb %.1f-%.1f water %.1f-%.1f\n",
+        threshTempMin, threshTempMax, threshPHMin, threshPHMax,
+        threshDOMin, threshDOMax, threshTurbMin, threshTurbMax,
+        threshWaterMin, threshWaterMax);
+}
+
+// =============================================================================
+// FEED SAFETY CHECK
+// =============================================================================
+
+static bool canFeed() {
+    if (currentTurbAir) {
+        Serial.println("[FEED-SAFE] BLOCKED: turbidity sensor in air, no water");
+        return false;
+    }
+    if (currentDO < threshDOMin) {
+        Serial.printf("[FEED-SAFE] BLOCKED: DO too low (%.1f < %.1f)\n", currentDO, threshDOMin);
+        return false;
+    }
+    if (currentPH < threshPHMin || currentPH > threshPHMax) {
+        Serial.printf("[FEED-SAFE] BLOCKED: pH out of range (%.2f, need %.1f-%.1f)\n",
+            currentPH, threshPHMin, threshPHMax);
+        return false;
+    }
+    if (currentTemp < threshTempMin || currentTemp > threshTempMax) {
+        Serial.printf("[FEED-SAFE] BLOCKED: temp out of range (%.1f, need %.1f-%.1f)\n",
+            currentTemp, threshTempMin, threshTempMax);
+        return false;
+    }
+    if (currentTurbNTU > threshTurbMax) {
+        Serial.printf("[FEED-SAFE] BLOCKED: turbidity too high (%.0f > %.0f NTU)\n",
+            currentTurbNTU, threshTurbMax);
+        return false;
+    }
+    return true;
+}
+
 static void doFeed(const String& schedKey, double grams) {
     if (feedBusy) return;
+    if (!canFeed()) {
+        logFeedAction("Feed blocked by safety check", "error");
+        return;
+    }
     feedBusy = true;
     if (Firebase.ready()) {
         Firebase.RTDB.setBool(&fbW, "/feeder/status/isRunning", true);
@@ -797,6 +965,10 @@ static void printHelp() {
     Serial.println("  plotter              Toggle CSV stream for Serial Plotter (5s interval)");
     Serial.println("  raw                  Toggle raw sensor voltages (5s interval)");
     Serial.println("");
+    Serial.println("--- Auto-Control Thresholds ---");
+    Serial.println("  showthresholds        Show current thresholds");
+    Serial.println("  setthreshold <sensor> <min> [max]  Set threshold (temp/ph/do/turb/waterlevel)");
+    Serial.println("");
     Serial.println("--- Debug ---");
     Serial.println("  debugmode [0/1]      Show raw voltage on LCD/serial");
     Serial.println("  debugstatus          Show system status");
@@ -1112,6 +1284,44 @@ static void processSerialCommands() {
         return;
     }
 
+    // --- Auto-control thresholds ---
+    if (cmd == "showthresholds") {
+        Serial.println("--- Thresholds (auto-control) ---");
+        Serial.printf("  temp:      %.1f - %.1f C\n", threshTempMin, threshTempMax);
+        Serial.printf("  ph:        %.1f - %.1f\n", threshPHMin, threshPHMax);
+        Serial.printf("  do:        %.1f - %.1f mg/L (aerator ON < %.1f)\n", threshDOMin, threshDOMax, threshDOMin);
+        Serial.printf("  turb:      %.1f - %.1f NTU\n", threshTurbMin, threshTurbMax);
+        Serial.printf("  waterlevel: %.1f - %.1f cm (pump ON < %.1f)\n", threshWaterMin, threshWaterMax, threshWaterMin);
+        Serial.printf("  do_hysteresis:  %.1f\n", DO_HYSTERESIS);
+        Serial.printf("  water_hysteresis: %.1f\n", WATER_HYSTERESIS);
+        return;
+    }
+    if (cmd == "setthreshold") {
+        int space = arg.indexOf(' ');
+        if (space <= 0) { Serial.println("[CMD] Usage: setthreshold <sensor> <min> [max]"); return; }
+        String sensor = arg.substring(0, space); sensor.toLowerCase();
+        String rest = arg.substring(space + 1); rest.trim();
+        float minVal = rest.toFloat();
+        float maxVal = -1;
+        int space2 = rest.indexOf(' ');
+        if (space2 > 0) {
+            minVal = rest.substring(0, space2).toFloat();
+            maxVal = rest.substring(space2 + 1).toFloat();
+        }
+        bool ok = true;
+        if (sensor == "temp")     { if (minVal > 0) threshTempMin = minVal; if (maxVal > 0) threshTempMax = maxVal; }
+        else if (sensor == "ph")   { if (minVal > 0) threshPHMin = minVal; if (maxVal > 0) threshPHMax = maxVal; }
+        else if (sensor == "do")   { if (minVal > 0) threshDOMin = minVal; if (maxVal > 0) threshDOMax = maxVal; }
+        else if (sensor == "turb") { if (minVal > 0) threshTurbMin = minVal; if (maxVal > 0) threshTurbMax = maxVal; }
+        else if (sensor == "waterlevel") { if (minVal > 0) threshWaterMin = minVal; if (maxVal > 0) threshWaterMax = maxVal; }
+        else { Serial.printf("[CMD] Unknown sensor: %s\n", sensor.c_str()); ok = false; }
+        if (ok) {
+            saveAutoConfig();
+            Serial.printf("[CMD] %s: min=%.1f max=%.1f\n", sensor.c_str(), minVal, maxVal > 0 ? maxVal : -1);
+        }
+        return;
+    }
+
     // --- pH 686/401 calibration (standalone-style) ---
     if (cmd == "686") { calibratePH686(); return; }
     if (cmd == "401") { calibratePH401(); return; }
@@ -1176,6 +1386,7 @@ void setup() {
     digitalWrite(TRIG_PIN, LOW);
     loadTurbidityFromNVS();
     loadWaterLevelCalibration();
+    loadAutoConfig();
     initTemperatureSensor();
     initPHSensor();
     initDOSensor();
@@ -1310,6 +1521,9 @@ void loop() {
         publishSensors();
     }
 
+    // --- Auto-control runs every sensor cycle regardless of Firebase status ---
+    autoControlLoop();
+
     // --- All other Firebase ops grouped ---
     if (Firebase.ready()) {
         // Retry pending isDone sync (if we were offline when feed fired)
@@ -1322,6 +1536,7 @@ void loop() {
         }
 
         pollModes();
+        pollConfig();
         pollCommands();
         pollFirebaseSchedules();
         checkFeederSchedule();
