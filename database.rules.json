@@ -23,11 +23,11 @@
       }
     },
     "ml_predictions": {
-      ".read": "auth != null",
+      ".read": true,
       ".write": true
     },
     "sensor_readings": {
-      ".read": "auth != null",
+      ".read": true,
       ".write": true
     },
     "notifications": {

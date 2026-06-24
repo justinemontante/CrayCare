@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
 import '../../services/ml_service.dart';
-import '../../services/sensor_service.dart';
 
 class MovableAiLogo extends StatefulWidget {
   const MovableAiLogo({super.key});
@@ -16,7 +15,6 @@ class _MovableAiLogoState extends State<MovableAiLogo>
   late AnimationController _pulseController;
   final double _logoSize = 60.0;
   bool _isInitialized = false;
-  bool _listenersAdded = false;
 
   @override
   void initState() {
@@ -36,41 +34,6 @@ class _MovableAiLogoState extends State<MovableAiLogo>
     );
   }
 
-
-
-  Map<String, dynamic>? _mlData;
-  bool _mlLoading = true;
-  String? _mlError;
-
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (!_listenersAdded) {
-      _listenersAdded = true;
-      MlService.instance.addListener(_onMlChanged);
-      _refreshInsights();
-    }
-  }
-
-  void _onMlChanged() {
-    if (MlService.instance.hasFreshData) {
-      _useMlData(MlService.instance.latestPrediction!);
-    } else if (MlService.instance.error != null) {
-      if (mounted) setState(() {
-        _mlLoading = false;
-        _mlData = null;
-        _mlError = MlService.instance.error;
-      });
-    } else {
-      if (mounted) setState(() {
-        _mlLoading = false;
-        _mlData = null;
-        _mlError = 'CrayAI is waiting for sensor data...';
-      });
-    }
-  }
-
   Color _statusColor(String? status) {
     switch (status) {
       case 'OPTIMAL': return const Color(0xFF22c55e);
@@ -79,7 +42,6 @@ class _MovableAiLogoState extends State<MovableAiLogo>
       default: return AppColors.dark.withValues(alpha: 0.3);
     }
   }
-
 
   Widget _buildAIInsightsSheet(BuildContext ctx) {
     return Container(
@@ -97,7 +59,10 @@ class _MovableAiLogoState extends State<MovableAiLogo>
       child: ListenableBuilder(
         listenable: MlService.instance,
         builder: (context, _) {
-          final data = _parseLiveMlData();
+          final loading = MlService.instance.loading;
+          final error = MlService.instance.error;
+          final mlRaw = MlService.instance.latestPrediction;
+          final hasFresh = MlService.instance.hasFreshData;
 
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -148,9 +113,13 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                   ),
                 ],
               ),
+              if (!loading && mlRaw != null && hasFresh) ...[
+                const SizedBox(height: 12),
+                _buildOverallStatusBadge(mlRaw),
+              ],
               const SizedBox(height: 16),
               Expanded(
-                child: data.loading
+                child: loading
                     ? const Center(
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
@@ -168,7 +137,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                           ],
                         ),
                       )
-                    : data.error != null
+                    : error != null || !hasFresh
                         ? Center(
                             child: Padding(
                               padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -182,7 +151,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                                   ),
                                   const SizedBox(height: 12),
                                   Text(
-                                    data.error!,
+                                    error ?? 'CrayAI is waiting for sensor data...',
                                     textAlign: TextAlign.center,
                                     style: TextStyle(
                                       fontSize: 11,
@@ -194,7 +163,29 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                               ),
                             ),
                           )
-                        : _buildMLResultsFromSensors(data.sensors!),
+                        : ListView(
+                            padding: const EdgeInsets.only(bottom: 24),
+                            children: [
+                              _buildOverallSummaryCard(
+                                icon: Icons.lightbulb_outline,
+                                label: 'Insight',
+                                text: mlRaw?['insight'] as String? ?? '',
+                                color: AppColors.primary,
+                              ),
+                              _buildOverallSummaryCard(
+                                icon: Icons.build_circle_outlined,
+                                label: 'Recommendation',
+                                text: mlRaw?['recommendation'] as String? ?? '',
+                                color: const Color(0xFFE67E22),
+                              ),
+                              _buildOverallSummaryCard(
+                                icon: Icons.trending_up,
+                                label: 'Prediction',
+                                text: mlRaw?['prediction'] as String? ?? '',
+                                color: const Color(0xFF8E44AD),
+                              ),
+                            ],
+                          ),
               ),
             ],
           );
@@ -203,259 +194,115 @@ class _MovableAiLogoState extends State<MovableAiLogo>
     );
   }
 
-  @override
-  void dispose() {
-    MlService.instance.removeListener(_onMlChanged);
-    _pulseController.dispose();
-    super.dispose();
-  }
+  Widget _buildOverallStatusBadge(Map<String, dynamic> mlData) {
+    final status = mlData['predictedStatus'] as String? ?? 'UNKNOWN';
+    final confidence = (mlData['confidence'] as num?)?.toDouble() ?? 0.0;
+    final stage = mlData['stage'] as String? ?? '';
+    final statusColor = _statusColor(status);
+    final confPct = (confidence * 100).toInt();
+    final stageLabelText = stage.isNotEmpty ? _stageLabel(stage) : '';
 
-  void _refreshInsights() {
-    if (MlService.instance.hasFreshData) {
-      _useMlData(MlService.instance.latestPrediction!);
-    } else {
-      if (mounted) setState(() {
-        _mlLoading = false;
-        _mlData = null;
-        _mlError = 'No recent ML data available.';
-      });
-    }
-  }
-
-  ({bool loading, String? error, List<Map<String, dynamic>>? sensors}) _parseLiveMlData() {
-    if (_mlLoading) return (loading: true, error: null, sensors: null);
-    if (MlService.instance.hasFreshData) {
-      final mlData = MlService.instance.latestPrediction!;
-      final raw = mlData['sensors'];
-      List<dynamic> rawSensors;
-      if (raw is List) {
-        rawSensors = raw;
-      } else if (raw is Map) {
-        rawSensors = (raw as Map).values.toList();
-      } else {
-        rawSensors = const [];
-      }
-      if (rawSensors.isEmpty) {
-        return (loading: false, error: 'No sensor data available from CrayAI.', sensors: null);
-      }
-      final sensors = rawSensors.map((s) {
-        final raw = s as Map;
-        final map = raw.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
-        final key = map['key'] as String? ?? '';
-        final fbKey = _localKeyToFbKey(key);
-        final rawConf = map['confidence'];
-        final conf = (rawConf is num) ? rawConf.toDouble() : 0.0;
-        return {
-          'key': fbKey,
-          'status': map['status'] as String? ?? 'UNKNOWN',
-          'confidence': conf,
-          'insight': map['insight'] as String? ?? '',
-          'prediction': map['prediction'] as String? ?? '',
-          'recommendation': map['recommendation'] as String? ?? '',
-        };
-      }).toList();
-      return (loading: false, error: null, sensors: sensors);
-    }
-    if (MlService.instance.error != null) {
-      return (loading: false, error: MlService.instance.error, sensors: null);
-    }
-    return (loading: false, error: 'CrayAI is waiting for sensor data...', sensors: null);
-  }
-
-  String _mlKeyToSensorKey(String mlKey) {
-    switch (mlKey) {
-      case 'temperature': return 'temp';
-      case 'phLevel': return 'ph';
-      case 'dissolvedOxygen': return 'do';
-      case 'turbidity': return 'turb';
-      case 'waterLevel': return 'waterlevel';
-      default: return mlKey;
-    }
-  }
-
-  Widget _buildNoReadingCard(String title, String iconPath) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: AppColors.dark.withValues(alpha: 0.08),
-          width: 1.5,
         ),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          children: [
-            Image.asset(iconPath, width: 20, height: 20),
-            const SizedBox(width: 8),
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: AppColors.dark,
-              ),
+      child: Row(
+        children: [
+          Container(
+            width: 12,
+            height: 12,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: statusColor,
             ),
-            const Spacer(),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: AppColors.dark.withValues(alpha: 0.06),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                'No reading',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.dark.withValues(alpha: 0.4),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (stageLabelText.isNotEmpty)
+                  RichText(
+                    text: TextSpan(
+                      text: 'Current Stage: ',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.blue,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      children: [
+                        TextSpan(
+                          text: stageLabelText,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.black,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (stageLabelText.isNotEmpty) const SizedBox(height: 6),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      status,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: statusColor,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: statusColor.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        '$confPct% confidence',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: statusColor,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildMLResultsFromSensors(List<Map<String, dynamic>> sensorsData) {
-    final sensorMap = {for (final s in sensorsData) s['key'] as String? ?? '': s};
-    final ordered = _sensorOrder
-        .map((k) => sensorMap[k])
-        .where((s) => s != null)
-        .cast<Map<String, dynamic>>()
-        .toList();
-
-    if (ordered.isEmpty) {
-      return const Center(child: Text('No sensor data available.'));
-    }
-
-    return ListView(
-      padding: const EdgeInsets.only(bottom: 24),
-      children: ordered.map((s) {
-        final key = s['key'] as String? ?? '';
-        final display = _sensorDisplayInfo[key];
-        if (display == null) return const SizedBox.shrink();
-
-        final short = _mlKeyToSensorKey(key);
-        final hasData = SensorService.instance.hasSensorData(short);
-
-        if (!hasData) {
-          return _buildNoReadingCard(
-            display['title'] as String,
-            display['icon'] as String,
-          );
-        }
-
-        return _buildSmartInsightCard(
-          title: display['title'] as String,
-          iconPath: display['icon'] as String,
-          status: s['status'] as String? ?? 'UNKNOWN',
-          confidence: (s['confidence'] as num?)?.toDouble() ?? 0.0,
-          insight: s['insight'] as String? ?? '',
-          prediction: s['prediction'] as String? ?? '',
-          recommendation: s['recommendation'] as String? ?? '',
-        );
-      }).toList(),
-    );
+  String _stageLabel(String stage) {
+    const labels = {
+      'early_juvenile': 'Early Juvenile',
+      'advanced_juvenile': 'Advanced Juvenile',
+      'pre_adult': 'Pre-Adult',
+      'market_size': 'Market Size',
+    };
+    return labels[stage] ?? stage.replaceAll('_', ' ').split(' ').map((w) => w.isEmpty ? '' : '${w[0].toUpperCase()}${w.substring(1)}').join(' ');
   }
 
-  void _useMlData(Map<String, dynamic> mlData) {
-    // Parse top-level fields
-
-    final raw = mlData['sensors'];
-    List<dynamic> rawSensors;
-    if (raw is List) {
-      rawSensors = raw;
-    } else if (raw is Map) {
-      rawSensors = (raw as Map).values.toList();
-    } else {
-      rawSensors = const [];
-    }
-    if (rawSensors.isEmpty) {
-      if (mounted) setState(() {
-        _mlLoading = false;
-        _mlData = null;
-        _mlError = 'No sensor data available from CrayAI.';
-      });
-      return;
-    }
-
-    final sensors = rawSensors.map((s) {
-      final raw = s as Map;
-      final map = raw.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
-      final key = map['key'] as String? ?? '';
-      final fbKey = _localKeyToFbKey(key);
-      final rawConf = map['confidence'];
-      final conf = (rawConf is num) ? rawConf.toDouble() : 0.0;
-      return {
-        'key': fbKey,
-        'status': map['status'] as String? ?? 'UNKNOWN',
-        'confidence': conf,
-        'insight': map['insight'] as String? ?? '',
-        'prediction': map['prediction'] as String? ?? '',
-        'recommendation': map['recommendation'] as String? ?? '',
-      };
-    }).toList();
-
-    _mlData = {'sensors': sensors};
-    _mlError = null;
-    _mlLoading = false;
-    if (mounted) setState(() {});
-  }
-
-  String _localKeyToFbKey(String mlKey) {
-    switch (mlKey) {
-      case 'temperature': return 'temperature';
-      case 'phLevel': return 'phLevel';
-      case 'dissolvedOxygen': return 'dissolvedOxygen';
-      case 'turbidity': return 'turbidity';
-      case 'waterLevel': return 'waterLevel';
-      default: return mlKey;
-    }
-  }
-
-
-
-  static const _sensorOrder = [
-    'temperature', 'phLevel', 'dissolvedOxygen', 'turbidity', 'waterLevel',
-  ];
-
-  static const _sensorDisplayInfo = {
-    'temperature': {'title': 'Temperature', 'icon': 'assets/icons/temperature.png', 'color': Color(0xFFf59e0b)},
-    'phLevel': {'title': 'pH Level', 'icon': 'assets/icons/pH.png', 'color': Color(0xFF1FA5A5)},
-    'dissolvedOxygen': {'title': 'Dissolved Oxygen', 'icon': 'assets/icons/DO.png', 'color': Color(0xFF52c283)},
-    'turbidity': {'title': 'Turbidity', 'icon': 'assets/icons/Turbidity.png', 'color': Color(0xFFE63946)},
-    'waterLevel': {'title': 'Water Level', 'icon': 'assets/images/waterLevel.png', 'color': Color(0xFF1FA5A5)},
-  };
-
-  String _cleanMlText(String text) {
-    if (text.isEmpty) return text;
-    return text
-        .replaceAll('\u2192', '->')
-        .replaceAll('\u2191', '↑')
-        .replaceAll('\u2193', '↓')
-        .replaceAll('—', ' - ')
-        .replaceAll('–', '-')
-        .replaceAll('  ', ' ')
-        .replaceAll('( ', '(')
-        .replaceAll(' )', ')')
-        .trim();
-  }
-
-  Widget _buildSmartInsightCard({
-    required String title,
-    required String iconPath,
-    required String status,
-    required double confidence,
-    required String insight,
-    required String prediction,
-    required String recommendation,
+  Widget _buildOverallSummaryCard({
+    required IconData icon,
+    required String label,
+    required String text,
+    required Color color,
   }) {
-    final statusColor = _statusColor(status);
-
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
@@ -467,108 +314,71 @@ class _MovableAiLogoState extends State<MovableAiLogo>
         ),
         boxShadow: [
           BoxShadow(
-            color: statusColor.withValues(alpha: 0.06),
+            color: color.withValues(alpha: 0.06),
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),
         ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 4,
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
-                    // TITLE ROW WITH STATUS BADGE + CONFIDENCE
-                    Row(
-                      children: [
-                        Image.asset(iconPath, width: 20, height: 20),
-                        const SizedBox(width: 8),
-                        Text(
-                          title,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.dark,
-                          ),
-                        ),
-
-                      ],
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: Divider(
-                        color: AppColors.dark.withValues(alpha: 0.05),
-                        thickness: 1,
+                    Icon(icon, size: 16,
+                        color: AppColors.dark.withValues(alpha: 0.5)),
+                    const SizedBox(width: 6),
+                    Text(
+                      label,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.dark,
                       ),
-                    ),
-                    _buildDetailRow(
-                      'Insight',
-                      _cleanMlText(insight),
-                      Icons.lightbulb_outline,
-                      AppColors.primary,
-                    ),
-                    const SizedBox(height: 10),
-                    _buildDetailRow(
-                      'Prediction',
-                      _cleanMlText(prediction),
-                      Icons.trending_up,
-                      const Color(0xFF8E44AD),
-                    ),
-                    const SizedBox(height: 10),
-                    _buildDetailRow(
-                      'Recommendation',
-                      _cleanMlText(recommendation),
-                      Icons.build_circle_outlined,
-                      const Color(0xFFE67E22),
                     ),
                   ],
                 ),
-              ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Divider(
+                    color: AppColors.dark.withValues(alpha: 0.05),
+                    thickness: 1,
+                  ),
+                ),
+                Text(
+                  text,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: AppColors.dark.withValues(alpha: 0.7),
+                    height: 1.4,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _buildDetailRow(
-    String label,
-    String text,
-    IconData icon,
-    Color color,
-  ) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(top: 2),
-          child: Icon(icon, size: 14, color: color),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w800,
-                  color: color,
-                  letterSpacing: 0.2,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                text,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: AppColors.dark.withValues(alpha: 0.7),
-                  height: 1.4,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
   }
 
   @override
