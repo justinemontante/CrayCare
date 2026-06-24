@@ -114,8 +114,9 @@ static float maxWaterDepth = MAX_WATER_DEPTH_DEFAULT;
 // --- Auto-control hysteresis (moved to globals for NVS persistence) ---
 static float DO_HYSTERESIS = 0.5f;
 static float WATER_HYSTERESIS = 2.0f;
-static float PH_HYSTERESIS = 0.3f;
+static float PH_HYSTERESIS = 0.2f;
 static float TEMP_HYSTERESIS = 1.0f;
+static float TURB_HYSTERESIS = 5.0f;  // NTU — ON immediately when > max, OFF when <= max - hysteresis
 static unsigned long PUMP_COOLDOWN_MS = 60000;
 static unsigned long lastPumpOffTime = 0;
 
@@ -428,29 +429,29 @@ static void autoControlLoop() {
                 reason = "DO normalized to " + String(currentDO, 1) + " mg/L (above " + String(threshDOMin, 1) + " mg/L)";
             }
         } else if (i == 0) {
-            // Pump: ON if water level low OR pH out of range OR temp out of range
+            // Pump: ON if pH out of range OR temp out of range OR turbidity high
             // OFF only when ALL three are normal (with hysteresis)
             unsigned long nowMs = millis();
-            bool waterLow = currentWaterCm >= 0 && currentWaterCm < threshWaterMin;
-            bool waterNormal = currentWaterCm >= 0 && currentWaterCm >= threshWaterMin + WATER_HYSTERESIS;
             bool pHLow = currentPH < threshPHMin;
             bool pHHigh = currentPH > threshPHMax;
             bool pHNormal = currentPH >= threshPHMin + PH_HYSTERESIS && currentPH <= threshPHMax - PH_HYSTERESIS;
             bool tempLow = currentTemp < threshTempMin;
             bool tempHigh = currentTemp > threshTempMax;
             bool tempNormal = currentTemp >= threshTempMin + TEMP_HYSTERESIS && currentTemp <= threshTempMax - TEMP_HYSTERESIS;
+            bool turbHigh = currentTurbAir || currentTurbNTU > threshTurbMax;
+            bool turbNormal = !currentTurbAir && currentTurbNTU <= threshTurbMax - TURB_HYSTERESIS;
 
             // Pump cooldown: prevent rapid cycling after turning off
             if (!wantOn && nowMs - lastPumpOffTime < PUMP_COOLDOWN_MS) continue;
 
-            if (waterLow || pHLow || pHHigh || tempLow || tempHigh) {
+            if (pHLow || pHHigh || tempLow || tempHigh || turbHigh) {
                 wantOn = true;
-                if (waterLow) reason = "water level low (" + String(currentWaterCm, 1) + " cm)";
-                else if (pHLow) reason = "pH low (" + String(currentPH, 2) + ")";
+                if (pHLow) reason = "pH low (" + String(currentPH, 2) + ")";
                 else if (pHHigh) reason = "pH high (" + String(currentPH, 2) + ")";
                 else if (tempLow) reason = "temp low (" + String(currentTemp, 1) + " C)";
                 else if (tempHigh) reason = "temp high (" + String(currentTemp, 1) + " C)";
-            } else if (waterNormal && pHNormal && tempNormal) {
+                else if (turbHigh) reason = "turbidity high (" + String(currentTurbNTU, 0) + " NTU)";
+            } else if (pHNormal && tempNormal && turbNormal) {
                 wantOn = false;
                 reason = "all parameters normalized";
                 if (!relays[i].active) lastPumpOffTime = nowMs;
