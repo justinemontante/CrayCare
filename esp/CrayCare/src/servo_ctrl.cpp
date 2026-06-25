@@ -92,6 +92,26 @@ void executeServoCycle() {
 
 // ----- Calibration table -----
 
+static void initDefaultCalTable() {
+    static const struct { double g; int a; uint32_t p; } defaults[] = {
+        { 1.0,  45,  500  },
+        { 3.0,  60,  1000 },
+        { 5.0,  90,  1200 },
+        { 10.0, 120, 1500 },
+        { 15.0, 150, 2000 },
+        { 20.0, 180, 2500 },
+        { 30.0, 180, 4000 },
+    };
+    calCount = sizeof(defaults) / sizeof(defaults[0]);
+    for (int i = 0; i < calCount; i++) {
+        calTable[i].grams   = defaults[i].g;
+        calTable[i].angle   = defaults[i].a;
+        calTable[i].pauseMs = defaults[i].p;
+    }
+    saveCalTable();
+    Serial.printf("[CAL] %d default records saved to NVS\n", calCount);
+}
+
 void loadCalTable() {
     servoPrefs.begin(SERVO_NS, true);
     calCount = servoPrefs.getInt("calCount", 0);
@@ -105,6 +125,11 @@ void loadCalTable() {
         calTable[i].pauseMs = servoPrefs.getUInt(pk.c_str(), 0);
     }
     servoPrefs.end();
+
+    if (calCount == 0) {
+        Serial.println("[CAL] No calibration table found — writing defaults");
+        initDefaultCalTable();
+    }
 }
 
 void saveCalTable() {

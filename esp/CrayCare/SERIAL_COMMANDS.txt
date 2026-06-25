@@ -168,6 +168,24 @@
       turbidity too high (> turb_max), or turbidity sensor in air
     Blocked feed is logged to /feeder/logs with type "error"
 
+--- SENSOR ENABLE/DISABLE ---
+  sensor <name> on|off  Enable or disable a sensor (temp/ph/do/turb/water)
+  sensor list           Show all sensor states
+
+  EXAMPLE:
+    sensor list             →  Shows: temp=ON, ph=ON, do=ON, turb=ON, water=ON
+    sensor ph off           →  Disable pH sensor (sends -1 to Firebase)
+    sensor do off           →  Disable DO sensor (sends -1 to Firebase)
+    sensor temp off         →  Disable temperature sensor
+    sensor turb off         →  Disable turbidity sensor
+    sensor water off        →  Disable water level sensor
+    sensor ph on            →  Re-enable pH sensor
+
+  NOTE:
+    - Disabled sensors send -1 to Firebase (ML/Flutter ignores negative values)
+    - DS18B20 temperature auto-detects disconnect (returns -127°C → auto-disabled)
+    - Settings saved to NVS (persist across reboots)
+
 --- DEBUG ---
   debugmode [0/1]     Toggle or set debug mode
   debugstatus         Show full system status

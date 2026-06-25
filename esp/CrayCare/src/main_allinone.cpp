@@ -101,6 +101,29 @@ static bool debugMode = false;
 static bool plotterMode = false;
 static bool rawMode = false;
 
+// --- Sensor enable/disable (NVS-persisted) ---
+static const char* sensorNames[5] = {"temp", "ph", "do", "turb", "water"};
+static bool sensorEnabled[5] = {true, true, true, true, true};
+
+static void loadSensorEnabled() {
+    prefs.begin("sensors", false);
+    for (int i = 0; i < 5; i++) {
+        sensorEnabled[i] = prefs.getBool(sensorNames[i], true);
+    }
+    prefs.end();
+    Serial.printf("[SENSORS] Enabled flags: temp=%d ph=%d do=%d turb=%d water=%d\n",
+        sensorEnabled[0], sensorEnabled[1], sensorEnabled[2], sensorEnabled[3], sensorEnabled[4]);
+}
+
+static void saveSensorEnabled() {
+    prefs.begin("sensors", false);
+    for (int i = 0; i < 5; i++) {
+        prefs.putBool(sensorNames[i], sensorEnabled[i]);
+    }
+    prefs.end();
+    Serial.println("[SENSORS] Enabled flags saved to NVS");
+}
+
 // --- HC-SR04 moving average filter (smooth ripples) ---
 #define HC_BUF_SIZE 10
 static float hcBuffer[HC_BUF_SIZE];
@@ -658,7 +681,12 @@ static void publishSensors() {
         j.add("dissolvedOxygen", currentDO);
         j.add("turbidity", currentTurbNTU);
         j.add("turbidityAir", currentTurbAir ? true : false);
-        j.add("waterLevel", currentWaterCm >= 0 ? currentWaterCm : 0);
+        j.add("waterLevel", currentWaterCm >= 0 ? currentWaterCm : -1);
+        j.add("phDisabled", !sensorEnabled[1]);
+        j.add("doDisabled", !sensorEnabled[2]);
+        j.add("tempDisabled", !sensorEnabled[0]);
+        j.add("turbDisabled", !sensorEnabled[3]);
+        j.add("waterDisabled", !sensorEnabled[4]);
         j.add("timestamp", (double)now);
         if (Firebase.RTDB.setJSON(&fbS, "/sensor_readings/latest", &j)) {
             Serial.println("[FB] Sensor data published");
@@ -913,7 +941,11 @@ static void updateLCD() {
         lcd.printf("T:%.1fC W:%.0fcm", currentTemp, currentWaterCm >= 0 ? currentWaterCm : 0);
     } else if (lcdPage == 1) {
         lcd.setCursor(0, 0);
-        lcd.printf("Turb:%.0fNTU", currentTurbNTU);
+        if (currentTurbAir) {
+            lcd.print("Turb:  On Air ");
+        } else {
+            lcd.printf("Turb:%.0fNTU    ", currentTurbNTU);
+        }
         lcd.setCursor(0, 1);
         String t1 = fmtTime12(feedHour1, feedMin1);
         String t2 = fmtTime12(feedHour2, feedMin2);
@@ -993,6 +1025,8 @@ static void printHelp() {
     Serial.println("  setthreshold <sensor> <min> [max]  Set threshold (temp/ph/do/turb/waterlevel)");
     Serial.println("");
     Serial.println("--- Debug ---");
+    Serial.println("  sensor <name> on|off  Enable/disable sensor (temp/ph/do/turb/water)");
+    Serial.println("  sensor list           Show all sensor states");
     Serial.println("  debugmode [0/1]      Show raw voltage on LCD/serial");
     Serial.println("  debugstatus          Show system status");
     Serial.println("");
@@ -1307,6 +1341,41 @@ static void processSerialCommands() {
         return;
     }
 
+    // --- Sensor enable/disable ---
+    if (cmd == "sensor") {
+        int sp2 = arg.indexOf(' ');
+        String sname = (sp2 == -1) ? arg : arg.substring(0, sp2);
+        String sval  = (sp2 == -1) ? "" : arg.substring(sp2 + 1);
+        sname.toLowerCase(); sval.toLowerCase();
+        if (sname == "list") {
+            Serial.println("--- Sensor states ---");
+            for (int i = 0; i < 5; i++) {
+                Serial.printf("  %s: %s\n", sensorNames[i], sensorEnabled[i] ? "ON" : "OFF");
+            }
+            return;
+        }
+        int sidx = -1;
+        for (int i = 0; i < 5; i++) {
+            if (sname == sensorNames[i]) { sidx = i; break; }
+        }
+        if (sidx < 0) {
+            Serial.printf("[CMD] Unknown sensor '%s'. Try: temp, ph, do, turb, water\n", sname.c_str());
+            return;
+        }
+        if (sval == "on") {
+            sensorEnabled[sidx] = true;
+            saveSensorEnabled();
+            Serial.printf("[CMD] %s enabled\n", sensorNames[sidx]);
+        } else if (sval == "off") {
+            sensorEnabled[sidx] = false;
+            saveSensorEnabled();
+            Serial.printf("[CMD] %s disabled (will send -1 to Firebase)\n", sensorNames[sidx]);
+        } else {
+            Serial.println("[CMD] Usage: sensor <name> on|off  or  sensor list");
+        }
+        return;
+    }
+
     // --- Auto-control thresholds ---
     if (cmd == "showthresholds") {
         Serial.println("--- Thresholds (auto-control) ---");
@@ -1410,6 +1479,7 @@ void setup() {
     loadTurbidityFromNVS();
     loadWaterLevelCalibration();
     loadAutoConfig();
+    loadSensorEnabled();
     initTemperatureSensor();
     initPHSensor();
     initDOSensor();
@@ -1520,16 +1590,23 @@ void loop() {
     if (now - lastSensorRead >= SENSOR_INTERVAL) {
         lastSensorRead = now;
         currentTemp = readTemperatureC();
+        if (currentTemp <= -127) sensorEnabled[0] = false;
+        if (!sensorEnabled[0]) currentTemp = -1;
         currentTurbV = readTurbidityVoltage();
         currentTurbAir = (currentTurbV < turbidityVAir);
-        currentTurbNTU = ntuFromVoltage(currentTurbV);
+        currentTurbNTU = currentTurbAir ? -1.0f : ntuFromVoltage(currentTurbV);
+        if (!sensorEnabled[3]) { currentTurbNTU = -1; currentTurbAir = false; }
         currentPH = readPH();
+        if (!sensorEnabled[1]) currentPH = -1;
         currentDO = readDO(currentTemp);
+        if (readDORaw() < 0.1f) sensorEnabled[2] = false;
+        if (!sensorEnabled[2]) currentDO = -1;
         currentWaterCm = readWaterLevelFiltered();
+        if (!sensorEnabled[4]) currentWaterCm = -1;
         if (debugMode) {
             float rawDOV = readDORaw();
-            Serial.printf("[DEBUG] T=%.1fC pH=%.2f DO=%.1f(% .0fmV) Turb V=%.3fV NTU=%.0f%s Water=%.0fcm\n",
-                currentTemp, currentPH, currentDO, rawDOV * 1000, currentTurbV, currentTurbNTU,
+            Serial.printf("[DEBUG] T=%.1fC pH=%.2f DO=%.1f(% .0fmV) Turb V=%.3fV%s Water=%.0fcm\n",
+                currentTemp, currentPH, currentDO, rawDOV * 1000, currentTurbV,
                 currentTurbAir ? " AIR" : "", currentWaterCm >= 0 ? currentWaterCm : 0);
         } else {
             Serial.printf("[SENSORS] T=%.1fC pH=%.2f DO=%.1f Turb=%.0fNTU%s Water=%.0fcm\n",

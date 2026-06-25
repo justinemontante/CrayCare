@@ -7,7 +7,7 @@ const int ONE_WIRE_PIN = 4;   // DS18B20 data pin
 // ----- Calibration defaults -----
 float turbidityVClear = 1.50f; // volts for 0 NTU (clear water)
 float turbidityVDirty = 1.65f; // volts for ~500 NTU (dirty water)
-float turbidityVAir   = 1.00f; // volts below which we consider "air"
+float turbidityVAir   = 1.40f; // volts below which we consider "air"
 
 bool turbidityAir = false;
 
@@ -67,12 +67,20 @@ float readTurbidityVoltage() {
 }
 
 float ntuFromVoltage(float V) {
-    // Clamp to calibration range
-    if (V <= turbidityVClear) return 0.0f;
-    if (V >= turbidityVDirty) return 500.0f; // approximate upper bound
-    // Linear interpolation between clear and dirty
-    float fraction = (V - turbidityVClear) / (turbidityVDirty - turbidityVClear);
-    return fraction * 500.0f; // 0‑500 NTU range
+    float vClear = turbidityVClear;
+    float vDirty = turbidityVDirty;
+
+    if (vClear <= vDirty) {
+        // Normal: voltage rises with turbidity
+        if (V <= vClear) return 0.0f;
+        if (V >= vDirty) return 500.0f;
+        return ((V - vClear) / (vDirty - vClear)) * 500.0f;
+    } else {
+        // Inverted: voltage drops with turbidity
+        if (V >= vClear) return 0.0f;
+        if (V <= vDirty) return 500.0f;
+        return ((vClear - V) / (vClear - vDirty)) * 500.0f;
+    }
 }
 
 String buildSensorJson(float temperatureC, float turbidityNTU) {
