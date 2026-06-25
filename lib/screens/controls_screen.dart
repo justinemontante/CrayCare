@@ -803,7 +803,8 @@ class ControlsScreenState extends State<ControlsScreen> {
       allLogs.addAll(logs);
     }
     allLogs.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-    _showDeviceLogSheet(context, label, '', '', allLogs, null);
+    final imageAsset = devices.isNotEmpty ? devices.first.$4 : null;
+    _showDeviceLogSheet(context, label, '', '', allLogs, null, imageAsset: imageAsset);
   }
 
   void _showDeviceLogSheet(
@@ -812,8 +813,9 @@ class ControlsScreenState extends State<ControlsScreen> {
     String subtitle,
     String mode,
     List<LogEntry> logs,
-    String? deviceId,
-  ) {
+    String? deviceId, {
+    String? imageAsset,
+  }) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -854,11 +856,16 @@ class ControlsScreenState extends State<ControlsScreen> {
                           color: const Color(0xFF1FA5A5).withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(16),
                         ),
-                        child: Icon(
-                          Icons.air,
-                          size: 22,
-                          color: AppColors.primary,
-                        ),
+                        child: imageAsset != null
+                            ? Padding(
+                                padding: const EdgeInsets.all(6),
+                                child: Image.asset(imageAsset, fit: BoxFit.contain),
+                              )
+                            : Icon(
+                                Icons.air,
+                                size: 22,
+                                color: AppColors.primary,
+                              ),
                       ),
                       const SizedBox(width: 14),
                       Column(

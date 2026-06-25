@@ -145,22 +145,38 @@ class _LoginScreenState extends State<LoginScreen> {
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(20),
           ),
-          title: const Text(
-            'Reset Password',
-            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
-          ),
+          contentPadding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
           content: Form(
             key: formKey,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
-                  'Enter your email address and we\'ll send you a password reset link.',
-                  style: TextStyle(fontSize: 13),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.lock_outline_rounded,
+                    color: AppColors.primary,
+                    size: 28,
+                  ),
                 ),
                 const SizedBox(height: 16),
+                const Text(
+                  'Reset Password',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Enter your email and we\'ll send you a password reset link.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 13, color: Colors.grey),
+                ),
+                const SizedBox(height: 20),
                 TextFormField(
                   controller: emailCtl,
                   keyboardType: TextInputType.emailAddress,
@@ -187,52 +203,79 @@ class _LoginScreenState extends State<LoginScreen> {
               ],
             ),
           ),
+          actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
           actions: [
-            TextButton(
-              onPressed: _isResetLoading ? null : () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: _isResetLoading
-                  ? null
-                  : () async {
-                      if (!formKey.currentState!.validate()) return;
-                      setState(() => _isResetLoading = true);
-                      setDialogState(() {});
-                      try {
-                        await FirebaseAuth.instance
-                            .sendPasswordResetEmail(email: emailCtl.text.trim());
-                        if (!ctx.mounted) return;
-                        Navigator.pop(ctx);
-                        setState(() => _isResetLoading = false);
-                        _showSuccessSnackBar(
-                          'Password reset link sent to ${emailCtl.text.trim()}!',
-                        );
-                      } catch (e) {
-                        setState(() => _isResetLoading = false);
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _isResetLoading
+                    ? null
+                    : () async {
+                        if (!formKey.currentState!.validate()) return;
+                        setState(() => _isResetLoading = true);
                         setDialogState(() {});
-                        _showErrorSnackBar(
-                          e.toString().replaceAll('Exception: ', ''),
-                        );
-                      }
-                    },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
+                        try {
+                          await FirebaseAuth.instance
+                              .sendPasswordResetEmail(email: emailCtl.text.trim());
+                          if (!ctx.mounted) return;
+                          Navigator.pop(ctx);
+                          setState(() => _isResetLoading = false);
+                          _showSuccessSnackBar(
+                            'Password reset link sent to ${emailCtl.text.trim()}!',
+                          );
+                        } catch (e) {
+                          setState(() => _isResetLoading = false);
+                          setDialogState(() {});
+                          _showErrorSnackBar(
+                            e.toString().replaceAll('Exception: ', ''),
+                          );
+                        }
+                      },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor: AppColors.primary.withValues(alpha: 0.4),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 0,
+                ),
+                child: _isResetLoading
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Text(
+                        'Send Reset Link',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton(
+                onPressed: _isResetLoading ? null : () => Navigator.pop(ctx),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.darkWith(0.5),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text(
+                  'Cancel',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                 ),
               ),
-              child: _isResetLoading
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Text('Send Reset Link'),
             ),
           ],
         ),

@@ -1097,6 +1097,18 @@ class TanksScreenState extends State<TanksScreen> {
                                       maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
                                     ),
+                                    if (act.abw != null && act.avgLength != null)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 3),
+                                        child: Text(
+                                          'ABW: ${act.abw!.toStringAsFixed(2)}g  |  ABL: ${act.avgLength!.toStringAsFixed(2)}cm',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w700,
+                                            color: AppColors.success,
+                                          ),
+                                        ),
+                                      ),
                                     Text(
                                       '${act.date} · ${act.time}',
                                       style: TextStyle(

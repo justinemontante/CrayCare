@@ -30,6 +30,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
   bool _isLoading = false;
 
+  bool get _showCritical => _activeFilter == 'live' || _activeFilter == '24h';
+
   void _onChartSelectionChanged(String chartKey, int? index) {
     setState(() => _selectedIndices[chartKey] = index);
   }
@@ -153,37 +155,6 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       return;
     }
 
-    if (range == '24h') {
-      labels = List.generate(pts, (i) {
-        final d = now.subtract(Duration(minutes: (pts - 1 - i) * 10));
-        final h = d.hour > 12 ? d.hour - 12 : (d.hour == 0 ? 12 : d.hour);
-        final ampm = d.hour >= 12 ? 'PM' : 'AM';
-        return '${h}:${d.minute.toString().padLeft(2, '0')} $ampm';
-      });
-    } else if (range == '7d') {
-      labels = List.generate(pts, (i) {
-        final d = now.subtract(Duration(hours: (pts - 1 - i)));
-        return '${d.month}/${d.day}';
-      });
-    } else if (range == 'custom') {
-      labels = List.generate(pts, (i) {
-        final d = _customStartDate.add(Duration(days: i));
-        return _formatDate(d);
-      });
-    } else {
-      // 30d
-      labels = List.generate(pts, (i) {
-        final days = (pts - 1 - i);
-        final d = now.subtract(Duration(days: days));
-        return [
-          'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-        ][d.month - 1] +
-            ' ${d.day}';
-      });
-    }
-    _labels[range] = labels;
-
     DateTime historyStart;
     DateTime historyEnd;
     if (range == '24h') {
@@ -209,22 +180,61 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       for (final key in SensorService.sensorKeys) {
         _data['$key-$range'] = [];
       }
+      _labels[range] = [];
       return;
     }
 
-    List<DateTime> labelTimes;
+    records.sort((a, b) {
+      final at = _toInt(a['timestamp']) ?? 0;
+      final bt = _toInt(b['timestamp']) ?? 0;
+      return at.compareTo(bt);
+    });
+
     if (range == '24h') {
-      labelTimes = List<DateTime>.generate(pts, (i) {
-        return now.subtract(Duration(minutes: (pts - 1 - i) * 10));
-      });
-    } else if (range == '7d') {
+      // Use actual Firebase records as-is, no synthetic bucketing
+      final cutoff = now.subtract(const Duration(hours: 24)).millisecondsSinceEpoch;
+      final recent = records.where((r) {
+        final rawTs = _toInt(r['timestamp']) ?? 0;
+        final ms = rawTs < 100000000000 ? rawTs * 1000 : rawTs;
+        return ms >= cutoff;
+      }).toList();
+
+      _labels[range] = recent.map((r) {
+        final t = _parseTimestamp(r['timestamp']);
+        final h = t.hour > 12 ? t.hour - 12 : (t.hour == 0 ? 12 : t.hour);
+        final ampm = t.hour >= 12 ? 'PM' : 'AM';
+        return '${h}:${t.minute.toString().padLeft(2, '0')} $ampm';
+      }).toList();
+
+      for (final key in SensorService.sensorKeys) {
+        final fbKey = _firebaseKeyMap[key]!;
+        _data['$key-$range'] = recent.map((r) {
+          final v = _toDouble(r[fbKey]);
+          return (v != null && v >= 0) ? v : double.nan;
+        }).toList();
+      }
+      return;
+    }
+
+    // 7d, 30d, custom: use bucketed aggregation with actual record timestamps
+    List<DateTime> labelTimes;
+    if (range == '7d') {
       labelTimes = List<DateTime>.generate(pts, (i) {
         return now.subtract(Duration(hours: (pts - 1 - i)));
       });
+      _labels[range] = labelTimes.map((d) => '${d.month}/${d.day}').toList();
+    } else if (range == 'custom') {
+      labelTimes = List<DateTime>.generate(pts, (i) {
+        return _customStartDate.add(Duration(days: i));
+      });
+      _labels[range] = labelTimes.map((d) => _formatDate(d)).toList();
     } else {
+      // 30d
+      final months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
       labelTimes = List<DateTime>.generate(pts, (i) {
         return now.subtract(Duration(days: (pts - 1 - i)));
       });
+      _labels[range] = labelTimes.map((d) => '${months[d.month - 1]} ${d.day}').toList();
     }
 
     for (final key in SensorService.sensorKeys) {
@@ -291,6 +301,13 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     if (v is int) return v.toDouble();
     if (v is double) return v;
     if (v is num) return v.toDouble();
+    return null;
+  }
+
+  int? _toInt(dynamic v) {
+    if (v is int) return v;
+    if (v is double) return v.toInt();
+    if (v is num) return v.toInt();
     return null;
   }
 
@@ -668,9 +685,9 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
         : '';
 
     final thresholds = _thresholdsFor(chartKey);
-    final criticalCount = data
-        .where((v) => !v.isNaN && (v < thresholds['min']! || v > thresholds['max']!))
-        .length;
+    final criticalCount = _showCritical
+        ? data.where((v) => !v.isNaN && (v < thresholds['min']! || v > thresholds['max']!)).length
+        : 0;
 
     final selIdx = _selectedIndices[chartKey];
     String displayCur = cur;
@@ -839,6 +856,9 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                       _onChartSelectionChanged(chartKey, idx),
                   curPrefix: curPrefix,
                   dp: dp,
+                  trendWidget: _activeFilter == 'live' && SensorService.instance.hasSensorData(chartKey)
+                      ? _buildTrendLabel(chartKey)
+                      : null,
                 ),
               ],
             ],
@@ -894,6 +914,57 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     return 'No sensor reading';
   }
 
+  Widget _buildTrendLabel(String chartKey) {
+    final trend = SensorService.instance.getTrend(chartKey);
+
+    IconData icon;
+    Color color;
+    String label;
+
+    switch (trend) {
+      case 'rising_fast':
+        icon = Icons.keyboard_double_arrow_up;
+        color = AppColors.success;
+        label = 'Rising Fast';
+        break;
+      case 'rising':
+        icon = Icons.trending_up;
+        color = AppColors.success;
+        label = 'Rising';
+        break;
+      case 'falling_fast':
+        icon = Icons.keyboard_double_arrow_down;
+        color = AppColors.critical;
+        label = 'Falling Fast';
+        break;
+      case 'falling':
+        icon = Icons.trending_down;
+        color = AppColors.critical;
+        label = 'Falling';
+        break;
+      default:
+        icon = Icons.trending_flat;
+        color = AppColors.dark.withValues(alpha: 0.4);
+        label = 'Stable';
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 12, color: color),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w600,
+            color: color,
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildStatsFooter(
     String cur,
     String curLabel,
@@ -911,6 +982,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     ValueChanged<int>? onSelectIndex,
     String curPrefix = 'Now',
     int dp = 1,
+    Widget? trendWidget,
   }) {
     final isLive = _activeFilter == 'live';
     final isShortRange = _activeFilter == 'live';
@@ -982,7 +1054,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                 ),
                 const SizedBox(width: 6),
                 Expanded(
-                  child: isShortRange
+                  child: isShortRange && _activeFilter == 'live'
                       ? GestureDetector(
                           onTap: nowIdx >= 0
                               ? () => onSelectIndex?.call(nowIdx)
@@ -996,41 +1068,49 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                         )
                       : _buildStatRow(
                           Icons.analytics_outlined,
-                          'Avg: ${avg.toStringAsFixed(dp)} $unit',
-                          'Period Average',
+                          curPrefix == 'Avg'
+                              ? 'Avg: ${avg.toStringAsFixed(dp)} $unit'
+                              : '$curPrefix: $cur $unit',
+                          curLabel,
                           AppColors.primary,
                         ),
                 ),
               ],
             ),
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                Icon(
-                  Icons.warning_amber_rounded,
-                  size: 11,
-                  color: criticalCount > 0
-                      ? AppColors.critical
-                      : AppColors.success,
-                ),
-                const SizedBox(width: 4),
-                Flexible(
-                  child: Text(
-                    criticalCount > 0
-                        ? '$criticalCount critical point${criticalCount > 1 ? 's' : ''}'
-                        : 'No critical points',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: criticalCount > 0
-                          ? AppColors.critical
-                          : AppColors.success,
-                    ),
-                    overflow: TextOverflow.ellipsis,
+            if (_showCritical) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Icon(
+                    Icons.warning_amber_rounded,
+                    size: 11,
+                    color: criticalCount > 0
+                        ? AppColors.critical
+                        : AppColors.success,
                   ),
-                ),
-              ],
-            ),
+                  const SizedBox(width: 4),
+                  Flexible(
+                    child: Text(
+                      criticalCount > 0
+                          ? '$criticalCount critical point${criticalCount > 1 ? 's' : ''}'
+                          : 'No critical points',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: criticalCount > 0
+                            ? AppColors.critical
+                            : AppColors.success,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+          if (trendWidget != null) ...[
+            const SizedBox(height: 6),
+            trendWidget,
           ],
         ],
       ),
@@ -1133,23 +1213,30 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                 : '';
 
             final thresholds = _thresholdsFor(chartKey);
-            final criticalCount = data
-                .where((v) => !v.isNaN && (v < thresholds['min']! || v > thresholds['max']!))
-                .length;
-            final criticalItems = <_CriticalItem>[];
-            if (criticalCount > 0) {
-              for (int i = 0; i < data.length; i++) {
-                final v = data[i];
-                if (!v.isNaN && (v < thresholds['min']! || v > thresholds['max']!)) {
-                  criticalItems.add(
-                    _CriticalItem(
-                      value: v,
-                      label: i < labels.length ? labels[i] : '',
-                      isAboveMax: v > thresholds['max']!,
-                    ),
-                  );
+            int criticalCount;
+            List<_CriticalItem> criticalItems;
+            if (_showCritical) {
+              criticalCount = data
+                  .where((v) => !v.isNaN && (v < thresholds['min']! || v > thresholds['max']!))
+                  .length;
+              criticalItems = <_CriticalItem>[];
+              if (criticalCount > 0) {
+                for (int i = 0; i < data.length; i++) {
+                  final v = data[i];
+                  if (!v.isNaN && (v < thresholds['min']! || v > thresholds['max']!)) {
+                    criticalItems.add(
+                      _CriticalItem(
+                        value: v,
+                        label: i < labels.length ? labels[i] : '',
+                        isAboveMax: v > thresholds['max']!,
+                      ),
+                    );
+                  }
                 }
               }
+            } else {
+              criticalCount = 0;
+              criticalItems = [];
             }
             final cur = !hasValid ? '--' : validData.last.toStringAsFixed(dp);
             final curLabel = labels.isNotEmpty ? labels.last : '';
@@ -1323,38 +1410,44 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                                       ),
                                     ],
                                   ),
-                                  const SizedBox(height: 6),
-                                  GestureDetector(
-                                    onTap: criticalCount > 0
-                                        ? () => setDialogState(
-                                            () => modalShowCritical = true,
-                                          )
-                                        : null,
-                                    child: Row(
-                                      children: [
-                                        Icon(
-                                          Icons.warning_amber_rounded,
-                                          size: 11,
-                                          color: criticalCount > 0
-                                              ? AppColors.critical
-                                              : AppColors.success,
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          criticalCount > 0
-                                              ? '$criticalCount critical point${criticalCount > 1 ? 's' : ''}  \u203A'
-                                              : 'No critical points',
-                                          style: TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w600,
+                                  if (_showCritical) ...[
+                                    const SizedBox(height: 6),
+                                    GestureDetector(
+                                      onTap: criticalCount > 0
+                                          ? () => setDialogState(
+                                              () => modalShowCritical = true,
+                                            )
+                                          : null,
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            Icons.warning_amber_rounded,
+                                            size: 11,
                                             color: criticalCount > 0
                                                 ? AppColors.critical
                                                 : AppColors.success,
                                           ),
-                                        ),
-                                      ],
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            criticalCount > 0
+                                                ? '$criticalCount critical point${criticalCount > 1 ? 's' : ''}  \u203A'
+                                                : 'No critical points',
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.w600,
+                                              color: criticalCount > 0
+                                                  ? AppColors.critical
+                                                  : AppColors.success,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                     ),
-                                  ),
+                                  ],
+                                ],
+                                if (_activeFilter == 'live' && SensorService.instance.hasSensorData(chartKey)) ...[
+                                  const SizedBox(height: 6),
+                                  _buildTrendLabel(chartKey),
                                 ],
                               ],
                             ),

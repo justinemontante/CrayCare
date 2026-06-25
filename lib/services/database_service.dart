@@ -265,6 +265,7 @@ class DatabaseService {
     required bool critical,
     required bool feeding,
     required bool sampling,
+    bool warning = true,
   }) async {
     // Stored in a dedicated 'notifPrefs' node — separate from notification
     // records in 'notifications/' to avoid them overwriting each other.
@@ -272,6 +273,7 @@ class DatabaseService {
       'sound': sound,
       'vibration': vibration,
       'critical': critical,
+      'warning': warning,
       'feeding': feeding,
       'sampling': sampling,
       'updatedAt': DateTime.now().toIso8601String(),

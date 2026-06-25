@@ -2035,7 +2035,7 @@ class SamplingHistoryPanel extends StatelessWidget {
                 child: _buildDetailBadge(
                   'ABL',
                   '${abl.toStringAsFixed(2)} cm',
-                  AppColors.success,
+                  AppColors.primary,
                 ),
               ),
             ],

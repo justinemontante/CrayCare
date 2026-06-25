@@ -38,10 +38,7 @@ const LATEST_KEYS = [
   'waterLevel',
 ];
 
-// Always-critical sensors (laging lumalampas sa threshold)
-const ALWAYS_CRITICAL = ['temperature'];
-// Always-warning sensors (laging nasa 10% boundary ng threshold)
-const ALWAYS_WARNING = ['turbidity'];
+let OPTIMAL_MODE = false; // --optimal flag
 
 // Config thresholds (pre_adult default — matched sa writeDefaultConfig)
 const CONFIG_RANGES = {
@@ -49,7 +46,7 @@ const CONFIG_RANGES = {
   phLevel:         { min: 7.0, max: 8.5 },
   dissolvedOxygen: { min: 4.5, max: 999 },
   turbidity:       { min: 0,   max: 35 },
-  waterLevel:      { min: 130, max: 180 },
+  waterLevel:      { min: 5, max: 10 },
 };
 
 const RANGES = {
@@ -57,7 +54,7 @@ const RANGES = {
   phLevel:         { min: 6.5, max: 9.0 },
   dissolvedOxygen: { min: 2.5, max: 7.0 },
   turbidity:       { min: 3,   max: 55 },
-  waterLevel:      { min: 110, max: 195 },
+  waterLevel:      { min: 3, max: 23 },
 };
 
 const HOUR_CYCLE = (hour) => ({
@@ -76,7 +73,15 @@ const IDEAL = {
   dissolvedOxygen: 6.0,   // 🟢 optimal (>5.0)
   phLevel:         7.8,   // 🟢 optimal
   turbidity:       33.0,  // 🟡 warning (31.5-35)
-  waterLevel:      155.0, // 🟢 optimal
+  waterLevel:      7.5,   // 🟢 optimal (5-10)
+};
+
+const OPTIMAL_IDEAL = {
+  temperature:     27.0,  // 🟢 optimal mid
+  dissolvedOxygen: 6.5,   // 🟢 optimal mid
+  phLevel:         7.5,   // 🟢 optimal mid
+  turbidity:       15.0,  // 🟢 optimal mid (0-35)
+  waterLevel:      7.5,   // 🟢 optimal mid (5-10)
 };
 
 // Max na paggalaw per second (sapat para may pagbabago, hindi drastic)
@@ -85,7 +90,7 @@ const DRIFT_SPEED = {
   dissolvedOxygen: 0.08,
   phLevel:         0.03,
   turbidity:       0.4,
-  waterLevel:      0.2,
+  waterLevel:      0.05,
 };
 
 const _state = {};
@@ -121,6 +126,12 @@ let _tempPhaseIdx = 0;
 let _tempTick = 0;
 
 function _updateTemperature() {
+  if (OPTIMAL_MODE) {
+    _state.temperature += (Math.random() - 0.5) * 0.05;
+    _state.temperature = Math.max(26.5, Math.min(27.5, _state.temperature));
+    return;
+  }
+
   const phase = TEMP_PHASES[_tempPhaseIdx];
   const current = _state.temperature;
   const diff = phase.target - current;
@@ -144,11 +155,20 @@ function _updateTemperature() {
 function generateReading() {
   _updateTemperature();
 
-  // Other sensors: normal drift
-  for (const key of ['dissolvedOxygen', 'phLevel', 'turbidity', 'waterLevel']) {
-    _state[key] = _driftTo(IDEAL[key], _state[key], DRIFT_SPEED[key]);
-    const r = RANGES[key];
-    _state[key] = Math.max(r.min, Math.min(r.max, _state[key]));
+  if (OPTIMAL_MODE) {
+    for (const key of ['dissolvedOxygen', 'phLevel', 'turbidity', 'waterLevel']) {
+      _state[key] += (Math.random() - 0.5) * 0.05;
+      _state[key] = Math.max(
+        OPTIMAL_IDEAL[key] - 2,
+        Math.min(OPTIMAL_IDEAL[key] + 2, _state[key])
+      );
+    }
+  } else {
+    for (const key of ['dissolvedOxygen', 'phLevel', 'turbidity', 'waterLevel']) {
+      _state[key] = _driftTo(IDEAL[key], _state[key], DRIFT_SPEED[key]);
+      const r = RANGES[key];
+      _state[key] = Math.max(r.min, Math.min(r.max, _state[key]));
+    }
   }
 
   const reading = {};
@@ -169,7 +189,8 @@ async function writeLatest() {
     await latestRef.set(data);
     const ts = new Date().toLocaleTimeString();
     const vals = LATEST_KEYS.map(k => `${data[k]}`).join(' | ');
-    console.log(`[${ts}]  ${vals}`);
+    const status = OPTIMAL_MODE ? ' 🟢 OPTIMAL' : _checkStatus(data);
+    console.log(`[${ts}]  ${vals}${status}`);
   } catch (err) {
     console.error('❌ Write error:', err.message);
   }
@@ -228,31 +249,46 @@ async function writeDefaultConfig() {
       ph: { min: 7.0, max: 8.5 },
       do: { min: 4.5, max: 999 },
       turb: { min: 0, max: 35 },
-      waterlevel: { min: 130, max: 180 },
+      waterlevel: { min: 5, max: 10 },
     },
     early_juvenile: {
       temp: { min: 26, max: 32 },
       ph: { min: 7.0, max: 8.5 },
       do: { min: 4.0, max: 999 },
       turb: { min: 0, max: 40 },
-      waterlevel: { min: 120, max: 170 },
+      waterlevel: { min: 5, max: 10 },
     },
     advanced_juvenile: {
       temp: { min: 25, max: 31 },
       ph: { min: 7.0, max: 8.5 },
       do: { min: 4.0, max: 999 },
       turb: { min: 0, max: 40 },
-      waterlevel: { min: 120, max: 170 },
+      waterlevel: { min: 5, max: 10 },
     },
     market_size: {
       temp: { min: 22, max: 28 },
       ph: { min: 7.0, max: 8.5 },
       do: { min: 4.0, max: 999 },
       turb: { min: 0, max: 30 },
-      waterlevel: { min: 100, max: 150 },
+      waterlevel: { min: 5, max: 10 },
     },
   });
   console.log('📋 Default sensor thresholds written to config.');
+}
+
+// ─── 9a. Status check helper ────────────────────────────────────
+function _checkStatus(data) {
+  const c = CONFIG_RANGES;
+  const critical = LATEST_KEYS.filter(k => data[k] < c[k].min || data[k] > c[k].max);
+  const warning = LATEST_KEYS.filter(k => {
+    if (critical.includes(k)) return false;
+    const range = c[k].max - c[k].min;
+    const warnThreshold = range * 0.10;
+    return (data[k] - c[k].min < warnThreshold) || (c[k].max - data[k] < warnThreshold);
+  });
+  if (critical.length) return ` 🔴 CRITICAL (${critical.join(', ')})`;
+  if (warning.length) return ` 🟡 WARNING (${warning.join(', ')})`;
+  return ' 🟢 OPTIMAL';
 }
 
 // ─── 9. Main ──────────────────────────────────────────────────
@@ -263,11 +299,16 @@ async function main() {
   const args = process.argv.slice(2);
   const doBackfill = args.includes('--backfill');
 
+  OPTIMAL_MODE = args.includes('--optimal');
+
   if (args.includes('--config')) {
     await writeDefaultConfig();
   }
 
   if (doBackfill) {
+    if (OPTIMAL_MODE) {
+      console.log('\n🟢 Optimal mode active — backfill will use optimal values.');
+    }
     await backfillHistory({ hours: 24,  label: '24 hours' });
     await backfillHistory({ hours: 168, label: '7 days' });
     await backfillHistory({ hours: 720, label: '30 days' });
@@ -275,10 +316,13 @@ async function main() {
   }
 
   if (!doBackfill && !args.includes('--no-live')) {
+    const modeLabel = OPTIMAL_MODE
+      ? '🟢 OPTIMAL MODE — all sensors within ideal range'
+      : '🌡️  Temperature cycles: stable → slow rise → fast rise → fall → ...';
     console.log('\n🚀 Starting real-time simulation…');
+    console.log(`   ${modeLabel}`);
     console.log('   Every 5s  → sensor_readings/latest');
     console.log('   Every 30m → sensor_readings/history');
-    console.log('   🌡️  Temperature cycles: stable → slow rise → fast rise → fall → stable → fast fall → ...');
     console.log('   Press Ctrl+C to stop.\n');
 
     await writeLatest();
@@ -286,11 +330,9 @@ async function main() {
 
     await appendHistory();
     setInterval(() => appendHistory(), 30 * 60 * 1000);
-    
-    // NOTE: Tinanggal na natin ang mga setTimeout ng writeNotification dito.
-    // Ngayon, ang sensors na lang ang gagalaw, at ang Hugging Face worker 
-    // ang awtomatikong gagawa ng totoong notifications kapag lumampas sa limits!
   }
 }
+
+
 
 main().catch(console.error);

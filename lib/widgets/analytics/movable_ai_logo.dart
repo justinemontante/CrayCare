@@ -167,23 +167,24 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                             padding: const EdgeInsets.only(bottom: 24),
                             children: [
                               _buildOverallSummaryCard(
-                                icon: Icons.lightbulb_outline,
                                 label: 'Insight',
                                 text: mlRaw?['insight'] as String? ?? '',
                                 color: AppColors.primary,
+                                imageAsset: 'assets/images/insight.png',
                               ),
                               _buildOverallSummaryCard(
-                                icon: Icons.build_circle_outlined,
                                 label: 'Recommendation',
                                 text: mlRaw?['recommendation'] as String? ?? '',
                                 color: const Color(0xFFE67E22),
+                                imageAsset: 'assets/images/recommendation.png',
                               ),
                               _buildOverallSummaryCard(
-                                icon: Icons.trending_up,
                                 label: 'Prediction',
                                 text: mlRaw?['prediction'] as String? ?? '',
                                 color: const Color(0xFF8E44AD),
+                                imageAsset: 'assets/images/prediction.png',
                               ),
+
                             ],
                           ),
               ),
@@ -202,56 +203,41 @@ class _MovableAiLogoState extends State<MovableAiLogo>
     final confPct = (confidence * 100).toInt();
     final stageLabelText = stage.isNotEmpty ? _stageLabel(stage) : '';
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: AppColors.dark.withValues(alpha: 0.08),
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 12,
-            height: 12,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: statusColor,
+    return Row(
+      children: [
+        Expanded(
+          child: _buildMiniCard(
+            label: 'Current Stage',
+            child: Text(
+              stageLabelText.isNotEmpty ? stageLabelText : '--',
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+                color: AppColors.dark,
+              ),
             ),
           ),
-          const SizedBox(width: 10),
-          Expanded(
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _buildMiniCard(
+            label: 'Status & Confidence',
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (stageLabelText.isNotEmpty)
-                  RichText(
-                    text: TextSpan(
-                      text: 'Current Stage: ',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.blue,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      children: [
-                        TextSpan(
-                          text: stageLabelText,
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.black,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                if (stageLabelText.isNotEmpty) const SizedBox(height: 6),
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    Container(
+                      width: 10,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: statusColor,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
                     Text(
                       status,
                       style: TextStyle(
@@ -261,27 +247,50 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                         letterSpacing: 0.5,
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: statusColor.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        '$confPct% confidence',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: statusColor,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
                   ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '$confPct% confidence',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: AppColors.dark.withValues(alpha: 0.5),
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ],
             ),
           ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMiniCard({required String label, required Widget child}) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: AppColors.dark.withValues(alpha: 0.08),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              color: AppColors.dark.withValues(alpha: 0.4),
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.3,
+            ),
+          ),
+          const SizedBox(height: 8),
+          child,
         ],
       ),
     );
@@ -298,10 +307,10 @@ class _MovableAiLogoState extends State<MovableAiLogo>
   }
 
   Widget _buildOverallSummaryCard({
-    required IconData icon,
     required String label,
     required String text,
     required Color color,
+    required String imageAsset,
   }) {
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -320,54 +329,50 @@ class _MovableAiLogoState extends State<MovableAiLogo>
           ),
         ],
       ),
-      padding: const EdgeInsets.all(14),
-      child: Row(
+      padding: const EdgeInsets.fromLTRB(12, 12, 14, 12),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 4,
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(2),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Image.asset(
+                imageAsset,
+                width: 20,
+                height: 20,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Padding(
+            padding: const EdgeInsets.only(left: 26),
+            child: Divider(
+              color: AppColors.dark.withValues(alpha: 0.05),
+              thickness: 1,
+              height: 1,
             ),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(icon, size: 16,
-                        color: AppColors.dark.withValues(alpha: 0.5)),
-                    const SizedBox(width: 6),
-                    Text(
-                      label,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.dark,
-                      ),
-                    ),
-                  ],
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Divider(
-                    color: AppColors.dark.withValues(alpha: 0.05),
-                    thickness: 1,
-                  ),
-                ),
-                Text(
-                  text,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: AppColors.dark.withValues(alpha: 0.7),
-                    height: 1.4,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.only(left: 26),
+            child: Text(
+              text,
+              textAlign: TextAlign.justify,
+              style: TextStyle(
+                fontSize: 11,
+                color: AppColors.dark.withValues(alpha: 0.7),
+                height: 1.4,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
         ],

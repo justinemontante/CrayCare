@@ -185,39 +185,15 @@ class HardwareGroup extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(
-                              children: [
-                                Flexible(
-                                  child: Text(
-                                    title,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w700,
-                                      color: offline ? AppColors.darkWith(0.4) : AppColors.dark,
-                                    ),
-                                  ),
-                                ),
-                                if (offline) ...[
-                                  const SizedBox(width: 6),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                                    decoration: BoxDecoration(
-                                      color: AppColors.critical.withValues(alpha: 0.1),
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                    child: const Text(
-                                      'OFFLINE',
-                                      style: TextStyle(
-                                        fontSize: 8,
-                                        fontWeight: FontWeight.w700,
-                                        color: AppColors.critical,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ],
+                            Text(
+                              title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: offline ? AppColors.darkWith(0.4) : AppColors.dark,
+                              ),
                             ),
                             Text(
                               subtitle,
@@ -228,13 +204,31 @@ class HardwareGroup extends StatelessWidget {
                                 color: AppColors.darkWith(offline ? 0.25 : 0.4),
                               ),
                             ),
+                            if (offline) ...[
+                              const SizedBox(height: 2),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: const Color(0x19000000),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: const Text(
+                                  'OFFLINE',
+                                  style: const TextStyle(
+                                    fontSize: 8,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0x80000000),
+                                  ),
+                                ),
+                              ),
+                            ],
                             const SizedBox(height: 4),
                             _buildRuntimeIndicator(deviceId),
                           ],
                         ),
                       ),
                       const SizedBox(width: 6),
-                      _buildHwModeToggle(deviceId, mode, context, offline: offline),
+                      _buildHwModeToggle(deviceId, title, mode, context, offline: offline),
                     ],
                   ),
                 ),
@@ -247,8 +241,9 @@ class HardwareGroup extends StatelessWidget {
   }
 
   Widget _buildRuntimeIndicator(String deviceId) {
+    final offline = !isOnline;
     final runtime = deviceRuntimeLabels[deviceId];
-    if (runtime == null || runtime.isEmpty) return const SizedBox.shrink();
+    if (runtime == null || runtime.isEmpty || offline) return const SizedBox.shrink();
 
     final mode = hwModes[deviceId] ?? 'auto';
     final color = mode == 'on'
@@ -292,6 +287,7 @@ class HardwareGroup extends StatelessWidget {
 
   Widget _buildHwModeToggle(
     String deviceId,
+    String title,
     String currentMode,
     BuildContext context, {
     bool offline = false,
@@ -308,7 +304,7 @@ class HardwareGroup extends StatelessWidget {
           final isActive = m == currentMode;
           return GestureDetector(
             onTap: offline
-              ? null
+              ? () => showBeautifulSnackbar(context, '$title is offline. Mode toggle is unavailable.', false, title: '$title Offline')
               : isOwner
               ? () => onSetMode(deviceId, m)
               : () {

@@ -157,36 +157,8 @@ class SensorService extends ChangeNotifier {
   }
 
   void _parseAndUpdate(Map<String, dynamic> data) {
-    final dataTimestamp = _toInt(data['timestamp']);
-    if (dataTimestamp != null) {
-      // Handle both second and millisecond Unix timestamps
-      final tsMs = dataTimestamp < 100000000000
-          ? dataTimestamp * 1000
-          : dataTimestamp;
-      var dt = DateTime.fromMillisecondsSinceEpoch(tsMs);
-      // Guard against ESP32 clock being wrong — if timestamp is >24hr in
-      // the future or >5min in the past, treat as "now" to avoid rejecting
-      // valid data due to clock sync issues
-      final now = DateTime.now();
-      final diff = now.difference(dt);
-      if (diff.isNegative && diff.abs() > const Duration(hours: 24)) {
-        dt = now;
-      } else if (!diff.isNegative && diff > const Duration(minutes: 5)) {
-        dt = now;
-      }
-      if (now.difference(dt) >= _staleTimeout) {
-        debugPrint('[SensorService] Skipping stale data (ESP32 clock may be off): ${dt.toIso8601String()}');
-        if (!_initialDataLoaded) {
-          _initialDataLoaded = true;
-          _markStale();
-        }
-        return;
-      }
-    }
-
     if (!_initialDataLoaded) {
       _initialDataLoaded = true;
-      _staleTimer = Timer(_staleTimeout, _markStale);
     }
 
     final tempRaw = _toDouble(data['temperature']);
@@ -198,7 +170,11 @@ class SensorService extends ChangeNotifier {
     _turbidityAir = turbAirRaw is bool ? turbAirRaw : (turbAirRaw == true);
 
     _updateSensor('temp', tempRaw);
-    _updateSensor('turb', turbRaw);
+    if (_turbidityAir != true) {
+      _updateSensor('turb', turbRaw);
+    } else {
+      _latest.remove('turb');
+    }
     _updateSensor('do', doRaw);
     _updateSensor('ph', phRaw);
     _updateSensor('waterlevel', wlRaw);
@@ -221,7 +197,7 @@ class SensorService extends ChangeNotifier {
       _latest.remove(key);
       return;
     }
-    if (value == 0 && !_latest.containsKey(key)) return;
+    if (value == 0 && key != 'turb' && !_latest.containsKey(key)) return;
 
     if (!_isValidReading(key, value)) return;
 

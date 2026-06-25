@@ -32,6 +32,7 @@ firebase_admin.initialize_app(
 latest_ref = db.reference("sensor_readings/latest")
 config_ref = db.reference("sensor_readings/config")
 prediction_ref = db.reference("ml_predictions/latest")
+zone_ref = db.reference("ml_worker/zone_tracker")
 
 MODELS_DIR = os.path.join(os.path.dirname(__file__), "models")
 
@@ -80,6 +81,28 @@ SHORT_TO_UNIT = {
     "wl": "cm",
 }
 
+_FALLBACKS = {
+    "temp": 27.0,
+    "ph": 7.5,
+    "do": 7.0,
+    "turb": 10.0,
+    "wl": 12.0,
+}
+_DISABLED_FLAGS = {
+    "temp": "tempDisabled",
+    "ph": "phDisabled",
+    "do": "doDisabled",
+    "turb": "turbDisabled",
+    "wl": "waterDisabled",
+}
+_SENSOR_VALUE_KEYS = {
+    "temp": "temperature",
+    "ph": "phLevel",
+    "do": "dissolvedOxygen",
+    "turb": "turbidity",
+    "wl": "waterLevel",
+}
+
 
 # ── Sensor History ────────────────────────────────────────────
 class SensorHistory:
@@ -101,6 +124,53 @@ class SensorHistory:
 histories = {k: SensorHistory() for k in ["temp", "ph", "do", "turb", "wl"]}
 
 
+# ── Zone Duration Tracking ────────────────────────────────────
+class ZoneTracker:
+    def __init__(self):
+        self.entry_time = None
+        self.accumulated_minutes = 0.0
+        self._prev_in_bad = False
+
+    def update(self, in_bad_zone):
+        now = time.time()
+        if in_bad_zone:
+            if self.entry_time is None:
+                self.entry_time = now
+            self.accumulated_minutes = (now - self.entry_time) / 60.0
+        else:
+            self.accumulated_minutes = 0.0
+            self.entry_time = None
+        self._prev_in_bad = in_bad_zone
+        return round(self.accumulated_minutes, 2)
+
+    def is_transition(self, in_bad_zone):
+        return in_bad_zone != self._prev_in_bad
+
+
+zone_trackers = {k: ZoneTracker() for k in ["temp", "ph", "do", "turb", "wl"]}
+
+
+def _persist_zone_state():
+    if zone_ref is None:
+        return
+    zone_ref.set({k: zt.entry_time for k, zt in zone_trackers.items()})
+
+
+def _restore_zone_state():
+    global zone_trackers
+    if zone_ref is None:
+        return
+    saved = zone_ref.get()
+    if not saved:
+        return
+    for key, zt in zone_trackers.items():
+        entry = saved.get(key)
+        if entry and entry > 0:
+            zt.entry_time = entry
+            zt.accumulated_minutes = (time.time() - entry) / 60.0
+            zt._prev_in_bad = True
+
+
 # ── Feature Engineering ───────────────────────────────────────
 def build_feature_row(
     temp,
@@ -113,6 +183,11 @@ def build_feature_row(
     do_rate,
     turb_rate,
     wl_rate,
+    temp_mz,
+    ph_mz,
+    do_mz,
+    turb_mz,
+    wl_mz,
     t_min,
     t_max,
     p_min,
@@ -141,6 +216,11 @@ def build_feature_row(
         "do_rate": do_rate,
         "turb_rate": turb_rate,
         "wl_rate": wl_rate,
+        "temp_minutes_in_zone": temp_mz,
+        "ph_minutes_in_zone": ph_mz,
+        "do_minutes_in_zone": do_mz,
+        "turb_minutes_in_zone": turb_mz,
+        "wl_minutes_in_zone": wl_mz,
         "temp_min": t_min,
         "temp_max": t_max,
         "ph_min": p_min,
@@ -215,22 +295,17 @@ def detect_combinations(
             {
                 "sensors": ["Temperature", "Dissolved Oxygen"],
                 "insight": (
-                    f"Temperature is elevated at {round(temp, 1)}°C while Dissolved Oxygen "
-                    f"is critically low at {round(do_, 1)} mg/L. This is a heat-oxygen cycle — "
-                    f"warm water naturally holds less dissolved oxygen, meaning your crayfish "
-                    f"are experiencing heat stress and oxygen deprivation at the same time. "
-                    f"This is the most dangerous water quality combination in aquaculture."
+                    f"Elevated temp ({round(temp, 1)}°C) + low DO ({round(do_, 1)} mg/L). "
+                    f"Heat-oxygen cycle — warm water holds less oxygen. Your crayfish are "
+                    f"experiencing heat stress and oxygen deprivation simultaneously."
                 ),
                 "prediction_note": (
-                    "As temperature continues to rise, dissolved oxygen will drop further "
-                    "even without additional changes. Both trends will worsen each other."
+                    "Rising temp will drop DO further. Both trends will worsen each other."
                 ),
                 "recommendation": (
-                    "Address temperature first — cooling the water will naturally help oxygen "
-                    "recover. Check for direct sunlight or heat sources near the tank. "
-                    "Add shade or improve ventilation immediately. The aerator has activated "
-                    "automatically, but it cannot fully compensate for heat-induced oxygen loss. "
-                    "Do a partial water exchange with cooler water if temperature does not drop."
+                    "Cool the water first — this will naturally help DO recover. "
+                    "Add shade or improve ventilation. Aerator is running but cannot fully "
+                    "compensate. Partial water exchange with cooler water if temp persists."
                 ),
             }
         )
@@ -239,21 +314,16 @@ def detect_combinations(
             {
                 "sensors": ["pH Level", "Dissolved Oxygen"],
                 "insight": (
-                    f"pH Level is acidic at {round(ph, 2)} while Dissolved Oxygen is low "
-                    f"at {round(do_, 1)} mg/L. Acidic water reduces the ability of crayfish "
-                    f"blood to carry oxygen — even if DO improves, your crayfish may still "
-                    f"struggle to absorb it. Shell corrosion and gill damage are likely "
-                    f"if this combination persists."
+                    f"Acidic pH ({round(ph, 2)}) + low DO ({round(do_, 1)} mg/L). "
+                    f"Acid reduces oxygen absorption — even if DO improves, crayfish "
+                    f"may still struggle to absorb it."
                 ),
                 "prediction_note": (
-                    "Restoring DO alone will not be enough — pH must be corrected first "
-                    "for the crayfish to properly utilize available oxygen."
+                    "Restoring DO alone is not enough — pH must be corrected first."
                 ),
                 "recommendation": (
-                    "Fix pH first before expecting DO to recover. Apply pH buffer slowly "
-                    "to raise pH toward the safe range. Wait 15 minutes and re-test before "
-                    "adding more. The aerator has activated automatically to assist DO. "
-                    "Do not increase feeding during this period."
+                    "Fix pH first. Apply buffer slowly, wait 15 min, re-test. "
+                    "Aerator is running. Reduce feeding until resolved."
                 ),
             }
         )
@@ -262,20 +332,17 @@ def detect_combinations(
             {
                 "sensors": ["Turbidity", "Dissolved Oxygen"],
                 "insight": (
-                    f"Turbidity is high at {round(turb, 1)} NTU while Dissolved Oxygen "
-                    f"is low at {round(do_, 1)} mg/L. High turbidity from organic matter "
-                    f"is actively consuming oxygen in your tank. "
-                    f"The cloudier the water, the faster oxygen depletes."
+                    f"High turbidity ({round(turb, 1)} NTU) + low DO "
+                    f"({round(do_, 1)} mg/L). Organic matter is consuming oxygen — "
+                    f"the cloudier the water, the faster oxygen depletes."
                 ),
                 "prediction_note": (
-                    "Dissolved oxygen will continue to drop as long as turbidity remains high. "
-                    "Clearing the water is the priority — DO will recover once organic load reduces."
+                    "DO will keep dropping while turbidity stays high. "
+                    "Clear the water first, DO will recover after."
                 ),
                 "recommendation": (
-                    "The RAS water pump has activated to circulate water through the filter. "
-                    "Check that the pump is running and the filter media is not clogged. "
-                    "The aerator is also running to boost DO. Do a partial water change if "
-                    "turbidity does not improve within 30 minutes. Reduce feeding temporarily."
+                    "Pump is running to filter the water. Check filter for clogs. "
+                    "Partial water change if no improvement in 30 min. Reduce feeding."
                 ),
             }
         )
@@ -284,19 +351,16 @@ def detect_combinations(
             {
                 "sensors": ["Temperature", "Turbidity"],
                 "insight": (
-                    f"Temperature is elevated at {round(temp, 1)}°C and turbidity is high "
-                    f"at {round(turb, 1)} NTU. Warm, cloudy water is an ideal environment "
-                    f"for rapid bacterial and algae growth. Dissolved oxygen is likely to "
-                    f"crash soon if both parameters are not addressed immediately."
+                    f"Elevated temp ({round(temp, 1)}°C) + high turbidity "
+                    f"({round(turb, 1)} NTU). Warm, cloudy water promotes rapid "
+                    f"bacterial growth — DO may crash soon."
                 ),
                 "prediction_note": (
-                    "If temperature and turbidity both remain elevated, expect dissolved "
-                    "oxygen to drop to critical levels within the next 1–2 hours."
+                    "If both stay elevated, expect DO to reach critical within 1–2 hours."
                 ),
                 "recommendation": (
-                    "The RAS water pump has activated to filter the water. Reduce heat exposure "
-                    "by adding shade or improving ventilation. Do not feed until both parameters "
-                    "are back in the safe range. Monitor DO closely."
+                    "Pump is running. Reduce heat exposure — add shade or ventilation. "
+                    "Do not feed until both parameters normalize. Monitor DO closely."
                 ),
             }
         )
@@ -305,19 +369,15 @@ def detect_combinations(
             {
                 "sensors": ["pH Level", "Turbidity"],
                 "insight": (
-                    f"pH Level is acidic at {round(ph, 2)} while turbidity is high at "
-                    f"{round(turb, 1)} NTU. Acidic, cloudy water often indicates organic "
-                    f"decomposition — rotting waste and uneaten food produce acids that "
-                    f"lower pH and increase turbidity simultaneously."
+                    f"Acidic pH ({round(ph, 2)}) + high turbidity ({round(turb, 1)} NTU). "
+                    f"Likely organic decomposition — rotting waste lowers pH and clouds water."
                 ),
                 "prediction_note": (
-                    "Both parameters will worsen if organic waste is not removed. "
-                    "Dissolved oxygen is at risk of dropping next."
+                    "Both will worsen if waste is not removed. DO may drop next."
                 ),
                 "recommendation": (
-                    "The RAS water pump has activated to circulate water through the filter. "
-                    "Correct pH manually with buffer while the pump runs. Remove any visible "
-                    "uneaten food or waste. Check filter media and clean if needed."
+                    "Pump is running. Correct pH with buffer. Remove visible waste. "
+                    "Check filter media and clean if needed."
                 ),
             }
         )
@@ -326,19 +386,16 @@ def detect_combinations(
             {
                 "sensors": ["pH Level", "Dissolved Oxygen"],
                 "insight": (
-                    f"pH Level is alkaline at {round(ph, 2)} while Dissolved Oxygen is low "
-                    f"at {round(do_, 1)} mg/L. High pH can indicate an algae bloom — "
-                    f"algae consume CO2 raising pH during the day, but consume oxygen at "
-                    f"night, causing DO to crash."
+                    f"Alkaline pH ({round(ph, 2)}) + low DO ({round(do_, 1)} mg/L). "
+                    f"Possible algae bloom — algae raise pH during day, consume O2 at night."
                 ),
                 "prediction_note": (
-                    "If this is an algae bloom, DO will fluctuate with the light cycle — "
-                    "higher during daylight, dangerously low at night."
+                    "DO will fluctuate with light cycle — higher by day, lower at night."
                 ),
                 "recommendation": (
-                    "The aerator has activated to boost DO. Manually correct pH with buffer. "
-                    "Check for algae growth and reduce light exposure if present. "
-                    "Do a partial water change to dilute algae. Monitor DO closely overnight."
+                    "Aerator is running. Correct pH with buffer. "
+                    "Check for algae, reduce light if present. Partial water change. "
+                    "Monitor DO overnight."
                 ),
             }
         )
@@ -378,6 +435,7 @@ def generate_insight(
     ph,
     do_,
     turb,
+    wl,
     t_min,
     t_max,
     p_min,
@@ -386,14 +444,23 @@ def generate_insight(
     d_max,
     tr_min,
     tr_max,
+    wl_min,
+    wl_max,
 ):
     stage_label = STAGE_LABELS.get(stage, stage.replace("_", " ").title())
 
+    values = {
+        "Temperature": f"{temp:.2f}°C",
+        "pH Level": f"{ph:.2f}",
+        "Dissolved Oxygen": f"{do_:.2f} mg/L",
+        "Turbidity": f"{turb:.2f} NTU",
+        "Water Level": f"{wl:.2f} cm",
+    }
+
     if overall_status == "OPTIMAL":
         return (
-            f"Everything looks good in the tank right now. "
-            f"All five water parameters are within the safe range for your "
-            f"{stage_label} crayfish. Keep up the current routine — they're doing well."
+            f"All parameters are within safe range for your {stage_label} crayfish. "
+            f"Tank conditions are good — keep up your current routine."
         )
 
     combos = detect_combinations(
@@ -415,35 +482,47 @@ def generate_insight(
         return combos[0]["insight"]
 
     critical_sensors, warning_sensors = [], []
-    for short, target in [
-        ("temp", "temp_status"),
-        ("ph", "ph_status"),
-        ("do", "do_status"),
-        ("turb", "turb_status"),
-        ("wl", "wl_status"),
-    ]:
+    sensor_map = [
+        ("temp", "Temperature", "temp_status"),
+        ("ph", "pH Level", "ph_status"),
+        ("do", "Dissolved Oxygen", "do_status"),
+        ("turb", "Turbidity", "turb_status"),
+        ("wl", "Water Level", "wl_status"),
+    ]
+
+    for short, label, target in sensor_map:
         s = sensor_statuses.get(target, "OPTIMAL")
         if s == "CRITICAL":
-            critical_sensors.append(SHORT_TO_LABEL[short])
+            critical_sensors.append(label)
         elif s == "WARNING":
-            warning_sensors.append(SHORT_TO_LABEL[short])
+            warning_sensors.append(label)
 
     all_problems = critical_sensors + warning_sensors
-    problem_str = ", ".join(all_problems) if all_problems else "some parameters"
 
-    if overall_status == "WARNING":
+    if len(critical_sensors) == 5:
+        vals = "; ".join(f"{k}: {v}" for k, v in values.items())
         return (
-            f"Water conditions for your {stage_label} crayfish are starting to drift. "
-            f"{problem_str} {'is' if len(all_problems) == 1 else 'are'} moving outside "
-            f"the safe range — nothing critical yet, but it's worth checking now."
+            f"All parameters are critical. {vals}. "
+            f"Immediate action required to prevent harm to your {stage_label} crayfish."
         )
 
-    crit_str = ", ".join(critical_sensors) if critical_sensors else problem_str
+    if overall_status == "WARNING":
+        problem_str = ", ".join(all_problems) if all_problems else "some parameters"
+        return (
+            f"{problem_str} {'is' if len(all_problems) == 1 else 'are'} drifting "
+            f"outside the safe range for {stage_label} crayfish. "
+            f"Not critical yet — check soon."
+        )
+
+    crit_str = (
+        ", ".join(critical_sensors) if critical_sensors else ", ".join(all_problems)
+    )
+    vals = "; ".join(f"{s}: {values[s]}" for s in critical_sensors)
+    suffix = f" ({vals})" if vals else ""
     return (
-        f"There's a problem with the tank that needs your attention right away. "
         f"{crit_str} {'is' if len(critical_sensors) == 1 else 'are'} outside the "
-        f"safe range for {stage_label} crayfish. "
-        f"If left unaddressed, this could stress or harm your crayfish."
+        f"safe range for {stage_label} crayfish{suffix}. "
+        f"Immediate attention needed."
     )
 
 
@@ -516,35 +595,33 @@ def generate_prediction(
             secs = ((val - r_min) / abs(rate)) * READING_INTERVAL_SEC
             if secs <= MAX_SEC:
                 t = format_time(secs)
-                forecasts.append(
-                    f"{label} is {'already in warning range and continuing to drop' if status == 'WARNING' else 'trending downward'} — "
-                    f"it {'could reach a critical low' if status == 'WARNING' else 'may leave the safe range'} in about {t}."
+                direction = "dropping" if status == "WARNING" else "trending down"
+                outcome = (
+                    "a critically low level" if status == "WARNING" else "the minimum"
                 )
+                forecasts.append(f"{label} {direction} — may reach {outcome} in ~{t}.")
         elif rate > 0 and val < r_max:
             secs = ((r_max - val) / abs(rate)) * READING_INTERVAL_SEC
             if secs <= MAX_SEC:
                 t = format_time(secs)
-                forecasts.append(
-                    f"{label} is {'already in warning range and continuing to rise' if status == 'WARNING' else 'trending upward'} — "
-                    f"it {'could reach a critical high' if status == 'WARNING' else 'may leave the safe range'} in about {t}."
+                direction = "rising" if status == "WARNING" else "trending up"
+                outcome = (
+                    "a critically high level" if status == "WARNING" else "the maximum"
                 )
+                forecasts.append(f"{label} {direction} — may reach {outcome} in ~{t}.")
 
     if not forecasts and not combo_note:
         if overall_status == "OPTIMAL":
             return (
-                f"All parameters are currently stable for your {stage_label} crayfish. "
-                f"No concerning trends detected — conditions look good for the next few hours."
+                f"All parameters stable for your {stage_label} crayfish. "
+                f"No concerning trends — conditions should remain good."
             )
         return (
-            f"CrayAI has detected issues for your {stage_label} crayfish. "
-            f"Address the flagged parameters to prevent further deterioration."
+            f"Issues detected with current water conditions. "
+            f"Address flagged parameters to prevent further deterioration."
         )
 
-    base = (
-        f"Based on current sensor trends, here's what CrayAI forecasts "
-        f"for your {stage_label} crayfish: "
-    )
-    return base + combo_note + " ".join(forecasts)
+    return combo_note + " ".join(forecasts)
 
 
 def generate_recommendation(
@@ -564,10 +641,7 @@ def generate_recommendation(
     tr_max,
 ):
     if overall_status == "OPTIMAL":
-        return (
-            "No action needed right now. "
-            "Continue your regular feeding schedule and check the tank once a day."
-        )
+        return "No action needed. Continue regular feeding and daily tank check."
 
     combos = detect_combinations(
         sensor_statuses,
@@ -591,42 +665,32 @@ def generate_recommendation(
     actions = []
     if sensor_statuses.get("turb_status") == "CRITICAL":
         actions.append(
-            "Turbidity is high — the water pump has activated. Confirm it is running and the filter is not clogged."
+            "Turbidity high — pump activated. Confirm it is running and filter is clear."
         )
     elif sensor_statuses.get("turb_status") == "WARNING":
         actions.append(
-            "Turbidity is getting cloudy. The pump will activate automatically — keep an eye on the filter."
+            "Turbidity rising. Pump will activate automatically — watch the filter."
         )
     if sensor_statuses.get("do_status") == "CRITICAL":
-        actions.append(
-            "Dissolved oxygen is critically low — the aerator has switched on. Confirm it is running."
-        )
+        actions.append("DO critically low — aerator on. Confirm it is running.")
     elif sensor_statuses.get("do_status") == "WARNING":
-        actions.append(
-            "Dissolved oxygen is dropping. The aerator will kick in — make sure the airstone is not blocked."
-        )
+        actions.append("DO dropping. Aerator will activate — check airstone is clear.")
     if sensor_statuses.get("ph_status") == "CRITICAL":
         actions.append(
-            "pH is out of range. Correct manually with pH buffer — add small amounts, wait 15 minutes, re-test."
+            "pH out of range. Correct with buffer — small amounts, wait 15 min, re-test."
         )
     elif sensor_statuses.get("ph_status") == "WARNING":
-        actions.append(
-            "pH is drifting. Have your pH buffer ready in case it continues to shift."
-        )
+        actions.append("pH drifting. Prepare buffer in case it continues.")
     if sensor_statuses.get("temp_status") == "CRITICAL":
         actions.append(
-            "Temperature is out of range. Check for sunlight or heat sources. Adjust shading or ventilation."
+            "Temp out of range. Check sunlight/heat sources. Adjust shade or ventilation."
         )
     elif sensor_statuses.get("temp_status") == "WARNING":
-        actions.append(
-            "Temperature is drifting. Check for environmental factors near the tank."
-        )
+        actions.append("Temp drifting. Check environmental factors near tank.")
     if sensor_statuses.get("wl_status") == "CRITICAL":
-        actions.append(
-            "Water level is out of range. Check for leaks or evaporation. Adjust slowly."
-        )
+        actions.append("Water level out of range. Check for leaks. Adjust slowly.")
     elif sensor_statuses.get("wl_status") == "WARNING":
-        actions.append("Water level is slightly off. Top up or drain slowly if needed.")
+        actions.append("Water level slightly off. Top up or drain if needed.")
 
     base = " ".join(actions) if actions else "Inspect the tank manually."
     return f"Action needed: {base}" if overall_status == "CRITICAL" else base
@@ -636,7 +700,7 @@ def generate_recommendation(
 def generate_sensor_insight(short, val, status, r_min, r_max):
     label = SHORT_TO_LABEL[short]
     unit = SHORT_TO_UNIT[short]
-    val_str = f"{val}{unit}"
+    val_str = f"{val:.2f}{unit}"
     context = {
         "temp": {
             "OPTIMAL": "Temperature directly affects crayfish metabolism and molting.",
@@ -666,10 +730,10 @@ def generate_sensor_insight(short, val, status, r_min, r_max):
     }
     ctx = context.get(short, {}).get(status, "")
     if status == "OPTIMAL":
-        return f"{label} is at {val_str}, right within the safe range ({r_min}–{r_max}{unit}). {ctx}"
+        return f"{label} is at {val_str}, right within the safe range ({r_min:.2f}–{r_max:.2f}{unit}). {ctx}"
     elif status == "WARNING":
-        return f"{label} is at {val_str} and moving outside the safe range ({r_min}–{r_max}{unit}). {ctx}"
-    return f"{label} is at {val_str}, outside the safe range ({r_min}–{r_max}{unit}). {ctx}"
+        return f"{label} is at {val_str} and moving outside the safe range ({r_min:.2f}–{r_max:.2f}{unit}). {ctx}"
+    return f"{label} is at {val_str}, outside the safe range ({r_min:.2f}–{r_max:.2f}{unit}). {ctx}"
 
 
 def generate_sensor_prediction(short, val, rate, r_min, r_max, status, confidence):
@@ -684,46 +748,97 @@ def generate_sensor_prediction(short, val, rate, r_min, r_max, status, confidenc
         secs = ((val - r_min) / abs(rate)) * READING_INTERVAL_SEC
         if secs <= MAX_SEC:
             t = format_time(secs)
-            boundary = "a critical low" if status == "WARNING" else "the safe minimum"
-            return f"CrayAI is {conf_pct}% confident that {label} is trending downward. It may reach {boundary} in about {t}."
+            boundary = (
+                "a critically low level"
+                if status == "WARNING"
+                else "the minimum threshold"
+            )
+            return (
+                f"CrayAI is {conf_pct}% confident that {label} is trending downward. "
+                f"At the current rate, it may reach {boundary} in about {t}."
+            )
     elif rate > 0 and val < r_max:
         secs = ((r_max - val) / abs(rate)) * READING_INTERVAL_SEC
         if secs <= MAX_SEC:
             t = format_time(secs)
-            boundary = "a critical high" if status == "WARNING" else "the safe maximum"
-            return f"CrayAI is {conf_pct}% confident that {label} is trending upward. It may reach {boundary} in about {t}."
-    return f"CrayAI is {conf_pct}% confident that {label} is currently {status.lower()} with no immediate risk of change."
+            boundary = (
+                "a critically high level"
+                if status == "WARNING"
+                else "the maximum threshold"
+            )
+            return (
+                f"CrayAI is {conf_pct}% confident that {label} is trending upward. "
+                f"At the current rate, it may reach {boundary} in about {t}."
+            )
+
+    return (
+        f"CrayAI is {conf_pct}% confident that {label} is currently "
+        f"{status.lower()} with no immediate risk of change."
+    )
 
 
 def generate_sensor_recommendation(short, status):
     if status == "OPTIMAL":
-        return "This parameter is within the safe range — no action needed."
+        return "This parameter is within the safe range \u2014 no action needed."
     recs = {
         "do": {
-            "WARNING": "Dissolved oxygen is getting low. The aerator will activate automatically. Make sure the airstone is not blocked.",
-            "CRITICAL": "Dissolved oxygen is critically low — the aerator should already be running. Verify it is working. If DO keeps dropping, manually increase aeration.",
+            "WARNING": (
+                "Dissolved oxygen is getting low. The aerator will activate automatically. "
+                "Make sure the airstone or diffuser is not blocked."
+            ),
+            "CRITICAL": (
+                "Dissolved oxygen is critically low \u2014 the aerator should already be running. "
+                "Verify it is working. If DO keeps dropping, manually increase aeration "
+                "or reduce stocking density temporarily."
+            ),
         },
         "turb": {
-            "WARNING": "Water is getting cloudy. The RAS water pump will activate automatically. Check the filter media.",
-            "CRITICAL": "Turbidity is too high. The water pump has activated. Verify the pump is on and filter is not clogged. Do a partial water change if needed.",
+            "WARNING": (
+                "Water is getting cloudy. The RAS water pump will activate automatically. "
+                "Check the filter media \u2014 it may need rinsing soon."
+            ),
+            "CRITICAL": (
+                "Turbidity is too high. The water pump has activated to push water through "
+                "the filter. Verify the pump is on and the filter is not clogged. "
+                "Do a partial water change if it does not clear up."
+            ),
         },
         "ph": {
-            "WARNING": "pH is drifting. Prepare your pH buffer and monitor manually.",
-            "CRITICAL": "pH is out of range. Add small amounts of pH buffer, wait 15 minutes, then re-test. Avoid large sudden changes.",
+            "WARNING": (
+                "pH is drifting. Monitor manually and prepare your pH buffer. "
+                "Wait to see if it stabilizes before making any adjustment."
+            ),
+            "CRITICAL": (
+                "pH is out of the safe range. Adjust manually with a pH buffer \u2014 "
+                "add small amounts, wait 15 minutes, then re-test before adding more. "
+                "Avoid large sudden changes, as rapid pH swings are harmful to crayfish."
+            ),
         },
         "temp": {
-            "WARNING": "Temperature is drifting. Check for heat sources or drafts near the tank.",
-            "CRITICAL": "Temperature is out of range. Check the environment — sunlight or heaters may be the cause. Do a partial water exchange if needed.",
+            "WARNING": (
+                "Temperature is drifting. Check for heat sources or drafts near the tank. "
+                "Adjust shading or ventilation if needed."
+            ),
+            "CRITICAL": (
+                "Temperature is out of the safe range. Check the environment around the "
+                "tank \u2014 direct sunlight, fans, or heaters may be the cause. "
+                "Do a partial water change with water at the correct temperature if needed."
+            ),
         },
         "wl": {
-            "WARNING": "Water level is slightly off. Top up or drain slowly if it continues to drift.",
-            "CRITICAL": "Water level is out of range. Check for leaks or overflow. Adjust slowly to avoid stressing the crayfish.",
+            "WARNING": (
+                "Water level is slightly off. Keep an eye on it and top up or drain "
+                "slowly if it continues to drift."
+            ),
+            "CRITICAL": (
+                "Water level is out of the safe range. Check for leaks, evaporation, "
+                "or overflow. Adjust slowly \u2014 sudden changes stress the crayfish."
+            ),
         },
     }
     return recs.get(short, {}).get(status, "Inspect this parameter manually.")
 
 
-# ── Firebase Config ───────────────────────────────────────────
 def get_current_stage_ranges():
     config = config_ref.get() or {}
     stage = config.get("selectedStage") or "pre_adult"
@@ -749,20 +864,34 @@ def get_current_stage_ranges():
     return stage, ranges
 
 
-# ── Listener ──────────────────────────────────────────────────
 def on_sensor_change(event):
     try:
         data = event.data
         if not data:
             return
 
-        temp = data.get("temperature")
-        ph = data.get("phLevel")
-        do_ = data.get("dissolvedOxygen")
-        turb = data.get("turbidity")
-        wl = data.get("waterLevel")
-        if any(v is None for v in [temp, ph, do_, turb, wl]):
-            return
+        resolved = {}
+        disabled_sensors = set()
+
+        for key in ["temp", "ph", "do", "turb", "wl"]:
+            raw = data.get(_SENSOR_VALUE_KEYS[key])
+            disabled = data.get(_DISABLED_FLAGS[key], False)
+            fallback = _FALLBACKS[key]
+
+            if key == "turb" and data.get("turbidityAir", False):
+                disabled = True
+
+            if disabled or raw is None or (isinstance(raw, (int, float)) and raw < 0):
+                resolved[key] = fallback
+                disabled_sensors.add(key)
+            else:
+                resolved[key] = float(raw)
+
+        temp = resolved["temp"]
+        ph = resolved["ph"]
+        do_ = resolved["do"]
+        turb = resolved["turb"]
+        wl = resolved["wl"]
 
         for k, v in [
             ("temp", temp),
@@ -771,7 +900,8 @@ def on_sensor_change(event):
             ("turb", turb),
             ("wl", wl),
         ]:
-            histories[k].add(v)
+            if k not in disabled_sensors:
+                histories[k].add(v)
 
         temp_rate = histories["temp"].get_rate()
         ph_rate = histories["ph"].get_rate()
@@ -786,6 +916,24 @@ def on_sensor_change(event):
         tr_min, tr_max = ranges["turb"]["min"], ranges["turb"]["max"]
         wl_min, wl_max = ranges["waterlevel"]["min"], ranges["waterlevel"]["max"]
 
+        temp_mz = zone_trackers["temp"].update(
+            get_sensor_status(temp, t_min, t_max) != "OPTIMAL"
+        )
+        ph_mz = zone_trackers["ph"].update(
+            get_sensor_status(ph, p_min, p_max) != "OPTIMAL"
+        )
+        do_mz = zone_trackers["do"].update(
+            get_sensor_status(do_, d_min, d_max) != "OPTIMAL"
+        )
+        turb_mz = zone_trackers["turb"].update(
+            get_sensor_status(turb, tr_min, tr_max) != "OPTIMAL"
+        )
+        wl_mz = zone_trackers["wl"].update(
+            get_sensor_status(wl, wl_min, wl_max) != "OPTIMAL"
+        )
+
+        _persist_zone_state()
+
         X = build_feature_row(
             temp,
             ph,
@@ -797,6 +945,11 @@ def on_sensor_change(event):
             do_rate,
             turb_rate,
             wl_rate,
+            temp_mz,
+            ph_mz,
+            do_mz,
+            turb_mz,
+            wl_mz,
             t_min,
             t_max,
             p_min,
@@ -819,10 +972,34 @@ def on_sensor_change(event):
             "wl_status": get_sensor_status(wl, wl_min, wl_max),
         }
 
+        sensors_meta = [
+            ("temp", temp, temp_rate, t_min, t_max),
+            ("ph", ph, ph_rate, p_min, p_max),
+            ("do", do_, do_rate, d_min, d_max),
+            ("turb", turb, turb_rate, tr_min, tr_max),
+            ("wl", wl, wl_rate, wl_min, wl_max),
+        ]
+        sensor_insights = {}
+        sensor_predictions = {}
+        sensor_recommendations = {}
+        for short, val, rate, r_min, r_max in sensors_meta:
+            st = sensor_statuses[f"{short}_status"]
+            sensor_insights[short] = generate_sensor_insight(
+                short, val, st, r_min, r_max
+            )
+            sensor_predictions[short] = generate_sensor_prediction(
+                short, val, rate, r_min, r_max, st, confidence
+            )
+            sensor_recommendations[short] = generate_sensor_recommendation(short, st)
+
         result = {
             "predictedStatus": overall_status,
             "confidence": confidence,
             "stage": stage,
+            "sensorStatuses": sensor_statuses,
+            "sensorInsights": sensor_insights,
+            "sensorPredictions": sensor_predictions,
+            "sensorRecommendations": sensor_recommendations,
             "insight": generate_insight(
                 overall_status,
                 sensor_statuses,
@@ -832,6 +1009,7 @@ def on_sensor_change(event):
                 ph,
                 do_,
                 turb,
+                wl,
                 t_min,
                 t_max,
                 p_min,
@@ -840,6 +1018,8 @@ def on_sensor_change(event):
                 d_max,
                 tr_min,
                 tr_max,
+                wl_min,
+                wl_max,
             ),
             "prediction": generate_prediction(
                 overall_status,
@@ -906,8 +1086,14 @@ def on_sensor_change(event):
         traceback.print_exc()
 
 
+_restore_zone_state()
+
 print("[ML Worker] Listening to sensor_readings/latest ...")
 latest_ref.listen(on_sensor_change)
+
+test_ref = db.reference("test_tools")
+print("[ML Worker] Also listening to test_tools ...")
+test_ref.listen(on_sensor_change)
 
 while True:
     time.sleep(1)

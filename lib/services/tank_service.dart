@@ -73,6 +73,9 @@ class TankActivity {
   final String time;
   final String type;
   final int timestamp;
+  final int? sampleSize;
+  final double? abw;
+  final double? avgLength;
 
   TankActivity({
     required this.action,
@@ -80,6 +83,9 @@ class TankActivity {
     required this.time,
     required this.type,
     this.timestamp = 0,
+    this.sampleSize,
+    this.abw,
+    this.avgLength,
   });
 }
 
@@ -542,8 +548,11 @@ class TankService extends ChangeNotifier {
       'timestamp': ServerValue.timestamp,
     });
     _addActivity(
-      'Recorded sampling: ${abw.toStringAsFixed(2)}g ABW',
+      'Recorded sampling: ${abw.toStringAsFixed(2)}g ABW, ${avgLength.toStringAsFixed(2)}cm ABL',
       'sampling',
+      sampleSize: count,
+      abw: abw,
+      avgLength: avgLength,
     );
     _saveConfig();
     SettingsService.instance.autoDetectStage(abw, avgLength);
@@ -602,7 +611,14 @@ class TankService extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _addActivity(String action, String type, {DateTime? customDate}) {
+  void _addActivity(
+    String action,
+    String type, {
+    DateTime? customDate,
+    int? sampleSize,
+    double? abw,
+    double? avgLength,
+  }) {
     final now = customDate ?? DateTime.now();
     final months = [
       'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -620,6 +636,9 @@ class TankService extends ChangeNotifier {
       time: timeStr,
       type: type,
       timestamp: timestamp,
+      sampleSize: sampleSize,
+      abw: abw,
+      avgLength: avgLength,
     );
     _activities.add(act);
 
@@ -629,6 +648,9 @@ class TankService extends ChangeNotifier {
       'time': timeStr,
       'type': type,
       'timestamp': timestamp,
+      if (sampleSize != null) 'sampleSize': sampleSize,
+      if (abw != null) 'abw': abw,
+      if (avgLength != null) 'avgLength': avgLength,
     });
   }
 }

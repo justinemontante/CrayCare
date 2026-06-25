@@ -68,7 +68,8 @@ String pass;
 #define FIREBASE_HISTORY_PATH  "/sensor_readings/history"
 #define FIREBASE_CONFIG_PATH   "/sensor_readings/config"
 
-// Feeder Firebase paths
+// ESP / Feeder Firebase paths
+#define FIREBASE_ESP_PATH              "/esp"
 #define FIREBASE_FEEDER_COMMANDS_PATH  "/feeder/commands"
 #define FIREBASE_FEEDER_STATUS_PATH    "/feeder/status"
 #define FIREBASE_FEEDER_SCHEDULES_PATH "/feeder/schedules"
@@ -663,6 +664,20 @@ void sendLatestToFirebase() {
   }
 }
 
+void sendEspLastSeen() {
+  if (!ensureFirebaseReady()) return;
+  time_t now;
+  time(&now);
+  unsigned long epochMs = (now > 1700000000) ? (unsigned long)now * 1000UL : 0;
+  if (epochMs == 0) return;
+
+  if (Firebase.RTDB.setInt(&fbdo, FIREBASE_ESP_PATH "/lastSeen", (int)epochMs)) {
+    // success
+  } else if (fbdo.httpConnected()) {
+    Serial.printf("[ESP STATUS ERROR] %s\n", fbdo.errorReason().c_str());
+  }
+}
+
 void sendHistoryToFirebase() {
   if (!ensureFirebaseReady()) return;
 
@@ -969,6 +984,7 @@ void loop() {
   if (now - lastFirebaseSendTime >= FIREBASE_SEND_INTERVAL_MS) {
     lastFirebaseSendTime = now;
     sendLatestToFirebase();
+    sendEspLastSeen();
   }
 
   if (now - lastHistorySendTime >= HISTORY_SEND_INTERVAL_MS) {

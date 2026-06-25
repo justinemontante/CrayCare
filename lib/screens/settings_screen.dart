@@ -42,6 +42,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _notifCritical = true;
   bool _notifFeeding = true;
   bool _notifSampling = true;
+  bool _notifWarning = true;
 
   @override
   void initState() {
@@ -70,6 +71,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _notifCritical = notifPrefs['critical'] as bool? ?? true;
           _notifFeeding = notifPrefs['feeding'] as bool? ?? true;
           _notifSampling = notifPrefs['sampling'] as bool? ?? true;
+          _notifWarning = notifPrefs['warning'] as bool? ?? true;
         });
       }
     }
@@ -105,6 +107,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       critical: _notifCritical,
       feeding: _notifFeeding,
       sampling: _notifSampling,
+      warning: _notifWarning,
     );
   }
 
@@ -366,6 +369,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   notifSound: _notifSound,
                   notifVibration: _notifVibration,
                   notifCritical: _notifCritical,
+                  notifWarning: _notifWarning,
                   notifFeeding: _notifFeeding,
                   notifSampling: _notifSampling,
                   onNotifSoundChanged: (v) {
@@ -378,6 +382,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                   onNotifCriticalChanged: (v) {
                     setState(() => _notifCritical = v ?? true);
+                    _saveNotifPrefs();
+                  },
+                  onNotifWarningChanged: (v) {
+                    setState(() => _notifWarning = v ?? true);
                     _saveNotifPrefs();
                   },
                   onNotifFeedingChanged: (v) {

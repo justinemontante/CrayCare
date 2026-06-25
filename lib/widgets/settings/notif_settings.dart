@@ -5,11 +5,13 @@ class NotifSettings extends StatelessWidget {
   final bool notifSound;
   final bool notifVibration;
   final bool notifCritical;
+  final bool notifWarning;
   final bool notifFeeding;
   final bool notifSampling;
   final ValueChanged<bool?> onNotifSoundChanged;
   final ValueChanged<bool?> onNotifVibrationChanged;
   final ValueChanged<bool?> onNotifCriticalChanged;
+  final ValueChanged<bool?> onNotifWarningChanged;
   final ValueChanged<bool?> onNotifFeedingChanged;
   final ValueChanged<bool?> onNotifSamplingChanged;
 
@@ -18,11 +20,13 @@ class NotifSettings extends StatelessWidget {
     required this.notifSound,
     required this.notifVibration,
     required this.notifCritical,
+    required this.notifWarning,
     required this.notifFeeding,
     required this.notifSampling,
     required this.onNotifSoundChanged,
     required this.onNotifVibrationChanged,
     required this.onNotifCriticalChanged,
+    required this.onNotifWarningChanged,
     required this.onNotifFeedingChanged,
     required this.onNotifSamplingChanged,
   });
@@ -53,10 +57,16 @@ class NotifSettings extends StatelessWidget {
             const SizedBox(height: 12),
             _buildMenuSection('Alerts & Reminders', [
               _buildToggle(
-                'Water Quality Alerts',
-                'Critical alerts for all water parameters',
+                'Critical Alerts',
+                'Critical alerts for water parameters',
                 notifCritical,
                 onNotifCriticalChanged,
+              ),
+              _buildToggle(
+                'Warning Alerts',
+                'Warnings when parameters approach thresholds',
+                notifWarning,
+                onNotifWarningChanged,
               ),
               _buildToggle(
                 'Feeding Reminders',

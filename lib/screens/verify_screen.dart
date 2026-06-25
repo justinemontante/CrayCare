@@ -365,35 +365,52 @@ class _VerifyScreenState extends State<VerifyScreen> {
                           ),
                   ),
                   const SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                  Column(
                     children: [
-                      Text(
-                        "Didn't receive the link? ",
-                        style: TextStyle(fontSize: 13, color: AppColors.dark),
-                      ),
-
-                      // TIMER CONTROLLED RESEND (00:XX format)
-                      _isResendEnabled
-                          ? GestureDetector(
-                              onTap: _resendVerificationLink,
-                              child: const Text(
-                                'Resend Link',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppColors.primary,
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            "Didn't receive the link? ",
+                            style: TextStyle(fontSize: 13, color: AppColors.dark),
+                          ),
+                          _isResendEnabled
+                              ? TextButton(
+                                  onPressed: _isLoading ? null : _resendVerificationLink,
+                                  style: TextButton.styleFrom(
+                                    foregroundColor: AppColors.primary,
+                                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                                    minimumSize: Size.zero,
+                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    visualDensity: VisualDensity.compact,
+                                  ),
+                                  child: _isLoading
+                                      ? const SizedBox(
+                                          width: 14,
+                                          height: 14,
+                                          child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                                        )
+                                      : const Text(
+                                          'Resend Link',
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                )
+                              : Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                  child: Text(
+                                    'Resend in ${_formatTimer(_countdownStart)}',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.dark.withValues(alpha: 0.4),
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            )
-                          : Text(
-                              'Resend in ${_formatTimer(_countdownStart)}', // Displays as 00:XX
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.dark.withValues(alpha: 0.4),
-                              ),
-                            ),
+                        ],
+                      ),
                     ],
                   ),
                   const SizedBox(height: 24),

@@ -283,6 +283,8 @@ class FeederTab extends StatelessWidget {
                         : () {
                             if (!isOwner) {
                               showBeautifulSnackbar(context, 'Feed Now is for owners only', false, title: 'Notice');
+                            } else if (!isOnline) {
+                              showBeautifulSnackbar(context, 'Feeder is offline. Cannot dispense feed.', false, title: 'Feeder Offline');
                             } else if (!canFeed) {
                               showBeautifulSnackbar(context, feedBlockedReason, false, title: 'Feed Blocked');
                             }
@@ -890,10 +892,12 @@ class FeederTab extends StatelessWidget {
                           color: AppColors.primary.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: const Icon(
-                          Icons.history,
-                          size: 20,
-                          color: AppColors.primary,
+                        child: Padding(
+                          padding: const EdgeInsets.all(6),
+                          child: Image.asset(
+                            'assets/images/FeedingImage.png',
+                            fit: BoxFit.contain,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),

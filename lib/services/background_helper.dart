@@ -231,12 +231,13 @@ class BackgroundHelper {
     final db = FirebaseDatabase.instance;
     final now = DateTime.now();
 
-    // Check if current user is a monitor, read owner's tank data
     final profileSnap = await db.ref('users/$uid/profile').get();
     final profile = profileSnap.value is Map ? profileSnap.value as Map : {};
     final ownerUid = profile['ownerUid'] as String?;
     final tankOwnerUid = (ownerUid != null && ownerUid.isNotEmpty) ? ownerUid : uid;
 
+    // Read actual sampling records to find the latest date
+    final samplingSnap = await db.ref('tank_data/$tankOwnerUid/sampling').orderByChild('date').limitToLast(1).get();
     final tankSnap = await db.ref('tank_data/$tankOwnerUid/inventory').get();
     if (!tankSnap.exists) return;
     final tank = tankSnap.value;
@@ -245,25 +246,38 @@ class BackgroundHelper {
     final isInitialized = tank['isInitialized'] as bool? ?? false;
     if (!isInitialized) return;
 
-    final int lastSampleTs;
-    if (tank.containsKey('lastSampleDate')) {
-      lastSampleTs = tank['lastSampleDate'] as int;
+    int effectiveSampleTs;
+    if (samplingSnap.exists && samplingSnap.value is Map) {
+      final entries = samplingSnap.value as Map;
+      final lastEntry = entries.values.last;
+      if (lastEntry is Map && lastEntry['date'] is int) {
+        effectiveSampleTs = lastEntry['date'] as int;
+      } else {
+        effectiveSampleTs = tank['stockingDate'] as int? ?? 0;
+      }
     } else {
-      lastSampleTs = tank['stockingDate'] as int? ?? 0;
+      effectiveSampleTs = tank['stockingDate'] as int? ?? 0;
     }
-    if (lastSampleTs <= 0) return;
+    if (effectiveSampleTs <= 0) return;
 
-    final lastSampleDate = DateTime.fromMillisecondsSinceEpoch(lastSampleTs);
-    final daysSince = now.difference(lastSampleDate).inDays;
-
+    final effectiveLastDate = DateTime.fromMillisecondsSinceEpoch(effectiveSampleTs);
+    final effectiveDate = DateTime(effectiveLastDate.year, effectiveLastDate.month, effectiveLastDate.day);
+    final daysSince = now.difference(effectiveDate).inDays;
     if (daysSince < 7) return;
 
     const markerKey = 'sampling_reminder';
     final marker = await db.ref('users/$tankOwnerUid/notifications/markers/$markerKey').get();
     if (marker.exists) {
-      final lastReminderTs = marker.value is int ? marker.value as int : 0;
-      if (lastReminderTs > 0) {
-        final lastReminder = DateTime.fromMillisecondsSinceEpoch(lastReminderTs);
+      final val = marker.value;
+      if (val is Map) {
+        final lastSampleTs = val['sampleTs'] as int? ?? 0;
+        final lastReminderTs = val['reminderTs'] as int? ?? 0;
+        if (lastSampleTs == effectiveSampleTs && lastReminderTs > 0) {
+          final lastReminder = DateTime.fromMillisecondsSinceEpoch(lastReminderTs);
+          if (now.difference(lastReminder).inDays < 7) return;
+        }
+      } else if (val is int && val > 0) {
+        final lastReminder = DateTime.fromMillisecondsSinceEpoch(val);
         if (now.difference(lastReminder).inDays < 7) return;
       }
     }
@@ -289,7 +303,9 @@ class BackgroundHelper {
       ),
     );
 
-    await db.ref('users/$tankOwnerUid/notifications/markers/$markerKey')
-        .set(now.millisecondsSinceEpoch);
+    await db.ref('users/$tankOwnerUid/notifications/markers/$markerKey').set({
+      'reminderTs': now.millisecondsSinceEpoch,
+      'sampleTs': effectiveSampleTs,
+    });
   }
 }

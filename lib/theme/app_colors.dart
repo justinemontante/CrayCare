@@ -8,6 +8,7 @@ class AppColors {
   static const Color dark = Color(0xFF0B3C49);
 
   // Status
+  static const Color normal = Color(0xFF166534);
   static const Color success = Color(0xFF2d9f2d);
   static const Color successLight = Color(0xFF16a34a);
   static const Color warning = Color(0xFFf59e0b);

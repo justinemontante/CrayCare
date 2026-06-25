@@ -50,7 +50,7 @@ class DevicesTab extends StatelessWidget {
             label: 'Filtration',
             icon: Icons.water_drop,
             devices: const [
-              ('pump', 'Water Pump', 'Filtration System', 'assets/images/waterPump.png'),
+              ('pump', 'Water Pump', 'For Filtration System', 'assets/images/waterPump.png'),
             ],
             hwModes: hwModes,
             onSetMode: onSetMode,

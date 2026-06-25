@@ -15,14 +15,11 @@ class EspService extends ChangeNotifier {
   void init() {
     _espSub?.cancel();
     _espSub = FirebaseDatabase.instance
-        .ref('sensor_readings/latest/timestamp')
+        .ref('sensor_readings/latest')
         .onValue
         .listen((e) {
-          final val = e.snapshot.value;
-          if (val != null) {
-            final raw = (val as num).toDouble();
-            final ms = raw < 100000000000 ? raw * 1000 : raw;
-            _lastSeen = DateTime.fromMillisecondsSinceEpoch(ms.toInt());
+          if (e.snapshot.value != null) {
+            _lastSeen = DateTime.now();
             notifyListeners();
           }
         });

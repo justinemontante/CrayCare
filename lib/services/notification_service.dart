@@ -95,9 +95,9 @@ Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
 
     final isFeeding = data['feeding'] == 'true';
     final isSampling = data['sampling'] == 'true';
-
+    final isWarning = data['warning'] == 'true';
     final showCritical = data['critical'] != 'false';
-    if (!showCritical && !isFeeding && !isSampling) return;
+    if (!showCritical && !isFeeding && !isSampling && !isWarning) return;
 
     try {
       final user = FirebaseAuth.instance.currentUser;
@@ -115,7 +115,11 @@ Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
             debugPrint('[FCM] Skipping sampling notification because it is turned off in preferences.');
             return;
           }
-          if (!isFeeding && !isSampling && map['critical'] == false) {
+          if (isWarning && map['warning'] == false) {
+            debugPrint('[FCM] Skipping warning notification because it is turned off in preferences.');
+            return;
+          }
+          if (!isFeeding && !isSampling && !isWarning && map['critical'] == false) {
             debugPrint('[FCM] Skipping critical notification because it is turned off in preferences.');
             return;
           }
@@ -298,6 +302,7 @@ class NotificationService extends ChangeNotifier {
   bool _notifSound = true;
   bool _notifVibration = true;
   bool _notifCritical = true;
+  bool _notifWarning = true;
   bool _notifFeeding = true;
   bool _notifSampling = true;
 
@@ -358,7 +363,8 @@ class NotificationService extends ChangeNotifier {
     'waterlevel': 'cm',
   };
 
-  List<NotificationItem> get notifications => List.unmodifiable(_notifications);
+  List<NotificationItem> get notifications =>
+      List.unmodifiable(_notifications.where((n) => n.type != 'device_auto'));
 
   int get unreadCount {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
@@ -563,12 +569,14 @@ class NotificationService extends ChangeNotifier {
 
     final isFeeding = data['feeding'] == 'true';
     final isSampling = data['sampling'] == 'true';
+    final isWarning = data['warning'] == 'true';
     final showCritical = data['critical'] != 'false';
-    if (!showCritical && !isFeeding && !isSampling) return;
+    if (!showCritical && !isFeeding && !isSampling && !isWarning) return;
 
     if (isFeeding && !_notifFeeding) return;
     if (isSampling && !_notifSampling) return;
-    if (!isFeeding && !isSampling && !_notifCritical) return;
+    if (isWarning && !_notifWarning) return;
+    if (!isFeeding && !isSampling && !isWarning && !_notifCritical) return;
 
     final playSound = data['sound'] != 'false' && _notifSound;
     final vibrate = data['vibration'] != 'false' && _notifVibration;
@@ -647,6 +655,7 @@ class NotificationService extends ChangeNotifier {
           _notifSound = map['sound'] as bool? ?? true;
           _notifVibration = map['vibration'] as bool? ?? true;
           _notifCritical = map['critical'] as bool? ?? true;
+          _notifWarning = map['warning'] as bool? ?? true;
           _notifFeeding = map['feeding'] as bool? ?? true;
           _notifSampling = map['sampling'] as bool? ?? true;
           notifyListeners();
@@ -937,15 +946,28 @@ class NotificationService extends ChangeNotifier {
     if (_lastSamplingReminderDate == todayKey) return;
 
     final tank = TankService.instance;
-    if (tank.daysSinceLastSampling < 7) return;
+    final effectiveLastDate = tank.samplingHistory.isNotEmpty
+        ? tank.samplingHistory.last.date
+        : tank.stockingDate;
+    final effectiveDate = DateTime(effectiveLastDate.year, effectiveLastDate.month, effectiveLastDate.day);
+    final daysSince = now.difference(effectiveDate).inDays;
+    if (daysSince < 7) return;
 
-    // Check if last reminder was within 7 days (Firebase persisted marker)
-    final markerKey = 'sampling_reminder';
-    _notifRef.child('markers/$markerKey').once().then((marker) {
+    final currentSampleTs = effectiveLastDate.millisecondsSinceEpoch;
+
+    const markerKey = 'sampling_reminder';
+    _notifRef.child('markers/$markerKey').once().then((marker) async {
       if (marker.snapshot.exists) {
-        final lastTs = marker.snapshot.value is int ? marker.snapshot.value as int : 0;
-        if (lastTs > 0) {
-          final lastReminder = DateTime.fromMillisecondsSinceEpoch(lastTs);
+        final val = marker.snapshot.value;
+        if (val is Map) {
+          final lastSampleTs = val['sampleTs'] as int? ?? 0;
+          final lastReminderTs = val['reminderTs'] as int? ?? 0;
+          if (lastSampleTs == currentSampleTs && lastReminderTs > 0) {
+            final lastReminder = DateTime.fromMillisecondsSinceEpoch(lastReminderTs);
+            if (now.difference(lastReminder).inDays < 7) return;
+          }
+        } else if (val is int && val > 0) {
+          final lastReminder = DateTime.fromMillisecondsSinceEpoch(val);
           if (now.difference(lastReminder).inDays < 7) return;
         }
       }
@@ -955,12 +977,50 @@ class NotificationService extends ChangeNotifier {
         type: 'reminder',
         title: 'Sampling Reminder',
         message:
-            'It\'s been ${tank.daysSinceLastSampling} days since last sampling. Time to record growth data!',
+            'It\'s been $daysSince days since last sampling. Time to record growth data!',
         timestamp: now,
       );
 
-      _notifRef.child('markers/$markerKey')
-          .set(now.millisecondsSinceEpoch);
+      _notifRef.child('markers/$markerKey').set({
+        'reminderTs': now.millisecondsSinceEpoch,
+        'sampleTs': currentSampleTs,
+      });
+
+      try {
+        String channelId = 'craycare_alerts_silent';
+        if (_notifSound && _notifVibration) {
+          channelId = 'craycare_alerts_sound_vibrate';
+        } else if (_notifSound) {
+          channelId = 'craycare_alerts_sound_only';
+        } else if (_notifVibration) {
+          channelId = 'craycare_alerts_vibrate_only';
+        }
+        await _localNotifications.show(
+          DateTime.now().millisecondsSinceEpoch ~/ 1000,
+          'Sampling Reminder',
+          'It\'s been $daysSince days since last sampling. Time to record growth data!',
+          NotificationDetails(
+            android: AndroidNotificationDetails(
+              channelId,
+              'CrayCare Alerts',
+              importance: _notifSound || _notifVibration
+                  ? Importance.high
+                  : Importance.low,
+              priority: Priority.high,
+              playSound: _notifSound,
+              enableVibration: _notifVibration,
+              vibrationPattern: !_notifVibration
+                  ? Int64List(0)
+                  : null,
+              sound: !_notifSound
+                  ? null
+                  : const RawResourceAndroidNotificationSound('default'),
+            ),
+          ),
+        );
+      } catch (e) {
+        debugPrint('[NotificationService] Local sampling notification error: $e');
+      }
     });
   }
 
@@ -1037,30 +1097,35 @@ class NotificationService extends ChangeNotifier {
       final label = _sensorLabels[key] ?? key;
       final unit = _sensorUnits[key] ?? '';
 
-      if (_notifCritical &&
-          prevZone != null &&
-          zone == 'CRITICAL' &&
-          prevZone != 'CRITICAL') {
-        _addNotification(
-          type: 'critical',
-          title: 'Critical: $label',
-          message: unit.isNotEmpty
-              ? '$label dropped to ${value.toStringAsFixed(1)} $unit.'
-              : '$label is at ${value.toStringAsFixed(1)}.',
-          timestamp: now,
-        );
-      } else if (_notifCritical &&
-          prevZone != null &&
-          zone != 'CRITICAL' &&
-          prevZone == 'CRITICAL') {
-        _addNotification(
-          type: 'operational',
-          title: '$label Normalized',
-          message: unit.isNotEmpty
-              ? '$label returned to optimal range (${value.toStringAsFixed(1)} $unit).'
-              : '$label returned to optimal range (${value.toStringAsFixed(1)}).',
-          timestamp: now,
-        );
+      if (prevZone != null && zone != prevZone) {
+        if (zone == 'CRITICAL' && _notifCritical) {
+          _addNotification(
+            type: 'critical',
+            title: 'Critical: $label',
+            message: unit.isNotEmpty
+                ? '$label dropped to ${value.toStringAsFixed(1)} $unit.'
+                : '$label is at ${value.toStringAsFixed(1)}.',
+            timestamp: now,
+          );
+        } else if (zone == 'WARNING' && _notifWarning && prevZone != 'CRITICAL') {
+          _addNotification(
+            type: 'warning',
+            title: 'Warning: $label',
+            message: unit.isNotEmpty
+                ? '$label approaching threshold (${value.toStringAsFixed(1)} $unit).'
+                : '$label approaching threshold (${value.toStringAsFixed(1)}).',
+            timestamp: now,
+          );
+        } else if (zone == 'OPTIMAL' && prevZone != 'OPTIMAL' && _notifCritical) {
+          _addNotification(
+            type: 'operational',
+            title: '$label Normalized',
+            message: unit.isNotEmpty
+                ? '$label returned to optimal range (${value.toStringAsFixed(1)} $unit).'
+                : '$label returned to optimal range (${value.toStringAsFixed(1)}).',
+            timestamp: now,
+          );
+        }
       }
 
       _previousZones[key] = zone;
