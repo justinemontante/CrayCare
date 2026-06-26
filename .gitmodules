@@ -1,0 +1,3 @@
+[submodule "ml-hf"]
+	path = ml-hf
+	url = https://huggingface.co/spaces/Justine15/craycare-ml-worker

@@ -36,10 +36,9 @@ INSIGHT_LABEL_NAMES = {
     3: "COMBO_TURB_DO",
     4: "COMBO_TEMP_TURB",
     5: "COMBO_PH_TURB",
-    6: "COMBO_PH_DO_ALK",
-    7: "ALL_CRITICAL",
-    8: "WARNING_GENERAL",
-    9: "CRITICAL_GENERAL",
+    6: "ALL_CRITICAL",
+    7: "WARNING_GENERAL",
+    8: "CRITICAL_GENERAL",
 }
 
 REC_LABEL_NAMES = {
@@ -49,10 +48,9 @@ REC_LABEL_NAMES = {
     3: "COMBO_TURB_DO",
     4: "COMBO_TEMP_TURB",
     5: "COMBO_PH_TURB",
-    6: "COMBO_PH_DO_ALK",
-    7: "ACTION_NEEDED",
-    8: "INSPECT",
-    9: "WARNING_SOME",
+    6: "ACTION_NEEDED",
+    7: "INSPECT",
+    8: "WARNING_SOME",
 }
 
 
@@ -93,9 +91,6 @@ def get_insight_label_id(overall_status, sensor_statuses):
         return 4  # COMBO_TEMP_TURB
     if ph_s != "OPTIMAL" and turb_s != "OPTIMAL":
         return 5  # COMBO_PH_TURB
-    if ph_s != "OPTIMAL" and do_s != "OPTIMAL":
-        return 6  # COMBO_PH_DO_ALK
-
     critical_count = sum(
         1
         for s in [
@@ -109,10 +104,10 @@ def get_insight_label_id(overall_status, sensor_statuses):
     )
 
     if critical_count == 5:
-        return 7  # ALL_CRITICAL
+        return 6  # ALL_CRITICAL
     if overall_status == "WARNING":
-        return 8  # WARNING_GENERAL
-    return 9  # CRITICAL_GENERAL
+        return 7  # WARNING_GENERAL
+    return 8  # CRITICAL_GENERAL
 
 
 def get_rec_label_id(overall_status, sensor_statuses):
@@ -135,9 +130,6 @@ def get_rec_label_id(overall_status, sensor_statuses):
         return 4  # COMBO_TEMP_TURB
     if ph_s != "OPTIMAL" and turb_s != "OPTIMAL":
         return 5  # COMBO_PH_TURB
-    if ph_s != "OPTIMAL" and do_s != "OPTIMAL":
-        return 6  # COMBO_PH_DO_ALK
-
     bitmask = 0
     if turb_s == "CRITICAL":
         bitmask |= 1 << 0
@@ -161,10 +153,10 @@ def get_rec_label_id(overall_status, sensor_statuses):
         bitmask |= 1 << 9
 
     if bitmask & 0x155:
-        return 7  # ACTION_NEEDED
+        return 6  # ACTION_NEEDED
     if bitmask == 0:
-        return 8  # INSPECT
-    return 9  # WARNING_SOME
+        return 7  # INSPECT
+    return 8  # WARNING_SOME
 
 
 def main():
