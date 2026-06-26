@@ -1,6 +1,10 @@
 # Submodules (separate repos)
 craycare/
 
+# Generated artifacts (root, not ml-hf/)
+models/
+dataset/
+
 # Windows reserved names
 nul
 
