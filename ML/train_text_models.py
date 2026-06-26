@@ -50,9 +50,14 @@ INSIGHT_LABEL_NAMES = {
     3: "COMBO_TURB_DO",
     4: "COMBO_TEMP_TURB",
     5: "COMBO_PH_TURB",
-    6: "ALL_CRITICAL",
-    7: "WARNING_GENERAL",
-    8: "CRITICAL_GENERAL",
+    6: "SINGLE_PH",
+    7: "SINGLE_DO",
+    8: "SINGLE_TEMP",
+    9: "SINGLE_TURB",
+    10: "SINGLE_WL",
+    11: "ALL_CRITICAL",
+    12: "WARNING_GENERAL",
+    13: "CRITICAL_GENERAL",
 }
 
 REC_LABEL_NAMES = {
@@ -62,9 +67,14 @@ REC_LABEL_NAMES = {
     3: "COMBO_TURB_DO",
     4: "COMBO_TEMP_TURB",
     5: "COMBO_PH_TURB",
-    6: "ACTION_NEEDED",
-    7: "INSPECT",
-    8: "WARNING_SOME",
+    6: "SINGLE_PH",
+    7: "SINGLE_DO",
+    8: "SINGLE_TEMP",
+    9: "SINGLE_TURB",
+    10: "SINGLE_WL",
+    11: "ALL_CRITICAL",
+    12: "INSPECT",
+    13: "WARNING_SOME",
 }
 
 
@@ -76,46 +86,33 @@ def get_insight_label_id(overall_status, sensor_statuses):
     ph_s = sensor_statuses.get("ph_status", "OPTIMAL")
     do_s = sensor_statuses.get("do_status", "OPTIMAL")
     turb_s = sensor_statuses.get("turb_status", "OPTIMAL")
+    wl_s = sensor_statuses.get("wl_status", "OPTIMAL")
 
-    # Combo: both sensors must be non-optimal
-    if temp_s != "OPTIMAL" and do_s != "OPTIMAL":
-        return 1  # COMBO_TEMP_DO
-    if ph_s != "OPTIMAL" and do_s != "OPTIMAL":
-        return 2  # COMBO_PH_DO
-    if turb_s != "OPTIMAL" and do_s != "OPTIMAL":
-        return 3  # COMBO_TURB_DO
-    if temp_s != "OPTIMAL" and turb_s != "OPTIMAL":
-        return 4  # COMBO_TEMP_TURB
-    if ph_s != "OPTIMAL" and turb_s != "OPTIMAL":
-        return 5  # COMBO_PH_TURB
-    critical_count = sum(
-        1
-        for s in [
-            temp_s,
-            ph_s,
-            do_s,
-            turb_s,
-            sensor_statuses.get("wl_status", "OPTIMAL"),
-        ]
-        if s == "CRITICAL"
-    )
-    warning_count = sum(
-        1
-        for s in [
-            temp_s,
-            ph_s,
-            do_s,
-            turb_s,
-            sensor_statuses.get("wl_status", "OPTIMAL"),
-        ]
-        if s == "WARNING"
-    )
+    sensors = {"temp": temp_s, "ph": ph_s, "do": do_s, "turb": turb_s, "wl": wl_s}
+    non_optimal = {k: v for k, v in sensors.items() if v != "OPTIMAL"}
 
-    if critical_count == 5:
-        return 6  # ALL_CRITICAL
+    if len(non_optimal) == 1:
+        sensor = list(non_optimal.keys())[0]
+        single_map = {"ph": 6, "do": 7, "temp": 8, "turb": 9, "wl": 10}
+        return single_map[sensor]
+
+    if "temp" in non_optimal and "do" in non_optimal:
+        return 1
+    if "ph" in non_optimal and "do" in non_optimal:
+        return 2
+    if "turb" in non_optimal and "do" in non_optimal:
+        return 3
+    if "temp" in non_optimal and "turb" in non_optimal:
+        return 4
+    if "ph" in non_optimal and "turb" in non_optimal:
+        return 5
+
+    critical_count = sum(1 for v in non_optimal.values() if v == "CRITICAL")
+    if critical_count >= 3:
+        return 11
     if overall_status == "WARNING":
-        return 7  # WARNING_GENERAL
-    return 8  # CRITICAL_GENERAL
+        return 12
+    return 13
 
 
 def get_rec_label_id(overall_status, sensor_statuses):
@@ -128,18 +125,29 @@ def get_rec_label_id(overall_status, sensor_statuses):
     turb_s = sensor_statuses.get("turb_status", "OPTIMAL")
     wl_s = sensor_statuses.get("wl_status", "OPTIMAL")
 
-    # Combo-based recommendations (precedence)
-    if temp_s != "OPTIMAL" and do_s != "OPTIMAL":
-        return 1  # COMBO_TEMP_DO
-    if ph_s != "OPTIMAL" and do_s != "OPTIMAL":
-        return 2  # COMBO_PH_DO
-    if turb_s != "OPTIMAL" and do_s != "OPTIMAL":
-        return 3  # COMBO_TURB_DO
-    if temp_s != "OPTIMAL" and turb_s != "OPTIMAL":
-        return 4  # COMBO_TEMP_TURB
-    if ph_s != "OPTIMAL" and turb_s != "OPTIMAL":
-        return 5  # COMBO_PH_TURB
-    # Per-sensor (no combo) — use bitmask
+    sensors = {"temp": temp_s, "ph": ph_s, "do": do_s, "turb": turb_s, "wl": wl_s}
+    non_optimal = {k: v for k, v in sensors.items() if v != "OPTIMAL"}
+
+    if len(non_optimal) == 1:
+        sensor = list(non_optimal.keys())[0]
+        single_map = {"ph": 6, "do": 7, "temp": 8, "turb": 9, "wl": 10}
+        return single_map[sensor]
+
+    if "temp" in non_optimal and "do" in non_optimal:
+        return 1
+    if "ph" in non_optimal and "do" in non_optimal:
+        return 2
+    if "turb" in non_optimal and "do" in non_optimal:
+        return 3
+    if "temp" in non_optimal and "turb" in non_optimal:
+        return 4
+    if "ph" in non_optimal and "turb" in non_optimal:
+        return 5
+
+    critical_count = sum(1 for v in non_optimal.values() if v == "CRITICAL")
+    if critical_count >= 3:
+        return 11
+
     bitmask = 0
     if turb_s == "CRITICAL":
         bitmask |= 1 << 0
@@ -162,15 +170,11 @@ def get_rec_label_id(overall_status, sensor_statuses):
     if wl_s == "WARNING":
         bitmask |= 1 << 9
 
-    # Action needed if CRITICAL present
-    if bitmask & 0x155:  # any CRITICAL bit set
-        return 6  # ACTION_NEEDED_GENERAL
-
+    if bitmask & 0x155:
+        return 11
     if bitmask == 0:
-        return 7  # INSPECT
-
-    # Just WARNINGs
-    return 8  # WARNING_SOME
+        return 12
+    return 13
 
 
 # ── Generate training data ─────────────────────────────────────
