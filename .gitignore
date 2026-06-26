@@ -1,3 +1,9 @@
+# Submodules (separate repos)
+craycare/
+
+# Windows reserved names
+nul
+
 # PlatformIO
 .pio/
 .pioenvs/
