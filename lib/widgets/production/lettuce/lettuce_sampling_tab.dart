@@ -43,6 +43,8 @@ class _LettuceSamplingTabState extends State<LettuceSamplingTab> {
             _buildSectionHeader('Lettuce Sampling'),
             const SizedBox(height: 8),
             _buildStatusBanner(service, canSample),
+            const SizedBox(height: 10),
+            const _LettuceNextSamplingPanel(),
             const SizedBox(height: 12),
             _buildSamplingForm(service, canSample),
             const SizedBox(height: 20),
@@ -456,4 +458,149 @@ class _LettuceSamplingTabState extends State<LettuceSamplingTab> {
   }
 
   static const _months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+}
+
+class _LettuceNextSamplingPanel extends StatelessWidget {
+  const _LettuceNextSamplingPanel();
+
+  @override
+  Widget build(BuildContext context) {
+    final service = LettuceService.instance;
+    final daysSince = service.daysSinceLastLettuceSampling;
+    final daysRemaining = daysSince >= 7 ? 0 : 7 - daysSince;
+    final nextWeekNum = service.samplingHistory.length + 1;
+    final hasSampling = service.samplingHistory.isNotEmpty;
+
+    String nextDateStr;
+    if (hasSampling) {
+      final nextDate = service.samplingHistory.last.date.add(const Duration(days: 7));
+      nextDateStr = _formatDate(nextDate);
+    } else {
+      final nextDate = service.plantingDate.add(const Duration(days: 7));
+      nextDateStr = _formatDate(nextDate);
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFCFCFC),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
+        boxShadow: [BoxShadow(color: AppColors.darkWith(0.12), blurRadius: 16, offset: const Offset(0, 4))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.calendar_today_rounded, color: AppColors.success, size: 13),
+              const SizedBox(width: 6),
+              Text('Sampling Schedule', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.dark)),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(color: AppColors.success.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(6)),
+                child: Text('Week $nextWeekNum', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: AppColors.success)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Divider(height: 1, thickness: 1, color: AppColors.dark.withValues(alpha: 0.05)),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Next Session', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.45))),
+                  const SizedBox(height: 3),
+                  Text(
+                    daysRemaining == 0 ? 'Today (Due)' : nextDateStr,
+                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.success),
+                  ),
+                ],
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text('Time Remaining', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.45))),
+                  const SizedBox(height: 3),
+                  Text(
+                    daysRemaining == 0 ? 'Ready to record' : '$daysRemaining days left',
+                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: AppColors.success),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _buildStepTracker(daysSince >= 7 ? 7 : daysSince, 7),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStepTracker(int currentDay, int totalDays) {
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: List.generate(totalDays, (index) {
+            final day = index + 1;
+            final isPast = day < currentDay;
+            final isCurrent = day == currentDay;
+            return Expanded(
+              child: Row(
+                children: [
+                  _buildStepDot(day, isPast, isCurrent),
+                  if (index < totalDays - 1)
+                    Expanded(
+                      child: Container(
+                        height: 2,
+                        color: isPast ? AppColors.success : AppColors.darkWith(0.08),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          }),
+        ),
+        const SizedBox(height: 6),
+        Text('Day $currentDay', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.5))),
+      ],
+    );
+  }
+
+  Widget _buildStepDot(int day, bool isPast, bool isCurrent) {
+    return Container(
+      width: 22,
+      height: 22,
+      decoration: BoxDecoration(
+        color: isPast ? AppColors.success : (isCurrent ? AppColors.warning : Colors.white),
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: isPast ? AppColors.success : (isCurrent ? AppColors.warning : AppColors.darkWith(0.15)),
+          width: 2,
+        ),
+        boxShadow: isCurrent ? [BoxShadow(color: AppColors.warning.withValues(alpha: 0.2), blurRadius: 6, spreadRadius: 1)] : null,
+      ),
+      child: Center(
+        child: Text(
+          '$day',
+          style: TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.bold,
+            color: isPast || isCurrent ? Colors.white : AppColors.darkWith(0.5),
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _formatDate(DateTime date) {
+    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${months[date.month - 1]} ${date.day}, ${date.year}';
+  }
 }

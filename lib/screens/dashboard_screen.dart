@@ -1085,6 +1085,61 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
+  Widget _buildLettuceNextSamplingRow() {
+    final lettuce = LettuceService.instance;
+    if (!lettuce.isInitialized) {
+      return _buildGrayDetailRow(Icons.calendar_today, 'Next Sampling', '--');
+    }
+    final daysLeft = lettuce.daysUntilNextLettuceSampling;
+    final isReady = daysLeft == 0;
+
+    String nextDateStr;
+    if (lettuce.samplingHistory.isNotEmpty) {
+      final nextDate = lettuce.samplingHistory.last.date.add(const Duration(days: 7));
+      nextDateStr = _formatTankDate(nextDate);
+    } else {
+      final nextDate = lettuce.plantingDate.add(const Duration(days: 7));
+      nextDateStr = _formatTankDate(nextDate);
+    }
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.calendar_today, size: 14, color: AppColors.darkWith(0.5)),
+            const SizedBox(width: 8),
+            Text('Next Sampling', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: AppColors.darkWith(0.7))),
+          ],
+        ),
+        isReady
+            ? GestureDetector(
+                onTap: () => widget.onTankTab?.call(-1),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text('Ready!', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.success)),
+                    const SizedBox(height: 2),
+                    FadeTransition(
+                      opacity: _pulseAnimation,
+                      child: Text('Tap to record', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: AppColors.success)),
+                    ),
+                  ],
+                ),
+              )
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(nextDateStr, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.dark)),
+                  const SizedBox(height: 2),
+                  _AnimatedDaysLeft(daysLeft: daysLeft),
+                ],
+              ),
+      ],
+    );
+  }
+
   Widget _buildGrayDetailRow(IconData icon, String label, String value) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1160,7 +1215,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       aliveStr = '${service.currentQuantity}';
       mortalityStr = '${batch.totalMortality}';
       aphStr = latestHeight != null ? '${latestHeight.toStringAsFixed(1)} cm' : '--';
-      leafStr = latestLeafCount != null ? '${latestLeafCount}' : '--';
+      leafStr = latestLeafCount != null ? '$latestLeafCount' : '--';
     } else {
       popStr = survivalStr = aliveStr = mortalityStr = aphStr = leafStr = '--';
     }
@@ -1277,27 +1332,29 @@ class _DashboardScreenState extends State<DashboardScreen>
                   ),
                   _buildGrayDetailRow(Icons.calendar_today, 'Planted Date', hasData ? _formatTankDate(batch!.plantingDate) : '--'),
                   if (service.samplingHistory.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    _buildGrayDetailRow(
-                      Icons.biotech_rounded,
-                      'Last Sampling',
-                      _formatTankDate(service.samplingHistory.last.date),
-                    ),
-                    const SizedBox(height: 8),
-                    _buildGrayDetailRow(
-                      Icons.straighten_rounded,
-                      'Avg Height',
-                      '${service.samplingHistory.last.avgHeight.toStringAsFixed(1)} cm',
-                    ),
-                    const SizedBox(height: 8),
-                    _buildGrayDetailRow(
-                      Icons.eco_rounded,
-                      'Avg Leaves',
-                      service.samplingHistory.last.avgLeafCount.toStringAsFixed(0),
-                    ),
-                  ],
                   const SizedBox(height: 8),
-                  _buildGrayDetailRow(Icons.timelapse_rounded, 'Days in Cultivation', '${service.daysInCultivation}d'),
+                  _buildGrayDetailRow(
+                    Icons.biotech_rounded,
+                    'Last Sampling',
+                    _formatTankDate(service.samplingHistory.last.date),
+                  ),
+                  const SizedBox(height: 8),
+                  _buildGrayDetailRow(
+                    Icons.straighten_rounded,
+                    'Avg Height',
+                    '${service.samplingHistory.last.avgHeight.toStringAsFixed(1)} cm',
+                  ),
+                  const SizedBox(height: 8),
+                  _buildGrayDetailRow(
+                    Icons.eco_rounded,
+                    'Avg Leaves',
+                    service.samplingHistory.last.avgLeafCount.toStringAsFixed(0),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                _buildLettuceNextSamplingRow(),
+                const SizedBox(height: 8),
+                _buildGrayDetailRow(Icons.timelapse_rounded, 'Days in Cultivation', '${service.daysInCultivation}d'),
                   if (service.harvestRecords.isNotEmpty) ...[
                     const SizedBox(height: 8),
                     const Padding(
