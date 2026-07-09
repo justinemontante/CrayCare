@@ -945,82 +945,105 @@ class NotificationService extends ChangeNotifier {
     final todayKey = '${now.month}/${now.day}';
     if (_lastSamplingReminderDate == todayKey) return;
 
-    final tank = TankService.instance;
-    final effectiveLastDate = tank.samplingHistory.isNotEmpty
-        ? tank.samplingHistory.last.date
-        : tank.stockingDate;
-    final effectiveDate = DateTime(effectiveLastDate.year, effectiveLastDate.month, effectiveLastDate.day);
-    final daysSince = now.difference(effectiveDate).inDays;
-    if (daysSince < 7) return;
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (uid.isEmpty) return;
 
-    final currentSampleTs = effectiveLastDate.millisecondsSinceEpoch;
+    // Read active batch's sampling data from Firebase (not from TankService,
+    // which reflects the selected batch, not necessarily the active one)
+    FirebaseDatabase.instance.ref('production/$uid/crayfish/sampling').once().then((snap) {
+      final tank = TankService.instance;
+      DateTime effectiveLastDate;
 
-    const markerKey = 'sampling_reminder';
-    _notifRef.child('markers/$markerKey').once().then((marker) async {
-      if (marker.snapshot.exists) {
-        final val = marker.snapshot.value;
-        if (val is Map) {
-          final lastSampleTs = val['sampleTs'] as int? ?? 0;
-          final lastReminderTs = val['reminderTs'] as int? ?? 0;
-          if (lastSampleTs == currentSampleTs && lastReminderTs > 0) {
-            final lastReminder = DateTime.fromMillisecondsSinceEpoch(lastReminderTs);
+      if (snap.snapshot.exists && snap.snapshot.value != null) {
+        final sData = snap.snapshot.value as Map;
+        int? latestTs;
+        for (final entry in sData.entries) {
+          final map = entry.value as Map;
+          final ts = map['date'] as int?;
+          if (ts != null && (latestTs == null || ts > latestTs)) latestTs = ts;
+        }
+        effectiveLastDate = latestTs != null
+            ? DateTime.fromMillisecondsSinceEpoch(latestTs)
+            : DateTime.now();
+      } else {
+        final activeBatches = tank.activeBatches;
+        if (activeBatches.isEmpty) return;
+        effectiveLastDate = activeBatches.first.stockingDate;
+      }
+
+      final effectiveDate = DateTime(effectiveLastDate.year, effectiveLastDate.month, effectiveLastDate.day);
+      final daysSince = now.difference(effectiveDate).inDays;
+      if (daysSince < 7) return;
+
+      final currentSampleTs = effectiveLastDate.millisecondsSinceEpoch;
+
+      const markerKey = 'sampling_reminder';
+      _notifRef.child('markers/$markerKey').once().then((marker) async {
+        if (marker.snapshot.exists) {
+          final val = marker.snapshot.value;
+          if (val is Map) {
+            final lastSampleTs = val['sampleTs'] as int? ?? 0;
+            final lastReminderTs = val['reminderTs'] as int? ?? 0;
+            if (lastSampleTs == currentSampleTs && lastReminderTs > 0) {
+              final lastReminder = DateTime.fromMillisecondsSinceEpoch(lastReminderTs);
+              if (now.difference(lastReminder).inDays < 7) return;
+            }
+          } else if (val is int && val > 0) {
+            final lastReminder = DateTime.fromMillisecondsSinceEpoch(val);
             if (now.difference(lastReminder).inDays < 7) return;
           }
-        } else if (val is int && val > 0) {
-          final lastReminder = DateTime.fromMillisecondsSinceEpoch(val);
-          if (now.difference(lastReminder).inDays < 7) return;
         }
-      }
 
-      _lastSamplingReminderDate = todayKey;
-      _addNotification(
-        type: 'reminder',
-        title: 'Sampling Reminder',
-        message:
-            'It\'s been $daysSince days since last sampling. Time to record growth data!',
-        timestamp: now,
-      );
-
-      _notifRef.child('markers/$markerKey').set({
-        'reminderTs': now.millisecondsSinceEpoch,
-        'sampleTs': currentSampleTs,
-      });
-
-      try {
-        String channelId = 'craycare_alerts_silent';
-        if (_notifSound && _notifVibration) {
-          channelId = 'craycare_alerts_sound_vibrate';
-        } else if (_notifSound) {
-          channelId = 'craycare_alerts_sound_only';
-        } else if (_notifVibration) {
-          channelId = 'craycare_alerts_vibrate_only';
-        }
-        await _localNotifications.show(
-          DateTime.now().millisecondsSinceEpoch ~/ 1000,
-          'Sampling Reminder',
-          'It\'s been $daysSince days since last sampling. Time to record growth data!',
-          NotificationDetails(
-            android: AndroidNotificationDetails(
-              channelId,
-              'CrayCare Alerts',
-              importance: _notifSound || _notifVibration
-                  ? Importance.high
-                  : Importance.low,
-              priority: Priority.high,
-              playSound: _notifSound,
-              enableVibration: _notifVibration,
-              vibrationPattern: !_notifVibration
-                  ? Int64List(0)
-                  : null,
-              sound: !_notifSound
-                  ? null
-                  : const RawResourceAndroidNotificationSound('default'),
-            ),
-          ),
+        _lastSamplingReminderDate = todayKey;
+        _addNotification(
+          type: 'reminder',
+          title: 'Sampling Reminder',
+          message:
+              'It\'s been $daysSince days since last sampling. Time to record growth data!',
+          timestamp: now,
         );
-      } catch (e) {
-        debugPrint('[NotificationService] Local sampling notification error: $e');
-      }
+
+        _notifRef.child('markers/$markerKey').set({
+          'reminderTs': now.millisecondsSinceEpoch,
+          'sampleTs': currentSampleTs,
+        });
+
+        try {
+          String channelId = 'craycare_alerts_silent';
+          if (_notifSound && _notifVibration) {
+            channelId = 'craycare_alerts_sound_vibrate';
+          } else if (_notifSound) {
+            channelId = 'craycare_alerts_sound_only';
+          } else if (_notifVibration) {
+            channelId = 'craycare_alerts_vibrate_only';
+          }
+          await _localNotifications.show(
+            DateTime.now().millisecondsSinceEpoch ~/ 1000,
+            'Sampling Reminder',
+            'It\'s been $daysSince days since last sampling. Time to record growth data!',
+            NotificationDetails(
+              android: AndroidNotificationDetails(
+                channelId,
+                'CrayCare Alerts',
+                importance: _notifSound || _notifVibration
+                    ? Importance.high
+                    : Importance.low,
+                priority: Priority.high,
+                playSound: _notifSound,
+                enableVibration: _notifVibration,
+                vibrationPattern: !_notifVibration
+                    ? Int64List(0)
+                    : null,
+                sound: !_notifSound
+                    ? null
+                    : const RawResourceAndroidNotificationSound('default'),
+              ),
+            ),
+          );
+        } catch (e) {
+          debugPrint('[NotificationService] Local sampling notification error: $e');
+        }
+      });
     });
   }
 

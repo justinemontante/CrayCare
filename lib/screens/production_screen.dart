@@ -3,38 +3,60 @@ import 'package:flutter/services.dart';
 import '../theme/app_colors.dart';
 import '../models/crayfish_stage.dart';
 import '../services/tank_service.dart';
-import '../widgets/tanks/inventory_tab.dart';
-import '../widgets/tanks/sampling_tab.dart';
-import '../widgets/tanks/trends_tab.dart';
+import '../services/lettuce_service.dart';
+import '../widgets/production/crayfish/crayfish_overview_tab.dart';
+import '../widgets/production/crayfish/crayfish_sampling_tab.dart';
+import '../widgets/production/crayfish/crayfish_trends_tab.dart';
+import '../widgets/production/crayfish/crayfish_batch_list.dart';
+import '../widgets/production/lettuce/lettuce_overview_tab.dart';
+import '../widgets/production/lettuce/lettuce_trends_tab.dart';
+import '../widgets/production/lettuce/lettuce_batch_list.dart';
+import '../widgets/production/lettuce/lettuce_sampling_tab.dart';
 import '../widgets/common/read_only_banner.dart';
 import '../utils/snackbar_helper.dart';
 
-class TanksScreen extends StatefulWidget {
+class ProductionScreen extends StatefulWidget {
   final bool isOwner;
-  const TanksScreen({super.key, this.isOwner = true});
+  const ProductionScreen({super.key, this.isOwner = true});
 
   @override
-  State<TanksScreen> createState() => TanksScreenState();
+  State<ProductionScreen> createState() => ProductionScreenState();
 }
 
-class TanksScreenState extends State<TanksScreen> {
-  int _activeTab = 0;
+class ProductionScreenState extends State<ProductionScreen> {
+  String? _productionMode; // null = picker, 'crayfish', 'lettuce'
+  int _crayfishTab = 0; // 0 = Overview, 1 = Sampling, 2 = Growth
+  int _lettuceTab = 0;  // 0 = Overview, 1 = Sampling, 2 = Growth
+
   DateTime _lastEdited = DateTime.now();
 
+  void setProductionMode(String mode) {
+    setState(() => _productionMode = mode);
+  }
+
   void switchToTab(int index) {
-    if (index < 0 || index > 2) return;
-    setState(() => _activeTab = index);
+    if (index < 0) {
+      setState(() => _productionMode = 'lettuce');
+      return;
+    }
+    if (index > 2) return;
+    setState(() {
+      _productionMode = 'crayfish';
+      _crayfishTab = index;
+    });
   }
 
   @override
   void initState() {
     super.initState();
     TankService.instance.addListener(_refreshUI);
+    LettuceService.instance.addListener(_refreshUI);
   }
 
   @override
   void dispose() {
     TankService.instance.removeListener(_refreshUI);
+    LettuceService.instance.removeListener(_refreshUI);
     super.dispose();
   }
 
@@ -49,35 +71,172 @@ class TanksScreenState extends State<TanksScreen> {
       child: Column(
         children: [
           _buildHeader(),
-          _buildTabBar(),
-          if (!widget.isOwner) _buildReadOnlyBanner(),
+          if (_productionMode != null && !widget.isOwner) _buildReadOnlyBanner(),
           Expanded(
-            child: IndexedStack(
-              index: _activeTab,
-              children: [
-                InventoryTab(
-                  onShowInitModal: _showInitModal,
-                  onShowMortalityModal: _showMortalityModal,
-                  onShowEditModal: _showEditModal,
-                  onShowLogsModal: _showLogsModal,
-                  hasSetup: TankService.instance.isInitialized,
-                  lastEdited: _lastEdited,
-                  isOwner: widget.isOwner,
-                ),
-                SamplingTab(
-                  lastEdited: _lastEdited,
-                  isOwner: widget.isOwner,
-                ),
-                TrendsTab(
-                  lastEdited: _lastEdited,
-                  onInfoTap: _showGrowthStageReferenceModal,
-                ),
-              ],
-            ),
+            child: _productionMode == 'crayfish'
+                ? _buildCrayfishContent()
+                : _buildLettuceContent(),
           ),
         ],
       ),
     );
+  }
+
+  Widget _buildCrayfishContent() {
+    final selectedBatchId = TankService.instance.selectedBatchId;
+    
+    if (selectedBatchId == null) {
+      return Column(
+        children: [
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              child: CrayfishBatchList(
+                onNewBatch: () => _showSetupForm(isEdit: false),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          child: Row(
+            children: [
+              GestureDetector(
+                onTap: () => TankService.instance.selectBatch(null),
+                child: Row(
+                  children: [
+                    Icon(Icons.arrow_back_ios_new_rounded, size: 14, color: AppColors.primary),
+                    const SizedBox(width: 4),
+                    Text('Batches', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.primary)),
+                  ],
+                ),
+              ),
+              const Spacer(),
+            ],
+          ),
+        ),
+        const SizedBox(height: 6),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          child: _buildCrayfishSubTabBar(),
+        ),
+        Expanded(
+          child: _buildActiveCrayfishTab(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLettuceContent() {
+    final selectedBatchId = LettuceService.instance.selectedBatchId;
+    
+    if (selectedBatchId == null) {
+      return Column(
+        children: [
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              child: LettuceBatchList(
+                onNewBatch: _showLettuceInitModal,
+                isOwner: widget.isOwner,
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          child: Row(
+            children: [
+              GestureDetector(
+                onTap: () => LettuceService.instance.selectBatch(null),
+                child: Row(
+                  children: [
+                    Icon(Icons.arrow_back_ios_new_rounded, size: 14, color: AppColors.primary),
+                    const SizedBox(width: 4),
+                    Text('Batches', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.primary)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 6),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          child: _buildLettuceSubTabBar(),
+        ),
+        Expanded(
+          child: _buildActiveLettuceTab(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActiveCrayfishTab() {
+    final batchKey = '${TankService.instance.selectedBatchId}_$_lastEdited';
+    switch (_crayfishTab) {
+      case 0:return OverviewTab(
+          key: ValueKey('overview_$batchKey'),
+          onShowInitModal: _showInitModal,
+          onShowMortalityModal: _showMortalityModal,
+          onShowEditModal: _showEditModal,
+          onShowLogsModal: _showLogsModal,
+          onShowCompleteBatchModal: _startNewBatch,
+          hasSetup: TankService.instance.isInitialized,
+          lastEdited: _lastEdited,
+          isOwner: widget.isOwner,
+        );
+      case 1:
+        return SamplingTab(
+          key: ValueKey('sampling_$batchKey'),
+          lastEdited: _lastEdited,
+          isOwner: widget.isOwner,
+        );
+      case 2:
+        return TrendsTab(
+          key: ValueKey('trends_$batchKey'),
+          lastEdited: _lastEdited,
+          onInfoTap: _showGrowthStageReferenceModal,
+        );
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  Widget _buildActiveLettuceTab() {
+    switch (_lettuceTab) {
+      case 0:
+        return LettuceOverviewTab(
+          key: ValueKey('lettuce_overview_$_lastEdited'),
+          onShowMortalityModal: _showLettuceMortalityModal,
+          onShowEditModal: _showLettuceEditModal,
+          onShowLogsModal: _showLettuceLogsModal,
+          lastEdited: _lastEdited,
+          isOwner: widget.isOwner,
+        );
+      case 1:
+        return LettuceSamplingTab(
+          lastEdited: _lastEdited,
+          isOwner: widget.isOwner,
+        );
+      case 2:
+        return LettuceTrendsTab(
+          key: ValueKey('lettuce_trends_$_lastEdited'),
+          lastEdited: _lastEdited,
+        );
+      default:
+        return const SizedBox.shrink();
+    }
   }
 
   Widget _buildHeader() {
@@ -134,7 +293,7 @@ class TanksScreenState extends State<TanksScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Tank — Grow-out',
+                      'Production Management',
                       style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w800,
@@ -143,14 +302,41 @@ class TanksScreenState extends State<TanksScreen> {
                       ),
                     ),
                     const SizedBox(height: 2),
-                    Text(
-                      'Crayfish Growth Tracker',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.dark.withValues(alpha: 0.5),
-                      ),
-                    ),
+                    _productionMode == null
+                        ? Text(
+                            'Crayfish & Lettuce Tracker',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.dark.withValues(alpha: 0.5),
+                            ),
+                          )
+                        : Row(
+                            children: [
+                              Container(
+                                width: 8, height: 8,
+                                decoration: BoxDecoration(
+                                  color: _productionMode == 'crayfish'
+                                      ? AppColors.primary
+                                      : AppColors.success,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                _productionMode == 'crayfish'
+                                    ? 'Crayfish'
+                                    : 'Lettuce',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: _productionMode == 'crayfish'
+                                      ? AppColors.primary
+                                      : AppColors.success,
+                                ),
+                              ),
+                            ],
+                          ),
                   ],
                 ),
               ],
@@ -161,76 +347,138 @@ class TanksScreenState extends State<TanksScreen> {
     );
   }
 
-  Widget _buildTabBar() {
-    final tabs = [
-      (
-        _activeTab == 0 ? Icons.inventory_2 : Icons.inventory_2_outlined,
-        'Inventory',
-      ),
-      (_activeTab == 1 ? Icons.speed : Icons.speed_outlined, 'Sampling'),
-      (
-        _activeTab == 2 ? Icons.trending_up : Icons.trending_up_outlined,
-        'Trends',
-      ),
+  Widget _buildCrayfishSubTabBar() {
+    final subTabs = [
+      (Icons.dashboard_rounded, 'Overview'),
+      (Icons.speed_outlined, 'Sampling'),
+      (Icons.trending_up_rounded, 'Growth'),
     ];
     return Container(
-      margin: const EdgeInsets.fromLTRB(12, 4, 12, 14),
-      padding: const EdgeInsets.all(5),
+      padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: AppColors.dark.withValues(alpha: 0.03),
-        borderRadius: BorderRadius.circular(16),
+        color: AppColors.dark.withValues(alpha: 0.02),
+        borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
-        children: List.generate(tabs.length, (i) {
-          final isActive = _activeTab == i;
-          return Expanded(
-            child: GestureDetector(
-              onTap: () => setState(() => _activeTab = i),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                decoration: BoxDecoration(
-                  color: isActive ? Colors.white : Colors.transparent,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: isActive
-                      ? [
-                          BoxShadow(
-                            color: AppColors.dark.withValues(alpha: 0.05),
-                            blurRadius: 10,
-                            offset: const Offset(0, 2),
-                          ),
-                        ]
-                      : null,
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      tabs[i].$1,
-                      size: 14,
-                      color: isActive
-                          ? AppColors.primary
-                          : AppColors.dark.withValues(alpha: 0.4),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      tabs[i].$2,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
+        children: [
+          ...List.generate(subTabs.length, (i) {
+            final isActive = _crayfishTab == i;
+            return Expanded(
+              child: GestureDetector(
+                onTap: () => setState(() => _crayfishTab = i),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  decoration: BoxDecoration(
+                    color: isActive ? Colors.white : Colors.transparent,
+                    borderRadius: BorderRadius.circular(10),
+                    boxShadow: isActive
+                        ? [
+                            BoxShadow(
+                              color: AppColors.dark.withValues(alpha: 0.04),
+                              blurRadius: 6,
+                              offset: const Offset(0, 1),
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        subTabs[i].$1,
+                        size: 13,
                         color: isActive
                             ? AppColors.primary
-                            : AppColors.dark.withValues(alpha: 0.4),
+                            : AppColors.dark.withValues(alpha: 0.45),
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 6),
+                      Text(
+                        subTabs[i].$2,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: isActive
+                              ? AppColors.primary
+                              : AppColors.dark.withValues(alpha: 0.45),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          );
-        }),
+            );
+          }),
+        ],
       ),
     );
   }
+
+  Widget _buildLettuceSubTabBar() {
+    final subTabs = [
+      (Icons.eco_rounded, 'Overview'),
+      (Icons.biotech_rounded, 'Sampling'),
+      (Icons.show_chart_rounded, 'Growth'),
+    ];
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: AppColors.dark.withValues(alpha: 0.02),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          ...List.generate(subTabs.length, (i) {
+            final isActive = _lettuceTab == i;
+            return Expanded(
+              child: GestureDetector(
+                onTap: () => setState(() => _lettuceTab = i),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  decoration: BoxDecoration(
+                    color: isActive ? Colors.white : Colors.transparent,
+                    borderRadius: BorderRadius.circular(10),
+                    boxShadow: isActive
+                        ? [
+                            BoxShadow(
+                              color: AppColors.dark.withValues(alpha: 0.04),
+                              blurRadius: 6,
+                              offset: const Offset(0, 1),
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        subTabs[i].$1,
+                        size: 13,
+                        color: isActive
+                            ? AppColors.success
+                            : AppColors.dark.withValues(alpha: 0.45),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        subTabs[i].$2,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: isActive
+                              ? AppColors.success
+                              : AppColors.dark.withValues(alpha: 0.45),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
 
   void _showGrowthStageReferenceModal() {
     final scrollCtrl = ScrollController();
@@ -434,6 +682,11 @@ class TanksScreenState extends State<TanksScreen> {
   }
 
   void _showInitModal() => _showSetupForm(isEdit: false);
+
+  void _startNewBatch() {
+    _showSetupForm(isEdit: false);
+  }
+
   void _showEditModal() {
     if (TankService.instance.samplingHistory.isNotEmpty) {
       showBeautifulSnackbar(
@@ -447,6 +700,9 @@ class TanksScreenState extends State<TanksScreen> {
   }
 
   void _showSetupForm({required bool isEdit}) {
+    final batchNameCtrl = TextEditingController(
+      text: isEdit ? (TankService.instance.selectedBatch?.batchId ?? '') : '',
+    );
     final countCtrl = TextEditingController(
       text: isEdit ? '${TankService.instance.initialCount}' : '',
     );
@@ -474,6 +730,8 @@ class TanksScreenState extends State<TanksScreen> {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setLocalState) {
+            bool isSaving = false;
+
             String? validateSample() {
               final pop = int.tryParse(countCtrl.text) ?? 0;
               final sample = int.tryParse(sampleCountCtrl.text) ?? 0;
@@ -553,6 +811,8 @@ class TanksScreenState extends State<TanksScreen> {
                       ],
                     ),
                     const SizedBox(height: 24),
+                    _buildBatchNameField(batchNameCtrl),
+                    const SizedBox(height: 4),
                     _buildInfoCard(
                       Image.asset(
                         'assets/images/InitialPopulation.png',
@@ -601,7 +861,7 @@ class TanksScreenState extends State<TanksScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
-                        onPressed: sampleError != null
+                        onPressed: (sampleError != null || isSaving)
                             ? null
                             : () async {
                                 final count = int.tryParse(countCtrl.text) ?? 0;
@@ -615,21 +875,43 @@ class TanksScreenState extends State<TanksScreen> {
                                     0.0;
 
                                 if (count > 0 && sampleCount > 0) {
-                                  await TankService.instance.initializeGrowOut(
-                                    count,
-                                    sampleCount,
-                                    totalWeight,
-                                    totalLength,
-                                    DateTime.now(),
-                                  );
-                                  Navigator.pop(ctx);
-                                  showBeautifulSnackbar(
-                                    context,
-                                    isEdit
-                                        ? 'Setup beautifully updated!'
-                                        : 'Grow-out successfully initialized!',
-                                    true,
-                                  );
+                                  setLocalState(() => isSaving = true);
+                                  try {
+                                    if (TankService.instance.isInitialized && !TankService.instance.isArchiveView) {
+                                      await TankService.instance.completeBatch(
+                                        harvestCount: 0,
+                                        harvestWeightGrams: null,
+                                      );
+                                    }
+                                    await TankService.instance.initializeGrowOut(
+                                      count,
+                                      sampleCount,
+                                      totalWeight,
+                                      totalLength,
+                                      DateTime.now(),
+                                      batchName: batchNameCtrl.text.trim(),
+                                    );
+                                  } catch (e) {
+                                    setLocalState(() => isSaving = false);
+                                    if (ctx.mounted) {
+                                      showBeautifulSnackbar(
+                                        ctx,
+                                        e.toString().replaceFirst('Exception: ', ''),
+                                        false,
+                                      );
+                                    }
+                                    return;
+                                  }
+                                  if (ctx.mounted) Navigator.pop(ctx);
+                                  if (mounted) {
+                                    showBeautifulSnackbar(
+                                      context,
+                                      isEdit
+                                          ? 'Setup beautifully updated!'
+                                          : 'Grow-out successfully initialized!',
+                                      true,
+                                    );
+                                  }
                                 }
                               },
                         style: ElevatedButton.styleFrom(
@@ -645,15 +927,24 @@ class TanksScreenState extends State<TanksScreen> {
                           ),
                           elevation: 0,
                         ),
-                        child: Text(
-                          isEdit
-                              ? 'Update Initialization'
-                              : 'Initialize Grow-Out',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                          ),
-                        ),
+                        child: isSaving
+                            ? const SizedBox(
+                                height: 18,
+                                width: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : Text(
+                                isEdit
+                                    ? 'Update Initialization'
+                                    : 'Initialize Grow-Out',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              ),
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -664,6 +955,68 @@ class TanksScreenState extends State<TanksScreen> {
           },
         );
       },
+    );
+  }
+
+  Widget _buildBatchNameField(TextEditingController controller) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 8),
+            child: Text(
+              'Batch Name',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 11,
+                color: AppColors.dark.withValues(alpha: 0.7),
+              ),
+            ),
+          ),
+          TextField(
+            controller: controller,
+            textCapitalization: TextCapitalization.words,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: AppColors.dark,
+            ),
+            decoration: InputDecoration(
+              hintText: 'e.g. Spring Batch 2026',
+              hintStyle: TextStyle(
+                color: AppColors.dark.withValues(alpha: 0.3),
+              ),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 14,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: AppColors.dark.withValues(alpha: 0.5),
+                  width: 1.5,
+                ),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: AppColors.dark.withValues(alpha: 0.5),
+                  width: 1.5,
+                ),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(
+                  color: AppColors.primary,
+                  width: 2,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -815,7 +1168,7 @@ class TanksScreenState extends State<TanksScreen> {
 
   void _showMortalityModal() {
     final countCtrl = TextEditingController();
-    final liveCount = TankService.instance.liveCount;
+    final liveCount = TankService.instance.inTankCount;
 
     showModalBottomSheet(
       context: context,
@@ -1033,6 +1386,7 @@ class TanksScreenState extends State<TanksScreen> {
                       itemBuilder: (_, i) {
                         final act = activities[i];
                         final isMortality = act.type == 'mortality';
+                        final isHarvest = act.type == 'harvest';
 
                         IconData icon;
                         Color color;
@@ -1053,6 +1407,10 @@ class TanksScreenState extends State<TanksScreen> {
                             icon = Icons.biotech_rounded;
                             color = AppColors.success;
                             break;
+                          case 'harvest':
+                            icon = Icons.archive_rounded;
+                            color = AppColors.success;
+                            break;
                           default:
                             icon = Icons.circle_rounded;
                             color = AppColors.darkWith(0.3);
@@ -1061,14 +1419,18 @@ class TanksScreenState extends State<TanksScreen> {
                         return Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: isMortality
-                                ? AppColors.criticalWith(0.04)
-                                : AppColors.primaryWith(0.04),
+                            color: isHarvest
+                                ? AppColors.success.withValues(alpha: 0.06)
+                                : isMortality
+                                    ? AppColors.criticalWith(0.04)
+                                    : AppColors.primaryWith(0.04),
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
-                              color: isMortality
-                                  ? AppColors.criticalWith(0.15)
-                                  : AppColors.darkWith(0.06),
+                              color: isHarvest
+                                  ? AppColors.success.withValues(alpha: 0.2)
+                                  : isMortality
+                                      ? AppColors.criticalWith(0.15)
+                                      : AppColors.darkWith(0.06),
                             ),
                           ),
                           child: Row(
@@ -1110,7 +1472,7 @@ class TanksScreenState extends State<TanksScreen> {
                                         ),
                                       ),
                                     Text(
-                                      '${act.date} · ${act.time}',
+                                      '${act.date} Â· ${act.time}',
                                       style: TextStyle(
                                         fontSize: 10,
                                         fontWeight: FontWeight.w500,
@@ -1186,6 +1548,7 @@ class TanksScreenState extends State<TanksScreen> {
     TextEditingController controller, {
     bool hasError = false,
     VoidCallback? onChanged,
+    bool isText = false,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 20),
@@ -1204,8 +1567,8 @@ class TanksScreenState extends State<TanksScreen> {
           TextField(
             controller: controller,
             onChanged: (_) => onChanged?.call(),
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: [
+            keyboardType: isText ? TextInputType.text : const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: isText ? null : [
               FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$')),
             ],
             style: TextStyle(
@@ -1262,4 +1625,486 @@ class TanksScreenState extends State<TanksScreen> {
           'You can view all tank data, sampling history, and trends. Only the Farm Owner can modify setup, record sampling, or manage inventory.',
     );
   }
+
+  void _showLettuceInitModal() {
+    final countCtrl = TextEditingController();
+    final batchNumCtrl = TextEditingController();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(ctx).viewInsets.bottom,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: AppColors.dark.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.eco_outlined,
+                        size: 22,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Initialize Lettuce Batch',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                            color: AppColors.dark,
+                          ),
+                        ),
+                        Text(
+                          'Set up a new cohort of lettuce plants',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.dark.withValues(alpha: 0.5),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                _buildModalInput(
+                  'Batch Name',
+                  'e.g. Spring Batch 2026',
+                  batchNumCtrl,
+                  isText: true,
+                ),
+                const SizedBox(height: 4),
+                _buildModalInput(
+                  'Number of Seedlings Planted',
+                  'Enter number of plants (e.g. 30)',
+                  countCtrl,
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () async {
+                      final count = int.tryParse(countCtrl.text) ?? 0;
+                      if (count > 0) {
+                        try {
+                          final batchNum = batchNumCtrl.text.trim();
+                          await LettuceService.instance.initializeBatch(
+                            quantity: count,
+                            batchNumber: batchNum.isNotEmpty ? batchNum : null,
+                          );
+                        } catch (e) {
+                          if (ctx.mounted) {
+                            showBeautifulSnackbar(ctx, e.toString().replaceFirst('Exception: ', ''), false);
+                          }
+                          return;
+                        }
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        if (mounted) {
+                          showBeautifulSnackbar(context, 'Lettuce batch successfully initialized!', true);
+                        }
+                      } else {
+                        showBeautifulSnackbar(context, 'Please enter a valid plant count.', false);
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: const Text(
+                      'Initialize Batch',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showLettuceEditModal() {
+    final batch = LettuceService.instance.selectedBatch;
+    final batchNameCtrl = TextEditingController(text: batch?.batchId ?? '');
+    final countCtrl = TextEditingController(text: '${batch?.initialQuantity ?? ''}');
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40, height: 5,
+                    decoration: BoxDecoration(
+                      color: AppColors.dark.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    Container(
+                      width: 40, height: 40,
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(Icons.edit_rounded, size: 22, color: AppColors.primary),
+                    ),
+                    const SizedBox(width: 12),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Edit Lettuce Setup', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AppColors.dark)),
+                        Text('Update batch name or initial plant count', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: AppColors.dark.withValues(alpha: 0.5))),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                _buildModalInput('Batch Name', 'e.g. Spring Batch 2026', batchNameCtrl, isText: true),
+                const SizedBox(height: 4),
+                _buildModalInput('Initial Plant Count', 'Enter number of plants (e.g. 30)', countCtrl),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () async {
+                      final count = int.tryParse(countCtrl.text) ?? 0;
+                      final name = batchNameCtrl.text.trim();
+                      if (name.isEmpty || count <= 0) {
+                        showBeautifulSnackbar(context, 'Please enter a valid batch name and plant count.', false);
+                        return;
+                      }
+                      if (ctx.mounted) Navigator.pop(ctx);
+                      if (mounted) {
+                        showBeautifulSnackbar(context, 'Lettuce setup updated!', true);
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      elevation: 0,
+                    ),
+                    child: const Text('Update Setup', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showLettuceMortalityModal() {
+    final countCtrl = TextEditingController();
+    final liveCount = LettuceService.instance.currentQuantity;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setLocalState) {
+            final mortalityVal = int.tryParse(countCtrl.text) ?? 0;
+            final String? errorText = mortalityVal > liveCount
+                ? 'Cannot exceed current live count ($liveCount).'
+                : null;
+
+            void revalidate() => setLocalState(() {});
+
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(ctx).viewInsets.bottom,
+                left: 24, right: 24, top: 16,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40, height: 5,
+                      decoration: BoxDecoration(
+                        color: AppColors.dark.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  Row(
+                    children: [
+                      Container(
+                        width: 40, height: 40,
+                        decoration: BoxDecoration(
+                          color: AppColors.critical.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.warning_amber_rounded, size: 22, color: AppColors.critical),
+                      ),
+                      const SizedBox(width: 12),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Log Plant Loss', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AppColors.critical)),
+                          const SizedBox(height: 4),
+                          Text('Record dead or wilted plants', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: AppColors.dark.withValues(alpha: 0.5))),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  _buildModalInput(
+                    'Number of Dead / Wilted Plants',
+                    'e.g. 3',
+                    countCtrl,
+                    hasError: errorText != null,
+                    onChanged: revalidate,
+                  ),
+                  if (errorText != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12, left: 4),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: AppColors.critical.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Icon(Icons.error_outline_rounded, size: 14, color: AppColors.critical),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(errorText, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.critical.withValues(alpha: 0.85))),
+                        ],
+                      ),
+                    ),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: errorText == null && mortalityVal > 0
+                          ? () async {
+                              try {
+                                await LettuceService.instance.addMortality(count: mortalityVal);
+                              } catch (e) {
+                                if (ctx.mounted) {
+                                  showBeautifulSnackbar(ctx, e.toString().replaceFirst('Exception: ', ''), false);
+                                }
+                                return;
+                              }
+                              if (ctx.mounted) Navigator.pop(ctx);
+                              if (mounted) {
+                                showBeautifulSnackbar(context, 'Plant loss of $mortalityVal successfully logged.', true);
+                              }
+                            }
+                          : null,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: errorText != null ? AppColors.dark.withValues(alpha: 0.2) : AppColors.critical,
+                        foregroundColor: errorText != null ? Colors.white.withValues(alpha: 0.4) : Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        elevation: 0,
+                      ),
+                      child: const Text('Confirm Logging', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showLettuceLogsModal() {
+    final service = LettuceService.instance;
+    final allActivities = service.activities.toList();
+    final selectedBatchId = service.selectedBatchId;
+    final activities = selectedBatchId != null
+        ? allActivities.where((a) => a['batchId'] == null || a['batchId'] == selectedBatchId).toList()
+        : allActivities;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) {
+        final halfHeight = MediaQuery.of(context).size.height * 0.5;
+        return SizedBox(
+          height: halfHeight,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40, height: 5,
+                    decoration: BoxDecoration(
+                      color: AppColors.dark.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    const Text('Activity Logs', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AppColors.dark)),
+                    const Spacer(),
+                    Text('${activities.length} entries', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.dark.withValues(alpha: 0.4))),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                if (activities.isEmpty)
+                  const Expanded(
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.receipt_long_rounded, size: 40, color: AppColors.dark),
+                          SizedBox(height: 12),
+                          Text('No logs yet', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.dark)),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  Expanded(
+                    child: ListView.separated(
+                      itemCount: activities.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 6),
+                      itemBuilder: (_, i) {
+                        final act = activities[i];
+                        final action = act['action'] as String? ?? '';
+                        final date = act['date'] as String? ?? '';
+                        final time = act['time'] as String? ?? '';
+
+                        return Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.success.withValues(alpha: 0.06),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: AppColors.success.withValues(alpha: 0.2)),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 36, height: 36,
+                                decoration: BoxDecoration(
+                                  color: AppColors.success.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: const Icon(Icons.eco_rounded, size: 18, color: AppColors.success),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(action, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.dark), maxLines: 2, overflow: TextOverflow.ellipsis),
+                                    const SizedBox(height: 4),
+                                    Text('$date \u00b7 $time', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: AppColors.dark.withValues(alpha: 0.4))),
+                                  ],
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: AppColors.success.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: const Text('Lettuce', style: TextStyle(fontSize: 8, fontWeight: FontWeight.w700, color: AppColors.success)),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      elevation: 0,
+                    ),
+                    child: const Text('Close', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 }
+

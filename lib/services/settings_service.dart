@@ -51,7 +51,8 @@ class SettingsService extends ChangeNotifier {
         for (final sEntry in decoded.entries) {
           final stageName = sEntry.key;
           if (_stageRanges.containsKey(stageName)) {
-            for (final sensorEntry in (sEntry.value as Map<String, dynamic>).entries) {
+            for (final sensorEntry
+                in (sEntry.value as Map<String, dynamic>).entries) {
               final range = sensorEntry.value as Map<String, dynamic>;
               _stageRanges[stageName]![sensorEntry.key] = {
                 'min': (range['min'] as num).toDouble(),
@@ -178,7 +179,10 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
     await _saveRanges();
     try {
-      await _thresholdsRef.child(stageName).child(sensorKey).set({'min': min, 'max': max});
+      await _thresholdsRef.child(stageName).child(sensorKey).set({
+        'min': min,
+        'max': max,
+      });
     } catch (e) {
       debugPrint('[SettingsService] Firebase updateRange failed: $e');
     }

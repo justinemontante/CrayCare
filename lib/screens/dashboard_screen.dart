@@ -6,7 +6,9 @@ import '../widgets/section_label.dart';
 import '../services/sensor_service.dart';
 import '../services/settings_service.dart';
 import '../services/tank_service.dart';
+import '../services/lettuce_service.dart';
 import '../models/control_types.dart';
+import '../models/crayfish_batch.dart';
 
 class DashboardScreen extends StatefulWidget {
   final ValueChanged<String>? onViewGraph;
@@ -46,6 +48,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     SensorService.instance.addListener(_refreshUI);
     SettingsService.instance.addListener(_refreshUI);
     TankService.instance.addListener(_refreshUI);
+    LettuceService.instance.addListener(_refreshUI);
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
@@ -57,6 +60,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     SensorService.instance.removeListener(_refreshUI);
     SettingsService.instance.removeListener(_refreshUI);
     TankService.instance.removeListener(_refreshUI);
+    LettuceService.instance.removeListener(_refreshUI);
     _countdownTimer?.cancel();
     _pulseController.dispose();
     super.dispose();
@@ -180,6 +184,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               ),
             ),
             _buildTankStatusCard(),
+            _buildLettuceStatusCard(),
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 4),
               child: SectionLabel(
@@ -713,8 +718,8 @@ class _DashboardScreenState extends State<DashboardScreen>
         onTap: control != null ? () => control(0) : null,
       ),
       _QuickActionData(
-        'Inventory',
-        Icons.inventory_2_outlined,
+        'Overview',
+        Icons.dashboard_rounded,
         null,
         onTap: tank != null ? () => tank(0) : null,
       ),
@@ -725,7 +730,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         onTap: tank != null ? () => tank(1) : null,
       ),
       _QuickActionData(
-        'Growth Trends',
+        'Growth',
         Icons.trending_up_rounded,
         null,
         onTap: tank != null ? () => tank(2) : null,
@@ -802,7 +807,33 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   Widget _buildTankStatusCard() {
     final tank = TankService.instance;
-    final hasData = tank.isInitialized;
+    final batch = tank.activeOrLatestBatch;
+    final hasActive = tank.activeBatches.isNotEmpty;
+    final hasBatch = batch != null;
+
+    String popStr, survivalStr, aliveStr, mortalityStr;
+    if (hasActive && batch != null) {
+      final isSelected = tank.selectedBatchId == batch.batchId;
+      final effectiveMortality = isSelected ? tank.mortality : batch.totalMortality;
+      final effectiveInitial = batch.initialCount;
+      popStr = effectiveInitial.toString();
+      final surv = effectiveInitial > 0 ? ((effectiveInitial - effectiveMortality) / effectiveInitial * 100) : 0.0;
+      survivalStr = '${surv.toStringAsFixed(1)}%';
+      aliveStr = isSelected
+          ? tank.inTankCount.toString()
+          : (effectiveInitial - effectiveMortality).toString();
+      mortalityStr = effectiveMortality.toString();
+    } else if (hasBatch) {
+      final surv = batch.initialCount > 0
+          ? ((batch.initialCount - batch.totalMortality) / batch.initialCount * 100)
+          : 0.0;
+      popStr = '${batch.initialCount}';
+      survivalStr = '${surv.toStringAsFixed(1)}%';
+      aliveStr = '0';
+      mortalityStr = '${batch.totalMortality}';
+    } else {
+      popStr = survivalStr = aliveStr = mortalityStr = '--';
+    }
 
     return Container(
       margin: const EdgeInsets.fromLTRB(14, 4, 14, 0),
@@ -828,8 +859,39 @@ class _DashboardScreenState extends State<DashboardScreen>
                     Icon(Icons.inventory_2_outlined, size: 18, color: AppColors.primary),
                     const SizedBox(width: 10),
                     const Text(
-                      'Tank Status',
+                      'Crayfish Information',
                       style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.dark),
+                    ),
+                    const Spacer(),
+                    GestureDetector(
+                      onTap: () {
+                        if (batch != null) {
+                          tank.selectBatch(batch.batchId);
+                        }
+                        widget.onTankTab?.call(0);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              hasActive ? 'Manage' : (hasBatch ? 'View' : 'Initialize'),
+                              style: const TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.primary,
+                              ),
+                            ),
+                            const SizedBox(width: 2),
+                            const Icon(Icons.chevron_right, size: 10, color: AppColors.primary),
+                          ],
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -838,34 +900,14 @@ class _DashboardScreenState extends State<DashboardScreen>
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Row(
                   children: [
-                    Expanded(child: _buildStatColumn('assets/images/InitialPopulationNo.png', hasData ? tank.initialCount.toString() : '--', 'initialPopulation')),
-                    Expanded(child: _buildStatColumn('assets/images/SurvivalRate.png', hasData ? '${tank.survivalRate.toStringAsFixed(1)}%' : '--', 'Survival Rate')),
-                    Expanded(child: _buildStatColumn('assets/images/AliveNo.png', hasData ? tank.liveCount.toString() : '--', 'Alive')),
-                    Expanded(child: _buildStatColumn('assets/images/mortalityNo.png', hasData ? tank.mortality.toString() : '--', 'Mortality')),
+                    Expanded(child: _buildStatColumn('assets/images/InitialPopulationNo.png', popStr, 'Initial Population')),
+                    Expanded(child: _buildStatColumn('assets/images/SurvivalRate.png', survivalStr, 'Survival Rate')),
+                    Expanded(child: _buildStatColumn('assets/images/AliveNo.png', aliveStr, 'In Tank')),
+                    Expanded(child: _buildStatColumn('assets/images/mortalityNo.png', mortalityStr, 'Mortality', valueColor: AppColors.critical)),
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
-              _buildCurrentStageSection(tank),
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
-                  color: AppColors.darkWith(0.02),
-                  borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
-                ),
-                child: Column(
-                  children: [
-                    _buildEstimatedBiomassRow(tank, hasData),
-                    const SizedBox(height: 8),
-                    _buildDetailRow(Icons.hourglass_bottom, 'Days in Culture', hasData ? tank.daysInCulture.toString() : '--'),
-                    const SizedBox(height: 8),
-                    _buildDetailRow(Icons.history, 'Last Sampling', hasData && tank.samplingHistory.isNotEmpty ? _formatTankDate(tank.samplingHistory.last.date) : '--'),
-                    const SizedBox(height: 8),
-                    _buildNextSamplingRow(),
-                  ],
-                ),
-              ),
+              _buildCrayfishGraySection(tank, hasActive, batch),
             ],
           ),
         );
@@ -878,67 +920,189 @@ class _DashboardScreenState extends State<DashboardScreen>
     (label: 'Market Size', min: 50.0, max: 100.0),
   ];
 
-  Widget _buildCurrentStageSection(TankService tank) {
-    final history = tank.samplingHistory;
-    final hasGrowthData = tank.isInitialized && tank.initialCount > 0;
-    final currentAbw = hasGrowthData ? (history.isNotEmpty ? history.last.abw : tank.initialWeight) : 0.0;
-    final currentAbl = hasGrowthData ? (history.isNotEmpty ? history.last.avgLength : tank.initialLength) : 0.0;
+  Widget _buildCrayfishGraySection(TankService tank, bool hasActive, [CrayfishBatch? batch]) {
+    final isArchived = batch != null && !hasActive;
+    final isSelected = batch != null && tank.selectedBatchId == batch.batchId;
 
-    String stageLabel;
-    bool isReady;
-    if (!hasGrowthData) {
+    double abw, abl;
+    String stageLabel, daysStr, lastSamplingStr;
+    bool showSampling;
+
+    if (hasActive && batch != null) {
+      final history = tank.samplingHistory;
+      abw = history.isNotEmpty ? history.last.abw : tank.initialWeight;
+      abl = history.isNotEmpty ? history.last.avgLength : tank.initialLength;
+      daysStr = tank.daysInCulture.toString();
+      lastSamplingStr = history.isNotEmpty ? _formatTankDate(history.last.date) : '--';
+      showSampling = true;
+    } else if (isArchived) {
+      abw = batch.finalAbw;
+      abl = batch.finalAbl;
+      daysStr = '${batch.daysInCulture}';
+      lastSamplingStr = batch.harvestDate != null ? _formatTankDate(batch.harvestDate!) : '--';
+      showSampling = false;
+    } else {
+      abw = abl = 0;
+      daysStr = lastSamplingStr = '--';
+      showSampling = false;
+    }
+
+    if (abw <= 0) {
       stageLabel = '--';
-      isReady = false;
     } else {
       int activeIndex = 0;
       for (int i = 0; i < _stageRules.length; i++) {
         final rule = _stageRules[i];
         if (i == _stageRules.length - 1) {
-          if (currentAbw >= rule.min) activeIndex = i;
+          if (abw >= rule.min) activeIndex = i;
         } else {
-          if (currentAbw >= rule.min && currentAbw < rule.max) activeIndex = i;
+          if (abw >= rule.min && abw < rule.max) activeIndex = i;
         }
       }
       stageLabel = _stageRules[activeIndex].label;
-      isReady = true;
     }
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+    final biomassKg = hasActive && isSelected && abw > 0 ? tank.inTankCount * abw / 1000 : 0.0;
+
+    return Container(
+      margin: const EdgeInsets.only(top: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: AppColors.darkWith(0.02),
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
+      ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.eco, size: 16, color: Color(0xFF9E9E9E)),
-                  const SizedBox(width: 6),
-                  Text('Current Crayfish Stage:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.7))),
-                ],
-              ),
-              Text(stageLabel, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: isReady ? AppColors.primary : AppColors.darkWith(0.4))),
-            ],
+          Row(children: [
+            Expanded(child: _grayItem(Icons.eco, 'Stage', stageLabel)),
+            Expanded(child: _grayItem(Icons.monitor_weight_outlined, 'ABW', abw > 0 ? '${abw.toStringAsFixed(2)}g' : '--')),
+            Expanded(child: _grayItem(Icons.straighten, 'ABL', abl > 0 ? '${abl.toStringAsFixed(2)}cm' : '--')),
+          ]),
+          if (hasActive) ...[
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 10),
+              child: Divider(height: 1),
+            ),
+            _buildGrayDetailRow(Icons.monitor_weight_outlined, 'Estimated Biomass', '${biomassKg.toStringAsFixed(2)} kg'),
+            const SizedBox(height: 10),
+          ],
+          if (!hasActive) const Padding(
+            padding: EdgeInsets.symmetric(vertical: 10),
+            child: Divider(height: 1),
           ),
-          const SizedBox(height: 4),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text('ABW: ', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.5))),
-              Text(isReady ? '${currentAbw.toStringAsFixed(2)}g' : '--', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.dark)),
-              const SizedBox(width: 16),
-              Text('ABL: ', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.5))),
-              Text(isReady ? '${currentAbl.toStringAsFixed(2)}cm' : '--', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.dark)),
+          _buildGrayDetailRow(Icons.hourglass_bottom, 'Days in Culture', daysStr == '--' ? '--' : '${daysStr}d'),
+          const SizedBox(height: 8),
+          _buildGrayDetailRow(Icons.calendar_today, 'Stocking Date', hasActive ? _formatTankDate(tank.stockingDate) : '--'),
+          if (showSampling) ...[
+            const SizedBox(height: 8),
+            _buildGrayDetailRow(Icons.history, 'Last Sampling', lastSamplingStr),
+            const SizedBox(height: 8),
+            _buildNextSamplingRow(),
+          ],
+          if (isArchived) ...[
+            const SizedBox(height: 8),
+            _buildGrayDetailRow(Icons.archive_rounded, 'Harvested', '${batch.harvestCount}'),
+            if (batch.harvestWeightGrams != null) ...[
+              const SizedBox(height: 8),
+              _buildGrayDetailRow(Icons.monitor_weight_outlined, 'Harvest Weight', '${batch.harvestWeightGrams!.toStringAsFixed(1)} g'),
             ],
-          ),
+          ],
+          if (hasActive && tank.harvestRecords.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            _buildGrayDetailRow(Icons.archive_rounded, 'Total Harvested', '${tank.harvestRecords.fold<int>(0, (s, r) => s + r.harvestedCount)}'),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildStatColumn(String iconPath, String value, String label) {
+  Widget _grayItem(IconData icon, String label, String value) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 13, color: AppColors.darkWith(0.5)),
+        const SizedBox(height: 3),
+        Text(value, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: AppColors.dark)),
+        const SizedBox(height: 1),
+        Text(label, style: TextStyle(fontSize: 7, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.5))),
+      ],
+    );
+  }
+
+  Widget _buildNextSamplingRow() {
+    final tank = TankService.instance;
+    if (!tank.isInitialized) {
+      return _buildGrayDetailRow(Icons.calendar_today, 'Next Sampling', '--');
+    }
+    final daysLeft = tank.daysUntilNextSampling;
+    final isReady = daysLeft == 0;
+
+    String nextDateStr;
+    if (tank.samplingHistory.isNotEmpty) {
+      final lastSampling = tank.samplingHistory.last.date;
+      final nextDate = lastSampling.add(const Duration(days: 7));
+      nextDateStr = _formatTankDate(nextDate);
+    } else {
+      final nextDate = tank.stockingDate.add(const Duration(days: 7));
+      nextDateStr = _formatTankDate(nextDate);
+    }
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.calendar_today, size: 14, color: AppColors.darkWith(0.5)),
+            const SizedBox(width: 8),
+            Text('Next Sampling', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: AppColors.darkWith(0.7))),
+          ],
+        ),
+        isReady
+            ? GestureDetector(
+                onTap: () => widget.onTankTab?.call(1),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text('Ready!', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.success)),
+                    const SizedBox(height: 2),
+                    FadeTransition(
+                      opacity: _pulseAnimation,
+                      child: Text('Tap to record', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: AppColors.success)),
+                    ),
+                  ],
+                ),
+              )
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(nextDateStr, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.dark)),
+                  const SizedBox(height: 2),
+                  _AnimatedDaysLeft(daysLeft: daysLeft),
+                ],
+              ),
+      ],
+    );
+  }
+
+  Widget _buildGrayDetailRow(IconData icon, String label, String value) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: AppColors.darkWith(0.5)),
+            const SizedBox(width: 8),
+            Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: AppColors.darkWith(0.7))),
+          ],
+        ),
+        Text(value, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.dark)),
+      ],
+    );
+  }
+
+  Widget _buildStatColumn(String iconPath, String value, String label, {Color? valueColor}) {
     return Column(
       children: [
         Container(
@@ -954,10 +1118,10 @@ class _DashboardScreenState extends State<DashboardScreen>
         const SizedBox(height: 4),
         Text(
           value,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.w800,
-            color: AppColors.dark,
+            color: valueColor ?? AppColors.dark,
           ),
         ),
         const SizedBox(height: 2),
@@ -974,187 +1138,200 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
-  Widget _buildEstimatedBiomassRow(TankService tank, bool hasData) {
-    final history = tank.samplingHistory;
-    final latestAbw = hasData && history.isNotEmpty
-        ? history.last.abw
-        : tank.initialWeight;
-    final biomassKg = hasData && latestAbw > 0
-        ? tank.liveCount * latestAbw / 1000
-        : 0.0;
+  Widget _buildLettuceStatusCard() {
+    final service = LettuceService.instance;
+    final hasData = service.isInitialized;
+    final batch = service.selectedBatch;
+    final logs = service.growthHistory;
+    final latestHeight = service.samplingHistory.isNotEmpty
+        ? service.samplingHistory.last.avgHeight
+        : (hasData && logs.isNotEmpty ? logs.last.plantHeightCm : null);
+    final latestLeafCount = service.samplingHistory.isNotEmpty
+        ? service.samplingHistory.last.avgLeafCount
+        : (hasData && logs.isNotEmpty ? logs.last.leafCount : null);
 
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.monitor_weight_outlined, size: 14, color: AppColors.darkWith(0.5)),
-            const SizedBox(width: 8),
-            Text(
-              'Estimated Biomass',
-              style: TextStyle(fontSize: 11, color: AppColors.darkWith(0.6)),
-            ),
-          ],
-        ),
-        Text(
-          hasData ? '${biomassKg.toStringAsFixed(2)} kg' : '--',
-          style: const TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            color: AppColors.dark,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDetailRow(IconData icon, String label, String value) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 14, color: AppColors.darkWith(0.5)),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                color: AppColors.darkWith(0.7),
-              ),
-            ),
-          ],
-        ),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-            color: AppColors.dark,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildNextSamplingRow() {
-    final tank = TankService.instance;
-    if (!tank.isInitialized) {
-      return _buildDetailRow(Icons.calendar_today, 'Next Sampling', '--');
-    }
-    final daysLeft = tank.daysUntilNextSampling;
-    final isReady = daysLeft == 0;
-
-    String nextDateStr;
-    if (tank.samplingHistory.isNotEmpty) {
-      final lastSampling = tank.samplingHistory.last.date;
-      final nextDate = lastSampling.add(const Duration(days: 7));
-      final months = [
-        'Jan',
-        'Feb',
-        'Mar',
-        'Apr',
-        'May',
-        'Jun',
-        'Jul',
-        'Aug',
-        'Sep',
-        'Oct',
-        'Nov',
-        'Dec',
-      ];
-      nextDateStr =
-          '${months[nextDate.month - 1]} ${nextDate.day}, ${nextDate.year}';
+    String popStr, survivalStr, aliveStr, mortalityStr, aphStr, leafStr;
+    if (hasData && batch != null) {
+      popStr = '${batch.initialQuantity}';
+      final surv = batch.initialQuantity > 0
+          ? ((batch.initialQuantity - batch.totalMortality) / batch.initialQuantity * 100)
+          : 0.0;
+      survivalStr = '${surv.toStringAsFixed(1)}%';
+      aliveStr = '${service.currentQuantity}';
+      mortalityStr = '${batch.totalMortality}';
+      aphStr = latestHeight != null ? '${latestHeight.toStringAsFixed(1)} cm' : '--';
+      leafStr = latestLeafCount != null ? '${latestLeafCount}' : '--';
     } else {
-      final nextDate = tank.stockingDate.add(const Duration(days: 7));
-      final months = [
-        'Jan',
-        'Feb',
-        'Mar',
-        'Apr',
-        'May',
-        'Jun',
-        'Jul',
-        'Aug',
-        'Sep',
-        'Oct',
-        'Nov',
-        'Dec',
-      ];
-      nextDateStr =
-          '${months[nextDate.month - 1]} ${nextDate.day}, ${nextDate.year}';
+      popStr = survivalStr = aliveStr = mortalityStr = aphStr = leafStr = '--';
     }
 
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.calendar_today,
-              size: 14,
-              color: AppColors.darkWith(0.5),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              'Next Sampling',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                color: AppColors.darkWith(0.7),
-              ),
-            ),
-          ],
-        ),
-        isReady
-            ? GestureDetector(
-                onTap: () => widget.onTankTab?.call(1),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      'Ready!',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.success,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    FadeTransition(
-                      opacity: _pulseAnimation,
-                      child: Text(
-                        'Tap to record',
-                        style: TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.success,
-                        ),
-                      ),
-                    ),
-                  ],
+    return Container(
+      margin: const EdgeInsets.fromLTRB(14, 12, 14, 0),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFCFCFC),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.darkWith(0.12),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+            child: Row(
+              children: [
+                const Icon(Icons.eco_outlined, size: 18, color: AppColors.primary),
+                const SizedBox(width: 10),
+                const Text(
+                  'Lettuce Information',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.dark),
                 ),
-              )
-            : Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    nextDateStr,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.dark,
+                const Spacer(),
+                GestureDetector(
+                  onTap: () => widget.onTankTab?.call(-1),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          hasData ? 'Manage' : 'Initialize',
+                          style: const TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                        const SizedBox(width: 2),
+                        const Icon(Icons.chevron_right, size: 10, color: AppColors.primary),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  _AnimatedDaysLeft(daysLeft: daysLeft),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _buildStatColumn(
+                    'assets/images/InitialPopulationNo.png',
+                    popStr,
+                    'Initial Planted',
+                  ),
+                ),
+                Expanded(
+                  child: _buildStatColumn(
+                    'assets/images/SurvivalRate.png',
+                    survivalStr,
+                    'Survival Rate',
+                  ),
+                ),
+                Expanded(
+                  child: _buildStatColumn(
+                    'assets/images/AliveNo.png',
+                    aliveStr,
+                    'In Bed',
+                  ),
+                ),
+                Expanded(
+                  child: _buildStatColumn(
+                    'assets/images/mortalityNo.png',
+                    mortalityStr,
+                    'Mortality',
+                    valueColor: AppColors.critical,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (hasData)
+            Container(
+              margin: const EdgeInsets.only(top: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                color: AppColors.darkWith(0.02),
+                borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
+              ),
+              child: Column(
+                children: [
+                  Row(children: [
+                    Expanded(child: _grayItem(Icons.straighten_rounded, 'APH (Avg Height)', aphStr)),
+                    Expanded(child: _grayItem(Icons.eco_rounded, 'Avg Leaves', leafStr)),
+                  ]),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 10),
+                    child: Divider(height: 1),
+                  ),
+                  _buildGrayDetailRow(Icons.calendar_today, 'Planted Date', hasData ? _formatTankDate(batch!.plantingDate) : '--'),
+                  if (service.samplingHistory.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    _buildGrayDetailRow(
+                      Icons.biotech_rounded,
+                      'Last Sampling',
+                      _formatTankDate(service.samplingHistory.last.date),
+                    ),
+                    const SizedBox(height: 8),
+                    _buildGrayDetailRow(
+                      Icons.straighten_rounded,
+                      'Avg Height',
+                      '${service.samplingHistory.last.avgHeight.toStringAsFixed(1)} cm',
+                    ),
+                    const SizedBox(height: 8),
+                    _buildGrayDetailRow(
+                      Icons.eco_rounded,
+                      'Avg Leaves',
+                      service.samplingHistory.last.avgLeafCount.toStringAsFixed(0),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  _buildGrayDetailRow(Icons.timelapse_rounded, 'Days in Cultivation', '${service.daysInCultivation}d'),
+                  if (service.harvestRecords.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 4),
+                      child: Divider(height: 1),
+                    ),
+                    _buildGrayDetailRow(Icons.archive_rounded, 'Total Harvested', '${service.harvestRecords.fold<int>(0, (s, r) => s + r.harvestedCount)} plants'),
+                    const SizedBox(height: 8),
+                    _buildGrayDetailRow(Icons.monitor_weight_outlined, 'Total Harvest Wt', '${service.harvestRecords.fold<double>(0, (s, r) => s + r.totalWeightKg).toStringAsFixed(2)} kg'),
+                    const SizedBox(height: 8),
+                    _buildGrayDetailRow(Icons.receipt_long_rounded, 'Harvest Records', '${service.harvestRecords.length}'),
+                  ],
                 ],
               ),
-      ],
+            )
+          else
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.03),
+                borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
+              ),
+              child: Text(
+                'Setup your lettuce batch in the Aquaponics tab to track growth.',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.dark.withValues(alpha: 0.45),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 

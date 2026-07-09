@@ -1,25 +1,28 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
-import '../../theme/app_colors.dart';
-import '../../services/tank_service.dart';
-import '../../utils/snackbar_helper.dart';
+import '../../../theme/app_colors.dart';
+import '../../../services/tank_service.dart';
+import '../../../utils/snackbar_helper.dart';
+import 'harvest_form_panel.dart';
 
-class InventoryTab extends StatelessWidget {
+class OverviewTab extends StatelessWidget {
   final VoidCallback onShowInitModal;
   final VoidCallback onShowMortalityModal;
   final VoidCallback onShowEditModal;
   final VoidCallback onShowLogsModal;
+  final VoidCallback onShowCompleteBatchModal;
   final bool hasSetup;
   final DateTime lastEdited;
 
   final bool isOwner;
 
-  const InventoryTab({
+  const OverviewTab({
     super.key,
     required this.onShowInitModal,
     required this.onShowMortalityModal,
     required this.onShowEditModal,
     required this.onShowLogsModal,
+    required this.onShowCompleteBatchModal,
     required this.hasSetup,
     required this.lastEdited,
     this.isOwner = true,
@@ -27,103 +30,100 @@ class InventoryTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!TankService.instance.isInitialized) return _buildEmptyState();
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
       child: Column(
         children: [
-          _buildSurvivalCard(context),
-          const SizedBox(height: 8),
-          _buildWarningBanner(),
-          const SizedBox(height: 8),
-          _buildActionButtons(context),
-          const SizedBox(height: 8),
-          _buildInfoCard(),
-          const SizedBox(height: 10),
+          if (!TankService.instance.isInitialized)
+            _buildEmptyState()
+          else ...[
+            _buildSurvivalCard(context),
+            const SizedBox(height: 8),
+            _buildWarningBanner(),
+            const SizedBox(height: 8),
+            _buildActionButtons(context),
+            const SizedBox(height: 20),
+          ],
         ],
       ),
     );
   }
 
   Widget _buildEmptyState() {
-    return Center(
-      child: Container(
-        margin: const EdgeInsets.all(24),
-        padding: const EdgeInsets.all(32),
-        decoration: BoxDecoration(
-          color: AppColors.primary.withValues(alpha: 0.03),
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(
-            color: AppColors.primary.withValues(alpha: 0.15),
-            width: 2,
-            strokeAlign: BorderSide.strokeAlignOutside,
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 18, 14, 14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFCFCFC),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.darkWith(0.12),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
           ),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.primary.withValues(alpha: 0.1),
-                    blurRadius: 15,
-                    offset: const Offset(0, 5),
-                  ),
-                ],
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.1),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.inventory_2_rounded,
+              size: 32,
+              color: AppColors.primary,
+            ),
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            'No Records Found',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: AppColors.dark,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Initialize your grow-out to start tracking crayfish growth and survival.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: AppColors.dark.withValues(alpha: 0.5),
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 28),
+          ElevatedButton.icon(
+            onPressed: isOwner ? onShowInitModal : null,
+            icon: Icon(isOwner ? Icons.add_rounded : Icons.lock_outline, size: 18),
+            label: Text(
+              isOwner ? 'Initialize Inventory' : 'Initialize Inventory (Owner Only)',
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: isOwner ? AppColors.primary : Colors.grey.shade300,
+              foregroundColor: isOwner ? Colors.white : Colors.grey.shade500,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 24,
+                vertical: 14,
               ),
-              child: const Icon(
-                Icons.inventory_2_rounded,
-                size: 40,
-                color: AppColors.primary,
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
               ),
             ),
-            const SizedBox(height: 20),
-            const Text(
-              'No Records Found',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                color: AppColors.dark,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Initialize your grow-out to start tracking crayfish growth and survival.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: AppColors.dark.withValues(alpha: 0.5),
-                height: 1.4,
-              ),
-            ),
-            const SizedBox(height: 28),
-            ElevatedButton.icon(
-              onPressed: isOwner ? onShowInitModal : null,
-              icon: Icon(isOwner ? Icons.add_rounded : Icons.lock_outline, size: 18),
-              label: Text(
-                isOwner ? 'Initialize Inventory' : 'Initialize Inventory (Owner Only)',
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: isOwner ? AppColors.primary : Colors.grey.shade300,
-                foregroundColor: isOwner ? Colors.white : Colors.grey.shade500,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 14,
-                ),
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-            ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 12),
+        ],
       ),
     );
   }
@@ -140,7 +140,8 @@ class InventoryTab extends StatelessWidget {
     }
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 18, 14, 14),
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
       decoration: BoxDecoration(
         color: const Color(0xFFFCFCFC),
         borderRadius: BorderRadius.circular(20),
@@ -162,26 +163,7 @@ class InventoryTab extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: statusColor.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        'SURVIVAL RATE',
-                        style: TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w800,
-                          color: statusColor,
-                          letterSpacing: 0.8,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 18),
                     const Text(
                       'Stocking Health',
                       style: TextStyle(
@@ -204,10 +186,35 @@ class InventoryTab extends StatelessWidget {
                   ],
                 ),
               ),
-              _buildDonutChart(survivalPct / 100, statusColor),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildDonutChart(survivalPct / 100, statusColor),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: statusColor.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      'SURVIVAL RATE',
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w800,
+                        color: statusColor,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 4),
           Align(
             alignment: Alignment.centerLeft,
             child: Text(
@@ -219,13 +226,21 @@ class InventoryTab extends StatelessWidget {
               ),
             ),
           ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              _buildInfoChip(Icons.calendar_month_rounded, 'Stocked', _formatDate(service.stockingDate)),
+              const SizedBox(width: 12),
+              _buildInfoChip(Icons.timelapse_rounded, 'Days', '${service.daysInCulture}d'),
+            ],
+          ),
           const SizedBox(height: 12),
           // 3 rows x 2 columns
           Column(
             children: [
               Row(
                 children: [
-                  Expanded(child: _buildMetricCard(Image.asset('assets/images/InitialPopulation.png', width: 20, height: 20), 'Initial Population', '${service.initialCount}', 'Total stock at start', onTap: () => _showMetricDetail(context, 'Initial Population', service.initialCount.toString(), 'Total stock at start', 'assets/images/InitialPopulation.png', 'During grow-out initialization, ${service.initialCount} crayfish were placed in the tank on ${service.stockingDate.month}/${service.stockingDate.day}/${service.stockingDate.year}. This serves as the baseline for all monitoring and survival rate calculations.', Icons.people_alt_rounded))),
+                  Expanded(child: _buildMetricCard(Image.asset('assets/images/InitialPopulation.png', width: 20, height: 20), 'Initial Population', '${service.initialCount}', 'Total stock at start', onTap: () => _showMetricDetail(context, 'Initial Population', service.initialCount.toString(), 'Total stock at start', 'assets/images/InitialPopulation.png', 'During grow-out initialization, ${service.initialCount} crayfish were placed in the tank on ${_formatDate(service.stockingDate)}. This serves as the baseline for all monitoring and survival rate calculations.', Icons.people_alt_rounded))),
 
                   const SizedBox(width: 6),
                   Expanded(child: _buildMetricCard(Image.asset('assets/images/SampleCount.png', width: 20, height: 20), 'Sample Size', '${service.sampleCount}', 'Crayfish in sample', onTap: () => _showMetricDetail(context, 'Sample Size', service.sampleCount.toString(), 'Crayfish in sample', 'assets/images/SampleCount.png', 'During initialization, ${service.sampleCount} crayfish were taken and measured to determine the average weight and length per crayfish. This sample represents the entire population.', Icons.analytics_rounded))),
@@ -242,10 +257,17 @@ class InventoryTab extends StatelessWidget {
               const SizedBox(height: 6),
               Row(
                 children: [
-                  Expanded(child: _buildMetricCard(Image.asset('assets/images/Alive.png', width: 20, height: 20), 'Alive', '${service.liveCount}', 'Currently alive', onTap: () => _showMetricDetail(context, 'Alive', service.liveCount.toString(), 'Currently alive', 'assets/images/Alive.png', 'Out of ${service.initialCount} crayfish initially stocked, ${service.liveCount} are still alive. Survival rate: ${service.survivalRate.toStringAsFixed(1)}%.', Icons.favorite_rounded))),
+                  Expanded(child: _buildMetricCard(Image.asset('assets/images/Alive.png', width: 20, height: 20), 'In Tank', '${service.inTankCount}', 'In tank now', onTap: () => _showMetricDetail(context, 'In Tank', service.inTankCount.toString(), 'In tank now', 'assets/images/Alive.png', 'Out of ${service.initialCount} crayfish initially stocked, ${service.inTankCount} are still in the tank (${service.mortality} died, ${service.totalHarvested} harvested). Survival rate (mortality only): ${service.survivalRate.toStringAsFixed(1)}%.', Icons.favorite_rounded))),
                   const SizedBox(width: 6),
                   Expanded(child: _buildMetricCard(Image.asset('assets/images/Mortality.png', width: 20, height: 20), 'Mortality', '${service.mortality}', 'Total deaths', onTap: () => _showMetricDetail(context, 'Mortality', service.mortality.toString(), 'Total deaths', 'assets/images/Mortality.png', 'Out of ${service.initialCount} crayfish initially stocked, ${service.mortality} have died. Survival rate: ${service.survivalRate.toStringAsFixed(1)}%.', Icons.warning_rounded))),
                 ],
+              ),
+              const SizedBox(height: 6),
+              Center(
+                child: SizedBox(
+                  width: MediaQuery.of(context).size.width * 0.45,
+                  child: _buildMetricCard(const Icon(Icons.archive_outlined, size: 18, color: AppColors.primary), 'Harvested', '${service.totalHarvested}', 'Total harvested', onTap: () => _showMetricDetail(context, 'Harvested', service.totalHarvested.toString(), 'Total harvested', 'assets/images/Alive.png', 'Out of ${service.initialCount} crayfish initially stocked, ${service.totalHarvested} have been harvested.', Icons.archive_outlined)),
+                ),
               ),
             ],
           ),
@@ -445,19 +467,9 @@ class InventoryTab extends StatelessWidget {
   }
 
   Widget _buildDonutChart(double fraction, Color color) {
-    return Container(
-      width: 100,
-      height: 100,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: color.withValues(alpha: 0.15),
-            blurRadius: 20,
-            spreadRadius: 2,
-          ),
-        ],
-      ),
+    return SizedBox(
+      width: 80,
+      height: 80,
       child: CustomPaint(
         painter: _DonutPainter(
           fraction: fraction,
@@ -468,7 +480,7 @@ class InventoryTab extends StatelessWidget {
           child: Text(
             '${(fraction * 100).toStringAsFixed(0)}%',
             style: TextStyle(
-              fontSize: 22,
+              fontSize: 18,
               fontWeight: FontWeight.w900,
               color: color,
               letterSpacing: -0.5,
@@ -546,43 +558,90 @@ class InventoryTab extends StatelessWidget {
 
   Widget _buildActionButtons(BuildContext context) {
     final canEditSetup = isOwner && TankService.instance.samplingHistory.isEmpty;
-    return Row(
+    return Column(
       children: [
-        Expanded(
-          child: _buildActionBtn(
-            'Log Mortality',
-            isOwner ? Icons.healing_rounded : Icons.lock_outline,
-            isOwner ? AppColors.critical : Colors.grey.shade400,
-            isOwner ? onShowMortalityModal : () {
-              showBeautifulSnackbar(context, 'Log Mortality is for owners only', false, title: 'Notice');
-            },
-          ),
+        Row(
+          children: [
+            Expanded(
+              child: _buildActionBtn(
+                'Log Mortality',
+                isOwner ? Icons.healing_rounded : Icons.lock_outline,
+                isOwner ? AppColors.critical : Colors.grey.shade400,
+                isOwner ? onShowMortalityModal : () {
+                  showBeautifulSnackbar(context, 'Log Mortality is for owners only', false, title: 'Notice');
+                },
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _buildActionBtn(
+                'Edit Setup',
+                canEditSetup ? Icons.edit_rounded : Icons.lock_outline,
+                canEditSetup ? AppColors.primary : Colors.grey.shade400,
+                canEditSetup ? onShowEditModal : () {
+                  if (!isOwner) {
+                    showBeautifulSnackbar(context, 'Edit Setup is for owners only', false, title: 'Notice');
+                  } else {
+                    showBeautifulSnackbar(context, 'Cannot edit after first sampling', false, title: 'Notice');
+                  }
+                },
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _buildActionBtn(
+                'View Logs',
+                Icons.receipt_long_rounded,
+                AppColors.warning,
+                onShowLogsModal,
+              ),
+            ),
+          ],
         ),
-        const SizedBox(width: 8),
-        Expanded(
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
           child: _buildActionBtn(
-            'Edit Setup',
-            canEditSetup ? Icons.edit_rounded : Icons.lock_outline,
-            canEditSetup ? AppColors.primary : Colors.grey.shade400,
-            canEditSetup ? onShowEditModal : () {
-              if (!isOwner) {
-                showBeautifulSnackbar(context, 'Edit Setup is for owners only', false, title: 'Notice');
-              } else {
-                showBeautifulSnackbar(context, 'Cannot edit after first sampling', false, title: 'Notice');
-              }
+            'Record Harvest',
+            Icons.archive_outlined,
+            AppColors.success,
+            isOwner ? () => _showHarvestForm(context) : () {
+              showBeautifulSnackbar(context, 'Record Harvest is for owners only', false, title: 'Notice');
             },
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: _buildActionBtn(
-            'View Logs',
-            Icons.receipt_long_rounded,
-            AppColors.warning,
-            onShowLogsModal,
           ),
         ),
       ],
+    );
+  }
+
+  void _showHarvestForm(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 12),
+              Center(
+                child: Container(width: 36, height: 4, decoration: BoxDecoration(color: AppColors.darkWith(0.15), borderRadius: BorderRadius.circular(2))),
+              ),
+              const SizedBox(height: 8),
+              CrayfishHarvestFormPanel(
+                isOwner: isOwner,
+                onSaved: () => showBeautifulSnackbar(context, 'Harvest recorded!', true),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -632,106 +691,35 @@ class InventoryTab extends StatelessWidget {
     );
   }
 
-  Widget _buildInfoCard() {
-    final service = TankService.instance;
-    final stockingDate = service.stockingDate;
-    final days = service.daysInCulture;
+  Widget _buildInfoChip(IconData icon, String label, String value) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: const Color(0xFFFCFCFC),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.darkWith(0.12),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        color: AppColors.primaryWith(0.06),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.primaryWith(0.15)),
       ),
-      child: Column(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          // Header
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(7),
-                decoration: BoxDecoration(
-                  color: AppColors.primaryWith(0.12),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(
-                  Icons.info_outline_rounded,
-                  size: 18,
-                  color: AppColors.primary,
-                ),
-              ),
-              const SizedBox(width: 10),
-              const Text(
-                'Tank Information',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.dark,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Container(height: 1, color: AppColors.darkWith(0.08)),
-          const SizedBox(height: 10),
-          _buildInfoRow(
-            Icons.calendar_month_rounded,
-            'Stocking Date',
-            '${stockingDate.month}/${stockingDate.day}/${stockingDate.year}',
-          ),
-          const SizedBox(height: 8),
-          _buildInfoRow(
-            Icons.timelapse_rounded,
-            'Days in Culture',
-            '$days days',
-          ),
-          const SizedBox(height: 8),
-          _buildInfoRow(
-            Icons.history_rounded,
-            'Last Edited',
-            '${lastEdited.month}/${lastEdited.day}/${lastEdited.year}',
-          ),
+          Icon(icon, size: 12, color: AppColors.primary),
+          const SizedBox(width: 5),
+          Text(label, style: TextStyle(fontSize: 8, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.5))),
+          const SizedBox(width: 4),
+          Text(value, style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: AppColors.dark)),
         ],
       ),
     );
   }
 
-  Widget _buildInfoRow(IconData icon, String label, String value) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 14, color: AppColors.darkWith(0.5)),
-          const SizedBox(width: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                color: AppColors.darkWith(0.7),
-              ),
-            ),
-          ],
-        ),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-            color: AppColors.dark,
-          ),
-        ),
-      ],
-    );
+  String _formatDate(DateTime date) {
+    final months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    return '${months[date.month - 1]} ${date.day}, ${date.year}';
+  }
+
+  String _formatShortDate(DateTime date) {
+    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${months[date.month - 1]} ${date.day}, ${date.year}';
   }
 }
 

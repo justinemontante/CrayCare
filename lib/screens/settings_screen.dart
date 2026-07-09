@@ -13,13 +13,10 @@ import '../services/database_service.dart';
 import '../services/storage_service.dart'; // Para sa pag-pick ng profile picture
 import '../services/auth_service.dart';
 
-import '../widgets/settings/user_management_form.dart';
-
 class SettingsScreen extends StatefulWidget {
-  final String? initialPhotoUrl; // Ipasa mula MainShell para iwas reload
-  final String? userRole;
+  final String? initialPhotoUrl;
 
-  const SettingsScreen({super.key, this.initialPhotoUrl, this.userRole});
+  const SettingsScreen({super.key, this.initialPhotoUrl});
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -310,8 +307,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return 'Notifications';
       case 4:
         return 'Crayfish Stage';
-      case 5:
-        return 'User Management';
       default:
         return '';
     }
@@ -344,7 +339,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   key: const ValueKey('menu'),
                   profileName: _profileName,
                   profileEmail: _profileEmail,
-                  userRole: widget.userRole,
                   onGoTo: _goTo,
                   onLogout: _showLogoutSheet,
                   photoUrl: _photoUrl,
@@ -397,8 +391,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _saveNotifPrefs();
                   },
                 ),
-                StageSettings(key: const ValueKey('stage-settings'), isOwner: widget.userRole == 'owner'),
-                const UserManagementForm(key: ValueKey('user-management')),
+                StageSettings(key: const ValueKey('stage-settings'), isOwner: true),
               ][_currentPage],
             ),
           ),

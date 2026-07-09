@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 
@@ -17,16 +16,11 @@ class DatabaseService {
   final DatabaseReference _db = FirebaseDatabase.instance.ref();
 
   /// I-save ang profile name, email, at photo URL ng user sa RTDB
-  /// [role] — 'monitor' (default for new users) or 'owner' or 'admin'
-  /// [status] — 'active' or 'disabled'
   Future<void> saveUserProfile({
     required String uid,
     required String name,
     required String email,
     String? photoUrl,
-    String? role,
-    String? status,
-    String? ownerUid,
   }) async {
     final data = <String, dynamic>{
       'displayName': name,
@@ -34,82 +28,16 @@ class DatabaseService {
       'updatedAt': DateTime.now().toIso8601String(),
     };
     if (photoUrl != null) data['photoUrl'] = photoUrl;
-    if (role != null) data['role'] = role;
-    if (status != null) {
-      data['status'] = status;
-    } else {
-      final existing = await getUserProfile(uid);
-      if (existing == null || existing['status'] == null) {
-        data['status'] = 'active';
-      }
-    }
-    if (ownerUid != null) data['ownerUid'] = ownerUid;
     await _db.child('users/$uid/profile').update(data);
   }
 
-  /// Finds the UID of the single owner in the database (role == 'owner').
-  /// Returns null if no owner is found.
-  Future<String?> findOwnerUid() async {
-    final snapshot = await _db.child('users').get();
-    if (!snapshot.exists || snapshot.value is! Map) return null;
-    final users = convertMap(snapshot.value as Map);
-    for (final entry in users.entries) {
-      final userData = entry.value is Map ? convertMap(entry.value as Map) : {};
-      final profile = userData['profile'] is Map ? userData['profile'] as Map : null;
-      final role = profile?['role'] as String?;
-      if (role != null && role.toLowerCase() == 'owner') {
-        return entry.key;
-      }
-    }
-    return null;
-  }
-
   /// Kunin ang naka-save na profile ng user galing RTDB
-  /// May laman na 'displayName', 'email', 'photoUrl' (kung meron), 'role', 'status'
   Future<Map<String, dynamic>?> getUserProfile(String uid) async {
     final snapshot = await _db.child('users/$uid/profile').get();
     if (snapshot.exists && snapshot.value != null) {
       return convertMap(snapshot.value as Map);
     }
     return null;
-  }
-
-  /// Kumuha ng Stream ng lahat ng users para sa Admin User Management Screen
-  Stream<DatabaseEvent> getAllUsersStream() {
-    return _db.child('users').onValue;
-  }
-
-  /// I-update ang Role at Status ng isang user (Admin function)
-  /// If [role] is 'owner', automatically demote any other owner to 'monitor' to enforce single-owner limit.
-  Future<void> updateUserRoleAndStatus({
-    required String uid,
-    required String role,
-    required String status,
-  }) async {
-    final updates = <String, dynamic>{
-      'users/$uid/profile/role': role,
-      'users/$uid/profile/status': status,
-      'users/$uid/profile/updatedAt': DateTime.now().toIso8601String(),
-    };
-
-    if (role == 'owner') {
-      final usersSnapshot = await _db.child('users').get();
-      if (usersSnapshot.exists && usersSnapshot.value != null) {
-        final rawUsers = usersSnapshot.value as Map;
-        rawUsers.forEach((key, val) {
-          final userId = key.toString();
-          if (userId != uid && val is Map && val['profile'] != null) {
-            final profile = val['profile'] as Map;
-            if (profile['role'] == 'owner') {
-              updates['users/$userId/profile/role'] = 'monitor';
-              updates['users/$userId/profile/updatedAt'] = DateTime.now().toIso8601String();
-            }
-          }
-        });
-      }
-    }
-
-    await _db.update(updates);
   }
 
   // ─── Growth Stage Config (per-user) ────────────────────────────
@@ -138,14 +66,6 @@ class DatabaseService {
     final user = FirebaseAuth.instance.currentUser;
     final uid = user?.uid;
     if (uid == null) return;
-
-    // Safety lock: Verify user is Owner before database updates
-    final profile = await getUserProfile(uid);
-    final role = profile?['role'] as String?;
-    if (role != 'owner') {
-      debugPrint('[DatabaseService] Blocked non-owner saveGrowthStageConfig call for role: $role');
-      return;
-    }
 
     await _growthStageRef(uid)
         .update({
@@ -200,14 +120,6 @@ class DatabaseService {
     final user = FirebaseAuth.instance.currentUser;
     final uid = user?.uid;
     if (uid == null) return;
-
-    // Safety lock: Verify user is Owner before database updates
-    final profile = await getUserProfile(uid);
-    final role = profile?['role'] as String?;
-    if (role != 'owner') {
-      debugPrint('[DatabaseService] Blocked non-owner saveSensorThresholds call for role: $role');
-      return;
-    }
 
     await _sensorConfigRef.update({
       'currentStage': currentStage,

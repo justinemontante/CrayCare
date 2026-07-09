@@ -1,9 +1,9 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
-import '../../theme/app_colors.dart';
-import '../../services/tank_service.dart';
-import 'sampling_tab.dart';
+import '../../../theme/app_colors.dart';
+import '../../../services/tank_service.dart';
+import 'crayfish_sampling_tab.dart';
 
 class TrendsTab extends StatefulWidget {
   final DateTime lastEdited;
@@ -35,20 +35,22 @@ class _TrendsTabState extends State<TrendsTab> {
 
   @override
   Widget build(BuildContext context) {
-    if (!TankService.instance.isInitialized) return _buildEmptyState();
-
     return SingleChildScrollView(
       key: const ValueKey('trends_content'),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       child: Column(
         children: [
-          _buildChartContainer(),
-          const SizedBox(height: 16),
-          _buildBiomassChartContainer(),
-          const SizedBox(height: 16),
-          _buildMortalityChartContainer(),
-          const SizedBox(height: 16),
-          GrowthStagePanel(onInfoTap: widget.onInfoTap ?? () {}),
+          if (!TankService.instance.isInitialized)
+            _buildEmptyState()
+          else ...[
+            _buildChartContainer(),
+            const SizedBox(height: 16),
+            _buildBiomassChartContainer(),
+            const SizedBox(height: 16),
+            _buildMortalityChartContainer(),
+            const SizedBox(height: 16),
+            GrowthStagePanel(onInfoTap: widget.onInfoTap ?? () {}),
+          ],
         ],
       ),
     );
@@ -81,6 +83,7 @@ class _TrendsTabState extends State<TrendsTab> {
     );
 
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: const Color(0xFFFCFCFC),
@@ -397,6 +400,7 @@ class _TrendsTabState extends State<TrendsTab> {
     );
 
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: const Color(0xFFFCFCFC),
@@ -730,6 +734,7 @@ class _TrendsTabState extends State<TrendsTab> {
       ..sort((a, b) => a.date.compareTo(b.date));
 
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: const Color(0xFFFCFCFC),

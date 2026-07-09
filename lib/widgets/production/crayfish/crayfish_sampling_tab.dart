@@ -1,8 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import '../../theme/app_colors.dart';
-import '../../services/tank_service.dart';
-import '../../utils/snackbar_helper.dart';
+import 'package:flutter/services.dart';
+import '../../../theme/app_colors.dart';
+import '../../../services/tank_service.dart';
+import '../../../utils/snackbar_helper.dart';
 
 class SamplingTab extends StatelessWidget {
   final DateTime lastEdited;
@@ -16,22 +17,23 @@ class SamplingTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!TankService.instance.isInitialized) return _buildEmptyState();
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildSectionHeader(),
-          const SizedBox(height: 8),
-          NextSamplingPanel(),
-          const SizedBox(height: 12),
-          GrowthOverviewPanel(),
-          const SizedBox(height: 12),
-          SamplingFormPanel(isOwner: isOwner),
-          const SizedBox(height: 12),
-          SamplingHistoryPanel(),
-          const SizedBox(height: 12),
+          if (!TankService.instance.isInitialized)
+            _buildEmptyState()
+          else ...[
+            _buildSectionHeader(),
+            const SizedBox(height: 8),
+            NextSamplingPanel(),
+            const SizedBox(height: 12),
+            GrowthOverviewPanel(),
+            const SizedBox(height: 12),
+            SamplingFormPanel(isOwner: isOwner),
+            const SizedBox(height: 12),
+          ],
         ],
       ),
     );
@@ -44,7 +46,7 @@ class SamplingTab extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Growth Sampling',
+            'Record Sampling',
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w900,
@@ -66,63 +68,59 @@ class SamplingTab extends StatelessWidget {
   }
 
   Widget _buildEmptyState() {
-    return Center(
-      child: Container(
-        margin: const EdgeInsets.all(24),
-        padding: const EdgeInsets.all(32),
-        decoration: BoxDecoration(
-          color: AppColors.primary.withValues(alpha: 0.03),
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(
-            color: AppColors.primary.withValues(alpha: 0.15),
-            width: 2,
-            strokeAlign: BorderSide.strokeAlignOutside,
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 18, 14, 14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFCFCFC),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.darkWith(0.12),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
           ),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.primary.withValues(alpha: 0.1),
-                    blurRadius: 15,
-                    offset: const Offset(0, 5),
-                  ),
-                ],
-              ),
-              child: const Icon(
-                Icons.speed_rounded,
-                size: 40,
-                color: AppColors.primary,
-              ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.1),
+              shape: BoxShape.circle,
             ),
-            const SizedBox(height: 20),
-            const Text(
-              'Sampling Restricted',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                color: AppColors.dark,
-              ),
+            child: const Icon(
+              Icons.speed_rounded,
+              size: 32,
+              color: AppColors.primary,
             ),
-            const SizedBox(height: 8),
-            Text(
-              'You must initialize your tank inventory first before you can record sampling data.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: AppColors.dark.withValues(alpha: 0.5),
-                height: 1.4,
-              ),
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            'Sampling Restricted',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: AppColors.dark,
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'You must initialize your tank inventory first before you can record sampling data.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: AppColors.dark.withValues(alpha: 0.5),
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
       ),
     );
   }
@@ -139,6 +137,7 @@ class NextSamplingPanel extends StatelessWidget {
     final nextWeekNum = service.samplingHistory.where((e) => !e.isBaseline).length;
 
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: const Color(0xFFFCFCFC),
@@ -485,6 +484,7 @@ class GrowthOverviewPanel extends StatelessWidget {
     final diffL = latestL - initialL;
 
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: const Color(0xFFFCFCFC),
@@ -913,51 +913,6 @@ class GrowthOverviewPanel extends StatelessWidget {
     );
   }
 
-  Widget _buildDataRow(String label, String value, {bool center = false}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: center
-          ? Center(
-              child: Text.rich(
-                TextSpan(
-                  children: [
-                    TextSpan(
-                      text: '$label ',
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: AppColors.darkWith(0.6),
-                      ),
-                    ),
-                    TextSpan(
-                      text: value,
-                      style: const TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          : Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.6)),
-                ),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ],
-            ),
-    );
-  }
-
   String _formatDate(DateTime date) {
     final months = [
       'Jan',
@@ -1039,9 +994,103 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
     super.dispose();
   }
 
+  void _showHistoryModal() {
+    final service = TankService.instance;
+    final history = service.samplingHistory.where((e) => !e.isBaseline).toList();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Container(
+        height: MediaQuery.of(context).size.height * 0.6,
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          children: [
+            Container(
+              margin: const EdgeInsets.only(top: 10),
+              width: 40, height: 4,
+              decoration: BoxDecoration(color: AppColors.dark.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(2)),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+              child: Row(
+                children: [
+                  const Icon(Icons.history_rounded, size: 18, color: AppColors.primary),
+                  const SizedBox(width: 8),
+                  const Text('Sampling History', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.dark)),
+                  const Spacer(),
+                  Text('${history.length} recorded', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.dark.withValues(alpha: 0.5))),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: history.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.inbox_rounded, size: 40, color: AppColors.dark.withValues(alpha: 0.15)),
+                        const SizedBox(height: 12),
+                        Text('No sampling records yet', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.dark.withValues(alpha: 0.4))),
+                      ],
+                    ),
+                  )
+                : ListView(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    children: history.reversed.map((e) => _buildModalHistoryCard(e)).toList(),
+                  ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildModalHistoryCard(SamplingEntry entry) {
+    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final dateStr = '${months[entry.date.month - 1]} ${entry.date.day}, ${entry.date.year}';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppColors.darkWith(0.02),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.dark.withValues(alpha: 0.08)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(color: AppColors.primary.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
+              child: const Icon(Icons.biotech_rounded, size: 18, color: AppColors.primary),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(dateStr, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.dark)),
+                  const SizedBox(height: 4),
+                  Text('${entry.sampleSize} sampled | ABW: ${entry.abw.toStringAsFixed(2)}g | ABL: ${entry.avgLength.toStringAsFixed(1)}cm',
+                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: AppColors.dark.withValues(alpha: 0.5)),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _revalidateCount() {
     final count = int.tryParse(_countController.text) ?? 0;
-    final maxSample = TankService.instance.liveCount;
+    final maxSample = TankService.instance.inTankCount;
     if (count > 0 && maxSample > 0 && count > maxSample) {
       setState(() => _countError = 'Exceeds live count ($maxSample)');
     } else {
@@ -1061,12 +1110,11 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
     final weight = double.tryParse(_weightController.text);
     final length = double.tryParse(_lengthController.text);
 
-    if (count != null &&
-        weight != null &&
-        length != null &&
-        count > 0 &&
-        weight > 0 &&
-        length > 0) {
+    if (count == null || weight == null || length == null || count <= 0 || weight <= 0 || length <= 0) {
+      showBeautifulSnackbar(context, 'All sampling values must be positive numbers.', false);
+      return;
+    }
+    {
       final wasEditing = _isEditing;
       final service = TankService.instance;
       final history = service.samplingHistory;
@@ -1139,13 +1187,12 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
   Widget build(BuildContext context) {
     final canSample = TankService.instance.canSample;
     final service = TankService.instance;
-    final daysSince = service.daysSinceLastSampling;
-    final daysRemaining = daysSince >= 7 ? 0 : 7 - daysSince;
     final lastEntryIsToday = service.samplingHistory.isNotEmpty
         ? _isToday(service.samplingHistory.last.date)
         : false;
 
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: const Color(0xFFFCFCFC),
@@ -1165,27 +1212,47 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  const Text(
-                    'Weekly Sampling',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
-                  ),
-                  const SizedBox(width: 8),
-                ],
+              const Text(
+                'Record Sampling',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
               ),
-              if (_isRecorded && widget.isOwner && lastEntryIsToday)
-                TextButton(
-                  onPressed: _handleEdit,
-                  child: const Text(
-                    'Edit',
-                    style: TextStyle(
-                      color: AppColors.primary,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  GestureDetector(
+                    onTap: _showHistoryModal,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: AppColors.darkWith(0.05),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.history_rounded, size: 12, color: AppColors.dark.withValues(alpha: 0.6)),
+                          const SizedBox(width: 4),
+                          Text('History', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.dark.withValues(alpha: 0.6))),
+                        ],
+                      ),
                     ),
                   ),
-                ),
+                  if (_isRecorded && widget.isOwner && lastEntryIsToday) ...[
+                    const SizedBox(width: 6),
+                    TextButton(
+                      onPressed: _handleEdit,
+                      child: const Text(
+                        'Edit',
+                        style: TextStyle(
+                          color: AppColors.primary,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -1462,6 +1529,7 @@ showBeautifulSnackbar(context, 'Sampling is for owners only', false, title: 'Not
             controller: controller,
             onChanged: (_) => onChanged?.call(),
             keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$'))],
             textAlign: TextAlign.center,
             enabled: enabled,
             decoration: InputDecoration(
@@ -1568,6 +1636,7 @@ class GrowthStagePanel extends StatelessWidget {
     final progress = ((activeIndex * 0.25) + (stageProgress * 0.25)).clamp(0.0, 1.0);
 
     return Container(
+      width: double.infinity,
       clipBehavior: Clip.antiAlias,
       padding: const EdgeInsets.only(top: 20),
       decoration: BoxDecoration(

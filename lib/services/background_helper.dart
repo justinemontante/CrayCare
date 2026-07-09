@@ -132,12 +132,6 @@ class BackgroundHelper {
     final uid = _userId;
     if (uid.isEmpty) return;
     final db = FirebaseDatabase.instance;
-
-    final profileSnap = await db.ref('users/$uid/profile').get();
-    final profile = profileSnap.value is Map ? profileSnap.value as Map : {};
-    final ownerUid = profile['ownerUid'] as String?;
-    final notifTargetUid = (ownerUid != null && ownerUid.isNotEmpty) ? ownerUid : uid;
-
     final now = DateTime.now();
     final todayKey = '${now.year}-${now.month}-${now.day}';
     final nowMins = now.hour * 60 + now.minute;
@@ -169,14 +163,14 @@ class BackgroundHelper {
       final confirmKey = 'confirm_${todayKey}_${entry.key}';
 
       final reminderMarker = await db
-          .ref('users/$notifTargetUid/notifications/markers/$reminderKey')
+          .ref('users/$uid/notifications/markers/$reminderKey')
           .get();
       final confirmMarker = await db
-          .ref('users/$notifTargetUid/notifications/markers/$confirmKey')
+          .ref('users/$uid/notifications/markers/$confirmKey')
           .get();
 
       // Read user preference for feeding notification
-      final prefsSnap = await db.ref('users/$notifTargetUid/notifPrefs').get();
+      final prefsSnap = await db.ref('users/$uid/notifPrefs').get();
       final prefs = prefsSnap.value is Map ? prefsSnap.value as Map : {};
       final isFeedingEnabled = prefs['feeding'] != false;
 
@@ -196,7 +190,7 @@ class BackgroundHelper {
             ),
           ),
         );
-        await db.ref('users/$notifTargetUid/notifications/markers/$reminderKey').set(true);
+        await db.ref('users/$uid/notifications/markers/$reminderKey').set(true);
       }
 
       if (isFeedingEnabled && !confirmMarker.exists && nowMins > schedMins && nowMins <= schedMins + 15) {
@@ -219,7 +213,7 @@ class BackgroundHelper {
               ),
             ),
           );
-          await db.ref('users/$notifTargetUid/notifications/markers/$confirmKey').set(true);
+          await db.ref('users/$uid/notifications/markers/$confirmKey').set(true);
         }
       }
     }
@@ -231,14 +225,9 @@ class BackgroundHelper {
     final db = FirebaseDatabase.instance;
     final now = DateTime.now();
 
-    final profileSnap = await db.ref('users/$uid/profile').get();
-    final profile = profileSnap.value is Map ? profileSnap.value as Map : {};
-    final ownerUid = profile['ownerUid'] as String?;
-    final tankOwnerUid = (ownerUid != null && ownerUid.isNotEmpty) ? ownerUid : uid;
-
     // Read actual sampling records to find the latest date
-    final samplingSnap = await db.ref('tank_data/$tankOwnerUid/sampling').orderByChild('date').limitToLast(1).get();
-    final tankSnap = await db.ref('tank_data/$tankOwnerUid/inventory').get();
+    final samplingSnap = await db.ref('production/$uid/crayfish/sampling').orderByChild('date').limitToLast(1).get();
+    final tankSnap = await db.ref('production/$uid/crayfish/config').get();
     if (!tankSnap.exists) return;
     final tank = tankSnap.value;
     if (tank is! Map) return;
@@ -266,7 +255,7 @@ class BackgroundHelper {
     if (daysSince < 7) return;
 
     const markerKey = 'sampling_reminder';
-    final marker = await db.ref('users/$tankOwnerUid/notifications/markers/$markerKey').get();
+    final marker = await db.ref('users/$uid/notifications/markers/$markerKey').get();
     if (marker.exists) {
       final val = marker.value;
       if (val is Map) {
@@ -303,7 +292,7 @@ class BackgroundHelper {
       ),
     );
 
-    await db.ref('users/$tankOwnerUid/notifications/markers/$markerKey').set({
+    await db.ref('users/$uid/notifications/markers/$markerKey').set({
       'reminderTs': now.millisecondsSinceEpoch,
       'sampleTs': effectiveSampleTs,
     });

@@ -8,10 +8,8 @@ class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final GoogleSignIn _googleSignIn = GoogleSignIn();
 
-  // Auth state stream
   Stream<User?> get user => _auth.authStateChanges();
 
-  // SIGN UP (In-update para isama ang Name at Email Verification)
   Future<User?> signUp(String name, String email, String password) async {
     try {
       UserCredential result = await _auth.createUserWithEmailAndPassword(
@@ -26,14 +24,10 @@ class AuthService {
         if (!user.emailVerified) {
           await user.sendEmailVerification();
         }
-        final ownerUid = await DatabaseService.instance.findOwnerUid();
         await DatabaseService.instance.saveUserProfile(
           uid: user.uid,
           name: name,
           email: email,
-          role: 'monitor',
-          status: 'active',
-          ownerUid: ownerUid,
         );
       }
 
@@ -43,7 +37,6 @@ class AuthService {
     }
   }
 
-  // SIGN IN
   Future<User?> signIn(String email, String password) async {
     try {
       UserCredential result = await _auth.signInWithEmailAndPassword(
@@ -54,7 +47,6 @@ class AuthService {
       User? user = result.user;
 
       if (user != null) {
-        // Kumuha muna ng profile sa RTDB para ma-verify kung disabled
         final profile = await DatabaseService.instance.getUserProfile(user.uid);
         if (profile != null && profile['status'] == 'disabled') {
           await signOut();
@@ -68,16 +60,11 @@ class AuthService {
           );
         }
 
-        // Para sa mga existing users — i-save sa RTDB (preserve photoUrl)
-        final String? existingRole = profile?['role'] as String?;
-        final String? existingStatus = profile?['status'] as String?;
         await DatabaseService.instance.saveUserProfile(
           uid: user.uid,
           name: user.displayName ?? 'CrayCare User',
           email: user.email ?? '',
           photoUrl: profile?['photoUrl'] as String?,
-          role: existingRole ?? 'monitor', // Kung walang role, gawing 'monitor'
-          status: existingStatus ?? 'active',
         );
       }
       return user;
@@ -86,57 +73,39 @@ class AuthService {
     }
   }
 
-  // GOOGLE SIGN IN
   Future<User?> signInWithGoogle() async {
     try {
-      // Open Google popup
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
 
-      // User cancelled
       if (googleUser == null) {
         return null;
       }
 
-      // Get auth details
       final GoogleSignInAuthentication googleAuth =
           await googleUser.authentication;
 
-      // Create credential
       final credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
       );
 
-      // Sign in to Firebase
       UserCredential userCredential = await _auth.signInWithCredential(
         credential,
       );
 
-      // I-save sa RTDB ang Google user profile
       final user = userCredential.user;
       if (user != null) {
-        // Kunin muna ang existing profile para hindi mawala ang photoUrl/role/status
         final profile = await DatabaseService.instance.getUserProfile(user.uid);
         if (profile != null && profile['status'] == 'disabled') {
           await signOut();
           throw Exception('Your account has been disabled. Please contact the administrator.');
         }
 
-        final String? existingRole = profile?['role'] as String?;
-        final String? existingStatus = profile?['status'] as String?;
-        final String? existingOwnerUid = profile?['ownerUid'] as String?;
-        String? ownerUid = existingOwnerUid;
-        if (ownerUid == null || ownerUid.isEmpty) {
-          ownerUid = await DatabaseService.instance.findOwnerUid();
-        }
         await DatabaseService.instance.saveUserProfile(
           uid: user.uid,
           name: user.displayName ?? 'Google User',
           email: user.email ?? '',
           photoUrl: profile?['photoUrl'] as String?,
-          role: existingRole ?? 'monitor',
-          status: existingStatus ?? 'active',
-          ownerUid: ownerUid,
         );
       }
 
@@ -148,7 +117,6 @@ class AuthService {
     }
   }
 
-  // CHANGE PASSWORD
   Future<void> changePassword({
     required String email,
     required String currentPassword,
@@ -157,7 +125,6 @@ class AuthService {
     final user = _auth.currentUser;
     if (user == null) throw Exception('No user logged in.');
 
-    // Check if user has email/password provider
     final hasEmailProvider = user.providerData.any(
       (info) => info.providerId == 'password',
     );
@@ -181,7 +148,6 @@ class AuthService {
     await user.updatePassword(newPassword);
   }
 
-  // SIGN OUT
   Future<void> signOut() async {
     final uid = _auth.currentUser?.uid;
     if (uid != null) {
