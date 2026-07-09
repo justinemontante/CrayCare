@@ -1331,30 +1331,34 @@ class _DashboardScreenState extends State<DashboardScreen>
                     child: Divider(height: 1),
                   ),
                   _buildGrayDetailRow(Icons.calendar_today, 'Planted Date', hasData ? _formatTankDate(batch!.plantingDate) : '--'),
-                  if (service.samplingHistory.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   _buildGrayDetailRow(
                     Icons.biotech_rounded,
                     'Last Sampling',
-                    _formatTankDate(service.samplingHistory.last.date),
+                    service.samplingHistory.isNotEmpty
+                        ? _formatTankDate(service.samplingHistory.last.date)
+                        : '--',
                   ),
                   const SizedBox(height: 8),
                   _buildGrayDetailRow(
                     Icons.straighten_rounded,
                     'Avg Height',
-                    '${service.samplingHistory.last.avgHeight.toStringAsFixed(1)} cm',
+                    service.samplingHistory.isNotEmpty
+                        ? '${service.samplingHistory.last.avgHeight.toStringAsFixed(1)} cm'
+                        : '--',
                   ),
                   const SizedBox(height: 8),
                   _buildGrayDetailRow(
                     Icons.eco_rounded,
                     'Avg Leaves',
-                    service.samplingHistory.last.avgLeafCount.toStringAsFixed(0),
+                    service.samplingHistory.isNotEmpty
+                        ? service.samplingHistory.last.avgLeafCount.toStringAsFixed(0)
+                        : '--',
                   ),
-                ],
-                const SizedBox(height: 8),
-                _buildLettuceNextSamplingRow(),
-                const SizedBox(height: 8),
-                _buildGrayDetailRow(Icons.timelapse_rounded, 'Days in Cultivation', '${service.daysInCultivation}d'),
+                  const SizedBox(height: 8),
+                  _buildLettuceNextSamplingRow(),
+                  const SizedBox(height: 8),
+                  _buildGrayDetailRow(Icons.timelapse_rounded, 'Days in Cultivation', '${service.daysInCultivation}d'),
                   if (service.harvestRecords.isNotEmpty) ...[
                     const SizedBox(height: 8),
                     const Padding(
