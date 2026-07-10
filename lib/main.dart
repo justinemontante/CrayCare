@@ -16,7 +16,7 @@ import 'screens/verify_screen.dart';
 import 'services/settings_service.dart';
 import 'services/notification_service.dart';
 import 'services/feeder_service.dart';
-import 'services/tank_service.dart';
+import 'services/crayfish_service.dart';
 import 'services/lettuce_service.dart';
 import 'services/database_service.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -36,6 +36,10 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
+  // Enable offline persistence before any Firebase Database operation
+  FirebaseDatabase.instance.setPersistenceEnabled(true);
+  FirebaseDatabase.instance.setPersistenceCacheSizeBytes(104857600); // 100MB
+
   // CRITICAL: Register the background message handler BEFORE any other setup.
   // Firebase requires this to be a top-level function registered here.
   FirebaseMessaging.onBackgroundMessage(firebaseBackgroundMessageHandler);
@@ -50,7 +54,7 @@ void main() async {
   NotificationService.instance.init();
   await NotificationService.instance.initFCM();
   FeederService.instance.init();
-  TankService.instance.init();
+  CrayfishService.instance.init();
   LettuceService.instance.init();
   MlService.instance.init();
   SystemChrome.setPreferredOrientations([

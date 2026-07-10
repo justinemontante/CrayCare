@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../theme/app_colors.dart';
 import '../models/crayfish_stage.dart';
-import '../services/tank_service.dart';
+import '../services/crayfish_service.dart';
 import '../services/lettuce_service.dart';
 import '../widgets/production/crayfish/crayfish_overview_tab.dart';
 import '../widgets/production/crayfish/crayfish_sampling_tab.dart';
@@ -24,6 +24,16 @@ class ProductionScreen extends StatefulWidget {
 }
 
 class ProductionScreenState extends State<ProductionScreen> {
+
+  String _formatTimestamp(int ts) {
+    final dt = DateTime.fromMillisecondsSinceEpoch(ts);
+    final months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    final dateStr = '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
+    final h = dt.hour > 12 ? dt.hour - 12 : (dt.hour == 0 ? 12 : dt.hour);
+    final ampm = dt.hour >= 12 ? 'PM' : 'AM';
+    final timeStr = '$h:${dt.minute.toString().padLeft(2, '0')} $ampm';
+    return '$dateStr · $timeStr';
+  }
   String? _productionMode; // null = picker, 'crayfish', 'lettuce'
   int _crayfishTab = 0; // 0 = Overview, 1 = Sampling, 2 = Growth
   int _lettuceTab = 0;  // 0 = Overview, 1 = Sampling, 2 = Growth
@@ -49,13 +59,13 @@ class ProductionScreenState extends State<ProductionScreen> {
   @override
   void initState() {
     super.initState();
-    TankService.instance.addListener(_refreshUI);
+    CrayfishService.instance.addListener(_refreshUI);
     LettuceService.instance.addListener(_refreshUI);
   }
 
   @override
   void dispose() {
-    TankService.instance.removeListener(_refreshUI);
+    CrayfishService.instance.removeListener(_refreshUI);
     LettuceService.instance.removeListener(_refreshUI);
     super.dispose();
   }
@@ -83,7 +93,7 @@ class ProductionScreenState extends State<ProductionScreen> {
   }
 
   Widget _buildCrayfishContent() {
-    final selectedBatchId = TankService.instance.selectedBatchId;
+    final selectedBatchId = CrayfishService.instance.selectedBatchId;
     
     if (selectedBatchId == null) {
       return Column(
@@ -107,7 +117,7 @@ class ProductionScreenState extends State<ProductionScreen> {
           child: Row(
             children: [
               GestureDetector(
-                onTap: () => TankService.instance.selectBatch(null),
+                onTap: () => CrayfishService.instance.selectBatch(null),
                 child: Row(
                   children: [
                     Icon(Icons.arrow_back_ios_new_rounded, size: 14, color: AppColors.primary),
@@ -183,7 +193,7 @@ class ProductionScreenState extends State<ProductionScreen> {
   }
 
   Widget _buildActiveCrayfishTab() {
-    final batchKey = '${TankService.instance.selectedBatchId}_$_lastEdited';
+    final batchKey = '${CrayfishService.instance.selectedBatchId}_$_lastEdited';
     switch (_crayfishTab) {
       case 0:return OverviewTab(
           key: ValueKey('overview_$batchKey'),
@@ -192,7 +202,7 @@ class ProductionScreenState extends State<ProductionScreen> {
           onShowEditModal: _showEditModal,
           onShowLogsModal: _showLogsModal,
           onShowCompleteBatchModal: _startNewBatch,
-          hasSetup: TankService.instance.isInitialized,
+          hasSetup: CrayfishService.instance.isInitialized,
           lastEdited: _lastEdited,
           isOwner: widget.isOwner,
         );
@@ -688,7 +698,7 @@ class ProductionScreenState extends State<ProductionScreen> {
   }
 
   void _showEditModal() {
-    if (TankService.instance.samplingHistory.isNotEmpty) {
+    if (CrayfishService.instance.samplingHistory.isNotEmpty) {
       showBeautifulSnackbar(
         context,
         'Initial setup data can no longer be modified because sampling records already exist.',
@@ -701,22 +711,22 @@ class ProductionScreenState extends State<ProductionScreen> {
 
   void _showSetupForm({required bool isEdit}) {
     final batchNameCtrl = TextEditingController(
-      text: isEdit ? (TankService.instance.selectedBatch?.batchId ?? '') : '',
+      text: isEdit ? (CrayfishService.instance.selectedBatch?.batchId ?? '') : '',
     );
     final countCtrl = TextEditingController(
-      text: isEdit ? '${TankService.instance.initialCount}' : '',
+      text: isEdit ? '${CrayfishService.instance.initialCount}' : '',
     );
     final sampleCountCtrl = TextEditingController(
-      text: isEdit ? '${TankService.instance.sampleCount}' : '',
+      text: isEdit ? '${CrayfishService.instance.sampleCount}' : '',
     );
     final totalWeightCtrl = TextEditingController(
       text: isEdit
-          ? TankService.instance.initialTotalWeight.toStringAsFixed(1)
+          ? CrayfishService.instance.initialTotalWeight.toStringAsFixed(1)
           : '',
     );
     final totalLengthCtrl = TextEditingController(
       text: isEdit
-          ? TankService.instance.initialTotalLength.toStringAsFixed(1)
+          ? CrayfishService.instance.initialTotalLength.toStringAsFixed(1)
           : '',
     );
 
@@ -877,13 +887,13 @@ class ProductionScreenState extends State<ProductionScreen> {
                                 if (count > 0 && sampleCount > 0) {
                                   setLocalState(() => isSaving = true);
                                   try {
-                                    if (TankService.instance.isInitialized && !TankService.instance.isArchiveView) {
-                                      await TankService.instance.completeBatch(
+                                    if (CrayfishService.instance.isInitialized && !CrayfishService.instance.isArchiveView) {
+                                      await CrayfishService.instance.completeBatch(
                                         harvestCount: 0,
                                         harvestWeightGrams: null,
                                       );
                                     }
-                                    await TankService.instance.initializeGrowOut(
+                                    await CrayfishService.instance.initializeGrowOut(
                                       count,
                                       sampleCount,
                                       totalWeight,
@@ -1168,7 +1178,7 @@ class ProductionScreenState extends State<ProductionScreen> {
 
   void _showMortalityModal() {
     final countCtrl = TextEditingController();
-    final liveCount = TankService.instance.inTankCount;
+    final liveCount = CrayfishService.instance.inTankCount;
 
     showModalBottomSheet(
       context: context,
@@ -1267,7 +1277,7 @@ class ProductionScreenState extends State<ProductionScreen> {
                     child: ElevatedButton(
                       onPressed: errorText == null && mortalityVal > 0
                           ? () {
-                              TankService.instance.addMortality(mortalityVal);
+                              CrayfishService.instance.addMortality(mortalityVal);
                               Navigator.pop(ctx);
                               showBeautifulSnackbar(
                                 context,
@@ -1309,7 +1319,7 @@ class ProductionScreenState extends State<ProductionScreen> {
   }
 
   void _showLogsModal() {
-    final activities = TankService.instance.activities.toList();
+    final activities = CrayfishService.instance.activities.toList();
 
     showModalBottomSheet(
       context: context,
@@ -1472,7 +1482,7 @@ class ProductionScreenState extends State<ProductionScreen> {
                                         ),
                                       ),
                                     Text(
-                                      '${act.date} Â· ${act.time}',
+                                      act.date.isNotEmpty ? '${act.date} Â· ${act.time}' : _formatTimestamp(act.timestamp),
                                       style: TextStyle(
                                         fontSize: 10,
                                         fontWeight: FontWeight.w500,
@@ -1629,6 +1639,8 @@ class ProductionScreenState extends State<ProductionScreen> {
   void _showLettuceInitModal() {
     final countCtrl = TextEditingController();
     final batchNumCtrl = TextEditingController();
+    final heightCtrl = TextEditingController(text: '0');
+    final leafCtrl = TextEditingController(text: '0');
 
     showModalBottomSheet(
       context: context,
@@ -1710,6 +1722,39 @@ class ProductionScreenState extends State<ProductionScreen> {
                   'Enter number of plants (e.g. 30)',
                   countCtrl,
                 ),
+                const SizedBox(height: 4),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppColors.warning.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppColors.warning.withValues(alpha: 0.15)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline_rounded, size: 14, color: AppColors.warning),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Lettuce starts as seedlings — enter 0 if just planted.',
+                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.7)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildModalInput('Total Height (cm)', '0 if seedlings', heightCtrl),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _buildModalInput('Total Leaf Count', '0 if seedlings', leafCtrl, isText: true),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 12),
                 SizedBox(
                   width: double.infinity,
@@ -1719,8 +1764,12 @@ class ProductionScreenState extends State<ProductionScreen> {
                       if (count > 0) {
                         try {
                           final batchNum = batchNumCtrl.text.trim();
+                          final height = double.tryParse(heightCtrl.text) ?? 0;
+                          final leaves = int.tryParse(leafCtrl.text) ?? 0;
                           await LettuceService.instance.initializeBatch(
                             quantity: count,
+                            totalHeight: height,
+                            totalLeafCount: leaves,
                             batchNumber: batchNum.isNotEmpty ? batchNum : null,
                           );
                         } catch (e) {
@@ -2041,6 +2090,8 @@ class ProductionScreenState extends State<ProductionScreen> {
                         final action = act['action'] as String? ?? '';
                         final date = act['date'] as String? ?? '';
                         final time = act['time'] as String? ?? '';
+                        final ts = act['timestamp'] as int? ?? 0;
+                        final displayDt = date.isNotEmpty ? '$date \u00b7 $time' : _formatTimestamp(ts);
 
                         return Container(
                           padding: const EdgeInsets.all(12),
@@ -2066,7 +2117,7 @@ class ProductionScreenState extends State<ProductionScreen> {
                                   children: [
                                     Text(action, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.dark), maxLines: 2, overflow: TextOverflow.ellipsis),
                                     const SizedBox(height: 4),
-                                    Text('$date \u00b7 $time', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: AppColors.dark.withValues(alpha: 0.4))),
+                                    Text(displayDt, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: AppColors.dark.withValues(alpha: 0.4))),
                                   ],
                                 ),
                               ),

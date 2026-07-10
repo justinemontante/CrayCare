@@ -35,11 +35,14 @@ class SensorService extends ChangeNotifier {
 
   Timer? _staleTimer;
   static const _staleTimeout = Duration(seconds: 30);
+  static const _initialStaleTimeout = Duration(seconds: 10);
+  bool _hasLiveData = false;
 
   DateTime _lastUpdated = DateTime.fromMillisecondsSinceEpoch(0);
   String? _lastError;
 
   bool get initialDataLoaded => _initialDataLoaded;
+  bool get hasLiveData => _hasLiveData;
   DateTime get lastUpdated => _lastUpdated;
   String? get lastError => _lastError;
 
@@ -157,8 +160,17 @@ class SensorService extends ChangeNotifier {
   }
 
   void _parseAndUpdate(Map<String, dynamic> data) {
+    final isInitialLoad = !_initialDataLoaded;
     if (!_initialDataLoaded) {
       _initialDataLoaded = true;
+    }
+
+    if (isInitialLoad) {
+      // Ignore initial data — could be stale from hours ago.
+      // Wait for a subsequent update to prove the ESP is alive.
+      _staleTimer = Timer(_initialStaleTimeout, _markStale);
+      notifyListeners();
+      return;
     }
 
     final tempRaw = _toDouble(data['temperature']);
@@ -180,6 +192,7 @@ class SensorService extends ChangeNotifier {
     _updateSensor('waterlevel', wlRaw);
 
     _lastUpdated = DateTime.now();
+    _hasLiveData = true;
     _staleTimer?.cancel();
     _staleTimer = Timer(_staleTimeout, _markStale);
     notifyListeners();
@@ -188,6 +201,7 @@ class SensorService extends ChangeNotifier {
   void _markStale() {
     _latest.clear();
     _lastUpdated = DateTime.fromMillisecondsSinceEpoch(0);
+    _hasLiveData = false;
     notifyListeners();
     debugPrint('[SensorService] Data stale - ESP32 offline');
   }

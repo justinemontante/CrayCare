@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../theme/app_colors.dart';
-import '../../../services/tank_service.dart';
+import '../../../services/crayfish_service.dart';
 import '../../../models/crayfish_batch.dart';
 import '../../../utils/snackbar_helper.dart';
 
@@ -43,7 +43,7 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
   }
 
   void _handleSave() {
-    final service = TankService.instance;
+    final service = CrayfishService.instance;
     if (!widget.isOwner) {
       showBeautifulSnackbar(context, 'Only the owner can record harvest.', false);
       return;
@@ -69,7 +69,7 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final service = TankService.instance;
+    final service = CrayfishService.instance;
     final abwGrams = (double.tryParse(_weightCtrl.text) ?? 0) > 0 && (int.tryParse(_countCtrl.text) ?? 0) > 0
         ? ((double.tryParse(_weightCtrl.text)! * 1000) / int.tryParse(_countCtrl.text)!)
         : 0.0;
@@ -185,7 +185,7 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
 
   Widget _buildHarvestWarning() {
     final count = int.tryParse(_countCtrl.text) ?? 0;
-    final inTank = TankService.instance.inTankCount;
+    final inTank = CrayfishService.instance.inTankCount;
     if (count <= 0 || count <= inTank) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(top: 6),
@@ -237,7 +237,7 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
   }
 
   void _showHistoryModal() {
-    final service = TankService.instance;
+    final service = CrayfishService.instance;
     final records = service.harvestRecords;
     showModalBottomSheet(
       context: context,

@@ -68,8 +68,8 @@ class SettingsMenu extends StatelessWidget {
                 onTap: () => onGoTo(3),
               ),
               _buildMenuItem(
-                'Crayfish Stage & Thresholds',
-                Icons.timeline,
+                'Sensor Thresholds',
+                Icons.tune_rounded,
                 AppColors.primary,
                 chevron: true,
                 onTap: () => onGoTo(4),

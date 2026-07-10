@@ -2,8 +2,23 @@ import 'package:flutter/foundation.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
+import 'package:flutter/material.dart';
 import '../models/lettuce_batch.dart';
 import 'db_paths.dart';
+
+enum LettuceGrowthStage {
+  seedling('Seedling', '0–14 days', Icons.eco_rounded, Color(0xFF81C784), 'Young plants establishing roots'),
+  vegetative('Vegetative', '15–35 days', Icons.eco_rounded, Color(0xFF4CAF50), 'Active leaf and root growth'),
+  mature('Mature / Harvest', '35–50 days', Icons.agriculture_rounded, Color(0xFF2E7D32), 'Ready for harvest');
+
+  final String label;
+  final String range;
+  final IconData icon;
+  final Color color;
+  final String description;
+
+  const LettuceGrowthStage(this.label, this.range, this.icon, this.color, this.description);
+}
 
 class LettuceService extends ChangeNotifier {
   static final LettuceService instance = LettuceService._();
@@ -105,7 +120,21 @@ class LettuceService extends ChangeNotifier {
     return today.difference(DateTime(last.year, last.month, last.day)).inDays;
   }
 
-  bool get canSampleLettuce => daysSinceLastLettuceSampling >= 7;
+  bool get hasSamplingThisWeek {
+    final history = samplingHistory;
+    if (history.isEmpty) return false;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final monday = today.subtract(Duration(days: today.weekday - 1));
+    final sunday = today.add(Duration(days: 7 - today.weekday));
+    for (final entry in history) {
+      final entryDate = DateTime(entry.date.year, entry.date.month, entry.date.day);
+      if (!entryDate.isBefore(monday) && !entryDate.isAfter(sunday)) return true;
+    }
+    return false;
+  }
+
+  bool get canSampleLettuce => daysSinceLastLettuceSampling >= 7 && !hasSamplingThisWeek;
   int get daysUntilNextLettuceSampling {
     final remaining = 7 - daysSinceLastLettuceSampling;
     return remaining < 0 ? 0 : remaining;
@@ -127,6 +156,13 @@ class LettuceService extends ChangeNotifier {
   }
 
   bool get isReadyToHarvest => daysInCultivation >= 30;
+
+  LettuceGrowthStage get growthStage {
+    final days = daysInCultivation;
+    if (days <= 14) return LettuceGrowthStage.seedling;
+    if (days <= 35) return LettuceGrowthStage.vegetative;
+    return LettuceGrowthStage.mature;
+  }
 
   bool _migrationDone = false;
 
@@ -486,6 +522,8 @@ class LettuceService extends ChangeNotifier {
 
   Future<void> initializeBatch({
     required int quantity,
+    double totalHeight = 0,
+    int totalLeafCount = 0,
     String? batchNumber,
   }) async {
     if (_tankOwnerUid.isEmpty) {
@@ -513,6 +551,8 @@ class LettuceService extends ChangeNotifier {
       status: 'active',
       plantingDate: now,
       initialQuantity: quantity,
+      initialTotalHeight: totalHeight,
+      initialTotalLeafCount: totalLeafCount,
       currentQuantity: quantity,
     );
 
@@ -528,9 +568,7 @@ class LettuceService extends ChangeNotifier {
     try {
       final logKey = _activitiesRef.push().key ?? now.millisecondsSinceEpoch.toString();
       await _activitiesRef.child(logKey).set({
-        'action': 'Initialized new lettuce batch ($batchNum) with $quantity seedlings.',
-        'date': '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}',
-        'time': '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
+        'action': 'Initialized new lettuce batch ($batchNum) with $quantity seedlings (H: ${totalHeight}cm, L: $totalLeafCount).',
         'type': 'lettuce',
         'batchId': batchNum,
         'timestamp': now.millisecondsSinceEpoch,
@@ -559,8 +597,6 @@ class LettuceService extends ChangeNotifier {
       final actKey = _activitiesRef.push().key ?? now.millisecondsSinceEpoch.toString();
       await _activitiesRef.child(actKey).set({
         'action': 'Logged lettuce growth: ${plantHeightCm}cm height.',
-        'date': '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}',
-        'time': '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
         'type': 'lettuce',
         'batchId': batchId,
         'timestamp': now.millisecondsSinceEpoch,
@@ -597,8 +633,6 @@ class LettuceService extends ChangeNotifier {
       final actKey = _activitiesRef.push().key ?? now.millisecondsSinceEpoch.toString();
       await _activitiesRef.child(actKey).set({
         'action': 'Sampled lettuce: ${sampleSize} plants, avg ${avgHeight.toStringAsFixed(1)}cm height, ${avgLeafCount.toStringAsFixed(0)} leaves.',
-        'date': '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}',
-        'time': '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
         'type': 'lettuce',
         'batchId': batchId,
         'timestamp': now.millisecondsSinceEpoch,
@@ -645,8 +679,6 @@ class LettuceService extends ChangeNotifier {
       final actKey = _activitiesRef.push().key ?? now.millisecondsSinceEpoch.toString();
       await _activitiesRef.child(actKey).set({
         'action': 'Logged plant loss: $count dead/wilted plants in batch $batchId.',
-        'date': '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}',
-        'time': '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
         'type': 'lettuce',
         'batchId': batchId,
         'timestamp': now.millisecondsSinceEpoch,
@@ -666,11 +698,10 @@ class LettuceService extends ChangeNotifier {
     final avgWeight = harvestedCount > 0 ? (totalWeightKg * 1000) / harvestedCount : 0.0;
     await _harvestsRef.push().set({
       'batchId': batchId ?? _selectedBatchId ?? '',
-      'date': now.millisecondsSinceEpoch,
       'harvestedCount': harvestedCount,
       'totalWeightKg': totalWeightKg,
       'avgWeightGrams': avgWeight,
-      'timestamp': ServerValue.timestamp,
+      'timestamp': now.millisecondsSinceEpoch,
     });
 
     final resolvedBatchId = batchId ?? _selectedBatchId;
@@ -755,8 +786,6 @@ class LettuceService extends ChangeNotifier {
       final actKey = _activitiesRef.push().key ?? now.millisecondsSinceEpoch.toString();
       await _activitiesRef.child(actKey).set({
         'action': 'Harvested lettuce batch (${harvestedBatch.batchId}): $harvestedCount plants, $weightStr.',
-        'date': '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}',
-        'time': '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
         'type': 'lettuce',
         'batchId': batchId,
         'timestamp': now.millisecondsSinceEpoch,

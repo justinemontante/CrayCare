@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../theme/app_colors.dart';
-import '../../../services/tank_service.dart';
+import '../../../services/crayfish_service.dart';
 import '../../../models/crayfish_batch.dart';
 
 class CrayfishBatchList extends StatelessWidget {
@@ -10,7 +10,7 @@ class CrayfishBatchList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final service = TankService.instance;
+    final service = CrayfishService.instance;
     final activeBatches = service.activeBatches;
     final pastBatches = service.harvestHistory;
 
@@ -74,7 +74,7 @@ class CrayfishBatchList extends StatelessWidget {
     );
   }
 
-  Widget _buildActiveBatchCard(BuildContext context, TankService service, CrayfishBatch batch) {
+  Widget _buildActiveBatchCard(BuildContext context, CrayfishService service, CrayfishBatch batch) {
     final isActive = true;
     return _buildBatchCard(context, batch, isActive);
   }
@@ -103,7 +103,7 @@ class CrayfishBatchList extends StatelessWidget {
   }
 
   Widget _buildBatchCard(BuildContext context, CrayfishBatch batch, bool isActive) {
-    final service = TankService.instance;
+    final service = CrayfishService.instance;
     final isSelected = service.selectedBatchId == batch.batchId;
     final survivalPct = batch.initialCount > 0
         ? ((batch.initialCount - batch.totalMortality) / batch.initialCount * 100)

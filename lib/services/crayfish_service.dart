@@ -3,7 +3,6 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
 import '../models/crayfish_batch.dart';
-import 'settings_service.dart';
 import 'db_paths.dart';
 
 enum GrowthStage {
@@ -45,7 +44,7 @@ class SamplingEntry {
   });
 }
 
-class TankActivity {
+class CrayfishActivity {
   final String action;
   final String date;
   final String time;
@@ -55,7 +54,7 @@ class TankActivity {
   final double? abw;
   final double? avgLength;
 
-  TankActivity({
+  CrayfishActivity({
     required this.action,
     required this.date,
     required this.time,
@@ -73,9 +72,9 @@ class MortalityEntry {
   MortalityEntry({required this.date, required this.count});
 }
 
-class TankService extends ChangeNotifier {
-  static final TankService instance = TankService._();
-  TankService._();
+class CrayfishService extends ChangeNotifier {
+  static final CrayfishService instance = CrayfishService._();
+  CrayfishService._();
 
   static Map<String, dynamic> _convertMap(Object? value) {
     if (value is Map) {
@@ -122,7 +121,7 @@ class TankService extends ChangeNotifier {
   double _totalSampleLength = 0.0;
   List<SamplingEntry> _samplingHistory = [];
   String? _lastSamplingPushKey;
-  List<TankActivity> _activities = [];
+  List<CrayfishActivity> _activities = [];
   List<MortalityEntry> _mortalityHistory = [];
   List<CrayfishBatch> _harvestHistory = [];
   List<CrayfishHarvestRecord> _harvestRecords = [];
@@ -157,7 +156,21 @@ class TankService extends ChangeNotifier {
     return today.difference(DateTime(last.year, last.month, last.day)).inDays;
   }
 
-  bool get canSample => daysSinceLastSampling >= 7;
+  bool get hasSamplingThisWeek {
+    if (_samplingHistory.isEmpty) return false;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final monday = today.subtract(Duration(days: today.weekday - 1));
+    final sunday = today.add(Duration(days: 7 - today.weekday));
+    for (final entry in _samplingHistory) {
+      if (entry.isBaseline) continue;
+      final entryDate = DateTime(entry.date.year, entry.date.month, entry.date.day);
+      if (!entryDate.isBefore(monday) && !entryDate.isAfter(sunday)) return true;
+    }
+    return false;
+  }
+
+  bool get canSample => daysSinceLastSampling >= 7 && !hasSamplingThisWeek;
   int get daysUntilNextSampling {
     final daysPassed = daysSinceLastSampling;
     final remaining = 7 - daysPassed;
@@ -171,7 +184,7 @@ class TankService extends ChangeNotifier {
   double get initialTotalLength => _totalSampleLength;
 
   List<SamplingEntry> get samplingHistory => List.unmodifiable(_samplingHistory);
-  List<TankActivity> get activities => List.unmodifiable(_activities.reversed);
+  List<CrayfishActivity> get activities => List.unmodifiable(_activities.reversed);
   List<MortalityEntry> get mortalityHistory => List.unmodifiable(_mortalityHistory);
   List<CrayfishBatch> get harvestHistory => List.unmodifiable(_harvestHistory.reversed);
   List<CrayfishHarvestRecord> get harvestRecords {
@@ -213,7 +226,7 @@ class TankService extends ChangeNotifier {
 
   void init() async {
     final initialUid = FirebaseAuth.instance.currentUser?.uid ?? '';
-    debugPrint('[TankService] init() currentUser.uid="$initialUid"');
+    debugPrint('[CrayfishService] init() currentUser.uid="$initialUid"');
     if (initialUid.isNotEmpty) {
       _tankOwnerUid = initialUid;
       await _migrateIfNeeded();
@@ -222,7 +235,7 @@ class TankService extends ChangeNotifier {
     }
     FirebaseAuth.instance.authStateChanges().listen((user) {
       final uid = user?.uid ?? '';
-      debugPrint('[TankService] authStateChanges event: uid="$uid"');
+      debugPrint('[CrayfishService] authStateChanges event: uid="$uid"');
       if (uid.isEmpty) {
         _resetAll();
         return;
@@ -245,7 +258,7 @@ class TankService extends ChangeNotifier {
 
       if (!hasOldData) {
         _migrationDone = true;
-        debugPrint('[TankService] No old tank_data found, skipping migration');
+        debugPrint('[CrayfishService] No old tank_data found, skipping migration');
         return;
       }
 
@@ -306,9 +319,9 @@ class TankService extends ChangeNotifier {
       }
 
       _migrationDone = true;
-      debugPrint('[TankService] Migration from tank_data to production complete');
+      debugPrint('[CrayfishService] Migration from tank_data to production complete');
     } catch (e) {
-      debugPrint('[TankService] Migration error: $e');
+      debugPrint('[CrayfishService] Migration error: $e');
     }
   }
 
@@ -316,7 +329,7 @@ class TankService extends ChangeNotifier {
     try {
       final snap = await _configRef.get();
       if (!snap.exists) {
-        debugPrint('[TankService] _loadConfig: snapshot does NOT exist');
+        debugPrint('[CrayfishService] _loadConfig: snapshot does NOT exist');
         _resetAll();
         return;
       }
@@ -355,7 +368,7 @@ class TankService extends ChangeNotifier {
       _setupComplete = isInit;
       notifyListeners();
     } catch (e) {
-      debugPrint('[TankService] loadConfig ERROR: $e');
+      debugPrint('[CrayfishService] loadConfig ERROR: $e');
     }
   }
 
@@ -483,7 +496,7 @@ class TankService extends ChangeNotifier {
         }
       }
     } catch (e) {
-      debugPrint('[TankService] _reloadLiveDataFromFirebase loadConfig error: $e');
+      debugPrint('[CrayfishService] _reloadLiveDataFromFirebase loadConfig error: $e');
     }
 
     // 2. Load sampling
@@ -519,7 +532,7 @@ class TankService extends ChangeNotifier {
         _lastSamplingPushKey = lastKey;
       }
     } catch (e) {
-      debugPrint('[TankService] _reloadSampling error: $e');
+      debugPrint('[CrayfishService] _reloadSampling error: $e');
     }
 
     // 3. Load mortality
@@ -537,7 +550,7 @@ class TankService extends ChangeNotifier {
         _mortality = _mortalityHistory.fold(0, (sum, e) => sum + e.count);
       }
     } catch (e) {
-      debugPrint('[TankService] _reloadMortality error: $e');
+      debugPrint('[CrayfishService] _reloadMortality error: $e');
     }
 
     // 4. Load activities
@@ -550,7 +563,7 @@ class TankService extends ChangeNotifier {
         final aData = _convertMap(aSnap.value as Map);
         _activities = aData.values.map((e) {
           final map = _convertMap(e as Map);
-          return TankActivity(
+          return CrayfishActivity(
             action: map['action'] ?? '',
             date: map['date'] ?? '',
             time: map['time'] ?? '',
@@ -563,7 +576,7 @@ class TankService extends ChangeNotifier {
         }).toList()..sort((a, b) => a.timestamp.compareTo(b.timestamp));
       }
     } catch (e) {
-      debugPrint('[TankService] _reloadActivities error: $e');
+      debugPrint('[CrayfishService] _reloadActivities error: $e');
     }
 
     // 5. Load harvest records
@@ -579,7 +592,7 @@ class TankService extends ChangeNotifier {
         ).toList()..sort((a, b) => a.date.compareTo(b.date));
       }
     } catch (e) {
-      debugPrint('[TankService] _reloadHarvestRecords error: $e');
+      debugPrint('[CrayfishService] _reloadHarvestRecords error: $e');
     }
 
     notifyListeners();
@@ -681,7 +694,7 @@ class TankService extends ChangeNotifier {
           ..sort((a, b) => a.date.compareTo(b.date));
       }
     } catch (e) {
-      debugPrint('[TankService] _enterArchiveView load harvest error: $e');
+      debugPrint('[CrayfishService] _enterArchiveView load harvest error: $e');
     }
 
     notifyListeners();
@@ -759,7 +772,7 @@ class TankService extends ChangeNotifier {
       final aData = _convertMap(e.snapshot.value as Map);
       _activities = aData.values.map((e) {
         final map = _convertMap(e as Map);
-        return TankActivity(action: map['action'], date: map['date'], time: map['time'], type: map['type'], timestamp: map['timestamp'] ?? 0);
+        return CrayfishActivity(action: map['action'], date: map['date'] as String? ?? '', time: map['time'] as String? ?? '', type: map['type'], timestamp: map['timestamp'] ?? 0);
       }).toList()..sort((a, b) => a.timestamp.compareTo(b.timestamp));
       notifyListeners();
     });
@@ -858,7 +871,7 @@ class TankService extends ChangeNotifier {
           await _batchesRef.child(key).set(archivedBatch.toJson());
         }
       } catch (e) {
-        debugPrint('[TankService] initializeGrowOut: could not archive previous batch: $e');
+        debugPrint('[CrayfishService] initializeGrowOut: could not archive previous batch: $e');
       }
     }
 
@@ -866,7 +879,7 @@ class TankService extends ChangeNotifier {
     try {
       await Future.wait([_samplingRef.remove(), _mortalityRef.remove(), _activitiesRef.remove()]);
     } catch (e) {
-      debugPrint('[TankService] Error clearing old data: $e');
+      debugPrint('[CrayfishService] Error clearing old data: $e');
     }
 
     // --- Step 3: Set up local state for the new batch ---
@@ -908,7 +921,7 @@ class TankService extends ChangeNotifier {
 
     // Push async — listener will sync from Firebase once done
     _batchesRef.push().set(newBatch.toJson()).catchError((e) {
-      debugPrint('[TankService] Batch push error (non-fatal): $e');
+      debugPrint('[CrayfishService] Batch push error (non-fatal): $e');
     });
 
     // --- Step 6: Update local batch list and select the new batch immediately ---
@@ -917,7 +930,6 @@ class TankService extends ChangeNotifier {
     _selectedBatchId = bid;
     // _initialSelectionDone already irrelevant — selection stability now handled by _parseBatches
 
-    SettingsService.instance.autoDetectStage(_initialWeight, _initialLength);
     notifyListeners();
   }
 
@@ -939,7 +951,6 @@ class TankService extends ChangeNotifier {
     });
     _addActivity('Recorded sampling: ${abw.toStringAsFixed(2)}g ABW, ${avgLength.toStringAsFixed(2)}cm ABL', 'sampling', sampleSize: count, abw: abw, avgLength: avgLength);
     _saveConfig();
-    SettingsService.instance.autoDetectStage(abw, avgLength);
     notifyListeners();
   }
 
@@ -959,7 +970,6 @@ class TankService extends ChangeNotifier {
       'biomass': updated.biomass, 'liveCount': updated.liveCount, 'timestamp': ServerValue.timestamp,
     });
     _saveConfig();
-    SettingsService.instance.autoDetectStage(abw, avgLength);
     notifyListeners();
   }
 
@@ -1007,10 +1017,10 @@ class TankService extends ChangeNotifier {
     final h = now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour);
     final ampm = now.hour >= 12 ? 'PM' : 'AM';
     final timeStr = '$h:${now.minute.toString().padLeft(2, '0')} $ampm';
-    final act = TankActivity(action: action, date: dateStr, time: timeStr, type: type, timestamp: now.millisecondsSinceEpoch, sampleSize: sampleSize, abw: abw, avgLength: avgLength);
+    final act = CrayfishActivity(action: action, date: dateStr, time: timeStr, type: type, timestamp: now.millisecondsSinceEpoch, sampleSize: sampleSize, abw: abw, avgLength: avgLength);
     _activities.add(act);
     _activitiesRef.push().set({
-      'action': action, 'date': dateStr, 'time': timeStr, 'type': type, 'timestamp': now.millisecondsSinceEpoch,
+      'action': action, 'type': type, 'timestamp': now.millisecondsSinceEpoch,
       if (sampleSize != null) 'sampleSize': sampleSize, if (abw != null) 'abw': abw, if (avgLength != null) 'avgLength': avgLength,
     });
   }
@@ -1053,7 +1063,7 @@ class TankService extends ChangeNotifier {
       _addActivity('Completed grow-out batch ($resolvedId). Harvested $harvestCount crayfish${harvestWeightGrams != null ? ', ${harvestWeightGrams.toStringAsFixed(1)}g total' : ''}.', 'harvest');
       _resetAll();
     } catch (e) {
-      debugPrint('[TankService] completeBatch error: $e');
+      debugPrint('[CrayfishService] completeBatch error: $e');
       rethrow;
     }
   }

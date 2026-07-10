@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
@@ -8,7 +7,6 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz;
 import 'sensor_service.dart';
-import 'tank_service.dart';
 import '../models/notification_item.dart';
 import '../models/control_types.dart';
 import 'database_service.dart';
@@ -938,6 +936,131 @@ class NotificationService extends ChangeNotifier {
     }
   }
 
+  Future<void> _checkTypeSampling({
+    required String uid,
+    required String type,     // 'crayfish' or 'lettuce'
+    required String label,    // 'Crayfish' or 'Lettuce'
+    required String samplingPath,
+    required String? activeBatchKey,
+  }) async {
+    final now = DateTime.now();
+    DateTime? effectiveLastDate;
+    final isLettuce = type == 'lettuce';
+
+    final snap = await FirebaseDatabase.instance.ref(samplingPath).once();
+    if (snap.snapshot.exists && snap.snapshot.value != null) {
+      final sData = snap.snapshot.value as Map;
+      int? latestTs;
+      for (final entry in sData.entries) {
+        final map = entry.value as Map;
+        final ts = map['date'] as int?;
+        if (ts != null && (latestTs == null || ts > latestTs)) latestTs = ts;
+      }
+      if (latestTs != null) {
+        effectiveLastDate = DateTime.fromMillisecondsSinceEpoch(latestTs);
+      }
+    }
+
+    if (effectiveLastDate == null && activeBatchKey != null) {
+      final invSnap = await FirebaseDatabase.instance.ref(activeBatchKey).once();
+      if (invSnap.snapshot.exists) {
+        if (isLettuce) {
+          final batches = invSnap.snapshot.value as Map;
+          for (final e in batches.entries) {
+            final b = e.value as Map;
+            if (b['status'] == 'active') {
+              final ts = (b['lastSampleDate'] as int?) ?? (b['plantingDate'] as int?);
+              if (ts != null) {
+                effectiveLastDate = DateTime.fromMillisecondsSinceEpoch(ts);
+              }
+              break;
+            }
+          }
+        } else {
+          final inv = invSnap.snapshot.value as Map;
+          if (inv['isInitialized'] == true) {
+            final ts = inv['lastSampleDate'] ?? inv['stockingDate'];
+            if (ts is int) {
+              effectiveLastDate = DateTime.fromMillisecondsSinceEpoch(ts);
+            }
+          }
+        }
+      }
+    }
+
+    if (effectiveLastDate == null) return;
+
+    final effectiveDate = DateTime(effectiveLastDate.year, effectiveLastDate.month, effectiveLastDate.day);
+    final daysSince = now.difference(effectiveDate).inDays;
+    if (daysSince < 7) return;
+
+    final currentSampleTs = effectiveLastDate.millisecondsSinceEpoch;
+    final markerKey = 'sampling_reminder_$type';
+    final marker = await _notifRef.child('markers/$markerKey').once();
+    if (marker.snapshot.exists) {
+      final val = marker.snapshot.value;
+      if (val is Map) {
+        final lastSampleTs = val['sampleTs'] as int? ?? 0;
+        final lastReminderTs = val['reminderTs'] as int? ?? 0;
+        if (lastSampleTs == currentSampleTs && lastReminderTs > 0) {
+          final lastReminder = DateTime.fromMillisecondsSinceEpoch(lastReminderTs);
+          if (now.difference(lastReminder).inDays < 7) return;
+        }
+      } else if (val is int && val > 0) {
+        final lastReminder = DateTime.fromMillisecondsSinceEpoch(val);
+        if (now.difference(lastReminder).inDays < 7) return;
+      }
+    }
+
+    final message = 'It\'s been $daysSince days since last $label sampling. Time to record growth data!';
+
+    _addNotification(
+      type: 'reminder',
+      title: '$label Sampling Reminder',
+      message: message,
+      timestamp: now,
+    );
+
+    await _notifRef.child('markers/$markerKey').set({
+      'reminderTs': now.millisecondsSinceEpoch,
+      'sampleTs': currentSampleTs,
+    });
+
+    try {
+      String channelId = 'craycare_alerts_silent';
+      if (_notifSound && _notifVibration) {
+        channelId = 'craycare_alerts_sound_vibrate';
+      } else if (_notifSound) {
+        channelId = 'craycare_alerts_sound_only';
+      } else if (_notifVibration) {
+        channelId = 'craycare_alerts_vibrate_only';
+      }
+      await _localNotifications.show(
+        DateTime.now().millisecondsSinceEpoch ~/ 1000 + (type == 'lettuce' ? 1 : 0),
+        '$label Sampling Reminder',
+        message,
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            channelId,
+            'CrayCare Alerts',
+            importance: _notifSound || _notifVibration
+                ? Importance.high
+                : Importance.low,
+            priority: Priority.high,
+            playSound: _notifSound,
+            enableVibration: _notifVibration,
+            vibrationPattern: !_notifVibration ? Int64List(0) : null,
+            sound: !_notifSound
+                ? null
+                : const RawResourceAndroidNotificationSound('default'),
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('[NotificationService] Local $type sampling notification error: $e');
+    }
+  }
+
   void _checkSamplingReminders() {
     if (_userRole == 'admin') return;
     if (!_notifSampling) return;
@@ -948,103 +1071,25 @@ class NotificationService extends ChangeNotifier {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (uid.isEmpty) return;
 
-    // Read active batch's sampling data from Firebase (not from TankService,
-    // which reflects the selected batch, not necessarily the active one)
-    FirebaseDatabase.instance.ref('production/$uid/crayfish/sampling').once().then((snap) {
-      final tank = TankService.instance;
-      DateTime effectiveLastDate;
+    _lastSamplingReminderDate = todayKey;
 
-      if (snap.snapshot.exists && snap.snapshot.value != null) {
-        final sData = snap.snapshot.value as Map;
-        int? latestTs;
-        for (final entry in sData.entries) {
-          final map = entry.value as Map;
-          final ts = map['date'] as int?;
-          if (ts != null && (latestTs == null || ts > latestTs)) latestTs = ts;
-        }
-        effectiveLastDate = latestTs != null
-            ? DateTime.fromMillisecondsSinceEpoch(latestTs)
-            : DateTime.now();
-      } else {
-        final activeBatches = tank.activeBatches;
-        if (activeBatches.isEmpty) return;
-        effectiveLastDate = activeBatches.first.stockingDate;
-      }
+    // Check crayfish sampling
+    _checkTypeSampling(
+      uid: uid,
+      type: 'crayfish',
+      label: 'Crayfish',
+      samplingPath: 'production/$uid/crayfish/sampling',
+      activeBatchKey: 'production/$uid/crayfish/config',
+    );
 
-      final effectiveDate = DateTime(effectiveLastDate.year, effectiveLastDate.month, effectiveLastDate.day);
-      final daysSince = now.difference(effectiveDate).inDays;
-      if (daysSince < 7) return;
-
-      final currentSampleTs = effectiveLastDate.millisecondsSinceEpoch;
-
-      const markerKey = 'sampling_reminder';
-      _notifRef.child('markers/$markerKey').once().then((marker) async {
-        if (marker.snapshot.exists) {
-          final val = marker.snapshot.value;
-          if (val is Map) {
-            final lastSampleTs = val['sampleTs'] as int? ?? 0;
-            final lastReminderTs = val['reminderTs'] as int? ?? 0;
-            if (lastSampleTs == currentSampleTs && lastReminderTs > 0) {
-              final lastReminder = DateTime.fromMillisecondsSinceEpoch(lastReminderTs);
-              if (now.difference(lastReminder).inDays < 7) return;
-            }
-          } else if (val is int && val > 0) {
-            final lastReminder = DateTime.fromMillisecondsSinceEpoch(val);
-            if (now.difference(lastReminder).inDays < 7) return;
-          }
-        }
-
-        _lastSamplingReminderDate = todayKey;
-        _addNotification(
-          type: 'reminder',
-          title: 'Sampling Reminder',
-          message:
-              'It\'s been $daysSince days since last sampling. Time to record growth data!',
-          timestamp: now,
-        );
-
-        _notifRef.child('markers/$markerKey').set({
-          'reminderTs': now.millisecondsSinceEpoch,
-          'sampleTs': currentSampleTs,
-        });
-
-        try {
-          String channelId = 'craycare_alerts_silent';
-          if (_notifSound && _notifVibration) {
-            channelId = 'craycare_alerts_sound_vibrate';
-          } else if (_notifSound) {
-            channelId = 'craycare_alerts_sound_only';
-          } else if (_notifVibration) {
-            channelId = 'craycare_alerts_vibrate_only';
-          }
-          await _localNotifications.show(
-            DateTime.now().millisecondsSinceEpoch ~/ 1000,
-            'Sampling Reminder',
-            'It\'s been $daysSince days since last sampling. Time to record growth data!',
-            NotificationDetails(
-              android: AndroidNotificationDetails(
-                channelId,
-                'CrayCare Alerts',
-                importance: _notifSound || _notifVibration
-                    ? Importance.high
-                    : Importance.low,
-                priority: Priority.high,
-                playSound: _notifSound,
-                enableVibration: _notifVibration,
-                vibrationPattern: !_notifVibration
-                    ? Int64List(0)
-                    : null,
-                sound: !_notifSound
-                    ? null
-                    : const RawResourceAndroidNotificationSound('default'),
-              ),
-            ),
-          );
-        } catch (e) {
-          debugPrint('[NotificationService] Local sampling notification error: $e');
-        }
-      });
-    });
+    // Check lettuce sampling
+    _checkTypeSampling(
+      uid: uid,
+      type: 'lettuce',
+      label: 'Lettuce',
+      samplingPath: 'production/$uid/lettuce/sampling',
+      activeBatchKey: 'production/$uid/lettuce/batches',
+    );
   }
 
   void _cancelSubscriptions() {
@@ -1120,7 +1165,7 @@ class NotificationService extends ChangeNotifier {
       final label = _sensorLabels[key] ?? key;
       final unit = _sensorUnits[key] ?? '';
 
-      if (prevZone != null && zone != prevZone) {
+      if (prevZone != null && zone != prevZone && prevZone != 'UNKNOWN') {
         if (zone == 'CRITICAL' && _notifCritical) {
           _addNotification(
             type: 'critical',

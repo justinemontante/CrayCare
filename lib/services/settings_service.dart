@@ -4,62 +4,37 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'dart:convert';
 import '../models/crayfish_stage.dart';
-import 'database_service.dart';
 
 class SettingsService extends ChangeNotifier {
   static final SettingsService instance = SettingsService._();
   SettingsService._();
 
   bool _initialized = false;
-  bool _autoDetect = true;
-  String _currentStage = 'pre_adult';
-  late Map<String, Map<String, Map<String, double>>> _stageRanges;
+  late Map<String, Map<String, double>> _ranges;
 
   DatabaseReference get _thresholdsRef =>
       FirebaseDatabase.instance.ref('sensor_readings/config');
 
-  String get currentStage => _currentStage;
-  CrayfishStage get currentStageObj => CrayfishStage.fromName(_currentStage);
-
-  bool get autoDetect => _autoDetect;
-
-  Map<String, Map<String, double>> get currentRanges =>
-      _stageRanges[_currentStage] ?? defaultStageRanges['pre_adult']!;
-
-  Map<String, Map<String, Map<String, double>>> get allRanges => _stageRanges;
+  Map<String, Map<String, double>> get currentRanges => _ranges;
 
   Future<void> init() async {
     if (_initialized) return;
-    _stageRanges = {};
-    for (final s in CrayfishStage.all) {
-      _stageRanges[s.name] = {};
-      for (final e in defaultStageRanges[s.name]!.entries) {
-        _stageRanges[s.name]![e.key] = Map.from(e.value);
-      }
+    _ranges = {};
+    for (final e in defaultRanges.entries) {
+      _ranges[e.key] = Map.from(e.value);
     }
 
     final prefs = await SharedPreferences.getInstance();
-    _autoDetect = prefs.getBool('autoDetect') ?? true;
-    final stage = prefs.getString('currentStage');
-    if (stage != null && CrayfishStage.all.any((s) => s.name == stage)) {
-      _currentStage = stage;
-    }
-    final json = prefs.getString('stageRanges');
+    final json = prefs.getString('sensorRanges');
     if (json != null) {
       try {
         final decoded = jsonDecode(json) as Map<String, dynamic>;
-        for (final sEntry in decoded.entries) {
-          final stageName = sEntry.key;
-          if (_stageRanges.containsKey(stageName)) {
-            for (final sensorEntry
-                in (sEntry.value as Map<String, dynamic>).entries) {
-              final range = sensorEntry.value as Map<String, dynamic>;
-              _stageRanges[stageName]![sensorEntry.key] = {
-                'min': (range['min'] as num).toDouble(),
-                'max': (range['max'] as num).toDouble(),
-              };
-            }
-          }
+        for (final sensorEntry in decoded.entries) {
+          final range = sensorEntry.value as Map<String, dynamic>;
+          _ranges[sensorEntry.key] = {
+            'min': (range['min'] as num).toDouble(),
+            'max': (range['max'] as num).toDouble(),
+          };
         }
       } catch (_) {}
     }
@@ -75,38 +50,25 @@ class SettingsService extends ChangeNotifier {
 
   Future<void> _syncFromFirebase() async {
     try {
-      final snapshot = await _thresholdsRef.get();
+      final snapshot = await _thresholdsRef.child('ranges').get();
       if (snapshot.value == null) {
         await _syncToFirebase();
         return;
       }
       final data = snapshot.value as Map<Object?, Object?>;
       for (final entry in data.entries) {
-        final key = entry.key.toString();
-        if (key == 'selectedStage') {
-          final fbStage = entry.value.toString();
-          if (CrayfishStage.all.any((s) => s.name == fbStage)) {
-            _currentStage = fbStage;
-          }
-        } else if (_stageRanges.containsKey(key)) {
-          final stageData = entry.value as Map<Object?, Object?>;
-          for (final sensorEntry in stageData.entries) {
-            final sensorKey = sensorEntry.key.toString();
-            if (_stageRanges[key]!.containsKey(sensorKey)) {
-              final range = sensorEntry.value as Map<Object?, Object?>;
-              final min = (range['min'] as num?)?.toDouble();
-              final max = (range['max'] as num?)?.toDouble();
-              if (min != null && max != null) {
-                _stageRanges[key]![sensorKey] = {'min': min, 'max': max};
-              }
-            }
+        final sensorKey = entry.key.toString();
+        if (_ranges.containsKey(sensorKey)) {
+          final range = entry.value as Map<Object?, Object?>;
+          final min = (range['min'] as num?)?.toDouble();
+          final max = (range['max'] as num?)?.toDouble();
+          if (min != null && max != null) {
+            _ranges[sensorKey] = {'min': min, 'max': max};
           }
         }
       }
-
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('currentStage', _currentStage);
-      await prefs.setString('stageRanges', jsonEncode(_stageRanges));
+      await prefs.setString('sensorRanges', jsonEncode(_ranges));
     } catch (e) {
       debugPrint('[SettingsService] Firebase sync failed: $e');
     }
@@ -114,72 +76,28 @@ class SettingsService extends ChangeNotifier {
 
   Future<void> _syncToFirebase() async {
     try {
-      await _thresholdsRef.child('selectedStage').set(_currentStage);
-      for (final s in CrayfishStage.all) {
-        final ranges = _stageRanges[s.name]!;
-        for (final sensorEntry in ranges.entries) {
-          await _thresholdsRef
-              .child(s.name)
-              .child(sensorEntry.key)
-              .set(sensorEntry.value);
-        }
+      for (final sensorEntry in _ranges.entries) {
+        await _thresholdsRef
+            .child('ranges')
+            .child(sensorEntry.key)
+            .set(sensorEntry.value);
       }
     } catch (e) {
       debugPrint('[SettingsService] Firebase syncTo failed: $e');
     }
   }
 
-  Future<void> setCurrentStage(String name) async {
-    _currentStage = name;
-    notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('currentStage', name);
-    try {
-      await _thresholdsRef.child('selectedStage').set(name);
-    } catch (e) {
-      debugPrint('[SettingsService] Firebase setCurrentStage failed: $e');
-    }
-  }
-
-  Future<void> setAutoDetect(bool value) async {
-    _autoDetect = value;
-    notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('autoDetect', value);
-  }
-
-  Future<void> autoDetectStage(double abw, double abl) async {
-    if (!_autoDetect) return;
-    final detected = CrayfishStage.fromMeasurements(abw, abl);
-    if (detected.name != _currentStage) {
-      await setCurrentStage(detected.name);
-      try {
-        await DatabaseService.instance.saveGrowthStageConfig(
-          currentStage: detected.name,
-          allRanges: _stageRanges,
-        );
-        await DatabaseService.instance.saveSensorThresholds(
-          currentStage: detected.name,
-          currentRanges: _stageRanges[detected.name] ?? {},
-        );
-      } catch (e) {
-        debugPrint('[SettingsService] autoDetectStage save failed: $e');
-      }
-    }
-  }
-
   Future<void> updateRange(
-    String stageName,
     String sensorKey,
     double min,
     double max,
   ) async {
-    if (_stageRanges[stageName] == null) return;
-    _stageRanges[stageName]![sensorKey] = {'min': min, 'max': max};
+    if (!_ranges.containsKey(sensorKey)) return;
+    _ranges[sensorKey] = {'min': min, 'max': max};
     notifyListeners();
     await _saveRanges();
     try {
-      await _thresholdsRef.child(stageName).child(sensorKey).set({
+      await _thresholdsRef.child('ranges').child(sensorKey).set({
         'min': min,
         'max': max,
       });
@@ -189,27 +107,19 @@ class SettingsService extends ChangeNotifier {
   }
 
   Future<void> resetToDefaults() async {
-    _currentStage = 'pre_adult';
-    for (final s in CrayfishStage.all) {
-      _stageRanges[s.name] = {};
-      for (final e in defaultStageRanges[s.name]!.entries) {
-        _stageRanges[s.name]![e.key] = Map.from(e.value);
-      }
+    _ranges = {};
+    for (final e in defaultRanges.entries) {
+      _ranges[e.key] = Map.from(e.value);
     }
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('currentStage', 'pre_adult');
-    await prefs.remove('stageRanges');
+    await prefs.remove('sensorRanges');
     try {
-      await _thresholdsRef.child('selectedStage').set('pre_adult');
-      for (final s in CrayfishStage.all) {
-        final ranges = defaultStageRanges[s.name]!;
-        for (final sensorEntry in ranges.entries) {
-          await _thresholdsRef
-              .child(s.name)
-              .child(sensorEntry.key)
-              .set(sensorEntry.value);
-        }
+      for (final sensorEntry in defaultRanges.entries) {
+        await _thresholdsRef
+            .child('ranges')
+            .child(sensorEntry.key)
+            .set(sensorEntry.value);
       }
     } catch (e) {
       debugPrint('[SettingsService] Firebase resetToDefaults failed: $e');
@@ -218,6 +128,6 @@ class SettingsService extends ChangeNotifier {
 
   Future<void> _saveRanges() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('stageRanges', jsonEncode(_stageRanges));
+    await prefs.setString('sensorRanges', jsonEncode(_ranges));
   }
 }

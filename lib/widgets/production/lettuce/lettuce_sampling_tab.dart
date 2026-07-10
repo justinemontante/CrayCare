@@ -30,7 +30,6 @@ class _LettuceSamplingTabState extends State<LettuceSamplingTab> {
   @override
   Widget build(BuildContext context) {
     final service = LettuceService.instance;
-    final canSample = service.canSampleLettuce;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
@@ -42,11 +41,9 @@ class _LettuceSamplingTabState extends State<LettuceSamplingTab> {
           else ...[
             _buildSectionHeader('Lettuce Sampling'),
             const SizedBox(height: 8),
-            _buildStatusBanner(service, canSample),
-            const SizedBox(height: 10),
             const _LettuceNextSamplingPanel(),
             const SizedBox(height: 12),
-            _buildSamplingForm(service, canSample),
+            _buildSamplingForm(service, service.canSampleLettuce),
             const SizedBox(height: 20),
           ],
         ],
@@ -94,47 +91,6 @@ class _LettuceSamplingTabState extends State<LettuceSamplingTab> {
 
   Widget _buildSectionHeader(String title) {
     return Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.dark));
-  }
-
-  Widget _buildStatusBanner(LettuceService service, bool canSample) {
-    final daysSince = service.daysSinceLastLettuceSampling;
-    final hasSampling = service.samplingHistory.isNotEmpty;
-
-    Color bgColor;
-    String msg;
-    if (!hasSampling) {
-      bgColor = AppColors.success.withValues(alpha: 0.08);
-      msg = 'No sampling yet. Record your first sample below!';
-    } else if (canSample) {
-      bgColor = AppColors.warning.withValues(alpha: 0.08);
-      msg = 'Ready for sampling ($daysSince days since last).';
-    } else {
-      bgColor = AppColors.darkWith(0.04);
-      msg = 'Next sampling available in ${service.daysUntilNextLettuceSampling} day(s).';
-    }
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.darkWith(0.08)),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            canSample || !hasSampling ? Icons.info_outline_rounded : Icons.schedule_rounded,
-            size: 16,
-            color: AppColors.darkWith(0.6),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(msg, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.7))),
-          ),
-        ],
-      ),
-    );
   }
 
   Widget _buildSamplingForm(LettuceService service, bool canSample) {
@@ -197,44 +153,42 @@ class _LettuceSamplingTabState extends State<LettuceSamplingTab> {
             children: [
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: () async {
-                    final sampleSize = int.tryParse(_sampleCountCtrl.text);
-                    if (sampleSize == null || sampleSize <= 0) {
-                      showBeautifulSnackbar(context, 'Enter a valid sample size.', false);
-                      return;
-                    }
-                    if (sampleSize > service.currentQuantity) {
-                      showBeautifulSnackbar(context, 'Sample size exceeds available plants.', false);
-                      return;
-                    }
-                    final totalHeight = double.tryParse(_totalHeightCtrl.text);
-                    final totalLeafCount = int.tryParse(_totalLeafCountCtrl.text);
-                    if (totalHeight == null || totalLeafCount == null || totalHeight <= 0 || totalLeafCount <= 0) {
-                      showBeautifulSnackbar(context, 'Enter valid total height and leaf count.', false);
-                      return;
-                    }
-                    if (!widget.isOwner) {
-                      showBeautifulSnackbar(context, 'Only the owner can record sampling.', false);
-                      return;
-                    }
-                    await LettuceService.instance.addLettuceSampling(
-                      sampleSize: sampleSize,
-                      totalHeight: totalHeight,
-                      totalLeafCount: totalLeafCount,
-                    );
-                    _sampleCountCtrl.clear();
-                    _totalHeightCtrl.clear();
-                    _totalLeafCountCtrl.clear();
-                    if (mounted) {
-                      showBeautifulSnackbar(context, 'Sampling recorded!', true);
-                      setState(() {});
-                    }
-                  },
+                  onPressed: (widget.isOwner && canSample)
+                      ? () async {
+                          final sampleSize = int.tryParse(_sampleCountCtrl.text);
+                          if (sampleSize == null || sampleSize <= 0) {
+                            showBeautifulSnackbar(context, 'Enter a valid sample size.', false);
+                            return;
+                          }
+                          if (sampleSize > service.currentQuantity) {
+                            showBeautifulSnackbar(context, 'Sample size exceeds available plants.', false);
+                            return;
+                          }
+                          final totalHeight = double.tryParse(_totalHeightCtrl.text);
+                          final totalLeafCount = int.tryParse(_totalLeafCountCtrl.text);
+                          if (totalHeight == null || totalLeafCount == null || totalHeight <= 0 || totalLeafCount <= 0) {
+                            showBeautifulSnackbar(context, 'Enter valid total height and leaf count.', false);
+                            return;
+                          }
+                          await LettuceService.instance.addLettuceSampling(
+                            sampleSize: sampleSize,
+                            totalHeight: totalHeight,
+                            totalLeafCount: totalLeafCount,
+                          );
+                          _sampleCountCtrl.clear();
+                          _totalHeightCtrl.clear();
+                          _totalLeafCountCtrl.clear();
+                          if (mounted) {
+                            showBeautifulSnackbar(context, 'Sampling recorded!', true);
+                            setState(() {});
+                          }
+                        }
+                      : null,
                   icon: const Icon(Icons.save_rounded, size: 16),
                   label: const Text('Save Sampling', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: widget.isOwner && (canSample || !service.samplingHistory.isNotEmpty) ? AppColors.success : Colors.grey.shade300,
-                    foregroundColor: widget.isOwner && (canSample || !service.samplingHistory.isNotEmpty) ? Colors.white : Colors.grey.shade500,
+                    backgroundColor: widget.isOwner && canSample ? AppColors.success : Colors.grey.shade300,
+                    foregroundColor: widget.isOwner && canSample ? Colors.white : Colors.grey.shade500,
                     elevation: 0,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                     padding: const EdgeInsets.symmetric(vertical: 14),
@@ -466,18 +420,22 @@ class _LettuceNextSamplingPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final service = LettuceService.instance;
+    final hasSamplingThisWeek = service.hasSamplingThisWeek;
     final daysSince = service.daysSinceLastLettuceSampling;
-    final daysRemaining = daysSince >= 7 ? 0 : 7 - daysSince;
-    final nextWeekNum = service.samplingHistory.length + 1;
-    final hasSampling = service.samplingHistory.isNotEmpty;
+    final currentDay = hasSamplingThisWeek ? 7 : (daysSince >= 7 ? 7 : daysSince);
+    final daysRemaining = hasSamplingThisWeek ? 0 : (daysSince >= 7 ? 0 : 7 - daysSince);
 
-    String nextDateStr;
-    if (hasSampling) {
-      final nextDate = service.samplingHistory.last.date.add(const Duration(days: 7));
-      nextDateStr = _formatDate(nextDate);
+    final currentWeek = (service.daysInCultivation ~/ 7) + 1;
+
+    String nextSessionText;
+    if (hasSamplingThisWeek) {
+      nextSessionText = 'Done for this week';
+    } else if (daysRemaining == 0) {
+      nextSessionText = 'Today (Due)';
+    } else if (service.samplingHistory.isNotEmpty) {
+      nextSessionText = _formatDate(service.samplingHistory.last.date.add(const Duration(days: 7)));
     } else {
-      final nextDate = service.plantingDate.add(const Duration(days: 7));
-      nextDateStr = _formatDate(nextDate);
+      nextSessionText = _formatDate(service.plantingDate.add(const Duration(days: 7)));
     }
 
     return Container(
@@ -494,14 +452,19 @@ class _LettuceNextSamplingPanel extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(Icons.calendar_today_rounded, color: AppColors.success, size: 13),
+              Icon(hasSamplingThisWeek ? Icons.check_circle : Icons.calendar_today_rounded, color: AppColors.success, size: 13),
               const SizedBox(width: 6),
               Text('Sampling Schedule', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.dark)),
               const Spacer(),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(color: AppColors.success.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(6)),
-                child: Text('Week $nextWeekNum', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: AppColors.success)),
+                decoration: BoxDecoration(
+                  color: hasSamplingThisWeek
+                      ? AppColors.success.withValues(alpha: 0.12)
+                      : AppColors.success.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text('Week $currentWeek', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: AppColors.success)),
               ),
             ],
           ),
@@ -517,8 +480,8 @@ class _LettuceNextSamplingPanel extends StatelessWidget {
                   Text('Next Session', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.45))),
                   const SizedBox(height: 3),
                   Text(
-                    daysRemaining == 0 ? 'Today (Due)' : nextDateStr,
-                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.success),
+                    nextSessionText,
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.success),
                   ),
                 ],
               ),
@@ -528,7 +491,7 @@ class _LettuceNextSamplingPanel extends StatelessWidget {
                   Text('Time Remaining', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.45))),
                   const SizedBox(height: 3),
                   Text(
-                    daysRemaining == 0 ? 'Ready to record' : '$daysRemaining days left',
+                    hasSamplingThisWeek ? 'Next week' : (daysRemaining == 0 ? 'Ready to record' : '$daysRemaining days left'),
                     style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: AppColors.success),
                   ),
                 ],
@@ -536,7 +499,7 @@ class _LettuceNextSamplingPanel extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
-          _buildStepTracker(daysSince >= 7 ? 7 : daysSince, 7),
+          _buildStepTracker(currentDay, 7),
         ],
       ),
     );

@@ -5,19 +5,32 @@ const fs = require('fs');
 
 // ─── 1. Load service account ──────────────────────────────────
 const keyPaths = [
-  path.join(__dirname, '..', 'notification_worker', 'serviceAccountKey.json'),
+  path.join(__dirname, 'serviceAccountKey.json'),
   path.join(__dirname, '..', 'serviceAccountKey.json'),
+  path.join(__dirname, '..', 'functions', 'serviceAccountKey.json'),
 ];
 
 let serviceAccount;
-for (const kp of keyPaths) {
-  if (fs.existsSync(kp)) {
-    serviceAccount = require(kp);
-    break;
+if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+  try {
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    console.log('✅ Using FIREBASE_SERVICE_ACCOUNT env variable.');
+  } catch (err) {
+    console.error('❌ Failed to parse FIREBASE_SERVICE_ACCOUNT env:', err.message);
+    process.exit(1);
+  }
+} else {
+  for (const kp of keyPaths) {
+    if (fs.existsSync(kp)) {
+      serviceAccount = require(kp);
+      break;
+    }
   }
 }
 if (!serviceAccount) {
-  console.error('❌ serviceAccountKey.json not found in notification_worker/ or root.');
+  console.error('❌ serviceAccountKey.json not found.');
+  console.error('   Download it from Firebase Console → Project Settings → Service Accounts → Generate New Private Key');
+  console.error('   Then save as test_tools/serviceAccountKey.json');
   process.exit(1);
 }
 

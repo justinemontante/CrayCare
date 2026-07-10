@@ -47,12 +47,154 @@ class _LettuceTrendsTabState extends State<LettuceTrendsTab> {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
       child: Column(
         children: [
+          _buildGrowthStageCard(service),
+          const SizedBox(height: 10),
           _buildGrowthChartContainer(service),
           const SizedBox(height: 10),
           _buildMortalityChartContainer(service),
           const SizedBox(height: 10),
           _buildHarvestHistorySection(service),
           const SizedBox(height: 10),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGrowthStageCard(LettuceService service) {
+    final days = service.daysInCultivation;
+    final stage = service.growthStage;
+    final maxDays = 50.0;
+    final progress = (days / maxDays).clamp(0.0, 1.0);
+
+    String stageLabel(LettuceGrowthStage s) {
+      switch (s) {
+        case LettuceGrowthStage.seedling: return 'Seedling';
+        case LettuceGrowthStage.vegetative: return 'Vegetative';
+        case LettuceGrowthStage.mature: return 'Mature';
+      }
+    }
+
+    int stageIndex(LettuceGrowthStage s) {
+      switch (s) {
+        case LettuceGrowthStage.seedling: return 0;
+        case LettuceGrowthStage.vegetative: return 1;
+        case LettuceGrowthStage.mature: return 2;
+      }
+    }
+
+    final stages = LettuceGrowthStage.values;
+    final activeIndex = stageIndex(stage);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFCFCFC),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.darkWith(0.12),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Growth Stage',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppColors.dark),
+                  ),
+                  Text(
+                    'Current: ${stage.label}',
+                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.primary),
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: stage.color.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(stage.icon, size: 12, color: stage.color),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Day $days',
+                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: stage.color),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 8,
+              backgroundColor: AppColors.darkWith(0.06),
+              valueColor: AlwaysStoppedAnimation<Color>(stage.color),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: List.generate(stages.length, (i) {
+              final s = stages[i];
+              final isThisActive = i == activeIndex;
+              final isReached = i <= activeIndex;
+              return Expanded(
+                child: Text(
+                  stageLabel(s),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 8,
+                    fontWeight: isThisActive ? FontWeight.w800 : FontWeight.w600,
+                    color: isThisActive ? s.color : isReached ? AppColors.darkWith(0.7) : AppColors.darkWith(0.3),
+                  ),
+                ),
+              );
+            }),
+          ),
+          const SizedBox(height: 16),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            decoration: BoxDecoration(
+              color: stage.color.withValues(alpha: 0.06),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  '${stage.label}: ${stage.range}',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: stage.color),
+                ),
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 12),
+                  width: 1, height: 14,
+                  color: stage.color.withValues(alpha: 0.2),
+                ),
+                Text(
+                  'Day $days of $maxDays',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.darkWith(0.6)),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );

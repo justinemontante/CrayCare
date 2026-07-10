@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../theme/app_colors.dart';
-import '../../../services/tank_service.dart';
+import '../../../services/crayfish_service.dart';
 import '../../../utils/snackbar_helper.dart';
 
 class SamplingTab extends StatelessWidget {
@@ -22,7 +22,7 @@ class SamplingTab extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (!TankService.instance.isInitialized)
+          if (!CrayfishService.instance.isInitialized)
             _buildEmptyState()
           else ...[
             _buildSectionHeader(),
@@ -131,7 +131,7 @@ class NextSamplingPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final service = TankService.instance;
+    final service = CrayfishService.instance;
     final daysSince = service.daysSinceLastSampling;
     final daysRemaining = daysSince >= 7 ? 0 : 7 - daysSince;
     final nextWeekNum = service.samplingHistory.where((e) => !e.isBaseline).length;
@@ -468,7 +468,7 @@ class GrowthOverviewPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final service = TankService.instance;
+    final service = CrayfishService.instance;
     final history = service.samplingHistory;
     final hasWeeklySampling = history.any((e) => !e.isBaseline);
     final latest = hasWeeklySampling
@@ -960,12 +960,12 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
     _serviceListener = () {
       if (mounted) setState(() => _checkLastSampling());
     };
-    TankService.instance.addListener(_serviceListener);
+    CrayfishService.instance.addListener(_serviceListener);
   }
 
   void _checkLastSampling() {
     _isEditing = false;
-    final history = TankService.instance.samplingHistory;
+    final history = CrayfishService.instance.samplingHistory;
     if (history.isNotEmpty) {
       final last = history.last;
       final today = DateTime.now();
@@ -987,7 +987,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
   @override
   void dispose() {
     _refreshTimer?.cancel();
-    TankService.instance.removeListener(_serviceListener);
+    CrayfishService.instance.removeListener(_serviceListener);
     _countController.dispose();
     _weightController.dispose();
     _lengthController.dispose();
@@ -995,7 +995,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
   }
 
   void _showHistoryModal() {
-    final service = TankService.instance;
+    final service = CrayfishService.instance;
     final history = service.samplingHistory.where((e) => !e.isBaseline).toList();
     showModalBottomSheet(
       context: context,
@@ -1090,7 +1090,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
 
   void _revalidateCount() {
     final count = int.tryParse(_countController.text) ?? 0;
-    final maxSample = TankService.instance.inTankCount;
+    final maxSample = CrayfishService.instance.inTankCount;
     if (count > 0 && maxSample > 0 && count > maxSample) {
       setState(() => _countError = 'Exceeds live count ($maxSample)');
     } else {
@@ -1101,6 +1101,10 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
   void _handleCompute() {
     if (!widget.isOwner) {
       showBeautifulSnackbar(context, 'Sampling is for owners only', false);
+      return;
+    }
+    if (!CrayfishService.instance.canSample && !_isEditing) {
+      showBeautifulSnackbar(context, '7-day cooldown not yet over. Please wait.', false);
       return;
     }
     _revalidateCount();
@@ -1116,7 +1120,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
     }
     {
       final wasEditing = _isEditing;
-      final service = TankService.instance;
+      final service = CrayfishService.instance;
       final history = service.samplingHistory;
 
       // Get previous values to compare against
@@ -1146,9 +1150,9 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
       }
 
       if (wasEditing) {
-        TankService.instance.updateLastSamplingEntry(count, weight, length);
+        CrayfishService.instance.updateLastSamplingEntry(count, weight, length);
       } else {
-        TankService.instance.addSamplingEntry(count, weight, length);
+        CrayfishService.instance.addSamplingEntry(count, weight, length);
       }
       setState(() {
         _isRecorded = true;
@@ -1168,7 +1172,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
   }
 
   void _handleEdit() {
-    final lastEntry = TankService.instance.samplingHistory.last.date;
+    final lastEntry = CrayfishService.instance.samplingHistory.last.date;
     if (!_isToday(lastEntry)) {
       showBeautifulSnackbar(
         context,
@@ -1185,8 +1189,8 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final canSample = TankService.instance.canSample;
-    final service = TankService.instance;
+    final canSample = CrayfishService.instance.canSample;
+    final service = CrayfishService.instance;
     final lastEntryIsToday = service.samplingHistory.isNotEmpty
         ? _isToday(service.samplingHistory.last.date)
         : false;
@@ -1398,7 +1402,7 @@ showBeautifulSnackbar(context, 'Sampling is for owners only', false, title: 'Not
                 onPressed: null,
                 icon: const Icon(Icons.lock_rounded, size: 16),
                 label: Text(
-                  'Sampling available in ${7 - TankService.instance.daysSinceLastSampling} days',
+                  'Sampling available in ${7 - CrayfishService.instance.daysSinceLastSampling} days',
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 12,
@@ -1611,7 +1615,7 @@ class GrowthStagePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final service = TankService.instance;
+    final service = CrayfishService.instance;
     final history = service.samplingHistory;
 
     final currentAbw = history.isNotEmpty
@@ -1850,7 +1854,7 @@ class SamplingHistoryPanel extends StatelessWidget {
   }
 
   void _showAllHistory(BuildContext context) {
-    final service = TankService.instance;
+    final service = CrayfishService.instance;
     final allHistory = service.samplingHistory
         .where((e) => !e.isBaseline)
         .toList();
@@ -2177,7 +2181,7 @@ class SamplingHistoryPanel extends StatelessWidget {
   }
 
   List<Widget> _buildMainViewCards() {
-    final service = TankService.instance;
+    final service = CrayfishService.instance;
     final weeklyHistory = service.samplingHistory
         .where((e) => !e.isBaseline)
         .toList();
@@ -2279,7 +2283,7 @@ class SamplingHistoryPanel extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          if (!TankService.instance.isInitialized)
+          if (!CrayfishService.instance.isInitialized)
             Center(
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 24),

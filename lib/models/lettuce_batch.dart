@@ -116,6 +116,8 @@ class LettuceBatch {
   final String status;
   final DateTime plantingDate;
   final int initialQuantity;
+  final double initialTotalHeight;
+  final int initialTotalLeafCount;
   final int currentQuantity;
   final int harvestedQuantity;
   final DateTime? harvestDate;
@@ -130,6 +132,8 @@ class LettuceBatch {
     this.status = 'active',
     required this.plantingDate,
     required this.initialQuantity,
+    this.initialTotalHeight = 0,
+    this.initialTotalLeafCount = 0,
     required this.currentQuantity,
     this.harvestedQuantity = 0,
     this.harvestDate,
@@ -151,6 +155,8 @@ class LettuceBatch {
       'status': status,
       'plantingDate': plantingDate.millisecondsSinceEpoch,
       'initialQuantity': initialQuantity,
+      'initialTotalHeight': initialTotalHeight,
+      'initialTotalLeafCount': initialTotalLeafCount,
       'currentQuantity': currentQuantity,
       'harvestedQuantity': harvestedQuantity,
       'harvestDate': harvestDate?.millisecondsSinceEpoch,
@@ -180,6 +186,8 @@ class LettuceBatch {
       plantingDate: DateTime.fromMillisecondsSinceEpoch(
           json['plantingDate'] as int),
       initialQuantity: json['initialQuantity'] as int,
+      initialTotalHeight: (json['initialTotalHeight'] as num?)?.toDouble() ?? 0,
+      initialTotalLeafCount: (json['initialTotalLeafCount'] as int?) ?? 0,
       currentQuantity: json['currentQuantity'] as int,
       harvestedQuantity: (json['harvestedQuantity'] as int?) ?? 0,
       harvestDate: json['harvestDate'] != null

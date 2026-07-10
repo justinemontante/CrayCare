@@ -40,55 +40,7 @@ class DatabaseService {
     return null;
   }
 
-  // ─── Growth Stage Config (per-user) ────────────────────────────
-
-  DatabaseReference _growthStageRef(String uid) =>
-      _db.child('users/$uid/growth_stage');
-
-  Future<Map<String, dynamic>?> getGrowthStageConfig() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return null;
-    final snapshot = await _growthStageRef(uid).get().timeout(
-      const Duration(seconds: 10),
-      onTimeout: () => throw TimeoutException('Firebase read timed out'),
-    );
-    if (snapshot.exists && snapshot.value != null) {
-      return convertMap(snapshot.value as Map);
-    }
-    return null;
-  }
-
-  Future<void> saveGrowthStageConfig({
-    required String currentStage,
-    required Map<String, Map<String, Map<String, double>>> allRanges,
-    String? changedKey,
-  }) async {
-    final user = FirebaseAuth.instance.currentUser;
-    final uid = user?.uid;
-    if (uid == null) return;
-
-    await _growthStageRef(uid)
-        .update({
-          'currentStage': currentStage,
-          'allRanges': {
-            for (final stageEntry in allRanges.entries)
-              stageEntry.key: {
-                for (final sensorEntry in stageEntry.value.entries)
-                  sensorEntry.key: sensorEntry.value,
-              },
-          },
-          'updatedAt': ServerValue.timestamp,
-          'updatedBy': user?.uid ?? 'unknown-user',
-          'source': 'flutter-app',
-          if (changedKey != null) 'lastChangedSensor': changedKey,
-        })
-        .timeout(
-          const Duration(seconds: 10),
-          onTimeout: () => throw TimeoutException('Firebase write timed out'),
-        );
-  }
-
-  // ─── Sensor Readings (per-user) ───────────────────────────────
+  // ─── Sensor Thresholds ────────────────────────────────────────
 
   DatabaseReference get _sensorLatestRef =>
       _db.child('sensor_readings/latest');
@@ -113,22 +65,19 @@ class DatabaseService {
   Stream<DatabaseEvent> get latestReadingsStream => _sensorLatestRef.onValue;
 
   Future<void> saveSensorThresholds({
-    required String currentStage,
     required Map<String, Map<String, double>> currentRanges,
     String? changedKey,
   }) async {
     final user = FirebaseAuth.instance.currentUser;
-    final uid = user?.uid;
-    if (uid == null) return;
+    if (user == null) return;
 
     await _sensorConfigRef.update({
-      'currentStage': currentStage,
       'ranges': {
         for (final e in currentRanges.entries)
           e.key: {'min': e.value['min'], 'max': e.value['max']},
       },
       'updatedAt': ServerValue.timestamp,
-      'updatedBy': user?.uid ?? 'unknown-user',
+      'updatedBy': user.uid,
       'source': 'flutter-app',
       if (changedKey != null) 'lastChangedSensor': changedKey,
     }).timeout(

@@ -5,7 +5,7 @@ import '../theme/app_colors.dart';
 import '../widgets/section_label.dart';
 import '../services/sensor_service.dart';
 import '../services/settings_service.dart';
-import '../services/tank_service.dart';
+import '../services/crayfish_service.dart';
 import '../services/lettuce_service.dart';
 import '../models/control_types.dart';
 import '../models/crayfish_batch.dart';
@@ -47,7 +47,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
     SensorService.instance.addListener(_refreshUI);
     SettingsService.instance.addListener(_refreshUI);
-    TankService.instance.addListener(_refreshUI);
+    CrayfishService.instance.addListener(_refreshUI);
     LettuceService.instance.addListener(_refreshUI);
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
@@ -59,7 +59,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     _quickActionsController.dispose();
     SensorService.instance.removeListener(_refreshUI);
     SettingsService.instance.removeListener(_refreshUI);
-    TankService.instance.removeListener(_refreshUI);
+    CrayfishService.instance.removeListener(_refreshUI);
     LettuceService.instance.removeListener(_refreshUI);
     _countdownTimer?.cancel();
     _pulseController.dispose();
@@ -806,7 +806,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Widget _buildTankStatusCard() {
-    final tank = TankService.instance;
+    final tank = CrayfishService.instance;
     final batch = tank.activeOrLatestBatch;
     final hasActive = tank.activeBatches.isNotEmpty;
     final hasBatch = batch != null;
@@ -920,7 +920,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     (label: 'Market Size', min: 50.0, max: 100.0),
   ];
 
-  Widget _buildCrayfishGraySection(TankService tank, bool hasActive, [CrayfishBatch? batch]) {
+  Widget _buildCrayfishGraySection(CrayfishService tank, bool hasActive, [CrayfishBatch? batch]) {
     final isArchived = batch != null && !hasActive;
     final isSelected = batch != null && tank.selectedBatchId == batch.batchId;
 
@@ -1030,7 +1030,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Widget _buildNextSamplingRow() {
-    final tank = TankService.instance;
+    final tank = CrayfishService.instance;
     if (!tank.isInitialized) {
       return _buildGrayDetailRow(Icons.calendar_today, 'Next Sampling', '--');
     }
@@ -1089,6 +1089,22 @@ class _DashboardScreenState extends State<DashboardScreen>
     final lettuce = LettuceService.instance;
     if (!lettuce.isInitialized) {
       return _buildGrayDetailRow(Icons.calendar_today, 'Next Sampling', '--');
+    }
+    if (lettuce.hasSamplingThisWeek) {
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.check_circle, size: 14, color: AppColors.success),
+              const SizedBox(width: 8),
+              Text('Next Sampling', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: AppColors.darkWith(0.7))),
+            ],
+          ),
+          Text('Done for this week', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.success)),
+        ],
+      );
     }
     final daysLeft = lettuce.daysUntilNextLettuceSampling;
     final isReady = daysLeft == 0;
@@ -1340,25 +1356,12 @@ class _DashboardScreenState extends State<DashboardScreen>
                         : '--',
                   ),
                   const SizedBox(height: 8),
-                  _buildGrayDetailRow(
-                    Icons.straighten_rounded,
-                    'Avg Height',
-                    service.samplingHistory.isNotEmpty
-                        ? '${service.samplingHistory.last.avgHeight.toStringAsFixed(1)} cm'
-                        : '--',
-                  ),
-                  const SizedBox(height: 8),
-                  _buildGrayDetailRow(
-                    Icons.eco_rounded,
-                    'Avg Leaves',
-                    service.samplingHistory.isNotEmpty
-                        ? service.samplingHistory.last.avgLeafCount.toStringAsFixed(0)
-                        : '--',
-                  ),
-                  const SizedBox(height: 8),
                   _buildLettuceNextSamplingRow(),
                   const SizedBox(height: 8),
-                  _buildGrayDetailRow(Icons.timelapse_rounded, 'Days in Cultivation', '${service.daysInCultivation}d'),
+                  Row(children: [
+                    Expanded(child: _grayItem(service.growthStage.icon, 'Growth Stage', service.growthStage.label)),
+                    Expanded(child: _grayItem(Icons.timelapse_rounded, 'Days in Cultivation', '${service.daysInCultivation}d')),
+                  ]),
                   if (service.harvestRecords.isNotEmpty) ...[
                     const SizedBox(height: 8),
                     const Padding(
