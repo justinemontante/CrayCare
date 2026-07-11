@@ -18,29 +18,18 @@ class MainShell extends StatefulWidget {
   State<MainShell> createState() => _MainShellState();
 }
 
-class _MainShellState extends State<MainShell> with SingleTickerProviderStateMixin {
+class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
   final _scaffoldKey = GlobalKey<ScaffoldState>();
   final _analyticsKey = GlobalKey<AnalyticsScreenState>();
   final _productionKey = GlobalKey<ProductionScreenState>();
   final _controlsKey = GlobalKey<ControlsScreenState>();
   String? _photoUrl;
-  bool _showProdPicker = false;
-
-  late final AnimationController _pickerCtrl = AnimationController(
-    vsync: this, duration: const Duration(milliseconds: 350),
-  );
-  late final Animation<double> _pickerScale = CurvedAnimation(
-    parent: _pickerCtrl, curve: Curves.easeOutCubic,
-  );
-  late final Animation<double> _pickerFade = Tween(begin: 0.0, end: 1.0).animate(
-    CurvedAnimation(parent: _pickerCtrl, curve: const Interval(0.0, 0.4)),
-  );
 
   static const List<_NavItem> _navItems = [
     _NavItem(icon: Icons.dashboard_rounded, label: 'Dashboard'),
     _NavItem(icon: Icons.bar_chart_rounded, label: 'Analytics'),
-    _NavItem(icon: Icons.energy_savings_leaf_rounded, label: 'Production'),
+    _NavItem(icon: Icons.oil_barrel_rounded, label: 'Tank'),
     _NavItem(icon: Icons.memory_rounded, label: 'Controls'),
     _NavItem(icon: Icons.notifications_rounded, label: 'Notifications'),
   ];
@@ -71,7 +60,6 @@ class _MainShellState extends State<MainShell> with SingleTickerProviderStateMix
 
   @override
   void dispose() {
-    _pickerCtrl.dispose();
     NotificationService.instance.removeListener(_onNotificationChange);
     super.dispose();
   }
@@ -92,24 +80,6 @@ class _MainShellState extends State<MainShell> with SingleTickerProviderStateMix
   void _goToAnalytics(String chartKey) {
     setState(() => _currentIndex = 1);
     _analyticsKey.currentState?.scrollToChart(chartKey);
-  }
-
-  void _showPicker() {
-    setState(() => _showProdPicker = true);
-    _pickerCtrl.forward(from: 0);
-  }
-
-  void _hidePicker() {
-    _pickerCtrl.reverse().then((_) {
-      if (mounted) setState(() => _showProdPicker = false);
-    });
-  }
-
-  void _selectProdMode(String mode) {
-    final needsTabSwitch = _currentIndex != 2;
-    if (needsTabSwitch) setState(() => _currentIndex = 2);
-    _productionKey.currentState?.setProductionMode(mode);
-    _hidePicker();
   }
 
   @override
@@ -148,8 +118,6 @@ class _MainShellState extends State<MainShell> with SingleTickerProviderStateMix
               _buildBottomNav(),
             ],
           ),
-          if (_showProdPicker || _pickerCtrl.isAnimating)
-            _buildProdPickerOverlay(),
         ],
       ),
     );
@@ -213,11 +181,10 @@ class _MainShellState extends State<MainShell> with SingleTickerProviderStateMix
           return Expanded(
             child: GestureDetector(
               onTap: () {
+                setState(() => _currentIndex = i);
+                if (i == 4) NotificationService.instance.markAllRead();
                 if (i == 2) {
-                  _showPicker();
-                } else {
-                  setState(() => _currentIndex = i);
-                  if (i == 4) NotificationService.instance.markAllRead();
+                  _productionKey.currentState?.switchToTab(0);
                 }
               },
               child: _buildNavItem(item, isActive),
@@ -260,81 +227,6 @@ class _MainShellState extends State<MainShell> with SingleTickerProviderStateMix
                 borderRadius: BorderRadius.all(Radius.circular(3)),
               ),
             ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildProdPickerOverlay() {
-    return GestureDetector(
-      onTap: _hidePicker,
-      child: Container(
-        color: Colors.transparent,
-        child: Stack(
-          children: [
-            Align(
-              alignment: Alignment.bottomCenter,
-              child: AnimatedBuilder(
-                animation: _pickerCtrl,
-                builder: (context, _) {
-                  return Transform.scale(
-                    scale: _pickerScale.value,
-                    child: Container(
-                      margin: const EdgeInsets.only(bottom: 74),
-                      width: 200, height: 100,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.vertical(top: Radius.circular(200)),
-                        boxShadow: [
-                          BoxShadow(color: AppColors.darkWith(0.08), blurRadius: 20, offset: const Offset(0, -2)),
-                        ],
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const SizedBox(height: 16),
-                          Text('Select type',
-                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.darkWith(0.5)),
-                          ),
-                          const SizedBox(height: 10),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              _buildPickerCircle(Icons.water_drop_rounded, 'Crayfish', AppColors.primary, () => _selectProdMode('crayfish')),
-                              const SizedBox(width: 20),
-                              _buildPickerCircle(Icons.eco_rounded, 'Lettuce', AppColors.success, () => _selectProdMode('lettuce')),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPickerCircle(IconData icon, String label, Color color, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 40, height: 40,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              shape: BoxShape.circle,
-              border: Border.all(color: color.withValues(alpha: 0.25), width: 2),
-            ),
-            child: Icon(icon, size: 20, color: color),
-          ),
-          const SizedBox(height: 3),
-          Text(label, style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: AppColors.dark)),
         ],
       ),
     );

@@ -938,14 +938,13 @@ class NotificationService extends ChangeNotifier {
 
   Future<void> _checkTypeSampling({
     required String uid,
-    required String type,     // 'crayfish' or 'lettuce'
-    required String label,    // 'Crayfish' or 'Lettuce'
+    required String type,     // 'crayfish'
+    required String label,    // 'Crayfish'
     required String samplingPath,
     required String? activeBatchKey,
   }) async {
     final now = DateTime.now();
     DateTime? effectiveLastDate;
-    final isLettuce = type == 'lettuce';
 
     final snap = await FirebaseDatabase.instance.ref(samplingPath).once();
     if (snap.snapshot.exists && snap.snapshot.value != null) {
@@ -964,25 +963,11 @@ class NotificationService extends ChangeNotifier {
     if (effectiveLastDate == null && activeBatchKey != null) {
       final invSnap = await FirebaseDatabase.instance.ref(activeBatchKey).once();
       if (invSnap.snapshot.exists) {
-        if (isLettuce) {
-          final batches = invSnap.snapshot.value as Map;
-          for (final e in batches.entries) {
-            final b = e.value as Map;
-            if (b['status'] == 'active') {
-              final ts = (b['lastSampleDate'] as int?) ?? (b['plantingDate'] as int?);
-              if (ts != null) {
-                effectiveLastDate = DateTime.fromMillisecondsSinceEpoch(ts);
-              }
-              break;
-            }
-          }
-        } else {
-          final inv = invSnap.snapshot.value as Map;
-          if (inv['isInitialized'] == true) {
-            final ts = inv['lastSampleDate'] ?? inv['stockingDate'];
-            if (ts is int) {
-              effectiveLastDate = DateTime.fromMillisecondsSinceEpoch(ts);
-            }
+        final inv = invSnap.snapshot.value as Map;
+        if (inv['isInitialized'] == true) {
+          final ts = inv['lastSampleDate'] ?? inv['stockingDate'];
+          if (ts is int) {
+            effectiveLastDate = DateTime.fromMillisecondsSinceEpoch(ts);
           }
         }
       }
@@ -1036,7 +1021,7 @@ class NotificationService extends ChangeNotifier {
         channelId = 'craycare_alerts_vibrate_only';
       }
       await _localNotifications.show(
-        DateTime.now().millisecondsSinceEpoch ~/ 1000 + (type == 'lettuce' ? 1 : 0),
+        DateTime.now().millisecondsSinceEpoch ~/ 1000,
         '$label Sampling Reminder',
         message,
         NotificationDetails(
@@ -1080,15 +1065,6 @@ class NotificationService extends ChangeNotifier {
       label: 'Crayfish',
       samplingPath: 'production/$uid/crayfish/sampling',
       activeBatchKey: 'production/$uid/crayfish/config',
-    );
-
-    // Check lettuce sampling
-    _checkTypeSampling(
-      uid: uid,
-      type: 'lettuce',
-      label: 'Lettuce',
-      samplingPath: 'production/$uid/lettuce/sampling',
-      activeBatchKey: 'production/$uid/lettuce/batches',
     );
   }
 

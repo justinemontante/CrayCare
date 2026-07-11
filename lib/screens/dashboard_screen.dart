@@ -5,8 +5,7 @@ import '../theme/app_colors.dart';
 import '../widgets/section_label.dart';
 import '../services/sensor_service.dart';
 import '../services/settings_service.dart';
-import '../services/crayfish_service.dart';
-import '../services/lettuce_service.dart';
+import '../services/tank_service.dart';
 import '../models/control_types.dart';
 import '../models/crayfish_batch.dart';
 
@@ -47,8 +46,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
     SensorService.instance.addListener(_refreshUI);
     SettingsService.instance.addListener(_refreshUI);
-    CrayfishService.instance.addListener(_refreshUI);
-    LettuceService.instance.addListener(_refreshUI);
+    TankService.instance.addListener(_refreshUI);
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
@@ -59,8 +57,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     _quickActionsController.dispose();
     SensorService.instance.removeListener(_refreshUI);
     SettingsService.instance.removeListener(_refreshUI);
-    CrayfishService.instance.removeListener(_refreshUI);
-    LettuceService.instance.removeListener(_refreshUI);
+    TankService.instance.removeListener(_refreshUI);
     _countdownTimer?.cancel();
     _pulseController.dispose();
     super.dispose();
@@ -184,7 +181,6 @@ class _DashboardScreenState extends State<DashboardScreen>
               ),
             ),
             _buildTankStatusCard(),
-            _buildLettuceStatusCard(),
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 4),
               child: SectionLabel(
@@ -806,7 +802,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Widget _buildTankStatusCard() {
-    final tank = CrayfishService.instance;
+    final tank = TankService.instance;
     final batch = tank.activeOrLatestBatch;
     final hasActive = tank.activeBatches.isNotEmpty;
     final hasBatch = batch != null;
@@ -920,7 +916,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     (label: 'Market Size', min: 50.0, max: 100.0),
   ];
 
-  Widget _buildCrayfishGraySection(CrayfishService tank, bool hasActive, [CrayfishBatch? batch]) {
+  Widget _buildCrayfishGraySection(TankService tank, bool hasActive, [CrayfishBatch? batch]) {
     final isArchived = batch != null && !hasActive;
     final isSelected = batch != null && tank.selectedBatchId == batch.batchId;
 
@@ -1030,7 +1026,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Widget _buildNextSamplingRow() {
-    final tank = CrayfishService.instance;
+    final tank = TankService.instance;
     if (!tank.isInitialized) {
       return _buildGrayDetailRow(Icons.calendar_today, 'Next Sampling', '--');
     }
@@ -1061,77 +1057,6 @@ class _DashboardScreenState extends State<DashboardScreen>
         isReady
             ? GestureDetector(
                 onTap: () => widget.onTankTab?.call(1),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text('Ready!', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.success)),
-                    const SizedBox(height: 2),
-                    FadeTransition(
-                      opacity: _pulseAnimation,
-                      child: Text('Tap to record', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: AppColors.success)),
-                    ),
-                  ],
-                ),
-              )
-            : Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(nextDateStr, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.dark)),
-                  const SizedBox(height: 2),
-                  _AnimatedDaysLeft(daysLeft: daysLeft),
-                ],
-              ),
-      ],
-    );
-  }
-
-  Widget _buildLettuceNextSamplingRow() {
-    final lettuce = LettuceService.instance;
-    if (!lettuce.isInitialized) {
-      return _buildGrayDetailRow(Icons.calendar_today, 'Next Sampling', '--');
-    }
-    if (lettuce.hasSamplingThisWeek) {
-      return Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.check_circle, size: 14, color: AppColors.success),
-              const SizedBox(width: 8),
-              Text('Next Sampling', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: AppColors.darkWith(0.7))),
-            ],
-          ),
-          Text('Done for this week', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.success)),
-        ],
-      );
-    }
-    final daysLeft = lettuce.daysUntilNextLettuceSampling;
-    final isReady = daysLeft == 0;
-
-    String nextDateStr;
-    if (lettuce.samplingHistory.isNotEmpty) {
-      final nextDate = lettuce.samplingHistory.last.date.add(const Duration(days: 7));
-      nextDateStr = _formatTankDate(nextDate);
-    } else {
-      final nextDate = lettuce.plantingDate.add(const Duration(days: 7));
-      nextDateStr = _formatTankDate(nextDate);
-    }
-
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.calendar_today, size: 14, color: AppColors.darkWith(0.5)),
-            const SizedBox(width: 8),
-            Text('Next Sampling', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: AppColors.darkWith(0.7))),
-          ],
-        ),
-        isReady
-            ? GestureDetector(
-                onTap: () => widget.onTankTab?.call(-1),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
@@ -1206,196 +1131,6 @@ class _DashboardScreenState extends State<DashboardScreen>
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildLettuceStatusCard() {
-    final service = LettuceService.instance;
-    final hasData = service.isInitialized;
-    final batch = service.selectedBatch;
-    final logs = service.growthHistory;
-    final latestHeight = service.samplingHistory.isNotEmpty
-        ? service.samplingHistory.last.avgHeight
-        : (hasData && logs.isNotEmpty ? logs.last.plantHeightCm : null);
-    final latestLeafCount = service.samplingHistory.isNotEmpty
-        ? service.samplingHistory.last.avgLeafCount
-        : (hasData && logs.isNotEmpty ? logs.last.leafCount : null);
-
-    String popStr, survivalStr, aliveStr, mortalityStr, aphStr, leafStr;
-    if (hasData && batch != null) {
-      popStr = '${batch.initialQuantity}';
-      final surv = batch.initialQuantity > 0
-          ? ((batch.initialQuantity - batch.totalMortality) / batch.initialQuantity * 100)
-          : 0.0;
-      survivalStr = '${surv.toStringAsFixed(1)}%';
-      aliveStr = '${service.currentQuantity}';
-      mortalityStr = '${batch.totalMortality}';
-      aphStr = latestHeight != null ? '${latestHeight.toStringAsFixed(1)} cm' : '--';
-      leafStr = latestLeafCount != null ? '$latestLeafCount' : '--';
-    } else {
-      popStr = survivalStr = aliveStr = mortalityStr = aphStr = leafStr = '--';
-    }
-
-    return Container(
-      margin: const EdgeInsets.fromLTRB(14, 12, 14, 0),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFCFCFC),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.darkWith(0.12),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-            child: Row(
-              children: [
-                const Icon(Icons.eco_outlined, size: 18, color: AppColors.primary),
-                const SizedBox(width: 10),
-                const Text(
-                  'Lettuce Information',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.dark),
-                ),
-                const Spacer(),
-                GestureDetector(
-                  onTap: () => widget.onTankTab?.call(-1),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          hasData ? 'Manage' : 'Initialize',
-                          style: const TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.primary,
-                          ),
-                        ),
-                        const SizedBox(width: 2),
-                        const Icon(Icons.chevron_right, size: 10, color: AppColors.primary),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: _buildStatColumn(
-                    'assets/images/InitialPopulationNo.png',
-                    popStr,
-                    'Initial Planted',
-                  ),
-                ),
-                Expanded(
-                  child: _buildStatColumn(
-                    'assets/images/SurvivalRate.png',
-                    survivalStr,
-                    'Survival Rate',
-                  ),
-                ),
-                Expanded(
-                  child: _buildStatColumn(
-                    'assets/images/AliveNo.png',
-                    aliveStr,
-                    'In Bed',
-                  ),
-                ),
-                Expanded(
-                  child: _buildStatColumn(
-                    'assets/images/mortalityNo.png',
-                    mortalityStr,
-                    'Mortality',
-                    valueColor: AppColors.critical,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (hasData)
-            Container(
-              margin: const EdgeInsets.only(top: 16),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              decoration: BoxDecoration(
-                color: AppColors.darkWith(0.02),
-                borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
-              ),
-              child: Column(
-                children: [
-                  Row(children: [
-                    Expanded(child: _grayItem(Icons.straighten_rounded, 'APH (Avg Height)', aphStr)),
-                    Expanded(child: _grayItem(Icons.eco_rounded, 'Avg Leaves', leafStr)),
-                  ]),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 10),
-                    child: Divider(height: 1),
-                  ),
-                  _buildGrayDetailRow(Icons.calendar_today, 'Planted Date', hasData ? _formatTankDate(batch!.plantingDate) : '--'),
-                  const SizedBox(height: 8),
-                  _buildGrayDetailRow(
-                    Icons.biotech_rounded,
-                    'Last Sampling',
-                    service.samplingHistory.isNotEmpty
-                        ? _formatTankDate(service.samplingHistory.last.date)
-                        : '--',
-                  ),
-                  const SizedBox(height: 8),
-                  _buildLettuceNextSamplingRow(),
-                  const SizedBox(height: 8),
-                  Row(children: [
-                    Expanded(child: _grayItem(service.growthStage.icon, 'Growth Stage', service.growthStage.label)),
-                    Expanded(child: _grayItem(Icons.timelapse_rounded, 'Days in Cultivation', '${service.daysInCultivation}d')),
-                  ]),
-                  if (service.harvestRecords.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 4),
-                      child: Divider(height: 1),
-                    ),
-                    _buildGrayDetailRow(Icons.archive_rounded, 'Total Harvested', '${service.harvestRecords.fold<int>(0, (s, r) => s + r.harvestedCount)} plants'),
-                    const SizedBox(height: 8),
-                    _buildGrayDetailRow(Icons.monitor_weight_outlined, 'Total Harvest Wt', '${service.harvestRecords.fold<double>(0, (s, r) => s + r.totalWeightKg).toStringAsFixed(2)} kg'),
-                    const SizedBox(height: 8),
-                    _buildGrayDetailRow(Icons.receipt_long_rounded, 'Harvest Records', '${service.harvestRecords.length}'),
-                  ],
-                ],
-              ),
-            )
-          else
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: 0.03),
-                borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
-              ),
-              child: Text(
-                'Setup your lettuce batch in the Aquaponics tab to track growth.',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w500,
-                  color: AppColors.dark.withValues(alpha: 0.45),
-                ),
-              ),
-            ),
-        ],
-      ),
     );
   }
 

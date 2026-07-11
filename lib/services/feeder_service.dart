@@ -253,7 +253,10 @@ class FeederService extends ChangeNotifier {
         final dateKey = '${DateTime.now().year}-${DateTime.now().month}-${DateTime.now().day}';
         if (scheduleKey != null) {
           try {
-            _commandsRef.parent!.child('dispatched/$dateKey/$scheduleKey').set(true);
+            final parent = _commandsRef.parent;
+            if (parent != null) {
+              parent.child('dispatched/$dateKey/$scheduleKey').set(true);
+            }
           } catch (_) {}
         }
       } else {

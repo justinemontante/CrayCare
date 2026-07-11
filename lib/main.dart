@@ -16,8 +16,7 @@ import 'screens/verify_screen.dart';
 import 'services/settings_service.dart';
 import 'services/notification_service.dart';
 import 'services/feeder_service.dart';
-import 'services/crayfish_service.dart';
-import 'services/lettuce_service.dart';
+import 'services/tank_service.dart';
 import 'services/database_service.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 
@@ -54,8 +53,7 @@ void main() async {
   NotificationService.instance.init();
   await NotificationService.instance.initFCM();
   FeederService.instance.init();
-  CrayfishService.instance.init();
-  LettuceService.instance.init();
+  TankService.instance.init();
   MlService.instance.init();
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,

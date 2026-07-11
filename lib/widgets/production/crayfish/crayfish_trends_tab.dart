@@ -2,7 +2,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../../../theme/app_colors.dart';
-import '../../../services/crayfish_service.dart';
+import '../../../services/tank_service.dart';
 import 'crayfish_sampling_tab.dart';
 
 class TrendsTab extends StatefulWidget {
@@ -20,12 +20,12 @@ class _TrendsTabState extends State<TrendsTab> {
   @override
   void initState() {
     super.initState();
-    CrayfishService.instance.addListener(_handleUpdate);
+    TankService.instance.addListener(_handleUpdate);
   }
 
   @override
   void dispose() {
-    CrayfishService.instance.removeListener(_handleUpdate);
+    TankService.instance.removeListener(_handleUpdate);
     super.dispose();
   }
 
@@ -40,7 +40,7 @@ class _TrendsTabState extends State<TrendsTab> {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       child: Column(
         children: [
-          if (!CrayfishService.instance.isInitialized)
+          if (!TankService.instance.isInitialized)
             _buildEmptyState()
           else ...[
             _buildChartContainer(),
@@ -61,7 +61,7 @@ class _TrendsTabState extends State<TrendsTab> {
   }
 
   Widget _buildChartContainer() {
-    final service = CrayfishService.instance;
+    final service = TankService.instance;
     final history = service.samplingHistory;
 
     final data = <double>[];
@@ -379,7 +379,7 @@ class _TrendsTabState extends State<TrendsTab> {
   }
 
   Widget _buildBiomassChartContainer() {
-    final service = CrayfishService.instance;
+    final service = TankService.instance;
     final history = service.samplingHistory;
 
     final data = <double>[];
@@ -718,7 +718,7 @@ class _TrendsTabState extends State<TrendsTab> {
   }
 
   Widget _buildMortalityChartContainer() {
-    final service = CrayfishService.instance;
+    final service = TankService.instance;
     final entries = service.mortalityHistory;
     final totalMort = service.totalMortality;
 
@@ -784,7 +784,7 @@ class _TrendsTabState extends State<TrendsTab> {
   }
 
   Widget _buildMortalityFooter(
-      CrayfishService service, List<MortalityEntry> entries, int totalMort) {
+      TankService service, List<MortalityEntry> entries, int totalMort) {
     final survRate = service.survivalRate;
 
     return Column(

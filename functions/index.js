@@ -152,16 +152,18 @@ exports.onSensorUpdate = functions.region("asia-southeast1").database
       const config = configSnap.val();
       if (!config) return;
 
-      const selectedStage = config.selectedStage;
-      if (!selectedStage || !config[selectedStage]) return;
-      const thresholds = config[selectedStage];
+      // Read thresholds from 'config/ranges' (written by the Flutter app via
+      // DatabaseService.saveSensorThresholds). The old per-stage format
+      // (config.{selectedStage}) is no longer used by the app.
+      const ranges = config.ranges;
+      if (!ranges) return;
 
       const stateChanges = [];
 
       for (const [espKey, svcKey] of Object.entries(SENSOR_MAP)) {
         const newVal = afterData[espKey];
         const oldVal = beforeData ? beforeData[espKey] : null;
-        const range = thresholds[svcKey];
+        const range = ranges[svcKey];
         if (newVal == null || !range) continue;
 
         const isCritical = (range.min != null && newVal < range.min) ||

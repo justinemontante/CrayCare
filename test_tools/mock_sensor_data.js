@@ -256,37 +256,18 @@ async function backfillHistory({ hours, label }) {
 // ─── 8. Write sensor config (thresholds) ──────────────────────
 async function writeDefaultConfig() {
   await db.ref('sensor_readings/config').update({
-    selectedStage: 'pre_adult',
-    pre_adult: {
+    // 'ranges' structure is what the Flutter app writes via
+    // DatabaseService.saveSensorThresholds. The Cloud Function
+    // onSensorUpdate reads from here to detect threshold crossings.
+    ranges: {
       temp: { min: 24, max: 30 },
       ph: { min: 7.0, max: 8.5 },
       do: { min: 4.5, max: 999 },
       turb: { min: 0, max: 35 },
       waterlevel: { min: 5, max: 10 },
     },
-    early_juvenile: {
-      temp: { min: 26, max: 32 },
-      ph: { min: 7.0, max: 8.5 },
-      do: { min: 4.0, max: 999 },
-      turb: { min: 0, max: 40 },
-      waterlevel: { min: 5, max: 10 },
-    },
-    advanced_juvenile: {
-      temp: { min: 25, max: 31 },
-      ph: { min: 7.0, max: 8.5 },
-      do: { min: 4.0, max: 999 },
-      turb: { min: 0, max: 40 },
-      waterlevel: { min: 5, max: 10 },
-    },
-    market_size: {
-      temp: { min: 22, max: 28 },
-      ph: { min: 7.0, max: 8.5 },
-      do: { min: 4.0, max: 999 },
-      turb: { min: 0, max: 30 },
-      waterlevel: { min: 5, max: 10 },
-    },
   });
-  console.log('📋 Default sensor thresholds written to config.');
+  console.log('📋 Default sensor thresholds written to config/ranges.');
 }
 
 // ─── 9a. Status check helper ────────────────────────────────────

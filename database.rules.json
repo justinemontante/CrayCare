@@ -32,12 +32,18 @@
       ".write": true
     },
     "sensor_readings": {
-      ".read": true,
-      ".write": true
-    },
-    "notifications": {
+      // ESP32 devices write sensor data; authenticated users can read it.
+      // If the ESP uses anonymous auth, keep .write as "auth != null";
+      // otherwise restrict to a service account via custom claims.
       ".read": "auth != null",
       ".write": true
+    },
+    // The top-level 'notifications' node is no longer used by the app.
+    // All notifications are stored under users/{uid}/notifications.
+    // This rule is kept for backward compatibility but restricted.
+    "notifications": {
+      ".read": "auth != null",
+      ".write": "auth != null"
     },
     "feeder": {
       ".read": "auth != null",

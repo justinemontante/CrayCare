@@ -1,7 +1,7 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import '../../../theme/app_colors.dart';
-import '../../../services/crayfish_service.dart';
+import '../../../services/tank_service.dart';
 import '../../../utils/snackbar_helper.dart';
 import 'harvest_form_panel.dart';
 
@@ -34,7 +34,7 @@ class OverviewTab extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
       child: Column(
         children: [
-          if (!CrayfishService.instance.isInitialized)
+          if (!TankService.instance.isInitialized)
             _buildEmptyState()
           else ...[
             _buildSurvivalCard(context),
@@ -129,7 +129,7 @@ class OverviewTab extends StatelessWidget {
   }
 
   Widget _buildSurvivalCard(BuildContext context) {
-    final service = CrayfishService.instance;
+    final service = TankService.instance;
     final survivalPct = service.survivalRate;
 
     Color statusColor = AppColors.success;
@@ -493,7 +493,7 @@ class OverviewTab extends StatelessWidget {
   }
 
   Widget _buildWarningBanner() {
-    final survivalPct = CrayfishService.instance.survivalRate;
+    final survivalPct = TankService.instance.survivalRate;
     if (survivalPct >= 85) return const SizedBox.shrink();
     final isCritical = survivalPct < 70;
 
@@ -558,7 +558,7 @@ class OverviewTab extends StatelessWidget {
   }
 
   Widget _buildActionButtons(BuildContext context) {
-    final canEditSetup = isOwner && CrayfishService.instance.samplingHistory.isEmpty;
+    final canEditSetup = isOwner && TankService.instance.samplingHistory.isEmpty;
     return Column(
       children: [
         Row(

@@ -44,7 +44,7 @@ class SamplingEntry {
   });
 }
 
-class CrayfishActivity {
+class TankActivity {
   final String action;
   final String date;
   final String time;
@@ -54,7 +54,7 @@ class CrayfishActivity {
   final double? abw;
   final double? avgLength;
 
-  CrayfishActivity({
+  TankActivity({
     required this.action,
     required this.date,
     required this.time,
@@ -72,9 +72,9 @@ class MortalityEntry {
   MortalityEntry({required this.date, required this.count});
 }
 
-class CrayfishService extends ChangeNotifier {
-  static final CrayfishService instance = CrayfishService._();
-  CrayfishService._();
+class TankService extends ChangeNotifier {
+  static final TankService instance = TankService._();
+  TankService._();
 
   static Map<String, dynamic> _convertMap(Object? value) {
     if (value is Map) {
@@ -121,7 +121,7 @@ class CrayfishService extends ChangeNotifier {
   double _totalSampleLength = 0.0;
   List<SamplingEntry> _samplingHistory = [];
   String? _lastSamplingPushKey;
-  List<CrayfishActivity> _activities = [];
+  List<TankActivity> _activities = [];
   List<MortalityEntry> _mortalityHistory = [];
   List<CrayfishBatch> _harvestHistory = [];
   List<CrayfishHarvestRecord> _harvestRecords = [];
@@ -184,7 +184,7 @@ class CrayfishService extends ChangeNotifier {
   double get initialTotalLength => _totalSampleLength;
 
   List<SamplingEntry> get samplingHistory => List.unmodifiable(_samplingHistory);
-  List<CrayfishActivity> get activities => List.unmodifiable(_activities.reversed);
+  List<TankActivity> get activities => List.unmodifiable(_activities.reversed);
   List<MortalityEntry> get mortalityHistory => List.unmodifiable(_mortalityHistory);
   List<CrayfishBatch> get harvestHistory => List.unmodifiable(_harvestHistory.reversed);
   List<CrayfishHarvestRecord> get harvestRecords {
@@ -226,7 +226,7 @@ class CrayfishService extends ChangeNotifier {
 
   void init() async {
     final initialUid = FirebaseAuth.instance.currentUser?.uid ?? '';
-    debugPrint('[CrayfishService] init() currentUser.uid="$initialUid"');
+    debugPrint('[TankService] init() currentUser.uid="$initialUid"');
     if (initialUid.isNotEmpty) {
       _tankOwnerUid = initialUid;
       await _migrateIfNeeded();
@@ -235,7 +235,7 @@ class CrayfishService extends ChangeNotifier {
     }
     FirebaseAuth.instance.authStateChanges().listen((user) {
       final uid = user?.uid ?? '';
-      debugPrint('[CrayfishService] authStateChanges event: uid="$uid"');
+      debugPrint('[TankService] authStateChanges event: uid="$uid"');
       if (uid.isEmpty) {
         _resetAll();
         return;
@@ -258,7 +258,7 @@ class CrayfishService extends ChangeNotifier {
 
       if (!hasOldData) {
         _migrationDone = true;
-        debugPrint('[CrayfishService] No old tank_data found, skipping migration');
+        debugPrint('[TankService] No old tank_data found, skipping migration');
         return;
       }
 
@@ -306,22 +306,19 @@ class CrayfishService extends ChangeNotifier {
         }
       }
 
-      // Migrate activities (crayfish = non-lettuce type)
+      // Migrate activities
       final oldLogsSnap = await db.ref('tank_data/$_tankOwnerUid/logs').get();
       if (oldLogsSnap.exists && oldLogsSnap.value != null) {
         final lData = _convertMap(oldLogsSnap.value as Map);
         for (final entry in lData.entries) {
-          final map = _convertMap(entry.value as Map);
-          if (map['type'] != 'lettuce') {
-            await _activitiesRef.child(entry.key).set(entry.value);
-          }
+          await _activitiesRef.child(entry.key).set(entry.value);
         }
       }
 
       _migrationDone = true;
-      debugPrint('[CrayfishService] Migration from tank_data to production complete');
+      debugPrint('[TankService] Migration from tank_data to production complete');
     } catch (e) {
-      debugPrint('[CrayfishService] Migration error: $e');
+      debugPrint('[TankService] Migration error: $e');
     }
   }
 
@@ -329,7 +326,7 @@ class CrayfishService extends ChangeNotifier {
     try {
       final snap = await _configRef.get();
       if (!snap.exists) {
-        debugPrint('[CrayfishService] _loadConfig: snapshot does NOT exist');
+        debugPrint('[TankService] _loadConfig: snapshot does NOT exist');
         _resetAll();
         return;
       }
@@ -368,7 +365,7 @@ class CrayfishService extends ChangeNotifier {
       _setupComplete = isInit;
       notifyListeners();
     } catch (e) {
-      debugPrint('[CrayfishService] loadConfig ERROR: $e');
+      debugPrint('[TankService] loadConfig ERROR: $e');
     }
   }
 
@@ -399,24 +396,42 @@ class CrayfishService extends ChangeNotifier {
 
   void _cancelSubscriptions() {
     _configSub?.cancel();
+    _configSub = null;
     _mortalitySub?.cancel();
+    _mortalitySub = null;
     _samplingSub?.cancel();
+    _samplingSub = null;
     _activitiesSub?.cancel();
+    _activitiesSub = null;
     _batchesSub?.cancel();
+    _batchesSub = null;
     _harvestsSub?.cancel();
+    _harvestsSub = null;
   }
 
   void _parseBatches(Map<String, dynamic> data) {
     final list = <CrayfishBatch>[];
     for (final val in data.values) {
-      final map = _convertMap(val as Map);
-      if (map['archivedSampling'] is Map) {
-        map['archivedSampling'] = _convertMap(map['archivedSampling'] as Map);
+      if (val is! Map) {
+        debugPrint('[TankService] _parseBatches: skipping non-map value: $val');
+        continue;
       }
-      if (map['archivedMortality'] is Map) {
-        map['archivedMortality'] = _convertMap(map['archivedMortality'] as Map);
+      try {
+        final map = _convertMap(val);
+        if (map['archivedSampling'] is Map) {
+          map['archivedSampling'] = _convertMap(map['archivedSampling'] as Map);
+        }
+        if (map['archivedMortality'] is Map) {
+          map['archivedMortality'] = _convertMap(map['archivedMortality'] as Map);
+        }
+        if (map['batchId'] == null) {
+          debugPrint('[TankService] _parseBatches: skipping entry without batchId');
+          continue;
+        }
+        list.add(CrayfishBatch.fromJson(map));
+      } catch (e) {
+        debugPrint('[TankService] _parseBatches: error parsing batch entry: $e');
       }
-      list.add(CrayfishBatch.fromJson(map));
     }
     list.sort((a, b) => b.stockingDate.compareTo(a.stockingDate));
 
@@ -496,7 +511,7 @@ class CrayfishService extends ChangeNotifier {
         }
       }
     } catch (e) {
-      debugPrint('[CrayfishService] _reloadLiveDataFromFirebase loadConfig error: $e');
+      debugPrint('[TankService] _reloadLiveDataFromFirebase loadConfig error: $e');
     }
 
     // 2. Load sampling
@@ -513,16 +528,21 @@ class CrayfishService extends ChangeNotifier {
         DateTime? lastDate;
         for (final entry in sData.entries) {
           final map = _convertMap(entry.value as Map);
-          final date = DateTime.fromMillisecondsSinceEpoch(map['date']);
+          final dateRaw = map['date'];
+          if (dateRaw is! num) {
+            debugPrint('[TankService] _reloadLiveData: skipping sampling entry without valid date');
+            continue;
+          }
+          final date = DateTime.fromMillisecondsSinceEpoch(dateRaw.toInt());
           entries.add(SamplingEntry(
             date: date,
-            abw: (map['abw'] as num).toDouble(),
-            avgLength: (map['avgLength'] as num).toDouble(),
-            sampleSize: map['sampleSize'],
-            totalWeight: (map['totalWeight'] as num).toDouble(),
-            totalLength: (map['totalLength'] as num).toDouble(),
-            biomass: (map['biomass'] as num).toDouble(),
-            liveCount: map['liveCount'],
+            abw: (map['abw'] as num?)?.toDouble() ?? 0.0,
+            avgLength: (map['avgLength'] as num?)?.toDouble() ?? 0.0,
+            sampleSize: (map['sampleSize'] as num?)?.toInt() ?? 0,
+            totalWeight: (map['totalWeight'] as num?)?.toDouble() ?? 0.0,
+            totalLength: (map['totalLength'] as num?)?.toDouble() ?? 0.0,
+            biomass: (map['biomass'] as num?)?.toDouble() ?? 0.0,
+            liveCount: (map['liveCount'] as num?)?.toInt() ?? 0,
             isBaseline: map['isBaseline'] == true,
           ));
           if (lastDate == null || date.isAfter(lastDate)) { lastDate = date; lastKey = entry.key; }
@@ -532,7 +552,7 @@ class CrayfishService extends ChangeNotifier {
         _lastSamplingPushKey = lastKey;
       }
     } catch (e) {
-      debugPrint('[CrayfishService] _reloadSampling error: $e');
+      debugPrint('[TankService] _reloadSampling error: $e');
     }
 
     // 3. Load mortality
@@ -543,14 +563,23 @@ class CrayfishService extends ChangeNotifier {
         _mortalityHistory.clear();
       } else {
         final mData = _convertMap(mSnap.value as Map);
-        _mortalityHistory = mData.values.map((e) {
-          final map = _convertMap(e as Map);
-          return MortalityEntry(date: DateTime.fromMillisecondsSinceEpoch(map['date']), count: map['count']);
-        }).toList()..sort((a, b) => a.date.compareTo(b.date));
+        _mortalityHistory = mData.values.whereType<Map>().map((e) {
+          final map = _convertMap(e);
+          final dateRaw = map['date'];
+          final countRaw = map['count'];
+          if (dateRaw is! num || countRaw is! num) {
+            debugPrint('[TankService] _reloadLiveData: skipping mortality entry with missing date/count');
+            return null;
+          }
+          return MortalityEntry(
+            date: DateTime.fromMillisecondsSinceEpoch(dateRaw.toInt()),
+            count: countRaw.toInt(),
+          );
+        }).whereType<MortalityEntry>().toList()..sort((a, b) => a.date.compareTo(b.date));
         _mortality = _mortalityHistory.fold(0, (sum, e) => sum + e.count);
       }
     } catch (e) {
-      debugPrint('[CrayfishService] _reloadMortality error: $e');
+      debugPrint('[TankService] _reloadMortality error: $e');
     }
 
     // 4. Load activities
@@ -563,7 +592,7 @@ class CrayfishService extends ChangeNotifier {
         final aData = _convertMap(aSnap.value as Map);
         _activities = aData.values.map((e) {
           final map = _convertMap(e as Map);
-          return CrayfishActivity(
+          return TankActivity(
             action: map['action'] ?? '',
             date: map['date'] ?? '',
             time: map['time'] ?? '',
@@ -576,7 +605,7 @@ class CrayfishService extends ChangeNotifier {
         }).toList()..sort((a, b) => a.timestamp.compareTo(b.timestamp));
       }
     } catch (e) {
-      debugPrint('[CrayfishService] _reloadActivities error: $e');
+      debugPrint('[TankService] _reloadActivities error: $e');
     }
 
     // 5. Load harvest records
@@ -587,12 +616,15 @@ class CrayfishService extends ChangeNotifier {
         _harvestRecords.clear();
       } else {
         final hData = _convertMap(hSnap.value as Map);
-        _harvestRecords = hData.entries.map((entry) =>
-          CrayfishHarvestRecord.fromJson(entry.key, _convertMap(entry.value as Map))
-        ).toList()..sort((a, b) => a.date.compareTo(b.date));
+        _harvestRecords = hData.entries
+            .where((entry) => entry.value is Map)
+            .map((entry) => CrayfishHarvestRecord.fromJson(
+                entry.key, _convertMap(entry.value as Map)))
+            .toList()
+          ..sort((a, b) => a.date.compareTo(b.date));
       }
     } catch (e) {
-      debugPrint('[CrayfishService] _reloadHarvestRecords error: $e');
+      debugPrint('[TankService] _reloadHarvestRecords error: $e');
     }
 
     notifyListeners();
@@ -652,17 +684,23 @@ class CrayfishService extends ChangeNotifier {
     final rawSampling = batch.archivedSampling;
     if (rawSampling != null) {
       for (final v in rawSampling.values) {
-        final sm = _convertMap(v as Map);
+        if (v is! Map) continue;
+        final sm = _convertMap(v);
+        final dateRaw = sm['date'];
+        if (dateRaw is! num) {
+          debugPrint('[TankService] _enterArchiveView: skipping archived sampling without date');
+          continue;
+        }
         archivedSampling.add(SamplingEntry(
-          date: DateTime.fromMillisecondsSinceEpoch(sm['date']),
-          abw: (sm['abw'] as num).toDouble(),
-          avgLength: (sm['avgLength'] as num).toDouble(),
-          sampleSize: sm['sampleSize'],
-          totalWeight: (sm['totalWeight'] as num).toDouble(),
-          totalLength: (sm['totalLength'] as num).toDouble(),
-          biomass: (sm['biomass'] as num).toDouble(),
-          liveCount: sm['liveCount'],
-          isBaseline: sm['isBaseline'] ?? false,
+          date: DateTime.fromMillisecondsSinceEpoch(dateRaw.toInt()),
+          abw: (sm['abw'] as num?)?.toDouble() ?? 0.0,
+          avgLength: (sm['avgLength'] as num?)?.toDouble() ?? 0.0,
+          sampleSize: (sm['sampleSize'] as num?)?.toInt() ?? 0,
+          totalWeight: (sm['totalWeight'] as num?)?.toDouble() ?? 0.0,
+          totalLength: (sm['totalLength'] as num?)?.toDouble() ?? 0.0,
+          biomass: (sm['biomass'] as num?)?.toDouble() ?? 0.0,
+          liveCount: (sm['liveCount'] as num?)?.toInt() ?? 0,
+          isBaseline: sm['isBaseline'] == true,
         ));
       }
       archivedSampling.sort((a, b) => a.date.compareTo(b.date));
@@ -673,10 +711,17 @@ class CrayfishService extends ChangeNotifier {
     final rawMortality = batch.archivedMortality;
     if (rawMortality != null) {
       for (final v in rawMortality.values) {
-        final mm = _convertMap(v as Map);
+        if (v is! Map) continue;
+        final mm = _convertMap(v);
+        final dateRaw = mm['date'];
+        final countRaw = mm['count'];
+        if (dateRaw is! num || countRaw is! num) {
+          debugPrint('[TankService] _enterArchiveView: skipping archived mortality without date/count');
+          continue;
+        }
         archivedMortality.add(MortalityEntry(
-          date: DateTime.fromMillisecondsSinceEpoch(mm['date']),
-          count: mm['count'],
+          date: DateTime.fromMillisecondsSinceEpoch(dateRaw.toInt()),
+          count: countRaw.toInt(),
         ));
       }
       archivedMortality.sort((a, b) => a.date.compareTo(b.date));
@@ -689,12 +734,14 @@ class CrayfishService extends ChangeNotifier {
       if (hSnap.exists && hSnap.value != null) {
         final hData = _convertMap(hSnap.value as Map);
         _harvestRecords = hData.entries
-            .map((entry) => CrayfishHarvestRecord.fromJson(entry.key, _convertMap(entry.value as Map)))
+            .where((entry) => entry.value is Map)
+            .map((entry) => CrayfishHarvestRecord.fromJson(
+                entry.key, _convertMap(entry.value as Map)))
             .toList()
           ..sort((a, b) => a.date.compareTo(b.date));
       }
     } catch (e) {
-      debugPrint('[CrayfishService] _enterArchiveView load harvest error: $e');
+      debugPrint('[TankService] _enterArchiveView load harvest error: $e');
     }
 
     notifyListeners();
@@ -735,16 +782,21 @@ class CrayfishService extends ChangeNotifier {
       DateTime? lastDate;
       for (final entry in sData.entries) {
         final map = _convertMap(entry.value as Map);
-        final date = DateTime.fromMillisecondsSinceEpoch(map['date']);
+        final dateRaw = map['date'];
+        if (dateRaw is! num) {
+          debugPrint('[TankService] sampling listener: skipping entry without valid date');
+          continue;
+        }
+        final date = DateTime.fromMillisecondsSinceEpoch(dateRaw.toInt());
         entries.add(SamplingEntry(
           date: date,
-          abw: (map['abw'] as num).toDouble(),
-          avgLength: (map['avgLength'] as num).toDouble(),
-          sampleSize: map['sampleSize'],
-          totalWeight: (map['totalWeight'] as num).toDouble(),
-          totalLength: (map['totalLength'] as num).toDouble(),
-          biomass: (map['biomass'] as num).toDouble(),
-          liveCount: map['liveCount'],
+          abw: (map['abw'] as num?)?.toDouble() ?? 0.0,
+          avgLength: (map['avgLength'] as num?)?.toDouble() ?? 0.0,
+          sampleSize: (map['sampleSize'] as num?)?.toInt() ?? 0,
+          totalWeight: (map['totalWeight'] as num?)?.toDouble() ?? 0.0,
+          totalLength: (map['totalLength'] as num?)?.toDouble() ?? 0.0,
+          biomass: (map['biomass'] as num?)?.toDouble() ?? 0.0,
+          liveCount: (map['liveCount'] as num?)?.toInt() ?? 0,
           isBaseline: map['isBaseline'] == true,
         ));
         if (lastDate == null || date.isAfter(lastDate)) { lastDate = date; lastKey = entry.key; }
@@ -759,10 +811,20 @@ class CrayfishService extends ChangeNotifier {
       if (_isArchiveView) return;
       if (!e.snapshot.exists) { _mortalityHistory.clear(); notifyListeners(); return; }
       final mData = _convertMap(e.snapshot.value as Map);
-      _mortalityHistory = mData.values.map((e) {
-        final map = _convertMap(e as Map);
-        return MortalityEntry(date: DateTime.fromMillisecondsSinceEpoch(map['date']), count: map['count']);
-      }).toList()..sort((a, b) => a.date.compareTo(b.date));
+      _mortalityHistory = mData.values.whereType<Map>().map((e) {
+        final map = _convertMap(e);
+        final dateRaw = map['date'];
+        final countRaw = map['count'];
+        if (dateRaw is! num || countRaw is! num) {
+          debugPrint('[TankService] mortality listener: skipping entry with missing date/count');
+          return null;
+        }
+        return MortalityEntry(
+          date: DateTime.fromMillisecondsSinceEpoch(dateRaw.toInt()),
+          count: countRaw.toInt(),
+        );
+      }).whereType<MortalityEntry>().toList()..sort((a, b) => a.date.compareTo(b.date));
+      _mortality = _mortalityHistory.fold(0, (sum, e) => sum + e.count);
       notifyListeners();
     });
 
@@ -772,7 +834,7 @@ class CrayfishService extends ChangeNotifier {
       final aData = _convertMap(e.snapshot.value as Map);
       _activities = aData.values.map((e) {
         final map = _convertMap(e as Map);
-        return CrayfishActivity(action: map['action'], date: map['date'] as String? ?? '', time: map['time'] as String? ?? '', type: map['type'], timestamp: map['timestamp'] ?? 0);
+        return TankActivity(action: map['action'], date: map['date'] as String? ?? '', time: map['time'] as String? ?? '', type: map['type'], timestamp: map['timestamp'] ?? 0);
       }).toList()..sort((a, b) => a.timestamp.compareTo(b.timestamp));
       notifyListeners();
     });
@@ -798,9 +860,12 @@ class CrayfishService extends ChangeNotifier {
         return;
       }
       final hData = _convertMap(e.snapshot.value as Map);
-      _harvestRecords = hData.entries.map((entry) =>
-        CrayfishHarvestRecord.fromJson(entry.key, _convertMap(entry.value as Map))
-      ).toList()..sort((a, b) => a.date.compareTo(b.date));
+      _harvestRecords = hData.entries
+          .where((entry) => entry.value is Map)
+          .map((entry) => CrayfishHarvestRecord.fromJson(
+              entry.key, _convertMap(entry.value as Map)))
+          .toList()
+        ..sort((a, b) => a.date.compareTo(b.date));
       notifyListeners();
     });
   }
@@ -871,7 +936,7 @@ class CrayfishService extends ChangeNotifier {
           await _batchesRef.child(key).set(archivedBatch.toJson());
         }
       } catch (e) {
-        debugPrint('[CrayfishService] initializeGrowOut: could not archive previous batch: $e');
+        debugPrint('[TankService] initializeGrowOut: could not archive previous batch: $e');
       }
     }
 
@@ -879,7 +944,7 @@ class CrayfishService extends ChangeNotifier {
     try {
       await Future.wait([_samplingRef.remove(), _mortalityRef.remove(), _activitiesRef.remove()]);
     } catch (e) {
-      debugPrint('[CrayfishService] Error clearing old data: $e');
+      debugPrint('[TankService] Error clearing old data: $e');
     }
 
     // --- Step 3: Set up local state for the new batch ---
@@ -921,7 +986,7 @@ class CrayfishService extends ChangeNotifier {
 
     // Push async — listener will sync from Firebase once done
     _batchesRef.push().set(newBatch.toJson()).catchError((e) {
-      debugPrint('[CrayfishService] Batch push error (non-fatal): $e');
+      debugPrint('[TankService] Batch push error (non-fatal): $e');
     });
 
     // --- Step 6: Update local batch list and select the new batch immediately ---
@@ -1017,7 +1082,7 @@ class CrayfishService extends ChangeNotifier {
     final h = now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour);
     final ampm = now.hour >= 12 ? 'PM' : 'AM';
     final timeStr = '$h:${now.minute.toString().padLeft(2, '0')} $ampm';
-    final act = CrayfishActivity(action: action, date: dateStr, time: timeStr, type: type, timestamp: now.millisecondsSinceEpoch, sampleSize: sampleSize, abw: abw, avgLength: avgLength);
+    final act = TankActivity(action: action, date: dateStr, time: timeStr, type: type, timestamp: now.millisecondsSinceEpoch, sampleSize: sampleSize, abw: abw, avgLength: avgLength);
     _activities.add(act);
     _activitiesRef.push().set({
       'action': action, 'type': type, 'timestamp': now.millisecondsSinceEpoch,
@@ -1063,7 +1128,7 @@ class CrayfishService extends ChangeNotifier {
       _addActivity('Completed grow-out batch ($resolvedId). Harvested $harvestCount crayfish${harvestWeightGrams != null ? ', ${harvestWeightGrams.toStringAsFixed(1)}g total' : ''}.', 'harvest');
       _resetAll();
     } catch (e) {
-      debugPrint('[CrayfishService] completeBatch error: $e');
+      debugPrint('[TankService] completeBatch error: $e');
       rethrow;
     }
   }
