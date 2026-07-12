@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'theme/app_theme.dart';
 import 'screens/login_screen.dart';
@@ -35,9 +35,10 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  // Enable offline persistence before any Firebase Database operation
-  FirebaseDatabase.instance.setPersistenceEnabled(true);
-  FirebaseDatabase.instance.setPersistenceCacheSizeBytes(104857600); // 100MB
+  // Enable Firestore offline persistence
+  FirebaseFirestore.instance.settings = Settings(
+    persistenceEnabled: true,
+  );
 
   // CRITICAL: Register the background message handler BEFORE any other setup.
   // Firebase requires this to be a top-level function registered here.
@@ -130,7 +131,7 @@ class _SplashScreenState extends State<SplashScreen> {
           try {
             final profile = await DatabaseService.instance.getUserProfile(freshUser.uid);
             if (profile != null && profile['status'] == 'disabled') {
-              await FirebaseDatabase.instance.ref('users/${freshUser.uid}/fcmToken').remove().catchError((_) {});
+              await FirebaseFirestore.instance.collection('users').doc(freshUser.uid).update({'fcmToken': FieldValue.delete()}).catchError((_) {});
               await FirebaseAuth.instance.signOut();
               if (!mounted) return;
               Navigator.pushReplacement(

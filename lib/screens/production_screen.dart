@@ -7,12 +7,10 @@ import '../widgets/production/crayfish/crayfish_overview_tab.dart';
 import '../widgets/production/crayfish/crayfish_sampling_tab.dart';
 import '../widgets/production/crayfish/crayfish_trends_tab.dart';
 import '../widgets/production/crayfish/crayfish_batch_list.dart';
-import '../widgets/common/read_only_banner.dart';
 import '../utils/snackbar_helper.dart';
 
 class ProductionScreen extends StatefulWidget {
-  final bool isOwner;
-  const ProductionScreen({super.key, this.isOwner = true});
+  const ProductionScreen({super.key});
 
   @override
   State<ProductionScreen> createState() => ProductionScreenState();
@@ -61,7 +59,6 @@ class ProductionScreenState extends State<ProductionScreen> {
       child: Column(
         children: [
           _buildHeader(),
-          if (!widget.isOwner) _buildReadOnlyBanner(),
           Expanded(
             child: _buildCrayfishContent(),
           ),
@@ -132,13 +129,11 @@ class ProductionScreenState extends State<ProductionScreen> {
           onShowCompleteBatchModal: _startNewBatch,
           hasSetup: TankService.instance.isInitialized,
           lastEdited: _lastEdited,
-          isOwner: widget.isOwner,
         );
       case 1:
         return SamplingTab(
           key: ValueKey('sampling_$batchKey'),
           lastEdited: _lastEdited,
-          isOwner: widget.isOwner,
         );
       case 2:
         return TrendsTab(
@@ -1449,11 +1444,6 @@ class ProductionScreenState extends State<ProductionScreen> {
     );
   }
 
-  Widget _buildReadOnlyBanner() {
-    return const ReadOnlyBanner(
-      message:
-          'You can view all tank data, sampling history, and trends. Only the Farm Owner can modify setup, record sampling, or manage inventory.',
-    );
   }
-}
+
 

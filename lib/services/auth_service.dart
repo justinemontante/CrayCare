@@ -1,6 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:firebase_database/firebase_database.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'database_service.dart';
 
@@ -152,9 +152,10 @@ class AuthService {
     final uid = _auth.currentUser?.uid;
     if (uid != null) {
       try {
-        await FirebaseDatabase.instance
-            .ref('users/$uid/fcmToken')
-            .remove();
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(uid)
+            .update({'fcmToken': FieldValue.delete()});
       } catch (e) {
         debugPrint('[AuthService] Failed to clear FCM token on signout: $e');
       }

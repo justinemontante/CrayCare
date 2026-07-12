@@ -11,7 +11,6 @@ class DevicesTab extends StatelessWidget {
   ) onShowGroupLog;
   final Map<String, String> deviceRuntimeLabels;
 
-  final bool isOwner;
   final bool isOnline;
 
   const DevicesTab({
@@ -20,7 +19,6 @@ class DevicesTab extends StatelessWidget {
     required this.onSetMode,
     required this.onShowGroupLog,
     required this.deviceRuntimeLabels,
-    this.isOwner = true,
     this.isOnline = true,
   });
 
@@ -42,7 +40,6 @@ class DevicesTab extends StatelessWidget {
             onSetMode: onSetMode,
             onShowGroupLog: onShowGroupLog,
             deviceRuntimeLabels: deviceRuntimeLabels,
-            isOwner: isOwner,
             isOnline: isOnline,
           ),
           const SizedBox(height: 14),
@@ -56,7 +53,6 @@ class DevicesTab extends StatelessWidget {
             onSetMode: onSetMode,
             onShowGroupLog: onShowGroupLog,
             deviceRuntimeLabels: deviceRuntimeLabels,
-            isOwner: isOwner,
             isOnline: isOnline,
           ),
           const SizedBox(height: 32),

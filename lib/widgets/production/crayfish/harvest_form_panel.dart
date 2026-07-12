@@ -6,9 +6,8 @@ import '../../../models/crayfish_batch.dart';
 import '../../../utils/snackbar_helper.dart';
 
 class CrayfishHarvestFormPanel extends StatefulWidget {
-  final bool isOwner;
   final VoidCallback? onSaved;
-  const CrayfishHarvestFormPanel({super.key, this.isOwner = true, this.onSaved});
+  const CrayfishHarvestFormPanel({super.key, this.onSaved});
 
   @override
   State<CrayfishHarvestFormPanel> createState() => _CrayfishHarvestFormPanelState();
@@ -44,10 +43,6 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
 
   void _handleSave() {
     final service = TankService.instance;
-    if (!widget.isOwner) {
-      showBeautifulSnackbar(context, 'Only the owner can record harvest.', false);
-      return;
-    }
     final count = int.tryParse(_countCtrl.text);
     final weight = double.tryParse(_weightCtrl.text);
     if (count == null || count <= 0) {
@@ -170,8 +165,8 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
               icon: const Icon(Icons.save_rounded, size: 16),
               label: const Text('Save Harvest', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
               style: ElevatedButton.styleFrom(
-                backgroundColor: widget.isOwner ? AppColors.primary : Colors.grey.shade300,
-                foregroundColor: widget.isOwner ? Colors.white : Colors.grey.shade500,
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
                 elevation: 0,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                 padding: const EdgeInsets.symmetric(vertical: 14),

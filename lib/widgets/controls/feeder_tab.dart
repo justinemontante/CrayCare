@@ -15,7 +15,6 @@ class FeederTab extends StatelessWidget {
   final Set<String> fedToday;
   final String feederError;
 
-  final bool isOwner;
   final bool isOnline;
   final bool isRunning;
   final bool canFeed;
@@ -32,7 +31,6 @@ class FeederTab extends StatelessWidget {
     required this.feederLogs,
     this.fedToday = const {},
     this.feederError = '',
-    this.isOwner = true,
     this.isOnline = true,
     this.isRunning = false,
     this.canFeed = true,
@@ -177,34 +175,28 @@ class FeederTab extends StatelessWidget {
                   ),
                 ),
                 GestureDetector(
-                  onTap: isOwner
-                      ? () => _showScheduleModal(ctx)
-                      : () => showBeautifulSnackbar(ctx, 'Adding schedules is for owners only', false, title: 'Notice'),
+                  onTap: () => _showScheduleModal(ctx),
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                     decoration: BoxDecoration(
-                      color: isOwner
-                          ? AppColors.primary.withValues(alpha: 0.1)
-                          : AppColors.darkWith(0.05),
+                      color: AppColors.primary.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Row(
+                    child: const Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          isOwner ? Icons.add : Icons.lock_outline,
+                          Icons.add,
                           size: 12,
-                          color: isOwner ? AppColors.primary : AppColors.darkWith(0.4),
+                          color: AppColors.primary,
                         ),
-                        const SizedBox(width: 4),
+                        SizedBox(width: 4),
                         Text(
                           'Add Schedule',
                           style: TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.w700,
-                            color: isOwner
-                                ? AppColors.primary
-                                : AppColors.darkWith(0.4),
+                            color: AppColors.primary,
                           ),
                         ),
                       ],
@@ -267,7 +259,7 @@ class FeederTab extends StatelessWidget {
               width: double.infinity,
               child: Builder(
                   builder: (context) => Tooltip(
-                    message: !canFeed && isOwner && isOnline
+                    message: !canFeed && isOnline
                         ? feedBlockedReason
                         : '',
                     decoration: BoxDecoration(
@@ -278,22 +270,20 @@ class FeederTab extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     waitDuration: const Duration(milliseconds: 100),
                     child: ElevatedButton(
-                    onPressed: isOwner && isOnline && !isRunning && canFeed
+                    onPressed: isOnline && !isRunning && canFeed
                         ? onFeedNow
                         : () {
-                            if (!isOwner) {
-                              showBeautifulSnackbar(context, 'Feed Now is for owners only', false, title: 'Notice');
-                            } else if (!isOnline) {
+                            if (!isOnline) {
                               showBeautifulSnackbar(context, 'Feeder is offline. Cannot dispense feed.', false, title: 'Feeder Offline');
                             } else if (!canFeed) {
                               showBeautifulSnackbar(context, feedBlockedReason, false, title: 'Feed Blocked');
                             }
                           },
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: isOwner && isOnline
+                      backgroundColor: isOnline
                           ? AppColors.primary
                           : Colors.grey.shade300,
-                      foregroundColor: isOwner && isOnline
+                      foregroundColor: isOnline
                           ? Colors.white
                           : Colors.grey.shade500,
                       padding: const EdgeInsets.symmetric(vertical: 14),
@@ -306,9 +296,7 @@ class FeederTab extends StatelessWidget {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(
-                          !isOwner
-                              ? Icons.lock_outline
-                              : isRunning
+                          isRunning
                               ? Icons.hourglass_top
                               : !isOnline
                               ? Icons.wifi_off
@@ -316,15 +304,13 @@ class FeederTab extends StatelessWidget {
                               ? Icons.block
                               : Icons.play_arrow,
                           size: 16,
-                          color: isOwner && isOnline
+                          color: isOnline
                               ? Colors.white
                               : Colors.grey.shade500,
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          !isOwner
-                              ? 'Feed Now'
-                              : isRunning
+                          isRunning
                               ? 'Feeding...'
                               : !isOnline
                               ? 'Feeder Offline'
@@ -334,7 +320,7 @@ class FeederTab extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w700,
-                            color: isOwner && isOnline
+                            color: isOnline
                                 ? Colors.white
                                 : Colors.grey.shade500,
                           ),
@@ -697,20 +683,20 @@ class FeederTab extends StatelessWidget {
           ),
           const SizedBox(width: 6),
           GestureDetector(
-            onTap: isOwner ? () => _showScheduleModal(ctx, index: index, existing: s) : null,
-            child: Icon(
+            onTap: () => _showScheduleModal(ctx, index: index, existing: s),
+            child: const Icon(
               Icons.edit_outlined,
               size: 14,
-              color: isOwner ? AppColors.primary : AppColors.darkWith(0.2),
+              color: AppColors.primary,
             ),
           ),
           const SizedBox(width: 6),
           GestureDetector(
-            onTap: isOwner ? () => _confirmDelete(ctx, index) : null,
-            child: Icon(
+            onTap: () => _confirmDelete(ctx, index),
+            child: const Icon(
               Icons.delete_outline,
               size: 14,
-              color: isOwner ? AppColors.critical : AppColors.darkWith(0.2),
+              color: AppColors.critical,
             ),
           ),
         ],

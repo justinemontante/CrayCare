@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
 import '../models/control_types.dart';
 import 'sensor_service.dart';
 import 'settings_service.dart';
@@ -10,29 +10,11 @@ class FeederService extends ChangeNotifier {
   static final FeederService instance = FeederService._();
   FeederService._();
 
-  static Map<String, dynamic> _convertMap(Object? value) {
-    if (value is Map) {
-      return value.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
-    }
-    return {};
-  }
-
   bool _initialized = false;
 
-  String get _userBase => 'feeder';
-
-  DatabaseReference get _commandsRef =>
-      FirebaseDatabase.instance.ref('$_userBase/commands');
-  DatabaseReference get _statusRef =>
-      FirebaseDatabase.instance.ref('$_userBase/status');
-  DatabaseReference get _schedulesRef =>
-      FirebaseDatabase.instance.ref('$_userBase/schedules');
-  DatabaseReference get _logsRef =>
-      FirebaseDatabase.instance.ref('$_userBase/logs');
-
-  StreamSubscription<DatabaseEvent>? _statusSub;
-  StreamSubscription<DatabaseEvent>? _schedulesSub;
-  StreamSubscription<DatabaseEvent>? _logsSub;
+  StreamSubscription? _statusSub;
+  StreamSubscription? _schedulesSub;
+  StreamSubscription? _logsSub;
 
   bool _isRunning = false;
   String _feedSource = '';
@@ -106,39 +88,42 @@ class FeederService extends ChangeNotifier {
   void _listenStatus() {
     _statusSub?.cancel();
     try {
-      _statusSub = _statusRef.onValue.listen(
-        (event) {
-          _lastError = null;
-          if (event.snapshot.value == null) return;
-          try {
-            final data =
-                _convertMap(event.snapshot.value as Map);
-            _isRunning = data['isRunning'] == true;
-            _feedSource = (data['feedSource'] as String?) ?? '';
-            _feedCount = (data['feedCount'] as num?)?.toInt() ?? _feedCount;
-            _hopperLevel = (data['hopperLevel'] as num?)?.toDouble() ?? 100;
-            _feederError = (data['feederError'] as String?) ?? '';
-            if (_feederError.isNotEmpty && !_isRunning) {
-              _statusRef.update({'feederError': ''});
-              _feederError = '';
-            }
-            final seen = data['lastSeen'];
-            if (seen is int && seen > 0) {
-              _lastSeen = DateTime.fromMillisecondsSinceEpoch(seen);
-            } else if (seen is double && seen > 0) {
-              _lastSeen = DateTime.fromMillisecondsSinceEpoch(seen.toInt());
-            }
-          } catch (e) {
-            debugPrint('[FeederService] Status parse error: $e');
+      _statusSub = FirebaseFirestore.instance
+          .collection('feederStatus')
+          .doc('status')
+          .snapshots()
+          .listen((snapshot) {
+        _lastError = null;
+        if (!snapshot.exists || snapshot.data() == null) return;
+        try {
+          final data = snapshot.data()!;
+          _isRunning = data['isRunning'] == true;
+          _feedSource = (data['feedSource'] as String?) ?? '';
+          _feedCount = (data['feedCount'] as num?)?.toInt() ?? _feedCount;
+          _hopperLevel = (data['hopperLevel'] as num?)?.toDouble() ?? 100;
+          _feederError = (data['feederError'] as String?) ?? '';
+          if (_feederError.isNotEmpty && !_isRunning) {
+            FirebaseFirestore.instance
+                .collection('feederStatus')
+                .doc('status')
+                .update({'feederError': ''});
+            _feederError = '';
           }
-          notifyListeners();
-        },
-        onError: (error) {
-          _lastError = error.toString();
-          debugPrint('[FeederService] Status stream error: $error');
-          notifyListeners();
-        },
-      );
+          final seen = data['lastSeen'];
+          if (seen is int && seen > 0) {
+            _lastSeen = DateTime.fromMillisecondsSinceEpoch(seen);
+          } else if (seen is double && seen > 0) {
+            _lastSeen = DateTime.fromMillisecondsSinceEpoch(seen.toInt());
+          }
+        } catch (e) {
+          debugPrint('[FeederService] Status parse error: $e');
+        }
+        notifyListeners();
+      }, onError: (error) {
+        _lastError = error.toString();
+        debugPrint('[FeederService] Status stream error: $error');
+        notifyListeners();
+      });
     } catch (e) {
       debugPrint('[FeederService] Status listen error: $e');
     }
@@ -147,42 +132,33 @@ class FeederService extends ChangeNotifier {
   void _listenSchedules() {
     _schedulesSub?.cancel();
     try {
-      _schedulesSub = _schedulesRef.onValue.listen(
-        (event) {
-          try {
-            final data = event.snapshot.value;
-            _schedules.clear();
-            _scheduleKeys.clear();
-            if (data != null && data is Map) {
-              final entries =
-                  (_convertMap(data)).entries.toList();
-              entries.sort((a, b) {
-                final aVal = _convertMap(a.value);
-                final bVal = _convertMap(b.value);
-                return _toMinutes(aVal).compareTo(_toMinutes(bVal));
-              });
-              for (final entry in entries) {
-                final val = _convertMap(entry.value);
-                _scheduleKeys.add(entry.key);
-                _schedules.add(ScheduleItem(
-                  val['time'] as String? ?? '6:00',
-                  val['ampm'] as String? ?? 'AM',
-                  enabled: val['enabled'] as bool? ?? true,
-                  isDone: val['isDone'] as bool? ?? false,
-                  grams: (val['grams'] as num?)?.toDouble(),
-                ));
-              }
-            }
-            FeedState.schedules.value = List.from(_schedules);
-          } catch (e) {
-            debugPrint('[FeederService] Schedules parse error: $e');
+      _schedulesSub = FirebaseFirestore.instance
+          .collection('feederSchedules')
+          .orderBy('timeValue')
+          .snapshots()
+          .listen((snapshot) {
+        try {
+          _schedules.clear();
+          _scheduleKeys.clear();
+          for (final doc in snapshot.docs) {
+            final data = doc.data();
+            _scheduleKeys.add(doc.id);
+            _schedules.add(ScheduleItem(
+              data['time'] as String? ?? '6:00',
+              data['ampm'] as String? ?? 'AM',
+              enabled: data['enabled'] as bool? ?? true,
+              isDone: data['isDone'] as bool? ?? false,
+              grams: (data['grams'] as num?)?.toDouble(),
+            ));
           }
-          notifyListeners();
-        },
-        onError: (error) {
-          debugPrint('[FeederService] Schedules stream error: $error');
-        },
-      );
+          FeedState.schedules.value = List.from(_schedules);
+        } catch (e) {
+          debugPrint('[FeederService] Schedules parse error: $e');
+        }
+        notifyListeners();
+      }, onError: (error) {
+        debugPrint('[FeederService] Schedules stream error: $error');
+      });
     } catch (e) {
       debugPrint('[FeederService] Schedules listen error: $e');
     }
@@ -191,43 +167,32 @@ class FeederService extends ChangeNotifier {
   void _listenLogs() {
     _logsSub?.cancel();
     try {
-      _logsSub = _logsRef.orderByChild('timestamp').limitToLast(50).onValue.listen(
-        (event) {
-          try {
-            final data = event.snapshot.value;
-            _logs.clear();
-            if (data != null && data is Map) {
-              final entries =
-                  (_convertMap(data)).entries.toList();
-              entries.sort((a, b) {
-                final aVal = _convertMap(a.value);
-                final bVal = _convertMap(b.value);
-                final aTs = aVal['timestamp'] as int? ?? 0;
-                final bTs = bVal['timestamp'] as int? ?? 0;
-                return bTs.compareTo(aTs);
-              });
-              for (final entry in entries) {
-                final val = _convertMap(entry.value);
-                _logs.add(LogEntry(
-                  val['action'] as String? ?? '',
-                  val['type'] as String? ?? 'auto',
-                  val['time'] as String? ?? '',
-                  val['date'] as String? ?? '',
-
-                  timestamp: val['timestamp'] as int? ?? 0,
-                ));
-              }
-            }
-            FeedState.feederLogs.value = List.from(_logs);
-          } catch (e) {
-            debugPrint('[FeederService] Logs parse error: $e');
+      _logsSub = FirebaseFirestore.instance
+          .collection('feederLogs')
+          .orderBy('timestamp', descending: true)
+          .limit(50)
+          .snapshots()
+          .listen((snapshot) {
+        try {
+          _logs.clear();
+          for (final doc in snapshot.docs) {
+            final data = doc.data();
+            _logs.add(LogEntry(
+              data['action'] as String? ?? '',
+              data['type'] as String? ?? 'auto',
+              data['time'] as String? ?? '',
+              data['date'] as String? ?? '',
+              timestamp: data['timestamp'] as int? ?? 0,
+            ));
           }
-          notifyListeners();
-        },
-        onError: (error) {
-          debugPrint('[FeederService] Logs stream error: $error');
-        },
-      );
+          FeedState.feederLogs.value = List.from(_logs);
+        } catch (e) {
+          debugPrint('[FeederService] Logs parse error: $e');
+        }
+        notifyListeners();
+      }, onError: (error) {
+        debugPrint('[FeederService] Logs stream error: $error');
+      });
     } catch (e) {
       debugPrint('[FeederService] Logs listen error: $e');
     }
@@ -235,29 +200,26 @@ class FeederService extends ChangeNotifier {
 
   void feedNow({String source = 'manual', String? scheduleKey, double? grams}) {
     try {
-      final Map<String, dynamic> cmd = {
+      final cmd = <String, dynamic>{
         'action': 'feed_now',
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
+        'timestamp': FieldValue.serverTimestamp(),
         'source': 'flutter-app',
       };
       if (grams != null) {
         cmd['grams'] = grams;
       }
-      _commandsRef.push().set(cmd);
+      FirebaseFirestore.instance.collection('feederCommands').add(cmd);
       final gramsStr = grams != null ? ' (${grams.toStringAsFixed(1)}g)' : '';
       if (source == 'scheduled') {
         _addLogEntry(
           action: 'Auto feed dispensed$gramsStr',
           type: 'auto',
         );
-        final dateKey = '${DateTime.now().year}-${DateTime.now().month}-${DateTime.now().day}';
         if (scheduleKey != null) {
-          try {
-            final parent = _commandsRef.parent;
-            if (parent != null) {
-              parent.child('dispatched/$dateKey/$scheduleKey').set(true);
-            }
-          } catch (_) {}
+          FirebaseFirestore.instance
+              .collection('feederDispatched')
+              .doc('${DateTime.now().year}-${DateTime.now().month}-${DateTime.now().day}')
+              .set({scheduleKey: true}, SetOptions(merge: true));
         }
       } else {
         _addLogEntry(
@@ -289,7 +251,7 @@ class FeederService extends ChangeNotifier {
     final ampm = now.hour >= 12 ? 'PM' : 'AM';
     final timeStr = '$h:${now.minute.toString().padLeft(2, '0')} $ampm';
     try {
-      _logsRef.push().set({
+      FirebaseFirestore.instance.collection('feederLogs').add({
         'action': action,
         'type': type,
         'time': timeStr,
@@ -303,12 +265,17 @@ class FeederService extends ChangeNotifier {
 
   void addSchedule(String time, String ampm, {double? grams}) {
     try {
-      _schedulesRef.push().set({
+      final parts = time.split(':');
+      final h = int.tryParse(parts[0]) ?? 6;
+      final m = int.tryParse(parts[1]) ?? 0;
+      final timeValue = (ampm == 'PM' && h != 12 ? h + 12 : h) * 60 + m;
+      FirebaseFirestore.instance.collection('feederSchedules').add({
         'time': time,
         'ampm': ampm,
         'enabled': true,
         'isDone': false,
         'grams': grams,
+        'timeValue': timeValue,
       });
       final gramsStr = grams != null ? ' (${grams.toStringAsFixed(1)}g)' : '';
       _addLogEntry(
@@ -331,7 +298,7 @@ class FeederService extends ChangeNotifier {
     if (index < 0 || index >= _scheduleKeys.length) return;
     final timeStr = getScheduleTime(index);
     try {
-      _schedulesRef.child(_scheduleKeys[index]).remove();
+      FirebaseFirestore.instance.collection('feederSchedules').doc(_scheduleKeys[index]).delete();
       _addLogEntry(
         action: 'Removed schedule at $timeStr',
         type: 'auto',
@@ -351,7 +318,7 @@ class FeederService extends ChangeNotifier {
   }) {
     if (index < 0 || index >= _scheduleKeys.length) return;
     try {
-      _schedulesRef.child(_scheduleKeys[index]).update({
+      FirebaseFirestore.instance.collection('feederSchedules').doc(_scheduleKeys[index]).update({
         'time': time,
         'ampm': ampm,
         'enabled': enabled ?? true,
@@ -382,12 +349,8 @@ class FeederService extends ChangeNotifier {
     if (_lastCheckDate != todayKey) {
       _lastCheckDate = todayKey;
       _missedLogged.clear();
-      final updates = <String, dynamic>{};
       for (final key in _scheduleKeys) {
-        updates['$key/isDone'] = false;
-      }
-      if (updates.isNotEmpty) {
-        _schedulesRef.update(updates);
+        FirebaseFirestore.instance.collection('feederSchedules').doc(key).update({'isDone': false});
       }
     }
 
@@ -416,16 +379,6 @@ class FeederService extends ChangeNotifier {
         debugPrint('[FeederService] Missed schedule: $key ($reason)');
       }
     }
-  }
-
-  int _toMinutes(Map<String, dynamic> s) {
-    final time = s['time'] as String? ?? '6:00';
-    final ampm = s['ampm'] as String? ?? 'AM';
-    int h = int.tryParse(time.split(':')[0]) ?? 6;
-    final m = int.tryParse(time.split(':')[1]) ?? 0;
-    if (ampm == 'PM' && h != 12) h += 12;
-    if (ampm == 'AM' && h == 12) h = 0;
-    return h * 60 + m;
   }
 
   @override

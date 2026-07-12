@@ -16,7 +16,6 @@ class HardwareGroup extends StatelessWidget {
   onShowGroupLog;
   final Map<String, String> deviceRuntimeLabels;
 
-  final bool isOwner;
   final bool isOnline;
 
   const HardwareGroup({
@@ -28,7 +27,6 @@ class HardwareGroup extends StatelessWidget {
     required this.onSetMode,
     required this.onShowGroupLog,
     required this.deviceRuntimeLabels,
-    this.isOwner = true,
     this.isOnline = true,
   });
 
@@ -305,11 +303,7 @@ class HardwareGroup extends StatelessWidget {
           return GestureDetector(
             onTap: offline
               ? () => showBeautifulSnackbar(context, '$title is offline. Mode toggle is unavailable.', false, title: '$title Offline')
-              : isOwner
-              ? () => onSetMode(deviceId, m)
-              : () {
-                  showBeautifulSnackbar(context, 'Device controls are for owners only', false, title: 'Notice');
-                },
+              : () => onSetMode(deviceId, m),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
               decoration: BoxDecoration(

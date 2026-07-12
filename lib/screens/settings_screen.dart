@@ -391,7 +391,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _saveNotifPrefs();
                   },
                 ),
-                StageSettings(key: const ValueKey('stage-settings'), isOwner: true),
+                StageSettings(key: const ValueKey('stage-settings')),
               ][_currentPage],
             ),
           ),

@@ -1,24 +1,25 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:firebase_database/firebase_database.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class EspService extends ChangeNotifier {
   static final EspService instance = EspService._();
   EspService._();
 
   DateTime _lastSeen = DateTime.fromMillisecondsSinceEpoch(0);
-  StreamSubscription? _espSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _espSub;
 
   bool get isEspOnline =>
       DateTime.now().difference(_lastSeen).inSeconds < 30;
 
   void init() {
     _espSub?.cancel();
-    _espSub = FirebaseDatabase.instance
-        .ref('sensor_readings/latest')
-        .onValue
-        .listen((e) {
-          if (e.snapshot.value != null) {
+    _espSub = FirebaseFirestore.instance
+        .collection('sensorReadings')
+        .doc('latest')
+        .snapshots()
+        .listen((snapshot) {
+          if (snapshot.exists && snapshot.data() != null) {
             _lastSeen = DateTime.now();
             notifyListeners();
           }

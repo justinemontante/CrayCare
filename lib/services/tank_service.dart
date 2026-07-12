@@ -1,9 +1,8 @@
 import 'package:flutter/foundation.dart';
-import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/crayfish_batch.dart';
-import 'db_paths.dart';
 
 enum GrowthStage {
   earlyJuvenile('Early Juvenile', '1-5g', '2-4cm', 'Nursery / Initial Stocking', 'SRAC Pub 244'),
@@ -94,25 +93,13 @@ class TankService extends ChangeNotifier {
   // Multi-batch support
   List<CrayfishBatch> _batches = [];
   String? _selectedBatchId;
-  bool _migrationDone = false;
 
   // Archive view mode
   bool _isArchiveView = false;
 
   String _tankOwnerUid = '';
 
-  DatabaseReference get _configRef =>
-      DbPaths.crayfishConfig(_tankOwnerUid);
-  DatabaseReference get _samplingRef =>
-      DbPaths.crayfishSampling(_tankOwnerUid);
-  DatabaseReference get _mortalityRef =>
-      DbPaths.crayfishMortality(_tankOwnerUid);
-  DatabaseReference get _activitiesRef =>
-      DbPaths.crayfishActivities(_tankOwnerUid);
-  DatabaseReference get _batchesRef =>
-      DbPaths.crayfishBatches(_tankOwnerUid);
-  DatabaseReference get _harvestsRef =>
-      DbPaths.crayfishHarvests(_tankOwnerUid);
+  final FirebaseFirestore _fs = FirebaseFirestore.instance;
 
   int _sampleCount = 0;
   double _initialWeight = 0.0;
@@ -120,7 +107,7 @@ class TankService extends ChangeNotifier {
   double _totalSampleWeight = 0.0;
   double _totalSampleLength = 0.0;
   List<SamplingEntry> _samplingHistory = [];
-  String? _lastSamplingPushKey;
+  String? _lastSamplingDocId;
   List<TankActivity> _activities = [];
   List<MortalityEntry> _mortalityHistory = [];
   List<CrayfishBatch> _harvestHistory = [];
@@ -229,7 +216,6 @@ class TankService extends ChangeNotifier {
     debugPrint('[TankService] init() currentUser.uid="$initialUid"');
     if (initialUid.isNotEmpty) {
       _tankOwnerUid = initialUid;
-      await _migrateIfNeeded();
       await _loadConfig();
       _listenFirebase();
     }
@@ -243,101 +229,22 @@ class TankService extends ChangeNotifier {
       if (uid == _tankOwnerUid) return;
       _tankOwnerUid = uid;
       _cancelSubscriptions();
-      _migrationDone = false;
-      _migrateIfNeeded().then((_) => _loadConfig()).then((_) => _listenFirebase());
+      _loadConfig().then((_) => _listenFirebase());
     });
-  }
-
-  Future<void> _migrateIfNeeded() async {
-    if (_migrationDone) return;
-    try {
-      final db = FirebaseDatabase.instance;
-      // Check if old tank_data paths still exist
-      final oldConfigSnap = await db.ref('tank_data/$_tankOwnerUid/inventory').get();
-      final hasOldData = oldConfigSnap.exists;
-
-      if (!hasOldData) {
-        _migrationDone = true;
-        debugPrint('[TankService] No old tank_data found, skipping migration');
-        return;
-      }
-
-      // Migrate config
-      final configVal = oldConfigSnap.value;
-      if (configVal != null) {
-        await _configRef.set(configVal);
-      }
-
-      // Migrate batches
-      final oldBatchesSnap = await db.ref('tank_data/$_tankOwnerUid/crayfish_batches').get();
-      if (oldBatchesSnap.exists && oldBatchesSnap.value != null) {
-        final oldData = _convertMap(oldBatchesSnap.value as Map);
-        for (final entry in oldData.entries) {
-          await _batchesRef.child(entry.key).set(entry.value);
-        }
-      }
-
-      // Migrate history → batches
-      final oldHistSnap = await db.ref('tank_data/$_tankOwnerUid/crayfish_history').get();
-      if (oldHistSnap.exists && oldHistSnap.value != null) {
-        final hData = _convertMap(oldHistSnap.value as Map);
-        for (final entry in hData.entries) {
-          final map = _convertMap(entry.value as Map);
-          map['status'] = 'harvested';
-          await _batchesRef.push().set(map);
-        }
-      }
-
-      // Migrate sampling
-      final oldSampleSnap = await db.ref('tank_data/$_tankOwnerUid/sampling').get();
-      if (oldSampleSnap.exists && oldSampleSnap.value != null) {
-        final sData = _convertMap(oldSampleSnap.value as Map);
-        for (final entry in sData.entries) {
-          await _samplingRef.child(entry.key).set(entry.value);
-        }
-      }
-
-      // Migrate mortality
-      final oldMortSnap = await db.ref('tank_data/$_tankOwnerUid/mortality').get();
-      if (oldMortSnap.exists && oldMortSnap.value != null) {
-        final mData = _convertMap(oldMortSnap.value as Map);
-        for (final entry in mData.entries) {
-          await _mortalityRef.child(entry.key).set(entry.value);
-        }
-      }
-
-      // Migrate activities
-      final oldLogsSnap = await db.ref('tank_data/$_tankOwnerUid/logs').get();
-      if (oldLogsSnap.exists && oldLogsSnap.value != null) {
-        final lData = _convertMap(oldLogsSnap.value as Map);
-        for (final entry in lData.entries) {
-          await _activitiesRef.child(entry.key).set(entry.value);
-        }
-      }
-
-      _migrationDone = true;
-      debugPrint('[TankService] Migration from tank_data to production complete');
-    } catch (e) {
-      debugPrint('[TankService] Migration error: $e');
-    }
   }
 
   Future<void> _loadConfig() async {
     try {
-      final snap = await _configRef.get();
-      if (!snap.exists) {
-        debugPrint('[TankService] _loadConfig: snapshot does NOT exist');
+      final doc = await _fs.collection('config').doc(_tankOwnerUid).get();
+      if (!doc.exists) {
+        debugPrint('[TankService] _loadConfig: config doc does NOT exist');
         _resetAll();
         return;
       }
-      final data = _convertMap(snap.value as Map);
+      final data = doc.data() ?? <String, dynamic>{};
       final isInit = (data['isInitialized'] as bool?) ?? false;
       if (!isInit) {
         _resetAll();
-        await _configRef.remove();
-        await _mortalityRef.remove();
-        await _samplingRef.remove();
-        await _activitiesRef.remove();
         return;
       }
       _initialCount = (data['initialPopulation'] as int?) ?? 0;
@@ -387,37 +294,30 @@ class TankService extends ChangeNotifier {
     notifyListeners();
   }
 
-  StreamSubscription<DatabaseEvent>? _configSub;
-  StreamSubscription<DatabaseEvent>? _mortalitySub;
-  StreamSubscription<DatabaseEvent>? _samplingSub;
-  StreamSubscription<DatabaseEvent>? _activitiesSub;
-  StreamSubscription<DatabaseEvent>? _batchesSub;
-  StreamSubscription<DatabaseEvent>? _harvestsSub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _batchesSub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _samplingSub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _mortalitySub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _activitiesSub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _harvestsSub;
 
   void _cancelSubscriptions() {
-    _configSub?.cancel();
-    _configSub = null;
-    _mortalitySub?.cancel();
-    _mortalitySub = null;
-    _samplingSub?.cancel();
-    _samplingSub = null;
-    _activitiesSub?.cancel();
-    _activitiesSub = null;
     _batchesSub?.cancel();
     _batchesSub = null;
+    _samplingSub?.cancel();
+    _samplingSub = null;
+    _mortalitySub?.cancel();
+    _mortalitySub = null;
+    _activitiesSub?.cancel();
+    _activitiesSub = null;
     _harvestsSub?.cancel();
     _harvestsSub = null;
   }
 
-  void _parseBatches(Map<String, dynamic> data) {
+  void _parseBatchesFromSnapshot(QuerySnapshot<Map<String, dynamic>> snap) {
     final list = <CrayfishBatch>[];
-    for (final val in data.values) {
-      if (val is! Map) {
-        debugPrint('[TankService] _parseBatches: skipping non-map value: $val');
-        continue;
-      }
+    for (final doc in snap.docs) {
       try {
-        final map = _convertMap(val);
+        final map = Map<String, dynamic>.from(doc.data());
         if (map['archivedSampling'] is Map) {
           map['archivedSampling'] = _convertMap(map['archivedSampling'] as Map);
         }
@@ -425,21 +325,19 @@ class TankService extends ChangeNotifier {
           map['archivedMortality'] = _convertMap(map['archivedMortality'] as Map);
         }
         if (map['batchId'] == null) {
-          debugPrint('[TankService] _parseBatches: skipping entry without batchId');
+          debugPrint('[TankService] _parseBatchesFromSnapshot: skipping entry without batchId');
           continue;
         }
         list.add(CrayfishBatch.fromJson(map));
       } catch (e) {
-        debugPrint('[TankService] _parseBatches: error parsing batch entry: $e');
+        debugPrint('[TankService] _parseBatchesFromSnapshot: error parsing batch entry: $e');
       }
     }
     list.sort((a, b) => b.stockingDate.compareTo(a.stockingDate));
 
     _batches = list;
-    // harvestHistory includes both fully harvested AND superseded (replaced) batches
     _harvestHistory = list.where((b) => b.status == 'harvested' || b.status == 'superseded').toList();
 
-    // Only auto-select if current selection no longer exists
     final currentSelectionStillExists = _selectedBatchId != null && list.any((b) => b.batchId == _selectedBatchId);
     if (!currentSelectionStillExists) {
       final active = list.where((b) => b.status == 'active');
@@ -450,10 +348,9 @@ class TankService extends ChangeNotifier {
 
   bool get isArchiveView => _isArchiveView;
 
-  // Reload live config + sampling + mortality + activities from Firebase after exiting archive view
   void _clearArchiveState() {
     _samplingHistory.clear();
-    _lastSamplingPushKey = null;
+    _lastSamplingDocId = null;
     _mortalityHistory.clear();
     _activities.clear();
     _harvestRecords.clear();
@@ -479,12 +376,12 @@ class TankService extends ChangeNotifier {
   }
 
   Future<void> _reloadLiveDataFromFirebase() async {
-    // 1. Load config — don't reset if missing, we're already in active batch mode
+    // 1. Load config
     try {
-      final snap = await _configRef.get();
+      final doc = await _fs.collection('config').doc(_tankOwnerUid).get();
       if (_isArchiveView) return;
-      if (snap.exists) {
-        final data = _convertMap(snap.value as Map);
+      if (doc.exists) {
+        final data = doc.data() ?? <String, dynamic>{};
         final isInit = (data['isInitialized'] as bool?) ?? false;
         if (isInit) {
           _isInitialized = true;
@@ -516,18 +413,20 @@ class TankService extends ChangeNotifier {
 
     // 2. Load sampling
     try {
-      final snap = await _samplingRef.get();
+      final snap = await _fs
+          .collection('sampling')
+          .where('uid', isEqualTo: _tankOwnerUid)
+          .get();
       if (_isArchiveView) return;
-      if (!snap.exists || snap.value == null) {
+      if (snap.docs.isEmpty) {
         _samplingHistory.clear();
-        _lastSamplingPushKey = null;
+        _lastSamplingDocId = null;
       } else {
-        final sData = _convertMap(snap.value as Map);
         final entries = <SamplingEntry>[];
-        String? lastKey;
+        String? lastId;
         DateTime? lastDate;
-        for (final entry in sData.entries) {
-          final map = _convertMap(entry.value as Map);
+        for (final doc in snap.docs) {
+          final map = doc.data();
           final dateRaw = map['date'];
           if (dateRaw is! num) {
             debugPrint('[TankService] _reloadLiveData: skipping sampling entry without valid date');
@@ -545,11 +444,11 @@ class TankService extends ChangeNotifier {
             liveCount: (map['liveCount'] as num?)?.toInt() ?? 0,
             isBaseline: map['isBaseline'] == true,
           ));
-          if (lastDate == null || date.isAfter(lastDate)) { lastDate = date; lastKey = entry.key; }
+          if (lastDate == null || date.isAfter(lastDate)) { lastDate = date; lastId = doc.id; }
         }
         entries.sort((a, b) => a.date.compareTo(b.date));
         _samplingHistory = entries;
-        _lastSamplingPushKey = lastKey;
+        _lastSamplingDocId = lastId;
       }
     } catch (e) {
       debugPrint('[TankService] _reloadSampling error: $e');
@@ -557,14 +456,16 @@ class TankService extends ChangeNotifier {
 
     // 3. Load mortality
     try {
-      final mSnap = await _mortalityRef.get();
+      final snap = await _fs
+          .collection('mortality')
+          .where('uid', isEqualTo: _tankOwnerUid)
+          .get();
       if (_isArchiveView) return;
-      if (!mSnap.exists || mSnap.value == null) {
+      if (snap.docs.isEmpty) {
         _mortalityHistory.clear();
       } else {
-        final mData = _convertMap(mSnap.value as Map);
-        _mortalityHistory = mData.values.whereType<Map>().map((e) {
-          final map = _convertMap(e);
+        _mortalityHistory = snap.docs.map((doc) {
+          final map = doc.data();
           final dateRaw = map['date'];
           final countRaw = map['count'];
           if (dateRaw is! num || countRaw is! num) {
@@ -584,14 +485,16 @@ class TankService extends ChangeNotifier {
 
     // 4. Load activities
     try {
-      final aSnap = await _activitiesRef.get();
+      final snap = await _fs
+          .collection('activities')
+          .where('uid', isEqualTo: _tankOwnerUid)
+          .get();
       if (_isArchiveView) return;
-      if (!aSnap.exists || aSnap.value == null) {
+      if (snap.docs.isEmpty) {
         _activities.clear();
       } else {
-        final aData = _convertMap(aSnap.value as Map);
-        _activities = aData.values.map((e) {
-          final map = _convertMap(e as Map);
+        _activities = snap.docs.map((doc) {
+          final map = doc.data();
           return TankActivity(
             action: map['action'] ?? '',
             date: map['date'] ?? '',
@@ -610,16 +513,17 @@ class TankService extends ChangeNotifier {
 
     // 5. Load harvest records
     try {
-      final hSnap = await _harvestsRef.get();
+      final snap = await _fs
+          .collection('harvests')
+          .where('uid', isEqualTo: _tankOwnerUid)
+          .get();
       if (_isArchiveView) return;
-      if (!hSnap.exists || hSnap.value == null) {
+      if (snap.docs.isEmpty) {
         _harvestRecords.clear();
       } else {
-        final hData = _convertMap(hSnap.value as Map);
-        _harvestRecords = hData.entries
-            .where((entry) => entry.value is Map)
-            .map((entry) => CrayfishHarvestRecord.fromJson(
-                entry.key, _convertMap(entry.value as Map)))
+        _harvestRecords = snap.docs
+            .map((doc) => CrayfishHarvestRecord.fromJson(
+                doc.id, Map<String, dynamic>.from(doc.data())))
             .toList()
           ..sort((a, b) => a.date.compareTo(b.date));
       }
@@ -728,15 +632,16 @@ class TankService extends ChangeNotifier {
     }
     _mortalityHistory = archivedMortality;
 
-    // Load harvest records from Firebase (getter filters by current batchId)
+    // Load harvest records from Firestore
     try {
-      final hSnap = await _harvestsRef.get();
-      if (hSnap.exists && hSnap.value != null) {
-        final hData = _convertMap(hSnap.value as Map);
-        _harvestRecords = hData.entries
-            .where((entry) => entry.value is Map)
-            .map((entry) => CrayfishHarvestRecord.fromJson(
-                entry.key, _convertMap(entry.value as Map)))
+      final snap = await _fs
+          .collection('harvests')
+          .where('uid', isEqualTo: _tankOwnerUid)
+          .get();
+      if (snap.docs.isNotEmpty) {
+        _harvestRecords = snap.docs
+            .map((doc) => CrayfishHarvestRecord.fromJson(
+                doc.id, Map<String, dynamic>.from(doc.data())))
             .toList()
           ..sort((a, b) => a.date.compareTo(b.date));
       }
@@ -748,40 +653,39 @@ class TankService extends ChangeNotifier {
   }
 
   void _listenFirebase() {
-    _configSub = _configRef.onValue.listen((e) {
-      if (!e.snapshot.exists) { if (!_isArchiveView) _resetAll(); return; }
+    _batchesSub = _fs
+        .collection('batches')
+        .where('uid', isEqualTo: _tankOwnerUid)
+        .snapshots()
+        .listen((snap) {
       if (_isArchiveView) return;
-      final data = _convertMap(e.snapshot.value as Map);
-      final isInit = (data['isInitialized'] as bool?) ?? false;
-      if (!isInit) { _resetAll(); return; }
-      _isInitialized = true;
-      _setupComplete = true;
-      _initialCount = (data['initialPopulation'] as int?) ?? _initialCount;
-      _mortality = (data['Mortality'] as int?) ?? _mortality;
-      _totalHarvested = (data['totalHarvested'] as int?) ?? _totalHarvested;
-      _sampleCount = (data['sampleCount'] as int?) ?? _sampleCount;
-      _totalSampleWeight = (data['initialTotalSampleWeight'] as num?)?.toDouble() ?? _totalSampleWeight;
-      _totalSampleLength = (data['initialTotalSampleLength'] as num?)?.toDouble() ?? _totalSampleLength;
-      _initialWeight = _sampleCount > 0 ? _totalSampleWeight / _sampleCount : 0.0;
-      _initialLength = _sampleCount > 0 ? _totalSampleLength / _sampleCount : 0.0;
-      if (data.containsKey('stockingDate')) {
-        _stockingDate = DateTime.fromMillisecondsSinceEpoch(data['stockingDate'] as int);
+      if (snap.docs.isEmpty) {
+        _batches = [];
+        _harvestHistory = [];
+        _selectedBatchId = null;
+        notifyListeners();
+        return;
       }
-      if (data.containsKey('lastSampleDate')) {
-        _lastSampleDate = DateTime.fromMillisecondsSinceEpoch(data['lastSampleDate'] as int);
-      }
-      notifyListeners();
+      _parseBatchesFromSnapshot(snap);
     });
 
-    _samplingSub = _samplingRef.onValue.listen((e) {
+    _samplingSub = _fs
+        .collection('sampling')
+        .where('uid', isEqualTo: _tankOwnerUid)
+        .snapshots()
+        .listen((snap) {
       if (_isArchiveView) return;
-      if (!e.snapshot.exists) { _samplingHistory.clear(); _lastSamplingPushKey = null; notifyListeners(); return; }
-      final sData = _convertMap(e.snapshot.value as Map);
+      if (snap.docs.isEmpty) {
+        _samplingHistory.clear();
+        _lastSamplingDocId = null;
+        notifyListeners();
+        return;
+      }
       final entries = <SamplingEntry>[];
-      String? lastKey;
+      String? lastId;
       DateTime? lastDate;
-      for (final entry in sData.entries) {
-        final map = _convertMap(entry.value as Map);
+      for (final doc in snap.docs) {
+        final map = doc.data();
         final dateRaw = map['date'];
         if (dateRaw is! num) {
           debugPrint('[TankService] sampling listener: skipping entry without valid date');
@@ -799,20 +703,27 @@ class TankService extends ChangeNotifier {
           liveCount: (map['liveCount'] as num?)?.toInt() ?? 0,
           isBaseline: map['isBaseline'] == true,
         ));
-        if (lastDate == null || date.isAfter(lastDate)) { lastDate = date; lastKey = entry.key; }
+        if (lastDate == null || date.isAfter(lastDate)) { lastDate = date; lastId = doc.id; }
       }
       entries.sort((a, b) => a.date.compareTo(b.date));
       _samplingHistory = entries;
-      _lastSamplingPushKey = lastKey;
+      _lastSamplingDocId = lastId;
       notifyListeners();
     });
 
-    _mortalitySub = _mortalityRef.onValue.listen((e) {
+    _mortalitySub = _fs
+        .collection('mortality')
+        .where('uid', isEqualTo: _tankOwnerUid)
+        .snapshots()
+        .listen((snap) {
       if (_isArchiveView) return;
-      if (!e.snapshot.exists) { _mortalityHistory.clear(); notifyListeners(); return; }
-      final mData = _convertMap(e.snapshot.value as Map);
-      _mortalityHistory = mData.values.whereType<Map>().map((e) {
-        final map = _convertMap(e);
+      if (snap.docs.isEmpty) {
+        _mortalityHistory.clear();
+        notifyListeners();
+        return;
+      }
+      _mortalityHistory = snap.docs.map((doc) {
+        final map = doc.data();
         final dateRaw = map['date'];
         final countRaw = map['count'];
         if (dateRaw is! num || countRaw is! num) {
@@ -828,42 +739,44 @@ class TankService extends ChangeNotifier {
       notifyListeners();
     });
 
-    _activitiesSub = _activitiesRef.onValue.listen((e) {
+    _activitiesSub = _fs
+        .collection('activities')
+        .where('uid', isEqualTo: _tankOwnerUid)
+        .snapshots()
+        .listen((snap) {
       if (_isArchiveView) return;
-      if (!e.snapshot.exists) { _activities.clear(); notifyListeners(); return; }
-      final aData = _convertMap(e.snapshot.value as Map);
-      _activities = aData.values.map((e) {
-        final map = _convertMap(e as Map);
-        return TankActivity(action: map['action'], date: map['date'] as String? ?? '', time: map['time'] as String? ?? '', type: map['type'], timestamp: map['timestamp'] ?? 0);
+      if (snap.docs.isEmpty) {
+        _activities.clear();
+        notifyListeners();
+        return;
+      }
+      _activities = snap.docs.map((doc) {
+        final map = doc.data();
+        return TankActivity(
+          action: map['action'] ?? '',
+          date: map['date'] as String? ?? '',
+          time: map['time'] as String? ?? '',
+          type: map['type'] ?? '',
+          timestamp: map['timestamp'] ?? 0,
+        );
       }).toList()..sort((a, b) => a.timestamp.compareTo(b.timestamp));
       notifyListeners();
     });
 
-    _batchesSub = _batchesRef.onValue.listen((e) {
+    _harvestsSub = _fs
+        .collection('harvests')
+        .where('uid', isEqualTo: _tankOwnerUid)
+        .snapshots()
+        .listen((snap) {
       if (_isArchiveView) return;
-      if (!e.snapshot.exists || e.snapshot.value == null) {
-        _batches = [];
-        _harvestHistory = [];
-        _selectedBatchId = null;
-        notifyListeners();
-        return;
-      }
-      final data = _convertMap(e.snapshot.value as Map);
-      _parseBatches(data);
-    });
-
-    _harvestsSub = _harvestsRef.onValue.listen((e) {
-      if (_isArchiveView) return;
-      if (!e.snapshot.exists || e.snapshot.value == null) {
+      if (snap.docs.isEmpty) {
         _harvestRecords.clear();
         notifyListeners();
         return;
       }
-      final hData = _convertMap(e.snapshot.value as Map);
-      _harvestRecords = hData.entries
-          .where((entry) => entry.value is Map)
-          .map((entry) => CrayfishHarvestRecord.fromJson(
-              entry.key, _convertMap(entry.value as Map)))
+      _harvestRecords = snap.docs
+          .map((doc) => CrayfishHarvestRecord.fromJson(
+              doc.id, Map<String, dynamic>.from(doc.data())))
           .toList()
         ..sort((a, b) => a.date.compareTo(b.date));
       notifyListeners();
@@ -872,7 +785,7 @@ class TankService extends ChangeNotifier {
 
   Future<void> _saveConfig() async {
     if (!_setupComplete) return;
-    await _configRef.set({
+    await _fs.collection('config').doc(_tankOwnerUid).set({
       'initialPopulation': _initialCount,
       'stockingDate': _stockingDate.millisecondsSinceEpoch,
       'lastSampleDate': _lastSampleDate.millisecondsSinceEpoch,
@@ -883,7 +796,7 @@ class TankService extends ChangeNotifier {
       'Alive': inTankCount,
       'totalHarvested': _totalHarvested,
       'isInitialized': _isInitialized,
-      'updatedAt': ServerValue.timestamp,
+      'updatedAt': FieldValue.serverTimestamp(),
     });
   }
 
@@ -892,11 +805,19 @@ class TankService extends ChangeNotifier {
     _batches = [];
     _harvestHistory = [];
     await Future.wait([
-      _configRef.remove(),
-      _samplingRef.remove(),
-      _mortalityRef.remove(),
-      _activitiesRef.remove(),
-      _batchesRef.remove(),
+      _fs.collection('config').doc(_tankOwnerUid).delete(),
+      _fs.collection('sampling').where('uid', isEqualTo: _tankOwnerUid).get().then((snap) {
+        for (final doc in snap.docs) { doc.reference.delete(); }
+      }),
+      _fs.collection('mortality').where('uid', isEqualTo: _tankOwnerUid).get().then((snap) {
+        for (final doc in snap.docs) { doc.reference.delete(); }
+      }),
+      _fs.collection('activities').where('uid', isEqualTo: _tankOwnerUid).get().then((snap) {
+        for (final doc in snap.docs) { doc.reference.delete(); }
+      }),
+      _fs.collection('batches').where('uid', isEqualTo: _tankOwnerUid).get().then((snap) {
+        for (final doc in snap.docs) { doc.reference.delete(); }
+      }),
     ]);
     notifyListeners();
   }
@@ -910,12 +831,16 @@ class TankService extends ChangeNotifier {
     final existingActive = _batches.where((b) => b.status == 'active').firstOrNull;
     if (existingActive != null) {
       try {
-        final samplingSnap = await _samplingRef.get();
-        final mortalitySnap = await _mortalityRef.get();
+        final samplingSnap = await _fs
+            .collection('sampling')
+            .where('uid', isEqualTo: _tankOwnerUid)
+            .get();
+        final mortalitySnap = await _fs
+            .collection('mortality')
+            .where('uid', isEqualTo: _tankOwnerUid)
+            .get();
         final archivedBatch = CrayfishBatch(
           batchId: existingActive.batchId,
-          // Mark as 'superseded' so batch list shows it as archived and
-          // selectBatch loads its archivedSampling/archivedMortality correctly.
           status: 'superseded',
           stockingDate: existingActive.stockingDate,
           initialCount: existingActive.initialCount,
@@ -927,22 +852,43 @@ class TankService extends ChangeNotifier {
           sampleCount: _sampleCount,
           initialTotalWeight: _totalSampleWeight,
           initialTotalLength: _totalSampleLength,
-          archivedSampling: samplingSnap.exists ? _convertMap(samplingSnap.value as Map) : null,
-          archivedMortality: mortalitySnap.exists ? _convertMap(mortalitySnap.value as Map) : null,
+          archivedSampling: samplingSnap.docs.isNotEmpty
+              ? Map.fromEntries(samplingSnap.docs.map((d) => MapEntry(d.id, d.data())))
+              : null,
+          archivedMortality: mortalitySnap.docs.isNotEmpty
+              ? Map.fromEntries(mortalitySnap.docs.map((d) => MapEntry(d.id, d.data())))
+              : null,
         );
-        final snap = await _batchesRef.orderByChild('batchId').equalTo(existingActive.batchId).get();
-        if (snap.exists && snap.value != null) {
-          final key = _convertMap(snap.value as Map).keys.first;
-          await _batchesRef.child(key).set(archivedBatch.toJson());
+        // Find and update the existing batch doc (preserve uid)
+        final batchSnap = await _fs
+            .collection('batches')
+            .where('batchId', isEqualTo: existingActive.batchId)
+            .where('uid', isEqualTo: _tankOwnerUid)
+            .get();
+        if (batchSnap.docs.isNotEmpty) {
+          await batchSnap.docs.first.reference.set({
+            ...archivedBatch.toJson(),
+            'uid': _tankOwnerUid,
+          });
         }
       } catch (e) {
         debugPrint('[TankService] initializeGrowOut: could not archive previous batch: $e');
       }
     }
 
-    // --- Step 2: Clear shared Firebase paths for the new batch ---
+    // --- Step 2: Clear sampling/mortality/activities data from Firestore ---
     try {
-      await Future.wait([_samplingRef.remove(), _mortalityRef.remove(), _activitiesRef.remove()]);
+      await Future.wait([
+        _fs.collection('sampling').where('uid', isEqualTo: _tankOwnerUid).get().then((snap) {
+          for (final d in snap.docs) { d.reference.delete(); }
+        }),
+        _fs.collection('mortality').where('uid', isEqualTo: _tankOwnerUid).get().then((snap) {
+          for (final d in snap.docs) { d.reference.delete(); }
+        }),
+        _fs.collection('activities').where('uid', isEqualTo: _tankOwnerUid).get().then((snap) {
+          for (final d in snap.docs) { d.reference.delete(); }
+        }),
+      ]);
     } catch (e) {
       debugPrint('[TankService] Error clearing old data: $e');
     }
@@ -965,11 +911,11 @@ class TankService extends ChangeNotifier {
     _activities.clear();
     _isArchiveView = false;
 
-    // --- Step 4: Save new config to Firebase (throws on failure so modal shows error) ---
+    // --- Step 4: Save new config to Firestore ---
     await _saveConfig();
     _addActivity('Initialized new grow-out batch with $initial population', 'init', customDate: date);
 
-    // --- Step 5: Build unique batch ID and push to Firebase ---
+    // --- Step 5: Build unique batch ID and push to Firestore ---
     final dateStr = "${date.year}${date.month.toString().padLeft(2, '0')}${date.day.toString().padLeft(2, '0')}";
     final seq = (_batches.length + 1).toString().padLeft(3, '0');
     final fallbackBid = 'CR-$dateStr-$seq';
@@ -984,16 +930,17 @@ class TankService extends ChangeNotifier {
       initialTotalLength: _totalSampleLength,
     );
 
-    // Push async — listener will sync from Firebase once done
-    _batchesRef.push().set(newBatch.toJson()).catchError((e) {
+    _fs.collection('batches').add({
+      ...newBatch.toJson(),
+      'uid': _tankOwnerUid,
+    }).catchError((e) {
       debugPrint('[TankService] Batch push error (non-fatal): $e');
     });
 
     // --- Step 6: Update local batch list and select the new batch immediately ---
-    _batches.removeWhere((b) => b.batchId == bid); // avoid duplicate if listener fires fast
+    _batches.removeWhere((b) => b.batchId == bid);
     _batches.insert(0, newBatch);
     _selectedBatchId = bid;
-    // _initialSelectionDone already irrelevant — selection stability now handled by _parseBatches
 
     notifyListeners();
   }
@@ -1009,10 +956,19 @@ class TankService extends ChangeNotifier {
       totalWeight: weight, totalLength: length, biomass: inTankCount * abw, liveCount: inTankCount,
     );
     _samplingHistory.add(entry);
-    _samplingRef.push().set({
-      'date': entry.date.millisecondsSinceEpoch, 'abw': entry.abw, 'avgLength': entry.avgLength,
-      'sampleSize': entry.sampleSize, 'totalWeight': entry.totalWeight, 'totalLength': entry.totalLength,
-      'biomass': entry.biomass, 'liveCount': entry.liveCount, 'isBaseline': false, 'timestamp': ServerValue.timestamp,
+    _fs.collection('sampling').add({
+      'uid': _tankOwnerUid,
+      'batchId': _selectedBatchId ?? '',
+      'date': entry.date.millisecondsSinceEpoch,
+      'abw': entry.abw,
+      'avgLength': entry.avgLength,
+      'sampleSize': entry.sampleSize,
+      'totalWeight': entry.totalWeight,
+      'totalLength': entry.totalLength,
+      'biomass': entry.biomass,
+      'liveCount': entry.liveCount,
+      'isBaseline': false,
+      'timestamp': FieldValue.serverTimestamp(),
     });
     _addActivity('Recorded sampling: ${abw.toStringAsFixed(2)}g ABW, ${avgLength.toStringAsFixed(2)}cm ABL', 'sampling', sampleSize: count, abw: abw, avgLength: avgLength);
     _saveConfig();
@@ -1020,7 +976,7 @@ class TankService extends ChangeNotifier {
   }
 
   void updateLastSamplingEntry(int count, double weight, double length) {
-    if (_lastSamplingPushKey == null || _samplingHistory.isEmpty) return;
+    if (_lastSamplingDocId == null || _samplingHistory.isEmpty) return;
     final abw = weight / count;
     final avgLength = length / count;
     final updated = SamplingEntry(
@@ -1029,10 +985,15 @@ class TankService extends ChangeNotifier {
       biomass: inTankCount * abw, liveCount: inTankCount,
     );
     _samplingHistory.last = updated;
-    _samplingRef.child(_lastSamplingPushKey!).update({
-      'abw': updated.abw, 'avgLength': updated.avgLength, 'sampleSize': updated.sampleSize,
-      'totalWeight': updated.totalWeight, 'totalLength': updated.totalLength,
-      'biomass': updated.biomass, 'liveCount': updated.liveCount, 'timestamp': ServerValue.timestamp,
+    _fs.collection('sampling').doc(_lastSamplingDocId!).update({
+      'abw': updated.abw,
+      'avgLength': updated.avgLength,
+      'sampleSize': updated.sampleSize,
+      'totalWeight': updated.totalWeight,
+      'totalLength': updated.totalLength,
+      'biomass': updated.biomass,
+      'liveCount': updated.liveCount,
+      'timestamp': FieldValue.serverTimestamp(),
     });
     _saveConfig();
     notifyListeners();
@@ -1043,7 +1004,13 @@ class TankService extends ChangeNotifier {
     _setupComplete = true;
     final mEntry = MortalityEntry(date: date ?? DateTime.now(), count: val);
     _mortalityHistory.add(mEntry);
-    _mortalityRef.push().set({'date': mEntry.date.millisecondsSinceEpoch, 'count': mEntry.count, 'timestamp': ServerValue.timestamp});
+    _fs.collection('mortality').add({
+      'uid': _tankOwnerUid,
+      'batchId': _selectedBatchId ?? '',
+      'date': mEntry.date.millisecondsSinceEpoch,
+      'count': mEntry.count,
+      'timestamp': FieldValue.serverTimestamp(),
+    });
     _addActivity('Recorded mortality of $val crayfish (Total: $_mortality)', 'mortality', customDate: date);
     _saveConfig();
     notifyListeners();
@@ -1058,14 +1025,31 @@ class TankService extends ChangeNotifier {
     final abwGrams = harvestedCount > 0 ? (totalWeightKg * 1000) / harvestedCount : 0.0;
     _totalHarvested += harvestedCount;
     final sr = _initialCount > 0 ? (liveCount / _initialCount * 100) : 0.0;
-    _harvestsRef.push().set({
+    _fs.collection('harvests').add({
+      'uid': _tankOwnerUid,
       'batchId': batchId ?? _selectedBatchId ?? '',
       'date': now.millisecondsSinceEpoch,
       'harvestedCount': harvestedCount,
       'totalWeightKg': totalWeightKg,
       'abwGrams': abwGrams,
       'survivalRate': sr,
-      'timestamp': ServerValue.timestamp,
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+    _fs.collection('batches')
+        .where('batchId', isEqualTo: batchId ?? _selectedBatchId ?? '')
+        .where('uid', isEqualTo: _tankOwnerUid)
+        .get()
+        .then((snap) {
+      if (snap.docs.isNotEmpty) {
+        final existing = snap.docs.first.data();
+        final totalHarvested = ((existing['harvestCount'] as num?)?.toInt() ?? 0) + harvestedCount;
+        final existingWeight = (existing['harvestWeightGrams'] as num?)?.toDouble() ?? 0;
+        snap.docs.first.reference.set({
+          'harvestDate': now.millisecondsSinceEpoch,
+          'harvestCount': totalHarvested,
+          'harvestWeightGrams': existingWeight + (totalWeightKg * 1000),
+        }, SetOptions(merge: true));
+      }
     });
     _addActivity(
       'Harvested $harvestedCount crayfish, ${totalWeightKg.toStringAsFixed(2)}kg total (ABW: ${abwGrams.toStringAsFixed(1)}g)',
@@ -1084,9 +1068,17 @@ class TankService extends ChangeNotifier {
     final timeStr = '$h:${now.minute.toString().padLeft(2, '0')} $ampm';
     final act = TankActivity(action: action, date: dateStr, time: timeStr, type: type, timestamp: now.millisecondsSinceEpoch, sampleSize: sampleSize, abw: abw, avgLength: avgLength);
     _activities.add(act);
-    _activitiesRef.push().set({
-      'action': action, 'type': type, 'timestamp': now.millisecondsSinceEpoch,
-      if (sampleSize != null) 'sampleSize': sampleSize, if (abw != null) 'abw': abw, if (avgLength != null) 'avgLength': avgLength,
+    _fs.collection('activities').add({
+      'uid': _tankOwnerUid,
+      'batchId': _selectedBatchId ?? '',
+      'action': action,
+      'type': type,
+      'date': dateStr,
+      'time': timeStr,
+      'timestamp': now.millisecondsSinceEpoch,
+      if (sampleSize != null) 'sampleSize': sampleSize,
+      if (abw != null) 'abw': abw,
+      if (avgLength != null) 'avgLength': avgLength,
     });
   }
 
@@ -1097,8 +1089,14 @@ class TankService extends ChangeNotifier {
     final resolvedId = batchId ?? activeBatchId ?? 'Batch ${_batches.length + 1}';
 
     try {
-      final samplingSnap = await _samplingRef.get();
-      final mortalitySnap = await _mortalityRef.get();
+      final samplingSnap = await _fs
+          .collection('sampling')
+          .where('uid', isEqualTo: _tankOwnerUid)
+          .get();
+      final mortalitySnap = await _fs
+          .collection('mortality')
+          .where('uid', isEqualTo: _tankOwnerUid)
+          .get();
 
       final batch = CrayfishBatch(
         batchId: resolvedId, status: 'harvested',
@@ -1112,19 +1110,37 @@ class TankService extends ChangeNotifier {
         sampleCount: _sampleCount,
         initialTotalWeight: _totalSampleWeight,
         initialTotalLength: _totalSampleLength,
-        archivedSampling: samplingSnap.exists ? _convertMap(samplingSnap.value as Map) : null,
-        archivedMortality: mortalitySnap.exists ? _convertMap(mortalitySnap.value as Map) : null,
+        archivedSampling: samplingSnap.docs.isNotEmpty
+            ? Map.fromEntries(samplingSnap.docs.map((d) => MapEntry(d.id, d.data())))
+            : null,
+        archivedMortality: mortalitySnap.docs.isNotEmpty
+            ? Map.fromEntries(mortalitySnap.docs.map((d) => MapEntry(d.id, d.data())))
+            : null,
       );
 
-      // Single write: update the existing active batch in-place (status -> 'harvested')
-      final snap = await _batchesRef.orderByChild('batchId').equalTo(resolvedId).get();
-      if (snap.exists && snap.value != null) {
-        final data = _convertMap(snap.value as Map);
-        final key = data.keys.first.toString();
-        await _batchesRef.child(key).set(batch.toJson());
+      // Update batch doc (preserve uid)
+      final batchSnap = await _fs
+          .collection('batches')
+          .where('batchId', isEqualTo: resolvedId)
+          .where('uid', isEqualTo: _tankOwnerUid)
+          .get();
+      if (batchSnap.docs.isNotEmpty) {
+        await batchSnap.docs.first.reference.set({
+          ...batch.toJson(),
+          'uid': _tankOwnerUid,
+        });
       }
 
-      await Future.wait([_configRef.remove(), _samplingRef.remove(), _mortalityRef.remove()]);
+      // Clear config + sampling + mortality
+      await Future.wait([
+        _fs.collection('config').doc(_tankOwnerUid).delete(),
+        _fs.collection('sampling').where('uid', isEqualTo: _tankOwnerUid).get().then((snap) {
+          for (final d in snap.docs) { d.reference.delete(); }
+        }),
+        _fs.collection('mortality').where('uid', isEqualTo: _tankOwnerUid).get().then((snap) {
+          for (final d in snap.docs) { d.reference.delete(); }
+        }),
+      ]);
       _addActivity('Completed grow-out batch ($resolvedId). Harvested $harvestCount crayfish${harvestWeightGrams != null ? ', ${harvestWeightGrams.toStringAsFixed(1)}g total' : ''}.', 'harvest');
       _resetAll();
     } catch (e) {

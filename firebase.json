@@ -2,6 +2,10 @@
   "database": {
     "rules": "database.rules.json"
   },
+  "firestore": {
+    "indexes": "firestore.indexes.json",
+    "rules": "firestore.rules"
+  },
   "functions": [
     {
       "source": "functions",

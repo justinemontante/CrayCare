@@ -14,8 +14,6 @@ class OverviewTab extends StatelessWidget {
   final bool hasSetup;
   final DateTime lastEdited;
 
-  final bool isOwner;
-
   const OverviewTab({
     super.key,
     required this.onShowInitModal,
@@ -25,7 +23,6 @@ class OverviewTab extends StatelessWidget {
     required this.onShowCompleteBatchModal,
     required this.hasSetup,
     required this.lastEdited,
-    this.isOwner = true,
   });
 
   @override
@@ -103,15 +100,15 @@ class OverviewTab extends StatelessWidget {
           ),
           const SizedBox(height: 28),
           ElevatedButton.icon(
-            onPressed: isOwner ? onShowInitModal : null,
-            icon: Icon(isOwner ? Icons.add_rounded : Icons.lock_outline, size: 18),
-            label: Text(
-              isOwner ? 'Initialize Inventory' : 'Initialize Inventory (Owner Only)',
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+            onPressed: onShowInitModal,
+            icon: const Icon(Icons.add_rounded, size: 18),
+            label: const Text(
+              'Initialize Inventory',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
             ),
             style: ElevatedButton.styleFrom(
-              backgroundColor: isOwner ? AppColors.primary : Colors.grey.shade300,
-              foregroundColor: isOwner ? Colors.white : Colors.grey.shade500,
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(
                 horizontal: 24,
                 vertical: 14,
@@ -558,7 +555,7 @@ class OverviewTab extends StatelessWidget {
   }
 
   Widget _buildActionButtons(BuildContext context) {
-    final canEditSetup = isOwner && TankService.instance.samplingHistory.isEmpty;
+    final canEditSetup = TankService.instance.samplingHistory.isEmpty;
     return Column(
       children: [
         Row(
@@ -566,11 +563,9 @@ class OverviewTab extends StatelessWidget {
             Expanded(
               child: _buildActionBtn(
                 'Log Mortality',
-                isOwner ? Icons.healing_rounded : Icons.lock_outline,
-                isOwner ? AppColors.critical : Colors.grey.shade400,
-                isOwner ? onShowMortalityModal : () {
-                  showBeautifulSnackbar(context, 'Log Mortality is for owners only', false, title: 'Notice');
-                },
+                Icons.healing_rounded,
+                AppColors.critical,
+                onShowMortalityModal,
               ),
             ),
             const SizedBox(width: 8),
@@ -580,11 +575,7 @@ class OverviewTab extends StatelessWidget {
                 canEditSetup ? Icons.edit_rounded : Icons.lock_outline,
                 canEditSetup ? AppColors.primary : Colors.grey.shade400,
                 canEditSetup ? onShowEditModal : () {
-                  if (!isOwner) {
-                    showBeautifulSnackbar(context, 'Edit Setup is for owners only', false, title: 'Notice');
-                  } else {
-                    showBeautifulSnackbar(context, 'Cannot edit after first sampling', false, title: 'Notice');
-                  }
+                  showBeautifulSnackbar(context, 'Cannot edit after first sampling', false, title: 'Notice');
                 },
               ),
             ),
@@ -606,9 +597,7 @@ class OverviewTab extends StatelessWidget {
             'Record Harvest',
             Icons.archive_outlined,
             AppColors.success,
-            isOwner ? () => _showHarvestForm(context) : () {
-              showBeautifulSnackbar(context, 'Record Harvest is for owners only', false, title: 'Notice');
-            },
+            () => _showHarvestForm(context),
           ),
         ),
       ],
@@ -635,7 +624,6 @@ class OverviewTab extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               CrayfishHarvestFormPanel(
-                isOwner: isOwner,
                 onSaved: () => showBeautifulSnackbar(context, 'Harvest recorded!', true),
               ),
               const SizedBox(height: 8),

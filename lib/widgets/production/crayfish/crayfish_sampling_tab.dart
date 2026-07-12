@@ -7,12 +7,10 @@ import '../../../utils/snackbar_helper.dart';
 
 class SamplingTab extends StatelessWidget {
   final DateTime lastEdited;
-  final bool isOwner;
 
   const SamplingTab({
     super.key,
     required this.lastEdited,
-    this.isOwner = true,
   });
 
   @override
@@ -31,7 +29,7 @@ class SamplingTab extends StatelessWidget {
             const SizedBox(height: 12),
             GrowthOverviewPanel(),
             const SizedBox(height: 12),
-            SamplingFormPanel(isOwner: isOwner),
+            SamplingFormPanel(),
             const SizedBox(height: 12),
           ],
         ],
@@ -933,8 +931,7 @@ class GrowthOverviewPanel extends StatelessWidget {
 }
 
 class SamplingFormPanel extends StatefulWidget {
-  final bool isOwner;
-  const SamplingFormPanel({super.key, this.isOwner = true});
+  const SamplingFormPanel({super.key});
 
   @override
   State<SamplingFormPanel> createState() => _SamplingFormPanelState();
@@ -1099,10 +1096,6 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
   }
 
   void _handleCompute() {
-    if (!widget.isOwner) {
-      showBeautifulSnackbar(context, 'Sampling is for owners only', false);
-      return;
-    }
     if (!TankService.instance.canSample && !_isEditing) {
       showBeautifulSnackbar(context, '7-day cooldown not yet over. Please wait.', false);
       return;
@@ -1241,7 +1234,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
                       ),
                     ),
                   ),
-                  if (_isRecorded && widget.isOwner && lastEntryIsToday) ...[
+                  if (_isRecorded && lastEntryIsToday) ...[
                     const SizedBox(width: 6),
                     TextButton(
                       onPressed: _handleEdit,
@@ -1348,8 +1341,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
           if (!_isRecorded && (canSample || _isEditing))
             SizedBox(
               width: double.infinity,
-              child: widget.isOwner
-                  ? ElevatedButton(
+              child: ElevatedButton(
                       onPressed: _countError == null ? _handleCompute : null,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: _countError == null
@@ -1371,27 +1363,6 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
                       child: const Text(
                         'Compute Results',
                         style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                      ),
-                    )
-                  : ElevatedButton.icon(
-                      onPressed: () {
-showBeautifulSnackbar(context, 'Sampling is for owners only', false, title: 'Notice');
-                      },
-                      icon: const Icon(Icons.lock_outlined, size: 18),
-                      label: const Text(
-                        'Compute Results',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.grey.shade400,
-                        foregroundColor: Colors.white,
-                        disabledBackgroundColor: Colors.grey.shade400,
-                        disabledForegroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
                       ),
                     ),
             ),

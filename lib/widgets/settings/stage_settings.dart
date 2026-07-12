@@ -2,11 +2,9 @@ import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
 import '../../services/settings_service.dart';
 import '../../services/database_service.dart';
-import '../common/read_only_banner.dart';
 
 class StageSettings extends StatefulWidget {
-  final bool isOwner;
-  const StageSettings({super.key, this.isOwner = true});
+  const StageSettings({super.key});
 
   @override
   State<StageSettings> createState() => _StageSettingsState();
@@ -258,7 +256,7 @@ class _StageSettingsState extends State<StageSettings> {
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(12),
-          onTap: (!widget.isOwner || _saving) ? null : () => _showRangeEditor(sensorKey, info.label, info.unit, min, max),
+          onTap: _saving ? null : () => _showRangeEditor(sensorKey, info.label, info.unit, min, max),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Row(
@@ -308,12 +306,6 @@ class _StageSettingsState extends State<StageSettings> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (!widget.isOwner) ...[
-            const ReadOnlyBanner(
-              message: 'You can view the sensor thresholds. Only the Farm Owner can customize thresholds.',
-              horizontalMargin: 0,
-            ),
-          ],
           if (_saving)
             Padding(
               padding: const EdgeInsets.only(bottom: 8),

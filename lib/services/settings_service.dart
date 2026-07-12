@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:convert';
 import '../models/crayfish_stage.dart';
 
@@ -11,9 +11,6 @@ class SettingsService extends ChangeNotifier {
 
   bool _initialized = false;
   late Map<String, Map<String, double>> _ranges;
-
-  DatabaseReference get _thresholdsRef =>
-      FirebaseDatabase.instance.ref('sensor_readings/config');
 
   Map<String, Map<String, double>> get currentRanges => _ranges;
 
@@ -50,16 +47,26 @@ class SettingsService extends ChangeNotifier {
 
   Future<void> _syncFromFirebase() async {
     try {
-      final snapshot = await _thresholdsRef.child('ranges').get();
-      if (snapshot.value == null) {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      final doc = await FirebaseFirestore.instance
+          .collection('config')
+          .doc(user.uid)
+          .get();
+      if (!doc.exists || doc.data() == null) {
         await _syncToFirebase();
         return;
       }
-      final data = snapshot.value as Map<Object?, Object?>;
-      for (final entry in data.entries) {
-        final sensorKey = entry.key.toString();
+      final data = doc.data()!;
+      final ranges = data['ranges'] as Map<String, dynamic>?;
+      if (ranges == null) {
+        await _syncToFirebase();
+        return;
+      }
+      for (final entry in ranges.entries) {
+        final sensorKey = entry.key;
         if (_ranges.containsKey(sensorKey)) {
-          final range = entry.value as Map<Object?, Object?>;
+          final range = entry.value as Map<String, dynamic>;
           final min = (range['min'] as num?)?.toDouble();
           final max = (range['max'] as num?)?.toDouble();
           if (min != null && max != null) {
@@ -70,20 +77,23 @@ class SettingsService extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('sensorRanges', jsonEncode(_ranges));
     } catch (e) {
-      debugPrint('[SettingsService] Firebase sync failed: $e');
+      debugPrint('[SettingsService] Firestore sync failed: $e');
     }
   }
 
   Future<void> _syncToFirebase() async {
     try {
-      for (final sensorEntry in _ranges.entries) {
-        await _thresholdsRef
-            .child('ranges')
-            .child(sensorEntry.key)
-            .set(sensorEntry.value);
-      }
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      await FirebaseFirestore.instance.collection('config').doc(user.uid).set({
+        'ranges': {
+          for (final e in _ranges.entries)
+            e.key: {'min': e.value['min'], 'max': e.value['max']},
+        },
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
     } catch (e) {
-      debugPrint('[SettingsService] Firebase syncTo failed: $e');
+      debugPrint('[SettingsService] Firestore syncTo failed: $e');
     }
   }
 
@@ -97,12 +107,18 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
     await _saveRanges();
     try {
-      await _thresholdsRef.child('ranges').child(sensorKey).set({
-        'min': min,
-        'max': max,
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      await FirebaseFirestore.instance
+          .collection('config')
+          .doc(user.uid)
+          .update({
+        'ranges.$sensorKey.min': min,
+        'ranges.$sensorKey.max': max,
+        'updatedAt': FieldValue.serverTimestamp(),
       });
     } catch (e) {
-      debugPrint('[SettingsService] Firebase updateRange failed: $e');
+      debugPrint('[SettingsService] Firestore updateRange failed: $e');
     }
   }
 
@@ -115,14 +131,17 @@ class SettingsService extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('sensorRanges');
     try {
-      for (final sensorEntry in defaultRanges.entries) {
-        await _thresholdsRef
-            .child('ranges')
-            .child(sensorEntry.key)
-            .set(sensorEntry.value);
-      }
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      await FirebaseFirestore.instance.collection('config').doc(user.uid).set({
+        'ranges': {
+          for (final e in defaultRanges.entries)
+            e.key: {'min': e.value['min'], 'max': e.value['max']},
+        },
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
     } catch (e) {
-      debugPrint('[SettingsService] Firebase resetToDefaults failed: $e');
+      debugPrint('[SettingsService] Firestore resetToDefaults failed: $e');
     }
   }
 

@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'settings_service.dart';
 
 class SensorService extends ChangeNotifier {
@@ -21,9 +21,7 @@ class SensorService extends ChangeNotifier {
     'waterlevel',
   ];
 
-  StreamSubscription<DatabaseEvent>? _subscription;
-  DatabaseReference get _latestRef =>
-      FirebaseDatabase.instance.ref('sensor_readings/latest');
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _subscription;
 
   final Map<String, List<double>> _history = {};
   final Map<String, double> _latest = {};
@@ -108,14 +106,10 @@ class SensorService extends ChangeNotifier {
         fastThreshold = 0.2;
         break;
       case 'turb':
-        // Turbidity sensors have ±0.5–2 NTU noise; 0.1 caused false positives.
-        // 0.5 NTU stable threshold only flags real, sustained changes.
         stableThreshold = 0.5;
         fastThreshold = 2.0;
         break;
       case 'waterlevel':
-        // Ultrasonic sensors (HC-SR04 type) have ±0.5–1 cm noise.
-        // 0.5 cm stable threshold prevents noise from being flagged as drift.
         stableThreshold = 0.5;
         fastThreshold = 1.5;
         break;
@@ -144,16 +138,19 @@ class SensorService extends ChangeNotifier {
     _subscription?.cancel();
     _initialDataLoaded = false;
     _staleTimer?.cancel();
-    _subscription = _latestRef.onValue.listen(
-      (event) {
+    _subscription = FirebaseFirestore.instance
+        .collection('sensorReadings')
+        .doc('latest')
+        .snapshots()
+        .listen(
+      (snapshot) {
         _lastError = null;
-        if (event.snapshot.value == null) return;
-        final raw = event.snapshot.value as Map<Object?, Object?>;
-        _parseAndUpdate(raw.map<String, dynamic>((k, v) => MapEntry(k.toString(), v)));
+        if (!snapshot.exists || snapshot.data() == null) return;
+        _parseAndUpdate(snapshot.data()!);
       },
       onError: (error) {
         _lastError = error.toString();
-        debugPrint('[SensorService] Firebase stream error: $error');
+        debugPrint('[SensorService] Firestore stream error: $error');
         notifyListeners();
       },
     );
@@ -166,8 +163,6 @@ class SensorService extends ChangeNotifier {
     }
 
     if (isInitialLoad) {
-      // Ignore initial data — could be stale from hours ago.
-      // Wait for a subsequent update to prove the ESP is alive.
       _staleTimer = Timer(_initialStaleTimeout, _markStale);
       notifyListeners();
       return;
@@ -278,40 +273,23 @@ class SensorService extends ChangeNotifier {
       );
     }
 
-    const historyBase = 'sensor_readings/history';
-    final snapshots = await Future.wait(
-      days.map((dateStr) =>
-          FirebaseDatabase.instance.ref('$historyBase/$dateStr').get()),
-    );
-
     final records = <Map<String, dynamic>>[];
-    for (int di = 0; di < days.length; di++) {
-      final dateStr = days[di];
-      final snapshot = snapshots[di];
-      if (snapshot.value == null) continue;
-      final map = snapshot.value as Map<Object?, Object?>;
-      final nodeDate = DateTime(
-        int.parse(dateStr.split('-')[0]),
-        int.parse(dateStr.split('-')[1]),
-        int.parse(dateStr.split('-')[2]),
-      );
-      for (final entry in map.entries) {
-        final record = entry.value as Map<Object?, Object?>;
-        final r = record.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
-        final rawTs = _toInt(r['timestamp']);
-        if (rawTs != null) {
-          final dt = DateTime.fromMillisecondsSinceEpoch(
-            rawTs < 100000000000 ? rawTs * 1000 : rawTs,
-          );
-          if ((dt.difference(nodeDate).abs().inDays) > 30) {
-            r['timestamp'] = nodeDate
-                .add(const Duration(hours: 12))
-                .millisecondsSinceEpoch ~/ 1000;
-          }
+    for (final dateStr in days) {
+      try {
+        final snap = await FirebaseFirestore.instance
+            .collection('sensorReadings')
+            .doc('history')
+            .collection(dateStr)
+            .orderBy('timestamp')
+            .get();
+        for (final doc in snap.docs) {
+          final data = doc.data();
+          data['id'] = doc.id;
+          records.add(data);
         }
-        records.add(r);
-      }
+      } catch (_) {}
     }
+
     records.sort(
       (a, b) => (_toInt(a['timestamp']) ?? 0).compareTo(_toInt(b['timestamp']) ?? 0),
     );

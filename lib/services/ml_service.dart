@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:firebase_database/firebase_database.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class MlService extends ChangeNotifier {
   static final MlService instance = MlService._();
@@ -9,7 +9,7 @@ class MlService extends ChangeNotifier {
   Map<String, dynamic>? _latestPrediction;
   bool _loading = true;
   String? _error;
-  StreamSubscription<DatabaseEvent>? _sub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _sub;
 
   Map<String, dynamic>? get latestPrediction => _latestPrediction;
   bool get loading => _loading;
@@ -27,9 +27,10 @@ class MlService extends ChangeNotifier {
 
   void init() {
     _sub?.cancel();
-    _sub = FirebaseDatabase.instance
-        .ref('ml_predictions/latest')
-        .onValue
+    _sub = FirebaseFirestore.instance
+        .collection('mlPredictions')
+        .doc('latest')
+        .snapshots()
         .listen(_onPredictionUpdate, onError: (e) {
       _error = e.toString();
       _loading = false;
@@ -37,8 +38,8 @@ class MlService extends ChangeNotifier {
     });
   }
 
-  void _onPredictionUpdate(DatabaseEvent event) {
-    if (!event.snapshot.exists || event.snapshot.value == null) {
+  void _onPredictionUpdate(DocumentSnapshot<Map<String, dynamic>> snapshot) {
+    if (!snapshot.exists || snapshot.data() == null) {
       _latestPrediction = null;
       _loading = false;
       _error = null;
@@ -46,9 +47,7 @@ class MlService extends ChangeNotifier {
       return;
     }
     try {
-      final raw = event.snapshot.value as Map<Object?, Object?>;
-      _latestPrediction =
-          raw.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
+      _latestPrediction = snapshot.data()!;
       _error = null;
       _loading = false;
       notifyListeners();
