@@ -86,39 +86,25 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart>
 
     final curIdx = widget.selectedIndex;
 
-    // --- DYNAMIC Y-AXIS: percentile-based para hindi ma-flatten ng outliers ---
-    final sorted = List<double>.from(validData)..sort();
-    final n = sorted.length;
-
-    double pLow, pHigh;
-    if (n <= 3) {
-      pLow = sorted.first;
-      pHigh = sorted.last;
-    } else {
-      pLow = sorted[(n * 0.02).floor().clamp(0, n - 1)];
-      pHigh = sorted[(n * 0.98).floor().clamp(0, n - 1)];
-    }
-
+    // --- MAGANDANG RANGE AT MARGIN CALCULATION PARA SA FLATLINE ---
     double originalMin = validData.reduce(min);
     double originalMax = validData.reduce(max);
     double minVal;
     double maxVal;
 
-    if ((pHigh - pLow).abs() < 0.01) {
-      double padding = pLow == 0.0
+    if ((originalMax - originalMin).abs() < 0.01) {
+      // Kapag flatline (laging 30), mag-pad ng +-10% para mapunta sa gitna ang linya
+      double padding = originalMin == 0.0
           ? 5.0
-          : (pLow * 0.1).clamp(2.0, 10.0);
-      minVal = pLow - padding;
-      maxVal = pLow + padding;
+          : (originalMin * 0.1).clamp(2.0, 10.0);
+      minVal = originalMin - padding;
+      maxVal = originalMin + padding;
     } else {
-      double padding = (pHigh - pLow) * 0.08;
-      minVal = pLow - padding;
-      maxVal = pHigh + padding;
+      // Magdagdag ng kaunting 5% padding sa taas at baba para hindi nakadikit sa gilid ang mga tuldok
+      double padding = (originalMax - originalMin) * 0.05;
+      minVal = originalMin - padding;
+      maxVal = originalMax + padding;
     }
-
-    if (originalMin < minVal) minVal = originalMin - (maxVal - minVal) * 0.05;
-    if (originalMax > maxVal) maxVal = originalMax + (maxVal - minVal) * 0.05;
-
     final range = maxVal - minVal;
 
     return LayoutBuilder(
@@ -268,24 +254,24 @@ class _LineChartPainter extends CustomPainter {
       fontWeight: FontWeight.w500,
     );
 
-    // Y-axis grid lines + NICE ROUNDED labels
+    // Y-axis grid lines + labels
     if (showAxis) {
       final gridPaint = Paint()
         ..color = AppColors.darkWith(0.05)
         ..strokeWidth = 1;
 
-      final tickCount = 6;
-      final niceMin = _niceNum(minVal, false);
-      final niceMax = _niceNum(maxVal, true);
-      final niceStep = _niceNum((niceMax - niceMin) / tickCount, false);
-
+      // DYNAMIC DECIMAL PRECISION:
+      // Kapag maliit ang range, nagpapakita ng decimal para hindi mag-duplicate ang labels
       int decimalPlaces = 0;
-      if (niceStep < 0.1) {
+      if (range < 1.0) {
         decimalPlaces = 2;
-      } else if (niceStep < 1.0) {
+      } else if (range < 5.0) {
         decimalPlaces = 1;
+      } else {
+        decimalPlaces = 0;
       }
 
+      final tickCount = 5;
       for (int i = 0; i <= tickCount; i++) {
         final y = padT + (chartH * i / tickCount);
         canvas.drawLine(
@@ -294,7 +280,7 @@ class _LineChartPainter extends CustomPainter {
           gridPaint,
         );
 
-        final val = niceMax - (niceStep * i);
+        final val = maxVal - (range * i / tickCount);
         final label = val.toStringAsFixed(decimalPlaces);
         final tp = TextPainter(
           text: TextSpan(
@@ -451,34 +437,6 @@ class _LineChartPainter extends CustomPainter {
       final index = (i * step).round().clamp(0, count - 1);
       return _XLabel(labels![index], index);
     });
-  }
-
-  static double _niceNum(double value, bool round) {
-    final exp = (log(value) / ln10).floor();
-    final frac = value / pow(10, exp).toDouble();
-    double nice;
-    if (round) {
-      if (frac < 1.5) {
-        nice = 1;
-      } else if (frac < 3) {
-        nice = 2;
-      } else if (frac < 7) {
-        nice = 5;
-      } else {
-        nice = 10;
-      }
-    } else {
-      if (frac <= 1) {
-        nice = 1;
-      } else if (frac <= 2) {
-        nice = 2;
-      } else if (frac <= 5) {
-        nice = 5;
-      } else {
-        nice = 10;
-      }
-    }
-    return nice * pow(10, exp).toDouble();
   }
 
   @override
