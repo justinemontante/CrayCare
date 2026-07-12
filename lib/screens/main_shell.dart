@@ -10,7 +10,7 @@ import 'controls_screen.dart';
 import 'production_screen.dart';
 import 'notifications_screen.dart';
 import 'settings_screen.dart';
-import 'ai_insights_screen.dart';
+
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -29,7 +29,6 @@ class _MainShellState extends State<MainShell> {
 
   static const List<_NavItem> _navItems = [
     _NavItem(icon: Icons.dashboard_rounded, label: 'Dashboard'),
-    _NavItem(icon: Icons.auto_awesome_rounded, label: 'AI Insights'),
     _NavItem(icon: Icons.bar_chart_rounded, label: 'Analytics'),
     _NavItem(icon: Icons.oil_barrel_rounded, label: 'Tank'),
     _NavItem(icon: Icons.memory_rounded, label: 'Controls'),
@@ -80,7 +79,7 @@ class _MainShellState extends State<MainShell> {
   }
 
   void _goToAnalytics(String chartKey) {
-    setState(() => _currentIndex = 2);
+    setState(() => _currentIndex = 1);
     _analyticsKey.currentState?.scrollToChart(chartKey);
   }
 
@@ -102,15 +101,14 @@ class _MainShellState extends State<MainShell> {
                         onViewGraph: _goToAnalytics,
                         onNavigate: (i) => setState(() => _currentIndex = i),
                         onTankTab: (tab) {
-                          setState(() => _currentIndex = 3);
+                          setState(() => _currentIndex = 2);
                           _productionKey.currentState?.switchToTab(tab);
                         },
                         onControlTab: (tab) {
-                          setState(() => _currentIndex = 4);
+                          setState(() => _currentIndex = 3);
                           _controlsKey.currentState?.switchToTab(tab);
                         },
                       ),
-                      const AiInsightsScreen(),
                       AnalyticsScreen(key: _analyticsKey),
                       ProductionScreen(key: _productionKey),
                       ControlsScreen(key: _controlsKey),
@@ -185,8 +183,8 @@ class _MainShellState extends State<MainShell> {
             child: GestureDetector(
               onTap: () {
                 setState(() => _currentIndex = i);
-                if (i == 5) NotificationService.instance.markAllRead();
-                if (i == 3) {
+                if (i == 4) NotificationService.instance.markAllRead();
+                if (i == 2) {
                   _productionKey.currentState?.switchToTab(0);
                 }
               },
