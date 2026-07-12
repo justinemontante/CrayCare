@@ -18,6 +18,7 @@ import 'services/notification_service.dart';
 import 'services/feeder_service.dart';
 import 'services/tank_service.dart';
 import 'services/database_service.dart';
+import 'services/health_risk_service.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 
 class MyHttpOverrides extends HttpOverrides {
@@ -29,33 +30,9 @@ class MyHttpOverrides extends HttpOverrides {
   }
 }
 
-void main() async {
+void main() {
   HttpOverrides.global = MyHttpOverrides();
-
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-
-  // Enable Firestore offline persistence
-  FirebaseFirestore.instance.settings = Settings(
-    persistenceEnabled: true,
-  );
-
-  // CRITICAL: Register the background message handler BEFORE any other setup.
-  // Firebase requires this to be a top-level function registered here.
-  FirebaseMessaging.onBackgroundMessage(firebaseBackgroundMessageHandler);
-
-  try {
-    await initializeWorkmanager();
-  } catch (e) {
-    debugPrint('[Main] Workmanager init error: $e');
-  }
-
-  await SettingsService.instance.init();
-  NotificationService.instance.init();
-  await NotificationService.instance.initFCM();
-  FeederService.instance.init();
-  TankService.instance.init();
-  MlService.instance.init();
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
@@ -89,6 +66,44 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
+    _initServices();
+  }
+
+  Future<void> _initServices() async {
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    if (!mounted) return;
+
+    FirebaseFirestore.instance.settings = Settings(
+      persistenceEnabled: true,
+    );
+    FirebaseMessaging.onBackgroundMessage(firebaseBackgroundMessageHandler);
+
+    try {
+      await initializeWorkmanager();
+    } catch (e) {
+      debugPrint('[Main] Workmanager init error: $e');
+    }
+
+    try {
+      await SettingsService.instance.init();
+    } catch (e) {
+      debugPrint('[Main] SettingsService.init error: $e');
+    }
+
+    try {
+      NotificationService.instance.init();
+      await NotificationService.instance.initFCM();
+    } catch (e) {
+      debugPrint('[Main] NotificationService init error: $e');
+    }
+
+    if (!mounted) return;
+
+    FeederService.instance.init();
+    TankService.instance.init();
+    MlService.instance.init();
+    HealthRiskService.instance.init();
+
     _animateProgress();
   }
 

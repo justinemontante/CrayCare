@@ -50,16 +50,20 @@ class FeederService extends ChangeNotifier {
     if (_initialized) return;
     _initialized = true;
     try {
-      _listenStatus();
-      _listenSchedules();
-      _listenLogs();
       _startScheduleTimer();
+      if (FirebaseAuth.instance.currentUser != null) {
+        _listenStatus();
+        _listenSchedules();
+        _listenLogs();
+      }
       FirebaseAuth.instance.authStateChanges().listen((user) {
         if (user != null) {
           _cancelSubscriptions();
           _listenStatus();
           _listenSchedules();
           _listenLogs();
+        } else {
+          _cancelSubscriptions();
         }
       });
     } catch (e) {

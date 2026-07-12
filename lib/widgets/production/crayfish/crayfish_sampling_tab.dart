@@ -975,9 +975,11 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
         _lengthController.text = last.totalLength.toStringAsFixed(1);
       } else {
         _isRecorded = false;
+        _countController.text = TankService.instance.sampleCount.toString();
       }
     } else {
       _isRecorded = false;
+      _countController.text = TankService.instance.sampleCount.toString();
     }
   }
 
@@ -1268,7 +1270,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
                   'Crayfish sampled',
                   '10',
                   _countController,
-                  enabled: (!_isRecorded && canSample) || _isEditing,
+                  enabled: false,
                   hasError: _countError != null,
                   onChanged: _revalidateCount,
                   subtitleBottomSpacing: 20,

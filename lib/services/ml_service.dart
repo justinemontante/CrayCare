@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class MlService extends ChangeNotifier {
   static final MlService instance = MlService._();
@@ -27,6 +28,24 @@ class MlService extends ChangeNotifier {
 
   void init() {
     _sub?.cancel();
+    if (FirebaseAuth.instance.currentUser != null) {
+      _startListening();
+    }
+    FirebaseAuth.instance.authStateChanges().listen((user) {
+      _sub?.cancel();
+      if (user != null) {
+        _startListening();
+      } else {
+        _latestPrediction = null;
+        _loading = true;
+        _error = null;
+        notifyListeners();
+      }
+    });
+  }
+
+  void _startListening() {
+    _loading = true;
     _sub = FirebaseFirestore.instance
         .collection('mlPredictions')
         .doc('latest')

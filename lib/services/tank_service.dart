@@ -341,7 +341,19 @@ class TankService extends ChangeNotifier {
     final currentSelectionStillExists = _selectedBatchId != null && list.any((b) => b.batchId == _selectedBatchId);
     if (!currentSelectionStillExists) {
       final active = list.where((b) => b.status == 'active');
-      _selectedBatchId = active.isNotEmpty ? active.first.batchId : null;
+      final newBatchId = active.isNotEmpty ? active.first.batchId : null;
+      _selectedBatchId = newBatchId;
+      if (newBatchId != null) {
+        final batch = active.first;
+        if (batch.status == 'harvested' || batch.status == 'superseded') {
+          _enterArchiveView(batch);
+        } else {
+          _isArchiveView = false;
+          _clearArchiveState();
+          _restoreFromBatchRecord(batch);
+          _reloadLiveDataFromFirebase();
+        }
+      }
     }
     notifyListeners();
   }
@@ -667,6 +679,8 @@ class TankService extends ChangeNotifier {
         return;
       }
       _parseBatchesFromSnapshot(snap);
+    }, onError: (e) {
+      debugPrint('[TankService] _batchesSub error: $e');
     });
 
     _samplingSub = _fs
@@ -709,6 +723,8 @@ class TankService extends ChangeNotifier {
       _samplingHistory = entries;
       _lastSamplingDocId = lastId;
       notifyListeners();
+    }, onError: (e) {
+      debugPrint('[TankService] _samplingSub error: $e');
     });
 
     _mortalitySub = _fs
@@ -737,6 +753,8 @@ class TankService extends ChangeNotifier {
       }).whereType<MortalityEntry>().toList()..sort((a, b) => a.date.compareTo(b.date));
       _mortality = _mortalityHistory.fold(0, (sum, e) => sum + e.count);
       notifyListeners();
+    }, onError: (e) {
+      debugPrint('[TankService] _mortalitySub error: $e');
     });
 
     _activitiesSub = _fs
@@ -761,6 +779,8 @@ class TankService extends ChangeNotifier {
         );
       }).toList()..sort((a, b) => a.timestamp.compareTo(b.timestamp));
       notifyListeners();
+    }, onError: (e) {
+      debugPrint('[TankService] _activitiesSub error: $e');
     });
 
     _harvestsSub = _fs
@@ -780,6 +800,8 @@ class TankService extends ChangeNotifier {
           .toList()
         ..sort((a, b) => a.date.compareTo(b.date));
       notifyListeners();
+    }, onError: (e) {
+      debugPrint('[TankService] _harvestsSub error: $e');
     });
   }
 
@@ -930,12 +952,14 @@ class TankService extends ChangeNotifier {
       initialTotalLength: _totalSampleLength,
     );
 
-    _fs.collection('batches').add({
-      ...newBatch.toJson(),
-      'uid': _tankOwnerUid,
-    }).catchError((e) {
+    try {
+      await _fs.collection('batches').add({
+        ...newBatch.toJson(),
+        'uid': _tankOwnerUid,
+      });
+    } catch (e) {
       debugPrint('[TankService] Batch push error (non-fatal): $e');
-    });
+    }
 
     // --- Step 6: Update local batch list and select the new batch immediately ---
     _batches.removeWhere((b) => b.batchId == bid);

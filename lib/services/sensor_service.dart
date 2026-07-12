@@ -7,9 +7,16 @@ import 'settings_service.dart';
 class SensorService extends ChangeNotifier {
   static final SensorService instance = SensorService._();
   SensorService._() {
-    _initFirebaseListener();
-    FirebaseAuth.instance.authStateChanges().listen((_) {
+    if (FirebaseAuth.instance.currentUser != null) {
       _initFirebaseListener();
+    }
+    FirebaseAuth.instance.authStateChanges().listen((user) {
+      if (user != null) {
+        _initFirebaseListener();
+      } else {
+        _subscription?.cancel();
+        _subscription = null;
+      }
     });
   }
 
@@ -33,7 +40,6 @@ class SensorService extends ChangeNotifier {
 
   Timer? _staleTimer;
   static const _staleTimeout = Duration(seconds: 30);
-  static const _initialStaleTimeout = Duration(seconds: 10);
   bool _hasLiveData = false;
 
   DateTime _lastUpdated = DateTime.fromMillisecondsSinceEpoch(0);
@@ -157,15 +163,8 @@ class SensorService extends ChangeNotifier {
   }
 
   void _parseAndUpdate(Map<String, dynamic> data) {
-    final isInitialLoad = !_initialDataLoaded;
     if (!_initialDataLoaded) {
       _initialDataLoaded = true;
-    }
-
-    if (isInitialLoad) {
-      _staleTimer = Timer(_initialStaleTimeout, _markStale);
-      notifyListeners();
-      return;
     }
 
     final tempRaw = _toDouble(data['temperature']);
@@ -260,6 +259,24 @@ class SensorService extends ChangeNotifier {
 
   List<double> getData(String key) => _history[key] ?? [];
 
+  final Map<String, List<Map<String, dynamic>>> _dayCache = {};
+  DateTime _cacheClearedAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  List<Map<String, dynamic>>? getCachedDay(String dateStr) {
+    if (DateTime.now().difference(_cacheClearedAt).inMinutes > 30) return null;
+    return _dayCache[dateStr];
+  }
+
+  void cacheDay(String dateStr, List<Map<String, dynamic>> records) {
+    _dayCache[dateStr] = records;
+    _cacheClearedAt = DateTime.now();
+  }
+
+  void clearHistoryCache() {
+    _dayCache.clear();
+    _cacheClearedAt = DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
   Future<List<Map<String, dynamic>>> fetchHistoryRange({
     required DateTime start,
     required DateTime end,
@@ -273,27 +290,48 @@ class SensorService extends ChangeNotifier {
       );
     }
 
-    final records = <Map<String, dynamic>>[];
+    final uncachedDays = <String>[];
+    final cachedRecords = <Map<String, dynamic>>[];
     for (final dateStr in days) {
-      try {
-        final snap = await FirebaseFirestore.instance
-            .collection('sensorReadings')
-            .doc('history')
-            .collection(dateStr)
-            .orderBy('timestamp')
-            .get();
-        for (final doc in snap.docs) {
-          final data = doc.data();
-          data['id'] = doc.id;
-          records.add(data);
-        }
-      } catch (_) {}
+      final cached = getCachedDay(dateStr);
+      if (cached != null) {
+        cachedRecords.addAll(cached);
+      } else {
+        uncachedDays.add(dateStr);
+      }
     }
 
-    records.sort(
+    if (uncachedDays.isNotEmpty) {
+      final futures = uncachedDays.map((dateStr) async {
+        try {
+          final snap = await FirebaseFirestore.instance
+              .collection('sensorReadings')
+              .doc('history')
+              .collection(dateStr)
+              .get();
+          debugPrint('[SensorService] fetchHistoryRange: $dateStr → ${snap.docs.length} docs');
+          final docs = snap.docs.map((doc) {
+            final data = doc.data();
+            data['id'] = doc.id;
+            return data;
+          }).toList();
+          cacheDay(dateStr, docs);
+          return docs;
+        } catch (e) {
+          debugPrint('[SensorService] fetchHistoryRange error for $dateStr: $e');
+          cacheDay(dateStr, []);
+          return <Map<String, dynamic>>[];
+        }
+      });
+
+      final results = await Future.wait(futures);
+      cachedRecords.addAll(results.expand((r) => r));
+    }
+
+    cachedRecords.sort(
       (a, b) => (_toInt(a['timestamp']) ?? 0).compareTo(_toInt(b['timestamp']) ?? 0),
     );
-    return records;
+    return cachedRecords;
   }
 
   @override

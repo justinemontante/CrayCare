@@ -98,12 +98,12 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     }
   }
 
-  static const _firebaseKeyMap = {
-    'temp': 'temperature',
-    'ph': 'phLevel',
-    'do': 'dissolvedOxygen',
-    'turb': 'turbidity',
-    'waterlevel': 'waterLevel',
+  static const _historyKeyMap = {
+    'temp': 'temp_avg',
+    'ph': 'pH_avg',
+    'do': 'DO_avg',
+    'turb': 'turbidity_avg',
+    'waterlevel': 'waterLevel_avg',
   };
 
   Future<void> _generateData(String range) async {
@@ -207,9 +207,9 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       }).toList();
 
       for (final key in SensorService.sensorKeys) {
-        final fbKey = _firebaseKeyMap[key]!;
+        final hKey = _historyKeyMap[key]!;
         _data['$key-$range'] = recent.map((r) {
-          final v = _toDouble(r[fbKey]);
+          final v = _toDouble(r[hKey]);
           return (v != null && v >= 0) ? v : double.nan;
         }).toList();
       }
@@ -237,26 +237,19 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       _labels[range] = labelTimes.map((d) => '${months[d.month - 1]} ${d.day}').toList();
     }
 
+    // Pre-parse timestamps and extract values ONCE for all keys
+    final parsedTs = List<DateTime>.generate(records.length, (i) {
+      return _parseTimestamp(records[i]['timestamp']);
+    });
+    final valuesPerKey = <String, List<double?>>{};
     for (final key in SensorService.sensorKeys) {
-      final fbKey = _firebaseKeyMap[key]!;
-      _data['$key-$range'] = _aggregateHistory(records, fbKey, labelTimes, intervalMinutes);
+      final hKey = _historyKeyMap[key]!;
+      valuesPerKey[key] = List<double?>.generate(records.length, (i) {
+        return _toDouble(records[i][hKey]);
+      });
     }
 
-  }
-
-  DateTime _parseTimestamp(dynamic ts) {
-    if (ts is! num) return DateTime(2000);
-    final ms = ts.toInt() < 100000000000 ? ts.toInt() * 1000 : ts.toInt();
-    return DateTime.fromMillisecondsSinceEpoch(ms);
-  }
-
-  List<double> _aggregateHistory(
-    List<Map<String, dynamic>> records,
-    String fbKey,
-    List<DateTime> labelTimes,
-    int intervalMinutes,
-  ) {
-    final Duration window;
+    Duration window;
     if (intervalMinutes > 0) {
       window = Duration(minutes: intervalMinutes ~/ 2);
     } else {
@@ -265,36 +258,48 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
           : const Duration(minutes: 10);
       window = interval ~/ 2;
     }
-    return List<double>.generate(labelTimes.length, (i) {
-      if (i < labelTimes.length - 1 &&
-          labelTimes[i + 1].difference(labelTimes[i]).inDays >= 1) {
-        return _dailyAggregate(records, fbKey, labelTimes[i]);
-      }
-      final mid = labelTimes[i];
-      final start = mid.subtract(window);
-      final end = mid.add(window);
-      final matching = records.where((r) {
-        final t = _parseTimestamp(r['timestamp']);
-        return t.isAfter(start) && t.isBefore(end);
-      }).map((r) => _toDouble(r[fbKey])).whereType<double>().where((v) => v >= 0).toList();
-      if (matching.isEmpty) return double.nan;
-      return matching.reduce((a, b) => a + b) / matching.length;
-    });
+
+    for (final key in SensorService.sensorKeys) {
+      final vals = valuesPerKey[key]!;
+      _data['$key-$range'] = List<double>.generate(labelTimes.length, (i) {
+        final isDaily = i < labelTimes.length - 1 &&
+            labelTimes[i + 1].difference(labelTimes[i]).inDays >= 1;
+
+        if (isDaily) {
+          final dayStart = DateTime(labelTimes[i].year, labelTimes[i].month, labelTimes[i].day);
+          final dayEnd = dayStart.add(const Duration(days: 1));
+          double sum = 0;
+          int count = 0;
+          for (int j = 0; j < records.length; j++) {
+            if (parsedTs[j].isAfter(dayStart) && parsedTs[j].isBefore(dayEnd)) {
+              final v = vals[j];
+              if (v != null && v >= 0) { sum += v; count++; }
+            }
+          }
+          return count > 0 ? sum / count : double.nan;
+        }
+
+        final mid = labelTimes[i];
+        final start = mid.subtract(window);
+        final end = mid.add(window);
+        double sum = 0;
+        int count = 0;
+        for (int j = 0; j < records.length; j++) {
+          if (parsedTs[j].isAfter(start) && parsedTs[j].isBefore(end)) {
+            final v = vals[j];
+            if (v != null && v >= 0) { sum += v; count++; }
+          }
+        }
+        return count > 0 ? sum / count : double.nan;
+      });
+    }
+
   }
 
-  double _dailyAggregate(
-    List<Map<String, dynamic>> records,
-    String fbKey,
-    DateTime day,
-  ) {
-    final dayStart = DateTime(day.year, day.month, day.day);
-    final dayEnd = dayStart.add(const Duration(days: 1));
-    final matching = records.where((r) {
-      final t = _parseTimestamp(r['timestamp']);
-      return t.isAfter(dayStart) && t.isBefore(dayEnd);
-    }).map((r) => _toDouble(r[fbKey])).whereType<double>().where((v) => v >= 0).toList();
-    if (matching.isEmpty) return double.nan;
-    return matching.reduce((a, b) => a + b) / matching.length;
+  DateTime _parseTimestamp(dynamic ts) {
+    if (ts is! num) return DateTime(2000);
+    final ms = ts.toInt() < 100000000000 ? ts.toInt() * 1000 : ts.toInt();
+    return DateTime.fromMillisecondsSinceEpoch(ms);
   }
 
   double? _toDouble(dynamic v) {

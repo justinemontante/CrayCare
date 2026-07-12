@@ -188,7 +188,7 @@ class _MainShellState extends State<MainShell> {
                   _productionKey.currentState?.switchToTab(0);
                 }
               },
-              child: _buildNavItem(item, isActive),
+              child: _buildNavItem(item, isActive, i),
             ),
           );
         }),
@@ -196,7 +196,8 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
-  Widget _buildNavItem(_NavItem item, bool isActive) {
+  Widget _buildNavItem(_NavItem item, bool isActive, int index) {
+    final unread = index == 4 ? NotificationService.instance.unreadCount : 0;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
       decoration: BoxDecoration(
@@ -206,8 +207,36 @@ class _MainShellState extends State<MainShell> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(item.icon, size: 22,
-            color: isActive ? AppColors.primary : AppColors.darkWith(0.3),
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Icon(item.icon, size: 22,
+                color: isActive ? AppColors.primary : AppColors.darkWith(0.3),
+              ),
+              if (unread > 0)
+                Positioned(
+                  top: -2, right: -4,
+                  child: Container(
+                    padding: EdgeInsets.all(unread > 9 ? 2 : 4),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFE53935),
+                      shape: BoxShape.circle,
+                    ),
+                    constraints: const BoxConstraints(minWidth: 14, minHeight: 14),
+                    child: Center(
+                      child: Text(
+                        unread > 99 ? '99+' : '$unread',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 8,
+                          fontWeight: FontWeight.w700,
+                          height: 1,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ),
           const SizedBox(height: 2),
           FittedBox(

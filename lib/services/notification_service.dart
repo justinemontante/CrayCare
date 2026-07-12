@@ -373,21 +373,28 @@ class NotificationService extends ChangeNotifier {
   void init() {
     if (_initialized) return;
     _initialized = true;
-    _listenFirebase();
-    _loadUserPrefs();
     SensorService.instance.addListener(_onSensorUpdate);
     _initPreviousStates();
     tz.initializeTimeZones();
-    _startReminderTimer();
-    _initAutoControlListener();
     FeedState.schedules.addListener(_onSchedulesChanged);
+
+    if (FirebaseAuth.instance.currentUser != null) {
+      _listenFirebase();
+      _loadUserPrefs();
+      _startReminderTimer();
+      _initAutoControlListener();
+    }
+
     FirebaseAuth.instance.authStateChanges().listen((user) {
       _notifications.clear();
       _effectiveUid = null;
       _cancelSubscriptions();
       _cancelAutoControlSubs();
+      _reminderTimer?.cancel();
+      _slowTimer?.cancel();
       _userRole = null;
       if (user != null) {
+        _startReminderTimer();
         _listenProfile();
       }
       notifyListeners();

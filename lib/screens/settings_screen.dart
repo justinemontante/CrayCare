@@ -403,11 +403,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildHeader() {
     final Widget header = Container(
       padding: const EdgeInsets.fromLTRB(4, 8, 16, 8),
-      decoration: BoxDecoration(
-        color: _currentPage == 4 ? Colors.transparent : Colors.white,
-        border: Border(bottom: BorderSide(
-          color: _currentPage == 4 ? Colors.transparent : AppColors.darkWith(0.07),
-        )),
+      decoration: const BoxDecoration(
+        color: Colors.transparent,
       ),
       child: Row(
         children: [
@@ -430,8 +427,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
     );
-
-    if (_currentPage != 4) return header;
 
     return ClipRRect(
       child: Stack(

@@ -21,8 +21,13 @@
     {
       "source": "functions/ml",
       "codebase": "ml",
+      "runtime": "python312",
       "ignore": [
         ".git",
+        "venv",
+        ".venv",
+        "__pycache__",
+        "*.pyc",
         "firebase-debug.log",
         "firestore-debug.log",
         "ui-debug.log"

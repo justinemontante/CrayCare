@@ -89,8 +89,25 @@ class HealthRiskService extends ChangeNotifier {
     _loading = true;
     notifyListeners();
 
+    if (FirebaseAuth.instance.currentUser != null) {
+      _startListening();
+    }
+
+    FirebaseAuth.instance.authStateChanges().listen((user) {
+      _sub?.cancel();
+      if (user != null) {
+        _startListening();
+      } else {
+        _result = null;
+        _loading = true;
+        notifyListeners();
+      }
+    });
+  }
+
+  void _startListening() {
     final uid = FirebaseAuth.instance.currentUser?.uid;
-    FirebaseFirestore.instance
+    _sub = FirebaseFirestore.instance
         .collection('healthRisk')
         .doc('latest')
         .snapshots()
@@ -107,12 +124,6 @@ class HealthRiskService extends ChangeNotifier {
       debugPrint('[HealthRiskService] Stream error: $e');
       _loading = false;
       notifyListeners();
-    });
-
-    FirebaseAuth.instance.authStateChanges().listen((user) {
-      if (user != null) {
-        init();
-      }
     });
   }
 

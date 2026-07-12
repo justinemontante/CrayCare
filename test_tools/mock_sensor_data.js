@@ -1,5 +1,5 @@
 const admin = require('firebase-admin');
-const { getDatabase, ServerValue } = require('firebase-admin/database');
+const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const path = require('path');
 const fs = require('fs');
 
@@ -36,11 +36,9 @@ if (!serviceAccount) {
 
 const app = admin.initializeApp({
   credential: admin.cert(serviceAccount),
-  databaseURL:
-    'https://craycare-8436c-default-rtdb.asia-southeast1.firebasedatabase.app',
 });
 
-const db = getDatabase(app);
+const firestore = getFirestore();
 
 // ─── 2. Sensor field names ────────────────────────────────────
 const LATEST_KEYS = [
@@ -52,6 +50,7 @@ const LATEST_KEYS = [
 ];
 
 let OPTIMAL_MODE = false; // --optimal flag
+let CRITICAL_MODE = false; // --critical flag
 
 // Config thresholds (pre_adult default — matched sa writeDefaultConfig)
 const CONFIG_RANGES = {
@@ -165,7 +164,100 @@ function _updateTemperature() {
   }
 }
 
+// ─── Critical Phase Cycles (per sensor) ──────────────────────
+// Each sensor cycles through phases: optimal → warning → critical → recovery
+// Config thresholds for reference:
+//   temp: 24-30,  pH: 7.0-8.5,  DO: 4.5+,  turb: 0-35,  water: 5-10
+
+const CRIT_PHASES = {
+  phLevel: [
+    { label: 'Optimal (7.8)',       target: 7.8,  speed: 0.20, ticks: 3 },
+    { label: 'Warning low (6.9)',   target: 6.9,  speed: 0.30, ticks: 3 },
+    { label: 'Critical low (6.3)',  target: 6.3,  speed: 0.30, ticks: 5 },
+    { label: 'Recovery (7.5)',      target: 7.5,  speed: 0.30, ticks: 4 },
+    { label: 'Warning high (8.6)',  target: 8.6,  speed: 0.30, ticks: 4 },
+    { label: 'Critical high (9.2)', target: 9.2,  speed: 0.30, ticks: 5 },
+    { label: 'Recovery (7.6)',      target: 7.6,  speed: 0.30, ticks: 4 },
+  ],
+  dissolvedOxygen: [
+    { label: 'Optimal (6.5)',       target: 6.5,  speed: 0.30, ticks: 3 },
+    { label: 'Warning low (4.4)',   target: 4.4,  speed: 0.40, ticks: 5 },
+    { label: 'Critical low (3.2)',  target: 3.2,  speed: 0.30, ticks: 5 },
+    { label: 'Recovery (6.0)',      target: 6.0,  speed: 0.40, ticks: 6 },
+    { label: 'High (7.5)',         target: 7.5,  speed: 0.30, ticks: 5 },
+    { label: 'Stable (6.2)',       target: 6.2,  speed: 0.20, ticks: 3 },
+  ],
+  temperature: [
+    { label: 'Optimal (27)',        target: 27.0, speed: 0.50, ticks: 3 },
+    { label: 'Warning (31)',        target: 31.0, speed: 0.80, ticks: 5 },
+    { label: 'Critical high (34)',  target: 34.0, speed: 0.60, ticks: 5 },
+    { label: 'Recovery (27)',       target: 27.0, speed: 0.70, ticks: 6 },
+    { label: 'Low warning (23)',    target: 23.0, speed: 0.80, ticks: 5 },
+    { label: 'Critical low (21)',   target: 21.0, speed: 0.50, ticks: 5 },
+    { label: 'Recovery (26)',       target: 26.0, speed: 0.70, ticks: 5 },
+  ],
+  turbidity: [
+    { label: 'Optimal (15)',        target: 15.0, speed: 3.0,  ticks: 3 },
+    { label: 'Warning (36)',        target: 36.0, speed: 5.0,  ticks: 5 },
+    { label: 'Critical high (50)',  target: 50.0, speed: 4.0,  ticks: 5 },
+    { label: 'Recovery (20)',       target: 20.0, speed: 5.0,  ticks: 6 },
+    { label: 'Critical low (5)',    target: 5.0,  speed: 3.0,  ticks: 5 },
+    { label: 'Recovery (18)',       target: 18.0, speed: 3.0,  ticks: 4 },
+  ],
+  waterLevel: [
+    { label: 'Optimal (7.5)',       target: 7.5,  speed: 0.20, ticks: 3 },
+    { label: 'Warning low (4.8)',   target: 4.8,  speed: 0.40, ticks: 5 },
+    { label: 'Critical low (3.5)',  target: 3.5,  speed: 0.30, ticks: 5 },
+    { label: 'Recovery (7.0)',      target: 7.0,  speed: 0.40, ticks: 6 },
+    { label: 'Warning high (10.5)', target: 10.5, speed: 0.40, ticks: 5 },
+    { label: 'Critical high (12)',  target: 12.0, speed: 0.30, ticks: 5 },
+    { label: 'Recovery (7.5)',      target: 7.5,  speed: 0.40, ticks: 6 },
+  ],
+};
+
+const _critPhaseIdx = {};
+const _critTick = {};
+for (const key of LATEST_KEYS) {
+  _critPhaseIdx[key] = 0;
+  _critTick[key] = 0;
+}
+
+function _updateCriticalSensor(key) {
+  const phases = CRIT_PHASES[key];
+  if (!phases) return;
+
+  const phase = phases[_critPhaseIdx[key]];
+  const current = _state[key];
+  const diff = phase.target - current;
+
+  if (Math.abs(diff) > phase.speed) {
+    _state[key] += Math.sign(diff) * phase.speed;
+  } else {
+    _state[key] += (Math.random() - 0.5) * phase.speed * 0.3;
+  }
+
+  _critTick[key]++;
+  if (_critTick[key] >= phase.ticks) {
+    _critPhaseIdx[key] = (_critPhaseIdx[key] + 1) % phases.length;
+    _critTick[key] = 0;
+    const next = phases[_critPhaseIdx[key]];
+    console.log(`  🔄 ${key} phase: ${next.label}`);
+  }
+}
+
 function generateReading() {
+  if (CRITICAL_MODE) {
+    for (const key of LATEST_KEYS) {
+      _updateCriticalSensor(key);
+    }
+
+    const reading = {};
+    for (const key of LATEST_KEYS) {
+      reading[key] = parseFloat(_state[key].toFixed(2));
+    }
+    return reading;
+  }
+
   _updateTemperature();
 
   if (OPTIMAL_MODE) {
@@ -191,15 +283,48 @@ function generateReading() {
   return reading;
 }
 
-// ─── 4. Write latest ──────────────────────────────────────────
-const latestRef = db.ref('sensor_readings/latest');
+function generateAggregatedReading() {
+  const readings = [];
+  for (let i = 0; i < 5; i++) {
+    readings.push(generateReading());
+  }
 
+  const result = {};
+  const keysMap = {
+    temperature: 'temp',
+    phLevel: 'pH',
+    dissolvedOxygen: 'DO',
+    turbidity: 'turbidity',
+    waterLevel: 'waterLevel'
+  };
+
+  for (const [rtdbKey, mlKey] of Object.entries(keysMap)) {
+    const vals = readings.map(r => r[rtdbKey]);
+    const min = Math.min(...vals);
+    const max = Math.max(...vals);
+    const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+
+    result[`${mlKey}_min`] = parseFloat(min.toFixed(2));
+    result[`${mlKey}_max`] = parseFloat(max.toFixed(2));
+    result[`${mlKey}_avg`] = parseFloat(avg.toFixed(2));
+  }
+  return result;
+}
+
+// ─── 4. Write latest (Firestore only) ─────────────────────────
 async function writeLatest() {
   try {
     const data = generateReading();
-    // Firebase server timestamp para walang clock mismatch
-    data.timestamp = ServerValue.TIMESTAMP;
-    await latestRef.set(data);
+
+    await firestore.collection('sensorReadings').doc('latest').set({
+      temperature: data.temperature,
+      phLevel: data.phLevel,
+      dissolvedOxygen: data.dissolvedOxygen,
+      turbidity: data.turbidity,
+      waterLevel: data.waterLevel,
+      timestamp: FieldValue.serverTimestamp(),
+    });
+
     const ts = new Date().toLocaleTimeString();
     const vals = LATEST_KEYS.map(k => `${data[k]}`).join(' | ');
     const status = OPTIMAL_MODE ? ' 🟢 OPTIMAL' : _checkStatus(data);
@@ -209,20 +334,21 @@ async function writeLatest() {
   }
 }
 
-// ─── 5. Append history ────────────────────────────────────────
+// ─── 5. Append history (Firestore only) ───────────────────────
 let historyCount = 0;
 
 async function appendHistory() {
   try {
     const now = new Date();
     const dateStr = now.toISOString().slice(0, 10);
-    const reading = generateReading();
-    reading.timestamp = ServerValue.TIMESTAMP;
-    const ref = db.ref(`sensor_readings/history/${dateStr}`).push();
-    await ref.set(reading);
+    const reading = generateAggregatedReading();
+    reading.timestamp = Math.floor(Date.now() / 1000);
+
+    await firestore.collection('sensorReadings').doc('history').collection(dateStr).add(reading);
+
     historyCount++;
-    if (historyCount % 6 === 0) { // every 3 hours
-      console.log(`📝 HISTORY #${historyCount} written to ${dateStr}`);
+    if (historyCount % 6 === 0) {
+      console.log(`📝 HISTORY #${historyCount} written to Firestore: ${dateStr}`);
     }
   } catch (err) {
     console.error('❌ History write error:', err.message);
@@ -232,9 +358,9 @@ async function appendHistory() {
 // NOTE: Tinanggal na natin ang Section 6 (Write test notification) 
 // para maiwasan ang pagsusulat ng kalat sa root ng database niyo.
 
-// ─── 7. Backfill history ──────────────────────────────────────
+// ─── 7. Backfill history (Firestore only) ─────────────────────
 async function backfillHistory({ hours, label }) {
-  console.log(`\n⏳ Backfilling ${label}…`);
+  console.log(`\n⏳ Backfilling ${label} to Firestore…`);
   const now = Date.now();
   const intervalMs = 10 * 60 * 1000; // 10 minutes
   const total = Math.floor((hours * 3600 * 1000) / intervalMs);
@@ -244,21 +370,20 @@ async function backfillHistory({ hours, label }) {
     const ts = now - i * intervalMs;
     const date = new Date(ts);
     const dateStr = date.toISOString().slice(0, 10);
-    const reading = generateReading();
+    const reading = generateAggregatedReading();
     reading.timestamp = Math.floor(ts / 1000);
-    await db.ref(`sensor_readings/history/${dateStr}`).push().set(reading);
+
+    await firestore.collection('sensorReadings').doc('history').collection(dateStr).add(reading);
+
     written++;
     if (written % 100 === 0) process.stdout.write('.');
   }
   console.log(` ✅ ${written} entries for ${label}`);
 }
 
-// ─── 8. Write sensor config (thresholds) ──────────────────────
+// ─── 8. Write sensor config (Firestore only) ──────────────────
 async function writeDefaultConfig() {
-  await db.ref('sensor_readings/config').update({
-    // 'ranges' structure is what the Flutter app writes via
-    // DatabaseService.saveSensorThresholds. The Cloud Function
-    // onSensorUpdate reads from here to detect threshold crossings.
+  await firestore.collection('config').doc('default').set({
     ranges: {
       temp: { min: 24, max: 30 },
       ph: { min: 7.0, max: 8.5 },
@@ -266,8 +391,8 @@ async function writeDefaultConfig() {
       turb: { min: 0, max: 35 },
       waterlevel: { min: 5, max: 10 },
     },
-  });
-  console.log('📋 Default sensor thresholds written to config/ranges.');
+  }, { merge: true });
+  console.log('📋 Default sensor thresholds written to Firestore config/default.');
 }
 
 // ─── 9a. Status check helper ────────────────────────────────────
@@ -294,6 +419,12 @@ async function main() {
   const doBackfill = args.includes('--backfill');
 
   OPTIMAL_MODE = args.includes('--optimal');
+  CRITICAL_MODE = args.includes('--critical');
+
+  if (CRITICAL_MODE && OPTIMAL_MODE) {
+    console.error('❌ Cannot use --critical and --optimal together.');
+    process.exit(1);
+  }
 
   if (args.includes('--config')) {
     await writeDefaultConfig();
@@ -310,20 +441,22 @@ async function main() {
   }
 
   if (!doBackfill && !args.includes('--no-live')) {
-    const modeLabel = OPTIMAL_MODE
+    const modeLabel = CRITICAL_MODE
+      ? '🔴 CRITICAL MODE — all sensors cycling: optimal → warning → critical → recovery'
+      : OPTIMAL_MODE
       ? '🟢 OPTIMAL MODE — all sensors within ideal range'
       : '🌡️  Temperature cycles: stable → slow rise → fast rise → fall → ...';
     console.log('\n🚀 Starting real-time simulation…');
     console.log(`   ${modeLabel}`);
-    console.log('   Every 5s  → sensor_readings/latest');
-    console.log('   Every 30m → sensor_readings/history');
+    console.log('   Every 5s  → Firestore sensorReadings/latest');
+    console.log('   Every 10m → Firestore sensorReadings/history (min/max/avg)');
     console.log('   Press Ctrl+C to stop.\n');
 
     await writeLatest();
     setInterval(() => writeLatest(), 5000);
 
     await appendHistory();
-    setInterval(() => appendHistory(), 30 * 60 * 1000);
+    setInterval(() => appendHistory(), 10 * 60 * 1000);
   }
 }
 

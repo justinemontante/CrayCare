@@ -2,7 +2,6 @@ const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 admin.initializeApp();
 
-const db = admin.database();          // RTDB — ESP32 sensor & feeder data
 const firestoreDb = admin.firestore(); // Firestore — user data & notifications
 
 const SENSOR_MAP = {
@@ -189,11 +188,11 @@ async function readMarker(uid, key) {
 // ═══════════════════════════════════════════════════════════════════════
 //  1. SENSOR ALERT — triggered on every write to RTDB sensor_readings/latest
 // ═══════════════════════════════════════════════════════════════════════
-exports.onSensorUpdate = functions.region("asia-southeast1").database
-  .ref("sensor_readings/latest")
+exports.onSensorUpdate = functions.region("asia-southeast1").firestore
+  .document("sensorReadings/latest")
   .onWrite(async (change, context) => {
-    const afterData = change.after.val();
-    const beforeData = change.before.val();
+    const afterData = change.after.exists ? change.after.data() : null;
+    const beforeData = change.before.exists ? change.before.data() : null;
     if (!afterData) return;
 
     try {
@@ -350,10 +349,13 @@ exports.processFeeding = functions.region("asia-southeast1").pubsub
       const mo = String(manilaNow.getUTCMonth() + 1).padStart(2, "0");
       const dy = String(manilaNow.getUTCDate()).padStart(2, "0");
 
-      // Read feeder schedules from RTDB (ESP writes here)
-      const schedSnap = await db.ref("feeder/schedules").once("value");
-      if (!schedSnap.exists()) return;
-      const schedData = schedSnap.val();
+      // Read feeder schedules from Firestore
+      const schedSnap = await firestoreDb.collection("feederSchedules").get();
+      if (schedSnap.empty) return;
+      const schedData = {};
+      schedSnap.forEach((doc) => {
+        schedData[doc.id] = doc.data();
+      });
 
       for (const [key, s] of Object.entries(schedData)) {
         if (!s || s.enabled !== true) continue;
@@ -468,14 +470,16 @@ exports.processFeeding = functions.region("asia-southeast1").pubsub
       }
 
       // ── Feeding Complete confirmation ──
-      const dispSnap = await db.ref(`feeder/dispatched/${todayKey}`).once("value");
-      if (dispSnap.exists()) {
-        const dispatched = dispSnap.val();
+      const fsTodayKey = `${yr}-${manilaNow.getUTCMonth() + 1}-${manilaNow.getUTCDate()}`;
+      const dispSnap = await firestoreDb.collection("feederDispatched").doc(fsTodayKey).get();
+      if (dispSnap.exists) {
+        const dispatched = dispSnap.data() || {};
         const confirmUids = await getAuthorizedUids();
         if (confirmUids.length > 0) {
           for (const [schedKey] of Object.entries(dispatched)) {
-            const s2Snap = await db.ref(`feeder/schedules/${schedKey}`).once("value");
-            const s2 = s2Snap.val();
+            if (dispatched[schedKey] !== true) continue;
+            const s2Snap = await firestoreDb.collection("feederSchedules").doc(schedKey).get();
+            const s2 = s2Snap.exists ? s2Snap.data() : null;
             if (!s2 || s2.enabled !== true) continue;
 
             const time2 = s2.time || "6:00";
