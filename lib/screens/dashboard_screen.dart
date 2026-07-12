@@ -6,10 +6,8 @@ import '../widgets/section_label.dart';
 import '../services/sensor_service.dart';
 import '../services/settings_service.dart';
 import '../services/tank_service.dart';
-import '../services/health_risk_service.dart';
 import '../models/control_types.dart';
 import '../models/crayfish_batch.dart';
-import '../widgets/dashboard/health_risk_card.dart';
 
 class DashboardScreen extends StatefulWidget {
   final ValueChanged<String>? onViewGraph;
@@ -49,7 +47,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     SensorService.instance.addListener(_refreshUI);
     SettingsService.instance.addListener(_refreshUI);
     TankService.instance.addListener(_refreshUI);
-    HealthRiskService.instance.init();
     _refreshUI();
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
@@ -155,16 +152,6 @@ class _DashboardScreenState extends State<DashboardScreen>
           children: [
             _buildGreeting(),
             _buildConnectionBanner(),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 4),
-              child: SectionLabel(
-                label: 'CrayCare Insights',
-                showLiveData: false,
-                icon: Icons.health_and_safety_outlined,
-              ),
-            ),
-            const HealthRiskCard(),
-            const SizedBox(height: 8),
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 4),
               child: SectionLabel(
