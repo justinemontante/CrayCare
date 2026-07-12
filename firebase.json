@@ -8,10 +8,20 @@
   },
   "functions": [
     {
-      "source": "functions",
-      "codebase": "default",
+      "source": "functions/notifications",
+      "codebase": "notifications",
       "ignore": [
         "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firestore-debug.log",
+        "ui-debug.log"
+      ]
+    },
+    {
+      "source": "functions/ml",
+      "codebase": "ml",
+      "ignore": [
         ".git",
         "firebase-debug.log",
         "firestore-debug.log",
