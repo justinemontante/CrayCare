@@ -1,5 +1,6 @@
 """Train CSI-XGBoost -> csi_model.joblib"""
 
+import os
 import pandas as pd
 import numpy as np
 import joblib
@@ -7,8 +8,10 @@ from xgboost import XGBClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix
 
+_DIR = os.path.dirname(os.path.abspath(__file__))
+
 df = (
-    pd.read_csv("sensor_labeled.csv", parse_dates=["timestamp"])
+    pd.read_csv(os.path.join(_DIR, "sensor_labeled.csv"), parse_dates=["timestamp"])
     .sort_values("timestamp")
     .reset_index(drop=True)
 )
@@ -35,10 +38,16 @@ feat["pH_hrs_bad"] = ((df["pH_min"] < 6.5) | (df["pH_max"] > 8.5)).rolling(
 feat = feat.bfill().fillna(0)
 
 X, y = feat, df["csi_class"]
-Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.2, shuffle=False)
+Xtr, Xte, ytr, yte = train_test_split(
+    X, y, test_size=0.2, shuffle=True, random_state=42
+)
+
+class_counts = ytr.value_counts().sort_index()
+weights = len(ytr) / (len(class_counts) * class_counts)
+sample_weight = ytr.map(weights).values
 
 model = XGBClassifier(
-    n_estimators=400,
+    n_estimators=500,
     max_depth=5,
     learning_rate=0.05,
     subsample=0.9,
@@ -46,22 +55,30 @@ model = XGBClassifier(
     objective="multi:softprob",
     num_class=4,
     eval_metric="mlogloss",
+    early_stopping_rounds=20,
     random_state=42,
 )
-model.fit(Xtr, ytr)
+model.fit(Xtr, ytr, sample_weight=sample_weight, eval_set=[(Xte, yte)], verbose=False)
 
 pred = model.predict(Xte)
 print(
     classification_report(
-        yte, pred, target_names=["Low", "Moderate", "High", "Critical"]
+        yte,
+        pred,
+        labels=[0, 1, 2, 3],
+        target_names=["Low", "Moderate", "High", "Critical"],
+        zero_division=0.0,
     )
 )
-print("Confusion matrix:\n", confusion_matrix(yte, pred))
+print("Confusion matrix:\n", confusion_matrix(yte, pred, labels=[0, 1, 2, 3]))
 
 imp = pd.Series(model.feature_importances_, index=X.columns).sort_values(
     ascending=False
 )
 print("\nTop 10 features:\n", imp.head(10))
 
-joblib.dump({"model": model, "features": list(X.columns)}, "csi_model.joblib")
+joblib.dump(
+    {"model": model, "features": list(X.columns)},
+    os.path.join(_DIR, "csi_model.joblib"),
+)
 print("\nSaved csi_model.joblib")

@@ -76,6 +76,13 @@ class DatabaseService {
       data,
       SetOptions(merge: true),
     );
+
+    // Also write to config/default/ranges for the Cloud Function
+    // (onSensorUpdate) to read sensor thresholds from Firestore
+    await FirebaseFirestore.instance.collection('config').doc('default').set(
+      data,
+      SetOptions(merge: true),
+    ).catchError((_) {});
   }
 
   Future<void> saveDeviceMode({
