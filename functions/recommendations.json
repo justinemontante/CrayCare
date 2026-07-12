@@ -1,0 +1,27 @@
+{
+  "DO": {
+    "problem": "Low dissolved oxygen",
+    "action": "Turn on / increase aeration immediately. Keep DO above 3 mg/L to prevent hypoxia. Skip next feeding.",
+    "source": "Ott et al. 2024; ScienceDirect aeration study 2022"
+  },
+  "turbidity": {
+    "problem": "High turbidity (waste buildup)",
+    "action": "Do a 20-30% partial water change and reduce feeding. Overfeeding is the main ammonia/waste source.",
+    "source": "Yu et al. 2018; Ramli et al. 2024"
+  },
+  "pH": {
+    "problem": "pH out of safe range",
+    "action": "If low: add alkaline buffer (also raises hardness). If high: partial water change. Target pH 7.0-8.5.",
+    "source": "UF/IFAS Water Quality Guide; Zeng et al. 2024"
+  },
+  "temp": {
+    "problem": "High temperature stress",
+    "action": "Add shade cover, increase water exchange, boost aeration (warm water holds less oxygen). Target 25-31 C.",
+    "source": "Rigg et al. 2021"
+  },
+  "waterLevel": {
+    "problem": "Abnormal water level",
+    "action": "Top up or drain to restore normal level. Low level concentrates waste and raises stocking stress.",
+    "source": "General aquaculture practice"
+  }
+}

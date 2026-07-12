@@ -107,5 +107,10 @@ service cloud.firestore {
       allow read: if request.auth != null;
       allow create, update: if true;
     }
+
+    match /healthRisk/{doc} {
+      allow read: if request.auth != null;
+      allow create, update: if true;
+    }
   }
 }
