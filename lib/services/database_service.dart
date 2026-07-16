@@ -61,6 +61,16 @@ class DatabaseService {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
+    // This writes to config/default, which every user's alerts and the
+    // sensor-alert Cloud Function read from — it is shared, global state,
+    // not per-user. A "monitor" or "admin" account should never be able to
+    // silently overwrite the tank owner's thresholds.
+    final profile = await getUserProfile(user.uid);
+    final role = profile?['role'] as String?;
+    if (role == 'monitor' || role == 'admin') {
+      throw Exception('Only the tank owner can change sensor thresholds.');
+    }
+
     final data = <String, dynamic>{
       'ranges': {
         for (final e in currentRanges.entries)

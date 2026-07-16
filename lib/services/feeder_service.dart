@@ -10,6 +10,18 @@ class FeederService extends ChangeNotifier {
   static final FeederService instance = FeederService._();
   FeederService._();
 
+  // The feeder schedule times (and the Cloud Function that dispatches/confirms
+  // them) are always expressed in Asia/Manila wall-clock time, regardless of
+  // where the viewing device is physically located (e.g. a "monitor" user
+  // checking in from a different timezone). Using DateTime.now() directly
+  // would compare schedule times against the DEVICE's local clock instead,
+  // causing missed-schedule false positives and feederDispatched date-key
+  // mismatches with the Cloud Function (functions/notifications/index.js,
+  // which hardcodes MANILA_OFFSET_MS). Mirror that same fixed +8h approach
+  // here so both sides agree on "today" and "now".
+  static const _manilaOffset = Duration(hours: 8);
+  DateTime _manilaNow() => DateTime.now().toUtc().add(_manilaOffset);
+
   bool _initialized = false;
 
   StreamSubscription? _statusSub;
@@ -221,9 +233,10 @@ class FeederService extends ChangeNotifier {
           type: 'auto',
         );
         if (scheduleKey != null) {
+          final mNow = _manilaNow();
           FirebaseFirestore.instance
               .collection('feederDispatched')
-              .doc('${DateTime.now().year}-${DateTime.now().month}-${DateTime.now().day}')
+              .doc('${mNow.year}-${mNow.month}-${mNow.day}')
               .set({scheduleKey: true}, SetOptions(merge: true));
         }
       } else {
@@ -349,7 +362,7 @@ class FeederService extends ChangeNotifier {
   }
 
   void _checkSchedules() {
-    final now = DateTime.now();
+    final now = _manilaNow();
     final todayKey = '${now.year}-${now.month}-${now.day}';
     if (_lastCheckDate != todayKey) {
       _lastCheckDate = todayKey;

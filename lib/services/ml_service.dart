@@ -21,9 +21,14 @@ class MlService extends ChangeNotifier {
   bool get hasFreshData {
     if (_latestPrediction == null) return false;
     final ts = _latestPrediction!['timestamp'];
-    if (ts is! num) return false;
-    final age = DateTime.now().millisecondsSinceEpoch - ts.toInt();
-    return age < 2 * 60 * 1000;
+    // The Cloud Function (main.py / features.py) writes this as an ISO 8601
+    // UTC string (datetime.isoformat()), not a numeric epoch — parse it the
+    // same way HealthRiskService does, or this always evaluates to false.
+    if (ts is! String) return false;
+    final parsed = DateTime.tryParse(ts);
+    if (parsed == null) return false;
+    final age = DateTime.now().toUtc().difference(parsed.toUtc());
+    return age < const Duration(minutes: 2);
   }
 
   void init() {
