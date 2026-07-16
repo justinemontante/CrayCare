@@ -82,3 +82,70 @@ Code review was still in progress (services reviewed: `esp_service`,
 `feeder_service.dart`, `tank_service.dart`, `notification_service.dart`,
 `functions/notifications/index.js`, and the `lib/screens`/`lib/widgets`
 UI layer.
+
+## 5. Code review fixes applied
+
+All 5 findings from section 4 were fixed and pushed:
+
+- `functions/ml/export_firestore.py`: now reads from the actual
+  `sensorReadings/history/{date}` subcollections instead of a nonexistent
+  top-level `sensor_logs` collection.
+- `lib/services/ml_service.dart`: now listens to `healthRisk/latest`
+  (what `main.py` actually writes) instead of the unused `mlPredictions`
+  collection.
+- `lib/services/device_log_service.dart`: fixed the High-severity race
+  condition — `init()` no longer burns the `_initialized` flag before
+  Firebase Auth resolves the persisted session; it now waits on
+  `authStateChanges()` and starts the real listeners once a user is
+  actually available.
+- `lib/services/auth_service.dart`: `changePassword()` no longer retries
+  the identical `reauthenticateWithCredential` call on
+  `requires-recent-login` (a guaranteed no-op); it now surfaces a clear
+  error telling the user to log out and back in.
+- `lib/services/database_service.dart`: removed the dead
+  `getSensorHistory()` method — unused anywhere, and structurally broken
+  since a fixed `collectionGroup` name can never match the date-named
+  subcollections the data actually lives in.
+
+**Commit:** `4e129e3`
+
+## 6. Analytics history cache — staleness bug + auto-refresh
+
+**Context:** the Analytics tab's 24h/7d/30d/custom filters read per-day
+Firestore subcollections (`sensorReadings/history/{date}`) through an
+in-memory day cache in `sensor_service.dart`, to avoid re-fetching the
+same day's data on every filter switch.
+
+**Bug found:** the cache used one shared `_cacheClearedAt` timestamp for
+every cached day, reset by *any* `cacheDay()` call. This meant today's
+subcollection — still being appended to by the ESP32 every ~10 minutes
+(`HISTORY_INTERVAL` in the firmware) — was treated identically to
+closed/immutable past days. A newly-saved reading could be masked for
+well over the intended 30-minute window if other days kept getting
+cached and resetting the shared clock.
+
+**Fix:**
+- `sensor_service.dart`: each cached day now tracks its own timestamp.
+  Closed/past days (never change once written) are cached indefinitely.
+  Today's entry gets a short 60-second TTL, matching the firmware's
+  write cadence closely enough that a new save shows up quickly.
+- `lib/screens/analytics_screen.dart`: added a 60-second periodic
+  auto-refresh while the active filter is a historical range (24h/7d/30d,
+  or custom with an end date of today or later) that includes today. This
+  re-fetches and re-renders automatically, so a new 10-min ESP reading
+  appears without the user needing to manually switch filters to bust the
+  cache. The Live view is untouched — it already updates via the
+  real-time sensor listener.
+
+**Cost/scaling note (multi-user):** the day cache and the new auto-refresh
+timer are both per-device/per-session, not shared across users. Each
+concurrently active user independently issues their own Firestore reads —
+cost scales with concurrent viewers, not with total stored data. Writes
+are unaffected (fixed rate from the ESP32 regardless of viewer count). If
+the user base grows large enough for this to matter, the next
+optimization would be server-side pre-aggregation (e.g. a scheduled Cloud
+Function producing hourly/daily rollup docs) so all clients read shared,
+already-computed results instead of each one re-aggregating raw 10-min
+history independently.
+
+**Commit:** `3685351`
