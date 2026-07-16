@@ -584,10 +584,8 @@ async function getSamplingDue(notifTarget) {
 
   try {
     const snap = await firestoreDb
-      .collection("production")
+      .collection("config")
       .doc(notifTarget)
-      .collection("crayfish")
-      .doc("config")
       .get();
     if (!snap.exists) return null;
     const config = snap.data() || {};

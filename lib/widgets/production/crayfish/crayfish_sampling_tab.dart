@@ -1375,7 +1375,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
                 onPressed: null,
                 icon: const Icon(Icons.lock_rounded, size: 16),
                 label: Text(
-                  'Sampling available in ${7 - TankService.instance.daysSinceLastSampling} days',
+                  'Sampling available in ${(7 - TankService.instance.daysSinceLastSampling).clamp(0, 7)} days',
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 12,
