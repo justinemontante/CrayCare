@@ -327,6 +327,16 @@ class NotificationService extends ChangeNotifier {
 
   bool get _isMonitor => _effectiveUid != null;
 
+  // Feeding schedules are configured in — and the Cloud Function
+  // (functions/notifications/index.js) dispatches/confirms them in — fixed
+  // Asia/Manila wall-clock time (MANILA_OFFSET_MS there). A "monitor" user
+  // viewing from a different timezone would otherwise have their local
+  // reminder timers, OS alarms, and marker date-keys computed against their
+  // OWN device clock instead, causing wrong-time or duplicate reminders.
+  // This mirrors the same fixed +8h approach so both sides agree.
+  static const _manilaOffset = Duration(hours: 8);
+  DateTime _manilaNow() => DateTime.now().toUtc().add(_manilaOffset);
+
   final FlutterLocalNotificationsPlugin _localNotifications =
       FlutterLocalNotificationsPlugin();
   StreamSubscription? _tokenSub;
@@ -692,8 +702,9 @@ class NotificationService extends ChangeNotifier {
   void _checkFeedingReminders() {
     if (_userRole == 'admin') return;
     if (!_notifFeeding) return;
-    final now = DateTime.now();
-    final todayKey = '${now.month}/${now.day}';
+    final mNow = _manilaNow();
+    final todayKey = '${mNow.month}/${mNow.day}';
+    final realNow = DateTime.now().toUtc();
 
     for (final s in FeedState.schedules.value) {
       if (!s.enabled) continue;
@@ -706,20 +717,24 @@ class NotificationService extends ChangeNotifier {
       if (_feedingReminderSent.contains(key)) continue;
       if (h * 60 + m <= 0) continue;
 
-      final target = DateTime(now.year, now.month, now.day, h, m).subtract(const Duration(minutes: 5));
-      final scheduleDt = DateTime(now.year, now.month, now.day, h, m);
-      final diff = target.difference(now);
-      final schedDiff = scheduleDt.difference(now);
+      // Schedule's real absolute instant: build the wall-clock moment in the
+      // "fake UTC = Manila" domain, then undo the offset to get true UTC.
+      final scheduleWall = DateTime.utc(mNow.year, mNow.month, mNow.day, h, m);
+      final scheduleInstant = scheduleWall.subtract(_manilaOffset);
+      final targetInstant = scheduleInstant.subtract(const Duration(minutes: 5));
+      final diff = targetInstant.difference(realNow);
+      final schedDiff = scheduleInstant.difference(realNow);
 
       if (schedDiff > Duration.zero && schedDiff <= const Duration(minutes: 5)) {
         if (!_pendingTimers.contains(key)) {
           _pendingTimers.add(key);
+          final targetLocal = targetInstant.toLocal();
           if (diff > Duration.zero) {
-            Future.delayed(diff, () => _fireReminder(key, s, scheduledAt: target));
+            Future.delayed(diff, () => _fireReminder(key, s, scheduledAt: targetLocal));
           } else {
-            _fireReminder(key, s, scheduledAt: target);
+            _fireReminder(key, s, scheduledAt: targetLocal);
           }
-          _scheduleOSReminder(key, s, target);
+          _scheduleOSReminder(key, s, targetLocal);
         }
       }
     }
@@ -727,8 +742,8 @@ class NotificationService extends ChangeNotifier {
 
   void _preScheduleOSReminders() {
     if (_userRole == 'admin') return;
-    final now = DateTime.now();
-    final todayKey = '${now.month}/${now.day}';
+    final mNow = _manilaNow();
+    final todayKey = '${mNow.month}/${mNow.day}';
 
     for (final s in FeedState.schedules.value) {
       if (!s.enabled) continue;
@@ -740,8 +755,10 @@ class NotificationService extends ChangeNotifier {
       final key = '${todayKey}_${s.time}_${s.ampm}';
       if (_osScheduled.contains(key)) continue;
 
-      final target = DateTime(now.year, now.month, now.day, h, m).subtract(const Duration(minutes: 5));
-      if (target.isBefore(now)) continue;
+      final scheduleWall = DateTime.utc(mNow.year, mNow.month, mNow.day, h, m);
+      final scheduleInstant = scheduleWall.subtract(_manilaOffset);
+      final target = scheduleInstant.subtract(const Duration(minutes: 5)).toLocal();
+      if (target.isBefore(DateTime.now())) continue;
 
       _scheduleOSReminder(key, s, target);
     }
@@ -803,9 +820,12 @@ class NotificationService extends ChangeNotifier {
     if (s.ampm == 'PM' && h != 12) h += 12;
     if (s.ampm == 'AM' && h == 12) h = 0;
     final hhmm = '${h.toString().padLeft(2, '0')}${m.toString().padLeft(2, '0')}';
-    final y = now.year.toString();
-    final mo = now.month.toString().padLeft(2, '0');
-    final d = now.day.toString().padLeft(2, '0');
+    // Must match the Cloud Function's marker key, which is built from its
+    // Manila-offset date — not the device's local date.
+    final mNow = _manilaNow();
+    final y = mNow.year.toString();
+    final mo = mNow.month.toString().padLeft(2, '0');
+    final d = mNow.day.toString().padLeft(2, '0');
     final reminderKey = 'reminder_${y}-${mo}-${d}_$hhmm';
 
     final scheduleLabel = '${s.time} ${s.ampm}';
