@@ -47,7 +47,7 @@ class MlService extends ChangeNotifier {
   void _startListening() {
     _loading = true;
     _sub = FirebaseFirestore.instance
-        .collection('mlPredictions')
+        .collection('healthRisk')
         .doc('latest')
         .snapshots()
         .listen(_onPredictionUpdate, onError: (e) {

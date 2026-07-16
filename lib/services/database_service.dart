@@ -148,19 +148,4 @@ class DatabaseService {
     return null;
   }
 
-  Future<List<Map<String, dynamic>>> getSensorHistory({
-    int limit = 100,
-    String orderBy = 'timestamp',
-  }) async {
-    try {
-      final query = await FirebaseFirestore.instance
-          .collectionGroup('sensorHistory')
-          .orderBy(orderBy, descending: true)
-          .limit(limit)
-          .get();
-      return query.docs.map((doc) => doc.data()).toList();
-    } catch (_) {
-      return [];
-    }
-  }
 }

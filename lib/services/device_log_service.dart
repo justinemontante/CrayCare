@@ -33,6 +33,7 @@ class DeviceLogService extends ChangeNotifier {
   bool _initialized = false;
   bool _warmup = true;
   final Set<String> _seenKeys = {};
+  StreamSubscription<User?>? _authSub;
 
   final StreamController<AutoControlEvent> _autoControlController =
       StreamController<AutoControlEvent>.broadcast();
@@ -40,9 +41,27 @@ class DeviceLogService extends ChangeNotifier {
 
   void init() {
     if (_initialized) return;
-    _initialized = true;
 
-    if (FirebaseAuth.instance.currentUser == null) return;
+    if (FirebaseAuth.instance.currentUser == null) {
+      // Auth hasn't resolved the persisted session yet. Don't burn the
+      // _initialized flag - instead wait for the first auth state change
+      // and start the real listeners once a user is actually available.
+      _authSub ??= FirebaseAuth.instance.authStateChanges().listen((user) {
+        if (user != null && !_initialized) {
+          _startListening();
+        }
+      });
+      return;
+    }
+
+    _startListening();
+  }
+
+  void _startListening() {
+    if (_initialized) return;
+    _initialized = true;
+    _authSub?.cancel();
+    _authSub = null;
 
     for (final deviceId in deviceIds) {
       _logs[deviceId] = [];
@@ -112,6 +131,8 @@ class DeviceLogService extends ChangeNotifier {
       sub.cancel();
     }
     _subs.clear();
+    _authSub?.cancel();
+    _authSub = null;
     _autoControlController.close();
     super.dispose();
   }

@@ -138,10 +138,17 @@ class AuthService {
         await user.reauthenticateWithCredential(credential);
       } on FirebaseAuthException catch (e) {
         if (e.code == 'requires-recent-login') {
-          await user.reauthenticateWithCredential(credential);
-        } else {
-          rethrow;
+          // Re-issuing the identical reauthentication call fails the same
+          // way again - it isn't a retryable state. Surface a clear error
+          // instead so the caller can prompt the user to log out and back
+          // in before retrying the password change.
+          throw FirebaseAuthException(
+            code: e.code,
+            message: 'Your session is too old to change your password. '
+                'Please log out and log back in, then try again.',
+          );
         }
+        rethrow;
       }
     }
 
