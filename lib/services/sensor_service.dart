@@ -39,7 +39,7 @@ class SensorService extends ChangeNotifier {
   bool _initialDataLoaded = false;
 
   Timer? _staleTimer;
-  static const _staleTimeout = Duration(seconds: 30);
+  static const _staleTimeout = Duration(minutes: 12);
   bool _hasLiveData = false;
 
   DateTime _lastUpdated = DateTime.fromMillisecondsSinceEpoch(0);
