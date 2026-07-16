@@ -10,7 +10,7 @@
 #include <Preferences.h>
 #include <time.h>
 
-// Wi‑Fi credentials (replace with your own values)
+// Wi‑Fi credentials (set via serial: wifissid + wifipass)
 extern const char* ssid;
 extern const char* password;
 
@@ -34,6 +34,7 @@ extern const char* WIFI_KEY_SSID;   // "ssid"
 extern const char* WIFI_KEY_PASS;   // "password"
 
 // Helper functions
+void initWiFi();
 void connectWiFi();
 void initTime();
 bool connectFirebase();
@@ -45,6 +46,8 @@ void loadWifiFromNVS();
 void saveWifiSSIDToNVS(const char* newSSID);
 void saveWifiPasswordToNVS(const char* newPass);
 void resetWifiToDefault();
+void reconnectWiFi();
+void scanWiFiNetworks();
 String getStoredWifiSSID();
 String getStoredWifiPassword();
 

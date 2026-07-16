@@ -1,5 +1,6 @@
 #include "common.h"
 #include <stdlib.h> // for strdup, free
+#include "esp_task_wdt.h"
 
 // ***** Wi‑Fi & Firebase credentials *****
 
@@ -8,9 +9,8 @@ const char* WIFI_NAMESPACE = "wifi";
 const char* WIFI_KEY_SSID  = "ssid";
 const char* WIFI_KEY_PASS  = "password";
 
-// Replace these placeholders with your actual network and Firebase details.
-const char* ssid = "YOUR_SSID";
-const char* password = "YOUR_PASSWORD";
+const char* ssid = NULL;
+const char* password = NULL;
 
 const char* firebase_api_key = "AIzaSyBIidS1Y6wysetztz1pSSIWlHTcaQFeAE4";
 const char* firebase_user_email = "esp32@craycare.com";
@@ -25,12 +25,23 @@ FirebaseConfig config;
 // ***** Preferences (NVS) *****
 Preferences prefs;
 
+void initWiFi() {
+    WiFi.mode(WIFI_STA);
+    WiFi.persistent(false);
+    Serial.println("[WIFI] Stack initialized");
+}
+
 void connectWiFi() {
-    Serial.print("[WIFI] Connecting to ");
-    Serial.println(ssid);
+    if (!ssid || strlen(ssid) == 0) {
+        Serial.println("[WIFI] No credentials — use 'wifissid <SSID>' and 'wifipass <PASS>'");
+        return;
+    }
+    Serial.print("[WIFI] Connecting to \"");
+    Serial.print(ssid);
+    Serial.println("\"");
     WiFi.begin(ssid, password);
     uint8_t attempts = 0;
-    while (WiFi.status() != WL_CONNECTED && attempts < 30) {
+    while (WiFi.status() != WL_CONNECTED && attempts < 40) {
         delay(500);
         Serial.print(".");
         attempts++;
@@ -86,7 +97,7 @@ bool connectFirebase() {
 #endif
 
 bool ensureFirebaseReady() {
-    // Load any stored SSID from NVS (non‑volatile configuration)
+    initWiFi();
     loadWifiFromNVS();
     connectWiFi();
     if (WiFi.status() != WL_CONNECTED) return false;
@@ -101,23 +112,21 @@ void loadWifiFromNVS() {
     String storedPass = prefs.getString(WIFI_KEY_PASS, "");
     prefs.end();
     if (storedSSID.length() > 0) {
-        if (ssid && ssid != "YOUR_SSID") free((void*)ssid);
+        if (ssid) free((void*)ssid);
         ssid = strdup(storedSSID.c_str());
-        Serial.println("[NVS] Loaded stored Wi‑Fi SSID");
+        Serial.printf("[NVS] Loaded Wi‑Fi SSID: \"%s\"\n", ssid);
     } else {
-        Serial.println("[NVS] No saved SSID – using default");
+        Serial.println("[NVS] No saved WiFi — waiting for serial input");
     }
     if (storedPass.length() > 0) {
-        if (password && password != "YOUR_PASSWORD") free((void*)password);
+        if (password) free((void*)password);
         password = strdup(storedPass.c_str());
-        Serial.println("[NVS] Loaded stored Wi‑Fi password");
-    } else {
-        Serial.println("[NVS] No saved password – using default");
+        Serial.println("[NVS] Loaded Wi‑Fi password");
     }
 }
 
 void saveWifiSSIDToNVS(const char* newSSID) {
-    if (ssid && ssid != "YOUR_SSID") free((void*)ssid);
+    if (ssid) free((void*)ssid);
     ssid = strdup(newSSID);
     prefs.begin(WIFI_NAMESPACE, false);
     prefs.putString(WIFI_KEY_SSID, newSSID);
@@ -126,7 +135,7 @@ void saveWifiSSIDToNVS(const char* newSSID) {
 }
 
 void saveWifiPasswordToNVS(const char* newPass) {
-    if (password && password != "YOUR_PASSWORD") free((void*)password);
+    if (password) free((void*)password);
     password = strdup(newPass);
     prefs.begin(WIFI_NAMESPACE, false);
     prefs.putString(WIFI_KEY_PASS, newPass);
@@ -139,22 +148,46 @@ void resetWifiToDefault() {
     prefs.remove(WIFI_KEY_SSID);
     prefs.remove(WIFI_KEY_PASS);
     prefs.end();
-    if (ssid && ssid != "YOUR_SSID") free((void*)ssid);
-    ssid = "YOUR_SSID";
-    password = "YOUR_PASSWORD";
-    Serial.println("[NVS] Wi‑Fi credentials cleared – defaults will be used");
+    if (ssid) { free((void*)ssid); ssid = NULL; }
+    if (password) { free((void*)password); password = NULL; }
+    WiFi.disconnect(true);
+    Serial.println("[NVS] WiFi cleared — type 'wifissid <SSID>' then 'wifipass <PASS>'");
+}
+
+void reconnectWiFi() {
+    WiFi.disconnect(true);
+    delay(200);
+    connectWiFi();
+}
+
+void scanWiFiNetworks() {
+    Serial.println("[WIFI] Scanning...");
+    int n = WiFi.scanNetworks();
+    if (n <= 0) {
+        Serial.printf("[WIFI] No networks found (code=%d)\n", n);
+    } else {
+        Serial.printf("[WIFI] %d networks found:\n", n);
+        for (int i = 0; i < n; i++) {
+            Serial.printf("  %d: \"%s\" (%d dBm) %s\n",
+                i + 1,
+                WiFi.SSID(i).c_str(),
+                WiFi.RSSI(i),
+                WiFi.encryptionType(i) == WIFI_AUTH_OPEN ? "OPEN" : "secure");
+        }
+    }
+    WiFi.scanDelete();
 }
 
 String getStoredWifiSSID() {
     prefs.begin(WIFI_NAMESPACE, false);
-    String stored = prefs.getString(WIFI_KEY_SSID, ssid);
+    String stored = prefs.getString(WIFI_KEY_SSID, "");
     prefs.end();
     return stored;
 }
 
 String getStoredWifiPassword() {
     prefs.begin(WIFI_NAMESPACE, false);
-    String stored = prefs.getString(WIFI_KEY_PASS, password);
+    String stored = prefs.getString(WIFI_KEY_PASS, "");
     prefs.end();
     return stored;
 }

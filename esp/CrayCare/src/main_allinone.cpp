@@ -1240,7 +1240,7 @@ static void processSerialCommands() {
         if (arg.length() > 0 && arg.length() <= 32) {
             saveWifiSSIDToNVS(arg.c_str());
             Serial.printf("[CMD] SSID saved: %s\n", arg.c_str());
-            Serial.println("[CMD] Type 'restart' to reconnect");
+            Serial.println("[CMD] Type 'wifipass <PASS>' to set password and connect");
         }
         return;
     }
@@ -1248,12 +1248,12 @@ static void processSerialCommands() {
         arg.trim();
         if (arg.length() > 0 && arg.length() <= 64) {
             saveWifiPasswordToNVS(arg.c_str());
-            Serial.println("[CMD] Password saved");
-            Serial.println("[CMD] Type 'restart' to reconnect");
+            Serial.println("[CMD] Password saved, connecting...");
+            reconnectWiFi();
         }
         return;
     }
-    if (cmd == "wifireset") { resetWifiToDefault(); Serial.println("[CMD] Type 'restart'"); return; }
+    if (cmd == "wifireset") { resetWifiToDefault(); return; }
     if (cmd == "wifistatus") {
         Serial.printf("  SSID: %s\n", getStoredWifiSSID().c_str());
         Serial.printf("  Password: %s (%u chars)\n",
@@ -1263,6 +1263,7 @@ static void processSerialCommands() {
         if (WiFi.status() == WL_CONNECTED) Serial.printf("  IP: %s\n", WiFi.localIP().toString().c_str());
         return;
     }
+    if (cmd == "wifi" && arg == "scan") { scanWiFiNetworks(); return; }
 
     // --- Turbidity calibration ---
     if (cmd == "turbclear" || cmd == "turblclear") {
@@ -1501,6 +1502,7 @@ void setup() {
     }
 
     // WiFi
+    initWiFi();
     loadWifiFromNVS();
     connectWiFi();
 
