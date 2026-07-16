@@ -118,7 +118,7 @@ def _predict_wqri(df):
         else:
             # Classifier (legacy format)
             raw_pred = model.predict(latest_feat)
-            pred_1d = raw_pred.argmax(axis=1) if raw_pred.shape[1] > 1 else raw_pred
+            pred_1d = raw_pred.argmax(axis=1) if len(raw_pred.shape) == 2 else raw_pred
             cls = int(pred_1d[0])
             proba = model.predict_proba(latest_feat)[0]
             confidence = round(proba[cls] * 100)
