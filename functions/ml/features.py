@@ -70,6 +70,35 @@ def build_features(df):
         (df["pH_min"] < PH_OPTIMAL_MIN) | (df["pH_max"] > PH_OPTIMAL_MAX)
     ).rolling(36, min_periods=1).sum() / 6.0
 
+    # Continuous per-sensor hazard, rolling-summed the same way
+    # compute_wqri_score() builds the label -- the boolean hour-counts above
+    # only capture "was it bad" (pass/fail), not "how bad" (magnitude). The
+    # classifier was missing this continuous signal entirely, which is why
+    # it could never learn the boundary of the "High" class: it had no
+    # feature that actually varies smoothly with the WQRI score it's trying
+    # to predict.
+    do_hz = np.clip(DO_MIN - df["DO_min"], 0, None) / DO_MIN
+    ph_hz = (
+        np.clip(PH_OPTIMAL_MIN - df["pH_min"], 0, None) / 1.5
+        + np.clip(df["pH_max"] - PH_OPTIMAL_MAX, 0, None) / 1.5
+    )
+    temp_hz = (
+        np.clip(df["temp_max"] - TEMP_MAX, 0, None) / 4.0
+        + np.clip(TEMP_MIN - df["temp_min"], 0, None) / 4.0
+    )
+    turb_hz = np.clip(df["turbidity_max"] - TURB_MAX, 0, None) / TURB_MAX
+
+    feat["DO_hazard_roll6h"] = do_hz.rolling(36, min_periods=1).sum()
+    feat["pH_hazard_roll6h"] = ph_hz.rolling(36, min_periods=1).sum()
+    feat["temp_hazard_roll6h"] = temp_hz.rolling(36, min_periods=1).sum()
+    feat["turb_hazard_roll6h"] = turb_hz.rolling(36, min_periods=1).sum()
+    feat["total_hazard_roll6h"] = (
+        feat["DO_hazard_roll6h"]
+        + feat["pH_hazard_roll6h"]
+        + feat["temp_hazard_roll6h"]
+        + feat["turb_hazard_roll6h"]
+    )
+
     # FIXED (was look-ahead leakage): the old code used .bfill() here, which
     # fills the leading NaN (from the `.diff()` warm-up on the very first
     # row) using a FUTURE value. We now forward-fill only (uses past values)

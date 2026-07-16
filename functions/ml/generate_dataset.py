@@ -49,13 +49,24 @@ def inject(arr, s, ln, delta):
     return arr
 
 
-for kind, s, ln in [
-    ("aer", 900, 60),
-    ("heat", 2600, 90),
-    ("ph", 4100, 40),
-    ("feed", 5200, 30),
-    ("aer", 5900, 45),
-]:
+# Each fault kind repeats several times, spread across the whole timeline
+# (staggered per kind + randomized jitter/duration). A single occurrence per
+# kind meant later TimeSeriesSplit CV folds tested on fault patterns the
+# model had literally never seen in training -- this is what was collapsing
+# fold 3/4 accuracy and starving the "High" class of learnable examples.
+FAULT_KINDS = ["aer", "heat", "ph", "feed"]
+N_REPEATS = 4
+events = []
+for k_idx, kind in enumerate(FAULT_KINDS):
+    segment = ROWS // N_REPEATS
+    stagger = int(segment / (len(FAULT_KINDS) + 1) * (k_idx + 1))
+    for i in range(N_REPEATS):
+        jitter = int(np.random.randint(-150, 150))
+        start = int(np.clip(segment * i + stagger + jitter, 50, ROWS - 150))
+        length = int(np.random.randint(35, 95))
+        events.append((kind, start, length))
+
+for kind, s, ln in events:
     if kind == "aer":
         do_avg = inject(do_avg, s, ln, -4.0)
         temp_avg = inject(temp_avg, s, ln, 1.2)

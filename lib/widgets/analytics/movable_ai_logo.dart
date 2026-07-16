@@ -414,7 +414,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
             ),
           ),
           Text(
-            'CSI v1',
+            'WQRI v1',
             style: TextStyle(
               fontSize: 9,
               fontWeight: FontWeight.w700,
