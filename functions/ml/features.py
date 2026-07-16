@@ -195,3 +195,114 @@ def generate_insight(driver, last_row, level):
         ),
     }
     return templates.get(driver, f"{driver} reading is outside the optimal range.")
+
+
+def predict_wqri(df, bundle, recs):
+    """Single source of truth for turning raw sensor history into a full
+    WQRI prediction result (score, level, confidence, driver, insight,
+    recommendation).
+
+    Used by BOTH the deployed Cloud Function (main.py, reading live
+    Firestore data) and the local CLI test script (predict.py, reading
+    sensor_dataset.csv) so there is exactly one place to fix prediction
+    bugs instead of two copies drifting apart.
+
+    Args:
+        df: raw sensor DataFrame (columns: {sensor}_avg/_min/_max), already
+            sorted by timestamp, with enough rows for the rolling windows.
+        bundle: dict with {"model", "features", "type"} from
+            wqri_model.joblib, or None to force the rule-based fallback.
+        recs: dict loaded from recommendations.json (or the built-in
+            fallback recs dict).
+
+    Returns a dict with score, level, confidence, driver, problem, insight,
+    action, source, timestamp.
+    """
+    import numpy as np
+    import pandas as pd
+
+    feat, _ = build_features(df)
+    latest_feat = feat.iloc[[-1]]
+
+    # Always compute the deterministic WQRI score first -- this stays the
+    # consistent 0-100 metric whether or not the ML model is loaded.
+    wqri_series = compute_wqri_score(df)
+    score = round(float(wqri_series.iloc[-1]), 1)
+
+    if bundle is not None:
+        model = bundle["model"]
+        FEATURES = bundle["features"]
+        model_type = bundle.get("type", "classifier")
+        missing = set(FEATURES) - set(latest_feat.columns)
+        for m in missing:
+            latest_feat[m] = 0.0
+        latest_feat = latest_feat[FEATURES]
+
+        if model_type == "regressor":
+            # Regressor predicts the WQRI score directly (0-100).
+            pred_score = float(model.predict(latest_feat)[0])
+            pred_score = max(0.0, min(100.0, pred_score))
+            score = round(pred_score, 1)
+            _, level = classify(score)
+
+            # Confidence: high when the model agrees with the rule-based WQRI.
+            diff = abs(pred_score - float(wqri_series.iloc[-1]))
+            if diff < 5:
+                confidence = 92
+            elif diff < 10:
+                confidence = 85
+            elif diff < 20:
+                confidence = 75
+            else:
+                confidence = 65
+        else:
+            # Classifier (legacy format).
+            raw_pred = model.predict(latest_feat)
+            pred_1d = raw_pred.argmax(axis=1) if len(raw_pred.shape) == 2 else raw_pred
+            cls = int(pred_1d[0])
+            proba = model.predict_proba(latest_feat)[0]
+            confidence = round(proba[cls] * 100)
+            level = CLASS_NAMES[cls]
+
+        imp = pd.Series(model.feature_importances_, index=FEATURES)
+        driver = max(
+            SENSORS,
+            key=lambda s: imp[[c for c in FEATURES if c.startswith(s)]].sum(),
+        )
+    else:
+        # Rule-based fallback: derive the driver from WQRI hazard sub-scores.
+        cls_num, level = classify(score)
+        confidence = 85
+
+        last = df.iloc[-1]
+        hazards = {
+            "DO": float(np.clip(DO_MIN - last["DO_min"], 0, None) / DO_MIN),
+            "pH": float(max(
+                np.clip(PH_OPTIMAL_MIN - last["pH_min"], 0, None) / 1.5,
+                np.clip(last["pH_max"] - PH_OPTIMAL_MAX, 0, None) / 1.5,
+            )),
+            "temp": float(max(
+                np.clip(last["temp_max"] - TEMP_MAX, 0, None) / 4.0,
+                np.clip(TEMP_MIN - last["temp_min"], 0, None) / 4.0,
+            )),
+            "turbidity": float(np.clip(last["turbidity_max"] - TURB_MAX, 0, None) / TURB_MAX),
+        }
+        driver = max(hazards, key=hazards.get) if max(hazards.values()) > 0 else "DO"
+
+    rec = recs.get(driver, recs["DO"])
+    action_key = "critical_action" if level == "Critical" else "action"
+    action = rec.get(action_key, rec["action"])
+    insight = generate_insight(driver, df.iloc[-1], level)
+
+    from datetime import datetime, timezone
+    return {
+        "score": score,
+        "level": level,
+        "confidence": confidence,
+        "driver": driver,
+        "problem": rec["problem"],
+        "insight": insight,
+        "action": action,
+        "source": rec["source"],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }

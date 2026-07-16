@@ -71,102 +71,13 @@ def _load_model():
 def _predict_wqri(df):
     """Run WQRI prediction (ML or rule-based) on a sensor DataFrame.
 
-    Returns a dict with score, level, confidence, driver, insight,
-    recommendation. The 0-100 score always comes from the deterministic
-    WQRI formula so it stays consistent whether the ML model is loaded or not.
+    Thin wrapper around the shared features.predict_wqri() — kept here so
+    on_sensor_update() doesn't need to know about model/recs loading.
     """
-    from features import SENSORS, build_features, compute_wqri_score, classify, CLASS_NAMES, generate_insight
-    from features import DO_MIN, PH_OPTIMAL_MIN, PH_OPTIMAL_MAX, TEMP_MIN, TEMP_MAX, TURB_MAX
+    from features import predict_wqri
 
     bundle, recs = _load_model()
-    feat, _ = build_features(df)
-    latest_feat = feat.iloc[[-1]]
-
-    # Always compute the deterministic WQRI score — consistent metric
-    wqri_series = compute_wqri_score(df)
-    score = round(float(wqri_series.iloc[-1]), 1)
-
-    if bundle is not None:
-        import numpy as np
-        import pandas as pd
-
-        model = bundle["model"]
-        FEATURES = bundle["features"]
-        model_type = bundle.get("type", "classifier")
-        missing = set(FEATURES) - set(latest_feat.columns)
-        for m in missing:
-            latest_feat[m] = 0.0
-        latest_feat = latest_feat[FEATURES]
-
-        if model_type == "regressor":
-            # Regressor predicts WQRI score directly (0-100)
-            pred_score = float(model.predict(latest_feat)[0])
-            pred_score = max(0.0, min(100.0, pred_score))
-            score = round(pred_score, 1)
-            _, level = classify(score)
-
-            # Confidence: high when model agrees with rule-based WQRI
-            diff = abs(pred_score - float(wqri_series.iloc[-1]))
-            if diff < 5:
-                confidence = 92
-            elif diff < 10:
-                confidence = 85
-            elif diff < 20:
-                confidence = 75
-            else:
-                confidence = 65
-        else:
-            # Classifier (legacy format)
-            raw_pred = model.predict(latest_feat)
-            pred_1d = raw_pred.argmax(axis=1) if len(raw_pred.shape) == 2 else raw_pred
-            cls = int(pred_1d[0])
-            proba = model.predict_proba(latest_feat)[0]
-            confidence = round(proba[cls] * 100)
-            level = CLASS_NAMES[cls]
-
-        imp = pd.Series(model.feature_importances_, index=FEATURES)
-        driver = max(
-            SENSORS,
-            key=lambda s: imp[[c for c in FEATURES if c.startswith(s)]].sum(),
-        )
-    else:
-        # Rule-based fallback: derive driver from WQRI hazard sub-scores
-        import numpy as np
-
-        cls_num, level = classify(score)
-        confidence = 85
-
-        # Compute per-sensor hazard contributions from the latest row
-        last = df.iloc[-1]
-        hazards = {
-            "DO": float(np.clip(DO_MIN - last["DO_min"], 0, None) / DO_MIN),
-            "pH": float(max(
-                np.clip(PH_OPTIMAL_MIN - last["pH_min"], 0, None) / 1.5,
-                np.clip(last["pH_max"] - PH_OPTIMAL_MAX, 0, None) / 1.5,
-            )),
-            "temp": float(max(
-                np.clip(last["temp_max"] - TEMP_MAX, 0, None) / 4.0,
-                np.clip(TEMP_MIN - last["temp_min"], 0, None) / 4.0,
-            )),
-            "turbidity": float(np.clip(last["turbidity_max"] - TURB_MAX, 0, None) / TURB_MAX),
-        }
-        driver = max(hazards, key=hazards.get) if max(hazards.values()) > 0 else "DO"
-
-    rec = recs.get(driver, recs["DO"])
-    action_key = "critical_action" if level == "Critical" else "action"
-    action = rec.get(action_key, rec["action"])
-    insight = generate_insight(driver, df.iloc[-1], level)
-    return {
-        "score": score,
-        "level": level,
-        "confidence": confidence,
-        "driver": driver,
-        "problem": rec["problem"],
-        "insight": insight,
-        "action": action,
-        "source": rec["source"],
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
+    return predict_wqri(df, bundle, recs)
 
 
 def _fetch_sensor_history(hours: int = 24):

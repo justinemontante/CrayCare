@@ -42,10 +42,23 @@ _DIR = os.path.dirname(os.path.abspath(__file__))
 RAW_BASE_COLS = [f"{s}_{stat}" for s in SENSORS for stat in ("avg", "min", "max")]
 
 df = (
-    pd.read_csv(os.path.join(_DIR, "sensor_labeled.csv"), parse_dates=["timestamp"])
+    pd.read_csv(os.path.join(_DIR, "sensor_dataset.csv"), parse_dates=["timestamp"])
     .sort_values("timestamp")
     .reset_index(drop=True)
 )
+
+# Label directly from sensor_dataset.csv every run (formerly a separate
+# label.py step writing sensor_labeled.csv) -- this is AUTO-labeling via the
+# deterministic WQRI formula, not independent expert/biological labeling
+# (see the module docstring above for why that matters in the defense).
+# Computing it inline here means the label can never go stale relative to
+# whatever build_features()/compute_wqri_score() currently do, which is
+# exactly the class of bug (old csi_score/csi_class columns surviving a
+# rename) that broke training earlier.
+wqri_score = compute_wqri_score(df)
+df["wqri_score"] = wqri_score.round(1)
+df["wqri_class"] = wqri_score.apply(lambda v: classify(v)[0])
+print(f"Label distribution:\n{df['wqri_class'].value_counts().sort_index()}\n")
 
 # Build shared features
 feat, _ = build_features(df)
