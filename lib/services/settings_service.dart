@@ -3,7 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:convert';
-import '../models/crayfish_stage.dart';
+import '../models/sensor_defaults.dart';
 
 class SettingsService extends ChangeNotifier {
   static final SettingsService instance = SettingsService._();

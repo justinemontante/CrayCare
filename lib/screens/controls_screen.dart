@@ -9,6 +9,7 @@ import '../services/feeder_service.dart';
 import '../services/sensor_service.dart';
 import '../services/settings_service.dart';
 import '../services/esp_service.dart';
+import '../services/device_log_service.dart';
 import '../services/database_service.dart';
 
 class ControlsScreen extends StatefulWidget {
@@ -48,8 +49,8 @@ class ControlsScreenState extends State<ControlsScreen> {
     SensorService.instance.addListener(_onSensorDataUpdate);
     EspService.instance.addListener(_onEspUpdate);
     EspService.instance.init();
+    DeviceLogService.instance.init();
     _initDeviceModes();
-    _initDeviceLogs();
     _runtimeTimer = Timer.periodic(
       const Duration(seconds: 1),
       (_) {
@@ -61,6 +62,7 @@ class ControlsScreenState extends State<ControlsScreen> {
   void _initDeviceModes() {
     _devicesSub = FirebaseFirestore.instance
         .collection('deviceModes')
+        .limit(10)
         .snapshots()
         .listen((snapshot) {
       final modes = <String, String>{};
@@ -72,34 +74,12 @@ class ControlsScreenState extends State<ControlsScreen> {
     });
   }
 
-  void _initDeviceLogs() {
-    for (final deviceId in ['aerator1', 'aerator2', 'pump']) {
-      final sub = DatabaseService.instance.deviceLogsStream(deviceId).listen((snapshot) {
-        final list = snapshot.docs.map((doc) {
-          final map = doc.data();
-          return LogEntry(
-            map['action'] as String? ?? '',
-            map['type'] as String? ?? '',
-            map['time'] as String? ?? '',
-            map['date'] as String? ?? '',
-            timestamp: map['timestamp'] as int? ?? 0,
-          );
-        }).toList()
-          ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
-        if (mounted) {
-          setState(() => _hwLogs[deviceId] = list);
-        }
-      });
-      _deviceLogSubs.add(sub);
-    }
-  }
-
   void _computeRuntimeLabels() {
     final now = DateTime.now().millisecondsSinceEpoch;
     final labels = <String, String>{};
 
     for (final deviceId in _hwModes.keys) {
-      final logs = _hwLogs[deviceId] ?? [];
+      final logs = DeviceLogService.instance.getLogs(deviceId);
       int? lastOnTs;
       int? lastOffTs;
 
@@ -152,9 +132,6 @@ class ControlsScreenState extends State<ControlsScreen> {
     SensorService.instance.removeListener(_onSensorDataUpdate);
     EspService.instance.removeListener(_onEspUpdate);
     _devicesSub?.cancel();
-    for (final sub in _deviceLogSubs) {
-      sub.cancel();
-    }
     _feedTimer?.cancel();
     _dispenseTimer?.cancel();
     _runtimeTimer?.cancel();
@@ -248,9 +225,7 @@ class ControlsScreenState extends State<ControlsScreen> {
     'aerator2': 'auto',
     'pump': 'auto',
   };
-  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _devicesSub;
-  final List<StreamSubscription<QuerySnapshot<Map<String, dynamic>>>> _deviceLogSubs = [];
-  final Map<String, List<LogEntry>> _hwLogs = {};
+  StreamSubscription? _devicesSub;
   Map<String, String> _deviceRuntimeLabels = {};
   Timer? _runtimeTimer;
 
@@ -772,7 +747,7 @@ class ControlsScreenState extends State<ControlsScreen> {
     final allLogs = <LogEntry>[];
     for (final d in devices) {
       final deviceId = d.$1;
-      final logs = _hwLogs[deviceId] ?? [];
+      final logs = DeviceLogService.instance.getLogs(deviceId);
       allLogs.addAll(logs);
     }
     allLogs.sort((a, b) => b.timestamp.compareTo(a.timestamp));

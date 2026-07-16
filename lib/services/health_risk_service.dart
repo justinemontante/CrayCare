@@ -114,7 +114,7 @@ class HealthRiskService extends ChangeNotifier {
         .listen((snap) {
       if (snap.exists && snap.data() != null) {
         final data = snap.data()!;
-        if (data['uid'] == null || data['uid'] == uid) {
+        if (data['uid'] == null || data['uid'] == '' || data['uid'] == uid) {
           _result = HealthRiskResult.fromMap(data);
         }
       }

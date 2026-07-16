@@ -423,125 +423,8 @@ class TankService extends ChangeNotifier {
       debugPrint('[TankService] _reloadLiveDataFromFirebase loadConfig error: $e');
     }
 
-    // 2. Load sampling
-    try {
-      final snap = await _fs
-          .collection('sampling')
-          .where('uid', isEqualTo: _tankOwnerUid)
-          .get();
-      if (_isArchiveView) return;
-      if (snap.docs.isEmpty) {
-        _samplingHistory.clear();
-        _lastSamplingDocId = null;
-      } else {
-        final entries = <SamplingEntry>[];
-        String? lastId;
-        DateTime? lastDate;
-        for (final doc in snap.docs) {
-          final map = doc.data();
-          final dateRaw = map['date'];
-          if (dateRaw is! num) {
-            debugPrint('[TankService] _reloadLiveData: skipping sampling entry without valid date');
-            continue;
-          }
-          final date = DateTime.fromMillisecondsSinceEpoch(dateRaw.toInt());
-          entries.add(SamplingEntry(
-            date: date,
-            abw: (map['abw'] as num?)?.toDouble() ?? 0.0,
-            avgLength: (map['avgLength'] as num?)?.toDouble() ?? 0.0,
-            sampleSize: (map['sampleSize'] as num?)?.toInt() ?? 0,
-            totalWeight: (map['totalWeight'] as num?)?.toDouble() ?? 0.0,
-            totalLength: (map['totalLength'] as num?)?.toDouble() ?? 0.0,
-            biomass: (map['biomass'] as num?)?.toDouble() ?? 0.0,
-            liveCount: (map['liveCount'] as num?)?.toInt() ?? 0,
-            isBaseline: map['isBaseline'] == true,
-          ));
-          if (lastDate == null || date.isAfter(lastDate)) { lastDate = date; lastId = doc.id; }
-        }
-        entries.sort((a, b) => a.date.compareTo(b.date));
-        _samplingHistory = entries;
-        _lastSamplingDocId = lastId;
-      }
-    } catch (e) {
-      debugPrint('[TankService] _reloadSampling error: $e');
-    }
-
-    // 3. Load mortality
-    try {
-      final snap = await _fs
-          .collection('mortality')
-          .where('uid', isEqualTo: _tankOwnerUid)
-          .get();
-      if (_isArchiveView) return;
-      if (snap.docs.isEmpty) {
-        _mortalityHistory.clear();
-      } else {
-        _mortalityHistory = snap.docs.map((doc) {
-          final map = doc.data();
-          final dateRaw = map['date'];
-          final countRaw = map['count'];
-          if (dateRaw is! num || countRaw is! num) {
-            debugPrint('[TankService] _reloadLiveData: skipping mortality entry with missing date/count');
-            return null;
-          }
-          return MortalityEntry(
-            date: DateTime.fromMillisecondsSinceEpoch(dateRaw.toInt()),
-            count: countRaw.toInt(),
-          );
-        }).whereType<MortalityEntry>().toList()..sort((a, b) => a.date.compareTo(b.date));
-        _mortality = _mortalityHistory.fold(0, (sum, e) => sum + e.count);
-      }
-    } catch (e) {
-      debugPrint('[TankService] _reloadMortality error: $e');
-    }
-
-    // 4. Load activities
-    try {
-      final snap = await _fs
-          .collection('activities')
-          .where('uid', isEqualTo: _tankOwnerUid)
-          .get();
-      if (_isArchiveView) return;
-      if (snap.docs.isEmpty) {
-        _activities.clear();
-      } else {
-        _activities = snap.docs.map((doc) {
-          final map = doc.data();
-          return TankActivity(
-            action: map['action'] ?? '',
-            date: map['date'] ?? '',
-            time: map['time'] ?? '',
-            type: map['type'] ?? '',
-            timestamp: map['timestamp'] ?? 0,
-            sampleSize: map['sampleSize'] != null ? (map['sampleSize'] as num).toInt() : null,
-            abw: map['abw'] != null ? (map['abw'] as num).toDouble() : null,
-            avgLength: map['avgLength'] != null ? (map['avgLength'] as num).toDouble() : null,
-          );
-        }).toList()..sort((a, b) => a.timestamp.compareTo(b.timestamp));
-      }
-    } catch (e) {
-      debugPrint('[TankService] _reloadActivities error: $e');
-    }
-
-    // 5. Load harvest records
-    try {
-      final snap = await _fs
-          .collection('harvests')
-          .where('uid', isEqualTo: _tankOwnerUid)
-          .get();
-      if (_isArchiveView) return;
-      if (snap.docs.isEmpty) {
-        _harvestRecords.clear();
-      } else {
-        _harvestRecords = snap.docs
-            .map((doc) => CrayfishHarvestRecord.fromJson(
-                doc.id, Map<String, dynamic>.from(doc.data())))
-            .toList()
-          ..sort((a, b) => a.date.compareTo(b.date));
-      }
-    } catch (e) {
-      debugPrint('[TankService] _reloadHarvestRecords error: $e');
-    }
+    // sampling, mortality, activities, harvests are kept up to date by
+    // the real-time listeners in _listenFirebase(), so no need to re-fetch.
 
     notifyListeners();
   }
@@ -549,6 +432,7 @@ class TankService extends ChangeNotifier {
   Future<void> selectBatch(String? batchId) async {
     if (batchId == null) {
       _selectedBatchId = null;
+      notifyListeners();
       if (_isArchiveView) {
         _isArchiveView = false;
         _clearArchiveState();
@@ -569,6 +453,8 @@ class TankService extends ChangeNotifier {
 
     _selectedBatchId = batchId;
     final batch = _batches.firstWhere((b) => b.batchId == batchId);
+
+    notifyListeners();
 
     if (batch.status == 'harvested' || batch.status == 'superseded') {
       await _enterArchiveView(batch);

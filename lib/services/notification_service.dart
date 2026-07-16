@@ -7,6 +7,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz;
 import 'sensor_service.dart';
+import 'device_log_service.dart';
 import '../models/notification_item.dart';
 import '../models/control_types.dart';
 
@@ -285,14 +286,7 @@ class NotificationService extends ChangeNotifier {
   bool _initialized = false;
 
   // Auto-control notification tracking
-  final Set<String> _seenAutoLogKeys = {};
-  bool _autoControlWarmup = true;
-  final Map<String, String> _deviceLabels = {
-    'aerator1': 'Aerator 1',
-    'aerator2': 'Aerator 2',
-    'pump': 'Water Pump',
-  };
-  final List<StreamSubscription<QuerySnapshot<Map<String, dynamic>>>> _autoControlSubs = [];
+  StreamSubscription<AutoControlEvent>? _autoControlSub;
 
   bool _notifSound = true;
   bool _notifVibration = true;
@@ -374,6 +368,7 @@ class NotificationService extends ChangeNotifier {
     if (_initialized) return;
     _initialized = true;
     SensorService.instance.addListener(_onSensorUpdate);
+    DeviceLogService.instance.init();
     _initPreviousStates();
     tz.initializeTimeZones();
     FeedState.schedules.addListener(_onSchedulesChanged);
@@ -658,63 +653,23 @@ class NotificationService extends ChangeNotifier {
   }
 
   void _initAutoControlListener() {
-    _cancelAutoControlSubs();
-    _seenAutoLogKeys.clear();
-    _autoControlWarmup = true;
-
-    final fs = FirebaseFirestore.instance;
-    for (final deviceId in _deviceLabels.keys) {
-      final sub = fs
-          .collection('deviceLogs')
-          .where('deviceId', isEqualTo: deviceId)
-          .where('action', isGreaterThanOrEqualTo: '(AUTO)')
-          .orderBy('action')
-          .orderBy('timestamp', descending: true)
-          .limit(50)
-          .snapshots()
-          .listen((snapshot) {
-        for (final change in snapshot.docChanges) {
-          if (change.type != DocumentChangeType.added) continue;
-          final data = change.doc.data();
-          if (data == null) return;
-          final action = data['action'] as String? ?? '';
-          final key = change.doc.id;
-
-          _seenAutoLogKeys.add(key);
-
-          if (_autoControlWarmup) return;
-          if (!action.contains('(AUTO)')) return;
-
-          final tsRaw = data['timestamp'] as num? ?? 0;
-          final tsMs = tsRaw < 100000000000 ? tsRaw * 1000 : tsRaw;
-          final ts = DateTime.fromMillisecondsSinceEpoch(tsMs.toInt());
-          final label = _deviceLabels[deviceId] ?? deviceId;
-
-          String title, message;
-          if (action.contains('ON')) {
-            title = '$label turned ON';
-            message = action.replaceFirst('Switched ON (AUTO) - ', '');
-          } else {
-            title = '$label turned OFF';
-            message = action.replaceFirst('Switched OFF (AUTO) - ', '');
-          }
-
-          _addNotification(type: 'operational', title: title, message: message, timestamp: ts);
-        }
-      });
-      _autoControlSubs.add(sub);
-    }
-
-    Future.delayed(const Duration(seconds: 3), () {
-      _autoControlWarmup = false;
+    _autoControlSub?.cancel();
+    _autoControlSub = DeviceLogService.instance.autoControlEvents.listen((event) {
+      String title, message;
+      if (event.action.contains('ON')) {
+        title = '${event.deviceLabel} turned ON';
+        message = event.action.replaceFirst('Switched ON (AUTO) - ', '');
+      } else {
+        title = '${event.deviceLabel} turned OFF';
+        message = event.action.replaceFirst('Switched OFF (AUTO) - ', '');
+      }
+      _addNotification(type: 'operational', title: title, message: message, timestamp: event.timestamp);
     });
   }
 
   void _cancelAutoControlSubs() {
-    for (final sub in _autoControlSubs) {
-      sub.cancel();
-    }
-    _autoControlSubs.clear();
+    _autoControlSub?.cancel();
+    _autoControlSub = null;
   }
 
   void _startReminderTimer() {
@@ -947,16 +902,14 @@ class NotificationService extends ChangeNotifier {
       final sampleSnap = await fs
           .collection('sampling')
           .where('uid', isEqualTo: uid)
+          .orderBy('date', descending: true)
+          .limit(1)
           .get();
       if (sampleSnap.docs.isNotEmpty) {
-        int? latestTs;
-        for (final doc in sampleSnap.docs) {
-          final data = doc.data();
-          final ts = data['date'] as int?;
-          if (ts != null && (latestTs == null || ts > latestTs)) latestTs = ts;
-        }
-        if (latestTs != null) {
-          effectiveLastDate = DateTime.fromMillisecondsSinceEpoch(latestTs);
+        final data = sampleSnap.docs.first.data();
+        final ts = data['date'] as int?;
+        if (ts != null) {
+          effectiveLastDate = DateTime.fromMillisecondsSinceEpoch(ts);
         }
       }
     } catch (e) {
@@ -1085,6 +1038,8 @@ class NotificationService extends ChangeNotifier {
     _notifSub = fs
         .collection('notifications')
         .where('uid', isEqualTo: uid)
+        .orderBy('timestamp', descending: true)
+        .limit(100)
         .snapshots()
         .listen((snap) {
       for (final change in snap.docChanges) {

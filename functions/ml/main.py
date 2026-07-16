@@ -68,81 +68,23 @@ def _load_model():
     return _bundle, _recs
 
 
-def _compute_csi_score(df):
-    import numpy as np
-    import pandas as pd
-
-    PH_OPTIMAL_MIN = 6.5
-    PH_OPTIMAL_MAX = 8.5
-    TEMP_MAX = 31.0
-    TEMP_MIN = 24.0
-    DO_MIN = 5.0
-    TURB_MAX = 25.0
-
-    s = pd.DataFrame(index=df.index)
-    s["DO"] = np.clip(DO_MIN - df["DO_min"], 0, None) / DO_MIN
-    s["pH_lo"] = np.clip(PH_OPTIMAL_MIN - df["pH_min"], 0, None) / 1.5
-    s["pH_hi"] = np.clip(df["pH_max"] - PH_OPTIMAL_MAX, 0, None) / 1.5
-    s["temp"] = np.clip(df["temp_max"] - TEMP_MAX, 0, None) / 4.0
-    s["temp_lo"] = np.clip(TEMP_MIN - df["temp_min"], 0, None) / 4.0
-    s["turb"] = np.clip(df["turbidity_max"] - TURB_MAX, 0, None) / TURB_MAX
-    row_hazard = s.sum(axis=1)
-    WIN = 36
-    csi_raw = row_hazard.rolling(WIN, min_periods=1).sum()
-    csi_score = (
-        np.clip(csi_raw / csi_raw.quantile(0.99) * 100, 0, 100)
-        if csi_raw.quantile(0.99) > 0
-        else csi_raw * 0
-    )
-    return csi_score
-
-
-def _classify(score):
-    if score < 25:
-        return 0, "Low"
-    if score < 50:
-        return 1, "Moderate"
-    if score < 75:
-        return 2, "High"
-    return 3, "Critical"
-
-
-def _build_features(df):
-    import numpy as np
-    import pandas as pd
-
-    SENSORS = ["temp", "pH", "DO", "turbidity", "waterLevel"]
-    base_cols = []
-    for s in SENSORS:
-        base_cols += [f"{s}_avg", f"{s}_min", f"{s}_max"]
-    feat = df[base_cols].copy()
-    for s in SENSORS:
-        a = df[f"{s}_avg"]
-        feat[f"{s}_volatility"] = df[f"{s}_max"] - df[f"{s}_min"]
-        feat[f"{s}_roll6h"] = a.rolling(36, min_periods=1).mean()
-        feat[f"{s}_roll24h"] = a.rolling(144, min_periods=1).mean()
-        feat[f"{s}_trend"] = a.diff().rolling(6, min_periods=1).mean()
-
-    PH_OPTIMAL_MIN = 6.5
-    PH_OPTIMAL_MAX = 8.5
-    TEMP_MAX = 31.0
-    DO_MIN = 5.0
-
-    feat["DO_hrs_low"] = (df["DO_min"] < DO_MIN).rolling(36, min_periods=1).sum() / 6.0
-    feat["temp_hrs_hi"] = (df["temp_max"] > TEMP_MAX).rolling(
-        36, min_periods=1
-    ).sum() / 6.0
-    feat["pH_hrs_bad"] = (
-        (df["pH_min"] < PH_OPTIMAL_MIN) | (df["pH_max"] > PH_OPTIMAL_MAX)
-    ).rolling(36, min_periods=1).sum() / 6.0
-    feat = feat.bfill().fillna(0)
-    return feat, SENSORS
-
-
 def _predict_csi(df):
+    """Run CSI prediction (ML or rule-based) on a sensor DataFrame.
+
+    Returns a dict with score, level, confidence, driver, recommendation.
+    The 0-100 score always comes from the deterministic CSI formula so it
+    stays consistent whether the ML model is loaded or not.
+    """
+    from features import SENSORS, build_features, compute_csi_score, classify, CLASS_NAMES
+    from features import DO_MIN, PH_OPTIMAL_MIN, PH_OPTIMAL_MAX, TEMP_MIN, TEMP_MAX, TURB_MAX
+
     bundle, recs = _load_model()
-    feat, SENSORS = _build_features(df)
-    latest = feat.iloc[[-1]]
+    feat, _ = build_features(df)
+    latest_feat = feat.iloc[[-1]]
+
+    # Always compute the deterministic CSI score — consistent metric
+    csi_series = compute_csi_score(df)
+    score = round(float(csi_series.iloc[-1]), 1)
 
     if bundle is not None:
         import numpy as np
@@ -150,48 +92,93 @@ def _predict_csi(df):
 
         model = bundle["model"]
         FEATURES = bundle["features"]
-        missing = set(FEATURES) - set(latest.columns)
+        model_type = bundle.get("type", "classifier")
+        missing = set(FEATURES) - set(latest_feat.columns)
         for m in missing:
-            latest[m] = 0.0
-        latest = latest[FEATURES]
-        cls = int(model.predict(latest)[0])
-        proba = model.predict_proba(latest)[0]
-        confidence = round(proba[cls] * 100)
-        labels = ["Low", "Moderate", "High", "Critical"]
-        level = labels[cls]
+            latest_feat[m] = 0.0
+        latest_feat = latest_feat[FEATURES]
+
+        if model_type == "regressor":
+            # Regressor predicts CSI score directly (0-100)
+            pred_score = float(model.predict(latest_feat)[0])
+            pred_score = max(0.0, min(100.0, pred_score))
+            score = round(pred_score, 1)
+            _, level = classify(score)
+
+            # Confidence: high when model agrees with rule-based CSI
+            diff = abs(pred_score - float(csi_series.iloc[-1]))
+            if diff < 5:
+                confidence = 92
+            elif diff < 10:
+                confidence = 85
+            elif diff < 20:
+                confidence = 75
+            else:
+                confidence = 65
+        else:
+            # Classifier (legacy format)
+            raw_pred = model.predict(latest_feat)
+            pred_1d = raw_pred.argmax(axis=1) if raw_pred.shape[1] > 1 else raw_pred
+            cls = int(pred_1d[0])
+            proba = model.predict_proba(latest_feat)[0]
+            confidence = round(proba[cls] * 100)
+            level = CLASS_NAMES[cls]
 
         imp = pd.Series(model.feature_importances_, index=FEATURES)
         driver = max(
-            SENSORS, key=lambda s: imp[[c for c in FEATURES if c.startswith(s)]].sum()
+            SENSORS,
+            key=lambda s: imp[[c for c in FEATURES if c.startswith(s)]].sum(),
         )
-
-        score = round(float(proba.argmax() * 25 + proba.max() * 20), 1)
     else:
-        csi_score = _compute_csi_score(df)
-        cls_num, level = _classify(csi_score.iloc[-1])
+        # Rule-based fallback: derive driver from CSI hazard sub-scores
+        import numpy as np
+
+        cls_num, level = classify(score)
         confidence = 85
-        driver = "DO"
-        score = round(float(csi_score.iloc[-1]), 1)
+
+        # Compute per-sensor hazard contributions from the latest row
+        last = df.iloc[-1]
+        hazards = {
+            "DO": float(np.clip(DO_MIN - last["DO_min"], 0, None) / DO_MIN),
+            "pH": float(max(
+                np.clip(PH_OPTIMAL_MIN - last["pH_min"], 0, None) / 1.5,
+                np.clip(last["pH_max"] - PH_OPTIMAL_MAX, 0, None) / 1.5,
+            )),
+            "temp": float(max(
+                np.clip(last["temp_max"] - TEMP_MAX, 0, None) / 4.0,
+                np.clip(TEMP_MIN - last["temp_min"], 0, None) / 4.0,
+            )),
+            "turbidity": float(np.clip(last["turbidity_max"] - TURB_MAX, 0, None) / TURB_MAX),
+        }
+        driver = max(hazards, key=hazards.get) if max(hazards.values()) > 0 else "DO"
 
     rec = recs.get(driver, recs["DO"])
+    action_key = "critical_action" if level == "Critical" else "action"
+    action = rec.get(action_key, rec["action"])
     return {
         "score": score,
         "level": level,
         "confidence": confidence,
         "driver": driver,
         "problem": rec["problem"],
-        "action": rec["action"],
+        "action": action,
         "source": rec["source"],
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
 def _fetch_sensor_history(hours: int = 24):
+    """Fetch sensor readings from Firestore for the last N hours.
+
+    Uses Firestore .where() filtering to minimise data transfer.
+    """
     import pandas as pd
+    from firebase_admin import firestore
 
     db = _get_db()
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     now_utc = datetime.now(timezone.utc)
+    cutoff_ts = cutoff.timestamp()
 
     # Collect all date strings in the window (may span multiple days)
     date_set = set()
@@ -203,27 +190,24 @@ def _fetch_sensor_history(hours: int = 24):
     rows = []
     for date_str in sorted(date_set):
         try:
+            # Use indexed Firestore filter instead of fetching everything
             docs = (
                 db.collection("sensorReadings")
                 .document("history")
                 .collection(date_str)
+                .where("timestamp", ">=", cutoff_ts)
                 .order_by("timestamp")
                 .get()
             )
             for d in docs:
-                data = d.to_dict()
-                # Filter to only rows within the actual time window
-                ts = data.get("timestamp", 0)
-                if isinstance(ts, (int, float)) and ts >= cutoff.timestamp():
-                    rows.append(data)
+                rows.append(d.to_dict())
         except Exception as e:
             print(f"[CSI] Error fetching history for {date_str}: {e}")
 
-    # Fallback: if still no rows, grab last 144 docs from today's collection
+    # Fallback: grab the most recent 144 rows from today's collection
     if not rows:
         today_str = now_utc.strftime("%Y-%m-%d")
         try:
-            from firebase_admin import firestore
             docs = (
                 db.collection("sensorReadings")
                 .document("history")
@@ -290,7 +274,8 @@ def on_sensor_update(event: firestore_fn.Event[firestore_fn.Change[firestore_fn.
         return
 
     result = _predict_csi(df)
-    result["uid"] = uid
+    if uid:
+        result["uid"] = uid
 
     db.collection("healthRisk").document("latest").set(result)
     print(

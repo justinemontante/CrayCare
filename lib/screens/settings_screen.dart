@@ -7,7 +7,7 @@ import '../widgets/settings/settings_menu.dart';
 import '../widgets/settings/profile_edit_form.dart';
 import '../widgets/settings/change_password_form.dart';
 import '../widgets/settings/notif_settings.dart';
-import '../widgets/settings/stage_settings.dart';
+import '../widgets/settings/sensor_threshold_settings.dart';
 import '../widgets/settings/logout_sheet.dart';
 import '../services/database_service.dart';
 import '../services/storage_service.dart'; // Para sa pag-pick ng profile picture
@@ -306,7 +306,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       case 3:
         return 'Notifications';
       case 4:
-        return 'Crayfish Stage';
+        return 'Sensor Thresholds';
       default:
         return '';
     }
@@ -391,7 +391,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _saveNotifPrefs();
                   },
                 ),
-                StageSettings(key: const ValueKey('stage-settings')),
+                SensorThresholdSettings(key: const ValueKey('sensor-thresholds')),
               ][_currentPage],
             ),
           ),

@@ -190,35 +190,19 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       return at.compareTo(bt);
     });
 
-    if (range == '24h') {
-      // Use actual Firebase records as-is, no synthetic bucketing
-      final cutoff = now.subtract(const Duration(hours: 24)).millisecondsSinceEpoch;
-      final recent = records.where((r) {
-        final rawTs = _toInt(r['timestamp']) ?? 0;
-        final ms = rawTs < 100000000000 ? rawTs * 1000 : rawTs;
-        return ms >= cutoff;
-      }).toList();
-
-      _labels[range] = recent.map((r) {
-        final t = _parseTimestamp(r['timestamp']);
-        final h = t.hour > 12 ? t.hour - 12 : (t.hour == 0 ? 12 : t.hour);
-        final ampm = t.hour >= 12 ? 'PM' : 'AM';
-        return '${h}:${t.minute.toString().padLeft(2, '0')} $ampm';
-      }).toList();
-
-      for (final key in SensorService.sensorKeys) {
-        final hKey = _historyKeyMap[key]!;
-        _data['$key-$range'] = recent.map((r) {
-          final v = _toDouble(r[hKey]);
-          return (v != null && v >= 0) ? v : double.nan;
-        }).toList();
-      }
-      return;
-    }
-
-    // 7d, 30d, custom: use bucketed aggregation with actual record timestamps
+    // 24h, 7d, 30d, custom: use bucketed aggregation
     List<DateTime> labelTimes;
-    if (range == '7d') {
+    if (range == '24h') {
+      labelTimes = List<DateTime>.generate(pts, (i) {
+        return now.subtract(Duration(minutes: (pts - 1 - i) * 10));
+      });
+      final months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      _labels[range] = labelTimes.map((d) {
+        final h = d.hour > 12 ? d.hour - 12 : (d.hour == 0 ? 12 : d.hour);
+        final ampm = d.hour >= 12 ? 'PM' : 'AM';
+        return '${months[d.month - 1]} ${d.day}, ${h}:${d.minute.toString().padLeft(2, '0')} $ampm';
+      }).toList();
+    } else if (range == '7d') {
       labelTimes = List<DateTime>.generate(pts, (i) {
         return now.subtract(Duration(hours: (pts - 1 - i)));
       });
@@ -292,6 +276,29 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
         }
         return count > 0 ? sum / count : double.nan;
       });
+    }
+
+    // Remove buckets where every sensor is NaN (no data at all)
+    final keepIdx = <int>[];
+    for (int i = 0; i < labelTimes.length; i++) {
+      bool anyValid = false;
+      for (final key in SensorService.sensorKeys) {
+        final d = _data['$key-$range'];
+        if (d != null && i < d.length && !d[i].isNaN) {
+          anyValid = true;
+          break;
+        }
+      }
+      if (anyValid) keepIdx.add(i);
+    }
+    if (keepIdx.length < labelTimes.length) {
+      for (final key in SensorService.sensorKeys) {
+        final d = _data['$key-$range'];
+        if (d != null) {
+          _data['$key-$range'] = keepIdx.map((i) => d[i]).toList();
+        }
+      }
+      _labels[range] = keepIdx.map((i) => _labels[range]![i]).toList();
     }
 
   }

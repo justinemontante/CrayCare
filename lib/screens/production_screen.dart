@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../theme/app_colors.dart';
-import '../models/crayfish_stage.dart';
 import '../services/tank_service.dart';
 import '../widgets/production/crayfish/crayfish_overview_tab.dart';
 import '../widgets/production/crayfish/crayfish_sampling_tab.dart';
@@ -404,14 +403,14 @@ class ProductionScreenState extends State<ProductionScreen> {
                                 ],
                               ),
                             ),
-                            for (var i = 0; i < CrayfishStage.all.length; i++)
+                            for (var i = 0; i < _stageLabels.length; i++)
                               _buildTableRow(
-                                CrayfishStage.all[i].label,
+                                _stageLabels[i],
                                 _stageAbwRanges[i],
                                 _stageAblRanges[i],
-                                CrayfishStage.all[i].description,
+                                _stageDescriptions[i],
                                 isStriped: i.isOdd,
-                                isLast: i == CrayfishStage.all.length - 1,
+                                isLast: i == _stageLabels.length - 1,
                               ),
                           ],
                         ),
@@ -450,6 +449,18 @@ class ProductionScreenState extends State<ProductionScreen> {
     ).whenComplete(() => scrollCtrl.dispose());
   }
 
+  static const _stageLabels = [
+    'Early Juvenile',
+    'Advanced Juvenile',
+    'Pre-Adult',
+    'Market Size',
+  ];
+  static const _stageDescriptions = [
+    'Newly stocked young crayfish',
+    'Active early growth',
+    'Preparing for full maturity',
+    'Ready for harvest',
+  ];
   static const _stageAbwRanges = ['1\u20135g', '5\u201315g', '15\u201350g', '50\u2013120g+'];
   static const _stageAblRanges = ['2\u20134cm', '4\u20136cm', '6\u201310cm', '10cm+'];
 

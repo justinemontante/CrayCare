@@ -1,6 +1,5 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:flutter/gestures.dart';
 import '../../theme/app_colors.dart';
 
 class AnalyticsLineChart extends StatefulWidget {
@@ -40,6 +39,10 @@ class AnalyticsLineChart extends StatefulWidget {
 class _AnalyticsLineChartState extends State<AnalyticsLineChart>
     with SingleTickerProviderStateMixin {
   late AnimationController _pulseController;
+  double _scrollOffset = 0.0;
+  double _visibleWidth = 0.0;
+
+  static const double _minPointSpacing = 12.0;
 
   @override
   void initState() {
@@ -56,25 +59,68 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart>
     super.dispose();
   }
 
-  void _selectPoint(Offset localPosition) {
+  @override
+  void didUpdateWidget(covariant AnalyticsLineChart oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.selectedIndex != oldWidget.selectedIndex &&
+        widget.selectedIndex != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _scrollToIndex(widget.selectedIndex!));
+      });
+    }
+  }
+
+  double _yLabelW() => widget.large ? 36.0 : 32.0;
+
+  double _virtualWidth() {
+    final data = widget.data;
+    if (data.length <= 1) return _visibleWidth;
+    final padL = _yLabelW();
+    final chartW = _visibleWidth - padL;
+    if (chartW <= 0) return _visibleWidth;
+    final naturalSpacing = chartW / (data.length - 1);
+    if (naturalSpacing >= _minPointSpacing) return _visibleWidth;
+    return padL + (data.length - 1) * _minPointSpacing;
+  }
+
+  bool get _isScrollable => _virtualWidth() > _visibleWidth + 0.5;
+
+  void _clampScroll() {
+    final maxScroll = max(0.0, _virtualWidth() - _visibleWidth);
+    _scrollOffset = _scrollOffset.clamp(0.0, maxScroll);
+  }
+
+  void _scrollToIndex(int index) {
+    if (!_isScrollable || _visibleWidth <= 0) return;
+    final padL = _yLabelW();
+    final vw = _virtualWidth();
+    final chartW = vw - padL;
+    if (chartW <= 0) return;
+    final stepX =
+        widget.data.length > 1 ? chartW / (widget.data.length - 1) : 0.0;
+    final pointX = padL + index * stepX;
+    final maxScroll = max(0.0, vw - _visibleWidth);
+    _scrollOffset = (pointX - _visibleWidth / 2).clamp(0.0, maxScroll);
+  }
+
+  void _onHorizontalDragUpdate(DragUpdateDetails details) {
+    setState(() {
+      _scrollOffset -= details.delta.dx;
+      _clampScroll();
+    });
+  }
+
+  void _onTapUp(TapUpDetails details) {
     final data = widget.data;
     if (data.isEmpty) return;
-
-    final renderBox = context.findRenderObject() as RenderBox;
-    final width = renderBox.size.width;
-
-    final yLabelW = widget.large ? 42.0 : 36.0;
-    final padL = yLabelW;
-    final padR = 12.0; // Consistent with painter
-    final chartW = width - padL - padR;
+    final padL = _yLabelW();
+    final vw = _virtualWidth();
+    final chartW = vw - padL;
     if (chartW <= 0) return;
-
     final stepX = data.length > 1 ? chartW / (data.length - 1) : 0.0;
-    final index = ((localPosition.dx - padL) / stepX).round().clamp(
-      0,
-      data.length - 1,
-    );
-
+    final virtualDx = details.localPosition.dx + _scrollOffset;
+    final index =
+        ((virtualDx - padL) / stepX).round().clamp(0, data.length - 1);
     widget.onSelectedIndexChanged?.call(index);
   }
 
@@ -86,21 +132,18 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart>
 
     final curIdx = widget.selectedIndex;
 
-    // --- MAGANDANG RANGE AT MARGIN CALCULATION PARA SA FLATLINE ---
     double originalMin = validData.reduce(min);
     double originalMax = validData.reduce(max);
     double minVal;
     double maxVal;
 
     if ((originalMax - originalMin).abs() < 0.01) {
-      // Kapag flatline (laging 30), mag-pad ng +-10% para mapunta sa gitna ang linya
       double padding = originalMin == 0.0
           ? 5.0
           : (originalMin * 0.1).clamp(2.0, 10.0);
       minVal = originalMin - padding;
       maxVal = originalMin + padding;
     } else {
-      // Magdagdag ng kaunting 5% padding sa taas at baba para hindi nakadikit sa gilid ang mga tuldok
       double padding = (originalMax - originalMin) * 0.05;
       minVal = originalMin - padding;
       maxVal = originalMax + padding;
@@ -109,51 +152,124 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart>
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        return RawGestureDetector(
-          behavior: HitTestBehavior.opaque,
-          gestures: {
-            HorizontalDragGestureRecognizer:
-                GestureRecognizerFactoryWithHandlers<
-                  HorizontalDragGestureRecognizer
-                >(() => HorizontalDragGestureRecognizer(), (instance) {
-                  instance.onStart = (details) =>
-                      _selectPoint(details.localPosition);
-                  instance.onUpdate = (details) =>
-                      _selectPoint(details.localPosition);
-                }),
-          },
-          child: Stack(
-            children: [
-              AnimatedBuilder(
-                animation: _pulseController,
-                builder: (context, child) {
-                  return CustomPaint(
-                    painter: _LineChartPainter(
-                      widget.data,
-                      minVal,
-                      range,
-                      widget.color,
-                      labels: widget.labels,
-                      unit: widget.unit,
-                      showAxis: true,
-                      large: widget.large,
-                      selectedIndex: curIdx,
-                      thresholdMin: widget.thresholdMin,
-                      thresholdMax: widget.thresholdMax,
-                      isLive: widget.isLive,
-                      pulseValue: widget.isLive ? _pulseController.value : 0.0,
-                    ),
-                    size: Size(constraints.maxWidth, widget.height),
-                  );
-                },
-              ),
-              if (curIdx != null && curIdx < widget.data.length)
-                Positioned(
-                  top: 3,
-                  left: _tooltipLeft(constraints.maxWidth),
-                  child: _buildTooltip(curIdx),
+        _visibleWidth = constraints.maxWidth;
+        _clampScroll();
+        final vw = _virtualWidth();
+        final scrollable = _isScrollable;
+        final scrollBarH = scrollable ? 20.0 : 0.0;
+        final chartH = widget.height - scrollBarH;
+
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTapUp: _onTapUp,
+                  onHorizontalDragUpdate:
+                      scrollable ? _onHorizontalDragUpdate : null,
+                  child: AnimatedBuilder(
+                    animation: _pulseController,
+                    builder: (context, child) {
+                      return CustomPaint(
+                        painter: _LineChartPainter(
+                          widget.data,
+                          minVal,
+                          range,
+                          widget.color,
+                          labels: widget.labels,
+                          unit: widget.unit,
+                          showAxis: true,
+                          large: widget.large,
+                          selectedIndex: curIdx,
+                          thresholdMin: widget.thresholdMin,
+                          thresholdMax: widget.thresholdMax,
+                          isLive: widget.isLive,
+                          pulseValue: widget.isLive
+                              ? _pulseController.value
+                              : 0.0,
+                          scrollOffset: _scrollOffset,
+                          virtualWidth: vw,
+                        ),
+                        size: Size(_visibleWidth, chartH),
+                      );
+                    },
+                  ),
                 ),
-            ],
+                if (curIdx != null && curIdx < widget.data.length)
+                  Positioned(
+                    top: 3,
+                    left: _tooltipLeft(_visibleWidth),
+                    child: _buildTooltip(curIdx),
+                  ),
+              ],
+            ),
+            if (scrollable)
+              SizedBox(
+                height: 20,
+                child: _buildScrollBar(vw),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildScrollBar(double virtualWidth) {
+    final maxScroll = max(0.0, virtualWidth - _visibleWidth);
+    if (maxScroll <= 0) return const SizedBox.shrink();
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final trackW = constraints.maxWidth;
+        final thumbFraction = _visibleWidth / virtualWidth;
+        final thumbW = max(24.0, trackW * thumbFraction);
+        final thumbPos =
+            (trackW - thumbW) * (_scrollOffset / maxScroll);
+
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onHorizontalDragUpdate: (details) {
+            setState(() {
+              _scrollOffset +=
+                  details.delta.dx * (maxScroll / (trackW - thumbW));
+              _clampScroll();
+            });
+          },
+          onTapDown: (details) {
+            final tapX = details.localPosition.dx;
+            final normalized = (tapX / trackW).clamp(0.0, 1.0);
+            setState(() {
+              _scrollOffset = (normalized * maxScroll).clamp(0.0, maxScroll);
+            });
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Stack(
+              alignment: Alignment.centerLeft,
+              children: [
+                Container(
+                  height: 3,
+                  decoration: BoxDecoration(
+                    color: AppColors.darkWith(0.1),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Positioned(
+                  left: thumbPos,
+                  child: Container(
+                    width: thumbW,
+                    height: 3,
+                    decoration: BoxDecoration(
+                      color: AppColors.darkWith(0.35),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -164,15 +280,16 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart>
     final curIdx = widget.selectedIndex;
     if (curIdx == null) return 8;
     final data = widget.data;
-    final yLabelW = widget.large ? 42.0 : 36.0;
-    final padL = yLabelW;
-    final padR = 12.0; // Consistent with painter
-    final chartW = totalWidth - padL - padR;
+    final padL = _yLabelW();
+    final vw = _virtualWidth();
+    final chartW = vw - padL;
     if (chartW <= 0 || data.length <= 1) return 8;
     final stepX = chartW / (data.length - 1);
-    final x = padL + curIdx * stepX;
+    final x = padL + curIdx * stepX - _scrollOffset;
     const tooltipW = 100;
-    if (x + tooltipW > totalWidth - padR) return totalWidth - tooltipW - padR;
+    if (x + tooltipW > totalWidth) {
+      return totalWidth - tooltipW;
+    }
     if (x - tooltipW / 2 < padL) return padL;
     return x - tooltipW / 2;
   }
@@ -216,6 +333,8 @@ class _LineChartPainter extends CustomPainter {
   final double? thresholdMax;
   final bool isLive;
   final double pulseValue;
+  final double scrollOffset;
+  final double virtualWidth;
 
   _LineChartPainter(
     this.data,
@@ -231,21 +350,31 @@ class _LineChartPainter extends CustomPainter {
     this.thresholdMax,
     this.isLive = false,
     this.pulseValue = 0.0,
+    this.scrollOffset = 0.0,
+    this.virtualWidth = 0.0,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
     if (data.isEmpty) return;
 
-    final yLabelW = large ? 42.0 : 36.0;
+    final yLabelW = large ? 36.0 : 32.0;
     final padL = showAxis ? yLabelW : 4.0;
-    final padR = 12.0;
+    const padR = 0.0;
     final padT = 8.0;
     final padB = showAxis ? (large ? 44.0 : 34.0) : 4.0;
 
-    final chartW = size.width - padL - padR;
+    final visibleChartW = size.width - padL - padR;
     final chartH = size.height - padT - padB;
-    if (chartW <= 0 || chartH <= 0) return;
+    if (visibleChartW <= 0 || chartH <= 0) return;
+
+    final vw = virtualWidth > size.width ? virtualWidth : size.width;
+    final virtualChartW = vw - padL - padR;
+    final stepX =
+        data.length > 1 ? virtualChartW / (data.length - 1) : 0.0;
+
+    final visibleLeft = padL;
+    final visibleRight = size.width - padR;
 
     final maxVal = minVal + range;
     final textStyle = TextStyle(
@@ -260,8 +389,6 @@ class _LineChartPainter extends CustomPainter {
         ..color = AppColors.darkWith(0.05)
         ..strokeWidth = 1;
 
-      // DYNAMIC DECIMAL PRECISION:
-      // Kapag maliit ang range, nagpapakita ng decimal para hindi mag-duplicate ang labels
       int decimalPlaces = 0;
       if (range < 1.0) {
         decimalPlaces = 2;
@@ -275,8 +402,8 @@ class _LineChartPainter extends CustomPainter {
       for (int i = 0; i <= tickCount; i++) {
         final y = padT + (chartH * i / tickCount);
         canvas.drawLine(
-          Offset(padL, y),
-          Offset(size.width - padR, y),
+          Offset(visibleLeft, y),
+          Offset(visibleRight, y),
           gridPaint,
         );
 
@@ -288,28 +415,18 @@ class _LineChartPainter extends CustomPainter {
             style: textStyle,
           ),
           textDirection: TextDirection.ltr,
-        )..layout(maxWidth: yLabelW - 4);
-        tp.paint(canvas, Offset(padL - yLabelW + 2, y - tp.height / 2));
+        )..layout(maxWidth: yLabelW - 2);
+        tp.paint(canvas, Offset(2, y - tp.height / 2));
       }
     }
 
-    // X-axis labels (slanted)
-    if (showAxis && labels != null && labels!.isNotEmpty) {
-      final xLabels = _getXLabels();
-      for (final xl in xLabels) {
-        final x = padL + (chartW * xl.index / (data.length - 1));
-        final tp = TextPainter(
-          text: TextSpan(text: xl.text, style: textStyle),
-          textDirection: TextDirection.ltr,
-        )..layout();
-        final labelW = tp.width;
-        canvas.save();
-        canvas.translate(x, size.height - padB + 14);
-        canvas.rotate(-0.55);
-        tp.paint(canvas, Offset(-labelW / 2, 0));
-        canvas.restore();
-      }
-    }
+    // Clip chart area for data
+    canvas.save();
+    canvas.clipRect(
+      Rect.fromLTWH(padL - 1, 0, visibleChartW + 2, size.height),
+    );
+
+    // Threshold lines removed per user request
 
     // Line paint
     final paintLine = Paint()
@@ -324,66 +441,89 @@ class _LineChartPainter extends CustomPainter {
       ..shader = LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
-        colors: [color.withValues(alpha: 0.15), color.withValues(alpha: 0.0)],
-      ).createShader(Rect.fromLTWH(padL, padT, chartW, chartH));
+        colors: [
+          color.withValues(alpha: 0.15),
+          color.withValues(alpha: 0.0),
+        ],
+      ).createShader(Rect.fromLTWH(padL, padT, visibleChartW, chartH));
 
-    final stepX = data.length > 1 ? chartW / (data.length - 1) : 0.0;
     final path = Path();
     final fillPath = Path();
 
-    int? segStart;
-    int lastValid = -1;
+    // Build smooth points list (skip NaN gaps)
+    final segments = <List<Offset>>[];
+    var current = <Offset>[];
     for (int i = 0; i < data.length; i++) {
       if (data[i].isNaN) {
-        if (segStart != null && lastValid >= 0) {
-          final lx = padL + lastValid * stepX;
-          fillPath.lineTo(lx, padT + chartH);
-          fillPath.close();
+        if (current.isNotEmpty) {
+          segments.add(current);
+          current = [];
         }
-        segStart = null;
         continue;
       }
-      final x = padL + i * stepX;
+      final x = padL + i * stepX - scrollOffset;
       final y = padT + chartH - ((data[i] - minVal) / range) * chartH;
-      if (segStart == null) {
-        path.moveTo(x, y);
-        fillPath.moveTo(x, padT + chartH);
-        fillPath.lineTo(x, y);
-        segStart = i;
-      } else {
-        path.lineTo(x, y);
-        fillPath.lineTo(x, y);
-      }
-      lastValid = i;
+      current.add(Offset(x, y));
     }
-    if (segStart != null && lastValid >= 0) {
-      final lx = padL + lastValid * stepX;
-      fillPath.lineTo(lx, padT + chartH);
+    if (current.isNotEmpty) segments.add(current);
+
+    for (final seg in segments) {
+      if (seg.isEmpty) continue;
+      if (seg.length == 1) {
+        path.moveTo(seg.first.dx, seg.first.dy);
+        fillPath.moveTo(seg.first.dx, padT + chartH);
+        fillPath.lineTo(seg.first.dx, seg.first.dy);
+        fillPath.lineTo(seg.first.dx, padT + chartH);
+        fillPath.close();
+        continue;
+      }
+
+      path.moveTo(seg.first.dx, seg.first.dy);
+      fillPath.moveTo(seg.first.dx, padT + chartH);
+      fillPath.lineTo(seg.first.dx, seg.first.dy);
+
+      for (int i = 1; i < seg.length; i++) {
+        final p0 = seg[max(0, i - 2)];
+        final p1 = seg[max(0, i - 1)];
+        final p2 = seg[i];
+        final p3 = seg[min(seg.length - 1, i + 1)];
+
+        final tension = 0.3;
+        final cp1x = p1.dx + (p2.dx - p0.dx) * tension;
+        final cp1y = p1.dy + (p2.dy - p0.dy) * tension;
+        final cp2x = p2.dx - (p3.dx - p1.dx) * tension;
+        final cp2y = p2.dy - (p3.dy - p1.dy) * tension;
+
+        path.cubicTo(cp1x, cp1y, cp2x, cp2y, p2.dx, p2.dy);
+        fillPath.cubicTo(cp1x, cp1y, cp2x, cp2y, p2.dx, p2.dy);
+      }
+
+      fillPath.lineTo(seg.last.dx, padT + chartH);
       fillPath.close();
     }
 
     canvas.drawPath(fillPath, fillPaint);
     canvas.drawPath(path, paintLine);
 
-    // Dots
+    // Dots (skip if too many)
     final dotPaint = Paint()..color = color;
     final dotBorder = Paint()..color = Colors.white;
-    final dotStep = 1;
-
+    final dotStep = max(1, data.length ~/ 120);
     for (int i = 0; i < data.length; i += dotStep) {
       if (data[i].isNaN) continue;
-      final x = padL + i * stepX;
+      final x = padL + i * stepX - scrollOffset;
+      if (x < visibleLeft - 5 || x > visibleRight + 5) continue;
       final y = padT + chartH - ((data[i] - minVal) / range) * chartH;
       canvas.drawCircle(Offset(x, y), 3, dotBorder);
       canvas.drawCircle(Offset(x, y), 2, dotPaint);
     }
 
-    // Selected point highlight & vertical line
+    // Selected point highlight
     if (selectedIndex != null &&
         selectedIndex! >= 0 &&
         selectedIndex! < data.length &&
         !data[selectedIndex!].isNaN) {
-      final sx = padL + selectedIndex! * stepX;
+      final sx = padL + selectedIndex! * stepX - scrollOffset;
       final sy =
           padT + chartH - ((data[selectedIndex!] - minVal) / range) * chartH;
 
@@ -415,28 +555,70 @@ class _LineChartPainter extends CustomPainter {
     // Live pulsing dot
     if (isLive && data.isNotEmpty && !data.last.isNaN) {
       final lastIdx = data.length - 1;
-      final lx = padL + lastIdx * stepX;
-      final ly = padT + chartH - ((data[lastIdx] - minVal) / range) * chartH;
+      final lx = padL + lastIdx * stepX - scrollOffset;
+      final ly =
+          padT + chartH - ((data[lastIdx] - minVal) / range) * chartH;
 
       final pulsePaint = Paint()
         ..color = color.withValues(alpha: 0.3 * (1 - pulseValue))
         ..style = PaintingStyle.fill;
       canvas.drawCircle(Offset(lx, ly), 4 + 10 * pulseValue, pulsePaint);
     }
-  }
 
-  List<_XLabel> _getXLabels() {
-    if (labels == null || labels!.isEmpty) return [];
-    final count = data.length;
-    if (count <= 8) {
-      return List.generate(count, (i) => _XLabel(labels![i], i));
+    canvas.restore();
+
+    // X-axis labels — always 6, evenly spaced, slanted
+    if (showAxis && labels != null && labels!.isNotEmpty) {
+      final count = data.length;
+      if (count > 0) {
+        final targetCount = min(6, count);
+        const angle = -0.55;
+        final cosA = cos(angle);
+        final sinA = sin(angle);
+        final maxRight = size.width - padR - 2;
+
+        final idxs = <int>[];
+        for (int n = 0; n < targetCount; n++) {
+          final t = targetCount > 1 ? n / (targetCount - 1) : 0.5;
+          final probeX = padL + (maxRight - padL) * t;
+          final dataX = probeX + scrollOffset - padL;
+          idxs.add((dataX / stepX).round().clamp(0, count - 1));
+        }
+
+        double maxSlantExtent = 0;
+        for (final idx in idxs) {
+          final tp = TextPainter(
+            text: TextSpan(text: labels![idx], style: textStyle),
+            textDirection: TextDirection.ltr,
+          )..layout();
+          final ext = tp.width * cosA.abs() + tp.height * sinA.abs();
+          if (ext > maxSlantExtent) maxSlantExtent = ext;
+        }
+
+        final firstX = padL;
+        final lastX = maxRight - maxSlantExtent;
+        final spacing = targetCount > 1 ? (lastX - firstX) / (targetCount - 1) : 0.0;
+
+        for (int n = 0; n < targetCount; n++) {
+          final fixedX = firstX + spacing * n;
+          final dataX = fixedX + scrollOffset - padL;
+          final idx = (dataX / stepX).round().clamp(0, count - 1);
+          final tp = TextPainter(
+            text: TextSpan(text: labels![idx], style: textStyle),
+            textDirection: TextDirection.ltr,
+          )..layout();
+          final anchorY = size.height - padB + 18;
+          final tx = tp.width * 0.15;
+          final dx = fixedX + tx * cosA;
+          final dy = anchorY + tx * sinA;
+          canvas.save();
+          canvas.translate(dx, dy);
+          canvas.rotate(angle);
+          tp.paint(canvas, Offset.zero);
+          canvas.restore();
+        }
+      }
     }
-
-    final step = (count - 1) / 7;
-    return List.generate(8, (i) {
-      final index = (i * step).round().clamp(0, count - 1);
-      return _XLabel(labels![index], index);
-    });
   }
 
   @override
@@ -444,13 +626,8 @@ class _LineChartPainter extends CustomPainter {
       oldDelegate.data != data ||
       oldDelegate.large != large ||
       oldDelegate.selectedIndex != selectedIndex ||
-      oldDelegate.thresholdMin != thresholdMin ||
-      oldDelegate.thresholdMax != thresholdMax ||
-      oldDelegate.pulseValue != pulseValue;
+      oldDelegate.pulseValue != pulseValue ||
+      oldDelegate.scrollOffset != scrollOffset;
 }
 
-class _XLabel {
-  final String text;
-  final int index;
-  const _XLabel(this.text, this.index);
-}
+

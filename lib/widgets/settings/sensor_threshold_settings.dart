@@ -3,11 +3,11 @@ import '../../theme/app_colors.dart';
 import '../../services/settings_service.dart';
 import '../../services/database_service.dart';
 
-class StageSettings extends StatefulWidget {
-  const StageSettings({super.key});
+class SensorThresholdSettings extends StatefulWidget {
+  const SensorThresholdSettings({super.key});
 
   @override
-  State<StageSettings> createState() => _StageSettingsState();
+  State<SensorThresholdSettings> createState() => _SensorThresholdSettingsState();
 }
 
 class _SensorMeta {
@@ -23,12 +23,12 @@ class _SensorMeta {
   });
 }
 
-class _StageSettingsState extends State<StageSettings> {
+class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
   final List<String> sensors = const ['temp', 'ph', 'do', 'turb', 'waterlevel'];
 
   final Map<String, _SensorMeta> sensorMeta = const {
     'temp': _SensorMeta(
-      label: 'Temperature', unit: '\u00B0C',
+      label: 'Temperature', unit: '°C',
       iconPath: 'assets/images/temperature.png', color: Color(0xFFF59E0B),
     ),
     'ph': _SensorMeta(
@@ -134,7 +134,7 @@ class _StageSettingsState extends State<StageSettings> {
   }
 
   String _formatMax(double max) {
-    if (max >= 999) return '\u221E';
+    if (max >= 999) return '∞';
     return max.toStringAsFixed(1);
   }
 
@@ -277,7 +277,7 @@ class _StageSettingsState extends State<StageSettings> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Text('${min.toStringAsFixed(1)} \u2013 ${_formatMax(max)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: AppColors.primary)),
+                    Text('${min.toStringAsFixed(1)} – ${_formatMax(max)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: AppColors.primary)),
                     Text(info.unit, style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800, color: AppColors.darkWith(0.3))),
                   ],
                 ),
@@ -339,7 +339,7 @@ class _StageSettingsState extends State<StageSettings> {
           Padding(
             padding: const EdgeInsets.only(left: 38),
             child: Text(
-              'Set ideal ranges for all crayfish stages',
+              'Ideal sensor ranges for your tank',
               style: TextStyle(fontSize: 10, color: AppColors.darkWith(0.45)),
             ),
           ),

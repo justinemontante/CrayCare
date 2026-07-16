@@ -139,6 +139,7 @@ class FeederService extends ChangeNotifier {
       _schedulesSub = FirebaseFirestore.instance
           .collection('feederSchedules')
           .orderBy('timeValue')
+          .limit(20)
           .snapshots()
           .listen((snapshot) {
         try {
