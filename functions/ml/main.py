@@ -7,7 +7,7 @@ _bundle = None
 _recs = None
 _db = None
 
-_MODEL_PATH = os.path.join(os.path.dirname(__file__), "csi_model.joblib")
+_MODEL_PATH = os.path.join(os.path.dirname(__file__), "wqri_model.joblib")
 _RECS_PATH = os.path.join(os.path.dirname(__file__), "recommendations.json")
 
 
@@ -33,7 +33,7 @@ def _load_model():
         _bundle = joblib.load(_MODEL_PATH)
     except Exception:
         _bundle = None
-        print("[CSI] No trained model found, will use rule-based fallback")
+        print("[WQRI] No trained model found, will use rule-based fallback")
     try:
         with open(_RECS_PATH) as f:
             _recs = json.load(f)
@@ -68,23 +68,23 @@ def _load_model():
     return _bundle, _recs
 
 
-def _predict_csi(df):
-    """Run CSI prediction (ML or rule-based) on a sensor DataFrame.
+def _predict_wqri(df):
+    """Run WQRI prediction (ML or rule-based) on a sensor DataFrame.
 
-    Returns a dict with score, level, confidence, driver, recommendation.
-    The 0-100 score always comes from the deterministic CSI formula so it
-    stays consistent whether the ML model is loaded or not.
+    Returns a dict with score, level, confidence, driver, insight,
+    recommendation. The 0-100 score always comes from the deterministic
+    WQRI formula so it stays consistent whether the ML model is loaded or not.
     """
-    from features import SENSORS, build_features, compute_csi_score, classify, CLASS_NAMES
+    from features import SENSORS, build_features, compute_wqri_score, classify, CLASS_NAMES, generate_insight
     from features import DO_MIN, PH_OPTIMAL_MIN, PH_OPTIMAL_MAX, TEMP_MIN, TEMP_MAX, TURB_MAX
 
     bundle, recs = _load_model()
     feat, _ = build_features(df)
     latest_feat = feat.iloc[[-1]]
 
-    # Always compute the deterministic CSI score — consistent metric
-    csi_series = compute_csi_score(df)
-    score = round(float(csi_series.iloc[-1]), 1)
+    # Always compute the deterministic WQRI score — consistent metric
+    wqri_series = compute_wqri_score(df)
+    score = round(float(wqri_series.iloc[-1]), 1)
 
     if bundle is not None:
         import numpy as np
@@ -99,14 +99,14 @@ def _predict_csi(df):
         latest_feat = latest_feat[FEATURES]
 
         if model_type == "regressor":
-            # Regressor predicts CSI score directly (0-100)
+            # Regressor predicts WQRI score directly (0-100)
             pred_score = float(model.predict(latest_feat)[0])
             pred_score = max(0.0, min(100.0, pred_score))
             score = round(pred_score, 1)
             _, level = classify(score)
 
-            # Confidence: high when model agrees with rule-based CSI
-            diff = abs(pred_score - float(csi_series.iloc[-1]))
+            # Confidence: high when model agrees with rule-based WQRI
+            diff = abs(pred_score - float(wqri_series.iloc[-1]))
             if diff < 5:
                 confidence = 92
             elif diff < 10:
@@ -130,7 +130,7 @@ def _predict_csi(df):
             key=lambda s: imp[[c for c in FEATURES if c.startswith(s)]].sum(),
         )
     else:
-        # Rule-based fallback: derive driver from CSI hazard sub-scores
+        # Rule-based fallback: derive driver from WQRI hazard sub-scores
         import numpy as np
 
         cls_num, level = classify(score)
@@ -155,12 +155,14 @@ def _predict_csi(df):
     rec = recs.get(driver, recs["DO"])
     action_key = "critical_action" if level == "Critical" else "action"
     action = rec.get(action_key, rec["action"])
+    insight = generate_insight(driver, df.iloc[-1], level)
     return {
         "score": score,
         "level": level,
         "confidence": confidence,
         "driver": driver,
         "problem": rec["problem"],
+        "insight": insight,
         "action": action,
         "source": rec["source"],
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -202,7 +204,7 @@ def _fetch_sensor_history(hours: int = 24):
             for d in docs:
                 rows.append(d.to_dict())
         except Exception as e:
-            print(f"[CSI] Error fetching history for {date_str}: {e}")
+            print(f"[WQRI] Error fetching history for {date_str}: {e}")
 
     # Fallback: grab the most recent 144 rows from today's collection
     if not rows:
@@ -219,7 +221,7 @@ def _fetch_sensor_history(hours: int = 24):
             for d in docs:
                 rows.append(d.to_dict())
         except Exception as e:
-            print(f"[CSI] Fallback fetch error: {e}")
+            print(f"[WQRI] Fallback fetch error: {e}")
 
     if not rows:
         return pd.DataFrame()
@@ -247,7 +249,7 @@ from firebase_functions import firestore_fn
     region="asia-southeast1"
 )
 def on_sensor_update(event: firestore_fn.Event[firestore_fn.Change[firestore_fn.DocumentSnapshot]]) -> None:
-    """Triggered when sensorReadings/latest is written. Runs ML CSI prediction."""
+    """Triggered when sensorReadings/latest is written. Runs ML WQRI prediction."""
 
     after_data = event.data.after.to_dict() if event.data.after else None
     if not after_data:
@@ -259,13 +261,14 @@ def on_sensor_update(event: firestore_fn.Event[firestore_fn.Change[firestore_fn.
     db = _get_db()
 
     if df.empty or len(df) < 36:
-        print(f"[CSI] Insufficient data ({len(df)} rows), need at least 36")
+        print(f"[WQRI] Insufficient data ({len(df)} rows), need at least 36")
         result = {
             "score": 0,
             "level": "Insufficient",
             "confidence": 0,
             "driver": "N/A",
             "problem": "Not enough data collected yet",
+            "insight": "Not enough data collected yet.",
             "action": "Continue collecting data. Need at least 6 hours of readings.",
             "source": "System",
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -273,11 +276,11 @@ def on_sensor_update(event: firestore_fn.Event[firestore_fn.Change[firestore_fn.
         db.collection("healthRisk").document("latest").set(result)
         return
 
-    result = _predict_csi(df)
+    result = _predict_wqri(df)
     if uid:
         result["uid"] = uid
 
     db.collection("healthRisk").document("latest").set(result)
     print(
-        f"[CSI] Result: {result['level']} (score={result['score']}, driver={result['driver']})"
+        f"[WQRI] Result: {result['level']} (score={result['score']}, driver={result['driver']})"
     )

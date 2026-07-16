@@ -1,4 +1,17 @@
-"""CrayCare CSI Dataset Generator -> sensor_dataset.csv"""
+"""CrayCare WQRI Dataset Generator -> sensor_dataset.csv
+
+*** SYNTHETIC DATA -- NOT REAL SENSOR READINGS ***
+This generates a purely simulated dataset (sine-wave diurnal patterns +
+randomly injected fault events: aerator failure, heat spike, pH drop,
+overfeeding). It exists so the ML pipeline can be built and prototyped
+before real pond data is available.
+
+Any accuracy/metric computed downstream from sensor_labeled.csv (which is
+derived from this file) should be reported as "prototype validation on
+synthetic data," NOT as field-validated performance. Swap this in for a
+real historical export of sensorReadings from Firestore once enough real
+data has been collected, then re-run label.py + train_model.py on that.
+"""
 
 import numpy as np
 import pandas as pd
