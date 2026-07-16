@@ -1,17 +1,15 @@
 import 'dart:async';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz;
 import 'sensor_service.dart';
-import 'tank_service.dart';
+import 'device_log_service.dart';
 import '../models/notification_item.dart';
 import '../models/control_types.dart';
-import 'database_service.dart';
 
 /// TOP-LEVEL background message handler — required by Firebase Messaging.
 /// Must be outside any class and annotated with @pragma('vm:entry-point').
@@ -102,10 +100,9 @@ Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
-        final snap = await FirebaseDatabase.instance.ref('users/${user.uid}/notifPrefs').get();
-        if (snap.exists && snap.value != null) {
-          final raw = snap.value as Map<Object?, Object?>;
-          final map = raw.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
+        final prefsDoc = await FirebaseFirestore.instance.collection('notifPrefs').doc(user.uid).get();
+        if (prefsDoc.exists && prefsDoc.data() != null) {
+          final map = prefsDoc.data()!;
 
           if (isFeeding && map['feeding'] == false) {
             debugPrint('[FCM] Skipping feeding notification because it is turned off in preferences.');
@@ -201,11 +198,10 @@ Future<void> _handlePreArm(Map<String, String> data) async {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
-        final snap = await FirebaseDatabase.instance
-            .ref('users/${user.uid}/notifPrefs').get();
-        if (snap.exists && snap.value != null) {
-          final raw = snap.value as Map<Object?, Object?>;
-          final prefs = raw.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
+        final prefsDoc = await FirebaseFirestore.instance
+            .collection('notifPrefs').doc(user.uid).get();
+        if (prefsDoc.exists && prefsDoc.data() != null) {
+          final prefs = prefsDoc.data()!;
           playSound = prefs['sound'] != false;
           vibrate = prefs['vibration'] != false;
         }
@@ -286,18 +282,11 @@ class NotificationService extends ChangeNotifier {
 
   final List<NotificationItem> _notifications = [];
   final Map<String, String> _previousZones = {};
-  int _idCounter = 0;
+
   bool _initialized = false;
 
   // Auto-control notification tracking
-  final Set<String> _seenAutoLogKeys = {};
-  bool _autoControlWarmup = true;
-  final Map<String, String> _deviceLabels = {
-    'aerator1': 'Aerator 1',
-    'aerator2': 'Aerator 2',
-    'pump': 'Water Pump',
-  };
-  final List<StreamSubscription<DatabaseEvent>> _autoControlSubs = [];
+  StreamSubscription<AutoControlEvent>? _autoControlSub;
 
   bool _notifSound = true;
   bool _notifVibration = true;
@@ -312,15 +301,10 @@ class NotificationService extends ChangeNotifier {
   String _lastSamplingReminderDate = '';
 
   String? _effectiveUid;
-  DatabaseReference get _notifRef => FirebaseDatabase.instance.ref(
-    'users/${_effectiveUid ?? FirebaseAuth.instance.currentUser?.uid ?? ""}/notifications',
-  );
   String? _userRole;
-  StreamSubscription<DatabaseEvent>? _profileSub;
-  StreamSubscription<DatabaseEvent>? _notifSub;
-  StreamSubscription<DatabaseEvent>? _notifChangedSub;
-  StreamSubscription<DatabaseEvent>? _notifRemovedSub;
-  StreamSubscription<DatabaseEvent>? _prefsSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _profileFirestoreSub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _notifSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _prefsSub;
   Timer? _reminderTimer;
   Timer? _slowTimer;
 
@@ -342,6 +326,16 @@ class NotificationService extends ChangeNotifier {
   }
 
   bool get _isMonitor => _effectiveUid != null;
+
+  // Feeding schedules are configured in — and the Cloud Function
+  // (functions/notifications/index.js) dispatches/confirms them in — fixed
+  // Asia/Manila wall-clock time (MANILA_OFFSET_MS there). A "monitor" user
+  // viewing from a different timezone would otherwise have their local
+  // reminder timers, OS alarms, and marker date-keys computed against their
+  // OWN device clock instead, causing wrong-time or duplicate reminders.
+  // This mirrors the same fixed +8h approach so both sides agree.
+  static const _manilaOffset = Duration(hours: 8);
+  DateTime _manilaNow() => DateTime.now().toUtc().add(_manilaOffset);
 
   final FlutterLocalNotificationsPlugin _localNotifications =
       FlutterLocalNotificationsPlugin();
@@ -383,21 +377,29 @@ class NotificationService extends ChangeNotifier {
   void init() {
     if (_initialized) return;
     _initialized = true;
-    _listenFirebase();
-    _loadUserPrefs();
     SensorService.instance.addListener(_onSensorUpdate);
+    DeviceLogService.instance.init();
     _initPreviousStates();
     tz.initializeTimeZones();
-    _startReminderTimer();
-    _initAutoControlListener();
     FeedState.schedules.addListener(_onSchedulesChanged);
+
+    if (FirebaseAuth.instance.currentUser != null) {
+      _listenFirebase();
+      _loadUserPrefs();
+      _startReminderTimer();
+      _initAutoControlListener();
+    }
+
     FirebaseAuth.instance.authStateChanges().listen((user) {
       _notifications.clear();
       _effectiveUid = null;
       _cancelSubscriptions();
       _cancelAutoControlSubs();
+      _reminderTimer?.cancel();
+      _slowTimer?.cancel();
       _userRole = null;
       if (user != null) {
+        _startReminderTimer();
         _listenProfile();
       }
       notifyListeners();
@@ -408,25 +410,24 @@ class NotificationService extends ChangeNotifier {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    _profileSub?.cancel();
-    _profileSub = FirebaseDatabase.instance
-        .ref('users/${user.uid}/profile')
-        .onValue
-        .listen((event) async {
-          if (event.snapshot.value == null) return;
-          final profile = DatabaseService.convertMap(
-            event.snapshot.value as Map,
-          );
+    _profileFirestoreSub?.cancel();
+    _profileFirestoreSub = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .snapshots()
+        .listen((doc) async {
+          if (!doc.exists || doc.data() == null) return;
+          final profile = doc.data()!;
           _userRole = profile['role'] as String?;
 
           if (_userRole == 'admin') {
             _notifSub?.cancel();
-            _notifRemovedSub?.cancel();
             _prefsSub?.cancel();
             _notifications.clear();
-            FirebaseDatabase.instance
-                .ref('users/${user.uid}/fcmToken')
-                .remove()
+            FirebaseFirestore.instance
+                .collection('users')
+                .doc(user.uid)
+                .update({'fcmToken': FieldValue.delete()})
                 .catchError((_) {});
             notifyListeners();
           } else {
@@ -544,14 +545,16 @@ class NotificationService extends ChangeNotifier {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
         if (_userRole == 'admin') {
-          await FirebaseDatabase.instance
-              .ref('users/${user.uid}/fcmToken')
-              .remove();
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .update({'fcmToken': FieldValue.delete()});
           return;
         }
-        await FirebaseDatabase.instance
-            .ref('users/${user.uid}/fcmToken')
-            .set(token);
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .set({'fcmToken': token}, SetOptions(merge: true));
       }
     } catch (e) {
       debugPrint('[NotificationService] Token save error: $e');
@@ -621,9 +624,8 @@ class NotificationService extends ChangeNotifier {
   void dispose() {
     _tokenSub?.cancel();
     _notifSub?.cancel();
-    _notifRemovedSub?.cancel();
     _prefsSub?.cancel();
-    _profileSub?.cancel();
+    _profileFirestoreSub?.cancel();
     _reminderTimer?.cancel();
     _slowTimer?.cancel();
     _cancelAutoControlSubs();
@@ -643,15 +645,13 @@ class NotificationService extends ChangeNotifier {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
     _prefsSub?.cancel();
-    _prefsSub = FirebaseDatabase.instance
-        .ref('users/${user.uid}/notifPrefs')
-        .onValue
-        .listen((e) {
-          if (!e.snapshot.exists || e.snapshot.value == null) return;
-          final raw = e.snapshot.value as Map<Object?, Object?>;
-          final map = raw.map<String, dynamic>(
-            (k, v) => MapEntry(k.toString(), v),
-          );
+    _prefsSub = FirebaseFirestore.instance
+        .collection('notifPrefs')
+        .doc(user.uid)
+        .snapshots()
+        .listen((doc) {
+          if (!doc.exists || doc.data() == null) return;
+          final map = doc.data()!;
           _notifSound = map['sound'] as bool? ?? true;
           _notifVibration = map['vibration'] as bool? ?? true;
           _notifCritical = map['critical'] as bool? ?? true;
@@ -663,57 +663,23 @@ class NotificationService extends ChangeNotifier {
   }
 
   void _initAutoControlListener() {
-    _cancelAutoControlSubs();
-    _seenAutoLogKeys.clear();
-    _autoControlWarmup = true;
-
-    for (final deviceId in _deviceLabels.keys) {
-      final ref = FirebaseDatabase.instance.ref('devices/logs/$deviceId');
-      final sub = ref.onChildAdded.listen((event) {
-        if (event.snapshot.value == null) return;
-        final raw = event.snapshot.value as Map<Object?, Object?>;
-        final map = raw.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
-        final action = map['action'] as String? ?? '';
-        final key = event.snapshot.key;
-        if (key == null) return;
-
-        _seenAutoLogKeys.add(key);
-
-        // Skip during warmup to avoid notifying for existing log entries
-        if (_autoControlWarmup) return;
-
-        if (!action.contains('(AUTO)')) return;
-
-        final tsRaw = map['timestamp'] as num? ?? 0;
-        final tsMs = tsRaw < 100000000000 ? tsRaw * 1000 : tsRaw;
-        final ts = DateTime.fromMillisecondsSinceEpoch(tsMs.toInt());
-        final label = _deviceLabels[deviceId] ?? deviceId;
-
-        String title, message;
-        if (action.contains('ON')) {
-          title = '$label turned ON';
-          message = action.replaceFirst('Switched ON (AUTO) - ', '');
-        } else {
-          title = '$label turned OFF';
-          message = action.replaceFirst('Switched OFF (AUTO) - ', '');
-        }
-
-        _addNotification(type: 'operational', title: title, message: message, timestamp: ts);
-      });
-      _autoControlSubs.add(sub);
-    }
-
-    // Warmup period: absorb existing log entries without creating notifications
-    Future.delayed(const Duration(seconds: 3), () {
-      _autoControlWarmup = false;
+    _autoControlSub?.cancel();
+    _autoControlSub = DeviceLogService.instance.autoControlEvents.listen((event) {
+      String title, message;
+      if (event.action.contains('ON')) {
+        title = '${event.deviceLabel} turned ON';
+        message = event.action.replaceFirst('Switched ON (AUTO) - ', '');
+      } else {
+        title = '${event.deviceLabel} turned OFF';
+        message = event.action.replaceFirst('Switched OFF (AUTO) - ', '');
+      }
+      _addNotification(type: 'operational', title: title, message: message, timestamp: event.timestamp);
     });
   }
 
   void _cancelAutoControlSubs() {
-    for (final sub in _autoControlSubs) {
-      sub.cancel();
-    }
-    _autoControlSubs.clear();
+    _autoControlSub?.cancel();
+    _autoControlSub = null;
   }
 
   void _startReminderTimer() {
@@ -736,8 +702,9 @@ class NotificationService extends ChangeNotifier {
   void _checkFeedingReminders() {
     if (_userRole == 'admin') return;
     if (!_notifFeeding) return;
-    final now = DateTime.now();
-    final todayKey = '${now.month}/${now.day}';
+    final mNow = _manilaNow();
+    final todayKey = '${mNow.month}/${mNow.day}';
+    final realNow = DateTime.now().toUtc();
 
     for (final s in FeedState.schedules.value) {
       if (!s.enabled) continue;
@@ -750,20 +717,24 @@ class NotificationService extends ChangeNotifier {
       if (_feedingReminderSent.contains(key)) continue;
       if (h * 60 + m <= 0) continue;
 
-      final target = DateTime(now.year, now.month, now.day, h, m).subtract(const Duration(minutes: 5));
-      final scheduleDt = DateTime(now.year, now.month, now.day, h, m);
-      final diff = target.difference(now);
-      final schedDiff = scheduleDt.difference(now);
+      // Schedule's real absolute instant: build the wall-clock moment in the
+      // "fake UTC = Manila" domain, then undo the offset to get true UTC.
+      final scheduleWall = DateTime.utc(mNow.year, mNow.month, mNow.day, h, m);
+      final scheduleInstant = scheduleWall.subtract(_manilaOffset);
+      final targetInstant = scheduleInstant.subtract(const Duration(minutes: 5));
+      final diff = targetInstant.difference(realNow);
+      final schedDiff = scheduleInstant.difference(realNow);
 
       if (schedDiff > Duration.zero && schedDiff <= const Duration(minutes: 5)) {
         if (!_pendingTimers.contains(key)) {
           _pendingTimers.add(key);
+          final targetLocal = targetInstant.toLocal();
           if (diff > Duration.zero) {
-            Future.delayed(diff, () => _fireReminder(key, s, scheduledAt: target));
+            Future.delayed(diff, () => _fireReminder(key, s, scheduledAt: targetLocal));
           } else {
-            _fireReminder(key, s, scheduledAt: target);
+            _fireReminder(key, s, scheduledAt: targetLocal);
           }
-          _scheduleOSReminder(key, s, target);
+          _scheduleOSReminder(key, s, targetLocal);
         }
       }
     }
@@ -771,8 +742,8 @@ class NotificationService extends ChangeNotifier {
 
   void _preScheduleOSReminders() {
     if (_userRole == 'admin') return;
-    final now = DateTime.now();
-    final todayKey = '${now.month}/${now.day}';
+    final mNow = _manilaNow();
+    final todayKey = '${mNow.month}/${mNow.day}';
 
     for (final s in FeedState.schedules.value) {
       if (!s.enabled) continue;
@@ -784,8 +755,10 @@ class NotificationService extends ChangeNotifier {
       final key = '${todayKey}_${s.time}_${s.ampm}';
       if (_osScheduled.contains(key)) continue;
 
-      final target = DateTime(now.year, now.month, now.day, h, m).subtract(const Duration(minutes: 5));
-      if (target.isBefore(now)) continue;
+      final scheduleWall = DateTime.utc(mNow.year, mNow.month, mNow.day, h, m);
+      final scheduleInstant = scheduleWall.subtract(_manilaOffset);
+      final target = scheduleInstant.subtract(const Duration(minutes: 5)).toLocal();
+      if (target.isBefore(DateTime.now())) continue;
 
       _scheduleOSReminder(key, s, target);
     }
@@ -847,9 +820,12 @@ class NotificationService extends ChangeNotifier {
     if (s.ampm == 'PM' && h != 12) h += 12;
     if (s.ampm == 'AM' && h == 12) h = 0;
     final hhmm = '${h.toString().padLeft(2, '0')}${m.toString().padLeft(2, '0')}';
-    final y = now.year.toString();
-    final mo = now.month.toString().padLeft(2, '0');
-    final d = now.day.toString().padLeft(2, '0');
+    // Must match the Cloud Function's marker key, which is built from its
+    // Manila-offset date — not the device's local date.
+    final mNow = _manilaNow();
+    final y = mNow.year.toString();
+    final mo = mNow.month.toString().padLeft(2, '0');
+    final d = mNow.day.toString().padLeft(2, '0');
     final reminderKey = 'reminder_${y}-${mo}-${d}_$hhmm';
 
     final scheduleLabel = '${s.time} ${s.ampm}';
@@ -868,25 +844,18 @@ class NotificationService extends ChangeNotifier {
 
     if (NotificationService._preArmed.contains('${s.time}_${s.ampm}')) {
       debugPrint('[NotificationService] Pre-arm active — OS alarm will fire at exact time, skipping system notification');
-      await _notifRef
-          .child('markers/$reminderKey')
-          .set(now.millisecondsSinceEpoch);
+      await _saveMarker(reminderKey, now.millisecondsSinceEpoch);
       return;
     }
 
-    final markerExists = await _notifRef
-        .child('markers/$reminderKey')
-        .once()
-        .then((s) => s.snapshot.exists);
+    final markerExists = await _readMarker(reminderKey) != null;
 
     if (markerExists) {
       debugPrint('[NotificationService] Marker exists — worker already handled. Skipping local notif to avoid duplicate.');
       return;
     }
 
-    await _notifRef
-        .child('markers/$reminderKey')
-        .set(now.millisecondsSinceEpoch);
+    await _saveMarker(reminderKey, now.millisecondsSinceEpoch);
 
     if (!showSystemNotif) return;
 
@@ -938,6 +907,120 @@ class NotificationService extends ChangeNotifier {
     }
   }
 
+  Future<void> _checkTypeSampling({
+    required String uid,
+    required String type,     // 'crayfish'
+    required String label,    // 'Crayfish'
+  }) async {
+    final now = DateTime.now();
+    DateTime? effectiveLastDate;
+
+    final fs = FirebaseFirestore.instance;
+
+    // Read latest sampling record from Firestore
+    try {
+      final sampleSnap = await fs
+          .collection('sampling')
+          .where('uid', isEqualTo: uid)
+          .orderBy('date', descending: true)
+          .limit(1)
+          .get();
+      if (sampleSnap.docs.isNotEmpty) {
+        final data = sampleSnap.docs.first.data();
+        final ts = data['date'] as int?;
+        if (ts != null) {
+          effectiveLastDate = DateTime.fromMillisecondsSinceEpoch(ts);
+        }
+      }
+    } catch (e) {
+      debugPrint('[NotificationService] Failed to read sampling from Firestore: $e');
+    }
+
+    // Fallback to config's stockingDate if no sampling found
+    if (effectiveLastDate == null) {
+      try {
+        final configSnap = await fs.collection('config').doc(uid).get();
+        if (configSnap.exists) {
+          final config = configSnap.data();
+          if (config != null && config['isInitialized'] == true) {
+            final ts = config['lastSampleDate'] ?? config['stockingDate'];
+            if (ts is int) {
+              effectiveLastDate = DateTime.fromMillisecondsSinceEpoch(ts);
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('[NotificationService] Failed to read config from Firestore: $e');
+      }
+    }
+
+    if (effectiveLastDate == null) return;
+
+    final effectiveDate = DateTime(effectiveLastDate.year, effectiveLastDate.month, effectiveLastDate.day);
+    final daysSince = now.difference(effectiveDate).inDays;
+    if (daysSince < 7) return;
+
+    final currentSampleTs = effectiveLastDate.millisecondsSinceEpoch;
+    final markerKey = 'sampling_reminder_$type';
+    final markerData = await _readMarker(markerKey);
+    if (markerData != null) {
+      final lastSampleTs = markerData['sampleTs'] as int? ?? 0;
+      final lastReminderTs = markerData['reminderTs'] as int? ?? 0;
+      if (lastSampleTs == currentSampleTs && lastReminderTs > 0) {
+        final lastReminder = DateTime.fromMillisecondsSinceEpoch(lastReminderTs);
+        if (now.difference(lastReminder).inDays < 7) return;
+      }
+    }
+
+    final message = 'It\'s been $daysSince days since last $label sampling. Time to record growth data!';
+
+    _addNotification(
+      type: 'reminder',
+      title: '$label Sampling Reminder',
+      message: message,
+      timestamp: now,
+    );
+
+    await _saveMarker(markerKey, {
+      'reminderTs': now.millisecondsSinceEpoch,
+      'sampleTs': currentSampleTs,
+    });
+
+    try {
+      String channelId = 'craycare_alerts_silent';
+      if (_notifSound && _notifVibration) {
+        channelId = 'craycare_alerts_sound_vibrate';
+      } else if (_notifSound) {
+        channelId = 'craycare_alerts_sound_only';
+      } else if (_notifVibration) {
+        channelId = 'craycare_alerts_vibrate_only';
+      }
+      await _localNotifications.show(
+        DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        '$label Sampling Reminder',
+        message,
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            channelId,
+            'CrayCare Alerts',
+            importance: _notifSound || _notifVibration
+                ? Importance.high
+                : Importance.low,
+            priority: Priority.high,
+            playSound: _notifSound,
+            enableVibration: _notifVibration,
+            vibrationPattern: !_notifVibration ? Int64List(0) : null,
+            sound: !_notifSound
+                ? null
+                : const RawResourceAndroidNotificationSound('default'),
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('[NotificationService] Local $type sampling notification error: $e');
+    }
+  }
+
   void _checkSamplingReminders() {
     if (_userRole == 'admin') return;
     if (!_notifSampling) return;
@@ -945,137 +1028,71 @@ class NotificationService extends ChangeNotifier {
     final todayKey = '${now.month}/${now.day}';
     if (_lastSamplingReminderDate == todayKey) return;
 
-    final tank = TankService.instance;
-    final effectiveLastDate = tank.samplingHistory.isNotEmpty
-        ? tank.samplingHistory.last.date
-        : tank.stockingDate;
-    final effectiveDate = DateTime(effectiveLastDate.year, effectiveLastDate.month, effectiveLastDate.day);
-    final daysSince = now.difference(effectiveDate).inDays;
-    if (daysSince < 7) return;
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (uid.isEmpty) return;
 
-    final currentSampleTs = effectiveLastDate.millisecondsSinceEpoch;
+    _lastSamplingReminderDate = todayKey;
 
-    const markerKey = 'sampling_reminder';
-    _notifRef.child('markers/$markerKey').once().then((marker) async {
-      if (marker.snapshot.exists) {
-        final val = marker.snapshot.value;
-        if (val is Map) {
-          final lastSampleTs = val['sampleTs'] as int? ?? 0;
-          final lastReminderTs = val['reminderTs'] as int? ?? 0;
-          if (lastSampleTs == currentSampleTs && lastReminderTs > 0) {
-            final lastReminder = DateTime.fromMillisecondsSinceEpoch(lastReminderTs);
-            if (now.difference(lastReminder).inDays < 7) return;
-          }
-        } else if (val is int && val > 0) {
-          final lastReminder = DateTime.fromMillisecondsSinceEpoch(val);
-          if (now.difference(lastReminder).inDays < 7) return;
-        }
-      }
-
-      _lastSamplingReminderDate = todayKey;
-      _addNotification(
-        type: 'reminder',
-        title: 'Sampling Reminder',
-        message:
-            'It\'s been $daysSince days since last sampling. Time to record growth data!',
-        timestamp: now,
-      );
-
-      _notifRef.child('markers/$markerKey').set({
-        'reminderTs': now.millisecondsSinceEpoch,
-        'sampleTs': currentSampleTs,
-      });
-
-      try {
-        String channelId = 'craycare_alerts_silent';
-        if (_notifSound && _notifVibration) {
-          channelId = 'craycare_alerts_sound_vibrate';
-        } else if (_notifSound) {
-          channelId = 'craycare_alerts_sound_only';
-        } else if (_notifVibration) {
-          channelId = 'craycare_alerts_vibrate_only';
-        }
-        await _localNotifications.show(
-          DateTime.now().millisecondsSinceEpoch ~/ 1000,
-          'Sampling Reminder',
-          'It\'s been $daysSince days since last sampling. Time to record growth data!',
-          NotificationDetails(
-            android: AndroidNotificationDetails(
-              channelId,
-              'CrayCare Alerts',
-              importance: _notifSound || _notifVibration
-                  ? Importance.high
-                  : Importance.low,
-              priority: Priority.high,
-              playSound: _notifSound,
-              enableVibration: _notifVibration,
-              vibrationPattern: !_notifVibration
-                  ? Int64List(0)
-                  : null,
-              sound: !_notifSound
-                  ? null
-                  : const RawResourceAndroidNotificationSound('default'),
-            ),
-          ),
-        );
-      } catch (e) {
-        debugPrint('[NotificationService] Local sampling notification error: $e');
-      }
-    });
+    // Check crayfish sampling
+    _checkTypeSampling(
+      uid: uid,
+      type: 'crayfish',
+      label: 'Crayfish',
+    );
   }
 
   void _cancelSubscriptions() {
     _notifSub?.cancel();
-    _notifChangedSub?.cancel();
-    _notifRemovedSub?.cancel();
     _prefsSub?.cancel();
-    _profileSub?.cancel();
-    _profileSub = null;
+    _profileFirestoreSub?.cancel();
+    _profileFirestoreSub = null;
     _cancelAutoControlSubs();
   }
 
   void _listenFirebase() {
-    _notifSub = _notifRef.onChildAdded.listen((e) {
-      final key = e.snapshot.key;
-      if (key == null || e.snapshot.value == null) return;
-      if (_notifications.any((n) => n.id == key)) return;
+    final uid = _effectiveUid ?? FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (uid.isEmpty) return;
+    final fs = FirebaseFirestore.instance;
 
-      final raw = e.snapshot.value as Map<Object?, Object?>;
-      final map = raw.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
-      final readByRaw = map['readBy'] as Map<String, dynamic>? ?? {};
-      _notifications.add(
-        NotificationItem(
-          id: key,
-          type: map['type'] ?? 'operational',
-          title: map['title'] ?? '',
-          message: map['message'] ?? '',
-          timestamp: DateTime.fromMillisecondsSinceEpoch(
-            (map['timestamp'] as num).toInt(),
-          ),
-          readBy: readByRaw.map((k, v) => MapEntry(k, v == true)),
-        ),
-      );
-      _notifications.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-      notifyListeners();
-    });
+    _notifSub?.cancel();
+    _notifSub = fs
+        .collection('notifications')
+        .where('uid', isEqualTo: uid)
+        .orderBy('timestamp', descending: true)
+        .limit(100)
+        .snapshots()
+        .listen((snap) {
+      for (final change in snap.docChanges) {
+        final doc = change.doc;
+        final data = doc.data();
+        if (data == null) continue;
+        final key = doc.id;
+        final readByRaw = data['readBy'] as Map<String, dynamic>? ?? {};
 
-    _notifChangedSub = _notifRef.onChildChanged.listen((e) {
-      final key = e.snapshot.key;
-      if (key == null || e.snapshot.value == null) return;
-      final raw = e.snapshot.value as Map<Object?, Object?>;
-      final map = raw.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
-      final readByRaw = map['readBy'] as Map<String, dynamic>? ?? {};
-      final idx = _notifications.indexWhere((n) => n.id == key);
-      if (idx != -1) {
-        _notifications[idx].readBy = readByRaw.map((k, v) => MapEntry(k, v == true));
-        notifyListeners();
+        if (change.type == DocumentChangeType.added) {
+          if (_notifications.any((n) => n.id == key)) continue;
+          _notifications.add(
+            NotificationItem(
+              id: key,
+              type: data['type'] ?? 'operational',
+              title: data['title'] ?? '',
+              message: data['message'] ?? '',
+              timestamp: DateTime.fromMillisecondsSinceEpoch(
+                (data['timestamp'] as num).toInt(),
+              ),
+              readBy: readByRaw.map((k, v) => MapEntry(k, v == true)),
+            ),
+          );
+        } else if (change.type == DocumentChangeType.modified) {
+          final idx = _notifications.indexWhere((n) => n.id == key);
+          if (idx != -1) {
+            _notifications[idx].readBy = readByRaw.map((k, v) => MapEntry(k, v == true));
+          }
+        } else if (change.type == DocumentChangeType.removed) {
+          _notifications.removeWhere((n) => n.id == key);
+        }
       }
-    });
-
-    _notifRemovedSub = _notifRef.onChildRemoved.listen((e) {
-      final key = e.snapshot.key;
-      if (key == null) return;
-      _notifications.removeWhere((n) => n.id == key);
+      _notifications.sort((a, b) => b.timestamp.compareTo(a.timestamp));
       notifyListeners();
     });
   }
@@ -1097,7 +1114,7 @@ class NotificationService extends ChangeNotifier {
       final label = _sensorLabels[key] ?? key;
       final unit = _sensorUnits[key] ?? '';
 
-      if (prevZone != null && zone != prevZone) {
+      if (prevZone != null && zone != prevZone && prevZone != 'UNKNOWN') {
         if (zone == 'CRITICAL' && _notifCritical) {
           _addNotification(
             type: 'critical',
@@ -1139,9 +1156,11 @@ class NotificationService extends ChangeNotifier {
     required DateTime timestamp,
   }) {
     if (_userRole == 'admin') return;
-    final fbRef = _notifRef.push();
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (uid.isEmpty) return;
+    final docRef = FirebaseFirestore.instance.collection('notifications').doc();
     final notif = NotificationItem(
-      id: fbRef.key ?? 'notif_${++_idCounter}',
+      id: docRef.id,
       type: type,
       title: title,
       message: message,
@@ -1151,19 +1170,17 @@ class NotificationService extends ChangeNotifier {
     _notifications.insert(0, notif);
     notifyListeners();
 
-    fbRef
-        .set({
-          'type': notif.type,
-          'title': notif.title,
-          'message': notif.message,
-          'timestamp': notif.timestamp.millisecondsSinceEpoch,
-          'readBy': {},
-        })
-        .catchError((e) {
-          debugPrint('[NotificationService] Failed to save: $e');
-        });
+    docRef.set({
+      'uid': uid,
+      'type': notif.type,
+      'title': notif.title,
+      'message': notif.message,
+      'timestamp': notif.timestamp.millisecondsSinceEpoch,
+      'readBy': {},
+    }).catchError((e) {
+      debugPrint('[NotificationService] Failed to save: $e');
+    });
 
-    // DO NOT show native system popups when the app is in the foreground
     debugPrint(
       '[NotificationService] Local notification recorded in DB, skipping native banner in-app.',
     );
@@ -1176,8 +1193,11 @@ class NotificationService extends ChangeNotifier {
       n.readBy[uid] = true;
     }
     notifyListeners();
+    final fs = FirebaseFirestore.instance;
     for (final n in _notifications) {
-      _notifRef.child(n.id).child('readBy').child(uid).set(true).catchError((_) {});
+      fs.collection('notifications').doc(n.id).update({
+        'readBy.$uid': true,
+      }).catchError((_) {});
     }
   }
 
@@ -1188,17 +1208,29 @@ class NotificationService extends ChangeNotifier {
       if (n.id == id) {
         n.readBy[uid] = true;
         notifyListeners();
-        _notifRef.child(n.id).child('readBy').child(uid).set(true).catchError((_) {});
+        FirebaseFirestore.instance.collection('notifications').doc(id).update({
+          'readBy.$uid': true,
+        }).catchError((_) {});
         return;
       }
     }
   }
 
   void clearAll() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     _notifications.clear();
     notifyListeners();
+    if (uid.isEmpty) return;
     try {
-      await _notifRef.remove();
+      final snap = await FirebaseFirestore.instance
+          .collection('notifications')
+          .where('uid', isEqualTo: uid)
+          .get();
+      final batch = FirebaseFirestore.instance.batch();
+      for (final doc in snap.docs) {
+        batch.delete(doc.reference);
+      }
+      await batch.commit();
     } catch (e) {
       debugPrint('[NotificationService] Failed to clear Firebase: $e');
     }
@@ -1207,5 +1239,39 @@ class NotificationService extends ChangeNotifier {
   bool _isToday(DateTime dt) {
     final now = DateTime.now();
     return dt.day == now.day && dt.month == now.month && dt.year == now.year;
+  }
+
+  String get _uid => FirebaseAuth.instance.currentUser?.uid ?? '';
+
+  Future<void> _saveMarker(String key, dynamic value) async {
+    if (_uid.isEmpty) return;
+    try {
+      await FirebaseFirestore.instance
+          .collection('notifMarkers')
+          .doc('${_uid}_$key')
+          .set({'uid': _uid, 'markerKey': key, 'value': value, 'updatedAt': FieldValue.serverTimestamp()});
+    } catch (e) {
+      debugPrint('[NotificationService] Failed to save marker: $e');
+    }
+  }
+
+  Future<Map<String, dynamic>?> _readMarker(String key) async {
+    if (_uid.isEmpty) return null;
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('notifMarkers')
+          .doc('${_uid}_$key')
+          .get();
+      if (doc.exists && doc.data() != null) {
+        final data = doc.data()!;
+        final val = data['value'];
+        if (val is Map<String, dynamic>) return val;
+        if (val is Map) return val.map((k, v) => MapEntry(k.toString(), v));
+        return {'value': val};
+      }
+    } catch (e) {
+      debugPrint('[NotificationService] Failed to read marker: $e');
+    }
+    return null;
   }
 }

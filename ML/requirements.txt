@@ -1,8 +1,0 @@
-pandas
-scikit-learn
-flask
-flask-cors
-joblib
-numpy
-firebase-admin
-gunicorn

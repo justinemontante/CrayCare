@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
-import '../../services/ml_service.dart';
+import '../../services/health_risk_service.dart';
 
 class MovableAiLogo extends StatefulWidget {
   const MovableAiLogo({super.key});
@@ -34,286 +34,306 @@ class _MovableAiLogoState extends State<MovableAiLogo>
     );
   }
 
-  Color _statusColor(String? status) {
-    switch (status) {
-      case 'OPTIMAL': return const Color(0xFF22c55e);
-      case 'WARNING': return const Color(0xFFf59e0b);
-      case 'CRITICAL': return const Color(0xFFef4444);
-      default: return AppColors.dark.withValues(alpha: 0.3);
-    }
-  }
-
   Widget _buildAIInsightsSheet(BuildContext ctx) {
-    return Container(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.85,
-      ),
-      padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.only(
-          topLeft: Radius.circular(28),
-          topRight: Radius.circular(28),
-        ),
-      ),
-      child: ListenableBuilder(
-        listenable: MlService.instance,
-        builder: (context, _) {
-          final loading = MlService.instance.loading;
-          final error = MlService.instance.error;
-          final mlRaw = MlService.instance.latestPrediction;
-          final hasFresh = MlService.instance.hasFreshData;
+    // Fixed (not just max-constrained) height so the Expanded list below
+    // actually has something bounded to expand into. A loose maxHeight-only
+    // constraint here was the cause of the broken/squished layout.
+    final sheetHeight = MediaQuery.of(context).size.height * 0.85;
 
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: ClipOval(
-                      child: Padding(
-                        padding: const EdgeInsets.all(4),
-                        child: Image.asset(
-                          'assets/images/AI_InsightLogo.png',
-                          fit: BoxFit.contain,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  const Text(
-                    'CrayAI Analytics',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.dark,
-                    ),
-                  ),
-                  const Spacer(),
-                  Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(20),
-                      onTap: () => Navigator.pop(ctx),
-                      child: Padding(
-                        padding: const EdgeInsets.all(8.0),
-                        child: Icon(
-                          Icons.close,
-                          size: 20,
-                          color: AppColors.dark.withValues(alpha: 0.5),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              if (!loading && mlRaw != null && hasFresh) ...[
-                const SizedBox(height: 12),
-                _buildOverallStatusBadge(mlRaw),
-              ],
-              const SizedBox(height: 16),
-              Expanded(
-                child: loading
-                    ? const Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            CircularProgressIndicator(color: AppColors.primary),
-                            SizedBox(height: 16),
-                            Text(
-                              'CrayAI is analyzing your tank data...',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: AppColors.dark,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
-                    : error != null || !hasFresh
-                        ? Center(
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 20),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.cloud_off_rounded,
-                                    size: 40,
-                                    color: AppColors.critical.withValues(alpha: 0.6),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    error ?? 'CrayAI is waiting for sensor data...',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: AppColors.dark.withValues(alpha: 0.6),
-                                      height: 1.4,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          )
-                        : ListView(
-                            padding: const EdgeInsets.only(bottom: 24),
-                            children: [
-                              _buildOverallSummaryCard(
-                                label: 'Insight',
-                                text: mlRaw?['insight'] as String? ?? '',
-                                color: AppColors.primary,
-                                imageAsset: 'assets/images/insight.png',
-                              ),
-                              _buildOverallSummaryCard(
-                                label: 'Recommendation',
-                                text: mlRaw?['recommendation'] as String? ?? '',
-                                color: const Color(0xFFE67E22),
-                                imageAsset: 'assets/images/recommendation.png',
-                              ),
-                              _buildOverallSummaryCard(
-                                label: 'Prediction',
-                                text: mlRaw?['prediction'] as String? ?? '',
-                                color: const Color(0xFF8E44AD),
-                                imageAsset: 'assets/images/prediction.png',
-                              ),
-
-                            ],
-                          ),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildOverallStatusBadge(Map<String, dynamic> mlData) {
-    final status = mlData['predictedStatus'] as String? ?? 'UNKNOWN';
-    final confidence = (mlData['confidence'] as num?)?.toDouble() ?? 0.0;
-    final stage = mlData['stage'] as String? ?? '';
-    final statusColor = _statusColor(status);
-    final confPct = (confidence * 100).toInt();
-    final stageLabelText = stage.isNotEmpty ? _stageLabel(stage) : '';
-
-    return Row(
-      children: [
-        Expanded(
-          child: _buildMiniCard(
-            label: 'Current Stage',
-            child: Text(
-              stageLabelText.isNotEmpty ? stageLabelText : '--',
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w800,
-                color: AppColors.dark,
-              ),
-            ),
+    return SafeArea(
+      top: false,
+      child: Container(
+        height: sheetHeight,
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+        decoration: BoxDecoration(
+          color: AppColors.white,
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(28),
+            topRight: Radius.circular(28),
           ),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.darkWith(0.12),
+              blurRadius: 24,
+              offset: const Offset(0, -6),
+            ),
+          ],
         ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _buildMiniCard(
-            label: 'Status & Confidence',
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
+        child: ListenableBuilder(
+          listenable: HealthRiskService.instance,
+          builder: (context, _) {
+            final hr = HealthRiskService.instance;
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // Drag handle
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: AppColors.darkWith(0.15),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
                 Row(
-                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Container(
-                      width: 10,
-                      height: 10,
+                      width: 36,
+                      height: 36,
                       decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: AppColors.primaryGradient,
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
                         shape: BoxShape.circle,
-                        color: statusColor,
+                      ),
+                      child: ClipOval(
+                        child: Padding(
+                          padding: const EdgeInsets.all(6),
+                          child: Image.asset(
+                            'assets/images/AI_InsightLogo.png',
+                            fit: BoxFit.contain,
+                          ),
+                        ),
                       ),
                     ),
-                    const SizedBox(width: 6),
-                    Text(
-                      status,
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                        color: statusColor,
-                        letterSpacing: 0.5,
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Text(
+                        'CrayAI Insights',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.dark,
+                        ),
+                      ),
+                    ),
+                    Material(
+                      color: AppColors.lightBg,
+                      shape: const CircleBorder(),
+                      child: InkWell(
+                        customBorder: const CircleBorder(),
+                        onTap: () => Navigator.pop(ctx),
+                        child: Padding(
+                          padding: const EdgeInsets.all(8.0),
+                          child: Icon(
+                            Icons.close_rounded,
+                            size: 18,
+                            color: AppColors.darkWith(0.6),
+                          ),
+                        ),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  '$confPct% confidence',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: AppColors.dark.withValues(alpha: 0.5),
-                    fontWeight: FontWeight.w600,
-                  ),
+                const SizedBox(height: 16),
+                Expanded(
+                  child: hr.loading
+                      ? _buildStateMessage(
+                          icon: null,
+                          loading: true,
+                          message: 'CrayAI is analyzing your tank data...',
+                        )
+                      : !hr.hasData
+                      ? _buildStateMessage(
+                          icon: Icons.cloud_off_rounded,
+                          loading: false,
+                          message: 'CrayAI is waiting for sensor data...',
+                        )
+                      : ListView(
+                          padding: const EdgeInsets.only(bottom: 24),
+                          children: [
+                            _buildScoreCard(hr.result!),
+                            const SizedBox(height: 16),
+                            _buildDetailCard(
+                              label: 'Problem',
+                              text: hr.result!.problem,
+                              icon: Icons.warning_amber_rounded,
+                              color: hr.result!.color,
+                            ),
+                            const SizedBox(height: 12),
+                            _buildDetailCard(
+                              label: 'Recommendation',
+                              text: hr.result!.action,
+                              icon: Icons.lightbulb_outline,
+                              color: AppColors.warningDark,
+                            ),
+                            const SizedBox(height: 12),
+                            _buildSourceCard(hr.result!),
+                          ],
+                        ),
                 ),
               ],
-            ),
-          ),
+            );
+          },
         ),
-      ],
+      ),
     );
   }
 
-  Widget _buildMiniCard({required String label, required Widget child}) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: AppColors.dark.withValues(alpha: 0.08),
+  Widget _buildStateMessage({
+    required IconData? icon,
+    required bool loading,
+    required String message,
+  }) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (loading)
+              const CircularProgressIndicator(color: AppColors.primary)
+            else if (icon != null)
+              Icon(
+                icon,
+                size: 40,
+                color: AppColors.critical.withValues(alpha: 0.6),
+              ),
+            const SizedBox(height: 16),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: loading ? 12 : 11,
+                color: loading ? AppColors.dark : AppColors.subtitleText,
+                fontWeight: loading ? FontWeight.w500 : FontWeight.w400,
+                height: 1.4,
+              ),
+            ),
+          ],
         ),
       ),
+    );
+  }
+
+  Widget _buildScoreCard(HealthRiskResult result) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            result.lightColor,
+            result.lightColor.withValues(alpha: 0.5),
+            Colors.white,
+          ],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: result.color.withValues(alpha: 0.2)),
+      ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 10,
-              color: AppColors.dark.withValues(alpha: 0.4),
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.3,
-            ),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: result.color.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  _iconForLevel(result.level),
+                  size: 24,
+                  color: result.color,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: result.color,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      result.level,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${result.confidence}% confidence',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: result.color.withValues(alpha: 0.6),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                result.score.toStringAsFixed(0),
+                style: TextStyle(
+                  fontSize: 56,
+                  fontWeight: FontWeight.w800,
+                  color: result.color,
+                  height: 1,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text(
+                  '/ 100',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: result.color.withValues(alpha: 0.5),
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 8),
-          child,
+          Row(
+            children: [
+              Icon(Icons.trending_up, size: 14, color: AppColors.darkWith(0.4)),
+              const SizedBox(width: 6),
+              Text(
+                'Driver: ${result.driver}',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.darkWith(0.5),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
   }
 
-  String _stageLabel(String stage) {
-    const labels = {
-      'early_juvenile': 'Early Juvenile',
-      'advanced_juvenile': 'Advanced Juvenile',
-      'pre_adult': 'Pre-Adult',
-      'market_size': 'Market Size',
-    };
-    return labels[stage] ?? stage.replaceAll('_', ' ').split(' ').map((w) => w.isEmpty ? '' : '${w[0].toUpperCase()}${w.substring(1)}').join(' ');
-  }
-
-  Widget _buildOverallSummaryCard({
+  Widget _buildDetailCard({
     required String label,
     required String text,
+    required IconData icon,
     required Color color,
-    required String imageAsset,
   }) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -329,55 +349,96 @@ class _MovableAiLogoState extends State<MovableAiLogo>
           ),
         ],
       ),
-      padding: const EdgeInsets.fromLTRB(12, 12, 14, 12),
-      child: Column(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Image.asset(
-                imageAsset,
-                width: 20,
-                height: 20,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: color,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Padding(
-            padding: const EdgeInsets.only(left: 26),
-            child: Divider(
-              color: AppColors.dark.withValues(alpha: 0.05),
-              thickness: 1,
-              height: 1,
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(10),
             ),
+            child: Icon(icon, size: 18, color: color),
           ),
-          const SizedBox(height: 8),
-          Padding(
-            padding: const EdgeInsets.only(left: 26),
-            child: Text(
-              text,
-              textAlign: TextAlign.justify,
-              style: TextStyle(
-                fontSize: 11,
-                color: AppColors.dark.withValues(alpha: 0.7),
-                height: 1.4,
-                fontWeight: FontWeight.w500,
-              ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: color,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  text,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w400,
+                    color: AppColors.subtitleText,
+                    height: 1.4,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
       ),
     );
+  }
+
+  Widget _buildSourceCard(HealthRiskResult result) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.darkWith(0.03),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.auto_awesome_rounded, size: 14, color: AppColors.primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Source: ${result.source}',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w500,
+                color: AppColors.mutedText,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ),
+          Text(
+            'WQRI v1',
+            style: TextStyle(
+              fontSize: 9,
+              fontWeight: FontWeight.w700,
+              color: AppColors.primary.withValues(alpha: 0.6),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  IconData _iconForLevel(String level) {
+    switch (level) {
+      case 'Low':
+        return Icons.check_circle_outline;
+      case 'Moderate':
+        return Icons.info_outline;
+      case 'High':
+        return Icons.warning_amber_outlined;
+      case 'Critical':
+        return Icons.gpp_bad_outlined;
+      default:
+        return Icons.help_outline;
+    }
   }
 
   @override
@@ -400,11 +461,14 @@ class _MovableAiLogoState extends State<MovableAiLogo>
           _isInitialized = true;
         }
 
+        // Extra space around the logo so the pulse glow isn't clipped.
+        const glowPad = 14.0;
+
         return Stack(
           children: [
             Positioned(
-              left: _position.dx,
-              top: _position.dy,
+              left: _position.dx - glowPad,
+              top: _position.dy - glowPad,
               child: GestureDetector(
                 onPanUpdate: (details) {
                   setState(() {
@@ -415,38 +479,128 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                   });
                 },
                 onTap: _showAIInsights,
-                child: AnimatedBuilder(
-                  animation: _pulseController,
-                  builder: (context, child) {
-                    return Container(
+                child: SizedBox(
+                  width: _logoSize + glowPad * 2,
+                  height: _logoSize + glowPad * 2,
+                  child: AnimatedBuilder(
+                    animation: _pulseController,
+                    builder: (context, child) {
+                      // 0 -> 1 -> 0 breathing motion driven by the (now
+                      // actually used) pulse controller.
+                      final t = _pulseController.value;
+                      final glowScale = 1.0 + (t * 0.22);
+                      final glowOpacity = 0.28 * (1 - t);
+
+                      return Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          // Soft brand-colored pulse ring behind the logo.
+                          Transform.scale(
+                            scale: glowScale,
+                            child: Container(
+                              width: _logoSize,
+                              height: _logoSize,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: LinearGradient(
+                                  colors: [
+                                    AppColors.headerEnd.withValues(
+                                      alpha: glowOpacity,
+                                    ),
+                                    AppColors.primary.withValues(
+                                      alpha: glowOpacity,
+                                    ),
+                                  ],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                              ),
+                            ),
+                          ),
+                          // Main button: brand gradient ring + white inner
+                          // disc so the logo art stays legible on any screen.
+                          child!,
+                        ],
+                      );
+                    },
+                    child: Container(
                       width: _logoSize,
                       height: _logoSize,
+                      padding: const EdgeInsets.all(2.5),
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: Colors.white,
+                        gradient: const LinearGradient(
+                          colors: AppColors.primaryGradient,
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.15),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4),
+                            color: AppColors.darkWith(0.28),
+                            blurRadius: 12,
+                            offset: const Offset(0, 5),
                           ),
                         ],
-                        border: Border.all(
-                          color: AppColors.primary.withValues(alpha: 0.2),
-                          width: 1.5,
-                        ),
                       ),
-                      child: ClipOval(
-                        child: Padding(
-                          padding: const EdgeInsets.all(4),
-                          child: Image.asset(
-                            'assets/images/AI_InsightLogo.png',
-                            fit: BoxFit.cover,
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Container(
+                            decoration: const BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: AppColors.white,
+                            ),
+                            child: ClipOval(
+                              child: Padding(
+                                padding: const EdgeInsets.all(6),
+                                child: Image.asset(
+                                  'assets/images/AI_InsightLogo.png',
+                                  fit: BoxFit.contain,
+                                ),
+                              ),
+                            ),
                           ),
-                        ),
+                          // Small brand-accent "spark" badge, echoes the
+                          // teal -> green header gradient used elsewhere.
+                          Positioned(
+                            right: -2,
+                            bottom: -2,
+                            child: Container(
+                              width: 18,
+                              height: 18,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: const LinearGradient(
+                                  colors: [
+                                    AppColors.headerStart,
+                                    AppColors.headerEnd,
+                                  ],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                                border: Border.all(
+                                  color: AppColors.white,
+                                  width: 1.5,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: AppColors.darkWith(0.2),
+                                    blurRadius: 4,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: const Icon(
+                                Icons.auto_awesome_rounded,
+                                size: 10,
+                                color: AppColors.white,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    );
-                  },
+                    ),
+                  ),
                 ),
               ),
             ),

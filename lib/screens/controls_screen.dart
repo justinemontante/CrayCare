@@ -1,8 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:firebase_database/firebase_database.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../theme/app_colors.dart';
-import '../widgets/common/read_only_banner.dart';
 import '../widgets/controls/feeder_tab.dart';
 import '../widgets/controls/devices_tab.dart';
 import '../models/control_types.dart';
@@ -10,11 +9,11 @@ import '../services/feeder_service.dart';
 import '../services/sensor_service.dart';
 import '../services/settings_service.dart';
 import '../services/esp_service.dart';
+import '../services/device_log_service.dart';
 import '../services/database_service.dart';
 
 class ControlsScreen extends StatefulWidget {
-  final bool isOwner;
-  const ControlsScreen({super.key, this.isOwner = true});
+  const ControlsScreen({super.key});
 
   @override
   State<ControlsScreen> createState() => ControlsScreenState();
@@ -27,13 +26,6 @@ class ControlsScreenState extends State<ControlsScreen> {
     if (index < 0 || index > 1) return;
     setState(() => _activeTab = index);
   }
-  static Map<String, dynamic> _convertMap(Object? value) {
-    if (value is Map) {
-      return value.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
-    }
-    return {};
-  }
-
   int _activeTab = 0;
   _FeedState _feedState = _FeedState.hidden;
   bool _wasRunning = false;
@@ -57,8 +49,8 @@ class ControlsScreenState extends State<ControlsScreen> {
     SensorService.instance.addListener(_onSensorDataUpdate);
     EspService.instance.addListener(_onEspUpdate);
     EspService.instance.init();
+    DeviceLogService.instance.init();
     _initDeviceModes();
-    _initDeviceLogs();
     _runtimeTimer = Timer.periodic(
       const Duration(seconds: 1),
       (_) {
@@ -68,40 +60,18 @@ class ControlsScreenState extends State<ControlsScreen> {
   }
 
   void _initDeviceModes() {
-    _devicesSub = DatabaseService.instance.deviceModesStream.listen((event) {
-      if (event.snapshot.value != null && event.snapshot.value is Map) {
-        final data = _convertMap(event.snapshot.value as Map);
-        final modes = <String, String>{};
-        for (final e in data.entries) {
-          modes[e.key] = e.value.toString();
-        }
-        if (mounted) setState(() => _hwModes = modes);
+    _devicesSub = FirebaseFirestore.instance
+        .collection('deviceModes')
+        .limit(10)
+        .snapshots()
+        .listen((snapshot) {
+      final modes = <String, String>{};
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        modes[doc.id] = data['mode'] as String? ?? 'auto';
       }
+      if (mounted) setState(() => _hwModes = modes);
     });
-  }
-
-  void _initDeviceLogs() {
-    for (final deviceId in ['aerator1', 'aerator2', 'pump']) {
-      final sub = DatabaseService.instance.deviceLogsStream(deviceId).listen((event) {
-        if (event.snapshot.value == null) return;
-        final data = _convertMap(event.snapshot.value as Map);
-        final list = data.values.map((e) {
-          final map = _convertMap(e as Map);
-          return LogEntry(
-            map['action'] as String? ?? '',
-            map['type'] as String? ?? '',
-            map['time'] as String? ?? '',
-            map['date'] as String? ?? '',
-            timestamp: map['timestamp'] as int? ?? 0,
-          );
-        }).toList()
-          ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
-        if (mounted) {
-          setState(() => _hwLogs[deviceId] = list);
-        }
-      });
-      _deviceLogSubs.add(sub);
-    }
   }
 
   void _computeRuntimeLabels() {
@@ -109,7 +79,7 @@ class ControlsScreenState extends State<ControlsScreen> {
     final labels = <String, String>{};
 
     for (final deviceId in _hwModes.keys) {
-      final logs = _hwLogs[deviceId] ?? [];
+      final logs = DeviceLogService.instance.getLogs(deviceId);
       int? lastOnTs;
       int? lastOffTs;
 
@@ -162,9 +132,6 @@ class ControlsScreenState extends State<ControlsScreen> {
     SensorService.instance.removeListener(_onSensorDataUpdate);
     EspService.instance.removeListener(_onEspUpdate);
     _devicesSub?.cancel();
-    for (final sub in _deviceLogSubs) {
-      sub.cancel();
-    }
     _feedTimer?.cancel();
     _dispenseTimer?.cancel();
     _runtimeTimer?.cancel();
@@ -258,14 +225,11 @@ class ControlsScreenState extends State<ControlsScreen> {
     'aerator2': 'auto',
     'pump': 'auto',
   };
-  StreamSubscription<DatabaseEvent>? _devicesSub;
-  final List<StreamSubscription<DatabaseEvent>> _deviceLogSubs = [];
-  final Map<String, List<LogEntry>> _hwLogs = {};
+  StreamSubscription? _devicesSub;
   Map<String, String> _deviceRuntimeLabels = {};
   Timer? _runtimeTimer;
 
   bool get _canFeed {
-    if (!widget.isOwner) return false;
     if (!FeederService.instance.isOnline) return false;
     final svc = SensorService.instance;
     final ranges = SettingsService.instance.currentRanges;
@@ -287,7 +251,6 @@ class ControlsScreenState extends State<ControlsScreen> {
   }
 
   void _feedNow({double? grams}) {
-    if (!widget.isOwner) return;
     final svc = FeederService.instance;
     if (!svc.isOnline) {
       setState(() => _feedState = _FeedState.failed);
@@ -314,7 +277,6 @@ class ControlsScreenState extends State<ControlsScreen> {
   }
 
   void _showFeedNowDialog() {
-    if (!widget.isOwner) return;
     final gramsCtl = TextEditingController();
     showModalBottomSheet(
       context: context,
@@ -442,7 +404,6 @@ class ControlsScreenState extends State<ControlsScreen> {
   }
 
   void _addSchedule({double? grams}) {
-    if (!widget.isOwner) return;
     if (_timeCtl.text.isEmpty) return;
     final formatted = _formatTimeInput(_timeCtl.text);
     final isPM = formatted.contains('PM');
@@ -454,12 +415,10 @@ class ControlsScreenState extends State<ControlsScreen> {
   }
 
   void _deleteSchedule(int index) {
-    if (!widget.isOwner) return;
     FeederService.instance.deleteSchedule(index);
   }
 
   void _editSchedule(int index, ScheduleItem item) {
-    if (!widget.isOwner) return;
     FeederService.instance.editSchedule(
       index,
       time: item.time,
@@ -471,7 +430,6 @@ class ControlsScreenState extends State<ControlsScreen> {
   }
 
   void _setHwMode(String device, String mode) {
-    if (!widget.isOwner) return;
     setState(() => _hwModes[device] = mode);
     final now = DateTime.now();
     final h = now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour);
@@ -519,7 +477,6 @@ class ControlsScreenState extends State<ControlsScreen> {
             children: [
               _buildHeader(),
               _buildTabBar(),
-              if (!widget.isOwner) _buildReadOnlyBanner(),
               Expanded(
                 child: IndexedStack(
                   index: _activeTab,
@@ -534,7 +491,6 @@ class ControlsScreenState extends State<ControlsScreen> {
                       feederLogs: FeederService.instance.logs,
                       fedToday: _fedToday,
                       feederError: FeederService.instance.feederError,
-                      isOwner: widget.isOwner,
                       isOnline: FeederService.instance.isOnline,
                       isRunning: FeederService.instance.isRunning,
                       canFeed: _canFeed,
@@ -545,7 +501,6 @@ class ControlsScreenState extends State<ControlsScreen> {
                       onSetMode: _setHwMode,
                       onShowGroupLog: _showHwGroupLog,
                       deviceRuntimeLabels: _deviceRuntimeLabels,
-                      isOwner: widget.isOwner,
                       isOnline: EspService.instance.isEspOnline,
                     ),
                   ],
@@ -636,13 +591,6 @@ class ControlsScreenState extends State<ControlsScreen> {
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildReadOnlyBanner() {
-    return const ReadOnlyBanner(
-      message:
-          'You can view all farm data, logs, and records. Only the Farm Owner can control hardware, manage feeding schedules, or modify settings.',
     );
   }
 
@@ -799,7 +747,7 @@ class ControlsScreenState extends State<ControlsScreen> {
     final allLogs = <LogEntry>[];
     for (final d in devices) {
       final deviceId = d.$1;
-      final logs = _hwLogs[deviceId] ?? [];
+      final logs = DeviceLogService.instance.getLogs(deviceId);
       allLogs.addAll(logs);
     }
     allLogs.sort((a, b) => b.timestamp.compareTo(a.timestamp));

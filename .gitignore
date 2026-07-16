@@ -56,7 +56,21 @@ esp/.clang_complete
 esp/.gcc_flags
 
 # Node modules
-notification_worker/node_modules/
-notification_worker/serviceAccountKey.json
 test_tools/node_modules/
+functions/node_modules/
 /serviceAccountKey.json
+**/serviceAccountKey.json
+
+# Credentials / secrets / exports — never commit these
+tmp_auth_export.json
+*_auth_export.json
+tmp_*.json
+.env
+*.pem
+*.key
+
+# Python build artifacts
+__pycache__/
+*.pyc
+venv/
+.venv/

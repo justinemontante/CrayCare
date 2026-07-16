@@ -1,24 +1,18 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class DatabaseService {
   static final DatabaseService instance = DatabaseService._();
   DatabaseService._();
 
-  static Map<String, dynamic> convertMap(Object? value) {
+  static Map<String, dynamic> convertMap(dynamic value) {
     if (value is Map) {
       return value.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
     }
     return {};
   }
 
-  final DatabaseReference _db = FirebaseDatabase.instance.ref();
-
-  /// I-save ang profile name, email, at photo URL ng user sa RTDB
-  /// [role] — 'monitor' (default for new users) or 'owner' or 'admin'
-  /// [status] — 'active' or 'disabled'
   Future<void> saveUserProfile({
     required String uid,
     required String name,
@@ -26,212 +20,80 @@ class DatabaseService {
     String? photoUrl,
     String? role,
     String? status,
-    String? ownerUid,
   }) async {
     final data = <String, dynamic>{
       'displayName': name,
       'email': email,
-      'updatedAt': DateTime.now().toIso8601String(),
+      'updatedAt': FieldValue.serverTimestamp(),
     };
     if (photoUrl != null) data['photoUrl'] = photoUrl;
     if (role != null) data['role'] = role;
-    if (status != null) {
-      data['status'] = status;
-    } else {
-      final existing = await getUserProfile(uid);
-      if (existing == null || existing['status'] == null) {
-        data['status'] = 'active';
-      }
-    }
-    if (ownerUid != null) data['ownerUid'] = ownerUid;
-    await _db.child('users/$uid/profile').update(data);
-  }
-
-  /// Finds the UID of the single owner in the database (role == 'owner').
-  /// Returns null if no owner is found.
-  Future<String?> findOwnerUid() async {
-    final snapshot = await _db.child('users').get();
-    if (!snapshot.exists || snapshot.value is! Map) return null;
-    final users = convertMap(snapshot.value as Map);
-    for (final entry in users.entries) {
-      final userData = entry.value is Map ? convertMap(entry.value as Map) : {};
-      final profile = userData['profile'] is Map ? userData['profile'] as Map : null;
-      final role = profile?['role'] as String?;
-      if (role != null && role.toLowerCase() == 'owner') {
-        return entry.key;
-      }
-    }
-    return null;
-  }
-
-  /// Kunin ang naka-save na profile ng user galing RTDB
-  /// May laman na 'displayName', 'email', 'photoUrl' (kung meron), 'role', 'status'
-  Future<Map<String, dynamic>?> getUserProfile(String uid) async {
-    final snapshot = await _db.child('users/$uid/profile').get();
-    if (snapshot.exists && snapshot.value != null) {
-      return convertMap(snapshot.value as Map);
-    }
-    return null;
-  }
-
-  /// Kumuha ng Stream ng lahat ng users para sa Admin User Management Screen
-  Stream<DatabaseEvent> getAllUsersStream() {
-    return _db.child('users').onValue;
-  }
-
-  /// I-update ang Role at Status ng isang user (Admin function)
-  /// If [role] is 'owner', automatically demote any other owner to 'monitor' to enforce single-owner limit.
-  Future<void> updateUserRoleAndStatus({
-    required String uid,
-    required String role,
-    required String status,
-  }) async {
-    final updates = <String, dynamic>{
-      'users/$uid/profile/role': role,
-      'users/$uid/profile/status': status,
-      'users/$uid/profile/updatedAt': DateTime.now().toIso8601String(),
-    };
-
-    if (role == 'owner') {
-      final usersSnapshot = await _db.child('users').get();
-      if (usersSnapshot.exists && usersSnapshot.value != null) {
-        final rawUsers = usersSnapshot.value as Map;
-        rawUsers.forEach((key, val) {
-          final userId = key.toString();
-          if (userId != uid && val is Map && val['profile'] != null) {
-            final profile = val['profile'] as Map;
-            if (profile['role'] == 'owner') {
-              updates['users/$userId/profile/role'] = 'monitor';
-              updates['users/$userId/profile/updatedAt'] = DateTime.now().toIso8601String();
-            }
-          }
-        });
-      }
-    }
-
-    await _db.update(updates);
-  }
-
-  // ─── Growth Stage Config (per-user) ────────────────────────────
-
-  DatabaseReference _growthStageRef(String uid) =>
-      _db.child('users/$uid/growth_stage');
-
-  Future<Map<String, dynamic>?> getGrowthStageConfig() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return null;
-    final snapshot = await _growthStageRef(uid).get().timeout(
-      const Duration(seconds: 10),
-      onTimeout: () => throw TimeoutException('Firebase read timed out'),
+    if (status != null) data['status'] = status;
+    await FirebaseFirestore.instance.collection('users').doc(uid).set(
+      data,
+      SetOptions(merge: true),
     );
-    if (snapshot.exists && snapshot.value != null) {
-      return convertMap(snapshot.value as Map);
+  }
+
+  Future<Map<String, dynamic>?> getUserProfile(String uid) async {
+    final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+    if (doc.exists && doc.data() != null) {
+      return doc.data()!;
     }
     return null;
   }
-
-  Future<void> saveGrowthStageConfig({
-    required String currentStage,
-    required Map<String, Map<String, Map<String, double>>> allRanges,
-    String? changedKey,
-  }) async {
-    final user = FirebaseAuth.instance.currentUser;
-    final uid = user?.uid;
-    if (uid == null) return;
-
-    // Safety lock: Verify user is Owner before database updates
-    final profile = await getUserProfile(uid);
-    final role = profile?['role'] as String?;
-    if (role != 'owner') {
-      debugPrint('[DatabaseService] Blocked non-owner saveGrowthStageConfig call for role: $role');
-      return;
-    }
-
-    await _growthStageRef(uid)
-        .update({
-          'currentStage': currentStage,
-          'allRanges': {
-            for (final stageEntry in allRanges.entries)
-              stageEntry.key: {
-                for (final sensorEntry in stageEntry.value.entries)
-                  sensorEntry.key: sensorEntry.value,
-              },
-          },
-          'updatedAt': ServerValue.timestamp,
-          'updatedBy': user?.uid ?? 'unknown-user',
-          'source': 'flutter-app',
-          if (changedKey != null) 'lastChangedSensor': changedKey,
-        })
-        .timeout(
-          const Duration(seconds: 10),
-          onTimeout: () => throw TimeoutException('Firebase write timed out'),
-        );
-  }
-
-  // ─── Sensor Readings (per-user) ───────────────────────────────
-
-  DatabaseReference get _sensorLatestRef =>
-      _db.child('sensor_readings/latest');
-
-  DatabaseReference get _sensorHistoryRef =>
-      _db.child('sensor_readings/history');
-
-  DatabaseReference get _sensorConfigRef =>
-      _db.child('sensor_readings/config');
 
   Future<Map<String, dynamic>?> getLatestReadings() async {
-    final snapshot = await _sensorLatestRef.get().timeout(
-      const Duration(seconds: 10),
-      onTimeout: () => throw TimeoutException('Firebase read timed out'),
-    );
-    if (snapshot.exists && snapshot.value != null) {
-      return convertMap(snapshot.value as Map);
-    }
+    try {
+      final doc = await FirebaseFirestore.instance.collection('sensorReadings').doc('latest').get();
+      if (doc.exists && doc.data() != null) return doc.data()!;
+    } catch (_) {}
     return null;
   }
 
-  Stream<DatabaseEvent> get latestReadingsStream => _sensorLatestRef.onValue;
+  Stream<DocumentSnapshot<Map<String, dynamic>>> get latestReadingsStream =>
+      FirebaseFirestore.instance.collection('sensorReadings').doc('latest').snapshots();
 
   Future<void> saveSensorThresholds({
-    required String currentStage,
     required Map<String, Map<String, double>> currentRanges,
     String? changedKey,
   }) async {
     final user = FirebaseAuth.instance.currentUser;
-    final uid = user?.uid;
-    if (uid == null) return;
+    if (user == null) return;
 
-    // Safety lock: Verify user is Owner before database updates
-    final profile = await getUserProfile(uid);
+    // This writes to config/default, which every user's alerts and the
+    // sensor-alert Cloud Function read from — it is shared, global state,
+    // not per-user. A "monitor" or "admin" account should never be able to
+    // silently overwrite the tank owner's thresholds.
+    final profile = await getUserProfile(user.uid);
     final role = profile?['role'] as String?;
-    if (role != 'owner') {
-      debugPrint('[DatabaseService] Blocked non-owner saveSensorThresholds call for role: $role');
-      return;
+    if (role == 'monitor' || role == 'admin') {
+      throw Exception('Only the tank owner can change sensor thresholds.');
     }
 
-    await _sensorConfigRef.update({
-      'currentStage': currentStage,
+    final data = <String, dynamic>{
       'ranges': {
         for (final e in currentRanges.entries)
           e.key: {'min': e.value['min'], 'max': e.value['max']},
       },
-      'updatedAt': ServerValue.timestamp,
-      'updatedBy': user?.uid ?? 'unknown-user',
+      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedBy': user.uid,
       'source': 'flutter-app',
-      if (changedKey != null) 'lastChangedSensor': changedKey,
-    }).timeout(
-      const Duration(seconds: 10),
-      onTimeout: () => throw TimeoutException('Firebase write timed out'),
+    };
+    if (changedKey != null) data['lastChangedSensor'] = changedKey;
+
+    await FirebaseFirestore.instance.collection('config').doc(user.uid).set(
+      data,
+      SetOptions(merge: true),
     );
+
+    // Also write to config/default/ranges for the Cloud Function
+    // (onSensorUpdate) to read sensor thresholds from Firestore
+    await FirebaseFirestore.instance.collection('config').doc('default').set(
+      data,
+      SetOptions(merge: true),
+    ).catchError((_) {});
   }
-
-  // ─── Device Modes (Aerator 1, Aerator 2, Water Pump) ───────────
-
-  DatabaseReference get _devicesModesRef =>
-      _db.child('devices/modes');
-
-  DatabaseReference get _devicesLogsRef =>
-      _db.child('devices/logs');
 
   Future<void> saveDeviceMode({
     required String deviceId,
@@ -241,8 +103,14 @@ class DatabaseService {
     required String time,
     required String date,
   }) async {
-    await _devicesModesRef.child(deviceId).set(mode);
-    await _devicesLogsRef.child(deviceId).push().set({
+    await FirebaseFirestore.instance.collection('deviceModes').doc(deviceId).set({
+      'mode': mode,
+      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedBy': FirebaseAuth.instance.currentUser?.uid,
+    });
+
+    await FirebaseFirestore.instance.collection('deviceLogs').add({
+      'deviceId': deviceId,
       'action': '$deviceName: $modeLabel',
       'type': mode,
       'time': time,
@@ -251,12 +119,16 @@ class DatabaseService {
     });
   }
 
-  Stream<DatabaseEvent> get deviceModesStream => _devicesModesRef.onValue;
+  Stream<DocumentSnapshot<Map<String, dynamic>>> deviceModesStream(String deviceId) =>
+      FirebaseFirestore.instance.collection('deviceModes').doc(deviceId).snapshots();
 
-  Stream<DatabaseEvent> deviceLogsStream(String deviceId) =>
-      _devicesLogsRef.child(deviceId).onValue;
-
-  // ─── Per-User Notification Preferences ─────────────────────────
+  Stream<QuerySnapshot<Map<String, dynamic>>> deviceLogsStream(String deviceId) =>
+      FirebaseFirestore.instance
+          .collection('deviceLogs')
+          .where('deviceId', isEqualTo: deviceId)
+          .orderBy('timestamp', descending: true)
+          .limit(50)
+          .snapshots();
 
   Future<void> saveNotificationPrefs({
     required String uid,
@@ -267,49 +139,23 @@ class DatabaseService {
     required bool sampling,
     bool warning = true,
   }) async {
-    // Stored in a dedicated 'notifPrefs' node — separate from notification
-    // records in 'notifications/' to avoid them overwriting each other.
-    await _db.child('users/$uid/notifPrefs').set({
+    await FirebaseFirestore.instance.collection('notifPrefs').doc(uid).set({
       'sound': sound,
       'vibration': vibration,
       'critical': critical,
       'warning': warning,
       'feeding': feeding,
       'sampling': sampling,
-      'updatedAt': DateTime.now().toIso8601String(),
+      'updatedAt': FieldValue.serverTimestamp(),
     });
   }
 
   Future<Map<String, dynamic>?> getNotificationPrefs(String uid) async {
-    final snapshot = await _db.child('users/$uid/notifPrefs').get();
-    if (snapshot.exists) {
-      return convertMap(snapshot.value as Map);
+    final doc = await FirebaseFirestore.instance.collection('notifPrefs').doc(uid).get();
+    if (doc.exists && doc.data() != null) {
+      return doc.data()!;
     }
     return null;
-  }
-
-  Future<List<Map<String, dynamic>>> getSensorHistory({
-    int limit = 100,
-    String orderBy = 'timestamp',
-  }) async {
-    final snapshot = await _sensorHistoryRef
-        .orderByChild(orderBy)
-        .limitToLast(limit)
-        .get()
-        .timeout(
-          const Duration(seconds: 15),
-          onTimeout: () => throw TimeoutException('Firebase history read timed out'),
-        );
-    if (!snapshot.exists || snapshot.value == null) return [];
-    final raw = convertMap(snapshot.value as Map);
-    final list = <Map<String, dynamic>>[];
-    raw.forEach((key, value) {
-      if (value is Map) {
-        list.add(convertMap(value));
-      }
-    });
-    list.sort((a, b) => (b['timestamp'] ?? 0).compareTo(a['timestamp'] ?? 0));
-    return list;
   }
 
 }

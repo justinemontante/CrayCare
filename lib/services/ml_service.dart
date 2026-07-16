@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:firebase_database/firebase_database.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class MlService extends ChangeNotifier {
   static final MlService instance = MlService._();
@@ -9,7 +10,7 @@ class MlService extends ChangeNotifier {
   Map<String, dynamic>? _latestPrediction;
   bool _loading = true;
   String? _error;
-  StreamSubscription<DatabaseEvent>? _sub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _sub;
 
   Map<String, dynamic>? get latestPrediction => _latestPrediction;
   bool get loading => _loading;
@@ -20,16 +21,40 @@ class MlService extends ChangeNotifier {
   bool get hasFreshData {
     if (_latestPrediction == null) return false;
     final ts = _latestPrediction!['timestamp'];
-    if (ts is! num) return false;
-    final age = DateTime.now().millisecondsSinceEpoch - ts.toInt();
-    return age < 2 * 60 * 1000;
+    // The Cloud Function (main.py / features.py) writes this as an ISO 8601
+    // UTC string (datetime.isoformat()), not a numeric epoch — parse it the
+    // same way HealthRiskService does, or this always evaluates to false.
+    if (ts is! String) return false;
+    final parsed = DateTime.tryParse(ts);
+    if (parsed == null) return false;
+    final age = DateTime.now().toUtc().difference(parsed.toUtc());
+    return age < const Duration(minutes: 2);
   }
 
   void init() {
     _sub?.cancel();
-    _sub = FirebaseDatabase.instance
-        .ref('ml_predictions/latest')
-        .onValue
+    if (FirebaseAuth.instance.currentUser != null) {
+      _startListening();
+    }
+    FirebaseAuth.instance.authStateChanges().listen((user) {
+      _sub?.cancel();
+      if (user != null) {
+        _startListening();
+      } else {
+        _latestPrediction = null;
+        _loading = true;
+        _error = null;
+        notifyListeners();
+      }
+    });
+  }
+
+  void _startListening() {
+    _loading = true;
+    _sub = FirebaseFirestore.instance
+        .collection('healthRisk')
+        .doc('latest')
+        .snapshots()
         .listen(_onPredictionUpdate, onError: (e) {
       _error = e.toString();
       _loading = false;
@@ -37,8 +62,8 @@ class MlService extends ChangeNotifier {
     });
   }
 
-  void _onPredictionUpdate(DatabaseEvent event) {
-    if (!event.snapshot.exists || event.snapshot.value == null) {
+  void _onPredictionUpdate(DocumentSnapshot<Map<String, dynamic>> snapshot) {
+    if (!snapshot.exists || snapshot.data() == null) {
       _latestPrediction = null;
       _loading = false;
       _error = null;
@@ -46,9 +71,7 @@ class MlService extends ChangeNotifier {
       return;
     }
     try {
-      final raw = event.snapshot.value as Map<Object?, Object?>;
-      _latestPrediction =
-          raw.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
+      _latestPrediction = snapshot.data()!;
       _error = null;
       _loading = false;
       notifyListeners();

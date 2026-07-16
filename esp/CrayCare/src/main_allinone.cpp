@@ -25,7 +25,7 @@
 
 // --- Timing (ms) ---
 #define SENSOR_INTERVAL     1000
-#define PUBLISH_INTERVAL    5000
+#define PUBLISH_INTERVAL    600000
 #define HISTORY_INTERVAL    600000
 #define LCD_INTERVAL        3000
 #define MODES_POLL_INTERVAL 3000
@@ -220,6 +220,50 @@ static void loadAutoConfig();
 static bool canFeed();
 
 // =============================================================================
+// FIRESTORE HELPERS
+// =============================================================================
+
+static String fsGetStr(FirebaseData &d, const char *field) {
+    FirebaseJson *j = d.jsonObject();
+    if (!j) return "";
+    FirebaseJsonData data;
+    String path = String("fields/") + field + "/stringValue";
+    if (j->get(data, path)) return data.stringValue;
+    return "";
+}
+
+static double fsGetDouble(FirebaseData &d, const char *field) {
+    FirebaseJson *j = d.jsonObject();
+    if (!j) return 0;
+    FirebaseJsonData data;
+    String path = String("fields/") + field + "/doubleValue";
+    if (j->get(data, path)) return data.doubleValue;
+    return 0;
+}
+
+static bool fsGetBool(FirebaseData &d, const char *field) {
+    FirebaseJson *j = d.jsonObject();
+    if (!j) return false;
+    FirebaseJsonData data;
+    String path = String("fields/") + field + "/booleanValue";
+    if (j->get(data, path)) return data.boolValue;
+    return false;
+}
+
+static int64_t parseFirestoreTimestamp(const String &ts) {
+    int year, month, day, hour, min, sec;
+    if (sscanf(ts.c_str(), "%d-%dT%d:%d:%dZ", &year, &month, &day, &hour, &min, &sec) != 6) return 0;
+    struct tm t = {};
+    t.tm_year = year - 1900;
+    t.tm_mon = month - 1;
+    t.tm_mday = day;
+    t.tm_hour = hour;
+    t.tm_min = min;
+    t.tm_sec = sec;
+    return (int64_t)mktime(&t) * 1000LL;
+}
+
+// =============================================================================
 // I2C HELPERS
 // =============================================================================
 
@@ -319,10 +363,15 @@ static void flushBufferTick() {
     j.add("dissolvedOxygen", r->dissolvedOxygen);
     j.add("turbidity", r->turbidity);
     j.add("waterLevel", r->waterLevel >= 0 ? r->waterLevel : 0);
+    j.add("temp_avg", r->temperature); j.add("temp_min", r->temperature); j.add("temp_max", r->temperature);
+    j.add("pH_avg", r->phLevel); j.add("pH_min", r->phLevel); j.add("pH_max", r->phLevel);
+    j.add("DO_avg", r->dissolvedOxygen); j.add("DO_min", r->dissolvedOxygen); j.add("DO_max", r->dissolvedOxygen);
+    j.add("turbidity_avg", r->turbidity); j.add("turbidity_min", r->turbidity); j.add("turbidity_max", r->turbidity);
+    j.add("waterLevel_avg", r->waterLevel >= 0 ? r->waterLevel : 0); j.add("waterLevel_min", r->waterLevel >= 0 ? r->waterLevel : 0); j.add("waterLevel_max", r->waterLevel >= 0 ? r->waterLevel : 0);
     j.add("timestamp", (double)r->timestamp);
 
-    String path = String("/sensor_readings/history/") + fmtDatePath();
-    if (Firebase.RTDB.pushJSON(&fbS, path, &j)) {
+    String path = String("sensorReadings/history/") + fmtDatePath();
+    if (Firebase.Firestore.createDocument(&fbS, firebase_project_id, "", path.c_str(), &j, "")) {
         bufferCount--;
         Serial.printf("[FB] Flushed buffered reading (%d remaining)\n", bufferCount);
     }
@@ -375,8 +424,9 @@ static void logDeviceAction(const char* devId, const char* action, const char* t
     j.add("action", action); j.add("type", type);
     j.add("time", fmtTime()); j.add("date", fmtDate());
     j.add("userName", "ESP32");
+    j.add("deviceId", devId);
     j.add("timestamp", (double)(getEpochMillis() / 1000));
-    Firebase.RTDB.push(&fbW, String("/devices/logs/") + devId, &j);
+    Firebase.Firestore.createDocument(&fbW, firebase_project_id, "", "deviceLogs", &j, "");
 }
 
 static void logFeedAction(const char* action, const char* type) {
@@ -386,7 +436,7 @@ static void logFeedAction(const char* action, const char* type) {
     j.add("time", fmtTime()); j.add("date", fmtDate());
     j.add("userName", "ESP32");
     j.add("timestamp", (double)(getEpochMillis() / 1000));
-    Firebase.RTDB.push(&fbW, "/feeder/logs", &j);
+    Firebase.Firestore.createDocument(&fbW, firebase_project_id, "", "feederLogs", &j, "");
 }
 
 static void applyMode(int idx, const String& modeStr) {
@@ -424,12 +474,18 @@ static void pollModes() {
     unsigned long now = millis();
     if (now - lastModesPoll < MODES_POLL_INTERVAL) return;
     lastModesPoll = now;
-    FirebaseJson j;
-    if (!Firebase.RTDB.getJSON(&fbW, "/devices/modes", &j)) return;
-    FirebaseJsonData d;
-    if (j.get(d, DEV_A1)) { Serial.printf("[MODES] %s=%s\n", DEV_A1, d.stringValue.c_str()); applyMode(0, d.stringValue); }
-    if (j.get(d, DEV_A2)) { Serial.printf("[MODES] %s=%s\n", DEV_A2, d.stringValue.c_str()); applyMode(1, d.stringValue); }
-    if (j.get(d, DEV_P))  { Serial.printf("[MODES] %s=%s\n", DEV_P, d.stringValue.c_str()); applyMode(2, d.stringValue); }
+
+    const char* devIds[] = {DEV_A1, DEV_A2, DEV_P};
+    for (int i = 0; i < 3; i++) {
+        String path = String("deviceModes/") + devIds[i];
+        if (Firebase.Firestore.getDocument(&fbW, firebase_project_id, "", path.c_str(), "mode")) {
+            String modeStr = fsGetStr(fbW, "mode");
+            if (modeStr.length() > 0) {
+                Serial.printf("[MODES] %s=%s\n", devIds[i], modeStr.c_str());
+                applyMode(i, modeStr);
+            }
+        }
+    }
 }
 
 // =============================================================================
@@ -538,25 +594,25 @@ static void pollConfig() {
     if (now - lastConfigPoll < CONFIG_POLL_INTERVAL) return;
     lastConfigPoll = now;
 
-    FirebaseJson j;
-    if (!Firebase.RTDB.getJSON(&fbW, "/sensor_readings/config/ranges", &j)) {
+    if (!Firebase.Firestore.getDocument(&fbW, firebase_project_id, "", "config/default", "ranges")) {
         return;
     }
 
+    FirebaseJson *j = fbW.jsonObject();
+    if (!j) return;
     FirebaseJsonData d;
-    #define READ_SUB_SENSOR(key, varMin, varMax) do { \
-        if (j.get(d, key)) { \
-            FirebaseJson sub; sub.setJsonData(d.stringValue); \
-            if (sub.get(d, "min")) { float v = d.floatValue; if (v >= 0) varMin = v; } \
-            if (sub.get(d, "max")) { float v = d.floatValue; if (v >= 0) varMax = v; } \
-        } \
-    } while(0)
 
-    READ_SUB_SENSOR("temp",       threshTempMin, threshTempMax);
-    READ_SUB_SENSOR("ph",         threshPHMin, threshPHMax);
-    READ_SUB_SENSOR("do",         threshDOMin, threshDOMax);
-    READ_SUB_SENSOR("turb",       threshTurbMin, threshTurbMax);
-    READ_SUB_SENSOR("waterlevel", threshWaterMin, threshWaterMax);
+    auto readRange = [&](const char* sensor, float &varMin, float &varMax) {
+        String base = String("fields/ranges/mapValue/fields/") + sensor + "/mapValue/fields/";
+        if (j->get(d, base + "min/doubleValue")) { float v = d.floatValue; if (v >= 0) varMin = v; }
+        if (j->get(d, base + "max/doubleValue")) { float v = d.floatValue; if (v >= 0) varMax = v; }
+    };
+
+    readRange("temp",       threshTempMin, threshTempMax);
+    readRange("ph",         threshPHMin, threshPHMax);
+    readRange("do",         threshDOMin, threshDOMax);
+    readRange("turb",       threshTurbMin, threshTurbMax);
+    readRange("waterlevel", threshWaterMin, threshWaterMax);
 
     saveAutoConfig();
     Serial.printf("[CONFIG] Polled: temp %.1f-%.1f ph %.1f-%.1f do %.1f-%.1f turb %.1f-%.1f water %.1f-%.1f\n",
@@ -590,7 +646,9 @@ static void doFeed(const String& schedKey, double grams) {
     }
     feedBusy = true;
     if (Firebase.ready()) {
-        Firebase.RTDB.setBool(&fbW, "/feeder/status/isRunning", true);
+        FirebaseJson j;
+        j.add("isRunning", true);
+        Firebase.Firestore.setDocument(&fbW, firebase_project_id, "", "feederStatus/status", &j, "isRunning");
     }
     if (grams > 0) {
         executeServoCycleFromTable(grams);
@@ -605,7 +663,7 @@ static void doFeed(const String& schedKey, double grams) {
         j.add("lastSeen", (double)getEpochMillis());
         j.add("hopperLevel", 100.0); j.add("feedSource", "esp32");
         j.add("feederError", "");
-        Firebase.RTDB.setJSON(&fbW, "/feeder/status", &j);
+        Firebase.Firestore.setDocument(&fbW, firebase_project_id, "", "feederStatus/status", &j, "");
         if (grams > 0) {
             char buf[48];
             snprintf(buf, sizeof(buf), "Feed dispensed (%.1fg)", grams);
@@ -622,36 +680,59 @@ static void pollCommands() {
     unsigned long now = millis();
     if (now - lastCmdPoll < CMD_POLL_INTERVAL) return;
     lastCmdPoll = now;
-    FirebaseJson j;
-    if (!Firebase.RTDB.getJSON(&fbW, "/feeder/commands", &j)) return;
-    FirebaseJsonData d;
-    size_t n = j.iteratorBegin();
+
+    if (!Firebase.Firestore.listDocuments(&fbW, firebase_project_id, "", "feederCommands", "", 20)) return;
+
+    FirebaseJson *resp = fbW.jsonObject();
+    if (!resp) return;
+    FirebaseJsonData data;
+
+    if (!resp->get(data, "documents")) return;
+    FirebaseJson docs;
+    docs.setJsonData(data.stringValue);
+    size_t n = docs.iteratorBegin();
     if (n > 0) Serial.printf("[CMD-POLL] %u command(s)\n", n);
+
     for (size_t i = 0; i < n; i++) {
         int itType; String key, value;
-        j.iteratorGet(i, itType, key, value);
-        if (itType == FirebaseJson::JSON_OBJECT) {
-            FirebaseJson sub; sub.setJsonData(value);
-            sub.get(d, "action");
-            if (d.stringValue == "feed_now") {
-                sub.get(d, "timestamp");
-                int64_t ts = (int64_t)d.doubleValue;
-                int64_t nowMs = (int64_t)getEpochMillis();
-                double gramsCmd = 0;
-                if (sub.get(d, "grams")) gramsCmd = d.doubleValue;
-                String path = String("/feeder/commands/") + key;
-                if (nowMs > 0 && nowMs - ts < 30000) {
-                    Serial.printf("[CMD-POLL] Feed: %s (%.1fg)\n", key.c_str(), gramsCmd);
-                    Firebase.RTDB.deleteNode(&fbW, path);
-                    doFeed("", gramsCmd);
-                } else if (nowMs > 0) {
-                    Serial.printf("[CMD-POLL] Stale: %s\n", key.c_str());
-                    Firebase.RTDB.deleteNode(&fbW, path);
-                }
+        docs.iteratorGet(i, itType, key, value);
+        if (itType != FirebaseJson::JSON_OBJECT) continue;
+
+        FirebaseJson doc;
+        doc.setJsonData(value);
+
+        String docId = "";
+        if (doc.get(data, "name")) {
+            String name = data.stringValue;
+            int lastSlash = name.lastIndexOf('/');
+            if (lastSlash >= 0) docId = name.substring(lastSlash + 1);
+        }
+        if (docId.isEmpty()) continue;
+
+        String action = "";
+        if (doc.get(data, "fields/action/stringValue")) action = data.stringValue;
+
+        if (action == "feed_now") {
+            int64_t nowMs = (int64_t)getEpochMillis();
+            int64_t ts = nowMs;
+            if (doc.get(data, "fields/timestamp/timestampValue")) {
+                ts = parseFirestoreTimestamp(data.stringValue);
+            }
+            double gramsCmd = 0;
+            if (doc.get(data, "fields/grams/doubleValue")) gramsCmd = data.doubleValue;
+
+            String delPath = String("feederCommands/") + docId;
+            if (ts == 0 || nowMs - ts < 30000) {
+                Serial.printf("[CMD-POLL] Feed: %s (%.1fg)\n", docId.c_str(), gramsCmd);
+                Firebase.Firestore.deleteDocument(&fbW, firebase_project_id, "", delPath.c_str());
+                doFeed("", gramsCmd);
+            } else {
+                Serial.printf("[CMD-POLL] Stale: %s\n", docId.c_str());
+                Firebase.Firestore.deleteDocument(&fbW, firebase_project_id, "", delPath.c_str());
             }
         }
     }
-    j.iteratorEnd();
+    docs.iteratorEnd();
 }
 
 static void writeStatus() {
@@ -664,7 +745,7 @@ static void writeStatus() {
     j.add("lastSeen", (double)getEpochMillis());
     j.add("hopperLevel", 100.0); j.add("feedSource", "esp32");
     j.add("feederError", "");
-    Firebase.RTDB.setJSON(&fbW, "/feeder/status", &j);
+    Firebase.Firestore.setDocument(&fbW, firebase_project_id, "", "feederStatus/status", &j, "");
 }
 
 // =============================================================================
@@ -688,8 +769,8 @@ static void publishSensors() {
         j.add("turbDisabled", !sensorEnabled[3]);
         j.add("waterDisabled", !sensorEnabled[4]);
         j.add("timestamp", (double)now);
-        if (Firebase.RTDB.setJSON(&fbS, "/sensor_readings/latest", &j)) {
-            Serial.println("[FB] Sensor data published");
+        if (Firebase.Firestore.setDocument(&fbS, firebase_project_id, "", "sensorReadings/latest", &j, "")) {
+            Serial.println("[FB] Sensor data published to Firestore");
         } else {
             Serial.printf("[FB] Sensor publish failed: %s\n", fbS.errorReason());
         }
@@ -721,10 +802,15 @@ static void publishHistory() {
     j.add("dissolvedOxygen", currentDO);
     j.add("turbidity", currentTurbNTU);
     j.add("waterLevel", currentWaterCm >= 0 ? currentWaterCm : 0);
+    j.add("temp_avg", currentTemp); j.add("temp_min", currentTemp); j.add("temp_max", currentTemp);
+    j.add("pH_avg", currentPH); j.add("pH_min", currentPH); j.add("pH_max", currentPH);
+    j.add("DO_avg", currentDO); j.add("DO_min", currentDO); j.add("DO_max", currentDO);
+    j.add("turbidity_avg", currentTurbNTU); j.add("turbidity_min", currentTurbNTU); j.add("turbidity_max", currentTurbNTU);
+    j.add("waterLevel_avg", currentWaterCm >= 0 ? currentWaterCm : 0); j.add("waterLevel_min", currentWaterCm >= 0 ? currentWaterCm : 0); j.add("waterLevel_max", currentWaterCm >= 0 ? currentWaterCm : 0);
     j.add("timestamp", (double)(getEpochMillis() / 1000));
-    String path = String("/sensor_readings/history/") + fmtDatePath();
-    if (Firebase.RTDB.pushJSON(&fbS, path, &j)) {
-        Serial.println("[FB] History record pushed");
+    String path = String("sensorReadings/history/") + fmtDatePath();
+    if (Firebase.Firestore.createDocument(&fbS, firebase_project_id, "", path.c_str(), &j, "")) {
+        Serial.println("[FB] History record pushed to Firestore");
     } else {
         Serial.printf("[FB] History push failed: %s\n", fbS.errorReason());
     }
@@ -827,32 +913,44 @@ static void pollFirebaseSchedules() {
     if (now - lastSchedPoll < SCHED_POLL_INTERVAL) return;
     lastSchedPoll = now;
 
-    FirebaseJson j;
-    if (!Firebase.RTDB.getJSON(&fbW, "/feeder/schedules", &j)) {
+    if (!Firebase.Firestore.listDocuments(&fbW, firebase_project_id, "", "feederSchedules", "", 20)) {
         Serial.println("[SCHED] Fetch failed");
         return;
     }
+
+    FirebaseJson *resp = fbW.jsonObject();
+    if (!resp) return;
+    FirebaseJsonData data;
 
     struct FbSched { int hour24; int min; String key; double grams; };
     FbSched scheds[8];
     int count = 0;
 
-    size_t n = j.iteratorBegin();
+    if (!resp->get(data, "documents")) return;
+    FirebaseJson docs;
+    docs.setJsonData(data.stringValue);
+    size_t n = docs.iteratorBegin();
+
     for (size_t i = 0; i < n && count < 8; i++) {
         int itType; String key, value;
-        j.iteratorGet(i, itType, key, value);
+        docs.iteratorGet(i, itType, key, value);
         if (itType != FirebaseJson::JSON_OBJECT) continue;
 
-        FirebaseJson sub; sub.setJsonData(value);
-        FirebaseJsonData d;
-        bool enabled = false;
-        String timeStr = "", ampmStr = "";
-        if (sub.get(d, "enabled")) {
-            String ev = d.stringValue;
-            enabled = (ev == "true" || ev == "1");
+        FirebaseJson doc;
+        doc.setJsonData(value);
+
+        String docId = "";
+        if (doc.get(data, "name")) {
+            String name = data.stringValue;
+            int lastSlash = name.lastIndexOf('/');
+            if (lastSlash >= 0) docId = name.substring(lastSlash + 1);
         }
-        if (sub.get(d, "time")) timeStr = d.stringValue;
-        if (sub.get(d, "ampm")) ampmStr = d.stringValue;
+
+        bool enabled = false;
+        if (doc.get(data, "fields/enabled/booleanValue")) enabled = data.boolValue;
+        String timeStr = "", ampmStr = "";
+        if (doc.get(data, "fields/time/stringValue")) timeStr = data.stringValue;
+        if (doc.get(data, "fields/ampm/stringValue")) ampmStr = data.stringValue;
         if (!enabled || timeStr.length() == 0) continue;
 
         int colon = timeStr.indexOf(':');
@@ -864,12 +962,12 @@ static void pollFirebaseSchedules() {
 
         scheds[count].hour24 = h;
         scheds[count].min = m;
-        scheds[count].key = key;
+        scheds[count].key = docId;
         scheds[count].grams = 0;
-        if (sub.get(d, "grams")) scheds[count].grams = d.doubleValue;
+        if (doc.get(data, "fields/grams/doubleValue")) scheds[count].grams = data.doubleValue;
         count++;
     }
-    j.iteratorEnd();
+    docs.iteratorEnd();
 
     numFbSchedules = count;
 
@@ -908,13 +1006,16 @@ static void markScheduleDispatched(const String& schedKey) {
     if (schedKey.isEmpty()) return;
 
     if (Firebase.ready()) {
-        Firebase.RTDB.setBool(&fbW,
-            String("/feeder/schedules/") + schedKey + "/isDone", true);
+        FirebaseJson doneJ;
+        doneJ.add("isDone", true);
+        Firebase.Firestore.setDocument(&fbW, firebase_project_id, "",
+            (String("feederSchedules/") + schedKey).c_str(), &doneJ, "isDone");
 
-        // Write dispatched path so app/background helper can see it was fed
         String datePath = fmtDatePath();
-        Firebase.RTDB.setBool(&fbW,
-            String("/feeder/dispatched/") + datePath + "/" + schedKey, true);
+        FirebaseJson dispJ;
+        dispJ.add(schedKey, true);
+        Firebase.Firestore.setDocument(&fbW, firebase_project_id, "",
+            (String("feederDispatched/") + datePath).c_str(), &dispJ, schedKey.c_str());
 
         schedSyncPending = false;
         pendingSchedKey = "";
@@ -1631,8 +1732,10 @@ void loop() {
         // Retry pending isDone sync (if we were offline when feed fired)
         if (schedSyncPending && !pendingSchedKey.isEmpty()) {
             Serial.printf("[FEEDER] Retrying isDone sync for %s...\n", pendingSchedKey.c_str());
-            Firebase.RTDB.setBool(&fbW,
-                String("/feeder/schedules/") + pendingSchedKey + "/isDone", true);
+            FirebaseJson retryJ;
+            retryJ.add("isDone", true);
+            Firebase.Firestore.setDocument(&fbW, firebase_project_id, "",
+                (String("feederSchedules/") + pendingSchedKey).c_str(), &retryJ, "isDone");
             schedSyncPending = false;
             pendingSchedKey = "";
         }

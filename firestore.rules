@@ -1,0 +1,121 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Users can only read/write their own profile
+    match /users/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // Users can only read/write their own notification prefs
+    match /notifPrefs/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    match /batches/{docId} {
+      allow read: if request.auth != null && resource.data.uid == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
+      allow update: if request.auth != null && resource.data.uid == request.auth.uid;
+      allow delete: if request.auth != null && resource.data.uid == request.auth.uid;
+    }
+
+    match /sampling/{docId} {
+      allow read: if request.auth != null && resource.data.uid == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
+      allow update: if request.auth != null && resource.data.uid == request.auth.uid;
+      allow delete: if request.auth != null && resource.data.uid == request.auth.uid;
+    }
+
+    match /mortality/{docId} {
+      allow read: if request.auth != null && resource.data.uid == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
+      allow update: if request.auth != null && resource.data.uid == request.auth.uid;
+      allow delete: if request.auth != null && resource.data.uid == request.auth.uid;
+    }
+
+    match /activities/{docId} {
+      allow read: if request.auth != null && resource.data.uid == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
+      allow update: if request.auth != null && resource.data.uid == request.auth.uid;
+      allow delete: if request.auth != null && resource.data.uid == request.auth.uid;
+    }
+
+    match /harvests/{docId} {
+      allow read: if request.auth != null && resource.data.uid == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
+      allow update: if request.auth != null && resource.data.uid == request.auth.uid;
+      allow delete: if request.auth != null && resource.data.uid == request.auth.uid;
+    }
+
+    match /config/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    match /notifications/{docId} {
+      allow read: if request.auth != null && resource.data.uid == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
+      allow update: if request.auth != null && resource.data.uid == request.auth.uid;
+      allow delete: if request.auth != null && resource.data.uid == request.auth.uid;
+    }
+
+    match /notifMarkers/{doc} {
+      allow read: if request.auth != null && resource.data.uid == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
+      allow update: if request.auth != null && resource.data.uid == request.auth.uid;
+      allow delete: if request.auth != null && resource.data.uid == request.auth.uid;
+    }
+
+    match /migration/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    match /sensorReadings/{doc} {
+      allow read: if request.auth != null;
+      allow create, update: if true;
+    }
+
+    match /sensorReadings/history/{date}/{doc} {
+      allow read: if request.auth != null;
+      allow create, update: if true;
+    }
+
+    match /feederSchedules/{doc} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /feederLogs/{doc} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /feederCommands/{doc} {
+      allow read, create: if request.auth != null;
+      allow update, delete: if false;
+    }
+
+    match /feederStatus/{doc} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /feederDispatched/{doc} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /deviceModes/{doc} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /deviceLogs/{doc} {
+      allow read, create: if request.auth != null;
+    }
+
+    match /mlPredictions/{doc} {
+      allow read: if request.auth != null;
+      allow create, update: if true;
+    }
+
+    match /healthRisk/{doc} {
+      allow read: if request.auth != null;
+      allow create, update: if true;
+    }
+  }
+}

@@ -7,19 +7,16 @@ import '../widgets/settings/settings_menu.dart';
 import '../widgets/settings/profile_edit_form.dart';
 import '../widgets/settings/change_password_form.dart';
 import '../widgets/settings/notif_settings.dart';
-import '../widgets/settings/stage_settings.dart';
+import '../widgets/settings/sensor_threshold_settings.dart';
 import '../widgets/settings/logout_sheet.dart';
 import '../services/database_service.dart';
 import '../services/storage_service.dart'; // Para sa pag-pick ng profile picture
 import '../services/auth_service.dart';
 
-import '../widgets/settings/user_management_form.dart';
-
 class SettingsScreen extends StatefulWidget {
-  final String? initialPhotoUrl; // Ipasa mula MainShell para iwas reload
-  final String? userRole;
+  final String? initialPhotoUrl;
 
-  const SettingsScreen({super.key, this.initialPhotoUrl, this.userRole});
+  const SettingsScreen({super.key, this.initialPhotoUrl});
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -309,9 +306,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       case 3:
         return 'Notifications';
       case 4:
-        return 'Crayfish Stage';
-      case 5:
-        return 'User Management';
+        return 'Sensor Thresholds';
       default:
         return '';
     }
@@ -344,7 +339,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   key: const ValueKey('menu'),
                   profileName: _profileName,
                   profileEmail: _profileEmail,
-                  userRole: widget.userRole,
                   onGoTo: _goTo,
                   onLogout: _showLogoutSheet,
                   photoUrl: _photoUrl,
@@ -397,8 +391,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _saveNotifPrefs();
                   },
                 ),
-                StageSettings(key: const ValueKey('stage-settings'), isOwner: widget.userRole == 'owner'),
-                const UserManagementForm(key: ValueKey('user-management')),
+                SensorThresholdSettings(key: const ValueKey('sensor-thresholds')),
               ][_currentPage],
             ),
           ),
@@ -410,11 +403,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildHeader() {
     final Widget header = Container(
       padding: const EdgeInsets.fromLTRB(4, 8, 16, 8),
-      decoration: BoxDecoration(
-        color: _currentPage == 4 ? Colors.transparent : Colors.white,
-        border: Border(bottom: BorderSide(
-          color: _currentPage == 4 ? Colors.transparent : AppColors.darkWith(0.07),
-        )),
+      decoration: const BoxDecoration(
+        color: Colors.transparent,
       ),
       child: Row(
         children: [
@@ -437,8 +427,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
     );
-
-    if (_currentPage != 4) return header;
 
     return ClipRRect(
       child: Stack(

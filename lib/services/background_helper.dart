@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 class BackgroundHelper {
@@ -14,29 +14,33 @@ class BackgroundHelper {
   static Future<void> checkAndDispatchFeeding() async {
     final uid = _userId;
     if (uid.isEmpty) return;
-    final db = FirebaseDatabase.instance;
+    final fs = FirebaseFirestore.instance;
     final now = DateTime.now();
     final todayKey = '${now.year}-${now.month}-${now.day}';
 
-    final schedSnap = await db.ref('feeder/schedules').get();
-    if (!schedSnap.exists) return;
-    final schedData = schedSnap.value;
-    if (schedData is! Map) return;
+    final schedSnap = await fs.collection('feederSchedules').get();
+    if (schedSnap.docs.isEmpty) return;
+    final schedDocs = schedSnap.docs;
 
-    // Check feed safety before dispatching any scheduled feed
-    final latestSnap = await db.ref('sensor_readings/latest').get();
+    final latestSnap = await fs.collection('sensorReadings').doc('latest').get();
     bool feedSafe = true;
     String blockReason = '';
-    if (latestSnap.exists && latestSnap.value is Map) {
-      final latest = Map<String, dynamic>.from(latestSnap.value as Map);
+    if (latestSnap.exists && latestSnap.data() != null) {
+      final latest = latestSnap.data()!;
       final turbAir = latest['turbidityAir'] == true;
       final turb = (latest['turbidity'] as num?)?.toDouble() ?? 0.0;
 
-      final rangesSnap = await db.ref('sensor_readings/config/ranges/turb').get();
+      final configSnap = await fs.collection('config').doc(uid).get();
       double turbMax = 25.0;
-      if (rangesSnap.exists && rangesSnap.value is Map) {
-        final r = Map<String, dynamic>.from(rangesSnap.value as Map);
-        turbMax = (r['max'] as num?)?.toDouble() ?? 25.0;
+      if (configSnap.exists && configSnap.data() != null) {
+        final config = configSnap.data()!;
+        final ranges = config['ranges'] as Map<String, dynamic>?;
+        if (ranges != null) {
+          final turbRange = ranges['turb'] as Map<String, dynamic>?;
+          if (turbRange != null) {
+            turbMax = (turbRange['max'] as num?)?.toDouble() ?? 25.0;
+          }
+        }
       }
 
       if (turbAir) {
@@ -48,9 +52,8 @@ class BackgroundHelper {
       }
     }
 
-    for (final entry in schedData.entries) {
-      final s = entry.value;
-      if (s is! Map) continue;
+    for (final doc in schedDocs) {
+      final s = doc.data();
       if (s['enabled'] != true) continue;
 
       final time = s['time'] as String? ?? '6:00';
@@ -65,11 +68,13 @@ class BackgroundHelper {
 
       if (nowMins < schedMins || nowMins > schedMins + 15) continue;
 
-      final dispatchedKey = '${entry.key}';
-      final marker = await db
-          .ref('feeder/dispatched/$todayKey/$dispatchedKey')
+      final dispatchedKey = doc.id;
+      final dispatchedDoc = await fs
+          .collection('feederDispatched')
+          .doc(todayKey)
           .get();
-      if (marker.exists) continue;
+      final dispatchedData = dispatchedDoc.data();
+      if (dispatchedData != null && dispatchedData[dispatchedKey] == true) continue;
 
       if (!feedSafe) {
         final months = [
@@ -81,7 +86,7 @@ class BackgroundHelper {
         final timeStr = '$h12:${m.toString().padLeft(2, '0')} $ampmStr';
         final dateStr = '${months[now.month - 1]} ${now.day}, ${now.year}';
 
-        await db.ref('feeder/logs').push().set({
+        await fs.collection('feederLogs').add({
           'action': 'Scheduled feed skipped: $blockReason',
           'type': 'skipped',
           'time': timeStr,
@@ -96,13 +101,13 @@ class BackgroundHelper {
 
       final Map<String, dynamic> cmd = {
         'action': 'feed_now',
-        'timestamp': ServerValue.timestamp,
+        'timestamp': FieldValue.serverTimestamp(),
         'source': 'background',
       };
       if (grams != null) {
         cmd['grams'] = grams;
       }
-      await db.ref('feeder/commands').push().set(cmd);
+      await fs.collection('feederCommands').add(cmd);
 
       final months = [
         'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -114,7 +119,7 @@ class BackgroundHelper {
       final dateStr = '${months[now.month - 1]} ${now.day}, ${now.year}';
       final gramsStr = grams != null ? ' (${grams.toStringAsFixed(1)}g)' : '';
 
-      await db.ref('feeder/logs').push().set({
+      await fs.collection('feederLogs').add({
         'action': 'Auto feed dispensed$gramsStr',
         'type': 'auto',
         'time': timeStr,
@@ -122,7 +127,9 @@ class BackgroundHelper {
         'timestamp': now.millisecondsSinceEpoch,
       });
 
-      await db.ref('feeder/dispatched/$todayKey/$dispatchedKey').set(true);
+      await fs.collection('feederDispatched').doc(todayKey).set({
+        dispatchedKey: true,
+      }, SetOptions(merge: true));
 
       debugPrint('[BackgroundHelper] Dispatched feed for $time $ampm$gramsStr');
     }
@@ -131,21 +138,14 @@ class BackgroundHelper {
   static Future<void> showPendingNotifications() async {
     final uid = _userId;
     if (uid.isEmpty) return;
-    final db = FirebaseDatabase.instance;
-
-    final profileSnap = await db.ref('users/$uid/profile').get();
-    final profile = profileSnap.value is Map ? profileSnap.value as Map : {};
-    final ownerUid = profile['ownerUid'] as String?;
-    final notifTargetUid = (ownerUid != null && ownerUid.isNotEmpty) ? ownerUid : uid;
-
+    final fs = FirebaseFirestore.instance;
     final now = DateTime.now();
     final todayKey = '${now.year}-${now.month}-${now.day}';
     final nowMins = now.hour * 60 + now.minute;
 
-    final schedSnap = await db.ref('feeder/schedules').get();
-    if (!schedSnap.exists) return;
-    final schedData = schedSnap.value;
-    if (schedData is! Map) return;
+    final schedSnap = await fs.collection('feederSchedules').get();
+    if (schedSnap.docs.isEmpty) return;
+    final schedDocs = schedSnap.docs;
 
     final localNotif = FlutterLocalNotificationsPlugin();
     const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -153,9 +153,9 @@ class BackgroundHelper {
       android: androidSettings,
     ));
 
-    for (final entry in schedData.entries) {
-      final s = entry.value;
-      if (s is! Map || s['enabled'] != true) continue;
+    for (final doc in schedDocs) {
+      final s = doc.data();
+      if (s['enabled'] != true) continue;
 
       final time = s['time'] as String? ?? '6:00';
       final ampm = s['ampm'] as String? ?? 'AM';
@@ -165,20 +165,21 @@ class BackgroundHelper {
       if (ampm == 'AM' && h == 12) h = 0;
 
       final schedMins = h * 60 + m;
-      final reminderKey = 'reminder_${todayKey}_${entry.key}';
-      final confirmKey = 'confirm_${todayKey}_${entry.key}';
+      final reminderKey = 'reminder_${todayKey}_${doc.id}';
+      final confirmKey = 'confirm_${todayKey}_${doc.id}';
 
-      final reminderMarker = await db
-          .ref('users/$notifTargetUid/notifications/markers/$reminderKey')
+      final reminderMarker = await fs
+          .collection('notifMarkers')
+          .doc('${uid}_$reminderKey')
           .get();
-      final confirmMarker = await db
-          .ref('users/$notifTargetUid/notifications/markers/$confirmKey')
+      final confirmMarker = await fs
+          .collection('notifMarkers')
+          .doc('${uid}_$confirmKey')
           .get();
 
-      // Read user preference for feeding notification
-      final prefsSnap = await db.ref('users/$notifTargetUid/notifPrefs').get();
-      final prefs = prefsSnap.value is Map ? prefsSnap.value as Map : {};
-      final isFeedingEnabled = prefs['feeding'] != false;
+      final prefsDoc = await fs.collection('notifPrefs').doc(uid).get();
+      final prefs = prefsDoc.data();
+      final isFeedingEnabled = prefs == null || prefs['feeding'] != false;
 
       if (isFeedingEnabled && !reminderMarker.exists && nowMins >= schedMins - 15 && nowMins < schedMins) {
         final msg = 'Your feeding schedule at $time $ampm will be dispensed in 5 minutes.';
@@ -196,15 +197,16 @@ class BackgroundHelper {
             ),
           ),
         );
-        await db.ref('users/$notifTargetUid/notifications/markers/$reminderKey').set(true);
+        await fs.collection('notifMarkers').doc('${uid}_$reminderKey').set({'uid': uid, 'markerKey': reminderKey, 'value': true, 'updatedAt': FieldValue.serverTimestamp()});
       }
 
       if (isFeedingEnabled && !confirmMarker.exists && nowMins > schedMins && nowMins <= schedMins + 15) {
-        final dispatchedMarker = '${entry.key}';
-        final dispatched = await db
-            .ref('feeder/dispatched/$todayKey/$dispatchedMarker')
+        final dispatchedDoc = await fs
+            .collection('feederDispatched')
+            .doc(todayKey)
             .get();
-        if (dispatched.exists) {
+        final dispatchedData = dispatchedDoc.data();
+        if (dispatchedData != null && dispatchedData[doc.id] == true) {
           await localNotif.show(
             '${now.millisecondsSinceEpoch}_confirm'.hashCode,
             'Feeding Complete',
@@ -219,7 +221,7 @@ class BackgroundHelper {
               ),
             ),
           );
-          await db.ref('users/$notifTargetUid/notifications/markers/$confirmKey').set(true);
+          await fs.collection('notifMarkers').doc('${uid}_$confirmKey').set({'uid': uid, 'markerKey': confirmKey, 'value': true, 'updatedAt': FieldValue.serverTimestamp()});
         }
       }
     }
@@ -228,34 +230,40 @@ class BackgroundHelper {
   static Future<void> checkSamplingReminders() async {
     final uid = _userId;
     if (uid.isEmpty) return;
-    final db = FirebaseDatabase.instance;
     final now = DateTime.now();
+    final fs = FirebaseFirestore.instance;
 
-    final profileSnap = await db.ref('users/$uid/profile').get();
-    final profile = profileSnap.value is Map ? profileSnap.value as Map : {};
-    final ownerUid = profile['ownerUid'] as String?;
-    final tankOwnerUid = (ownerUid != null && ownerUid.isNotEmpty) ? ownerUid : uid;
-
-    // Read actual sampling records to find the latest date
-    final samplingSnap = await db.ref('tank_data/$tankOwnerUid/sampling').orderByChild('date').limitToLast(1).get();
-    final tankSnap = await db.ref('tank_data/$tankOwnerUid/inventory').get();
-    if (!tankSnap.exists) return;
-    final tank = tankSnap.value;
-    if (tank is! Map) return;
+    Map<String, dynamic>? tank;
+    try {
+      final configSnap = await fs.collection('config').doc(uid).get();
+      if (configSnap.exists) tank = configSnap.data();
+    } catch (e) {
+      debugPrint('[BackgroundHelper] Failed to read config from Firestore: $e');
+    }
+    if (tank == null) return;
 
     final isInitialized = tank['isInitialized'] as bool? ?? false;
     if (!isInitialized) return;
 
-    int effectiveSampleTs;
-    if (samplingSnap.exists && samplingSnap.value is Map) {
-      final entries = samplingSnap.value as Map;
-      final lastEntry = entries.values.last;
-      if (lastEntry is Map && lastEntry['date'] is int) {
-        effectiveSampleTs = lastEntry['date'] as int;
+    int effectiveSampleTs = 0;
+    try {
+      final samplingSnap = await fs
+          .collection('sampling')
+          .where('uid', isEqualTo: uid)
+          .get();
+      if (samplingSnap.docs.isNotEmpty) {
+        int? latestTs;
+        for (final doc in samplingSnap.docs) {
+          final data = doc.data();
+          final ts = data['date'] as int?;
+          if (ts != null && (latestTs == null || ts > latestTs)) latestTs = ts;
+        }
+        effectiveSampleTs = latestTs ?? (tank['stockingDate'] as int? ?? 0);
       } else {
         effectiveSampleTs = tank['stockingDate'] as int? ?? 0;
       }
-    } else {
+    } catch (e) {
+      debugPrint('[BackgroundHelper] Failed to read sampling from Firestore: $e');
       effectiveSampleTs = tank['stockingDate'] as int? ?? 0;
     }
     if (effectiveSampleTs <= 0) return;
@@ -266,9 +274,10 @@ class BackgroundHelper {
     if (daysSince < 7) return;
 
     const markerKey = 'sampling_reminder';
-    final marker = await db.ref('users/$tankOwnerUid/notifications/markers/$markerKey').get();
-    if (marker.exists) {
-      final val = marker.value;
+    final markerDoc = await fs.collection('notifMarkers').doc('${uid}_$markerKey').get();
+    if (markerDoc.exists && markerDoc.data() != null) {
+      final data = markerDoc.data()!;
+      final val = data['value'];
       if (val is Map) {
         final lastSampleTs = val['sampleTs'] as int? ?? 0;
         final lastReminderTs = val['reminderTs'] as int? ?? 0;
@@ -303,9 +312,14 @@ class BackgroundHelper {
       ),
     );
 
-    await db.ref('users/$tankOwnerUid/notifications/markers/$markerKey').set({
-      'reminderTs': now.millisecondsSinceEpoch,
-      'sampleTs': effectiveSampleTs,
+    await fs.collection('notifMarkers').doc('${uid}_$markerKey').set({
+      'uid': uid,
+      'markerKey': markerKey,
+      'value': {
+        'reminderTs': now.millisecondsSinceEpoch,
+        'sampleTs': effectiveSampleTs,
+      },
+      'updatedAt': FieldValue.serverTimestamp(),
     });
   }
 }

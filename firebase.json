@@ -2,13 +2,32 @@
   "database": {
     "rules": "database.rules.json"
   },
+  "firestore": {
+    "indexes": "firestore.indexes.json",
+    "rules": "firestore.rules"
+  },
   "functions": [
     {
-      "source": "functions",
-      "codebase": "default",
+      "source": "functions/notifications",
+      "codebase": "notifications",
       "ignore": [
         "node_modules",
         ".git",
+        "firebase-debug.log",
+        "firestore-debug.log",
+        "ui-debug.log"
+      ]
+    },
+    {
+      "source": "functions/ml",
+      "codebase": "ml",
+      "runtime": "python312",
+      "ignore": [
+        ".git",
+        "venv",
+        ".venv",
+        "__pycache__",
+        "*.pyc",
         "firebase-debug.log",
         "firestore-debug.log",
         "ui-debug.log"

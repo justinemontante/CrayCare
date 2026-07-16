@@ -29,8 +29,34 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   late final ScrollController _scrollController;
 
   bool _isLoading = false;
+  Timer? _autoRefreshTimer;
 
   bool get _showCritical => _activeFilter == 'live' || _activeFilter == '24h';
+
+  // Historical ranges (24h/7d/30d always, custom only if its end date is
+  // today or later) include today's still-being-written subcollection.
+  // Only those ranges benefit from auto-refreshing; "live" already updates
+  // itself via the real-time sensor listener.
+  bool get _activeRangeIncludesToday {
+    final now = DateTime.now();
+    switch (_activeFilter) {
+      case '24h':
+      case '7d':
+      case '30d':
+        return true;
+      case 'custom':
+        return !_customEndDate.isBefore(DateTime(now.year, now.month, now.day));
+      default:
+        return false;
+    }
+  }
+
+  Future<void> _maybeAutoRefreshHistory() async {
+    if (!mounted) return;
+    if (_activeFilter == 'live' || !_activeRangeIncludesToday) return;
+    await _generateData(_activeFilter);
+    if (mounted) setState(() {});
+  }
 
   void _onChartSelectionChanged(String chartKey, int? index) {
     setState(() => _selectedIndices[chartKey] = index);
@@ -50,10 +76,18 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     _generateData('live');
     SettingsService.instance.addListener(_onSettingsChanged);
     SensorService.instance.addListener(_onSensorDataChanged);
+    // Matches the "today" cache TTL in SensorService - frequent enough to
+    // surface a new ESP save (written every ~10 min) quickly, cheap enough
+    // that it's a no-op cache hit for closed past days.
+    _autoRefreshTimer = Timer.periodic(
+      const Duration(seconds: 60),
+      (_) => _maybeAutoRefreshHistory(),
+    );
   }
 
   @override
   void dispose() {
+    _autoRefreshTimer?.cancel();
     _scrollController.dispose();
     SensorService.instance.removeListener(_onSensorDataChanged);
     SettingsService.instance.removeListener(_onSettingsChanged);
@@ -98,12 +132,12 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     }
   }
 
-  static const _firebaseKeyMap = {
-    'temp': 'temperature',
-    'ph': 'phLevel',
-    'do': 'dissolvedOxygen',
-    'turb': 'turbidity',
-    'waterlevel': 'waterLevel',
+  static const _historyKeyMap = {
+    'temp': 'temp_avg',
+    'ph': 'pH_avg',
+    'do': 'DO_avg',
+    'turb': 'turbidity_avg',
+    'waterlevel': 'waterLevel_avg',
   };
 
   Future<void> _generateData(String range) async {
@@ -190,35 +224,19 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       return at.compareTo(bt);
     });
 
-    if (range == '24h') {
-      // Use actual Firebase records as-is, no synthetic bucketing
-      final cutoff = now.subtract(const Duration(hours: 24)).millisecondsSinceEpoch;
-      final recent = records.where((r) {
-        final rawTs = _toInt(r['timestamp']) ?? 0;
-        final ms = rawTs < 100000000000 ? rawTs * 1000 : rawTs;
-        return ms >= cutoff;
-      }).toList();
-
-      _labels[range] = recent.map((r) {
-        final t = _parseTimestamp(r['timestamp']);
-        final h = t.hour > 12 ? t.hour - 12 : (t.hour == 0 ? 12 : t.hour);
-        final ampm = t.hour >= 12 ? 'PM' : 'AM';
-        return '${h}:${t.minute.toString().padLeft(2, '0')} $ampm';
-      }).toList();
-
-      for (final key in SensorService.sensorKeys) {
-        final fbKey = _firebaseKeyMap[key]!;
-        _data['$key-$range'] = recent.map((r) {
-          final v = _toDouble(r[fbKey]);
-          return (v != null && v >= 0) ? v : double.nan;
-        }).toList();
-      }
-      return;
-    }
-
-    // 7d, 30d, custom: use bucketed aggregation with actual record timestamps
+    // 24h, 7d, 30d, custom: use bucketed aggregation
     List<DateTime> labelTimes;
-    if (range == '7d') {
+    if (range == '24h') {
+      labelTimes = List<DateTime>.generate(pts, (i) {
+        return now.subtract(Duration(minutes: (pts - 1 - i) * 10));
+      });
+      final months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      _labels[range] = labelTimes.map((d) {
+        final h = d.hour > 12 ? d.hour - 12 : (d.hour == 0 ? 12 : d.hour);
+        final ampm = d.hour >= 12 ? 'PM' : 'AM';
+        return '${months[d.month - 1]} ${d.day}, ${h}:${d.minute.toString().padLeft(2, '0')} $ampm';
+      }).toList();
+    } else if (range == '7d') {
       labelTimes = List<DateTime>.generate(pts, (i) {
         return now.subtract(Duration(hours: (pts - 1 - i)));
       });
@@ -237,26 +255,19 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       _labels[range] = labelTimes.map((d) => '${months[d.month - 1]} ${d.day}').toList();
     }
 
+    // Pre-parse timestamps and extract values ONCE for all keys
+    final parsedTs = List<DateTime>.generate(records.length, (i) {
+      return _parseTimestamp(records[i]['timestamp']);
+    });
+    final valuesPerKey = <String, List<double?>>{};
     for (final key in SensorService.sensorKeys) {
-      final fbKey = _firebaseKeyMap[key]!;
-      _data['$key-$range'] = _aggregateHistory(records, fbKey, labelTimes, intervalMinutes);
+      final hKey = _historyKeyMap[key]!;
+      valuesPerKey[key] = List<double?>.generate(records.length, (i) {
+        return _toDouble(records[i][hKey]);
+      });
     }
 
-  }
-
-  DateTime _parseTimestamp(dynamic ts) {
-    if (ts is! num) return DateTime(2000);
-    final ms = ts.toInt() < 100000000000 ? ts.toInt() * 1000 : ts.toInt();
-    return DateTime.fromMillisecondsSinceEpoch(ms);
-  }
-
-  List<double> _aggregateHistory(
-    List<Map<String, dynamic>> records,
-    String fbKey,
-    List<DateTime> labelTimes,
-    int intervalMinutes,
-  ) {
-    final Duration window;
+    Duration window;
     if (intervalMinutes > 0) {
       window = Duration(minutes: intervalMinutes ~/ 2);
     } else {
@@ -265,36 +276,71 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
           : const Duration(minutes: 10);
       window = interval ~/ 2;
     }
-    return List<double>.generate(labelTimes.length, (i) {
-      if (i < labelTimes.length - 1 &&
-          labelTimes[i + 1].difference(labelTimes[i]).inDays >= 1) {
-        return _dailyAggregate(records, fbKey, labelTimes[i]);
+
+    for (final key in SensorService.sensorKeys) {
+      final vals = valuesPerKey[key]!;
+      _data['$key-$range'] = List<double>.generate(labelTimes.length, (i) {
+        final isDaily = i < labelTimes.length - 1 &&
+            labelTimes[i + 1].difference(labelTimes[i]).inDays >= 1;
+
+        if (isDaily) {
+          final dayStart = DateTime(labelTimes[i].year, labelTimes[i].month, labelTimes[i].day);
+          final dayEnd = dayStart.add(const Duration(days: 1));
+          double sum = 0;
+          int count = 0;
+          for (int j = 0; j < records.length; j++) {
+            if (parsedTs[j].isAfter(dayStart) && parsedTs[j].isBefore(dayEnd)) {
+              final v = vals[j];
+              if (v != null && v >= 0) { sum += v; count++; }
+            }
+          }
+          return count > 0 ? sum / count : double.nan;
+        }
+
+        final mid = labelTimes[i];
+        final start = mid.subtract(window);
+        final end = mid.add(window);
+        double sum = 0;
+        int count = 0;
+        for (int j = 0; j < records.length; j++) {
+          if (parsedTs[j].isAfter(start) && parsedTs[j].isBefore(end)) {
+            final v = vals[j];
+            if (v != null && v >= 0) { sum += v; count++; }
+          }
+        }
+        return count > 0 ? sum / count : double.nan;
+      });
+    }
+
+    // Remove buckets where every sensor is NaN (no data at all)
+    final keepIdx = <int>[];
+    for (int i = 0; i < labelTimes.length; i++) {
+      bool anyValid = false;
+      for (final key in SensorService.sensorKeys) {
+        final d = _data['$key-$range'];
+        if (d != null && i < d.length && !d[i].isNaN) {
+          anyValid = true;
+          break;
+        }
       }
-      final mid = labelTimes[i];
-      final start = mid.subtract(window);
-      final end = mid.add(window);
-      final matching = records.where((r) {
-        final t = _parseTimestamp(r['timestamp']);
-        return t.isAfter(start) && t.isBefore(end);
-      }).map((r) => _toDouble(r[fbKey])).whereType<double>().where((v) => v >= 0).toList();
-      if (matching.isEmpty) return double.nan;
-      return matching.reduce((a, b) => a + b) / matching.length;
-    });
+      if (anyValid) keepIdx.add(i);
+    }
+    if (keepIdx.length < labelTimes.length) {
+      for (final key in SensorService.sensorKeys) {
+        final d = _data['$key-$range'];
+        if (d != null) {
+          _data['$key-$range'] = keepIdx.map((i) => d[i]).toList();
+        }
+      }
+      _labels[range] = keepIdx.map((i) => _labels[range]![i]).toList();
+    }
+
   }
 
-  double _dailyAggregate(
-    List<Map<String, dynamic>> records,
-    String fbKey,
-    DateTime day,
-  ) {
-    final dayStart = DateTime(day.year, day.month, day.day);
-    final dayEnd = dayStart.add(const Duration(days: 1));
-    final matching = records.where((r) {
-      final t = _parseTimestamp(r['timestamp']);
-      return t.isAfter(dayStart) && t.isBefore(dayEnd);
-    }).map((r) => _toDouble(r[fbKey])).whereType<double>().where((v) => v >= 0).toList();
-    if (matching.isEmpty) return double.nan;
-    return matching.reduce((a, b) => a + b) / matching.length;
+  DateTime _parseTimestamp(dynamic ts) {
+    if (ts is! num) return DateTime(2000);
+    final ms = ts.toInt() < 100000000000 ? ts.toInt() * 1000 : ts.toInt();
+    return DateTime.fromMillisecondsSinceEpoch(ms);
   }
 
   double? _toDouble(dynamic v) {

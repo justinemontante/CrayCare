@@ -19,6 +19,7 @@ extern const char* firebase_api_key;
 extern const char* firebase_user_email;
 extern const char* firebase_user_password;
 extern const char* firebase_database_url;
+extern const char* firebase_project_id;
 
 // Firebase objects (single instance for the whole firmware)
 extern FirebaseData fbdo;

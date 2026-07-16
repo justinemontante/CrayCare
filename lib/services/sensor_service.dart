@@ -1,15 +1,22 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'settings_service.dart';
 
 class SensorService extends ChangeNotifier {
   static final SensorService instance = SensorService._();
   SensorService._() {
-    _initFirebaseListener();
-    FirebaseAuth.instance.authStateChanges().listen((_) {
+    if (FirebaseAuth.instance.currentUser != null) {
       _initFirebaseListener();
+    }
+    FirebaseAuth.instance.authStateChanges().listen((user) {
+      if (user != null) {
+        _initFirebaseListener();
+      } else {
+        _subscription?.cancel();
+        _subscription = null;
+      }
     });
   }
 
@@ -21,9 +28,7 @@ class SensorService extends ChangeNotifier {
     'waterlevel',
   ];
 
-  StreamSubscription<DatabaseEvent>? _subscription;
-  DatabaseReference get _latestRef =>
-      FirebaseDatabase.instance.ref('sensor_readings/latest');
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _subscription;
 
   final Map<String, List<double>> _history = {};
   final Map<String, double> _latest = {};
@@ -34,12 +39,14 @@ class SensorService extends ChangeNotifier {
   bool _initialDataLoaded = false;
 
   Timer? _staleTimer;
-  static const _staleTimeout = Duration(seconds: 30);
+  static const _staleTimeout = Duration(minutes: 12);
+  bool _hasLiveData = false;
 
   DateTime _lastUpdated = DateTime.fromMillisecondsSinceEpoch(0);
   String? _lastError;
 
   bool get initialDataLoaded => _initialDataLoaded;
+  bool get hasLiveData => _hasLiveData;
   DateTime get lastUpdated => _lastUpdated;
   String? get lastError => _lastError;
 
@@ -105,14 +112,10 @@ class SensorService extends ChangeNotifier {
         fastThreshold = 0.2;
         break;
       case 'turb':
-        // Turbidity sensors have ±0.5–2 NTU noise; 0.1 caused false positives.
-        // 0.5 NTU stable threshold only flags real, sustained changes.
         stableThreshold = 0.5;
         fastThreshold = 2.0;
         break;
       case 'waterlevel':
-        // Ultrasonic sensors (HC-SR04 type) have ±0.5–1 cm noise.
-        // 0.5 cm stable threshold prevents noise from being flagged as drift.
         stableThreshold = 0.5;
         fastThreshold = 1.5;
         break;
@@ -141,16 +144,19 @@ class SensorService extends ChangeNotifier {
     _subscription?.cancel();
     _initialDataLoaded = false;
     _staleTimer?.cancel();
-    _subscription = _latestRef.onValue.listen(
-      (event) {
+    _subscription = FirebaseFirestore.instance
+        .collection('sensorReadings')
+        .doc('latest')
+        .snapshots()
+        .listen(
+      (snapshot) {
         _lastError = null;
-        if (event.snapshot.value == null) return;
-        final raw = event.snapshot.value as Map<Object?, Object?>;
-        _parseAndUpdate(raw.map<String, dynamic>((k, v) => MapEntry(k.toString(), v)));
+        if (!snapshot.exists || snapshot.data() == null) return;
+        _parseAndUpdate(snapshot.data()!);
       },
       onError: (error) {
         _lastError = error.toString();
-        debugPrint('[SensorService] Firebase stream error: $error');
+        debugPrint('[SensorService] Firestore stream error: $error');
         notifyListeners();
       },
     );
@@ -180,6 +186,7 @@ class SensorService extends ChangeNotifier {
     _updateSensor('waterlevel', wlRaw);
 
     _lastUpdated = DateTime.now();
+    _hasLiveData = true;
     _staleTimer?.cancel();
     _staleTimer = Timer(_staleTimeout, _markStale);
     notifyListeners();
@@ -188,6 +195,7 @@ class SensorService extends ChangeNotifier {
   void _markStale() {
     _latest.clear();
     _lastUpdated = DateTime.fromMillisecondsSinceEpoch(0);
+    _hasLiveData = false;
     notifyListeners();
     debugPrint('[SensorService] Data stale - ESP32 offline');
   }
@@ -251,6 +259,49 @@ class SensorService extends ChangeNotifier {
 
   List<double> getData(String key) => _history[key] ?? [];
 
+  final Map<String, List<Map<String, dynamic>>> _dayCache = {};
+  final Map<String, DateTime> _dayCachedAt = {};
+
+  // The ESP32 writes a new history entry roughly every 10 minutes
+  // (HISTORY_INTERVAL in the firmware). Today's subcollection is still
+  // being appended to, so we only trust its cache for a short window -
+  // long enough to avoid re-fetching on every rapid filter switch, short
+  // enough that a newly-saved reading shows up quickly.
+  static const _todayCacheTtl = Duration(seconds: 60);
+
+  static String _dateStrFor(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  bool _isToday(String dateStr) => dateStr == _dateStrFor(DateTime.now());
+
+  List<Map<String, dynamic>>? getCachedDay(String dateStr) {
+    final cached = _dayCache[dateStr];
+    if (cached == null) return null;
+
+    if (_isToday(dateStr)) {
+      final cachedAt = _dayCachedAt[dateStr];
+      if (cachedAt == null ||
+          DateTime.now().difference(cachedAt) > _todayCacheTtl) {
+        return null;
+      }
+    }
+
+    // Past/closed days never change once written, so they can be
+    // cached indefinitely (until the app restarts or the cache is
+    // explicitly cleared).
+    return cached;
+  }
+
+  void cacheDay(String dateStr, List<Map<String, dynamic>> records) {
+    _dayCache[dateStr] = records;
+    _dayCachedAt[dateStr] = DateTime.now();
+  }
+
+  void clearHistoryCache() {
+    _dayCache.clear();
+    _dayCachedAt.clear();
+  }
+
   Future<List<Map<String, dynamic>>> fetchHistoryRange({
     required DateTime start,
     required DateTime end,
@@ -264,44 +315,48 @@ class SensorService extends ChangeNotifier {
       );
     }
 
-    const historyBase = 'sensor_readings/history';
-    final snapshots = await Future.wait(
-      days.map((dateStr) =>
-          FirebaseDatabase.instance.ref('$historyBase/$dateStr').get()),
-    );
-
-    final records = <Map<String, dynamic>>[];
-    for (int di = 0; di < days.length; di++) {
-      final dateStr = days[di];
-      final snapshot = snapshots[di];
-      if (snapshot.value == null) continue;
-      final map = snapshot.value as Map<Object?, Object?>;
-      final nodeDate = DateTime(
-        int.parse(dateStr.split('-')[0]),
-        int.parse(dateStr.split('-')[1]),
-        int.parse(dateStr.split('-')[2]),
-      );
-      for (final entry in map.entries) {
-        final record = entry.value as Map<Object?, Object?>;
-        final r = record.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
-        final rawTs = _toInt(r['timestamp']);
-        if (rawTs != null) {
-          final dt = DateTime.fromMillisecondsSinceEpoch(
-            rawTs < 100000000000 ? rawTs * 1000 : rawTs,
-          );
-          if ((dt.difference(nodeDate).abs().inDays) > 30) {
-            r['timestamp'] = nodeDate
-                .add(const Duration(hours: 12))
-                .millisecondsSinceEpoch ~/ 1000;
-          }
-        }
-        records.add(r);
+    final uncachedDays = <String>[];
+    final cachedRecords = <Map<String, dynamic>>[];
+    for (final dateStr in days) {
+      final cached = getCachedDay(dateStr);
+      if (cached != null) {
+        cachedRecords.addAll(cached);
+      } else {
+        uncachedDays.add(dateStr);
       }
     }
-    records.sort(
+
+    if (uncachedDays.isNotEmpty) {
+      final futures = uncachedDays.map((dateStr) async {
+        try {
+          final snap = await FirebaseFirestore.instance
+              .collection('sensorReadings')
+              .doc('history')
+              .collection(dateStr)
+              .get();
+          debugPrint('[SensorService] fetchHistoryRange: $dateStr → ${snap.docs.length} docs');
+          final docs = snap.docs.map((doc) {
+            final data = doc.data();
+            data['id'] = doc.id;
+            return data;
+          }).toList();
+          cacheDay(dateStr, docs);
+          return docs;
+        } catch (e) {
+          debugPrint('[SensorService] fetchHistoryRange error for $dateStr: $e');
+          cacheDay(dateStr, []);
+          return <Map<String, dynamic>>[];
+        }
+      });
+
+      final results = await Future.wait(futures);
+      cachedRecords.addAll(results.expand((r) => r));
+    }
+
+    cachedRecords.sort(
       (a, b) => (_toInt(a['timestamp']) ?? 0).compareTo(_toInt(b['timestamp']) ?? 0),
     );
-    return records;
+    return cachedRecords;
   }
 
   @override

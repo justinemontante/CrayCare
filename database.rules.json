@@ -1,25 +1,30 @@
 {
   "rules": {
     "users": {
-      ".read": "auth != null",
       "$uid": {
-        ".read": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('profile').child('role').val() === 'admin' || root.child('users').child(auth.uid).child('profile').child('ownerUid').val() === $uid)",
-        ".write": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('profile').child('role').val() === 'admin')",
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid",
         "notifications": {
           "$notifId": {
             "readBy": {
               "$readerUid": {
-                ".write": "auth != null && auth.uid === $readerUid && root.child('users').child(auth.uid).child('profile').child('ownerUid').val() === $uid"
+                ".write": "auth != null && auth.uid === $readerUid"
               }
             }
           }
         }
       }
     },
+    "production": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
     "tank_data": {
       "$ownerUid": {
-        ".read": "auth != null",
-        ".write": "auth != null && auth.uid === $ownerUid && root.child('users').child(auth.uid).child('profile').child('role').val() === 'owner'"
+        ".read": "auth != null && auth.uid === $ownerUid",
+        ".write": "auth != null && auth.uid === $ownerUid"
       }
     },
     "ml_predictions": {
@@ -27,12 +32,18 @@
       ".write": true
     },
     "sensor_readings": {
-      ".read": true,
-      ".write": true
-    },
-    "notifications": {
+      // ESP32 devices write sensor data; authenticated users can read it.
+      // If the ESP uses anonymous auth, keep .write as "auth != null";
+      // otherwise restrict to a service account via custom claims.
       ".read": "auth != null",
       ".write": true
+    },
+    // The top-level 'notifications' node is no longer used by the app.
+    // All notifications are stored under users/{uid}/notifications.
+    // This rule is kept for backward compatibility but restricted.
+    "notifications": {
+      ".read": "auth != null",
+      ".write": "auth != null"
     },
     "feeder": {
       ".read": "auth != null",

@@ -5,8 +5,7 @@ import '../../theme/app_colors.dart';
 class SettingsMenu extends StatelessWidget {
   final String profileName;
   final String profileEmail;
-  final String? photoUrl; // Profile picture (base64 o URL)
-  final String? userRole;
+  final String? photoUrl;
   final void Function(int page) onGoTo;
   final VoidCallback onLogout;
 
@@ -15,7 +14,6 @@ class SettingsMenu extends StatelessWidget {
     required this.profileName,
     required this.profileEmail,
     this.photoUrl,
-    this.userRole,
     required this.onGoTo,
     required this.onLogout,
   });
@@ -37,15 +35,12 @@ class SettingsMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool isAdmin = userRole == 'admin';
-
     return Container(
       color: const Color(0xFFf7f7f7),
       child: SingleChildScrollView(
         child: Column(
           children: [
             _buildProfileCard(),
-            const SizedBox(height: 10),
             const SizedBox(height: 10),
             _buildMenuSection('Account', [
               _buildMenuItem(
@@ -64,26 +59,23 @@ class SettingsMenu extends StatelessWidget {
               ),
             ]),
             const SizedBox(height: 10),
-            if (!isAdmin) ...[
-              _buildMenuSection('Preferences', [
-                _buildMenuItem(
-                  'Notifications',
-                  Icons.notifications,
-                  AppColors.warning,
-                  chevron: true,
-                  onTap: () => onGoTo(3),
-                ),
-                _buildMenuItem(
-                  'Crayfish Stage & Thresholds',
-                  Icons.timeline,
-                  AppColors.primary,
-                  chevron: true,
-                  onTap: () => onGoTo(4),
-                ),
-              ]),
-              const SizedBox(height: 10),
-            ],
-
+            _buildMenuSection('Preferences', [
+              _buildMenuItem(
+                'Notifications',
+                Icons.notifications,
+                AppColors.warning,
+                chevron: true,
+                onTap: () => onGoTo(3),
+              ),
+              _buildMenuItem(
+                'Sensor Thresholds',
+                Icons.tune_rounded,
+                AppColors.primary,
+                chevron: true,
+                onTap: () => onGoTo(4),
+              ),
+            ]),
+            const SizedBox(height: 10),
             _buildMenuItem(
               'Logout',
               Icons.logout,
@@ -152,59 +144,12 @@ class SettingsMenu extends StatelessWidget {
                     color: AppColors.darkWith(0.5),
                   ),
                 ),
-                const SizedBox(height: 5),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
-                  decoration: BoxDecoration(
-                    color: _getRoleBgColor(userRole),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    _getRoleLabel(userRole),
-                    style: TextStyle(
-                      fontSize: 9,
-                      fontWeight: FontWeight.w800,
-                      color: _getRoleTextColor(userRole),
-                    ),
-                  ),
-                ),
               ],
             ),
           ),
         ],
       ),
     );
-  }
-
-  Color _getRoleBgColor(String? role) {
-    switch (role?.toLowerCase()) {
-      case 'admin':
-        return AppColors.primary.withValues(alpha: 0.12);
-      case 'owner':
-        return AppColors.dark.withValues(alpha: 0.12);
-      case 'monitor':
-        return AppColors.subtitleText.withValues(alpha: 0.12);
-      default:
-        return AppColors.darkWith(0.04);
-    }
-  }
-
-  Color _getRoleTextColor(String? role) {
-    switch (role?.toLowerCase()) {
-      case 'admin':
-        return AppColors.primary;
-      case 'owner':
-        return AppColors.dark;
-      case 'monitor':
-        return AppColors.subtitleText;
-      default:
-        return AppColors.darkWith(0.5);
-    }
-  }
-
-  String _getRoleLabel(String? role) {
-    if (role == null || role.isEmpty) return 'User';
-    return role[0].toUpperCase() + role.substring(1).toLowerCase();
   }
 
   Widget _buildMenuSection(String label, List<Widget> items) {
