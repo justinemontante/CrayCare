@@ -260,7 +260,7 @@ static int64_t parseFirestoreTimestamp(const String &ts) {
     t.tm_hour = hour;
     t.tm_min = min;
     t.tm_sec = sec;
-    return (int64_t)mktime(&t) * 1000LL;
+    return (int64_t)timegm(&t) * 1000LL;
 }
 
 // =============================================================================
@@ -370,7 +370,7 @@ static void flushBufferTick() {
     j.add("waterLevel_avg", r->waterLevel >= 0 ? r->waterLevel : 0); j.add("waterLevel_min", r->waterLevel >= 0 ? r->waterLevel : 0); j.add("waterLevel_max", r->waterLevel >= 0 ? r->waterLevel : 0);
     j.add("timestamp", (double)r->timestamp);
 
-    String path = String("sensorReadings/history/") + fmtDatePath();
+    String path = String("sensorReadings/history/") + fmtDatePath() + "/" + String(r->timestamp);
     if (Firebase.Firestore.createDocument(&fbS, firebase_project_id, "", path.c_str(), &j, "")) {
         bufferCount--;
         Serial.printf("[FB] Flushed buffered reading (%d remaining)\n", bufferCount);
@@ -604,8 +604,8 @@ static void pollConfig() {
 
     auto readRange = [&](const char* sensor, float &varMin, float &varMax) {
         String base = String("fields/ranges/mapValue/fields/") + sensor + "/mapValue/fields/";
-        if (j->get(d, base + "min/doubleValue")) { float v = d.floatValue; if (v >= 0) varMin = v; }
-        if (j->get(d, base + "max/doubleValue")) { float v = d.floatValue; if (v >= 0) varMax = v; }
+        if (j->get(d, base + "min/doubleValue")) { float v = d.doubleValue; if (v >= 0) varMin = v; }
+        if (j->get(d, base + "max/doubleValue")) { float v = d.doubleValue; if (v >= 0) varMax = v; }
     };
 
     readRange("temp",       threshTempMin, threshTempMax);
@@ -807,8 +807,9 @@ static void publishHistory() {
     j.add("DO_avg", currentDO); j.add("DO_min", currentDO); j.add("DO_max", currentDO);
     j.add("turbidity_avg", currentTurbNTU); j.add("turbidity_min", currentTurbNTU); j.add("turbidity_max", currentTurbNTU);
     j.add("waterLevel_avg", currentWaterCm >= 0 ? currentWaterCm : 0); j.add("waterLevel_min", currentWaterCm >= 0 ? currentWaterCm : 0); j.add("waterLevel_max", currentWaterCm >= 0 ? currentWaterCm : 0);
-    j.add("timestamp", (double)(getEpochMillis() / 1000));
-    String path = String("sensorReadings/history/") + fmtDatePath();
+    int64_t nowSec = getEpochMillis() / 1000;
+    j.add("timestamp", (double)nowSec);
+    String path = String("sensorReadings/history/") + fmtDatePath() + "/" + String(nowSec);
     if (Firebase.Firestore.createDocument(&fbS, firebase_project_id, "", path.c_str(), &j, "")) {
         Serial.println("[FB] History record pushed to Firestore");
     } else {
@@ -1734,17 +1735,25 @@ void loop() {
             Serial.printf("[FEEDER] Retrying isDone sync for %s...\n", pendingSchedKey.c_str());
             FirebaseJson retryJ;
             retryJ.add("isDone", true);
-            Firebase.Firestore.setDocument(&fbW, firebase_project_id, "",
-                (String("feederSchedules/") + pendingSchedKey).c_str(), &retryJ, "isDone");
-            schedSyncPending = false;
-            pendingSchedKey = "";
+            if (Firebase.Firestore.setDocument(&fbW, firebase_project_id, "",
+                (String("feederSchedules/") + pendingSchedKey).c_str(), &retryJ, "isDone")) {
+                String datePath = fmtDatePath();
+                FirebaseJson dispJ;
+                dispJ.add(pendingSchedKey, true);
+                Firebase.Firestore.setDocument(&fbW, firebase_project_id, "",
+                    (String("feederDispatched/") + datePath).c_str(), &dispJ, pendingSchedKey.c_str());
+                schedSyncPending = false;
+                pendingSchedKey = "";
+                Serial.println("[FEEDER] isDone sync retry succeeded");
+            } else {
+                Serial.printf("[FEEDER] isDone sync retry failed: %s\n", fbW.errorReason());
+            }
         }
 
         pollModes();
         pollConfig();
         pollCommands();
         pollFirebaseSchedules();
-        checkFeederSchedule();
         writeStatus();
 
         if (now - lastHistoryPublish >= HISTORY_INTERVAL) {
@@ -1752,6 +1761,9 @@ void loop() {
             publishHistory();
         }
     }
+
+    // --- Feeder schedule runs from NVS cache, needs no Firebase ---
+    checkFeederSchedule();
 
     // --- Flush one buffered reading per loop (non-blocking) ---
     flushBufferTick();

@@ -27,10 +27,13 @@ SENSORS = ["temp", "pH", "DO", "turbidity", "waterLevel"]
 # Optimal ranges for crayfish aquaculture — aligned with Firestore config/default/ranges
 PH_OPTIMAL_MIN = 7.0
 PH_OPTIMAL_MAX = 8.5
-TEMP_MAX = 30.0   # °C
-TEMP_MIN = 24.0   # °C
-DO_MIN = 4.5       # mg/L
-TURB_MAX = 35.0    # NTU
+TEMP_MAX = 30.0  # °C
+TEMP_MIN = 24.0  # °C
+DO_MIN = 4.5  # mg/L
+TURB_MAX = 35.0  # NTU
+
+WATER_MIN_CM = 120.0  # cm — from Firestore config/default/ranges/waterlevel/min
+WATER_MAX_CM = 160.0  # cm — from Firestore config/default/ranges/waterlevel/max
 
 # Fixed WQRI normalization reference — p96 of raw WQRI on labeled dataset
 # p96 gives balanced class distribution for better ML training.
@@ -69,6 +72,9 @@ def build_features(df):
     feat["pH_hrs_bad"] = (
         (df["pH_min"] < PH_OPTIMAL_MIN) | (df["pH_max"] > PH_OPTIMAL_MAX)
     ).rolling(36, min_periods=1).sum() / 6.0
+    feat["waterLevel_hrs_bad"] = (
+        (df["waterLevel_min"] < WATER_MIN_CM) | (df["waterLevel_max"] > WATER_MAX_CM)
+    ).rolling(36, min_periods=1).sum() / 6.0
 
     # Continuous per-sensor hazard, rolling-summed the same way
     # compute_wqri_score() builds the label -- the boolean hour-counts above
@@ -87,16 +93,23 @@ def build_features(df):
         + np.clip(TEMP_MIN - df["temp_min"], 0, None) / 4.0
     )
     turb_hz = np.clip(df["turbidity_max"] - TURB_MAX, 0, None) / TURB_MAX
+    water_range = max(WATER_MAX_CM - WATER_MIN_CM, 1.0)
+    water_hz = (
+        np.clip(WATER_MIN_CM - df["waterLevel_min"], 0, None) / water_range
+        + np.clip(df["waterLevel_max"] - WATER_MAX_CM, 0, None) / water_range
+    )
 
     feat["DO_hazard_roll6h"] = do_hz.rolling(36, min_periods=1).sum()
     feat["pH_hazard_roll6h"] = ph_hz.rolling(36, min_periods=1).sum()
     feat["temp_hazard_roll6h"] = temp_hz.rolling(36, min_periods=1).sum()
     feat["turb_hazard_roll6h"] = turb_hz.rolling(36, min_periods=1).sum()
+    feat["water_hazard_roll6h"] = water_hz.rolling(36, min_periods=1).sum()
     feat["total_hazard_roll6h"] = (
         feat["DO_hazard_roll6h"]
         + feat["pH_hazard_roll6h"]
         + feat["temp_hazard_roll6h"]
         + feat["turb_hazard_roll6h"]
+        + feat["water_hazard_roll6h"]
     )
 
     # FIXED (was look-ahead leakage): the old code used .bfill() here, which
@@ -127,6 +140,9 @@ def compute_wqri_score(df):
     s["temp"] = np.clip(df["temp_max"] - TEMP_MAX, 0, None) / 4.0
     s["temp_lo"] = np.clip(TEMP_MIN - df["temp_min"], 0, None) / 4.0
     s["turb"] = np.clip(df["turbidity_max"] - TURB_MAX, 0, None) / TURB_MAX
+    water_range = max(WATER_MAX_CM - WATER_MIN_CM, 1.0)
+    s["water_lo"] = np.clip(WATER_MIN_CM - df["waterLevel_min"], 0, None) / water_range
+    s["water_hi"] = np.clip(df["waterLevel_max"] - WATER_MAX_CM, 0, None) / water_range
     row_hazard = s.sum(axis=1)
     WIN = 36
     wqri_raw = row_hazard.rolling(WIN, min_periods=1).sum()
@@ -137,10 +153,10 @@ def compute_wqri_score(df):
 def classify(score):
     """Map a WQRI score (0-100) to a (class_int, class_name) pair.
 
-     0 — Low       (< 25)
-     1 — Moderate  (25-49)
-     2 — High      (50-74)
-     3 — Critical  (>= 75)
+    0 — Low       (< 25)
+    1 — Moderate  (25-49)
+    2 — High      (50-74)
+    3 — Critical  (>= 75)
     """
     if score < 25:
         return 0, "Low"
@@ -189,9 +205,9 @@ def generate_insight(driver, last_row, level):
             f"feeding visibility."
         ),
         "waterLevel": (
-            f"Water level reading averaged {water_avg:.1f}, outside the "
-            f"expected operating range. Abnormal water level concentrates "
-            f"waste and raises stocking stress."
+            f"Water level averaged {water_avg:.1f} cm — outside the "
+            f"{WATER_MIN_CM:.0f}-{WATER_MAX_CM:.0f} cm safe range. "
+            f"{'Low water concentrates waste and raises stocking stress.' if water_avg < WATER_MIN_CM else 'High water risks overflow and dilutes feed.'}"
         ),
     }
     return templates.get(driver, f"{driver} reading is outside the optimal range.")
@@ -262,7 +278,9 @@ def predict_wqri(df, bundle, recs):
             cls = int(pred_1d[0])
             proba = model.predict_proba(latest_feat)[0]
             confidence = round(proba[cls] * 100)
-            level = CLASS_NAMES[cls]
+            # Always derive level from the deterministic WQRI score to avoid
+            # score/level contradictions (ML class vs. rule-based score).
+            _, level = classify(score)
 
         imp = pd.Series(model.feature_importances_, index=FEATURES)
         driver = max(
@@ -275,17 +293,32 @@ def predict_wqri(df, bundle, recs):
         confidence = 85
 
         last = df.iloc[-1]
+        water_range = max(WATER_MAX_CM - WATER_MIN_CM, 1.0)
         hazards = {
             "DO": float(np.clip(DO_MIN - last["DO_min"], 0, None) / DO_MIN),
-            "pH": float(max(
-                np.clip(PH_OPTIMAL_MIN - last["pH_min"], 0, None) / 1.5,
-                np.clip(last["pH_max"] - PH_OPTIMAL_MAX, 0, None) / 1.5,
-            )),
-            "temp": float(max(
-                np.clip(last["temp_max"] - TEMP_MAX, 0, None) / 4.0,
-                np.clip(TEMP_MIN - last["temp_min"], 0, None) / 4.0,
-            )),
-            "turbidity": float(np.clip(last["turbidity_max"] - TURB_MAX, 0, None) / TURB_MAX),
+            "pH": float(
+                max(
+                    np.clip(PH_OPTIMAL_MIN - last["pH_min"], 0, None) / 1.5,
+                    np.clip(last["pH_max"] - PH_OPTIMAL_MAX, 0, None) / 1.5,
+                )
+            ),
+            "temp": float(
+                max(
+                    np.clip(last["temp_max"] - TEMP_MAX, 0, None) / 4.0,
+                    np.clip(TEMP_MIN - last["temp_min"], 0, None) / 4.0,
+                )
+            ),
+            "turbidity": float(
+                np.clip(last["turbidity_max"] - TURB_MAX, 0, None) / TURB_MAX
+            ),
+            "waterLevel": float(
+                max(
+                    np.clip(WATER_MIN_CM - last["waterLevel_min"], 0, None)
+                    / water_range,
+                    np.clip(last["waterLevel_max"] - WATER_MAX_CM, 0, None)
+                    / water_range,
+                )
+            ),
         }
         driver = max(hazards, key=hazards.get) if max(hazards.values()) > 0 else "DO"
 
@@ -295,6 +328,7 @@ def predict_wqri(df, bundle, recs):
     insight = generate_insight(driver, df.iloc[-1], level)
 
     from datetime import datetime, timezone
+
     return {
         "score": score,
         "level": level,
