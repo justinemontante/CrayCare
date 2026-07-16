@@ -29,8 +29,34 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   late final ScrollController _scrollController;
 
   bool _isLoading = false;
+  Timer? _autoRefreshTimer;
 
   bool get _showCritical => _activeFilter == 'live' || _activeFilter == '24h';
+
+  // Historical ranges (24h/7d/30d always, custom only if its end date is
+  // today or later) include today's still-being-written subcollection.
+  // Only those ranges benefit from auto-refreshing; "live" already updates
+  // itself via the real-time sensor listener.
+  bool get _activeRangeIncludesToday {
+    final now = DateTime.now();
+    switch (_activeFilter) {
+      case '24h':
+      case '7d':
+      case '30d':
+        return true;
+      case 'custom':
+        return !_customEndDate.isBefore(DateTime(now.year, now.month, now.day));
+      default:
+        return false;
+    }
+  }
+
+  Future<void> _maybeAutoRefreshHistory() async {
+    if (!mounted) return;
+    if (_activeFilter == 'live' || !_activeRangeIncludesToday) return;
+    await _generateData(_activeFilter);
+    if (mounted) setState(() {});
+  }
 
   void _onChartSelectionChanged(String chartKey, int? index) {
     setState(() => _selectedIndices[chartKey] = index);
@@ -50,10 +76,18 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     _generateData('live');
     SettingsService.instance.addListener(_onSettingsChanged);
     SensorService.instance.addListener(_onSensorDataChanged);
+    // Matches the "today" cache TTL in SensorService - frequent enough to
+    // surface a new ESP save (written every ~10 min) quickly, cheap enough
+    // that it's a no-op cache hit for closed past days.
+    _autoRefreshTimer = Timer.periodic(
+      const Duration(seconds: 60),
+      (_) => _maybeAutoRefreshHistory(),
+    );
   }
 
   @override
   void dispose() {
+    _autoRefreshTimer?.cancel();
     _scrollController.dispose();
     SensorService.instance.removeListener(_onSensorDataChanged);
     SettingsService.instance.removeListener(_onSettingsChanged);

@@ -260,21 +260,46 @@ class SensorService extends ChangeNotifier {
   List<double> getData(String key) => _history[key] ?? [];
 
   final Map<String, List<Map<String, dynamic>>> _dayCache = {};
-  DateTime _cacheClearedAt = DateTime.fromMillisecondsSinceEpoch(0);
+  final Map<String, DateTime> _dayCachedAt = {};
+
+  // The ESP32 writes a new history entry roughly every 10 minutes
+  // (HISTORY_INTERVAL in the firmware). Today's subcollection is still
+  // being appended to, so we only trust its cache for a short window -
+  // long enough to avoid re-fetching on every rapid filter switch, short
+  // enough that a newly-saved reading shows up quickly.
+  static const _todayCacheTtl = Duration(seconds: 60);
+
+  static String _dateStrFor(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  bool _isToday(String dateStr) => dateStr == _dateStrFor(DateTime.now());
 
   List<Map<String, dynamic>>? getCachedDay(String dateStr) {
-    if (DateTime.now().difference(_cacheClearedAt).inMinutes > 30) return null;
-    return _dayCache[dateStr];
+    final cached = _dayCache[dateStr];
+    if (cached == null) return null;
+
+    if (_isToday(dateStr)) {
+      final cachedAt = _dayCachedAt[dateStr];
+      if (cachedAt == null ||
+          DateTime.now().difference(cachedAt) > _todayCacheTtl) {
+        return null;
+      }
+    }
+
+    // Past/closed days never change once written, so they can be
+    // cached indefinitely (until the app restarts or the cache is
+    // explicitly cleared).
+    return cached;
   }
 
   void cacheDay(String dateStr, List<Map<String, dynamic>> records) {
     _dayCache[dateStr] = records;
-    _cacheClearedAt = DateTime.now();
+    _dayCachedAt[dateStr] = DateTime.now();
   }
 
   void clearHistoryCache() {
     _dayCache.clear();
-    _cacheClearedAt = DateTime.fromMillisecondsSinceEpoch(0);
+    _dayCachedAt.clear();
   }
 
   Future<List<Map<String, dynamic>>> fetchHistoryRange({
