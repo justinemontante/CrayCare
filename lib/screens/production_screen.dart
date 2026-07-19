@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../theme/app_colors.dart';
 import '../services/tank_service.dart';
+import '../screens/crayfish_scan_screen.dart';
 import '../widgets/production/crayfish/crayfish_overview_tab.dart';
 import '../widgets/production/crayfish/crayfish_sampling_tab.dart';
 import '../widgets/production/crayfish/crayfish_trends_tab.dart';
@@ -101,6 +102,41 @@ class ProductionScreenState extends State<ProductionScreen> {
                 ),
               ),
               const Spacer(),
+              GestureDetector(
+                onTap: () {
+                  final batchId = TankService.instance.selectedBatchId;
+                  if (batchId != null) {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => CrayfishScanScreen(batchId: batchId),
+                      ),
+                    );
+                  }
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.camera_alt_rounded, size: 14, color: Colors.white),
+                      const SizedBox(width: 4),
+                      const Text(
+                        'Identify Gender',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ],
           ),
         ),

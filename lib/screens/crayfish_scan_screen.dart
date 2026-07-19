@@ -315,11 +315,45 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
       fit: StackFit.expand,
       children: [
         CameraPreview(controller),
+        if (_liveDetections.isEmpty) _buildPositionGuide(),
         CustomPaint(
           painter: _DetectionOverlayPainter(_liveDetections),
         ),
         if (_liveDetections.isNotEmpty) _buildLiveResultBadge(),
       ],
+    );
+  }
+
+  Widget _buildPositionGuide() {
+    return Positioned(
+      top: 16,
+      left: 16,
+      right: 16,
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.7),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.info_outline_rounded, size: 20, color: Colors.white70),
+            SizedBox(height: 6),
+            Text(
+              'Position crayfish underside facing camera',
+              style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+              textAlign: TextAlign.center,
+            ),
+            SizedBox(height: 2),
+            Text(
+              'Ensure good lighting and clear view of abdomen',
+              style: TextStyle(color: Colors.white70, fontSize: 9),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -422,6 +456,7 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
                           fit: StackFit.expand,
                           children: [
                             Image.file(_uploadedImage!, fit: BoxFit.fill),
+                            CustomPaint(painter: _DetectionOverlayPainter(_uploadDetections)),
                             if (_uploadLoading)
                               Container(
                                 color: Colors.black.withValues(alpha: 0.3),
