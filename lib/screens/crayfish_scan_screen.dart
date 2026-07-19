@@ -66,6 +66,10 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
         cameras.first,
         ResolutionPreset.medium,
         enableAudio: false,
+        // Force YUV420 on both Android and iOS (iOS defaults to BGRA8888
+        // otherwise) so _convertYUV420ToImage always gets the format it
+        // expects.
+        imageFormatGroup: ImageFormatGroup.yuv420,
       );
       await controller.initialize();
       if (!mounted) return;
