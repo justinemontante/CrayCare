@@ -28,5 +28,9 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSCameraUsageDescription</key>
+	<string>CrayCare needs camera access to scan crayfish and identify their gender.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>CrayCare needs photo library access so you can upload a crayfish photo for gender scanning.</string>
 </dict>
 </plist>

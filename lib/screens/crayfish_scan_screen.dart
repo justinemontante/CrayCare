@@ -31,6 +31,7 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
   List<CrayfishDetection> _liveDetections = [];
 
   File? _uploadedImage;
+  double? _imageAspectRatio;
   List<CrayfishDetection> _uploadDetections = [];
   bool _uploadLoading = false;
 
@@ -66,6 +67,10 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
         cameras.first,
         ResolutionPreset.medium,
         enableAudio: false,
+        // Force YUV420 on both Android and iOS (iOS defaults to BGRA8888
+        // otherwise) so _convertYUV420ToImage always gets the format it
+        // expects.
+        imageFormatGroup: ImageFormatGroup.yuv420,
       );
       await controller.initialize();
       if (!mounted) return;
@@ -91,6 +96,9 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
     try {
       final results = await CrayfishDetectionService.instance.detectFromCameraImage(frame);
       if (mounted) setState(() => _liveDetections = results);
+    } catch (e, stack) {
+      debugPrintError('Error in live detection frame', e);
+      debugPrintError('Stacktrace', stack);
     } finally {
       _isDetecting = false;
     }
@@ -104,13 +112,43 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
       _uploadedImage = file;
       _uploadLoading = true;
       _uploadDetections = [];
+      _imageAspectRatio = null; // reset
     });
-    final results = await CrayfishDetectionService.instance.detectFromFile(file);
-    if (mounted) {
-      setState(() {
-        _uploadDetections = results;
-        _uploadLoading = false;
-      });
+
+    double? aspect;
+    try {
+      final bytes = await file.readAsBytes();
+      final decodedImage = await decodeImageFromList(bytes);
+      if (decodedImage.width > 0 && decodedImage.height > 0) {
+        aspect = decodedImage.width / decodedImage.height;
+      }
+    } catch (e) {
+      debugPrintError('Error decoding image size', e);
+    }
+
+    try {
+      final results = await CrayfishDetectionService.instance.detectFromFile(file);
+      debugPrintError('Detection results', '${results.length} crayfish found');
+      for (final r in results) {
+        debugPrintError('  Detection', r.toString());
+      }
+      if (mounted) {
+        setState(() {
+          _imageAspectRatio = aspect;
+          _uploadDetections = results;
+          _uploadLoading = false;
+        });
+      }
+    } catch (e, stack) {
+      debugPrintError('Detection failed', e);
+      debugPrintError('Stacktrace', stack);
+      if (mounted) {
+        setState(() {
+          _imageAspectRatio = aspect;
+          _uploadDetections = [];
+          _uploadLoading = false;
+        });
+      }
     }
   }
 
@@ -330,22 +368,29 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
     return Column(
       children: [
         Expanded(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  Image.file(_uploadedImage!, fit: BoxFit.cover),
-                  CustomPaint(painter: _DetectionOverlayPainter(_uploadDetections)),
-                  if (_uploadLoading)
-                    Container(
-                      color: Colors.black.withValues(alpha: 0.3),
-                      child: const Center(child: CircularProgressIndicator(color: Colors.white)),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: _imageAspectRatio == null
+                  ? const CircularProgressIndicator()
+                  : AspectRatio(
+                      aspectRatio: _imageAspectRatio!,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            Image.file(_uploadedImage!, fit: BoxFit.fill),
+                            CustomPaint(painter: _DetectionOverlayPainter(_uploadDetections)),
+                            if (_uploadLoading)
+                              Container(
+                                color: Colors.black.withValues(alpha: 0.3),
+                                child: const Center(child: CircularProgressIndicator(color: Colors.white)),
+                              ),
+                          ],
+                        ),
+                      ),
                     ),
-                ],
-              ),
             ),
           ),
         ),
@@ -363,6 +408,7 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
                 onTap: () => setState(() {
                   _uploadedImage = null;
                   _uploadDetections = [];
+                  _imageAspectRatio = null;
                 }),
                 child: Text('Scan another photo',
                     style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.primary)),
