@@ -367,39 +367,25 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
 
     return Column(
       children: [
+        if (!_uploadLoading && _uploadDetections.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: _buildResultCard(_uploadDetections.reduce((a, b) => a.confidence > b.confidence ? a : b)),
+          ),
         Expanded(
           child: Center(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: _imageAspectRatio == null
                   ? const CircularProgressIndicator()
-                  : AspectRatio(
-                      aspectRatio: _imageAspectRatio!,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(16),
+                  : ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: AspectRatio(
+                        aspectRatio: _imageAspectRatio!,
                         child: Stack(
                           fit: StackFit.expand,
                           children: [
                             Image.file(_uploadedImage!, fit: BoxFit.fill),
-                            CustomPaint(painter: _DetectionOverlayPainter(_uploadDetections)),
-                            Positioned(
-                              top: 8,
-                              left: 8,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withValues(alpha: 0.6),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  'Model: ${CrayfishDetectionService.instance.modelInfo}\n'
-                                  'Max Confidence: ${(CrayfishDetectionService.instance.lastBestScore * 100).toStringAsFixed(1)}%\n'
-                                  'Threshold: 25.0%\n'
-                                  'Detections: ${_uploadDetections.length}',
-                                  style: const TextStyle(color: Colors.white, fontSize: 10, fontFamily: 'monospace'),
-                                ),
-                              ),
-                            ),
                             if (_uploadLoading)
                               Container(
                                 color: Colors.black.withValues(alpha: 0.3),
@@ -413,17 +399,15 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
           ),
         ),
         Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
           child: Column(
             children: [
-              if (!_uploadLoading && _uploadDetections.isNotEmpty)
-                _buildResultCard(_uploadDetections.reduce((a, b) => a.confidence > b.confidence ? a : b))
-              else               if (!_uploadLoading && _uploadDetections.isEmpty)
+              if (!_uploadLoading && _uploadDetections.isEmpty)
                 Text(
                   'No crayfish detected — try a clearer, closer shot.',
                   style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.4)),
                 ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
               GestureDetector(
                 onTap: () => setState(() {
                   _uploadedImage = null;
