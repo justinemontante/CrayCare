@@ -33,6 +33,11 @@ class CrayfishDetectionService extends ChangeNotifier {
   bool _isReady = false;
   String? _error;
 
+  // Input layout: some exports (e.g. YOLO/PyTorch-style) produce NCHW
+  // [1, 3, H, W] instead of the usual TFLite NHWC [1, H, W, 3]. Detected
+  // once during init from the input tensor shape.
+  bool _inputChannelsFirst = false;
+
   // Output layout: set once during init based on model tensor shape.
   bool _channelsLast = false;
   int _numChannels = 0;
@@ -55,7 +60,15 @@ class CrayfishDetectionService extends ChangeNotifier {
       _interpreter = await Interpreter.fromAsset(_modelAsset);
       final inputShape = _interpreter!.getInputTensor(0).shape;
       if (inputShape.length == 4) {
-        _inputSize = inputShape[1];
+        // NCHW: [1, 3, H, W] (channel dim is small, e.g. 1/3/4, right after
+        // batch). NHWC: [1, H, W, 3] (channel dim is last).
+        if (inputShape[1] <= 4 && inputShape[3] > 4) {
+          _inputChannelsFirst = true;
+          _inputSize = inputShape[2];
+        } else {
+          _inputChannelsFirst = false;
+          _inputSize = inputShape[1];
+        }
       }
 
       // --- Detect output layout ---
@@ -162,21 +175,37 @@ class CrayfishDetectionService extends ChangeNotifier {
         ? Float32List(_inputSize * _inputSize * 3)
         : Uint8List(_inputSize * _inputSize * 3);
 
-    int offset = 0;
+    final int plane = _inputSize * _inputSize;
     for (int y = 0; y < _inputSize; y++) {
       for (int x = 0; x < _inputSize; x++) {
         final pixel = resized.getPixel(x, y);
         final rVal = pixel.r / 255.0;
         final gVal = pixel.g / 255.0;
         final bVal = pixel.b / 255.0;
-        if (isFloat32) {
-          inputBuffer[offset++] = rVal;
-          inputBuffer[offset++] = gVal;
-          inputBuffer[offset++] = bVal;
+        if (_inputChannelsFirst) {
+          // Planar NCHW: all R, then all G, then all B.
+          final int pixelIndex = y * _inputSize + x;
+          if (isFloat32) {
+            inputBuffer[pixelIndex] = rVal;
+            inputBuffer[plane + pixelIndex] = gVal;
+            inputBuffer[2 * plane + pixelIndex] = bVal;
+          } else {
+            inputBuffer[pixelIndex] = _quantize(rVal, inputParams);
+            inputBuffer[plane + pixelIndex] = _quantize(gVal, inputParams);
+            inputBuffer[2 * plane + pixelIndex] = _quantize(bVal, inputParams);
+          }
         } else {
-          inputBuffer[offset++] = _quantize(rVal, inputParams);
-          inputBuffer[offset++] = _quantize(gVal, inputParams);
-          inputBuffer[offset++] = _quantize(bVal, inputParams);
+          // Interleaved NHWC: R, G, B per pixel.
+          final int offset = (y * _inputSize + x) * 3;
+          if (isFloat32) {
+            inputBuffer[offset] = rVal;
+            inputBuffer[offset + 1] = gVal;
+            inputBuffer[offset + 2] = bVal;
+          } else {
+            inputBuffer[offset] = _quantize(rVal, inputParams);
+            inputBuffer[offset + 1] = _quantize(gVal, inputParams);
+            inputBuffer[offset + 2] = _quantize(bVal, inputParams);
+          }
         }
       }
     }
@@ -310,8 +339,7 @@ class CrayfishDetectionService extends ChangeNotifier {
 
     final double scaleX = width / _inputSize;
     final double scaleY = height / _inputSize;
-
-    int offset = 0;
+    final int plane = _inputSize * _inputSize;
 
     for (int ty = 0; ty < _inputSize; ty++) {
       final int y = (ty * scaleY).toInt().clamp(0, height - 1);
@@ -324,36 +352,42 @@ class CrayfishDetectionService extends ChangeNotifier {
 
         final int uvPixelStride = uPlane.bytesPerPixel ?? 1;
         final int uvIndex = uvRowOffset + (x ~/ 2) * uvPixelStride;
+        final int pixelIndex = ty * _inputSize + tx;
 
-        if (yIndex >= yPlane.bytes.length || uvIndex >= uPlane.bytes.length || uvIndex >= vPlane.bytes.length) {
-          if (isFloat32) {
-            inputBuffer[offset++] = 0.0;
-            inputBuffer[offset++] = 0.0;
-            inputBuffer[offset++] = 0.0;
-          } else {
-            inputBuffer[offset++] = 0;
-            inputBuffer[offset++] = 0;
-            inputBuffer[offset++] = 0;
-          }
-          continue;
+        double rVal = 0, gVal = 0, bVal = 0;
+        if (yIndex < yPlane.bytes.length && uvIndex < uPlane.bytes.length && uvIndex < vPlane.bytes.length) {
+          final yVal = yPlane.bytes[yIndex];
+          final uVal = uPlane.bytes[uvIndex];
+          final vVal = vPlane.bytes[uvIndex];
+
+          rVal = (yVal + 1.402 * (vVal - 128)).clamp(0.0, 255.0) / 255.0;
+          gVal = (yVal - 0.344136 * (uVal - 128) - 0.714136 * (vVal - 128)).clamp(0.0, 255.0) / 255.0;
+          bVal = (yVal + 1.772 * (uVal - 128)).clamp(0.0, 255.0) / 255.0;
         }
 
-        final yVal = yPlane.bytes[yIndex];
-        final uVal = uPlane.bytes[uvIndex];
-        final vVal = vPlane.bytes[uvIndex];
-
-        final rVal = (yVal + 1.402 * (vVal - 128)).clamp(0.0, 255.0);
-        final gVal = (yVal - 0.344136 * (uVal - 128) - 0.714136 * (vVal - 128)).clamp(0.0, 255.0);
-        final bVal = (yVal + 1.772 * (uVal - 128)).clamp(0.0, 255.0);
-
-        if (isFloat32) {
-          inputBuffer[offset++] = rVal / 255.0;
-          inputBuffer[offset++] = gVal / 255.0;
-          inputBuffer[offset++] = bVal / 255.0;
+        if (_inputChannelsFirst) {
+          // Planar NCHW: all R, then all G, then all B.
+          if (isFloat32) {
+            inputBuffer[pixelIndex] = rVal;
+            inputBuffer[plane + pixelIndex] = gVal;
+            inputBuffer[2 * plane + pixelIndex] = bVal;
+          } else {
+            inputBuffer[pixelIndex] = _quantize(rVal, inputParams);
+            inputBuffer[plane + pixelIndex] = _quantize(gVal, inputParams);
+            inputBuffer[2 * plane + pixelIndex] = _quantize(bVal, inputParams);
+          }
         } else {
-          inputBuffer[offset++] = _quantize(rVal / 255.0, inputParams);
-          inputBuffer[offset++] = _quantize(gVal / 255.0, inputParams);
-          inputBuffer[offset++] = _quantize(bVal / 255.0, inputParams);
+          // Interleaved NHWC: R, G, B per pixel.
+          final int o = pixelIndex * 3;
+          if (isFloat32) {
+            inputBuffer[o] = rVal;
+            inputBuffer[o + 1] = gVal;
+            inputBuffer[o + 2] = bVal;
+          } else {
+            inputBuffer[o] = _quantize(rVal, inputParams);
+            inputBuffer[o + 1] = _quantize(gVal, inputParams);
+            inputBuffer[o + 2] = _quantize(bVal, inputParams);
+          }
         }
       }
     }
