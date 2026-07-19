@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:image/image.dart' as img;
@@ -10,20 +9,14 @@ import '../models/crayfish_detection.dart';
 /// Loads the crayfish gender TFLite model and runs inference for both the
 /// Upload (single image) and Live (camera stream) scan modes.
 ///
-/// Model contract this service expects (trained via the CrayCare YOLOv11
-/// Colab notebook, exported with `model.export(format="tflite", int8=True)`):
-///   - Asset path: assets/models/crayfish_gender.tflite
-///   - Labels file: assets/models/labels.txt (one label per line, in class
-///     index order — currently "male" then "female")
-///   - Input: 224x224x3, quantized uint8
-///   - Output: Ultralytics-style detection head, shape [1, 4 + numClasses, N]
-///     (box coords in rows 0-3, per-class scores in the remaining rows,
-///     one column per anchor), quantized uint8
+/// Supports two common YOLO TFLite output layouts:
+///   - Channels-first: [1, 4+nc, N] (box coords + class scores, N anchors)
+///   - Channels-last:  [1, N, 4+nc] (transposed)
+///
+/// Also supports classification-only output [1, nc] (no bounding boxes).
 ///
 /// If the .tflite file isn't in assets/models/ yet, [init] fails gracefully
-/// and [isReady] stays false — callers should check that before invoking
-/// detection methods, and the scan screen shows a "model not ready" state
-/// instead of crashing.
+/// and [isReady] stays false.
 class CrayfishDetectionService extends ChangeNotifier {
   static final CrayfishDetectionService instance = CrayfishDetectionService._();
   CrayfishDetectionService._();
@@ -31,8 +24,7 @@ class CrayfishDetectionService extends ChangeNotifier {
   static const String _modelAsset = 'assets/models/crayfish_gender.tflite';
   static const String _labelsAsset = 'assets/models/labels.txt';
 
-  // Tune these once real model results come in.
-  static const double _confidenceThreshold = 0.45;
+  static const double _confidenceThreshold = 0.25;
   static const double _iouThreshold = 0.45;
 
   Interpreter? _interpreter;
@@ -40,6 +32,13 @@ class CrayfishDetectionService extends ChangeNotifier {
   int _inputSize = 224;
   bool _isReady = false;
   String? _error;
+
+  // Output layout: set once during init based on model tensor shape.
+  bool _channelsLast = false;
+  int _numChannels = 0;
+  int _numAnchors = 0;
+  int _numClasses = 0;
+  bool _isDetectionModel = false;
 
   bool get isReady => _isReady;
   String? get error => _error;
@@ -54,20 +53,48 @@ class CrayfishDetectionService extends ChangeNotifier {
           .toList();
 
       _interpreter = await Interpreter.fromAsset(_modelAsset);
-      final inputShape = _interpreter!.getInputTensor(0).shape; // [1, H, W, 3]
+      final inputShape = _interpreter!.getInputTensor(0).shape;
       if (inputShape.length == 4) {
         _inputSize = inputShape[1];
       }
 
+      // --- Detect output layout ---
+      final outputShape = _interpreter!.getOutputTensor(0).shape;
+      debugPrint('CrayfishDetectionService: input=$inputShape output=$outputShape labels=$_labels');
+
+      if (outputShape.length == 3) {
+        // Detection model: [1, C, N] or [1, N, C]
+        final dim1 = outputShape[1];
+        final dim2 = outputShape[2];
+        if (dim1 > dim2) {
+          // e.g. [1, 8400, 6] → channels-last
+          _channelsLast = true;
+          _numAnchors = dim1;
+          _numChannels = dim2;
+        } else {
+          // e.g. [1, 6, 8400] → channels-first
+          _channelsLast = false;
+          _numChannels = dim1;
+          _numAnchors = dim2;
+        }
+        _numClasses = _numChannels - 4;
+        _isDetectionModel = true;
+      } else if (outputShape.length == 2) {
+        // Classification model: [1, nc] — no bounding boxes
+        _numClasses = outputShape[1];
+        _numAnchors = 1;
+        _isDetectionModel = false;
+      }
+
+      debugPrint(
+        'CrayfishDetectionService: layout=${_channelsLast ? "channels-last" : "channels-first"} '
+        'channels=$_numChannels anchors=$_numAnchors classes=$_numClasses '
+        'isDetection=$_isDetectionModel',
+      );
+
       _isReady = true;
       _error = null;
-      debugPrint(
-        'CrayfishDetectionService: model loaded. input=${_interpreter!.getInputTensor(0).shape} '
-        'output=${_interpreter!.getOutputTensor(0).shape} labels=$_labels',
-      );
     } catch (e) {
-      // Expected until the .tflite file is added to assets/models/ —
-      // fail quietly so the rest of the app keeps working.
       _isReady = false;
       _error = e.toString();
       debugPrint('CrayfishDetectionService: model not ready ($e)');
@@ -85,13 +112,8 @@ class CrayfishDetectionService extends ChangeNotifier {
   }
 
   /// Runs detection on a single camera frame (Live mode).
-  ///
-  /// Directly downsamples the YUV420 frame to the target size into a flat
-  /// typed list buffer, avoiding expensive intermediate image creation, resizing,
-  /// and multi-dimensional array list allocations.
   Future<List<CrayfishDetection>> detectFromCameraImage(CameraImage frame) async {
     if (!_isReady) return [];
-    
     final interpreter = _interpreter;
     if (interpreter == null) return [];
 
@@ -99,73 +121,28 @@ class CrayfishDetectionService extends ChangeNotifier {
     final outputTensor = interpreter.getOutputTensor(0);
     final inputParams = inputTensor.params;
     final outputParams = outputTensor.params;
-
     final isFloat32 = inputTensor.type == TensorType.float32;
     final isOutputFloat32 = outputTensor.type == TensorType.float32;
 
-    // Allocate flat input buffer
     final dynamic inputBuffer = isFloat32
         ? Float32List(_inputSize * _inputSize * 3)
         : Uint8List(_inputSize * _inputSize * 3);
 
-    // Directly convert and scale YUV frame to input buffer
     _convertCameraImageToInputBuffer(frame, inputBuffer, isFloat32, inputParams);
 
-    final outputShape = outputTensor.shape; // [1, 4 + numClasses, N]
-    final numChannels = outputShape[1];
-    final numAnchors = outputShape[2];
-    final numClasses = numChannels - 4;
-
-    // Allocate flat output buffer
+    final totalOutput = _numChannels * _numAnchors;
     final dynamic outputBuffer = isOutputFloat32
-        ? Float32List(numChannels * numAnchors)
-        : Uint8List(numChannels * numAnchors);
+        ? Float32List(totalOutput)
+        : Uint8List(totalOutput);
 
-    // Run inference using flat buffers
     interpreter.run(inputBuffer, outputBuffer);
 
     debugPrint(
-      '[Camera] output shape=$outputShape outputType=${outputTensor.type} '
+      '[Camera] output raw=${outputTensor.shape} type=${outputTensor.type} '
       'scale=${outputParams.scale} zp=${outputParams.zeroPoint}',
     );
 
-    final candidates = <CrayfishDetection>[];
-    for (int i = 0; i < numAnchors; i++) {
-      double bestScore = 0;
-      int bestClass = -1;
-      for (int c = 0; c < numClasses; c++) {
-        final double score = getOutputValue(4 + c, i, outputBuffer, outputTensor.type, outputParams);
-        if (score > bestScore) {
-          bestScore = score;
-          bestClass = c;
-        }
-      }
-      if (bestClass == -1 || bestScore < _confidenceThreshold) continue;
-      if (bestClass >= _labels.length) continue;
-
-      final cx = getOutputValue(0, i, outputBuffer, outputTensor.type, outputParams);
-      final cy = getOutputValue(1, i, outputBuffer, outputTensor.type, outputParams);
-      final w = getOutputValue(2, i, outputBuffer, outputTensor.type, outputParams);
-      final h = getOutputValue(3, i, outputBuffer, outputTensor.type, outputParams);
-
-      debugPrint(
-        '[Camera] det #${candidates.length} ${_labels[bestClass]} '
-        '${(bestScore * 100).toStringAsFixed(1)}% '
-        'box=[${cx.toStringAsFixed(3)}, ${cy.toStringAsFixed(3)}, '
-        '${w.toStringAsFixed(3)}, ${h.toStringAsFixed(3)}]',
-      );
-
-      candidates.add(CrayfishDetection(
-        label: _labels[bestClass],
-        confidence: bestScore,
-        left: (cx - w / 2).clamp(0.0, 1.0),
-        top: (cy - h / 2).clamp(0.0, 1.0),
-        right: (cx + w / 2).clamp(0.0, 1.0),
-        bottom: (cy + h / 2).clamp(0.0, 1.0),
-      ));
-    }
-
-    return _nonMaxSuppression(candidates);
+    return _parseDetections(outputBuffer, outputTensor.type, outputParams, '[Camera]');
   }
 
   List<CrayfishDetection> _runInference(img.Image decoded) {
@@ -176,14 +153,11 @@ class CrayfishDetectionService extends ChangeNotifier {
     final outputTensor = interpreter.getOutputTensor(0);
     final inputParams = inputTensor.params;
     final outputParams = outputTensor.params;
-
     final isFloat32 = inputTensor.type == TensorType.float32;
     final isOutputFloat32 = outputTensor.type == TensorType.float32;
 
-    // Resize image to input size
     final resized = img.copyResize(decoded, width: _inputSize, height: _inputSize);
 
-    // Build input buffer
     final dynamic inputBuffer = isFloat32
         ? Float32List(_inputSize * _inputSize * 3)
         : Uint8List(_inputSize * _inputSize * 3);
@@ -195,7 +169,6 @@ class CrayfishDetectionService extends ChangeNotifier {
         final rVal = pixel.r / 255.0;
         final gVal = pixel.g / 255.0;
         final bVal = pixel.b / 255.0;
-
         if (isFloat32) {
           inputBuffer[offset++] = rVal;
           inputBuffer[offset++] = gVal;
@@ -208,46 +181,72 @@ class CrayfishDetectionService extends ChangeNotifier {
       }
     }
 
-    final outputShape = outputTensor.shape; // [1, 4 + numClasses, N]
-    final numChannels = outputShape[1];
-    final numAnchors = outputShape[2];
-    final numClasses = numChannels - 4;
-
+    final totalOutput = _numChannels * _numAnchors;
     final dynamic outputBuffer = isOutputFloat32
-        ? Float32List(numChannels * numAnchors)
-        : Uint8List(numChannels * numAnchors);
+        ? Float32List(totalOutput)
+        : Uint8List(totalOutput);
 
     interpreter.run(inputBuffer, outputBuffer);
 
     debugPrint(
-      '[Upload] output shape=$outputShape outputType=${outputTensor.type} '
+      '[Upload] output raw=${outputTensor.shape} type=${outputTensor.type} '
       'scale=${outputParams.scale} zp=${outputParams.zeroPoint}',
     );
 
+    return _parseDetections(outputBuffer, outputTensor.type, outputParams, '[Upload]');
+  }
+
+  /// Shared output-parsing logic for both camera and upload paths.
+  List<CrayfishDetection> _parseDetections(
+    dynamic outputBuffer,
+    TensorType outputType,
+    QuantizationParams outputParams,
+    String tag,
+  ) {
+    // --- Classification-only model: no bounding boxes ---
+    if (!_isDetectionModel) {
+      final double score0 = _readOutput(outputBuffer, outputType, outputParams, 0, 0);
+      final double score1 = _readOutput(outputBuffer, outputType, outputParams, 1, 0);
+      final int bestClass = score0 > score1 ? 0 : 1;
+      final double bestScore = bestClass == 0 ? score0 : score1;
+      debugPrint('$tag classification: [$score0, $score1] → ${_labels[bestClass]} ${(bestScore * 100).toStringAsFixed(1)}%');
+      if (bestScore < _confidenceThreshold || bestClass >= _labels.length) return [];
+      return [CrayfishDetection(
+        label: _labels[bestClass],
+        confidence: bestScore,
+        left: 0.0, top: 0.0, right: 1.0, bottom: 1.0,
+      )];
+    }
+
+    // --- Detection model ---
     final candidates = <CrayfishDetection>[];
-    for (int i = 0; i < numAnchors; i++) {
+    int aboveThreshold = 0;
+
+    for (int i = 0; i < _numAnchors; i++) {
       double bestScore = 0;
       int bestClass = -1;
-      for (int c = 0; c < numClasses; c++) {
-        final double score = getOutputValue(4 + c, i, outputBuffer, outputTensor.type, outputParams);
+      for (int c = 0; c < _numClasses; c++) {
+        final double score = _readOutput(outputBuffer, outputType, outputParams, 4 + c, i);
         if (score > bestScore) {
           bestScore = score;
           bestClass = c;
         }
       }
+      if (bestScore >= _confidenceThreshold) aboveThreshold++;
+
       if (bestClass == -1 || bestScore < _confidenceThreshold) continue;
       if (bestClass >= _labels.length) continue;
 
-      final cx = getOutputValue(0, i, outputBuffer, outputTensor.type, outputParams);
-      final cy = getOutputValue(1, i, outputBuffer, outputTensor.type, outputParams);
-      final w = getOutputValue(2, i, outputBuffer, outputTensor.type, outputParams);
-      final h = getOutputValue(3, i, outputBuffer, outputTensor.type, outputParams);
+      final cx = _readOutput(outputBuffer, outputType, outputParams, 0, i);
+      final cy = _readOutput(outputBuffer, outputType, outputParams, 1, i);
+      final w = _readOutput(outputBuffer, outputType, outputParams, 2, i);
+      final h = _readOutput(outputBuffer, outputType, outputParams, 3, i);
 
       debugPrint(
-        '[Upload] det #${candidates.length} ${_labels[bestClass]} '
+        '$tag det #${candidates.length} ${_labels[bestClass]} '
         '${(bestScore * 100).toStringAsFixed(1)}% '
-        'box=[${cx.toStringAsFixed(3)}, ${cy.toStringAsFixed(3)}, '
-        '${w.toStringAsFixed(3)}, ${h.toStringAsFixed(3)}]',
+        'raw=[cx=${cx.toStringAsFixed(4)} cy=${cy.toStringAsFixed(4)} '
+        'w=${w.toStringAsFixed(4)} h=${h.toStringAsFixed(4)}]',
       );
 
       candidates.add(CrayfishDetection(
@@ -260,22 +259,39 @@ class CrayfishDetectionService extends ChangeNotifier {
       ));
     }
 
+    debugPrint('$tag: $aboveThreshold anchors above threshold, ${candidates.length} after NMS');
+
+    // Log a few raw values from the first anchor for debugging
+    if (_numAnchors > 0) {
+      final rawVals = <String>[];
+      for (int ch = 0; ch < _numChannels; ch++) {
+        rawVals.add('ch$ch=${_readOutput(outputBuffer, outputType, outputParams, ch, 0).toStringAsFixed(4)}');
+      }
+      debugPrint('$tag anchor0 raw: ${rawVals.join(' ')}');
+    }
+
     return _nonMaxSuppression(candidates);
   }
 
-  double getOutputValue(
-    int channel,
-    int anchor,
-    dynamic outputBuffer,
+  /// Read a single value from the flat output buffer.
+  ///
+  /// For channels-first [1, C, N]:  index = channel * N + anchor
+  /// For channels-last  [1, N, C]:  index = anchor * C + channel
+  double _readOutput(
+    dynamic buffer,
     TensorType type,
     QuantizationParams params,
+    int channel,
+    int anchor,
   ) {
-    final numAnchors = _interpreter!.getOutputTensor(0).shape[2];
-    final index = channel * numAnchors + anchor;
+    final int index = _channelsLast
+        ? anchor * _numChannels + channel
+        : channel * _numAnchors + anchor;
+
     if (type == TensorType.float32) {
-      return (outputBuffer as Float32List)[index];
+      return (buffer as Float32List)[index];
     } else {
-      final raw = (outputBuffer as Uint8List)[index];
+      final raw = (buffer as Uint8List)[index];
       return _dequantize(raw, params);
     }
   }
@@ -374,36 +390,6 @@ class CrayfishDetectionService extends ChangeNotifier {
     final unionArea = (a.width * a.height) + (b.width * b.height) - interArea;
     if (unionArea <= 0) return 0;
     return interArea / unionArea;
-  }
-
-  img.Image? _convertYUV420ToImage(CameraImage frame) {
-    try {
-      final width = frame.width;
-      final height = frame.height;
-      final yPlane = frame.planes[0];
-      final uPlane = frame.planes[1];
-      final vPlane = frame.planes[2];
-
-      final image = img.Image(width: width, height: height);
-      for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-          final yIndex = y * yPlane.bytesPerRow + x;
-          final uvIndex = (y ~/ 2) * uPlane.bytesPerRow + (x ~/ 2) * (uPlane.bytesPerPixel ?? 1);
-          final yVal = yPlane.bytes[yIndex];
-          final uVal = uPlane.bytes[uvIndex];
-          final vVal = vPlane.bytes[uvIndex];
-
-          final r = (yVal + 1.402 * (vVal - 128)).clamp(0, 255).toInt();
-          final g = (yVal - 0.344136 * (uVal - 128) - 0.714136 * (vVal - 128)).clamp(0, 255).toInt();
-          final b = (yVal + 1.772 * (uVal - 128)).clamp(0, 255).toInt();
-          image.setPixelRgb(x, y, r, g, b);
-        }
-      }
-      return image;
-    } catch (e) {
-      debugPrint('CrayfishDetectionService: frame conversion failed ($e)');
-      return null;
-    }
   }
 
   @override
