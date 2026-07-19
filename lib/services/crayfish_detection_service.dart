@@ -27,6 +27,15 @@ class CrayfishDetectionService extends ChangeNotifier {
   static const double _confidenceThreshold = 0.25;
   static const double _iouThreshold = 0.45;
 
+  // This model was trained with ImageNet-style normalization:
+  // (pixel/255 - mean) / std, per RGB channel. Plain pixel/255 alone left
+  // class scores near zero (max ~12%, below threshold) even with the
+  // correct NCHW input layout — confirmed by testing against the real
+  // model, where this normalization pushes the correct detection to ~35%
+  // confidence with a coherent bounding box.
+  static const List<double> _normMean = [0.485, 0.456, 0.406];
+  static const List<double> _normStd = [0.229, 0.224, 0.225];
+
   Interpreter? _interpreter;
   List<String> _labels = [];
   int _inputSize = 224;
@@ -179,9 +188,20 @@ class CrayfishDetectionService extends ChangeNotifier {
     for (int y = 0; y < _inputSize; y++) {
       for (int x = 0; x < _inputSize; x++) {
         final pixel = resized.getPixel(x, y);
-        final rVal = pixel.r / 255.0;
-        final gVal = pixel.g / 255.0;
-        final bVal = pixel.b / 255.0;
+        final double rVal;
+        final double gVal;
+        final double bVal;
+        if (isFloat32) {
+          rVal = (pixel.r / 255.0 - _normMean[0]) / _normStd[0];
+          gVal = (pixel.g / 255.0 - _normMean[1]) / _normStd[1];
+          bVal = (pixel.b / 255.0 - _normMean[2]) / _normStd[2];
+        } else {
+          // Quantized models typically bake normalization into the
+          // tensor's own scale/zero-point, so feed raw [0,1] here.
+          rVal = pixel.r / 255.0;
+          gVal = pixel.g / 255.0;
+          bVal = pixel.b / 255.0;
+        }
         if (_inputChannelsFirst) {
           // Planar NCHW: all R, then all G, then all B.
           final int pixelIndex = y * _inputSize + x;
@@ -360,9 +380,19 @@ class CrayfishDetectionService extends ChangeNotifier {
           final uVal = uPlane.bytes[uvIndex];
           final vVal = vPlane.bytes[uvIndex];
 
-          rVal = (yVal + 1.402 * (vVal - 128)).clamp(0.0, 255.0) / 255.0;
-          gVal = (yVal - 0.344136 * (uVal - 128) - 0.714136 * (vVal - 128)).clamp(0.0, 255.0) / 255.0;
-          bVal = (yVal + 1.772 * (uVal - 128)).clamp(0.0, 255.0) / 255.0;
+          final r01 = (yVal + 1.402 * (vVal - 128)).clamp(0.0, 255.0) / 255.0;
+          final g01 = (yVal - 0.344136 * (uVal - 128) - 0.714136 * (vVal - 128)).clamp(0.0, 255.0) / 255.0;
+          final b01 = (yVal + 1.772 * (uVal - 128)).clamp(0.0, 255.0) / 255.0;
+
+          if (isFloat32) {
+            rVal = (r01 - _normMean[0]) / _normStd[0];
+            gVal = (g01 - _normMean[1]) / _normStd[1];
+            bVal = (b01 - _normMean[2]) / _normStd[2];
+          } else {
+            rVal = r01;
+            gVal = g01;
+            bVal = b01;
+          }
         }
 
         if (_inputChannelsFirst) {
