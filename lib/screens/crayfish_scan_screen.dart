@@ -529,31 +529,76 @@ class _DetectionOverlayPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    if (detections.isEmpty) return;
+
     for (final d in detections) {
       final color = d.isMale ? const Color(0xFF3B82F6) : const Color(0xFFEC4899);
-      final rect = Rect.fromLTRB(
-        d.left * size.width,
-        d.top * size.height,
-        d.right * size.width,
-        d.bottom * size.height,
-      );
+
+      final isFullScreen = d.left == 0.0 && d.top == 0.0 && d.right == 1.0 && d.bottom == 1.0;
+      final Rect rect;
+      if (isFullScreen) {
+        final double w = size.width * 0.6;
+        final double h = size.height * 0.6;
+        rect = Rect.fromCenter(
+          center: Offset(size.width / 2, size.height / 2),
+          width: w,
+          height: h,
+        );
+      } else {
+        rect = Rect.fromLTRB(
+          d.left * size.width,
+          d.top * size.height,
+          d.right * size.width,
+          d.bottom * size.height,
+        );
+      }
+
+      final overlayPaint = Paint()
+        ..color = color.withValues(alpha: 0.08)
+        ..style = PaintingStyle.fill;
+      canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(12)), overlayPaint);
+
       final boxPaint = Paint()
         ..color = color
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.5;
-      canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(6)), boxPaint);
+        ..strokeWidth = 3.0;
+      canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(12)), boxPaint);
 
-      final labelText = '${d.label} ${(d.confidence * 100).toStringAsFixed(0)}%';
+      final cornerLen = rect.shortestSide * 0.15;
+      final cornerPaint = Paint()
+        ..color = color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 4.0
+        ..strokeCap = StrokeCap.round;
+
+      final tl = rect.topLeft;
+      canvas.drawLine(tl, Offset(tl.dx + cornerLen, tl.dy), cornerPaint);
+      canvas.drawLine(tl, Offset(tl.dx, tl.dy + cornerLen), cornerPaint);
+
+      final tr = rect.topRight;
+      canvas.drawLine(tr, Offset(tr.dx - cornerLen, tr.dy), cornerPaint);
+      canvas.drawLine(tr, Offset(tr.dx, tr.dy + cornerLen), cornerPaint);
+
+      final bl = rect.bottomLeft;
+      canvas.drawLine(bl, Offset(bl.dx + cornerLen, bl.dy), cornerPaint);
+      canvas.drawLine(bl, Offset(bl.dx, bl.dy - cornerLen), cornerPaint);
+
+      final br = rect.bottomRight;
+      canvas.drawLine(br, Offset(br.dx - cornerLen, br.dy), cornerPaint);
+      canvas.drawLine(br, Offset(br.dx, br.dy - cornerLen), cornerPaint);
+
+      final labelText = '${d.label[0].toUpperCase()}${d.label.substring(1)} ${(d.confidence * 100).toStringAsFixed(0)}%';
       final painter = TextPainter(
         text: TextSpan(
           text: labelText,
-          style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700),
+          style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700),
         ),
         textDirection: TextDirection.ltr,
       )..layout();
-      final labelRect = Rect.fromLTWH(rect.left, rect.top - 18, painter.width + 8, 18);
-      canvas.drawRect(labelRect, Paint()..color = color);
-      painter.paint(canvas, Offset(rect.left + 4, rect.top - 17));
+      final labelRect = Rect.fromLTWH(rect.left, rect.top - 24, painter.width + 12, 22);
+      final labelBg = Paint()..color = color;
+      canvas.drawRRect(RRect.fromRectAndRadius(labelRect, const Radius.circular(6)), labelBg);
+      painter.paint(canvas, Offset(rect.left + 6, rect.top - 22));
     }
   }
 
