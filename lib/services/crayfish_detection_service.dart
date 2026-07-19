@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'dart:math' as math;
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:image/image.dart' as img;
@@ -17,8 +16,8 @@ class CrayfishDetectionService extends ChangeNotifier {
   static const String _modelAsset = 'assets/models/crayfish_gender.tflite';
   static const String _labelsAsset = 'assets/models/labels.txt';
 
-  // Confidence threshold (0.25 for testing, 0.40 for production)
-  static const double _confidenceThreshold = 0.25;
+  // Confidence threshold
+  static const double _confidenceThreshold = 0.05;
   static const double _iouThreshold = 0.45;
 
   Interpreter? _interpreter;
@@ -310,14 +309,14 @@ class CrayfishDetectionService extends ChangeNotifier {
 
     if (!_isDetectionModel) {
       // Classification fallback: [score0, score1]
-      final s0 = output.length > 0 ? output[0] : 0.0;
+      final s0 = output.isNotEmpty ? output[0] : 0.0;
       final s1 = output.length > 1 ? output[1] : 0.0;
       final bestClass = s0 > s1 ? 0 : 1;
-      final bestScore = bestClass == 0 ? s0 : s1;
+      final bestScore = (bestClass == 0 ? s0 : s1).abs().clamp(0.0, 1.0);
       lastBestScore = bestScore;
       debugPrint(
           '$tag Classification: ${_labels[bestClass]} ${(bestScore * 100).toStringAsFixed(1)}%');
-      if (bestScore < _confidenceThreshold || bestClass >= _labels.length) return [];
+      if (bestClass >= _labels.length) return [];
       return [
         CrayfishDetection(
           label: _labels[bestClass],
@@ -350,8 +349,6 @@ class CrayfishDetectionService extends ChangeNotifier {
 
       if (bestScore > globalBestScore) globalBestScore = bestScore;
       if (bestScore >= _confidenceThreshold) aboveThreshold++;
-      if (bestClass == -1 || bestScore < _confidenceThreshold) continue;
-      if (bestClass >= _labels.length) continue;
 
       // Bounding box (YOLO outputs in pixel space)
       double cx = _readFlat(output, 0, i);
@@ -367,6 +364,9 @@ class CrayfishDetectionService extends ChangeNotifier {
         h /= _inputSize;
       }
 
+      if (bestClass == -1 || bestScore < _confidenceThreshold) continue;
+      if (bestClass >= _labels.length) continue;
+
       candidates.add(CrayfishDetection(
         label: _labels[bestClass],
         confidence: bestScore,
@@ -381,7 +381,14 @@ class CrayfishDetectionService extends ChangeNotifier {
         '$tag ✅ $aboveThreshold anchors above threshold, ${candidates.length} candidates, bestScore=${globalBestScore.toStringAsFixed(4)}');
     lastBestScore = globalBestScore;
 
-    return _nonMaxSuppression(candidates);
+    final nms = _nonMaxSuppression(candidates);
+
+    // If NMS removed everything but we have raw detections, return the best one
+    if (nms.isEmpty && candidates.isNotEmpty) {
+      return [candidates.first];
+    }
+
+    return nms;
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────

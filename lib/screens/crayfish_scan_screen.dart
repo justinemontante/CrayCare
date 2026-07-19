@@ -372,6 +372,42 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
             child: _buildResultCard(_uploadDetections.reduce((a, b) => a.confidence > b.confidence ? a : b)),
           ),
+        if (!_uploadLoading && _uploadDetections.isEmpty && CrayfishDetectionService.instance.lastBestScore > 0)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: _buildResultCard(CrayfishDetection(
+              label: CrayfishDetectionService.instance.labels.isNotEmpty
+                  ? CrayfishDetectionService.instance.labels[0]
+                  : 'female',
+              confidence: CrayfishDetectionService.instance.lastBestScore,
+              left: 0.0, top: 0.0, right: 1.0, bottom: 1.0,
+            )),
+          ),
+        if (_uploadLoading)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: const [BoxShadow(color: Color(0x1A000000), blurRadius: 12, offset: Offset(0, 4))],
+              ),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 20, height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    'Analyzing photo...',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.darkWith(0.6)),
+                  ),
+                ],
+              ),
+            ),
+          ),
         Expanded(
           child: Center(
             child: Padding(
