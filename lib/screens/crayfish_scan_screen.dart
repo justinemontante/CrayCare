@@ -464,7 +464,7 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
     final isMale = detection.isMale;
     final color = isMale ? const Color(0xFF3B82F6) : const Color(0xFFEC4899);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
@@ -472,16 +472,47 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
       ),
       child: Row(
         children: [
-          Icon(isMale ? Icons.male_rounded : Icons.female_rounded, color: color, size: 22),
-          const SizedBox(width: 8),
-          Text(
-            detection.label[0].toUpperCase() + detection.label.substring(1),
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.dark),
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(isMale ? Icons.male_rounded : Icons.female_rounded, color: color, size: 22),
           ),
-          const Spacer(),
-          Text(
-            '${(detection.confidence * 100).toStringAsFixed(0)}% confidence',
-            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.4)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Gender Detected',
+                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.4)),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  detection.label[0].toUpperCase() + detection.label.substring(1),
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: color),
+                ),
+              ],
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Confidence',
+                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.4)),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                '${(detection.confidence * 100).toStringAsFixed(0)}%',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppColors.dark),
+              ),
+            ],
           ),
         ],
       ),
