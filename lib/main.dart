@@ -19,6 +19,7 @@ import 'services/feeder_service.dart';
 import 'services/tank_service.dart';
 import 'services/database_service.dart';
 import 'services/health_risk_service.dart';
+import 'services/crayfish_detection_service.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 
 class MyHttpOverrides extends HttpOverrides {
@@ -103,6 +104,7 @@ class _SplashScreenState extends State<SplashScreen> {
     TankService.instance.init();
     MlService.instance.init();
     HealthRiskService.instance.init();
+    CrayfishDetectionService.instance.init();
 
     _animateProgress();
   }

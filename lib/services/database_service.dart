@@ -158,4 +158,29 @@ class DatabaseService {
     return null;
   }
 
+  /// Saves a gender detection result to Firestore under the user's
+  /// genderScans collection.
+  Future<void> saveCrayfishGender({
+    required String batchId,
+    required String label,
+    required double confidence,
+    List<double>? bbox,
+    String? imageUrl,
+  }) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('genderScans')
+        .add({
+      'batchId': batchId,
+      'label': label,
+      'confidence': confidence,
+      'bbox': bbox,
+      'imageUrl': imageUrl,
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+  }
 }

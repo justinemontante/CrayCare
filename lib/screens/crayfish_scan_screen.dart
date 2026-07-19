@@ -394,7 +394,7 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
                                 child: Text(
                                   'Model: ${CrayfishDetectionService.instance.modelInfo}\n'
                                   'Max Confidence: ${(CrayfishDetectionService.instance.lastBestScore * 100).toStringAsFixed(1)}%\n'
-                                  'Threshold: 15.0%\n'
+                                  'Threshold: 25.0%\n'
                                   'Detections: ${_uploadDetections.length}',
                                   style: const TextStyle(color: Colors.white, fontSize: 10, fontFamily: 'monospace'),
                                 ),

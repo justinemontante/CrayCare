@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:math' as math;
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:image/image.dart' as img;
@@ -15,69 +17,100 @@ class CrayfishDetectionService extends ChangeNotifier {
   static const String _modelAsset = 'assets/models/crayfish_gender.tflite';
   static const String _labelsAsset = 'assets/models/labels.txt';
 
-  static const double _confidenceThreshold = 0.15;
+  // Confidence threshold (0.25 for testing, 0.40 for production)
+  static const double _confidenceThreshold = 0.25;
   static const double _iouThreshold = 0.45;
-  static const bool _inputBGR = false;
-
-  static const List<double> _normMean = [0.0, 0.0, 0.0];
-  static const List<double> _normStd = [1.0, 1.0, 1.0];
 
   Interpreter? _interpreter;
   List<String> _labels = [];
-  int _inputSize = 224;
+  List<CrayfishDetection> _latestDetections = [];
+
+  int _inputSize = 640;
   bool _isReady = false;
   String? _error;
 
+  // Model architecture flags (auto-detected at init)
   bool _inputChannelsFirst = false;
-
   bool _channelsLast = false;
   int _numChannels = 0;
   int _numAnchors = 0;
   int _numClasses = 0;
   bool _isDetectionModel = false;
 
+  // Public getters
   bool get isReady => _isReady;
   String? get error => _error;
   List<String> get labels => _labels;
+  List<CrayfishDetection> get latestDetections => _latestDetections;
   double lastBestScore = 0.0;
   String modelInfo = '';
 
   Future<void> init() async {
     try {
-      _labels = (await rootBundle.loadString(_labelsAsset))
+      // Load labels
+      final labelsString = await rootBundle.loadString(_labelsAsset);
+      _labels = labelsString
           .split('\n')
           .map((e) => e.trim())
           .where((e) => e.isNotEmpty)
           .toList();
 
-      _interpreter = await Interpreter.fromAsset(_modelAsset);
+      debugPrint('═══════════════════════════════════════');
+      debugPrint('🔥 LABELS LOADED: $_labels');
+      debugPrint('═══════════════════════════════════════');
+
+      // Load model with 4 threads for better performance
+      final options = InterpreterOptions()..threads = 4;
+      _interpreter = await Interpreter.fromAsset(_modelAsset, options: options);
 
       _isReady = true;
       _error = null;
 
-      final inputShape = _interpreter!.getInputTensor(0).shape;
-      final outputShape = _interpreter!.getOutputTensor(0).shape;
-      final inputType = _interpreter!.getInputTensor(0).type;
-      final outputType = _interpreter!.getOutputTensor(0).type;
+      // Inspect tensor shapes
+      final inputTensor = _interpreter!.getInputTensor(0);
+      final outputTensor = _interpreter!.getOutputTensor(0);
+      final inputShape = inputTensor.shape;
+      final outputShape = outputTensor.shape;
+      final inputType = inputTensor.type;
+      final outputType = outputTensor.type;
 
+      debugPrint('📊 MODEL TENSOR INFO:');
+      debugPrint('  Input shape:   $inputShape');
+      debugPrint('  Input type:    $inputType');
+      debugPrint(
+          '  Input params:  scale=${inputTensor.params.scale}, zp=${inputTensor.params.zeroPoint}');
+      debugPrint('  Output shape:  $outputShape');
+      debugPrint('  Output type:   $outputType');
+      debugPrint(
+          '  Output params: scale=${outputTensor.params.scale}, zp=${outputTensor.params.zeroPoint}');
+      debugPrint('═══════════════════════════════════════');
+
+      // ── Input layout detection ──────────────────────────────────────────
       if (inputShape.length == 4) {
-        if (inputShape[1] <= 4 && inputShape[3] > 4) {
+        if (inputShape[1] == 3) {
+          // NCHW format: [1, 3, H, W]
           _inputChannelsFirst = true;
           _inputSize = inputShape[2];
-        } else {
+          debugPrint('✅ Input format: NCHW (channels first)');
+        } else if (inputShape[3] == 3) {
+          // NHWC format: [1, H, W, 3]
           _inputChannelsFirst = false;
           _inputSize = inputShape[1];
+          debugPrint('✅ Input format: NHWC (channels last)');
         }
       }
 
+      // ── Output layout detection ─────────────────────────────────────────
       if (outputShape.length == 3) {
         final dim1 = outputShape[1];
         final dim2 = outputShape[2];
         if (dim1 > dim2) {
+          // [1, anchors, channels] — e.g. [1, 8400, 6]
           _channelsLast = true;
           _numAnchors = dim1;
           _numChannels = dim2;
         } else {
+          // [1, channels, anchors] — YOLOv11 default [1, 6, 8400]
           _channelsLast = false;
           _numChannels = dim1;
           _numAnchors = dim2;
@@ -90,215 +123,249 @@ class CrayfishDetectionService extends ChangeNotifier {
         _isDetectionModel = false;
       }
 
-      debugPrint(
-        'CrayfishDetectionService: model loaded.\n'
-        '  input shape=$inputShape type=$inputType channelsFirst=$_inputChannelsFirst\n'
-        '  output shape=$outputShape type=$outputType\n'
-        '  inputSize=$_inputSize labels=$_labels',
-      );
+      debugPrint('📐 Model architecture:');
+      debugPrint('  Input size:       ${_inputSize}x${_inputSize}');
+      debugPrint('  Channels first:   $_inputChannelsFirst');
+      debugPrint('  Num anchors:      $_numAnchors');
+      debugPrint('  Num channels:     $_numChannels');
+      debugPrint('  Num classes:      $_numClasses');
+      debugPrint('  Output ch-last:   $_channelsLast');
+      debugPrint('  Detection model:  $_isDetectionModel');
+      debugPrint('═══════════════════════════════════════');
 
       modelInfo = '${inputType.name.toUpperCase()} $inputShape';
-    } catch (e) {
+    } catch (e, stack) {
       _isReady = false;
       _error = e.toString();
-      debugPrint('CrayfishDetectionService: model not ready ($e)');
+      debugPrint('❌ Model init failed: $e');
+      debugPrint(stack.toString());
     }
     notifyListeners();
   }
+
+  // ── Public inference API ──────────────────────────────────────────────────
 
   Future<List<CrayfishDetection>> detectFromFile(File imageFile) async {
     if (!_isReady) return [];
     final bytes = await imageFile.readAsBytes();
     final decoded = img.decodeImage(bytes);
     if (decoded == null) {
-      debugPrint('[Upload] Failed to decode image');
+      debugPrint('❌ [Upload] Failed to decode image');
       return [];
     }
-    debugPrint('[Upload] Decoded image: ${decoded.width}x${decoded.height}');
-    return _runInference(decoded, '[Upload]');
+    debugPrint('📸 [Upload] Image: ${decoded.width}x${decoded.height}');
+    final detections = _runInference(decoded, '[Upload]');
+    _latestDetections = detections;
+    notifyListeners();
+    return detections;
   }
 
   Future<List<CrayfishDetection>> detectFromCameraImage(CameraImage frame) async {
     if (!_isReady) return [];
     final decoded = _convertYUV420ToImage(frame);
     if (decoded == null) return [];
-    return _runInference(decoded, '[Camera]');
+    final detections = _runInference(decoded, '[Camera]');
+    _latestDetections = detections;
+    notifyListeners();
+    return detections;
   }
+
+  void clearDetections() {
+    _latestDetections = [];
+    notifyListeners();
+  }
+
+  // ── Core inference ────────────────────────────────────────────────────────
 
   List<CrayfishDetection> _runInference(img.Image decoded, String tag) {
     final interpreter = _interpreter;
     if (interpreter == null) return [];
 
+    // Resize to model input size
     final resized = img.copyResize(decoded, width: _inputSize, height: _inputSize);
 
     final inputTensor = interpreter.getInputTensor(0);
     final outputTensor = interpreter.getOutputTensor(0);
-    final inputParams = inputTensor.params;
     final isFloat32 = inputTensor.type == TensorType.float32;
 
-    final dynamic inputBuffer = isFloat32
-        ? Float32List(_inputSize * _inputSize * 3)
-        : Uint8List(_inputSize * _inputSize * 3);
-
-    final int plane = _inputSize * _inputSize;
-    for (int y = 0; y < _inputSize; y++) {
-      for (int x = 0; x < _inputSize; x++) {
-        final pixel = resized.getPixel(x, y);
-        final double rVal;
-        final double gVal;
-        final double bVal;
-        if (isFloat32) {
-          rVal = (pixel.r / 255.0 - _normMean[0]) / _normStd[0];
-          gVal = (pixel.g / 255.0 - _normMean[1]) / _normStd[1];
-          bVal = (pixel.b / 255.0 - _normMean[2]) / _normStd[2];
-        } else {
-          rVal = pixel.r.toDouble();
-          gVal = pixel.g.toDouble();
-          bVal = pixel.b.toDouble();
-        }
-        final double ch1Val;
-        final double ch2Val;
-        final double ch3Val;
-        if (_inputBGR) {
-          ch1Val = bVal;
-          ch2Val = gVal;
-          ch3Val = rVal;
-        } else {
-          ch1Val = rVal;
-          ch2Val = gVal;
-          ch3Val = bVal;
-        }
-        if (_inputChannelsFirst) {
-          final int pixelIndex = y * _inputSize + x;
-          if (isFloat32) {
-            inputBuffer[pixelIndex] = ch1Val;
-            inputBuffer[plane + pixelIndex] = ch2Val;
-            inputBuffer[2 * plane + pixelIndex] = ch3Val;
-          } else {
-            inputBuffer[pixelIndex] = _quantize(ch1Val, inputParams);
-            inputBuffer[plane + pixelIndex] = _quantize(ch2Val, inputParams);
-            inputBuffer[2 * plane + pixelIndex] = _quantize(ch3Val, inputParams);
-          }
-        } else {
-          final int offset = (y * _inputSize + x) * 3;
-          if (isFloat32) {
-            inputBuffer[offset] = ch1Val;
-            inputBuffer[offset + 1] = ch2Val;
-            inputBuffer[offset + 2] = ch3Val;
-          } else {
-            inputBuffer[offset] = _quantize(ch1Val, inputParams);
-            inputBuffer[offset + 1] = _quantize(ch2Val, inputParams);
-            inputBuffer[offset + 2] = _quantize(ch3Val, inputParams);
-          }
-        }
-      }
+    // ── Build input tensor ─────────────────────────────────────────────────
+    dynamic inputBuffer;
+    if (_inputChannelsFirst) {
+      // NCHW: [1, 3, H, W]
+      inputBuffer = List.generate(
+        1,
+        (_) => List.generate(
+          3,
+          (c) => List.generate(
+            _inputSize,
+            (y) => List.generate(_inputSize, (x) {
+              final pixel = resized.getPixel(x, y);
+              if (isFloat32) {
+                if (c == 0) return pixel.r / 255.0;
+                if (c == 1) return pixel.g / 255.0;
+                return pixel.b / 255.0;
+              } else {
+                if (c == 0) return pixel.r.toInt();
+                if (c == 1) return pixel.g.toInt();
+                return pixel.b.toInt();
+              }
+            }),
+          ),
+        ),
+      );
+    } else {
+      // NHWC: [1, H, W, 3]
+      inputBuffer = List.generate(
+        1,
+        (_) => List.generate(
+          _inputSize,
+          (y) => List.generate(_inputSize, (x) {
+            final pixel = resized.getPixel(x, y);
+            if (isFloat32) {
+              return [pixel.r / 255.0, pixel.g / 255.0, pixel.b / 255.0];
+            } else {
+              return [pixel.r.toInt(), pixel.g.toInt(), pixel.b.toInt()];
+            }
+          }),
+        ),
+      );
     }
 
-    final totalOutput = _numChannels * _numAnchors;
+    // ── Build output tensor ────────────────────────────────────────────────
+    final outputShape = outputTensor.shape;
     final isOutputFloat32 = outputTensor.type == TensorType.float32;
-    final dynamic outputBuffer = isOutputFloat32
-        ? Float32List(totalOutput)
-        : Uint8List(totalOutput);
+    dynamic outputBuffer;
+    if (outputShape.length == 3) {
+      outputBuffer = List.generate(
+        outputShape[0],
+        (_) => List.generate(
+          outputShape[1],
+          (_) => isOutputFloat32
+              ? List<double>.filled(outputShape[2], 0.0)
+              : List<int>.filled(outputShape[2], 0),
+        ),
+      );
+    } else if (outputShape.length == 2) {
+      outputBuffer = List.generate(
+        outputShape[0],
+        (_) => isOutputFloat32
+            ? List<double>.filled(outputShape[1], 0.0)
+            : List<int>.filled(outputShape[1], 0),
+      );
+    }
 
-    interpreter.run(inputBuffer, outputBuffer);
+    // ── Run inference ──────────────────────────────────────────────────────
+    try {
+      interpreter.run(inputBuffer, outputBuffer);
+    } catch (e) {
+      debugPrint('❌ Inference error: $e');
+      return [];
+    }
 
-    debugPrint(
-      '$tag output raw=${outputTensor.shape} type=${outputTensor.type} '
-      'scale=${outputTensor.params.scale} zp=${outputTensor.params.zeroPoint}',
-    );
-
-    if (isOutputFloat32) {
-      final buf = outputBuffer as Float32List;
-      double mn = buf[0], mx = buf[0];
-      for (int i = 1; i < buf.length; i++) {
-        if (buf[i] < mn) mn = buf[i];
-        if (buf[i] > mx) mx = buf[i];
+    // ── Flatten output for parsing ─────────────────────────────────────────
+    final List<double> flat = [];
+    void flatten(dynamic obj) {
+      if (obj is List) {
+        for (final item in obj) flatten(item);
+      } else if (obj is double) {
+        flat.add(obj);
+      } else if (obj is int) {
+        flat.add(obj.toDouble());
       }
-      debugPrint('$tag output range: min=${mn.toStringAsFixed(6)} max=${mx.toStringAsFixed(6)} len=${buf.length}');
-      if (!_isDetectionModel && buf.length >= 2) {
-        debugPrint('$tag raw scores: [0]=${buf[0].toStringAsFixed(6)} [1]=${buf[1].toStringAsFixed(6)}');
+    }
+    flatten(outputBuffer);
+
+    // ── Debug output ───────────────────────────────────────────────────────
+    if (flat.isNotEmpty) {
+      double mn = flat[0], mx = flat[0];
+      for (final v in flat) {
+        if (v < mn) mn = v;
+        if (v > mx) mx = v;
       }
+      debugPrint(
+          '$tag Output len=${flat.length} min=${mn.toStringAsFixed(4)} max=${mx.toStringAsFixed(4)}');
+      debugPrint(
+          '$tag First 12: ${flat.take(12).map((v) => v.toStringAsFixed(3)).join(", ")}');
+
       if (_isDetectionModel) {
         double bestC0 = -999, bestC1 = -999;
-        int bestA0 = 0, bestA1 = 0;
         for (int i = 0; i < _numAnchors; i++) {
-          final s0 = _readOutput(outputBuffer, outputTensor.type, outputTensor.params, 4, i);
-          final s1 = _numClasses > 1 ? _readOutput(outputBuffer, outputTensor.type, outputTensor.params, 5, i) : 0.0;
-          if (s0 > bestC0) { bestC0 = s0; bestA0 = i; }
-          if (s1 > bestC1) { bestC1 = s1; bestA1 = i; }
+          final s0 = _readFlat(flat, 4, i);
+          final s1 = _numClasses > 1 ? _readFlat(flat, 5, i) : 0.0;
+          if (s0 > bestC0) bestC0 = s0;
+          if (s1 > bestC1) bestC1 = s1;
         }
-        debugPrint('$tag detection best: male(c0)=${bestC0.toStringAsFixed(6)}@anchor$bestA0 female(c1)=${bestC1.toStringAsFixed(6)}@anchor$bestA1');
+        debugPrint(
+            '$tag Best raw: class0(female)=${bestC0.toStringAsFixed(4)} class1(male)=${bestC1.toStringAsFixed(4)}');
       }
     }
 
-    return _parseDetections(outputBuffer, outputTensor.type, outputTensor.params, tag);
+    return _parseDetections(flat, tag);
   }
 
-  List<CrayfishDetection> _parseDetections(
-    dynamic outputBuffer,
-    TensorType outputType,
-    QuantizationParams outputParams,
-    String tag,
-  ) {
+  // ── Detection parser ──────────────────────────────────────────────────────
+
+  List<CrayfishDetection> _parseDetections(List<double> output, String tag) {
+    if (output.isEmpty) return [];
+
     if (!_isDetectionModel) {
-      final double score0 = _readOutput(outputBuffer, outputType, outputParams, 0, 0);
-      final double score1 = _readOutput(outputBuffer, outputType, outputParams, 1, 0);
-      debugPrint('$tag classification raw: male=${score0.toStringAsFixed(6)} female=${score1.toStringAsFixed(6)}');
-      final int bestClass = score0 > score1 ? 0 : 1;
-      final double bestScore = bestClass == 0 ? score0 : score1;
-      debugPrint('$tag classification result: ${_labels[bestClass]} ${(bestScore * 100).toStringAsFixed(1)}% (threshold=${(_confidenceThreshold * 100).toStringAsFixed(0)}%)');
+      // Classification fallback: [score0, score1]
+      final s0 = output.length > 0 ? output[0] : 0.0;
+      final s1 = output.length > 1 ? output[1] : 0.0;
+      final bestClass = s0 > s1 ? 0 : 1;
+      final bestScore = bestClass == 0 ? s0 : s1;
       lastBestScore = bestScore;
-      if (bestScore < _confidenceThreshold || bestClass >= _labels.length) {
-        debugPrint('$tag classification: REJECTED (score ${bestScore.toStringAsFixed(4)} < threshold ${_confidenceThreshold.toStringAsFixed(4)})');
-        return [];
-      }
-      return [CrayfishDetection(
-        label: _labels[bestClass],
-        confidence: bestScore,
-        left: 0.0, top: 0.0, right: 1.0, bottom: 1.0,
-      )];
+      debugPrint(
+          '$tag Classification: ${_labels[bestClass]} ${(bestScore * 100).toStringAsFixed(1)}%');
+      if (bestScore < _confidenceThreshold || bestClass >= _labels.length) return [];
+      return [
+        CrayfishDetection(
+          label: _labels[bestClass],
+          confidence: bestScore,
+          left: 0.0,
+          top: 0.0,
+          right: 1.0,
+          bottom: 1.0,
+        )
+      ];
     }
 
     final candidates = <CrayfishDetection>[];
-    int aboveThreshold = 0;
     double globalBestScore = 0;
+    int aboveThreshold = 0;
 
     for (int i = 0; i < _numAnchors; i++) {
       double bestScore = 0;
       int bestClass = -1;
+
       for (int c = 0; c < _numClasses; c++) {
-        final double score = _readOutput(outputBuffer, outputType, outputParams, 4 + c, i);
+        double score = _readFlat(output, 4 + c, i);
+        // Apply sigmoid if values look like raw logits
+        if (score < -0.1 || score > 1.1) score = _sigmoid(score);
         if (score > bestScore) {
           bestScore = score;
           bestClass = c;
         }
       }
-      if (bestScore > globalBestScore) {
-        globalBestScore = bestScore;
-      }
-      if (bestScore >= _confidenceThreshold) aboveThreshold++;
 
+      if (bestScore > globalBestScore) globalBestScore = bestScore;
+      if (bestScore >= _confidenceThreshold) aboveThreshold++;
       if (bestClass == -1 || bestScore < _confidenceThreshold) continue;
       if (bestClass >= _labels.length) continue;
 
-      double cx = _readOutput(outputBuffer, outputType, outputParams, 0, i);
-      double cy = _readOutput(outputBuffer, outputType, outputParams, 1, i);
-      double w = _readOutput(outputBuffer, outputType, outputParams, 2, i);
-      double h = _readOutput(outputBuffer, outputType, outputParams, 3, i);
+      // Bounding box (YOLO outputs in pixel space)
+      double cx = _readFlat(output, 0, i);
+      double cy = _readFlat(output, 1, i);
+      double w = _readFlat(output, 2, i);
+      double h = _readFlat(output, 3, i);
 
+      // Normalise to 0-1 if values are in pixel space
       if (cx > 1.0 || cy > 1.0 || w > 1.0 || h > 1.0) {
         cx /= _inputSize;
         cy /= _inputSize;
         w /= _inputSize;
         h /= _inputSize;
       }
-
-      debugPrint(
-        '$tag det #${candidates.length}: ${_labels[bestClass]} '
-        '${(bestScore * 100).toStringAsFixed(1)}% '
-        'box=[cx=${cx.toStringAsFixed(3)} cy=${cy.toStringAsFixed(3)} '
-        'w=${w.toStringAsFixed(3)} h=${h.toStringAsFixed(3)}]',
-      );
 
       candidates.add(CrayfishDetection(
         label: _labels[bestClass],
@@ -310,66 +377,49 @@ class CrayfishDetectionService extends ChangeNotifier {
       ));
     }
 
-    debugPrint('$tag: $aboveThreshold anchors above threshold, ${candidates.length} after NMS, globalBest=${globalBestScore.toStringAsFixed(4)}');
+    debugPrint(
+        '$tag ✅ $aboveThreshold anchors above threshold, ${candidates.length} candidates, bestScore=${globalBestScore.toStringAsFixed(4)}');
     lastBestScore = globalBestScore;
 
     return _nonMaxSuppression(candidates);
   }
 
-  double _readOutput(
-    dynamic buffer,
-    TensorType type,
-    QuantizationParams params,
-    int channel,
-    int anchor,
-  ) {
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  /// Read from flat output using [channel, anchor] coordinates.
+  double _readFlat(List<double> buf, int channel, int anchor) {
     final int index = _channelsLast
         ? anchor * _numChannels + channel
         : channel * _numAnchors + anchor;
-
-    if (type == TensorType.float32) {
-      return (buffer as Float32List)[index];
-    } else {
-      final raw = (buffer as Uint8List)[index];
-      return _dequantize(raw, params);
-    }
+    if (index < 0 || index >= buf.length) return 0.0;
+    return buf[index];
   }
 
-  int _quantize(double realValue, QuantizationParams params) {
-    if (params.scale == 0) return realValue.round().clamp(0, 255);
-    return ((realValue / params.scale) + params.zeroPoint).round().clamp(0, 255);
-  }
-
-  double _dequantize(int quantized, QuantizationParams params) {
-    if (params.scale == 0) return quantized.toDouble();
-    return (quantized - params.zeroPoint) * params.scale;
-  }
-
-  bool scoreGreaterThanThreshold(double score) => score > _confidenceThreshold;
+  double _sigmoid(double x) => 1.0 / (1.0 + math.exp(-x));
 
   List<CrayfishDetection> _nonMaxSuppression(List<CrayfishDetection> boxes) {
     boxes.sort((a, b) => b.confidence.compareTo(a.confidence));
     final kept = <CrayfishDetection>[];
     for (final box in boxes) {
-      final overlapsKept = kept.any((k) => _iou(box, k) > _iouThreshold);
-      if (!overlapsKept) kept.add(box);
+      if (!kept.any((k) => _iou(box, k) > _iouThreshold)) kept.add(box);
     }
     return kept;
   }
 
   double _iou(CrayfishDetection a, CrayfishDetection b) {
-    final interLeft = a.left > b.left ? a.left : b.left;
-    final interTop = a.top > b.top ? a.top : b.top;
-    final interRight = a.right < b.right ? a.right : b.right;
-    final interBottom = a.bottom < b.bottom ? a.bottom : b.bottom;
-    final interW = (interRight - interLeft).clamp(0.0, 1.0);
-    final interH = (interBottom - interTop).clamp(0.0, 1.0);
+    final interLeft = math.max(a.left, b.left);
+    final interTop = math.max(a.top, b.top);
+    final interRight = math.min(a.right, b.right);
+    final interBottom = math.min(a.bottom, b.bottom);
+    final interW = math.max(0.0, interRight - interLeft);
+    final interH = math.max(0.0, interBottom - interTop);
     final interArea = interW * interH;
     final unionArea = (a.width * a.height) + (b.width * b.height) - interArea;
     if (unionArea <= 0) return 0;
     return interArea / unionArea;
   }
 
+  /// Convert Android YUV_420_888 CameraImage to an RGB img.Image.
   img.Image? _convertYUV420ToImage(CameraImage frame) {
     try {
       final width = frame.width;
@@ -386,10 +436,10 @@ class CrayfishDetectionService extends ChangeNotifier {
         final int sy = (ty * scaleY).toInt().clamp(0, height - 1);
         for (int tx = 0; tx < _inputSize; tx++) {
           final int sx = (tx * scaleX).toInt().clamp(0, width - 1);
-
           final yIndex = sy * yPlane.bytesPerRow + sx;
           final uvPixelStride = uPlane.bytesPerPixel ?? 1;
-          final uvIndex = (sy ~/ 2) * uPlane.bytesPerRow + (sx ~/ 2) * uvPixelStride;
+          final uvIndex =
+              (sy ~/ 2) * uPlane.bytesPerRow + (sx ~/ 2) * uvPixelStride;
 
           if (yIndex >= yPlane.bytes.length ||
               uvIndex >= uPlane.bytes.length ||
@@ -403,14 +453,16 @@ class CrayfishDetectionService extends ChangeNotifier {
           final vVal = vPlane.bytes[uvIndex];
 
           final r = (yVal + 1.402 * (vVal - 128)).clamp(0, 255).toInt();
-          final g = (yVal - 0.344136 * (uVal - 128) - 0.714136 * (vVal - 128)).clamp(0, 255).toInt();
+          final g = (yVal - 0.344136 * (uVal - 128) - 0.714136 * (vVal - 128))
+              .clamp(0, 255)
+              .toInt();
           final b = (yVal + 1.772 * (uVal - 128)).clamp(0, 255).toInt();
           image.setPixelRgb(tx, ty, r, g, b);
         }
       }
       return image;
     } catch (e) {
-      debugPrint('CrayfishDetectionService: frame conversion failed ($e)');
+      debugPrint('❌ YUV conversion failed: $e');
       return null;
     }
   }
