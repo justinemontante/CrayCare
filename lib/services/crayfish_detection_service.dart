@@ -18,6 +18,7 @@ class CrayfishDetectionService extends ChangeNotifier {
   static const double _confidenceThreshold = 0.15;
   static const double _iouThreshold = 0.45;
   static const bool _inputBGR = false;
+  static const bool _applySigmoid = true;
 
   static const List<double> _normMean = [0.0, 0.0, 0.0];
   static const List<double> _normStd = [1.0, 1.0, 1.0];
@@ -152,9 +153,12 @@ class CrayfishDetectionService extends ChangeNotifier {
           gVal = (pixel.g / 255.0 - _normMean[1]) / _normStd[1];
           bVal = (pixel.b / 255.0 - _normMean[2]) / _normStd[2];
         } else {
-          rVal = pixel.r.toDouble();
-          gVal = pixel.g.toDouble();
-          bVal = pixel.b.toDouble();
+          final rNorm = (pixel.r / 255.0 - _normMean[0]) / _normStd[0];
+          final gNorm = (pixel.g / 255.0 - _normMean[1]) / _normStd[1];
+          final bNorm = (pixel.b / 255.0 - _normMean[2]) / _normStd[2];
+          rVal = rNorm * 255.0;
+          gVal = gNorm * 255.0;
+          bVal = bNorm * 255.0;
         }
         final double ch1Val;
         final double ch2Val;
@@ -222,8 +226,9 @@ class CrayfishDetectionService extends ChangeNotifier {
         double bestC0 = -999, bestC1 = -999;
         int bestA0 = 0, bestA1 = 0;
         for (int i = 0; i < _numAnchors; i++) {
-          final s0 = _readOutput(outputBuffer, outputTensor.type, outputTensor.params, 4, i);
-          final s1 = _numClasses > 1 ? _readOutput(outputBuffer, outputTensor.type, outputTensor.params, 5, i) : 0.0;
+          var s0 = _readOutput(outputBuffer, outputTensor.type, outputTensor.params, 4, i);
+          var s1 = _numClasses > 1 ? _readOutput(outputBuffer, outputTensor.type, outputTensor.params, 5, i) : 0.0;
+          if (_applySigmoid) { s0 = _sigmoid(s0); s1 = _sigmoid(s1); }
           if (s0 > bestC0) { bestC0 = s0; bestA0 = i; }
           if (s1 > bestC1) { bestC1 = s1; bestA1 = i; }
         }
@@ -241,20 +246,22 @@ class CrayfishDetectionService extends ChangeNotifier {
     String tag,
   ) {
     if (!_isDetectionModel) {
-      final double score0 = _readOutput(outputBuffer, outputType, outputParams, 0, 0);
-      final double score1 = _readOutput(outputBuffer, outputType, outputParams, 1, 0);
-      debugPrint('$tag classification raw: male=${score0.toStringAsFixed(6)} female=${score1.toStringAsFixed(6)}');
+      double score0 = _readOutput(outputBuffer, outputType, outputParams, 0, 0);
+      double score1 = _readOutput(outputBuffer, outputType, outputParams, 1, 0);
+      if (_applySigmoid) {
+        score0 = _sigmoid(score0);
+        score1 = _sigmoid(score1);
+      }
+      debugPrint('$tag classification raw: ${_labels[0]}=${score0.toStringAsFixed(6)} ${_labels.length > 1 ? _labels[1] : "?"}=${score1.toStringAsFixed(6)}');
       final int bestClass = score0 > score1 ? 0 : 1;
       final double bestScore = bestClass == 0 ? score0 : score1;
-      debugPrint('$tag classification result: ${_labels[bestClass]} ${(bestScore * 100).toStringAsFixed(1)}% (threshold=${(_confidenceThreshold * 100).toStringAsFixed(0)}%)');
-      lastBestScore = bestScore;
-      if (bestScore < _confidenceThreshold || bestClass >= _labels.length) {
-        debugPrint('$tag classification: REJECTED (score ${bestScore.toStringAsFixed(4)} < threshold ${_confidenceThreshold.toStringAsFixed(4)})');
-        return [];
-      }
+      final double confidence = bestScore.clamp(0.0, 1.0);
+      debugPrint('$tag classification result: ${_labels[bestClass]} ${(confidence * 100).toStringAsFixed(1)}%');
+      lastBestScore = confidence;
+      if (bestClass >= _labels.length) return [];
       return [CrayfishDetection(
         label: _labels[bestClass],
-        confidence: bestScore,
+        confidence: confidence,
         left: 0.2, top: 0.15, right: 0.8, bottom: 0.85,
       )];
     }
@@ -267,7 +274,8 @@ class CrayfishDetectionService extends ChangeNotifier {
       double bestScore = 0;
       int bestClass = -1;
       for (int c = 0; c < _numClasses; c++) {
-        final double score = _readOutput(outputBuffer, outputType, outputParams, 4 + c, i);
+        double score = _readOutput(outputBuffer, outputType, outputParams, 4 + c, i);
+        if (_applySigmoid) score = _sigmoid(score);
         if (score > bestScore) {
           bestScore = score;
           bestClass = c;
@@ -343,6 +351,12 @@ class CrayfishDetectionService extends ChangeNotifier {
   double _dequantize(int quantized, QuantizationParams params) {
     if (params.scale == 0) return quantized.toDouble();
     return (quantized - params.zeroPoint) * params.scale;
+  }
+
+  double _sigmoid(double x) {
+    if (x >= 0) return 1.0 / (1.0 + (-x));
+    final exp = 1.0 / (1.0 + x);
+    return exp / (1.0 + exp);
   }
 
   bool scoreGreaterThanThreshold(double score) => score > _confidenceThreshold;
