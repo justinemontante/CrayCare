@@ -86,63 +86,55 @@ class CrayfishDetectionService extends ChangeNotifier {
 
   /// Runs detection on a single camera frame (Live mode).
   ///
-  /// Converts the YUV420 camera frame to an RGB image first. This is the
-  /// simplest correct approach; if frame rate becomes an issue on real
-  /// devices, this is the place to optimize (e.g. skip frames, downscale
-  /// before full conversion).
+  /// Directly downsamples the YUV420 frame to the target size into a flat
+  /// typed list buffer, avoiding expensive intermediate image creation, resizing,
+  /// and multi-dimensional array list allocations.
   Future<List<CrayfishDetection>> detectFromCameraImage(CameraImage frame) async {
     if (!_isReady) return [];
-    final decoded = _convertYUV420ToImage(frame);
-    if (decoded == null) return [];
-    return _runInference(decoded);
-  }
-
-  List<CrayfishDetection> _runInference(img.Image decoded) {
+    
     final interpreter = _interpreter;
     if (interpreter == null) return [];
 
-    final resized = img.copyResize(decoded, width: _inputSize, height: _inputSize);
-
     final inputTensor = interpreter.getInputTensor(0);
     final outputTensor = interpreter.getOutputTensor(0);
-    final inputParams = inputTensor.params; // QuantizationParams(scale, zeroPoint)
+    final inputParams = inputTensor.params;
     final outputParams = outputTensor.params;
 
-    // Build quantized uint8 input buffer [1, H, W, 3].
-    final input = List.generate(
-      1,
-      (_) => List.generate(
-        _inputSize,
-        (y) => List.generate(_inputSize, (x) {
-          final pixel = resized.getPixel(x, y);
-          return [
-            _quantize(pixel.r / 255.0, inputParams),
-            _quantize(pixel.g / 255.0, inputParams),
-            _quantize(pixel.b / 255.0, inputParams),
-          ];
-        }),
-      ),
-    );
+    final isFloat32 = inputTensor.type == TensorType.float32;
+    final isOutputFloat32 = outputTensor.type == TensorType.float32;
 
-    final outputShape = outputTensor.shape; // [1, 4+numClasses, N]
+    // Allocate flat input buffer
+    final dynamic inputBuffer = isFloat32
+        ? Float32List(_inputSize * _inputSize * 3)
+        : Uint8List(_inputSize * _inputSize * 3);
+
+    // Directly convert and scale YUV frame to input buffer
+    _convertCameraImageToInputBuffer(frame, inputBuffer, isFloat32, inputParams);
+
+    final outputShape = outputTensor.shape; // [1, 4 + numClasses, N]
     final numChannels = outputShape[1];
     final numAnchors = outputShape[2];
     final numClasses = numChannels - 4;
 
-    final output = List.generate(
-      1,
-      (_) => List.generate(numChannels, (_) => List.filled(numAnchors, 0)),
-    );
+    // Allocate flat output buffer
+    final dynamic outputBuffer = isOutputFloat32
+        ? Float32List(numChannels * numAnchors)
+        : Uint8List(numChannels * numAnchors);
 
-    interpreter.run(input, output);
+    // Run inference using flat buffers
+    interpreter.run(inputBuffer, outputBuffer);
+
+    debugPrint(
+      '[Camera] output shape=$outputShape outputType=${outputTensor.type} '
+      'scale=${outputParams.scale} zp=${outputParams.zeroPoint}',
+    );
 
     final candidates = <CrayfishDetection>[];
     for (int i = 0; i < numAnchors; i++) {
       double bestScore = 0;
       int bestClass = -1;
       for (int c = 0; c < numClasses; c++) {
-        final raw = output[0][4 + c][i] as int;
-        final score = _dequantize(raw, outputParams);
+        final double score = getOutputValue(4 + c, i, outputBuffer, outputTensor.type, outputParams);
         if (score > bestScore) {
           bestScore = score;
           bestClass = c;
@@ -151,10 +143,17 @@ class CrayfishDetectionService extends ChangeNotifier {
       if (bestClass == -1 || bestScore < _confidenceThreshold) continue;
       if (bestClass >= _labels.length) continue;
 
-      final cx = _dequantize(output[0][0][i] as int, inputParams);
-      final cy = _dequantize(output[0][1][i] as int, inputParams);
-      final w = _dequantize(output[0][2][i] as int, inputParams);
-      final h = _dequantize(output[0][3][i] as int, inputParams);
+      final cx = getOutputValue(0, i, outputBuffer, outputTensor.type, outputParams);
+      final cy = getOutputValue(1, i, outputBuffer, outputTensor.type, outputParams);
+      final w = getOutputValue(2, i, outputBuffer, outputTensor.type, outputParams);
+      final h = getOutputValue(3, i, outputBuffer, outputTensor.type, outputParams);
+
+      debugPrint(
+        '[Camera] det #${candidates.length} ${_labels[bestClass]} '
+        '${(bestScore * 100).toStringAsFixed(1)}% '
+        'box=[${cx.toStringAsFixed(3)}, ${cy.toStringAsFixed(3)}, '
+        '${w.toStringAsFixed(3)}, ${h.toStringAsFixed(3)}]',
+      );
 
       candidates.add(CrayfishDetection(
         label: _labels[bestClass],
@@ -167,6 +166,181 @@ class CrayfishDetectionService extends ChangeNotifier {
     }
 
     return _nonMaxSuppression(candidates);
+  }
+
+  List<CrayfishDetection> _runInference(img.Image decoded) {
+    final interpreter = _interpreter;
+    if (interpreter == null) return [];
+
+    final inputTensor = interpreter.getInputTensor(0);
+    final outputTensor = interpreter.getOutputTensor(0);
+    final inputParams = inputTensor.params;
+    final outputParams = outputTensor.params;
+
+    final isFloat32 = inputTensor.type == TensorType.float32;
+    final isOutputFloat32 = outputTensor.type == TensorType.float32;
+
+    // Resize image to input size
+    final resized = img.copyResize(decoded, width: _inputSize, height: _inputSize);
+
+    // Build input buffer
+    final dynamic inputBuffer = isFloat32
+        ? Float32List(_inputSize * _inputSize * 3)
+        : Uint8List(_inputSize * _inputSize * 3);
+
+    int offset = 0;
+    for (int y = 0; y < _inputSize; y++) {
+      for (int x = 0; x < _inputSize; x++) {
+        final pixel = resized.getPixel(x, y);
+        final rVal = pixel.r / 255.0;
+        final gVal = pixel.g / 255.0;
+        final bVal = pixel.b / 255.0;
+
+        if (isFloat32) {
+          inputBuffer[offset++] = rVal;
+          inputBuffer[offset++] = gVal;
+          inputBuffer[offset++] = bVal;
+        } else {
+          inputBuffer[offset++] = _quantize(rVal, inputParams);
+          inputBuffer[offset++] = _quantize(gVal, inputParams);
+          inputBuffer[offset++] = _quantize(bVal, inputParams);
+        }
+      }
+    }
+
+    final outputShape = outputTensor.shape; // [1, 4 + numClasses, N]
+    final numChannels = outputShape[1];
+    final numAnchors = outputShape[2];
+    final numClasses = numChannels - 4;
+
+    final dynamic outputBuffer = isOutputFloat32
+        ? Float32List(numChannels * numAnchors)
+        : Uint8List(numChannels * numAnchors);
+
+    interpreter.run(inputBuffer, outputBuffer);
+
+    debugPrint(
+      '[Upload] output shape=$outputShape outputType=${outputTensor.type} '
+      'scale=${outputParams.scale} zp=${outputParams.zeroPoint}',
+    );
+
+    final candidates = <CrayfishDetection>[];
+    for (int i = 0; i < numAnchors; i++) {
+      double bestScore = 0;
+      int bestClass = -1;
+      for (int c = 0; c < numClasses; c++) {
+        final double score = getOutputValue(4 + c, i, outputBuffer, outputTensor.type, outputParams);
+        if (score > bestScore) {
+          bestScore = score;
+          bestClass = c;
+        }
+      }
+      if (bestClass == -1 || bestScore < _confidenceThreshold) continue;
+      if (bestClass >= _labels.length) continue;
+
+      final cx = getOutputValue(0, i, outputBuffer, outputTensor.type, outputParams);
+      final cy = getOutputValue(1, i, outputBuffer, outputTensor.type, outputParams);
+      final w = getOutputValue(2, i, outputBuffer, outputTensor.type, outputParams);
+      final h = getOutputValue(3, i, outputBuffer, outputTensor.type, outputParams);
+
+      debugPrint(
+        '[Upload] det #${candidates.length} ${_labels[bestClass]} '
+        '${(bestScore * 100).toStringAsFixed(1)}% '
+        'box=[${cx.toStringAsFixed(3)}, ${cy.toStringAsFixed(3)}, '
+        '${w.toStringAsFixed(3)}, ${h.toStringAsFixed(3)}]',
+      );
+
+      candidates.add(CrayfishDetection(
+        label: _labels[bestClass],
+        confidence: bestScore,
+        left: (cx - w / 2).clamp(0.0, 1.0),
+        top: (cy - h / 2).clamp(0.0, 1.0),
+        right: (cx + w / 2).clamp(0.0, 1.0),
+        bottom: (cy + h / 2).clamp(0.0, 1.0),
+      ));
+    }
+
+    return _nonMaxSuppression(candidates);
+  }
+
+  double getOutputValue(
+    int channel,
+    int anchor,
+    dynamic outputBuffer,
+    TensorType type,
+    QuantizationParams params,
+  ) {
+    final numAnchors = _interpreter!.getOutputTensor(0).shape[2];
+    final index = channel * numAnchors + anchor;
+    if (type == TensorType.float32) {
+      return (outputBuffer as Float32List)[index];
+    } else {
+      final raw = (outputBuffer as Uint8List)[index];
+      return _dequantize(raw, params);
+    }
+  }
+
+  void _convertCameraImageToInputBuffer(
+    CameraImage frame,
+    dynamic inputBuffer,
+    bool isFloat32,
+    QuantizationParams inputParams,
+  ) {
+    final width = frame.width;
+    final height = frame.height;
+    final yPlane = frame.planes[0];
+    final uPlane = frame.planes[1];
+    final vPlane = frame.planes[2];
+
+    final double scaleX = width / _inputSize;
+    final double scaleY = height / _inputSize;
+
+    int offset = 0;
+
+    for (int ty = 0; ty < _inputSize; ty++) {
+      final int y = (ty * scaleY).toInt().clamp(0, height - 1);
+      final int yRowOffset = y * yPlane.bytesPerRow;
+      final int uvRowOffset = (y ~/ 2) * uPlane.bytesPerRow;
+
+      for (int tx = 0; tx < _inputSize; tx++) {
+        final int x = (tx * scaleX).toInt().clamp(0, width - 1);
+        final int yIndex = yRowOffset + x;
+
+        final int uvPixelStride = uPlane.bytesPerPixel ?? 1;
+        final int uvIndex = uvRowOffset + (x ~/ 2) * uvPixelStride;
+
+        if (yIndex >= yPlane.bytes.length || uvIndex >= uPlane.bytes.length || uvIndex >= vPlane.bytes.length) {
+          if (isFloat32) {
+            inputBuffer[offset++] = 0.0;
+            inputBuffer[offset++] = 0.0;
+            inputBuffer[offset++] = 0.0;
+          } else {
+            inputBuffer[offset++] = 0;
+            inputBuffer[offset++] = 0;
+            inputBuffer[offset++] = 0;
+          }
+          continue;
+        }
+
+        final yVal = yPlane.bytes[yIndex];
+        final uVal = uPlane.bytes[uvIndex];
+        final vVal = vPlane.bytes[uvIndex];
+
+        final rVal = (yVal + 1.402 * (vVal - 128)).clamp(0.0, 255.0);
+        final gVal = (yVal - 0.344136 * (uVal - 128) - 0.714136 * (vVal - 128)).clamp(0.0, 255.0);
+        final bVal = (yVal + 1.772 * (uVal - 128)).clamp(0.0, 255.0);
+
+        if (isFloat32) {
+          inputBuffer[offset++] = rVal / 255.0;
+          inputBuffer[offset++] = gVal / 255.0;
+          inputBuffer[offset++] = bVal / 255.0;
+        } else {
+          inputBuffer[offset++] = _quantize(rVal / 255.0, inputParams);
+          inputBuffer[offset++] = _quantize(gVal / 255.0, inputParams);
+          inputBuffer[offset++] = _quantize(bVal / 255.0, inputParams);
+        }
+      }
+    }
   }
 
   int _quantize(double realValue, QuantizationParams params) {
