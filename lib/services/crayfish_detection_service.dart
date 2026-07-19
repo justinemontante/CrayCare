@@ -58,8 +58,15 @@ class CrayfishDetectionService extends ChangeNotifier {
       debugPrint('🔥 LABELS LOADED: $_labels');
       debugPrint('═══════════════════════════════════════');
 
-      // Load model with 4 threads for better performance
-      final options = InterpreterOptions()..threads = 4;
+      // NOTE: threads was previously 4. Multi-threaded CPU execution on this
+      // detection model has been observed to trigger a known TFLite/XNNPACK
+      // delegate bug ("Input tensor N lacks data" / Bad state: failed
+      // precondition) where an internal graph tensor is left unpopulated
+      // during subgraph partitioning (see tensorflow/tensorflow#55331 for the
+      // same symptom class). Forcing single-threaded execution avoids that
+      // code path. If this resolves the crash, we can look at re-enabling
+      // multi-threading later once we confirm it's stable on this model.
+      final options = InterpreterOptions()..threads = 1;
       _interpreter = await Interpreter.fromAsset(_modelAsset, options: options);
 
       _isReady = true;
