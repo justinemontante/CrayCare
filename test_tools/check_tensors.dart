@@ -7,7 +7,7 @@ void main() {
     TestWidgetsFlutterBinding.ensureInitialized();
     try {
       print('Loading model...');
-      final interpreter = await Interpreter.fromFile(
+      final interpreter = Interpreter.fromFile(
         File('assets/models/crayfish_gender.tflite'),
       );
       
