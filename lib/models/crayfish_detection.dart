@@ -23,8 +23,8 @@ class CrayfishDetection {
   double get width => right - left;
   double get height => bottom - top;
 
-  bool get isMale => label.toLowerCase() == 'male';
-  bool get isFemale => label.toLowerCase() == 'female';
+  bool get isMale => label.toLowerCase().startsWith('male');
+  bool get isFemale => label.toLowerCase().startsWith('female');
 
   @override
   String toString() =>
