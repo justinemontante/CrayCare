@@ -110,10 +110,10 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   void _animateProgress() async {
-    const totalSteps = 100;
+    const totalSteps = 50;
     const stepDuration = Duration(
       milliseconds: 30,
-    ); // Total 3 seconds animation
+    ); // Total ~1.5 seconds animation
 
     // 1. Progress bar animation
     for (int i = 1; i <= totalSteps; i++) {

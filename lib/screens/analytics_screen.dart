@@ -1031,7 +1031,6 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     Widget? trendWidget,
   }) {
     final isLive = _activeFilter == 'live';
-    final isShortRange = _activeFilter == 'live';
 
     double avg = 0.0;
     if (data.isNotEmpty) {
@@ -1050,80 +1049,54 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       ),
       child: Column(
         children: [
-          if (isLive)
-            Row(
-              children: [
-                Expanded(
-                  child: GestureDetector(
-                    onTap: nowIdx >= 0
-                        ? () => onSelectIndex?.call(nowIdx)
-                        : null,
-                    child: _buildStatRow(
-                      Icons.sensors,
-                      '$curPrefix: $cur $unit',
-                      curPrefix == 'Live' ? 'Real-time Streaming' : curLabel,
-                      AppColors.primary,
-                    ),
+          Row(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: minIdx >= 0
+                      ? () => onSelectIndex?.call(minIdx)
+                      : null,
+                  child: _buildStatRow(
+                    Icons.arrow_downward,
+                    'Min: $mn $unit',
+                    minLabel,
+                    AppColors.success,
                   ),
                 ),
-              ],
-            )
-          else ...[
-            Row(
-              children: [
-                Expanded(
-                  child: GestureDetector(
-                    onTap: minIdx >= 0
-                        ? () => onSelectIndex?.call(minIdx)
-                        : null,
-                    child: _buildStatRow(
-                      Icons.arrow_downward,
-                      'Min: $mn $unit',
-                      minLabel,
-                      AppColors.success,
-                    ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: GestureDetector(
+                  onTap: maxIdx >= 0
+                      ? () => onSelectIndex?.call(maxIdx)
+                      : null,
+                  child: _buildStatRow(
+                    Icons.arrow_upward,
+                    'Max: $mx $unit',
+                    maxLabel,
+                    AppColors.warning,
                   ),
                 ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: GestureDetector(
-                    onTap: maxIdx >= 0
-                        ? () => onSelectIndex?.call(maxIdx)
-                        : null,
-                    child: _buildStatRow(
-                      Icons.arrow_upward,
-                      'Max: $mx $unit',
-                      maxLabel,
-                      AppColors.warning,
-                    ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: GestureDetector(
+                  onTap: nowIdx >= 0
+                      ? () => onSelectIndex?.call(nowIdx)
+                      : null,
+                  child: _buildStatRow(
+                    Icons.sensors,
+                    isLive ? '$curPrefix: $cur $unit' : 'Avg: ${avg.toStringAsFixed(dp)} $unit',
+                    isLive
+                        ? (curPrefix == 'Live' ? 'Real-time Streaming' : curLabel)
+                        : curLabel,
+                    AppColors.primary,
                   ),
                 ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: isShortRange && _activeFilter == 'live'
-                      ? GestureDetector(
-                          onTap: nowIdx >= 0
-                              ? () => onSelectIndex?.call(nowIdx)
-                              : null,
-                          child: _buildStatRow(
-                            Icons.sensors,
-                            '$curPrefix: $cur $unit',
-                            curLabel,
-                            AppColors.primary,
-                          ),
-                        )
-                      : _buildStatRow(
-                          Icons.analytics_outlined,
-                          curPrefix == 'Avg'
-                              ? 'Avg: ${avg.toStringAsFixed(dp)} $unit'
-                              : '$curPrefix: $cur $unit',
-                          curLabel,
-                          AppColors.primary,
-                        ),
-                ),
-              ],
-            ),
-            if (_showCritical) ...[
+              ),
+            ],
+          ),
+          if (_showCritical) ...[
               const SizedBox(height: 6),
               Row(
                 children: [
@@ -1153,7 +1126,6 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                 ],
               ),
             ],
-          ],
           if (trendWidget != null) ...[
             const SizedBox(height: 6),
             trendWidget,
