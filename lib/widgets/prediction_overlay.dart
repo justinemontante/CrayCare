@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import '../services/crayfish_detection_service.dart';
 import '../models/crayfish_detection.dart';
 
@@ -30,17 +29,21 @@ class PredictionOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final service = context.watch<CrayfishDetectionService>();
-    final detections = service.latestDetections
-        .where((d) => d.confidence >= minConfidence)
-        .toList();
+    return ListenableBuilder(
+      listenable: CrayfishDetectionService.instance,
+      builder: (context, _) {
+        final filtered = CrayfishDetectionService.instance.latestDetections
+            .where((d) => d.confidence >= minConfidence)
+            .toList();
 
-    return CustomPaint(
-      painter: _BoxPainter(
-        detections: detections,
-        showConfidence: showConfidence,
-      ),
-      child: const SizedBox.expand(),
+        return CustomPaint(
+          painter: _BoxPainter(
+            detections: filtered,
+            showConfidence: showConfidence,
+          ),
+          child: const SizedBox.expand(),
+        );
+      },
     );
   }
 }
@@ -67,7 +70,7 @@ class _BoxPainter extends CustomPainter {
         ..style = PaintingStyle.stroke;
 
       final fillPaint = Paint()
-        ..color = color.withOpacity(0.15)
+        ..color = color.withValues(alpha: 0.15)
         ..style = PaintingStyle.fill;
 
       final rect = Rect.fromLTRB(

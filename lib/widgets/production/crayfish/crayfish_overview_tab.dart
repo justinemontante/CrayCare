@@ -719,9 +719,15 @@ class OverviewTab extends StatelessWidget {
     return '${months[date.month - 1]} ${date.day}, ${date.year}';
   }
 
-  String _formatShortDate(DateTime date) {
-    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return '${months[date.month - 1]} ${date.day}, ${date.year}';
+  void _openGenderScan(BuildContext context) {
+    final batchId = TankService.instance.selectedBatchId;
+    if (batchId == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => CrayfishScanScreen(batchId: batchId),
+      ),
+    );
   }
 }
 
