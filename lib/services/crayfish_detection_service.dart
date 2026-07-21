@@ -17,8 +17,13 @@ class CrayfishDetectionService extends ChangeNotifier {
   static const String _modelAsset = 'assets/models/crayfish_gender.tflite';
   static const String _labelsAsset = 'assets/models/labels.txt';
 
-  // Confidence threshold
-  static const double _confidenceThreshold = 0.05;
+  // Confidence threshold — 0.45 filters out low-confidence noise (background,
+  // hands, random objects) that would otherwise get boxed. Previously 0.05,
+  // which was far too permissive and caused false-positive detections on
+  // non-crayfish objects. Tune this up/down after testing against your own
+  // validation set — raise it further if false positives persist, lower it
+  // if real crayfish are being missed.
+  static const double _confidenceThreshold = 0.45;
   static const double _iouThreshold = 0.45;
 
   Interpreter? _interpreter;
