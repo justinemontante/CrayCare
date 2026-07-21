@@ -172,7 +172,6 @@ class CrayfishDetectionService extends ChangeNotifier {
     if (decoded == null) return [];
     final detections = _runInference(decoded, '[Camera]');
     _latestDetections = detections;
-    notifyListeners();
     return detections;
   }
 

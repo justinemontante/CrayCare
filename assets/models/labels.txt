@@ -1,2 +1,2 @@
-female
-male
+female_crayfish
+male_crayfish

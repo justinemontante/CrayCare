@@ -27,8 +27,16 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
 
   CameraController? _cameraController;
   bool _cameraInitializing = false;
-  bool _isDetecting = false; // guards against overlapping frame inference
-  List<CrayfishDetection> _liveDetections = [];
+  bool _isDetecting = false;
+
+  // Real-time detections via ValueNotifier — only overlay/badge rebuild,
+  // NOT the entire screen.
+  final ValueNotifier<List<CrayfishDetection>> _liveDetections =
+      ValueNotifier([]);
+
+  // Throttle: skip frame if <100ms since last inference (~10 fps max).
+  DateTime _lastInferenceStart = DateTime(0);
+  static const Duration _inferenceInterval = Duration(milliseconds: 100);
 
   File? _uploadedImage;
   double? _imageAspectRatio;
@@ -40,22 +48,19 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
   @override
   void initState() {
     super.initState();
-    CrayfishDetectionService.instance.addListener(_onServiceChange);
     if (!CrayfishDetectionService.instance.isReady) {
       CrayfishDetectionService.instance.init();
     }
   }
 
-  void _onServiceChange() {
-    if (mounted) setState(() {});
-  }
-
   @override
   void dispose() {
-    CrayfishDetectionService.instance.removeListener(_onServiceChange);
+    _liveDetections.dispose();
     _cameraController?.dispose();
     super.dispose();
   }
+
+  // ── Live camera ───────────────────────────────────────────────────────────
 
   Future<void> _startLiveCamera() async {
     if (_cameraController != null || _cameraInitializing) return;
@@ -65,11 +70,8 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
       if (cameras.isEmpty) return;
       final controller = CameraController(
         cameras.first,
-        ResolutionPreset.medium,
+        ResolutionPreset.low,
         enableAudio: false,
-        // Force YUV420 on both Android and iOS (iOS defaults to BGRA8888
-        // otherwise) so _convertYUV420ToImage always gets the format it
-        // expects.
         imageFormatGroup: ImageFormatGroup.yuv420,
       );
       await controller.initialize();
@@ -87,68 +89,73 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
     _cameraController?.stopImageStream();
     _cameraController?.dispose();
     _cameraController = null;
-    _liveDetections = [];
+    _liveDetections.value = [];
   }
 
   Future<void> _onCameraFrame(CameraImage frame) async {
     if (_isDetecting || !CrayfishDetectionService.instance.isReady) return;
+    final now = DateTime.now();
+    if (now.difference(_lastInferenceStart) < _inferenceInterval) return;
+
     _isDetecting = true;
+    _lastInferenceStart = now;
     try {
-      final results = await CrayfishDetectionService.instance.detectFromCameraImage(frame);
-      if (mounted) setState(() => _liveDetections = results);
+      final results =
+          await CrayfishDetectionService.instance.detectFromCameraImage(frame);
+      _liveDetections.value = results;
     } catch (e, stack) {
-      debugPrintError('Error in live detection frame', e);
+      debugPrintError('Live detection error', e);
       debugPrintError('Stacktrace', stack);
     } finally {
       _isDetecting = false;
     }
   }
 
+  // Placeholder — will be wired up later.
+  void _saveResult() {
+    debugPrintError('Save tapped', 'Not implemented yet');
+  }
+
+  // ── Upload ────────────────────────────────────────────────────────────────
+
   Future<void> _pickAndDetect(ImageSource source) async {
     final picked = await _picker.pickImage(source: source, maxWidth: 1280);
     if (picked == null) return;
     final file = File(picked.path);
+
     setState(() {
       _uploadedImage = file;
       _uploadLoading = true;
       _uploadDetections = [];
-      _imageAspectRatio = null; // reset
+      _imageAspectRatio = null;
     });
 
     double? aspect;
+    List<CrayfishDetection> results = [];
     try {
-      final bytes = await file.readAsBytes();
-      final decodedImage = await decodeImageFromList(bytes);
-      if (decodedImage.width > 0 && decodedImage.height > 0) {
-        aspect = decodedImage.width / decodedImage.height;
-      }
-    } catch (e) {
-      debugPrintError('Error decoding image size', e);
+      final imageFuture = file.readAsBytes().then((bytes) async {
+        final decodedImage = await decodeImageFromList(bytes);
+        if (decodedImage.width > 0 && decodedImage.height > 0) {
+          aspect = decodedImage.width / decodedImage.height;
+          if (mounted) setState(() {});
+        }
+      });
+      final detectionFuture =
+          CrayfishDetectionService.instance.detectFromFile(file).then((r) {
+        results = r;
+      });
+      await Future.wait([imageFuture, detectionFuture]);
+    } catch (e, stack) {
+      debugPrintError('Pick/detect failed', e);
+      debugPrintError('Stacktrace', stack);
     }
 
-    try {
-      final results = await CrayfishDetectionService.instance.detectFromFile(file);
-      debugPrintError('Detection results', '${results.length} crayfish found');
-      for (final r in results) {
-        debugPrintError('  Detection', r.toString());
-      }
-      if (mounted) {
-        setState(() {
-          _imageAspectRatio = aspect;
-          _uploadDetections = results;
-          _uploadLoading = false;
-        });
-      }
-    } catch (e, stack) {
-      debugPrintError('Detection failed', e);
-      debugPrintError('Stacktrace', stack);
-      if (mounted) {
-        setState(() {
-          _imageAspectRatio = aspect;
-          _uploadDetections = [];
-          _uploadLoading = false;
-        });
-      }
+    if (mounted) {
+      setState(() {
+        _imageAspectRatio = aspect;
+        _uploadDetections = results;
+        _uploadLoading = false;
+      });
     }
   }
 
@@ -156,6 +163,8 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
     // ignore: avoid_print
     print('$context: $e');
   }
+
+  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -300,27 +309,61 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
     );
   }
 
+  // ── Live view ─────────────────────────────────────────────────────────────
+
   Widget _buildLiveView() {
     if (_cameraInitializing) {
       return const Center(child: CircularProgressIndicator());
     }
     final controller = _cameraController;
     if (controller == null || !controller.value.isInitialized) {
-      // Camera hasn't started yet (e.g. user switched to this tab before
-      // permission resolved) — trigger start.
       WidgetsBinding.instance.addPostFrameCallback((_) => _startLiveCamera());
       return const Center(child: CircularProgressIndicator());
     }
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        CameraPreview(controller),
-        if (_liveDetections.isEmpty) _buildPositionGuide(),
-        CustomPaint(
-          painter: _DetectionOverlayPainter(_liveDetections),
-        ),
-        if (_liveDetections.isNotEmpty) _buildLiveResultBadge(),
-      ],
+
+    return ValueListenableBuilder<List<CrayfishDetection>>(
+      valueListenable: _liveDetections,
+      builder: (context, detections, _) {
+        final hasDetections = detections.isNotEmpty;
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            CameraPreview(controller),
+
+            // Position guide — visible only when no detections.
+            AnimatedOpacity(
+              opacity: hasDetections ? 0.0 : 1.0,
+              duration: const Duration(milliseconds: 300),
+              child: IgnorePointer(
+                ignoring: hasDetections,
+                child: _buildPositionGuide(),
+              ),
+            ),
+
+            // Real-time bounding box overlay.
+            RepaintBoundary(
+              child: CustomPaint(
+                painter: _DetectionOverlayPainter(detections),
+              ),
+            ),
+
+            // Result card at top — shows when detection is present.
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeOut,
+              top: hasDetections ? 16 : -120,
+              left: 16,
+              right: 16,
+              child: hasDetections
+                  ? _buildResultCardWithSave(
+                      detections.reduce(
+                          (a, b) => a.confidence > b.confidence ? a : b),
+                    )
+                  : const SizedBox.shrink(),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -357,13 +400,75 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
     );
   }
 
-  Widget _buildLiveResultBadge() {
-    final best = _liveDetections.reduce((a, b) => a.confidence > b.confidence ? a : b);
-    return Positioned(
-      bottom: 16,
-      left: 16,
-      right: 16,
-      child: _buildResultCard(best),
+  /// Result card with a save button — used in live mode.
+  Widget _buildResultCardWithSave(CrayfishDetection detection) {
+    final isMale = detection.isMale;
+    final color = isMale ? const Color(0xFF3B82F6) : const Color(0xFFEC4899);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: const [BoxShadow(color: Color(0x1A000000), blurRadius: 12, offset: Offset(0, 4))],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(isMale ? Icons.male_rounded : Icons.female_rounded, color: color, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Gender Detected',
+                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.4)),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  detection.label[0].toUpperCase() + detection.label.substring(1),
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: color),
+                ),
+              ],
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Confidence',
+                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.4)),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                '${(detection.confidence * 100).toStringAsFixed(0)}%',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppColors.dark),
+              ),
+            ],
+          ),
+          const SizedBox(width: 12),
+          GestureDetector(
+            onTap: _saveResult,
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.primaryWith(0.08),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(Icons.bookmark_border_rounded, size: 18, color: AppColors.primary),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -399,24 +504,32 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
       );
     }
 
+    // Determine the best detection to show in the result card.
+    CrayfishDetection? bestDetection;
+    if (!_uploadLoading && _uploadDetections.isNotEmpty) {
+      bestDetection = _uploadDetections.reduce((a, b) => a.confidence > b.confidence ? a : b);
+    } else if (!_uploadLoading &&
+        _uploadDetections.isEmpty &&
+        CrayfishDetectionService.instance.lastBestScore > 0) {
+      bestDetection = CrayfishDetection(
+        label: CrayfishDetectionService.instance.labels.isNotEmpty
+            ? CrayfishDetectionService.instance.labels[0]
+            : 'female',
+        confidence: CrayfishDetectionService.instance.lastBestScore,
+        left: 0.0, top: 0.0, right: 1.0, bottom: 1.0,
+      );
+    }
+
     return Column(
       children: [
-        if (!_uploadLoading && _uploadDetections.isNotEmpty)
+        // Result card — fades in when detection is ready.
+        if (bestDetection != null)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-            child: _buildResultCard(_uploadDetections.reduce((a, b) => a.confidence > b.confidence ? a : b)),
+            child: _buildResultCard(bestDetection),
           ),
-        if (!_uploadLoading && _uploadDetections.isEmpty && CrayfishDetectionService.instance.lastBestScore > 0)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-            child: _buildResultCard(CrayfishDetection(
-              label: CrayfishDetectionService.instance.labels.isNotEmpty
-                  ? CrayfishDetectionService.instance.labels[0]
-                  : 'female',
-              confidence: CrayfishDetectionService.instance.lastBestScore,
-              left: 0.0, top: 0.0, right: 1.0, bottom: 1.0,
-            )),
-          ),
+
+        // Loading card — only visible while inference is running.
         if (_uploadLoading)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -442,15 +555,16 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
               ),
             ),
           ),
+
+        // Image area — shows the photo as soon as it's available.
         Expanded(
           child: Center(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: _imageAspectRatio == null
-                  ? const CircularProgressIndicator()
-                  : ClipRRect(
-                      borderRadius: BorderRadius.circular(16),
-                      child: AspectRatio(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: _imageAspectRatio != null
+                    ? AspectRatio(
                         aspectRatio: _imageAspectRatio!,
                         child: Stack(
                           fit: StackFit.expand,
@@ -460,15 +574,37 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
                             if (_uploadLoading)
                               Container(
                                 color: Colors.black.withValues(alpha: 0.3),
-                                child: const Center(child: CircularProgressIndicator(color: Colors.white)),
+                                child: const Center(
+                                  child: CircularProgressIndicator(color: Colors.white),
+                                ),
+                              ),
+                          ],
+                        ),
+                      )
+                    // Aspect ratio not yet known — show image with a fixed
+                    // ratio so the user sees their photo immediately.
+                    : AspectRatio(
+                        aspectRatio: 4 / 3,
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            Image.file(_uploadedImage!, fit: BoxFit.fill),
+                            if (_uploadLoading)
+                              Container(
+                                color: Colors.black.withValues(alpha: 0.3),
+                                child: const Center(
+                                  child: CircularProgressIndicator(color: Colors.white),
+                                ),
                               ),
                           ],
                         ),
                       ),
-                    ),
+              ),
             ),
           ),
         ),
+
+        // Footer — hint / scan-another button.
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
           child: Column(
