@@ -770,7 +770,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
           unit: unit,
         ),
         child: Container(
-          padding: const EdgeInsets.all(10),
+          padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: Colors.white,
             border: Border.all(color: AppColors.darkWith(0.1), width: 1.5),
