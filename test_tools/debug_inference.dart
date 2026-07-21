@@ -99,8 +99,8 @@ void _printResults(Float32List output, int numChannels, int numAnchors, bool cha
     if (s0 > bestClass0) { bestClass0 = s0; bestAnchor0 = i; }
     if (s1 > bestClass1) { bestClass1 = s1; bestAnchor1 = i; }
   }
-  print('  Best class0 (male):   score=${bestClass0.toStringAsFixed(6)} anchor=$bestAnchor0');
-  print('  Best class1 (female): score=${bestClass1.toStringAsFixed(6)} anchor=$bestAnchor1');
+  print('  Best class0 (female): score=${bestClass0.toStringAsFixed(6)} anchor=$bestAnchor0');
+  print('  Best class1 (male):   score=${bestClass1.toStringAsFixed(6)} anchor=$bestAnchor1');
 
   // Show box coords of best anchor
   final bestAnchor = bestClass0 > bestClass1 ? bestAnchor0 : bestAnchor1;
