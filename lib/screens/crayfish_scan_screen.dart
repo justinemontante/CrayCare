@@ -90,10 +90,12 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
     _cameraController?.dispose();
     _cameraController = null;
     _liveDetections.value = [];
+    _captured = false;
+    _capturedDetection = null;
   }
 
   Future<void> _onCameraFrame(CameraImage frame) async {
-    if (_isDetecting || !CrayfishDetectionService.instance.isReady) return;
+    if (_captured || _isDetecting || !CrayfishDetectionService.instance.isReady) return;
     final now = DateTime.now();
     if (now.difference(_lastInferenceStart) < _inferenceInterval) return;
 
@@ -109,6 +111,26 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
     } finally {
       _isDetecting = false;
     }
+  }
+
+  bool _captured = false;
+  CrayfishDetection? _capturedDetection;
+
+  void _onCapturePressed() {
+    final current = _liveDetections.value;
+    if (current.isEmpty) return;
+    setState(() {
+      _captured = true;
+      _capturedDetection =
+          current.reduce((a, b) => a.confidence > b.confidence ? a : b);
+    });
+  }
+
+  void _rescan() {
+    setState(() {
+      _captured = false;
+      _capturedDetection = null;
+    });
   }
 
   // Placeholder — will be wired up later.
@@ -361,6 +383,87 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
                     )
                   : const SizedBox.shrink(),
             ),
+
+            // Captured confirmation — shown after tapping Capture, replaces
+            // the live feed with the frozen result until the user rescans.
+            if (_captured && _capturedDetection != null)
+              Positioned.fill(
+                child: Container(
+                  color: Colors.black.withValues(alpha: 0.55),
+                  child: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.check_circle_rounded,
+                              color: Colors.white, size: 48),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Captured: ${_capturedDetection!.label}',
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${(_capturedDetection!.confidence * 100).toStringAsFixed(0)}% confidence',
+                            style: const TextStyle(
+                                color: Colors.white70, fontSize: 12),
+                          ),
+                          const SizedBox(height: 20),
+                          GestureDetector(
+                            onTap: _rescan,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 20, vertical: 12),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Text('Scan Again',
+                                  style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+            // Manual Capture button — only shown while live-scanning and a
+            // crayfish is currently detected. Nothing auto-captures; this is
+            // the only way a result gets locked in.
+            if (!_captured && hasDetections)
+              Positioned(
+                bottom: 24,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: GestureDetector(
+                    onTap: _onCapturePressed,
+                    child: Container(
+                      width: 68,
+                      height: 68,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: AppColors.primary, width: 4),
+                        boxShadow: const [
+                          BoxShadow(color: Color(0x33000000), blurRadius: 10),
+                        ],
+                      ),
+                      child: Icon(Icons.camera_alt_rounded,
+                          color: AppColors.primary, size: 28),
+                    ),
+                  ),
+                ),
+              ),
           ],
         );
       },

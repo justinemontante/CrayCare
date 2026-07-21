@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:image/image.dart' as img;
@@ -203,44 +204,62 @@ class CrayfishDetectionService extends ChangeNotifier {
     final isFloat32 = imageTensor.type == TensorType.float32;
     dynamic inputBuffer;
     if (_inputChannelsFirst) {
-      // NCHW: [1, 3, H, W]
-      inputBuffer = List.generate(
-        1,
-        (_) => List.generate(
-          3,
-          (c) => List.generate(
-            _inputSize,
-            (y) => List.generate(_inputSize, (x) {
-              final pixel = resized.getPixel(x, y);
-              if (isFloat32) {
-                if (c == 0) return pixel.r / 255.0;
-                if (c == 1) return pixel.g / 255.0;
-                return pixel.b / 255.0;
-              } else {
-                if (c == 0) return pixel.r.toInt();
-                if (c == 1) return pixel.g.toInt();
-                return pixel.b.toInt();
-              }
-            }),
-          ),
-        ),
-      );
+      // NCHW: [1, 3, H, W] — flat typed buffer, then reshape (fast path).
+      final plane = _inputSize * _inputSize;
+      if (isFloat32) {
+        final buf = Float32List(3 * plane);
+        int i = 0;
+        for (int y = 0; y < _inputSize; y++) {
+          for (int x = 0; x < _inputSize; x++) {
+            final p = resized.getPixel(x, y);
+            buf[i] = p.r / 255.0;
+            buf[plane + i] = p.g / 255.0;
+            buf[2 * plane + i] = p.b / 255.0;
+            i++;
+          }
+        }
+        inputBuffer = buf.reshape([1, 3, _inputSize, _inputSize]);
+      } else {
+        final buf = Uint8List(3 * plane);
+        int i = 0;
+        for (int y = 0; y < _inputSize; y++) {
+          for (int x = 0; x < _inputSize; x++) {
+            final p = resized.getPixel(x, y);
+            buf[i] = p.r.toInt();
+            buf[plane + i] = p.g.toInt();
+            buf[2 * plane + i] = p.b.toInt();
+            i++;
+          }
+        }
+        inputBuffer = buf.reshape([1, 3, _inputSize, _inputSize]);
+      }
     } else {
-      // NHWC: [1, H, W, 3]
-      inputBuffer = List.generate(
-        1,
-        (_) => List.generate(
-          _inputSize,
-          (y) => List.generate(_inputSize, (x) {
-            final pixel = resized.getPixel(x, y);
-            if (isFloat32) {
-              return [pixel.r / 255.0, pixel.g / 255.0, pixel.b / 255.0];
-            } else {
-              return [pixel.r.toInt(), pixel.g.toInt(), pixel.b.toInt()];
-            }
-          }),
-        ),
-      );
+      // NHWC: [1, H, W, 3] — flat typed buffer, then reshape (fast path).
+      if (isFloat32) {
+        final buf = Float32List(_inputSize * _inputSize * 3);
+        int i = 0;
+        for (int y = 0; y < _inputSize; y++) {
+          for (int x = 0; x < _inputSize; x++) {
+            final p = resized.getPixel(x, y);
+            buf[i++] = p.r / 255.0;
+            buf[i++] = p.g / 255.0;
+            buf[i++] = p.b / 255.0;
+          }
+        }
+        inputBuffer = buf.reshape([1, _inputSize, _inputSize, 3]);
+      } else {
+        final buf = Uint8List(_inputSize * _inputSize * 3);
+        int i = 0;
+        for (int y = 0; y < _inputSize; y++) {
+          for (int x = 0; x < _inputSize; x++) {
+            final p = resized.getPixel(x, y);
+            buf[i++] = p.r.toInt();
+            buf[i++] = p.g.toInt();
+            buf[i++] = p.b.toInt();
+          }
+        }
+        inputBuffer = buf.reshape([1, _inputSize, _inputSize, 3]);
+      }
     }
 
     // ── Build ALL input buffers (zero-fill non-image tensors) ───────────────
