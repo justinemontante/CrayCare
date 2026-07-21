@@ -21,6 +21,7 @@ class CrayfishDetectionService extends ChangeNotifier {
   static const double _iouThreshold = 0.45;
 
   Interpreter? _interpreter;
+  IsolateInterpreter? _isolateInterpreter;
   List<String> _labels = [];
   List<CrayfishDetection> _latestDetections = [];
 
@@ -35,6 +36,10 @@ class CrayfishDetectionService extends ChangeNotifier {
   int _numAnchors = 0;
   int _numClasses = 0;
   bool _isDetectionModel = false;
+
+  // Multi-input tensor tracking
+  int _inputTensorsCount = 1;
+  int _imageInputIndex = 0;
 
   // Public getters
   bool get isReady => _isReady;
@@ -58,38 +63,42 @@ class CrayfishDetectionService extends ChangeNotifier {
       debugPrint('🔥 LABELS LOADED: $_labels');
       debugPrint('═══════════════════════════════════════');
 
-      // NOTE: threads was previously 4. Multi-threaded CPU execution on this
-      // detection model has been observed to trigger a known TFLite/XNNPACK
-      // delegate bug ("Input tensor N lacks data" / Bad state: failed
-      // precondition) where an internal graph tensor is left unpopulated
-      // during subgraph partitioning (see tensorflow/tensorflow#55331 for the
-      // same symptom class). Forcing single-threaded execution avoids that
-      // code path. If this resolves the crash, we can look at re-enabling
-      // multi-threading later once we confirm it's stable on this model.
-      final options = InterpreterOptions()..threads = 1;
+      final options = InterpreterOptions()..threads = 4;
       _interpreter = await Interpreter.fromAsset(_modelAsset, options: options);
+      _isolateInterpreter = await IsolateInterpreter.create(
+        address: _interpreter!.address,
+      );
 
       _isReady = true;
       _error = null;
 
-      // Inspect tensor shapes
-      final inputTensor = _interpreter!.getInputTensor(0);
+      // ── Enumerate ALL input tensors ────────────────────────────────────
+      final inputTensors = _interpreter!.getInputTensors();
+      _inputTensorsCount = inputTensors.length;
+      _imageInputIndex = 0; // default to first tensor
+
+      debugPrint('📊 MODEL TENSOR INFO:');
+      debugPrint('  Total input tensors: $_inputTensorsCount');
+      for (int i = 0; i < _inputTensorsCount; i++) {
+        final t = inputTensors[i];
+        debugPrint('  Input[$i]: shape=${t.shape} type=${t.type.name}');
+      }
+
+      // Find the image tensor (has 4D shape with H,W,3 or 3,H,W)
+      for (int i = 0; i < _inputTensorsCount; i++) {
+        final shape = inputTensors[i].shape;
+        if (shape.length == 4) {
+          _imageInputIndex = i;
+          debugPrint('  → Image tensor index: $i');
+          break;
+        }
+      }
+
+      final inputTensor = _interpreter!.getInputTensor(_imageInputIndex);
       final outputTensor = _interpreter!.getOutputTensor(0);
       final inputShape = inputTensor.shape;
       final outputShape = outputTensor.shape;
       final inputType = inputTensor.type;
-      final outputType = outputTensor.type;
-
-      debugPrint('📊 MODEL TENSOR INFO:');
-      debugPrint('  Input shape:   $inputShape');
-      debugPrint('  Input type:    $inputType');
-      debugPrint(
-          '  Input params:  scale=${inputTensor.params.scale}, zp=${inputTensor.params.zeroPoint}');
-      debugPrint('  Output shape:  $outputShape');
-      debugPrint('  Output type:   $outputType');
-      debugPrint(
-          '  Output params: scale=${outputTensor.params.scale}, zp=${outputTensor.params.zeroPoint}');
-      debugPrint('═══════════════════════════════════════');
 
       // ── Input layout detection ──────────────────────────────────────────
       if (inputShape.length == 4) {
@@ -130,7 +139,7 @@ class CrayfishDetectionService extends ChangeNotifier {
       }
 
       debugPrint('📐 Model architecture:');
-      debugPrint('  Input size:       ${_inputSize}x${_inputSize}');
+      debugPrint('  Input size:       ${_inputSize}x$_inputSize');
       debugPrint('  Channels first:   $_inputChannelsFirst');
       debugPrint('  Num anchors:      $_numAnchors');
       debugPrint('  Num channels:     $_numChannels');
@@ -160,7 +169,7 @@ class CrayfishDetectionService extends ChangeNotifier {
       return [];
     }
     debugPrint('📸 [Upload] Image: ${decoded.width}x${decoded.height}');
-    final detections = _runInference(decoded, '[Upload]');
+    final detections = await _runInference(decoded, '[Upload]');
     _latestDetections = detections;
     notifyListeners();
     return detections;
@@ -170,7 +179,7 @@ class CrayfishDetectionService extends ChangeNotifier {
     if (!_isReady) return [];
     final decoded = _convertYUV420ToImage(frame);
     if (decoded == null) return [];
-    final detections = _runInference(decoded, '[Camera]');
+    final detections = await _runInference(decoded, '[Camera]');
     _latestDetections = detections;
     return detections;
   }
@@ -182,18 +191,16 @@ class CrayfishDetectionService extends ChangeNotifier {
 
   // ── Core inference ────────────────────────────────────────────────────────
 
-  List<CrayfishDetection> _runInference(img.Image decoded, String tag) {
+  Future<List<CrayfishDetection>> _runInference(img.Image decoded, String tag) async {
     final interpreter = _interpreter;
     if (interpreter == null) return [];
 
     // Resize to model input size
     final resized = img.copyResize(decoded, width: _inputSize, height: _inputSize);
 
-    final inputTensor = interpreter.getInputTensor(0);
-    final outputTensor = interpreter.getOutputTensor(0);
-    final isFloat32 = inputTensor.type == TensorType.float32;
-
-    // ── Build input tensor ─────────────────────────────────────────────────
+    // ── Build image input tensor ───────────────────────────────────────────
+    final imageTensor = interpreter.getInputTensor(_imageInputIndex);
+    final isFloat32 = imageTensor.type == TensorType.float32;
     dynamic inputBuffer;
     if (_inputChannelsFirst) {
       // NCHW: [1, 3, H, W]
@@ -236,7 +243,18 @@ class CrayfishDetectionService extends ChangeNotifier {
       );
     }
 
+    // ── Build ALL input buffers (zero-fill non-image tensors) ───────────────
+    final allInputs = <Object>[];
+    for (int i = 0; i < _inputTensorsCount; i++) {
+      if (i == _imageInputIndex) {
+        allInputs.add(inputBuffer);
+      } else {
+        allInputs.add(_buildZeroBuffer(interpreter.getInputTensor(i)));
+      }
+    }
+
     // ── Build output tensor ────────────────────────────────────────────────
+    final outputTensor = interpreter.getOutputTensor(0);
     final outputShape = outputTensor.shape;
     final isOutputFloat32 = outputTensor.type == TensorType.float32;
     dynamic outputBuffer;
@@ -261,7 +279,12 @@ class CrayfishDetectionService extends ChangeNotifier {
 
     // ── Run inference ──────────────────────────────────────────────────────
     try {
-      interpreter.run(inputBuffer, outputBuffer);
+      final isolate = _isolateInterpreter;
+      if (isolate != null) {
+        await isolate.runForMultipleInputs(allInputs, {0: outputBuffer});
+      } else {
+        interpreter.runForMultipleInputs(allInputs, {0: outputBuffer});
+      }
     } catch (e) {
       debugPrint('❌ Inference error: $e');
       return [];
@@ -271,7 +294,9 @@ class CrayfishDetectionService extends ChangeNotifier {
     final List<double> flat = [];
     void flatten(dynamic obj) {
       if (obj is List) {
-        for (final item in obj) flatten(item);
+        for (final item in obj) {
+          flatten(item);
+        }
       } else if (obj is double) {
         flat.add(obj);
       } else if (obj is int) {
@@ -410,6 +435,25 @@ class CrayfishDetectionService extends ChangeNotifier {
 
   double _sigmoid(double x) => 1.0 / (1.0 + math.exp(-x));
 
+  /// Build a zero-filled nested list matching the shape and type of [tensor].
+  dynamic _buildZeroBuffer(Tensor tensor) {
+    final shape = tensor.shape;
+    final isFloat = tensor.type == TensorType.float32;
+    return _buildNestedList(shape, 0, isFloat);
+  }
+
+  dynamic _buildNestedList(List<int> shape, int depth, bool isFloat) {
+    if (depth == shape.length - 1) {
+      return isFloat
+          ? List<double>.filled(shape[depth], 0.0)
+          : List<int>.filled(shape[depth], 0);
+    }
+    return List.generate(
+      shape[depth],
+      (_) => _buildNestedList(shape, depth + 1, isFloat),
+    );
+  }
+
   List<CrayfishDetection> _nonMaxSuppression(List<CrayfishDetection> boxes) {
     boxes.sort((a, b) => b.confidence.compareTo(a.confidence));
     final kept = <CrayfishDetection>[];
@@ -482,6 +526,7 @@ class CrayfishDetectionService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _isolateInterpreter?.close();
     _interpreter?.close();
     super.dispose();
   }
