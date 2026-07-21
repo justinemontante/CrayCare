@@ -902,7 +902,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                       _onChartSelectionChanged(chartKey, idx),
                   curPrefix: curPrefix,
                   dp: dp,
-                  trendWidget: _activeFilter == 'live' && SensorService.instance.hasSensorData(chartKey)
+                  trendWidget: _activeFilter == 'live'
                       ? _buildTrendLabel(chartKey)
                       : null,
                 ),

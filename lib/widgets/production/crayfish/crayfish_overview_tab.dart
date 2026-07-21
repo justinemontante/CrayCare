@@ -613,26 +613,7 @@ class OverviewTab extends StatelessWidget {
             () => _showHarvestForm(context),
           ),
         ),
-        const SizedBox(height: 8),
-        SizedBox(
-          width: double.infinity,
-          child: _buildActionBtn(
-            'Identify Gender',
-            Icons.document_scanner_rounded,
-            const Color(0xFF7C3AED),
-            () => _openGenderScan(context),
-          ),
-        ),
       ],
-    );
-  }
-
-  void _openGenderScan(BuildContext context) {
-    final batchId = TankService.instance.selectedBatchId;
-    if (batchId == null) return;
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => CrayfishScanScreen(batchId: batchId)),
     );
   }
 
