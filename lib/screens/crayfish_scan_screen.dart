@@ -259,7 +259,7 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
       ),
       child: Row(
         children: [
-          Expanded(child: _buildToggleButton('Live', Icons.videocam_rounded, 0)),
+          Expanded(child: _buildToggleButton('Scan', Icons.videocam_rounded, 0)),
           Expanded(child: _buildToggleButton('Upload', Icons.upload_rounded, 1)),
         ],
       ),
@@ -590,17 +590,16 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
                 child: Icon(Icons.add_a_photo_rounded, size: 32, color: AppColors.primary),
               ),
               const SizedBox(height: 16),
-              Text('Upload a photo',
+              Text('Upload a photo from your gallery',
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppColors.dark)),
-              const SizedBox(height: 16),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _buildSourceButton('Camera', Icons.camera_alt_rounded, ImageSource.camera),
-                  const SizedBox(width: 10),
-                  _buildSourceButton('Gallery', Icons.photo_library_rounded, ImageSource.gallery),
-                ],
+              const SizedBox(height: 6),
+              Text(
+                'Need to use your camera instead? Switch to the Scan tab\nfor live, real-time detection.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: AppColors.darkWith(0.4), height: 1.4),
               ),
+              const SizedBox(height: 16),
+              _buildSourceButton('Choose from Gallery', Icons.photo_library_rounded, ImageSource.gallery),
             ],
           ),
         ),
