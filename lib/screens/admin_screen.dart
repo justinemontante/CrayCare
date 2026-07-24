@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../theme/app_colors.dart';
 import '../services/database_service.dart';
+import '../widgets/section_label.dart';
 
-/// Admin-only screen. Shown in MainShell only when the signed-in user's
-/// Firestore profile has role == 'admin'. Also enforced server-side by
-/// firestore.rules, so even a modified client can't actually read/write
-/// other users' docs without the role being set on their own profile.
+/// Admin-only screen. Shown as a tab in MainShell only when the signed-in
+/// user's Firestore profile has role == 'admin'. Also enforced server-side
+/// by firestore.rules. Uses the same greeting-card + section-label pattern
+/// as DashboardScreen so it matches the rest of the app, and sits under
+/// MainShell's shared header — so the profile avatar (top-right) still
+/// opens Settings exactly like it does on every other tab.
 class AdminScreen extends StatefulWidget {
   const AdminScreen({super.key});
 
@@ -24,6 +27,25 @@ class _AdminScreenState extends State<AdminScreen> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  String _getGreetingTime() {
+    final hour = DateTime.now().hour;
+    if (hour < 12) return 'Good Morning';
+    if (hour < 18) return 'Good Afternoon';
+    return 'Good Evening';
+  }
+
+  String _getFormattedDate() {
+    final now = DateTime.now();
+    const weekdays = [
+      'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday',
+    ];
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June', 'July',
+      'August', 'September', 'October', 'November', 'December',
+    ];
+    return '${weekdays[now.weekday % 7]}, ${months[now.month - 1]} ${now.day}, ${now.year}';
   }
 
   Future<void> _load() async {
@@ -117,38 +139,141 @@ class _AdminScreenState extends State<AdminScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.lightBg,
-      appBar: AppBar(
-        title: const Text('Admin'),
-        backgroundColor: AppColors.white,
-        foregroundColor: AppColors.darkText,
-        elevation: 0,
-        actions: [
-          IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded)),
-        ],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
-          : _error != null
-              ? Center(child: Padding(padding: const EdgeInsets.all(24), child: Text(_error!)))
-              : RefreshIndicator(
-                  onRefresh: _load,
-                  color: AppColors.primary,
-                  child: ListView(
-                    padding: const EdgeInsets.all(16),
-                    children: [
-                      _buildDeviceOwnerCard(),
-                      const SizedBox(height: 20),
-                      const Text(
-                        'Users',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.darkText),
-                      ),
-                      const SizedBox(height: 8),
-                      ..._users.map(_buildUserCard),
-                    ],
+    return Container(
+      color: Colors.white,
+      child: RefreshIndicator(
+        onRefresh: _load,
+        color: AppColors.primary,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildGreeting(),
+              if (_loading)
+                const Padding(
+                  padding: EdgeInsets.all(40),
+                  child: Center(child: CircularProgressIndicator(color: AppColors.primary)),
+                )
+              else if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text(_error!, style: const TextStyle(color: AppColors.critical)),
+                )
+              else ...[
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 4),
+                  child: SectionLabel(
+                    label: 'Shared Hardware',
+                    showLiveData: false,
+                    icon: Icons.sensors_rounded,
+                    topPadding: 4,
                   ),
                 ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  child: _buildDeviceOwnerCard(),
+                ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 4),
+                  child: SectionLabel(
+                    label: 'Users',
+                    showLiveData: false,
+                    icon: Icons.people_alt_rounded,
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  child: Column(children: _users.map(_buildUserCard).toList()),
+                ),
+                const SizedBox(height: 32),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Same gradient card, accent bar, and typography as DashboardScreen's
+  // greeting — just "Admin" instead of the tank owner's first name.
+  Widget _buildGreeting() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.darkWith(0.08),
+            blurRadius: 12,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 23, 20, 23),
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFFF8FFFF),
+              Color(0xFFF2FDFD),
+              Color(0xFFE8FAFA),
+              Color(0xFFDAF4F5),
+            ],
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 3,
+              height: 50,
+              decoration: BoxDecoration(
+                color: AppColors.primary,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '${_getGreetingTime()}, Admin!',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.darkText,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    _getFormattedDate(),
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w400,
+                      color: AppColors.mutedText,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    "Here's what's happening across all accounts today.",
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.subtitleText,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.admin_panel_settings_rounded, color: AppColors.primary, size: 26),
+          ],
+        ),
+      ),
     );
   }
 
