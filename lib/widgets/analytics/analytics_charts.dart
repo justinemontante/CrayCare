@@ -13,7 +13,6 @@ class AnalyticsLineChart extends StatefulWidget {
   final ValueChanged<int?>? onSelectedIndexChanged;
   final double? thresholdMin;
   final double? thresholdMax;
-  final bool isLive;
   final int decimalPlaces;
 
   const AnalyticsLineChart({
@@ -28,7 +27,6 @@ class AnalyticsLineChart extends StatefulWidget {
     this.onSelectedIndexChanged,
     this.thresholdMin,
     this.thresholdMax,
-    this.isLive = false,
     this.decimalPlaces = 1,
   });
 
@@ -36,28 +34,11 @@ class AnalyticsLineChart extends StatefulWidget {
   State<AnalyticsLineChart> createState() => _AnalyticsLineChartState();
 }
 
-class _AnalyticsLineChartState extends State<AnalyticsLineChart>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _pulseController;
+class _AnalyticsLineChartState extends State<AnalyticsLineChart> {
   double _scrollOffset = 0.0;
   double _visibleWidth = 0.0;
 
   static const double _minPointSpacing = 12.0;
-
-  @override
-  void initState() {
-    super.initState();
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1500),
-    )..repeat(reverse: true);
-  }
-
-  @override
-  void dispose() {
-    _pulseController.dispose();
-    super.dispose();
-  }
 
   @override
   void didUpdateWidget(covariant AnalyticsLineChart oldWidget) {
@@ -170,11 +151,8 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart>
                   onTapUp: _onTapUp,
                   onHorizontalDragUpdate:
                       scrollable ? _onHorizontalDragUpdate : null,
-                  child: AnimatedBuilder(
-                    animation: _pulseController,
-                    builder: (context, child) {
-                      return CustomPaint(
-                        painter: _LineChartPainter(
+                  child: CustomPaint(
+                    painter: _LineChartPainter(
                           widget.data,
                           minVal,
                           range,
@@ -186,17 +164,11 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart>
                           selectedIndex: curIdx,
                           thresholdMin: widget.thresholdMin,
                           thresholdMax: widget.thresholdMax,
-                          isLive: widget.isLive,
-                          pulseValue: widget.isLive
-                              ? _pulseController.value
-                              : 0.0,
                           scrollOffset: _scrollOffset,
                           virtualWidth: vw,
                         ),
                         size: Size(_visibleWidth, chartH),
-                      );
-                    },
-                  ),
+                      ),
                 ),
                 if (curIdx != null && curIdx < widget.data.length)
                   Positioned(
@@ -331,8 +303,6 @@ class _LineChartPainter extends CustomPainter {
   final int? selectedIndex;
   final double? thresholdMin;
   final double? thresholdMax;
-  final bool isLive;
-  final double pulseValue;
   final double scrollOffset;
   final double virtualWidth;
 
@@ -348,8 +318,6 @@ class _LineChartPainter extends CustomPainter {
     this.selectedIndex,
     this.thresholdMin,
     this.thresholdMax,
-    this.isLive = false,
-    this.pulseValue = 0.0,
     this.scrollOffset = 0.0,
     this.virtualWidth = 0.0,
   });
@@ -552,19 +520,6 @@ class _LineChartPainter extends CustomPainter {
       );
     }
 
-    // Live pulsing dot
-    if (isLive && data.isNotEmpty && !data.last.isNaN) {
-      final lastIdx = data.length - 1;
-      final lx = padL + lastIdx * stepX - scrollOffset;
-      final ly =
-          padT + chartH - ((data[lastIdx] - minVal) / range) * chartH;
-
-      final pulsePaint = Paint()
-        ..color = color.withValues(alpha: 0.3 * (1 - pulseValue))
-        ..style = PaintingStyle.fill;
-      canvas.drawCircle(Offset(lx, ly), 4 + 10 * pulseValue, pulsePaint);
-    }
-
     canvas.restore();
 
     // X-axis labels — always 6, evenly spaced, slanted
@@ -624,10 +579,18 @@ class _LineChartPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _LineChartPainter oldDelegate) =>
       oldDelegate.data != data ||
+      oldDelegate.minVal != minVal ||
+      oldDelegate.range != range ||
+      oldDelegate.color != color ||
+      oldDelegate.labels != labels ||
+      oldDelegate.unit != unit ||
+      oldDelegate.showAxis != showAxis ||
       oldDelegate.large != large ||
       oldDelegate.selectedIndex != selectedIndex ||
-      oldDelegate.pulseValue != pulseValue ||
-      oldDelegate.scrollOffset != scrollOffset;
+      oldDelegate.thresholdMin != thresholdMin ||
+      oldDelegate.thresholdMax != thresholdMax ||
+      oldDelegate.scrollOffset != scrollOffset ||
+      oldDelegate.virtualWidth != virtualWidth;
 }
 
 

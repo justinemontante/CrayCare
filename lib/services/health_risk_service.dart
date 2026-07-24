@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'connectivity_service.dart';
 
 class HealthRiskResult {
   final double score;
@@ -103,6 +104,14 @@ class HealthRiskService extends ChangeNotifier {
         notifyListeners();
       }
     });
+    ConnectivityService.instance.addOnConnectCallback(_onReconnect);
+  }
+
+  void _onReconnect() {
+    debugPrint('[HealthRiskService] Internet reconnected — refreshing listener');
+    if (FirebaseAuth.instance.currentUser != null) {
+      _startListening();
+    }
   }
 
   void _startListening() {

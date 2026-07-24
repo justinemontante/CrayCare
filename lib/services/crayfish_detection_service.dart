@@ -22,7 +22,7 @@ class CrayfishDetectionService extends ChangeNotifier {
   // non-crayfish objects. Tune this up/down after testing against your own
   // validation set — raise it further if false positives persist, lower it
   // if real crayfish are being missed.
-  static const double _confidenceThreshold = 0.45;
+  static const double _confidenceThreshold = 0.65;
   static const double _iouThreshold = 0.45;
 
   Interpreter? _interpreter;
@@ -371,6 +371,11 @@ class CrayfishDetectionService extends ChangeNotifier {
       debugPrint(
           '$tag Classification: ${_labels[bestClass]} ${(bestScore * 100).toStringAsFixed(1)}%');
       if (bestClass >= _labels.length) return [];
+      if (bestScore < _confidenceThreshold) {
+        debugPrint(
+            '$tag Classification confidence ${(bestScore * 100).toStringAsFixed(1)}% below threshold ${(_confidenceThreshold * 100).toStringAsFixed(0)}%, returning empty');
+        return [];
+      }
       return [
         CrayfishDetection(
           label: _labels[bestClass],
@@ -436,12 +441,6 @@ class CrayfishDetectionService extends ChangeNotifier {
     lastBestScore = globalBestScore;
 
     final nms = _nonMaxSuppression(candidates);
-
-    // If NMS removed everything but we have raw detections, return the best one
-    if (nms.isEmpty && candidates.isNotEmpty) {
-      return [candidates.first];
-    }
-
     return nms;
   }
 

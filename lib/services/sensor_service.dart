@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'settings_service.dart';
+import 'connectivity_service.dart';
 
 class SensorService extends ChangeNotifier {
   static final SensorService instance = SensorService._();
@@ -18,6 +19,14 @@ class SensorService extends ChangeNotifier {
         _subscription = null;
       }
     });
+    ConnectivityService.instance.addOnConnectCallback(_onReconnect);
+  }
+
+  void _onReconnect() {
+    debugPrint('[SensorService] Internet reconnected — refreshing listeners');
+    if (FirebaseAuth.instance.currentUser != null) {
+      _initFirebaseListener();
+    }
   }
 
   static const List<String> sensorKeys = [
@@ -39,7 +48,8 @@ class SensorService extends ChangeNotifier {
   bool _initialDataLoaded = false;
 
   Timer? _staleTimer;
-  static const _staleTimeout = Duration(minutes: 12);
+  Timer? _periodicCheckTimer;
+  static const _staleTimeout = Duration(seconds: 10);
   bool _hasLiveData = false;
 
   DateTime _lastUpdated = DateTime.fromMillisecondsSinceEpoch(0);
@@ -47,6 +57,8 @@ class SensorService extends ChangeNotifier {
 
   bool get initialDataLoaded => _initialDataLoaded;
   bool get hasLiveData => _hasLiveData;
+  bool get isEspOnline =>
+      _hasLiveData && DateTime.now().difference(_lastUpdated) <= _staleTimeout;
   DateTime get lastUpdated => _lastUpdated;
   String? get lastError => _lastError;
 
@@ -144,6 +156,12 @@ class SensorService extends ChangeNotifier {
     _subscription?.cancel();
     _initialDataLoaded = false;
     _staleTimer?.cancel();
+    _periodicCheckTimer?.cancel();
+    _periodicCheckTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (_hasLiveData && DateTime.now().difference(_lastUpdated) > _staleTimeout) {
+        _markStale();
+      }
+    });
     _subscription = FirebaseFirestore.instance
         .collection('sensorReadings')
         .doc('latest')
@@ -162,10 +180,48 @@ class SensorService extends ChangeNotifier {
     );
   }
 
+  DateTime? _extractTimestamp(Map<String, dynamic> data) {
+    final rawTs = data['timestamp'] ?? data['updatedAt'] ?? data['time'];
+    if (rawTs == null) return null;
+    if (rawTs is Timestamp) return rawTs.toDate();
+    if (rawTs is int) {
+      if (rawTs < 10000000000) {
+        return DateTime.fromMillisecondsSinceEpoch(rawTs * 1000);
+      }
+      return DateTime.fromMillisecondsSinceEpoch(rawTs);
+    }
+    if (rawTs is double) {
+      final intVal = rawTs.toInt();
+      if (intVal < 10000000000) {
+        return DateTime.fromMillisecondsSinceEpoch(intVal * 1000);
+      }
+      return DateTime.fromMillisecondsSinceEpoch(intVal);
+    }
+    if (rawTs is String) {
+      return DateTime.tryParse(rawTs);
+    }
+    return null;
+  }
+
   void _parseAndUpdate(Map<String, dynamic> data) {
     if (!_initialDataLoaded) {
       _initialDataLoaded = true;
     }
+
+    final docTime = _extractTimestamp(data);
+    final now = DateTime.now();
+    final readingTime = docTime ?? now;
+    final age = now.difference(readingTime);
+
+    if (age > _staleTimeout) {
+      debugPrint(
+          '[SensorService] Data in Firestore is stale (${age.inSeconds}s old). ESP is offline.');
+      _markStale(lastSeen: readingTime);
+      return;
+    }
+
+    _lastUpdated = readingTime;
+    _hasLiveData = true;
 
     final tempRaw = _toDouble(data['temperature']);
     final turbRaw = _toDouble(data['turbidity']);
@@ -185,19 +241,25 @@ class SensorService extends ChangeNotifier {
     _updateSensor('ph', phRaw);
     _updateSensor('waterlevel', wlRaw);
 
-    _lastUpdated = DateTime.now();
-    _hasLiveData = true;
     _staleTimer?.cancel();
-    _staleTimer = Timer(_staleTimeout, _markStale);
-    notifyListeners();
+    final remaining = _staleTimeout - age;
+    if (remaining.isNegative) {
+      _markStale(lastSeen: readingTime);
+    } else {
+      _staleTimer = Timer(remaining, () => _markStale(lastSeen: readingTime));
+      notifyListeners();
+    }
   }
 
-  void _markStale() {
+  void _markStale({DateTime? lastSeen}) {
     _latest.clear();
-    _lastUpdated = DateTime.fromMillisecondsSinceEpoch(0);
+    if (lastSeen != null) {
+      _lastUpdated = lastSeen;
+    }
     _hasLiveData = false;
+    _staleTimer?.cancel();
     notifyListeners();
-    debugPrint('[SensorService] Data stale - ESP32 offline');
+    debugPrint('[SensorService] Data stale - ESP32 offline (last seen: $_lastUpdated)');
   }
 
   void _updateSensor(String key, double? value) {
@@ -327,30 +389,66 @@ class SensorService extends ChangeNotifier {
     }
 
     if (uncachedDays.isNotEmpty) {
-      final futures = uncachedDays.map((dateStr) async {
+      // Pass 1: Try reading from local Firestore disk cache (lightning fast, 0ms latency)
+      final remainingUncached = <String>[];
+      final cacheFutures = uncachedDays.map((dateStr) async {
         try {
           final snap = await FirebaseFirestore.instance
               .collection('sensorReadings')
               .doc('history')
               .collection(dateStr)
-              .get();
-          debugPrint('[SensorService] fetchHistoryRange: $dateStr → ${snap.docs.length} docs');
-          final docs = snap.docs.map((doc) {
-            final data = doc.data();
-            data['id'] = doc.id;
-            return data;
-          }).toList();
-          cacheDay(dateStr, docs);
-          return docs;
-        } catch (e) {
-          debugPrint('[SensorService] fetchHistoryRange error for $dateStr: $e');
-          cacheDay(dateStr, []);
-          return <Map<String, dynamic>>[];
-        }
+              .get(const GetOptions(source: Source.cache));
+          if (snap.docs.isNotEmpty) {
+            final docs = snap.docs.map((doc) {
+              final data = doc.data();
+              data['id'] = doc.id;
+              return data;
+            }).toList();
+            cacheDay(dateStr, docs);
+            return docs;
+          }
+        } catch (_) {}
+        remainingUncached.add(dateStr);
+        return <Map<String, dynamic>>[];
       });
 
-      final results = await Future.wait(futures);
-      cachedRecords.addAll(results.expand((r) => r));
+      final cacheResults = await Future.wait(cacheFutures);
+      cachedRecords.addAll(cacheResults.expand((r) => r));
+
+      // Pass 2: If online, fetch remaining missing days from server in parallel chunks
+      if (remainingUncached.isNotEmpty && ConnectivityService.instance.isOnline) {
+        const chunkSize = 6;
+        for (var i = 0; i < remainingUncached.length; i += chunkSize) {
+          final chunk = remainingUncached.sublist(
+            i,
+            i + chunkSize > remainingUncached.length
+                ? remainingUncached.length
+                : i + chunkSize,
+          );
+          final serverFutures = chunk.map((dateStr) async {
+            try {
+              final snap = await FirebaseFirestore.instance
+                  .collection('sensorReadings')
+                  .doc('history')
+                  .collection(dateStr)
+                  .get(const GetOptions(source: Source.serverAndCache));
+              final docs = snap.docs.map((doc) {
+                final data = doc.data();
+                data['id'] = doc.id;
+                return data;
+              }).toList();
+              cacheDay(dateStr, docs);
+              return docs;
+            } catch (e) {
+              debugPrint('[SensorService] fetchHistoryRange error for $dateStr: $e');
+              cacheDay(dateStr, []);
+              return <Map<String, dynamic>>[];
+            }
+          });
+          final serverResults = await Future.wait(serverFutures);
+          cachedRecords.addAll(serverResults.expand((r) => r));
+        }
+      }
     }
 
     cachedRecords.sort(

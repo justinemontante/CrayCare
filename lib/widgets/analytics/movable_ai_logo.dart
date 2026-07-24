@@ -85,16 +85,16 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                       width: 36,
                       height: 36,
                       decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: AppColors.primaryGradient,
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
+                        color: Colors.white,
                         shape: BoxShape.circle,
+                        border: Border.all(
+                          color: AppColors.primary,
+                          width: 2,
+                        ),
                       ),
                       child: ClipOval(
                         child: Padding(
-                          padding: const EdgeInsets.all(6),
+                          padding: const EdgeInsets.all(5),
                           child: Image.asset(
                             'assets/images/AI_InsightLogo.png',
                             fit: BoxFit.contain,
@@ -494,7 +494,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                       return Stack(
                         alignment: Alignment.center,
                         children: [
-                          // Soft brand-colored pulse ring behind the logo.
+                          // Soft pulse ring behind the logo.
                           Transform.scale(
                             scale: glowScale,
                             child: Container(
@@ -502,22 +502,13 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                               height: _logoSize,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                gradient: LinearGradient(
-                                  colors: [
-                                    AppColors.headerEnd.withValues(
-                                      alpha: glowOpacity,
-                                    ),
-                                    AppColors.primary.withValues(
-                                      alpha: glowOpacity,
-                                    ),
-                                  ],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
+                                color: AppColors.primary.withValues(
+                                  alpha: glowOpacity * 0.4,
                                 ),
                               ),
                             ),
                           ),
-                          // Main button: brand gradient ring + white inner
+                          // Main button: border ring + white inner
                           // disc so the logo art stays legible on any screen.
                           child!,
                         ],
@@ -529,75 +520,27 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                       padding: const EdgeInsets.all(2.5),
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        gradient: const LinearGradient(
-                          colors: AppColors.primaryGradient,
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
+                        color: Colors.white,
+                        border: Border.all(
+                          color: AppColors.primary,
+                          width: 2.5,
                         ),
                         boxShadow: [
                           BoxShadow(
-                            color: AppColors.darkWith(0.28),
-                            blurRadius: 12,
-                            offset: const Offset(0, 5),
+                            color: AppColors.darkWith(0.15),
+                            blurRadius: 10,
+                            offset: const Offset(0, 3),
                           ),
                         ],
                       ),
-                      child: Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          Container(
-                            decoration: const BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: AppColors.white,
-                            ),
-                            child: ClipOval(
-                              child: Padding(
-                                padding: const EdgeInsets.all(6),
-                                child: Image.asset(
-                                  'assets/images/AI_InsightLogo.png',
-                                  fit: BoxFit.contain,
-                                ),
-                              ),
-                            ),
+                      child: ClipOval(
+                        child: Padding(
+                          padding: const EdgeInsets.all(4),
+                          child: Image.asset(
+                            'assets/images/AI_InsightLogo.png',
+                            fit: BoxFit.contain,
                           ),
-                          // Small brand-accent "spark" badge, echoes the
-                          // teal -> green header gradient used elsewhere.
-                          Positioned(
-                            right: -2,
-                            bottom: -2,
-                            child: Container(
-                              width: 18,
-                              height: 18,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                gradient: const LinearGradient(
-                                  colors: [
-                                    AppColors.headerStart,
-                                    AppColors.headerEnd,
-                                  ],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                ),
-                                border: Border.all(
-                                  color: AppColors.white,
-                                  width: 1.5,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: AppColors.darkWith(0.2),
-                                    blurRadius: 4,
-                                    offset: const Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-                              child: const Icon(
-                                Icons.auto_awesome_rounded,
-                                size: 10,
-                                color: AppColors.white,
-                              ),
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
                     ),
                   ),

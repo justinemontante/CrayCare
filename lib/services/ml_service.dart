@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'connectivity_service.dart';
 
 class MlService extends ChangeNotifier {
   static final MlService instance = MlService._();
@@ -47,6 +48,14 @@ class MlService extends ChangeNotifier {
         notifyListeners();
       }
     });
+    ConnectivityService.instance.addOnConnectCallback(_onReconnect);
+  }
+
+  void _onReconnect() {
+    debugPrint('[MlService] Internet reconnected — refreshing listener');
+    if (FirebaseAuth.instance.currentUser != null) {
+      _startListening();
+    }
   }
 
   void _startListening() {

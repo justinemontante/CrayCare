@@ -34,9 +34,14 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
   final ValueNotifier<List<CrayfishDetection>> _liveDetections =
       ValueNotifier([]);
 
-  // Throttle: skip frame if <100ms since last inference (~10 fps max).
+  // Throttle inference — skip if <120ms since last run (~8 fps max).
   DateTime _lastInferenceStart = DateTime(0);
-  static const Duration _inferenceInterval = Duration(milliseconds: 100);
+  static const Duration _inferenceInterval = Duration(milliseconds: 120);
+
+  // Track camera focus state.
+  bool _focusConfigured = false;
+  Offset? _focusPoint;
+  bool _showFocusRing = false;
 
   File? _uploadedImage;
   double? _imageAspectRatio;
@@ -68,15 +73,33 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
     try {
       final cameras = await availableCameras();
       if (cameras.isEmpty) return;
+
+      // Pick back camera if available, otherwise first camera.
+      final description = cameras.firstWhere(
+        (c) => c.lensDirection == CameraLensDirection.back,
+        orElse: () => cameras.first,
+      );
+
       final controller = CameraController(
-        cameras.first,
-        ResolutionPreset.low,
+        description,
+        ResolutionPreset.high,
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.yuv420,
       );
       await controller.initialize();
       if (!mounted) return;
+
+      // Enable continuous auto-focus + auto-exposure for sharp preview.
+      try {
+        await controller.setFocusMode(FocusMode.auto);
+        await controller.setExposureMode(ExposureMode.auto);
+        await controller.setZoomLevel(1.0);
+      } catch (_) {}
+
       _cameraController = controller;
+      _focusConfigured = false;
+
+      // Configure initial tap-to-focus point at center after first frame.
       await controller.startImageStream(_onCameraFrame);
     } catch (e) {
       debugPrintError('Camera init failed', e);
@@ -98,6 +121,19 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
     if (_captured || _isDetecting || !CrayfishDetectionService.instance.isReady) return;
     final now = DateTime.now();
     if (now.difference(_lastInferenceStart) < _inferenceInterval) return;
+
+    // Configure tap-to-focus at center on first frame.
+    if (!_focusConfigured && _cameraController != null) {
+      _focusConfigured = true;
+      try {
+        final size = _cameraController!.value.previewSize;
+        if (size != null) {
+          await _cameraController!.setFocusPoint(
+            Offset(0.5, 0.5),
+          );
+        }
+      } catch (_) {}
+    }
 
     _isDetecting = true;
     _lastInferenceStart = now;
@@ -133,9 +169,136 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
     });
   }
 
-  // Placeholder — will be wired up later.
+  Future<void> _onTapToFocus(TapUpDetails details) async {
+    final controller = _cameraController;
+    if (controller == null || !controller.value.isInitialized) return;
+
+    final renderBox = context.findRenderObject() as RenderBox?;
+    if (renderBox == null) return;
+
+    final localPos = renderBox.globalToLocal(details.globalPosition);
+    final size = renderBox.size;
+
+    // Convert to 0.0–1.0 coordinates for setFocusPoint.
+    final x = (localPos.dx / size.width).clamp(0.0, 1.0);
+    final y = (localPos.dy / size.height).clamp(0.0, 1.0);
+
+    try {
+      await controller.setFocusPoint(Offset(x, y));
+      await controller.setExposurePoint(Offset(x, y));
+    } catch (_) {}
+
+    setState(() {
+      _focusPoint = localPos;
+      _showFocusRing = true;
+    });
+
+    // Hide the focus ring after 1s.
+    Future.delayed(const Duration(seconds: 1), () {
+      if (mounted) setState(() => _showFocusRing = false);
+    });
+  }
+
+  /// Shows a confirmation that the result was noted, but does NOT save to
+  /// the database yet (per current requirements).
   void _saveResult() {
-    debugPrintError('Save tapped', 'Not implemented yet');
+    final detection = _capturedDetection;
+    if (detection == null) return;
+
+    final isMale = detection.isMale;
+    final color = isMale ? const Color(0xFF3B82F6) : const Color(0xFFEC4899);
+
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierColor: Colors.black.withValues(alpha: 0.4),
+      builder: (ctx) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  isMale ? Icons.male_rounded : Icons.female_rounded,
+                  color: color,
+                  size: 28,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'Gender Detected',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.darkWith(0.5),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                detection.label[0].toUpperCase() + detection.label.substring(1),
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: color,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${(detection.confidence * 100).toStringAsFixed(0)}% confidence',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.darkWith(0.4),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                'Result noted. Saving to database is not yet enabled.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.darkWith(0.4),
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: GestureDetector(
+                  onTap: () => Navigator.of(ctx).pop(),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Text(
+                      'OK',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   // ── Upload ────────────────────────────────────────────────────────────────
@@ -350,7 +513,34 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
         return Stack(
           fit: StackFit.expand,
           children: [
-            CameraPreview(controller),
+            GestureDetector(
+              onTapUp: _onTapToFocus,
+              child: CameraPreview(controller),
+            ),
+
+            // Tap-to-focus ring animation.
+            if (_showFocusRing && _focusPoint != null)
+              Positioned(
+                left: _focusPoint!.dx - 30,
+                top: _focusPoint!.dy - 30,
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 1.5, end: 1.0),
+                  duration: const Duration(milliseconds: 300),
+                  builder: (context, scale, child) {
+                    return Transform.scale(
+                      scale: scale,
+                      child: Container(
+                        width: 60,
+                        height: 60,
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.white, width: 2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
 
             // Position guide — visible only when no detections.
             AnimatedOpacity(
@@ -436,17 +626,16 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
                 ),
               ),
 
-            // Manual Capture button — only shown while live-scanning and a
-            // crayfish is currently detected. Nothing auto-captures; this is
-            // the only way a result gets locked in.
-            if (!_captured && hasDetections)
+            // Capture button — always visible while live-scanning (not
+            // captured).  Taps are ignored when no crayfish is detected.
+            if (!_captured)
               Positioned(
                 bottom: 24,
                 left: 0,
                 right: 0,
                 child: Center(
                   child: GestureDetector(
-                    onTap: _onCapturePressed,
+                    onTap: hasDetections ? _onCapturePressed : null,
                     child: Container(
                       width: 68,
                       height: 68,
@@ -458,8 +647,11 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
                           BoxShadow(color: Color(0x33000000), blurRadius: 10),
                         ],
                       ),
-                      child: Icon(Icons.camera_alt_rounded,
-                          color: AppColors.primary, size: 28),
+                      child: hasDetections
+                          ? Icon(Icons.camera_alt_rounded,
+                              color: AppColors.primary, size: 28)
+                          : Icon(Icons.camera_alt_rounded,
+                              color: AppColors.darkWith(0.2), size: 28),
                     ),
                   ),
                 ),

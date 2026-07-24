@@ -210,9 +210,9 @@ class HardwareGroup extends StatelessWidget {
                                   color: const Color(0x19000000),
                                   borderRadius: BorderRadius.circular(4),
                                 ),
-                                child: const Text(
+                                child: Text(
                                   'OFFLINE',
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 8,
                                     fontWeight: FontWeight.w700,
                                     color: Color(0x80000000),

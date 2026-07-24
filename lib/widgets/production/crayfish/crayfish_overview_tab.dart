@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../../../theme/app_colors.dart';
 import '../../../services/tank_service.dart';
 import '../../../utils/snackbar_helper.dart';
-import '../../../screens/crayfish_scan_screen.dart';
 import 'harvest_form_panel.dart';
 
 class OverviewTab extends StatelessWidget {
@@ -230,18 +229,6 @@ class OverviewTab extends StatelessWidget {
               _buildInfoChip(Icons.calendar_month_rounded, 'Stocked', _formatDate(service.stockingDate)),
               const SizedBox(width: 12),
               _buildInfoChip(Icons.timelapse_rounded, 'Days', '${service.daysInCulture}d'),
-              const Spacer(),
-              GestureDetector(
-                onTap: () => _openGenderScan(context),
-                child: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.camera_alt_rounded, size: 16, color: Colors.white),
-                ),
-              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -719,16 +706,7 @@ class OverviewTab extends StatelessWidget {
     return '${months[date.month - 1]} ${date.day}, ${date.year}';
   }
 
-  void _openGenderScan(BuildContext context) {
-    final batchId = TankService.instance.selectedBatchId;
-    if (batchId == null) return;
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        fullscreenDialog: true,
-        builder: (_) => CrayfishScanScreen(batchId: batchId),
-      ),
-    );
-  }
+
 }
 
 class _DonutPainter extends CustomPainter {

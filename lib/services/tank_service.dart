@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/crayfish_batch.dart';
+import 'connectivity_service.dart';
 
 enum GrowthStage {
   earlyJuvenile('Early Juvenile', '1-5g', '2-4cm', 'Nursery / Initial Stocking', 'SRAC Pub 244'),
@@ -199,7 +200,7 @@ class TankService extends ChangeNotifier {
     return _batches.first;
   }
 
-  int get totalMortality => _mortalityHistory.fold(0, (sum, e) => sum + e.count);
+  int get totalMortality => _mortalityHistory.fold(0, (acc, e) => acc + e.count);
 
   GrowthStage get currentGrowthStage {
     final latest = _samplingHistory.isNotEmpty ? _samplingHistory.last : null;
@@ -209,6 +210,14 @@ class TankService extends ChangeNotifier {
     if (abw < 15 || abl < 6) return GrowthStage.advancedJuvenile;
     if (abw < 50 || abl < 10) return GrowthStage.preAdult;
     return GrowthStage.marketSize;
+  }
+
+  Future<void> refresh() async {
+    if (_tankOwnerUid.isEmpty) return;
+    debugPrint('[TankService] refresh() — reloading data');
+    _cancelSubscriptions();
+    await _loadConfig();
+    _listenFirebase();
   }
 
   void init() async {
@@ -231,6 +240,12 @@ class TankService extends ChangeNotifier {
       _cancelSubscriptions();
       _loadConfig().then((_) => _listenFirebase());
     });
+    ConnectivityService.instance.addOnConnectCallback(_onReconnect);
+  }
+
+  void _onReconnect() {
+    debugPrint('[TankService] Internet reconnected — refreshing listeners');
+    refresh();
   }
 
   Future<void> _loadConfig() async {
@@ -637,7 +652,7 @@ class TankService extends ChangeNotifier {
           count: countRaw.toInt(),
         );
       }).whereType<MortalityEntry>().toList()..sort((a, b) => a.date.compareTo(b.date));
-      _mortality = _mortalityHistory.fold(0, (sum, e) => sum + e.count);
+      _mortality = _mortalityHistory.fold(0, (acc, e) => acc + e.count);
       notifyListeners();
     }, onError: (e) {
       debugPrint('[TankService] _mortalitySub error: $e');
@@ -693,19 +708,28 @@ class TankService extends ChangeNotifier {
 
   Future<void> _saveConfig() async {
     if (!_setupComplete) return;
-    await _fs.collection('config').doc(_tankOwnerUid).set({
-      'initialPopulation': _initialCount,
-      'stockingDate': _stockingDate.millisecondsSinceEpoch,
-      'lastSampleDate': _lastSampleDate.millisecondsSinceEpoch,
-      'Mortality': _mortality,
-      'sampleCount': _sampleCount,
-      'initialTotalSampleWeight': _totalSampleWeight,
-      'initialTotalSampleLength': _totalSampleLength,
-      'Alive': inTankCount,
-      'totalHarvested': _totalHarvested,
-      'isInitialized': _isInitialized,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+    if (_tankOwnerUid.isEmpty) {
+      debugPrint('[TankService] _saveConfig: No user UID, skipping save');
+      return;
+    }
+    try {
+      await _fs.collection('config').doc(_tankOwnerUid).set({
+        'initialPopulation': _initialCount,
+        'stockingDate': _stockingDate.millisecondsSinceEpoch,
+        'lastSampleDate': _lastSampleDate.millisecondsSinceEpoch,
+        'Mortality': _mortality,
+        'sampleCount': _sampleCount,
+        'initialTotalSampleWeight': _totalSampleWeight,
+        'initialTotalSampleLength': _totalSampleLength,
+        'Alive': inTankCount,
+        'totalHarvested': _totalHarvested,
+        'isInitialized': _isInitialized,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      debugPrint('[TankService] Error saving config: $e');
+      rethrow;
+    }
   }
 
   Future<void> resetExperiment() async {
@@ -733,6 +757,15 @@ class TankService extends ChangeNotifier {
   Future<void> initializeGrowOut(int initial, int sampleCount, double totalWeight, double totalLength, DateTime date, {String? batchName}) async {
     if (_tankOwnerUid.isEmpty) {
       throw Exception('User not authenticated. Please sign in and try again.');
+    }
+    if (initial <= 0) {
+      throw ArgumentError('Initial population must be greater than 0');
+    }
+    if (sampleCount <= 0) {
+      throw ArgumentError('Sample count must be greater than 0');
+    }
+    if (totalWeight < 0 || totalLength < 0) {
+      throw ArgumentError('Weight and length must be non-negative');
     }
 
     // --- Step 1: Archive the currently active batch (if any) before creating a new one ---
@@ -856,6 +889,12 @@ class TankService extends ChangeNotifier {
   }
 
   void addSamplingEntry(int count, double weight, double length) {
+    if (count <= 0) {
+      throw ArgumentError('Sample count must be greater than 0');
+    }
+    if (weight < 0 || length < 0) {
+      throw ArgumentError('Weight and length must be non-negative');
+    }
     _setupComplete = true;
     final now = DateTime.now();
     _lastSampleDate = now;
@@ -866,27 +905,38 @@ class TankService extends ChangeNotifier {
       totalWeight: weight, totalLength: length, biomass: inTankCount * abw, liveCount: inTankCount,
     );
     _samplingHistory.add(entry);
-    _fs.collection('sampling').add({
-      'uid': _tankOwnerUid,
-      'batchId': _selectedBatchId ?? '',
-      'date': entry.date.millisecondsSinceEpoch,
-      'abw': entry.abw,
-      'avgLength': entry.avgLength,
-      'sampleSize': entry.sampleSize,
-      'totalWeight': entry.totalWeight,
-      'totalLength': entry.totalLength,
-      'biomass': entry.biomass,
-      'liveCount': entry.liveCount,
-      'isBaseline': false,
-      'timestamp': FieldValue.serverTimestamp(),
-    });
-    _addActivity('Recorded sampling: ${abw.toStringAsFixed(2)}g ABW, ${avgLength.toStringAsFixed(2)}cm ABL', 'sampling', sampleSize: count, abw: abw, avgLength: avgLength);
-    _saveConfig();
+    try {
+      _fs.collection('sampling').add({
+        'uid': _tankOwnerUid,
+        'batchId': _selectedBatchId ?? '',
+        'date': entry.date.millisecondsSinceEpoch,
+        'abw': entry.abw,
+        'avgLength': entry.avgLength,
+        'sampleSize': entry.sampleSize,
+        'totalWeight': entry.totalWeight,
+        'totalLength': entry.totalLength,
+        'biomass': entry.biomass,
+        'liveCount': entry.liveCount,
+        'isBaseline': false,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+      _addActivity('Recorded sampling: ${abw.toStringAsFixed(2)}g ABW, ${avgLength.toStringAsFixed(2)}cm ABL', 'sampling', sampleSize: count, abw: abw, avgLength: avgLength);
+      _saveConfig();
+    } catch (e) {
+      debugPrint('[TankService] Error saving sampling entry: $e');
+      rethrow;
+    }
     notifyListeners();
   }
 
   void updateLastSamplingEntry(int count, double weight, double length) {
     if (_lastSamplingDocId == null || _samplingHistory.isEmpty) return;
+    if (count <= 0) {
+      throw ArgumentError('Sample count must be greater than 0');
+    }
+    if (weight < 0 || length < 0) {
+      throw ArgumentError('Weight and length must be non-negative');
+    }
     final abw = weight / count;
     final avgLength = length / count;
     final updated = SamplingEntry(
@@ -895,34 +945,47 @@ class TankService extends ChangeNotifier {
       biomass: inTankCount * abw, liveCount: inTankCount,
     );
     _samplingHistory.last = updated;
-    _fs.collection('sampling').doc(_lastSamplingDocId!).update({
-      'abw': updated.abw,
-      'avgLength': updated.avgLength,
-      'sampleSize': updated.sampleSize,
-      'totalWeight': updated.totalWeight,
-      'totalLength': updated.totalLength,
-      'biomass': updated.biomass,
-      'liveCount': updated.liveCount,
-      'timestamp': FieldValue.serverTimestamp(),
-    });
-    _saveConfig();
+    try {
+      _fs.collection('sampling').doc(_lastSamplingDocId!).update({
+        'abw': updated.abw,
+        'avgLength': updated.avgLength,
+        'sampleSize': updated.sampleSize,
+        'totalWeight': updated.totalWeight,
+        'totalLength': updated.totalLength,
+        'biomass': updated.biomass,
+        'liveCount': updated.liveCount,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+      _saveConfig();
+    } catch (e) {
+      debugPrint('[TankService] Error updating sampling entry: $e');
+      rethrow;
+    }
     notifyListeners();
   }
 
   void addMortality(int val, {DateTime? date}) {
+    if (val <= 0) {
+      throw ArgumentError('Mortality count must be greater than 0');
+    }
     _mortality += val;
     _setupComplete = true;
     final mEntry = MortalityEntry(date: date ?? DateTime.now(), count: val);
     _mortalityHistory.add(mEntry);
-    _fs.collection('mortality').add({
-      'uid': _tankOwnerUid,
-      'batchId': _selectedBatchId ?? '',
-      'date': mEntry.date.millisecondsSinceEpoch,
-      'count': mEntry.count,
-      'timestamp': FieldValue.serverTimestamp(),
-    });
-    _addActivity('Recorded mortality of $val crayfish (Total: $_mortality)', 'mortality', customDate: date);
-    _saveConfig();
+    try {
+      _fs.collection('mortality').add({
+        'uid': _tankOwnerUid,
+        'batchId': _selectedBatchId ?? '',
+        'date': mEntry.date.millisecondsSinceEpoch,
+        'count': mEntry.count,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+      _addActivity('Recorded mortality of $val crayfish (Total: $_mortality)', 'mortality', customDate: date);
+      _saveConfig();
+    } catch (e) {
+      debugPrint('[TankService] Error saving mortality entry: $e');
+      rethrow;
+    }
     notifyListeners();
   }
 
@@ -931,41 +994,52 @@ class TankService extends ChangeNotifier {
     required double totalWeightKg,
     String? batchId,
   }) {
+    if (harvestedCount < 0) {
+      throw ArgumentError('Harvested count must be non-negative');
+    }
+    if (totalWeightKg < 0) {
+      throw ArgumentError('Total weight must be non-negative');
+    }
     final now = DateTime.now();
     final abwGrams = harvestedCount > 0 ? (totalWeightKg * 1000) / harvestedCount : 0.0;
     _totalHarvested += harvestedCount;
     final sr = _initialCount > 0 ? (liveCount / _initialCount * 100) : 0.0;
-    _fs.collection('harvests').add({
-      'uid': _tankOwnerUid,
-      'batchId': batchId ?? _selectedBatchId ?? '',
-      'date': now.millisecondsSinceEpoch,
-      'harvestedCount': harvestedCount,
-      'totalWeightKg': totalWeightKg,
-      'abwGrams': abwGrams,
-      'survivalRate': sr,
-      'timestamp': FieldValue.serverTimestamp(),
-    });
-    _fs.collection('batches')
-        .where('batchId', isEqualTo: batchId ?? _selectedBatchId ?? '')
-        .where('uid', isEqualTo: _tankOwnerUid)
-        .get()
-        .then((snap) {
-      if (snap.docs.isNotEmpty) {
-        final existing = snap.docs.first.data();
-        final totalHarvested = ((existing['harvestCount'] as num?)?.toInt() ?? 0) + harvestedCount;
-        final existingWeight = (existing['harvestWeightGrams'] as num?)?.toDouble() ?? 0;
-        snap.docs.first.reference.set({
-          'harvestDate': now.millisecondsSinceEpoch,
-          'harvestCount': totalHarvested,
-          'harvestWeightGrams': existingWeight + (totalWeightKg * 1000),
-        }, SetOptions(merge: true));
-      }
-    });
-    _addActivity(
-      'Harvested $harvestedCount crayfish, ${totalWeightKg.toStringAsFixed(2)}kg total (ABW: ${abwGrams.toStringAsFixed(1)}g)',
-      'harvest',
-    );
-    _saveConfig();
+    try {
+      _fs.collection('harvests').add({
+        'uid': _tankOwnerUid,
+        'batchId': batchId ?? _selectedBatchId ?? '',
+        'date': now.millisecondsSinceEpoch,
+        'harvestedCount': harvestedCount,
+        'totalWeightKg': totalWeightKg,
+        'abwGrams': abwGrams,
+        'survivalRate': sr,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+      _fs.collection('batches')
+          .where('batchId', isEqualTo: batchId ?? _selectedBatchId ?? '')
+          .where('uid', isEqualTo: _tankOwnerUid)
+          .get()
+          .then((snap) {
+        if (snap.docs.isNotEmpty) {
+          final existing = snap.docs.first.data();
+          final totalHarvested = ((existing['harvestCount'] as num?)?.toInt() ?? 0) + harvestedCount;
+          final existingWeight = (existing['harvestWeightGrams'] as num?)?.toDouble() ?? 0;
+          snap.docs.first.reference.set({
+            'harvestDate': now.millisecondsSinceEpoch,
+            'harvestCount': totalHarvested,
+            'harvestWeightGrams': existingWeight + (totalWeightKg * 1000),
+          }, SetOptions(merge: true));
+        }
+      });
+      _addActivity(
+        'Harvested $harvestedCount crayfish, ${totalWeightKg.toStringAsFixed(2)}kg total (ABW: ${abwGrams.toStringAsFixed(1)}g)',
+        'harvest',
+      );
+      _saveConfig();
+    } catch (e) {
+      debugPrint('[TankService] Error saving harvest record: $e');
+      rethrow;
+    }
     notifyListeners();
   }
 
@@ -986,9 +1060,9 @@ class TankService extends ChangeNotifier {
       'date': dateStr,
       'time': timeStr,
       'timestamp': now.millisecondsSinceEpoch,
-      if (sampleSize != null) 'sampleSize': sampleSize,
-      if (abw != null) 'abw': abw,
-      if (avgLength != null) 'avgLength': avgLength,
+      ...?sampleSize != null ? {'sampleSize': sampleSize} : null,
+      ...?abw != null ? {'abw': abw} : null,
+      ...?avgLength != null ? {'avgLength': avgLength} : null,
     });
   }
 

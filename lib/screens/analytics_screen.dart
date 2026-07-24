@@ -30,14 +30,15 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
   bool _isLoading = false;
   Timer? _autoRefreshTimer;
+  Timer? _liveTimer;
 
-  bool get _showCritical => _activeFilter == 'live' || _activeFilter == '24h';
+  bool get _showCritical => _activeFilter != 'live' && _activeFilter == '24h';
 
   // Historical ranges (24h/7d/30d always, custom only if its end date is
   // today or later) include today's still-being-written subcollection.
-  // Only those ranges benefit from auto-refreshing; "live" already updates
-  // itself via the real-time sensor listener.
+  // Only those ranges benefit from auto-refreshing.
   bool get _activeRangeIncludesToday {
+    if (_activeFilter == 'live') return false;
     final now = DateTime.now();
     switch (_activeFilter) {
       case '24h':
@@ -51,9 +52,35 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     }
   }
 
+  void _startLiveTimer() {
+    _liveTimer?.cancel();
+    _liveTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (mounted && _activeFilter == 'live') {
+        _generateLive();
+      }
+    });
+  }
+
+  void _generateLive() {
+    final now = DateTime.now();
+    for (final key in SensorService.sensorKeys) {
+      final history = SensorService.instance.getData(key);
+      final last8 = history.length > 8 ? history.sublist(history.length - 8) : history;
+      _data['$key-live'] = List<double>.from(last8);
+
+      _labels['live'] = List<String>.generate(last8.length, (i) {
+        final t = now.subtract(Duration(seconds: (last8.length - 1 - i) * 5));
+        final h = t.hour > 12 ? t.hour - 12 : (t.hour == 0 ? 12 : t.hour);
+        final ampm = t.hour >= 12 ? 'PM' : 'AM';
+        return '$h:${t.minute.toString().padLeft(2, '0')}:${t.second.toString().padLeft(2, '0')} $ampm';
+      });
+    }
+    if (mounted) setState(() {});
+  }
+
   Future<void> _maybeAutoRefreshHistory() async {
     if (!mounted) return;
-    if (_activeFilter == 'live' || !_activeRangeIncludesToday) return;
+    if (!_activeRangeIncludesToday) return;
     await _generateData(_activeFilter);
     if (mounted) setState(() {});
   }
@@ -73,12 +100,9 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       'waterlevel': GlobalKey(),
     };
     _scrollController = ScrollController();
-    _generateData('live');
+    _generateLive();
+    _startLiveTimer();
     SettingsService.instance.addListener(_onSettingsChanged);
-    SensorService.instance.addListener(_onSensorDataChanged);
-    // Matches the "today" cache TTL in SensorService - frequent enough to
-    // surface a new ESP save (written every ~10 min) quickly, cheap enough
-    // that it's a no-op cache hit for closed past days.
     _autoRefreshTimer = Timer.periodic(
       const Duration(seconds: 60),
       (_) => _maybeAutoRefreshHistory(),
@@ -88,48 +112,14 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   @override
   void dispose() {
     _autoRefreshTimer?.cancel();
+    _liveTimer?.cancel();
     _scrollController.dispose();
-    SensorService.instance.removeListener(_onSensorDataChanged);
     SettingsService.instance.removeListener(_onSettingsChanged);
     super.dispose();
   }
 
   void _onSettingsChanged() {
     if (mounted) setState(() {});
-  }
-
-  void _onSensorDataChanged() {
-    if (!mounted) return;
-    if (_activeFilter == 'live') {
-      setState(() {
-        final hasData = SensorService.sensorKeys.any(
-          (k) => SensorService.instance.hasSensorData(k),
-        );
-
-        if (!hasData) {
-          for (final key in SensorService.sensorKeys) {
-            _data['$key-live'] = [];
-          }
-          return;
-        }
-
-        final now = DateTime.now();
-        final timeStr =
-            "${now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour)}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')} ${now.hour >= 12 ? 'PM' : 'AM'}";
-
-        _labels['live'] ??= [];
-        final labels = _labels['live']!;
-        if (labels.length >= 8) labels.removeAt(0);
-        labels.add(timeStr);
-
-        SensorService.sensorKeys.forEach((key) {
-          final raw = SensorService.instance.getData(key);
-          _data['$key-live'] = raw.length > 8
-              ? raw.sublist(raw.length - 8)
-              : List.from(raw);
-        });
-      });
-    }
   }
 
   static const _historyKeyMap = {
@@ -141,12 +131,13 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   };
 
   Future<void> _generateData(String range) async {
+    if (range == 'live') {
+      _generateLive();
+      return;
+    }
     int pts;
     int intervalMinutes;
-    if (range == 'live') {
-      pts = 8;
-      intervalMinutes = 0;
-    } else if (range == '24h') {
+    if (range == '24h') {
       pts = 144; // every 10 minutes × 24h
       intervalMinutes = 10;
     } else if (range == '7d') {
@@ -166,29 +157,6 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     }
 
     final now = DateTime.now();
-    List<String> labels;
-    if (range == 'live') {
-      labels = List.generate(pts, (i) {
-        final d = now.subtract(Duration(seconds: (pts - 1 - i) * 5));
-        final h = d.hour > 12 ? d.hour - 12 : (d.hour == 0 ? 12 : d.hour);
-        final ampm = d.hour >= 12 ? 'PM' : 'AM';
-        return '${h}:${d.minute.toString().padLeft(2, '0')}:${d.second.toString().padLeft(2, '0')} $ampm';
-      });
-
-      SensorService.sensorKeys.forEach((key) {
-        if (SensorService.instance.hasFreshData(key)) {
-          final raw = SensorService.instance.getData(key);
-          _data['$key-live'] = raw.length > 8
-              ? raw.sublist(raw.length - 8)
-              : List.from(raw);
-        } else {
-          _data['$key-live'] = [];
-        }
-      });
-      _labels['live'] = labels;
-      return;
-    }
-
     DateTime historyStart;
     DateTime historyEnd;
     if (range == '24h') {
@@ -205,10 +173,15 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       historyEnd = _customEndDate;
     }
 
-    final records = await SensorService.instance.fetchHistoryRange(
-      start: historyStart,
-      end: historyEnd,
-    );
+    List<Map<String, dynamic>> records;
+    try {
+      records = await SensorService.instance.fetchHistoryRange(
+        start: historyStart,
+        end: historyEnd,
+      ).timeout(const Duration(seconds: 10));
+    } catch (_) {
+      records = [];
+    }
 
     if (records.isEmpty || pts == 0) {
       for (final key in SensorService.sensorKeys) {
@@ -234,7 +207,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       _labels[range] = labelTimes.map((d) {
         final h = d.hour > 12 ? d.hour - 12 : (d.hour == 0 ? 12 : d.hour);
         final ampm = d.hour >= 12 ? 'PM' : 'AM';
-        return '${months[d.month - 1]} ${d.day}, ${h}:${d.minute.toString().padLeft(2, '0')} $ampm';
+        return '${months[d.month - 1]} $d.day, $h:${d.minute.toString().padLeft(2, '0')} $ampm';
       }).toList();
     } else if (range == '7d') {
       labelTimes = List<DateTime>.generate(pts, (i) {
@@ -389,7 +362,13 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                         _showCustom = false;
                         _isLoading = val != 'live';
                       });
-                      await _generateData(val);
+                      if (val == 'live') {
+                        _startLiveTimer();
+                        _generateLive();
+                      } else {
+                        _liveTimer?.cancel();
+                        await _generateData(val);
+                      }
                       if (mounted) setState(() => _isLoading = false);
                     },
                     onToggleCustom: () {
@@ -415,6 +394,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                   Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       KeyedSubtree(
                         key: _chartCardKeys['temp'],
@@ -711,7 +691,6 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     final mx = !hasValid
         ? '--'
         : _calc(validData, (d) => d.reduce(max)).toStringAsFixed(dp);
-    final cur = !hasValid ? '--' : validData.last.toStringAsFixed(dp);
     final curLabel = labels.isNotEmpty ? labels.last : '';
     final unit = _unitFor(chartKey);
 
@@ -736,29 +715,6 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
         : 0;
 
     final selIdx = _selectedIndices[chartKey];
-    String displayCur = cur;
-    String displayLabel = curLabel;
-    String curPrefix = _activeFilter == 'live' ? 'Live' : 'Avg';
-
-    String statusLabel = '';
-    Color statusColor = Colors.transparent;
-    Color statusBg = Colors.transparent;
-    if (hasValid) {
-      final lastVal = validData.last;
-      if (lastVal > thresholds['max']! || lastVal < thresholds['min']!) {
-        statusLabel = 'Critical';
-        statusColor = AppColors.critical;
-        statusBg = AppColors.criticalWith(0.12);
-      } else if (criticalCount > 0) {
-        statusLabel = 'Warning';
-        statusColor = AppColors.warning;
-        statusBg = AppColors.warningWith(0.15);
-      } else {
-        statusLabel = 'Optimal';
-        statusColor = AppColors.success;
-        statusBg = AppColors.successWith(0.12);
-      }
-    }
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -813,40 +769,6 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                       if (_activeFilter == '24h') ...[const SizedBox(width: 8)],
                     ],
                   ),
-                  if (_activeFilter == 'live' && hasValid)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: statusBg,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 6,
-                            height: 6,
-                            decoration: BoxDecoration(
-                              color: statusColor,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            statusLabel,
-                            style: TextStyle(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w700,
-                              color: statusColor,
-                              letterSpacing: 0.3,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
                 ],
               ),
               const SizedBox(height: 8),
@@ -878,15 +800,13 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                             _onChartSelectionChanged(chartKey, idx),
                         thresholdMin: thresholds['min'],
                         thresholdMax: thresholds['max'],
-                        isLive: _activeFilter == 'live',
                         decimalPlaces: dp,
                       ),
               ),
               if (hasValid) ...[
                 const SizedBox(height: 8),
                 _buildStatsFooter(
-                  displayCur,
-                  displayLabel,
+                  curLabel,
                   mn,
                   mx,
                   minLabel,
@@ -900,11 +820,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                   nowIdx: nowIdx,
                   onSelectIndex: (idx) =>
                       _onChartSelectionChanged(chartKey, idx),
-                  curPrefix: curPrefix,
                   dp: dp,
-                  trendWidget: _activeFilter == 'live'
-                      ? _buildTrendLabel(chartKey)
-                      : null,
                 ),
               ],
             ],
@@ -960,59 +876,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     return 'No sensor reading';
   }
 
-  Widget _buildTrendLabel(String chartKey) {
-    final trend = SensorService.instance.getTrend(chartKey);
-
-    IconData icon;
-    Color color;
-    String label;
-
-    switch (trend) {
-      case 'rising_fast':
-        icon = Icons.keyboard_double_arrow_up;
-        color = AppColors.success;
-        label = 'Rising Fast';
-        break;
-      case 'rising':
-        icon = Icons.trending_up;
-        color = AppColors.success;
-        label = 'Rising';
-        break;
-      case 'falling_fast':
-        icon = Icons.keyboard_double_arrow_down;
-        color = AppColors.critical;
-        label = 'Falling Fast';
-        break;
-      case 'falling':
-        icon = Icons.trending_down;
-        color = AppColors.critical;
-        label = 'Falling';
-        break;
-      default:
-        icon = Icons.trending_flat;
-        color = AppColors.dark.withValues(alpha: 0.4);
-        label = 'Stable';
-    }
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 12, color: color),
-        const SizedBox(width: 4),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 10,
-            fontWeight: FontWeight.w600,
-            color: color,
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _buildStatsFooter(
-    String cur,
     String curLabel,
     String mn,
     String mx,
@@ -1026,11 +890,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     int maxIdx = -1,
     int nowIdx = -1,
     ValueChanged<int>? onSelectIndex,
-    String curPrefix = 'Now',
     int dp = 1,
-    Widget? trendWidget,
   }) {
-    final isLive = _activeFilter == 'live';
 
     double avg = 0.0;
     if (data.isNotEmpty) {
@@ -1048,6 +909,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
         border: Border.all(color: AppColors.darkWith(0.06)),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
@@ -1086,10 +948,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                       : null,
                   child: _buildStatRow(
                     Icons.sensors,
-                    isLive ? '$curPrefix: $cur $unit' : 'Avg: ${avg.toStringAsFixed(dp)} $unit',
-                    isLive
-                        ? (curPrefix == 'Live' ? 'Real-time Streaming' : curLabel)
-                        : curLabel,
+                    'Avg: ${avg.toStringAsFixed(dp)} $unit',
+                    curLabel,
                     AppColors.primary,
                   ),
                 ),
@@ -1113,6 +973,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                       criticalCount > 0
                           ? '$criticalCount critical point${criticalCount > 1 ? 's' : ''}'
                           : 'No critical points',
+                      maxLines: 1,
                       style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w600,
@@ -1126,10 +987,6 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                 ],
               ),
             ],
-          if (trendWidget != null) ...[
-            const SizedBox(height: 6),
-            trendWidget,
-          ],
         ],
       ),
     );
@@ -1143,9 +1000,11 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
               Text(
                 value,
+                maxLines: 1,
                 style: const TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.w700,
@@ -1155,6 +1014,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
               ),
               Text(
                 label,
+                maxLines: 1,
                 style: TextStyle(fontSize: 8, color: AppColors.darkWith(0.5)),
                 overflow: TextOverflow.ellipsis,
               ),
@@ -1165,10 +1025,11 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
-  void scrollToChart(String chartKey) {
-    _activeFilter = 'live';
-    _generateData('live');
+  Future<void> scrollToChart(String chartKey) async {
+    _activeFilter = '24h';
+    _liveTimer?.cancel();
     setState(() {});
+    await _generateData('24h');
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final key = _chartCardKeys[chartKey];
       if (key?.currentContext == null) return;
@@ -1256,16 +1117,15 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
               criticalCount = 0;
               criticalItems = [];
             }
-            final cur = !hasValid ? '--' : validData.last.toStringAsFixed(dp);
             final curLabel = labels.isNotEmpty ? labels.last : '';
+            double avg = 0.0;
+            if (validData.isNotEmpty) {
+              avg = validData.reduce((a, b) => a + b) / validData.length;
+            }
 
             return StatefulBuilder(
               builder: (ctx2, setDialogState) {
-                String modalDisplayCur = cur;
                 String modalDisplayLabel = curLabel;
-                String modalCurPrefix = _activeFilter == 'live'
-                    ? 'Live'
-                    : 'Avg';
 
                 return Dialog(
                   insetPadding: const EdgeInsets.symmetric(horizontal: 20),
@@ -1350,122 +1210,93 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                             ),
                             child: Column(
                               children: [
-                                if (_activeFilter == 'live')
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: GestureDetector(
-                                          onTap: nowIdx >= 0
-                                              ? () => setDialogState(
-                                                  () => modalSelectedIndex =
-                                                      nowIdx,
-                                                )
-                                              : null,
-                                          child: _buildStatRow(
-                                            Icons.sensors,
-                                            '$modalCurPrefix: $modalDisplayCur $unit',
-                                            modalCurPrefix == 'Live'
-                                                ? 'Real-time Streaming'
-                                                : modalDisplayLabel,
-                                            AppColors.primary,
-                                          ),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: GestureDetector(
+                                        onTap: minIdx >= 0
+                                            ? () => setDialogState(
+                                                () => modalSelectedIndex =
+                                                    minIdx,
+                                              )
+                                            : null,
+                                        child: _buildStatRow(
+                                          Icons.arrow_downward,
+                                          'Min: $mn $unit',
+                                          minLabel,
+                                          AppColors.success,
                                         ),
                                       ),
-                                    ],
-                                  )
-                                else ...[
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: GestureDetector(
-                                          onTap: minIdx >= 0
-                                              ? () => setDialogState(
-                                                  () => modalSelectedIndex =
-                                                      minIdx,
-                                                )
-                                              : null,
-                                          child: _buildStatRow(
-                                            Icons.arrow_downward,
-                                            'Min: $mn $unit',
-                                            minLabel,
-                                            AppColors.success,
-                                          ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: GestureDetector(
+                                        onTap: maxIdx >= 0
+                                            ? () => setDialogState(
+                                                () => modalSelectedIndex =
+                                                    maxIdx,
+                                              )
+                                            : null,
+                                        child: _buildStatRow(
+                                          Icons.arrow_upward,
+                                          'Max: $mx $unit',
+                                          maxLabel,
+                                          AppColors.warning,
                                         ),
                                       ),
-                                      const SizedBox(width: 6),
-                                      Expanded(
-                                        child: GestureDetector(
-                                          onTap: maxIdx >= 0
-                                              ? () => setDialogState(
-                                                  () => modalSelectedIndex =
-                                                      maxIdx,
-                                                )
-                                              : null,
-                                          child: _buildStatRow(
-                                            Icons.arrow_upward,
-                                            'Max: $mx $unit',
-                                            maxLabel,
-                                            AppColors.warning,
-                                          ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: GestureDetector(
+                                        onTap: nowIdx >= 0
+                                            ? () => setDialogState(
+                                                () => modalSelectedIndex =
+                                                    nowIdx,
+                                              )
+                                            : null,
+                                        child: _buildStatRow(
+                                          Icons.sensors,
+                                          'Avg: ${avg.toStringAsFixed(dp)} $unit',
+                                          modalDisplayLabel,
+                                          AppColors.primary,
                                         ),
                                       ),
-                                      const SizedBox(width: 6),
-                                      Expanded(
-                                        child: GestureDetector(
-                                          onTap: nowIdx >= 0
-                                              ? () => setDialogState(
-                                                  () => modalSelectedIndex =
-                                                      nowIdx,
-                                                )
-                                              : null,
-                                          child: _buildStatRow(
-                                            Icons.sensors,
-                                            '$modalCurPrefix: $modalDisplayCur $unit',
-                                            modalDisplayLabel,
-                                            AppColors.primary,
-                                          ),
+                                    ),
+                                  ],
+                                ),
+                                if (_showCritical) ...[
+                                  const SizedBox(height: 6),
+                                  GestureDetector(
+                                    onTap: criticalCount > 0
+                                        ? () => setDialogState(
+                                            () => modalShowCritical = true,
+                                          )
+                                        : null,
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.warning_amber_rounded,
+                                          size: 11,
+                                          color: criticalCount > 0
+                                              ? AppColors.critical
+                                              : AppColors.success,
                                         ),
-                                      ),
-                                    ],
-                                  ),
-                                  if (_showCritical) ...[
-                                    const SizedBox(height: 6),
-                                    GestureDetector(
-                                      onTap: criticalCount > 0
-                                          ? () => setDialogState(
-                                              () => modalShowCritical = true,
-                                            )
-                                          : null,
-                                      child: Row(
-                                        children: [
-                                          Icon(
-                                            Icons.warning_amber_rounded,
-                                            size: 11,
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          criticalCount > 0
+                                              ? '$criticalCount critical point${criticalCount > 1 ? 's' : ''}  \u203A'
+                                              : 'No critical points',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w600,
                                             color: criticalCount > 0
                                                 ? AppColors.critical
                                                 : AppColors.success,
                                           ),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            criticalCount > 0
-                                                ? '$criticalCount critical point${criticalCount > 1 ? 's' : ''}  \u203A'
-                                                : 'No critical points',
-                                            style: TextStyle(
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.w600,
-                                              color: criticalCount > 0
-                                                  ? AppColors.critical
-                                                  : AppColors.success,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
+                                        ),
+                                      ],
                                     ),
-                                  ],
-                                ],
-                                if (_activeFilter == 'live' && SensorService.instance.hasSensorData(chartKey)) ...[
-                                  const SizedBox(height: 6),
-                                  _buildTrendLabel(chartKey),
+                                  ),
                                 ],
                               ],
                             ),
@@ -1492,7 +1323,6 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                                 ),
                                 thresholdMin: thresholds['min'],
                                 thresholdMax: thresholds['max'],
-                                isLive: _activeFilter == 'live',
                                 decimalPlaces: dp,
                               ),
                             )

@@ -5,18 +5,20 @@ class SectionLabel extends StatelessWidget {
   final String label;
   final bool showLiveData;
   final IconData? icon;
+  final double topPadding;
 
   const SectionLabel({
     super.key,
     required this.label,
     this.showLiveData = false,
     this.icon,
+    this.topPadding = 12,
   });
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+      padding: EdgeInsets.fromLTRB(14, topPadding, 14, 8),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [

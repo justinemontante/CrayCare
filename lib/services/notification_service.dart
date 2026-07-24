@@ -826,7 +826,7 @@ class NotificationService extends ChangeNotifier {
     final y = mNow.year.toString();
     final mo = mNow.month.toString().padLeft(2, '0');
     final d = mNow.day.toString().padLeft(2, '0');
-    final reminderKey = 'reminder_${y}-${mo}-${d}_$hhmm';
+    final reminderKey = 'reminder_$y-$mo-${d}_$hhmm';
 
     final scheduleLabel = '${s.time} ${s.ampm}';
     final alreadyAdded = _notifications.any(

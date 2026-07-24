@@ -57,24 +57,22 @@ class _DashboardSkeletonState extends State<DashboardSkeleton>
   }
 
   Widget _buildContent() {
-    return Container(
-      child: SingleChildScrollView(
-        child: Column(
-          children: [
-            _buildGreetingSkeleton(),
-            _buildSectionLabelSkeleton(),
-            _buildGaugeGridSkeleton(),
-            _buildSectionLabelSkeleton(),
-            _buildWaterLevelGaugeSkeleton(),
-            const SizedBox(height: 12),
-            _buildQuickActionsSkeleton(),
-            _buildSectionLabelSkeleton(),
-            _buildTankStatusSkeleton(),
-            _buildSectionLabelSkeleton(),
-            _buildFeedingScheduleSkeleton(),
-            const SizedBox(height: 32),
-          ],
-        ),
+    return SingleChildScrollView(
+      child: Column(
+        children: [
+          _buildGreetingSkeleton(),
+          _buildSectionLabelSkeleton(),
+          _buildGaugeGridSkeleton(),
+          _buildSectionLabelSkeleton(),
+          _buildWaterLevelGaugeSkeleton(),
+          const SizedBox(height: 12),
+          _buildQuickActionsSkeleton(),
+          _buildSectionLabelSkeleton(),
+          _buildTankStatusSkeleton(),
+          _buildSectionLabelSkeleton(),
+          _buildFeedingScheduleSkeleton(),
+          const SizedBox(height: 32),
+        ],
       ),
     );
   }

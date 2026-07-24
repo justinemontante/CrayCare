@@ -734,15 +734,13 @@ class _LoginScreenState extends State<LoginScreen> {
 
                                         FocusScope.of(context).unfocus();
 
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (_) =>
-                                                const SignupScreen(),
-                                          ),
-                                        ).then((_) {
-                                          FocusScope.of(context).unfocus();
-                                        });
+                                          Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (_) =>
+                                                  const SignupScreen(),
+                                            ),
+                                          );
                                       },
                                 child: const Text(
                                   'Sign up',

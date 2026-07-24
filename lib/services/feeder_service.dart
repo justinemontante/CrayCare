@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/control_types.dart';
+import 'connectivity_service.dart';
 import 'sensor_service.dart';
 import 'settings_service.dart';
 
@@ -81,6 +82,7 @@ class FeederService extends ChangeNotifier {
     } catch (e) {
       debugPrint('[FeederService] Initialization error: $e');
     }
+    ConnectivityService.instance.addOnConnectCallback(_onReconnect);
   }
 
   bool canFeedNow() {
@@ -90,6 +92,16 @@ class FeederService extends ChangeNotifier {
     if (SensorService.instance.turbidityAir) return false;
     if (turb > turbMax) return false;
     return true;
+  }
+
+  void _onReconnect() {
+    debugPrint('[FeederService] Internet reconnected — refreshing listeners');
+    if (FirebaseAuth.instance.currentUser != null) {
+      _cancelSubscriptions();
+      _listenStatus();
+      _listenSchedules();
+      _listenLogs();
+    }
   }
 
   void _cancelSubscriptions() {

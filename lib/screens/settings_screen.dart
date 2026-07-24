@@ -279,7 +279,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         onLogout: () async {
           try {
             await AuthService().signOut();
-            if (!ctx.mounted) return;
+            if (!ctx.mounted || !mounted) return;
             Navigator.of(ctx).pop();
             Navigator.of(context).pop();
             Navigator.of(context).pushAndRemoveUntil(
@@ -287,7 +287,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               (route) => false,
             );
           } catch (e) {
-            if (!ctx.mounted) return;
+            if (!ctx.mounted || !mounted) return;
             ScaffoldMessenger.of(
               ctx,
             ).showSnackBar(SnackBar(content: Text('Error logging out: $e')));
@@ -331,7 +331,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               layoutBuilder: (child, List<Widget> previousChildren) {
                 return Stack(
                   alignment: Alignment.topCenter,
-                  children: [...previousChildren, if (child != null) child],
+                  children: [...previousChildren, ...?child != null ? [child] : null],
                 );
               },
               child: [

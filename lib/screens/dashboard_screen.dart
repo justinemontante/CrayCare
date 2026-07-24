@@ -158,6 +158,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                 label: 'Water Quality Overview',
                 showLiveData: false,
                 icon: Icons.water_drop_outlined,
+                topPadding: 4,
               ),
             ),
             _buildGaugeGrid(context),
@@ -301,8 +302,17 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     if (hasAnyData && error == null) return const SizedBox.shrink();
 
+    final String message;
+    if (error != null) {
+      message = error;
+    } else if (!ss.initialDataLoaded) {
+      message = 'Connecting to sensors...';
+    } else {
+      message = 'ESP32 Offline — No live sensor updates';
+    }
+
     return Container(
-      margin: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+      margin: const EdgeInsets.fromLTRB(14, 3, 14, 2),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: error != null
@@ -318,7 +328,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       child: Row(
         children: [
           Icon(
-            error != null ? Icons.error_outline : Icons.info_outline,
+            error != null ? Icons.error_outline : Icons.wifi_off_rounded,
             size: 16,
             color: error != null
                 ? const Color(0xFFD84315)
@@ -327,7 +337,7 @@ class _DashboardScreenState extends State<DashboardScreen>
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              error ?? 'Waiting for sensor data...',
+              message,
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w500,

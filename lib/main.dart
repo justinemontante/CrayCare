@@ -15,6 +15,7 @@ import 'firebase_options.dart';
 import 'screens/verify_screen.dart';
 import 'services/settings_service.dart';
 import 'services/notification_service.dart';
+import 'services/connectivity_service.dart';
 import 'services/feeder_service.dart';
 import 'services/tank_service.dart';
 import 'services/database_service.dart';
@@ -61,133 +62,164 @@ class SplashScreen extends StatefulWidget {
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen> {
-  double _progress = 0.0;
+class _SplashScreenState extends State<SplashScreen>
+    with SingleTickerProviderStateMixin {
+  double _displayedProgress = 0.0;
+  double _targetProgress = 0.0;
+  late AnimationController _animController;
+
+  static const _totalSteps = 10;
+  int _currentStep = 0;
 
   @override
   void initState() {
     super.initState();
+    _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    );
+    _animController.addListener(() {
+      if (mounted) {
+        setState(() => _displayedProgress = _animController.value);
+      }
+    });
     _initServices();
   }
 
+  @override
+  void dispose() {
+    _animController.dispose();
+    super.dispose();
+  }
+
+  void _advanceProgress() {
+    _currentStep++;
+    _targetProgress = (_currentStep / _totalSteps).clamp(0.0, 1.0);
+    _animController.animateTo(_targetProgress, duration: const Duration(milliseconds: 500));
+  }
+
+  Future<void> _withTimeout(Future<void> Function() fn, int timeoutMs) async {
+    try {
+      await fn().timeout(Duration(milliseconds: timeoutMs));
+    } catch (e) {
+      debugPrint('[Splash] Service timeout/error: $e');
+    }
+  }
+
   Future<void> _initServices() async {
-    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    await _withTimeout(
+      () => Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform),
+      10000,
+    );
+    _advanceProgress();
     if (!mounted) return;
 
     FirebaseFirestore.instance.settings = Settings(
       persistenceEnabled: true,
     );
+    _advanceProgress();
     FirebaseMessaging.onBackgroundMessage(firebaseBackgroundMessageHandler);
 
-    try {
-      await initializeWorkmanager();
-    } catch (e) {
-      debugPrint('[Main] Workmanager init error: $e');
-    }
+    await _withTimeout(() => initializeWorkmanager(), 3000);
+    _advanceProgress();
 
-    try {
-      await SettingsService.instance.init();
-    } catch (e) {
-      debugPrint('[Main] SettingsService.init error: $e');
-    }
+    await _withTimeout(() => SettingsService.instance.init(), 3000);
+    _advanceProgress();
 
-    try {
+    await _withTimeout(() => ConnectivityService.instance.init(), 5000);
+    _advanceProgress();
+
+    await _withTimeout(() async {
       NotificationService.instance.init();
       await NotificationService.instance.initFCM();
-    } catch (e) {
-      debugPrint('[Main] NotificationService init error: $e');
-    }
+    }, 5000);
+    _advanceProgress();
 
     if (!mounted) return;
 
     FeederService.instance.init();
+    _advanceProgress();
     TankService.instance.init();
+    _advanceProgress();
     MlService.instance.init();
+    _advanceProgress();
     HealthRiskService.instance.init();
+    _advanceProgress();
     CrayfishDetectionService.instance.init();
+    _advanceProgress();
 
-    _animateProgress();
+    _checkAuthAndNavigate();
   }
 
-  void _animateProgress() async {
-    const totalSteps = 50;
-    const stepDuration = Duration(
-      milliseconds: 30,
-    ); // Total ~1.5 seconds animation
+  Future<void> _checkAuthAndNavigate() async {
+    bool isOnline = false;
+    try {
+      isOnline = await ConnectivityService.instance.checkConnectivity()
+          .timeout(const Duration(seconds: 3));
+    } catch (_) {}
 
-    // 1. Progress bar animation
-    for (int i = 1; i <= totalSteps; i++) {
-      await Future.delayed(stepDuration);
-      if (!mounted) return;
-      setState(() {
-        _progress = i / totalSteps;
-      });
-    }
+    _targetProgress = 1.0;
+    if (mounted) setState(() => _displayedProgress = 1.0);
+    _animController.stop();
 
-    if (!mounted) return;
-
-    // 2. Check Firebase Auth State (Persistent Login)
     try {
       User? currentUser = FirebaseAuth.instance.currentUser;
 
       if (currentUser != null) {
-        // FIXED: Nilagyan ng 5-second timeout para hindi mag-hang forever
-        try {
-          await currentUser.reload().timeout(const Duration(seconds: 5));
-        } catch (reloadError) {
-          debugPrint("RELOAD TIMEOUT/ERROR: $reloadError");
-          // Kahit nag-timeout ang reload, kung may current user, papasukin pa rin
-          // (para pwede pa rin mag-load ang app kahit mahina net).
-          // Magiging null lang ito kung talagang na-delete na ang account.
+        if (isOnline) {
+          try {
+            await currentUser.reload().timeout(const Duration(seconds: 5));
+          } catch (reloadError) {
+            debugPrint("RELOAD TIMEOUT/ERROR: $reloadError");
+          }
         }
 
         final freshUser = FirebaseAuth.instance.currentUser;
 
         if (freshUser != null && freshUser.emailVerified) {
-          // Check if user is disabled in database before auto-login
-          try {
-            final profile = await DatabaseService.instance.getUserProfile(freshUser.uid);
-            if (profile != null && profile['status'] == 'disabled') {
-              await FirebaseFirestore.instance.collection('users').doc(freshUser.uid).update({'fcmToken': FieldValue.delete()}).catchError((_) {});
-              await FirebaseAuth.instance.signOut();
-              if (!mounted) return;
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (_) => const LoginScreen()),
-              );
-              return;
+          if (isOnline) {
+            try {
+              final profile = await DatabaseService.instance.getUserProfile(freshUser.uid);
+              if (profile != null && profile['status'] == 'disabled') {
+                await FirebaseFirestore.instance.collection('users').doc(freshUser.uid).update({'fcmToken': FieldValue.delete()}).catchError((_) {});
+                await FirebaseAuth.instance.signOut();
+                if (!mounted) return;
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (_) => const LoginScreen()),
+                );
+                return;
+              }
+            } catch (_) {
             }
-          } catch (_) {
-            // If DB check fails, allow login anyway (offline resilience)
           }
 
-          // Verified & active: deretso sa Dashboard
+          if (!mounted) return;
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (_) => const MainShell()),
           );
         } else if (freshUser != null && !freshUser.emailVerified) {
-          // May account pero hindi naka-verify: pumunta sa VerifyScreen
+          if (!mounted) return;
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (_) => const VerifyScreen()),
           );
         } else {
-          // User deleted or invalid: LoginScreen
+          if (!mounted) return;
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (_) => const LoginScreen()),
           );
         }
       } else {
-        // Walang naka-login
+        if (!mounted) return;
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => const LoginScreen()),
         );
       }
     } catch (e) {
-      // DITO LALABAS ANG ERROR SA VS CODE KUNG BAKIT SIYA NAG-FAIL
       debugPrint("SPLASH SCREEN MAIN ERROR: $e");
 
       if (!mounted) return;
@@ -260,10 +292,10 @@ class _SplashScreenState extends State<SplashScreen> {
               bottom: 60,
               child: Column(
                 children: [
-                  const Text(
-                    'Loading...',
+                  Text(
+                    '${(_displayedProgress * 100).toInt()}%',
                     textAlign: TextAlign.center,
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
                       color: Color(0xFF1FA5A5),
@@ -274,7 +306,7 @@ class _SplashScreenState extends State<SplashScreen> {
                     child: SizedBox(
                       width: 200,
                       child: LinearProgressIndicator(
-                        value: _progress,
+                        value: _displayedProgress,
                         backgroundColor: const Color(0xFFE0E0E0),
                         valueColor: const AlwaysStoppedAnimation(
                           Color(0xFF1FA5A5),

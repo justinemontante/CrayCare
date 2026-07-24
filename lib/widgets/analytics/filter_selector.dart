@@ -23,7 +23,7 @@ class _FilterSelectorState extends State<FilterSelector> {
   @override
   Widget build(BuildContext context) {
     final filters = [
-      ('LIVE', 'live', Icons.sensors),
+      ('Live', 'live', Icons.wifi_tethering),
       ('24H', '24h', Icons.history),
       ('7D', '7d', Icons.date_range),
       ('30D', '30d', Icons.calendar_month),

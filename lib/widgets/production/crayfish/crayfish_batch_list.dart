@@ -113,8 +113,11 @@ class CrayfishBatchList extends StatelessWidget {
         : batch.daysInCulture;
     final iconColor = isActive ? AppColors.success : AppColors.darkWith(0.35);
     Color statusColor = isActive ? AppColors.success : AppColors.darkWith(0.6);
-    if (survivalPct < 70) statusColor = AppColors.critical;
-    else if (survivalPct < 85 && isActive) statusColor = AppColors.warning;
+    if (survivalPct < 70) {
+      statusColor = AppColors.critical;
+    } else if (survivalPct < 85 && isActive) {
+      statusColor = AppColors.warning;
+    }
 
     return GestureDetector(
       onTap: () => service.selectBatch(batch.batchId),

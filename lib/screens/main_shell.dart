@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../theme/app_colors.dart';
 import '../services/database_service.dart';
 import '../services/notification_service.dart';
+import '../services/connectivity_service.dart';
 import 'dashboard_screen.dart';
 import 'analytics_screen.dart';
 import 'controls_screen.dart';
@@ -93,6 +94,7 @@ class _MainShellState extends State<MainShell> {
           Column(
             children: [
               _buildHeader(photoImage),
+              _buildOfflineBanner(),
               Expanded(
                   child: IndexedStack(
                     index: _currentIndex,
@@ -163,6 +165,37 @@ class _MainShellState extends State<MainShell> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildOfflineBanner() {
+    return ListenableBuilder(
+      listenable: ConnectivityService.instance,
+      builder: (context, _) {
+        if (ConnectivityService.instance.isOnline) {
+          return const SizedBox.shrink();
+        }
+        return Container(
+          width: double.infinity,
+          color: const Color(0xFFFFF3CD),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: const [
+              Icon(Icons.wifi_off_rounded, size: 14, color: Color(0xFF856404)),
+              SizedBox(width: 6),
+              Text(
+                'No internet connection — showing cached data',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF856404),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 

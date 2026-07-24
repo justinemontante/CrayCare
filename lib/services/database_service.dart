@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -21,6 +22,15 @@ class DatabaseService {
     String? role,
     String? status,
   }) async {
+    if (uid.isEmpty) {
+      throw ArgumentError('UID cannot be empty');
+    }
+    if (name.isEmpty) {
+      throw ArgumentError('Name cannot be empty');
+    }
+    if (email.isEmpty) {
+      throw ArgumentError('Email cannot be empty');
+    }
     final data = <String, dynamic>{
       'displayName': name,
       'email': email,
@@ -29,10 +39,15 @@ class DatabaseService {
     if (photoUrl != null) data['photoUrl'] = photoUrl;
     if (role != null) data['role'] = role;
     if (status != null) data['status'] = status;
-    await FirebaseFirestore.instance.collection('users').doc(uid).set(
-      data,
-      SetOptions(merge: true),
-    );
+    try {
+      await FirebaseFirestore.instance.collection('users').doc(uid).set(
+        data,
+        SetOptions(merge: true),
+      );
+    } catch (e) {
+      debugPrint('[DatabaseService] Error saving user profile: $e');
+      rethrow;
+    }
   }
 
   Future<Map<String, dynamic>?> getUserProfile(String uid) async {
