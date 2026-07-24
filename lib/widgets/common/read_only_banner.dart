@@ -77,7 +77,7 @@ class ReadOnlyBanner extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         const Text(
-                          'Monitor View',
+                          'Read-Only',
                           style: TextStyle(
                             fontSize: 11.5,
                             fontWeight: FontWeight.w800,

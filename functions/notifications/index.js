@@ -30,19 +30,10 @@ const UNITS = {
 
 const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
 
-// ─── Helper: resolve notification target UID (monitors → owner) ────────
+// ─── Helper: resolve notification target UID ───────────────────────────
+// (No redirect logic anymore — every account is its own notification
+// target now that the 'monitor' role has been removed.)
 async function getNotificationTargetUid(uid) {
-  try {
-    const userSnap = await firestoreDb.collection("users").doc(uid).get();
-    const userData = userSnap.data() || {};
-    const role = userData.role || "";
-    if (String(role).toLowerCase() === "monitor") {
-      const ownerUid = userData.ownerUid;
-      if (ownerUid) return ownerUid;
-    }
-  } catch (e) {
-    functions.logger.error(`getNotificationTargetUid error for ${uid}:`, e.message);
-  }
   return uid;
 }
 

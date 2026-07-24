@@ -24,10 +24,14 @@ class AuthService {
         if (!user.emailVerified) {
           await user.sendEmailVerification();
         }
+        // Every new account defaults to 'owner' — there's no in-app path
+        // to becoming 'admin'. An admin has to set that role directly on
+        // the users/{uid} document in the Firestore console.
         await DatabaseService.instance.saveUserProfile(
           uid: user.uid,
           name: name,
           email: email,
+          role: 'owner',
         );
       }
 
@@ -101,11 +105,14 @@ class AuthService {
           throw Exception('Your account has been disabled. Please contact the administrator.');
         }
 
+        final isNewUser = userCredential.additionalUserInfo?.isNewUser ?? (profile == null);
+
         await DatabaseService.instance.saveUserProfile(
           uid: user.uid,
           name: user.displayName ?? 'Google User',
           email: user.email ?? '',
           photoUrl: profile?['photoUrl'] as String?,
+          role: isNewUser ? 'owner' : null,
         );
       }
 
