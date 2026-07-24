@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
@@ -43,6 +44,16 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
   Offset? _focusPoint;
   bool _showFocusRing = false;
 
+  // Torch (flashlight) — off by default, user can toggle if the scan area
+  // is too dark for the auto-exposure to compensate on its own.
+  bool _torchOn = false;
+
+  // Position guide — only shown after a few seconds of no detection, not
+  // immediately. See _noDetectionTimer below.
+  bool _showPositionGuide = false;
+  Timer? _noDetectionTimer;
+  static const Duration _noDetectionDelay = Duration(seconds: 4);
+
   File? _uploadedImage;
   double? _imageAspectRatio;
   List<CrayfishDetection> _uploadDetections = [];
@@ -56,13 +67,33 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
     if (!CrayfishDetectionService.instance.isReady) {
       CrayfishDetectionService.instance.init();
     }
+    _liveDetections.addListener(_handleDetectionChange);
   }
 
   @override
   void dispose() {
+    _liveDetections.removeListener(_handleDetectionChange);
     _liveDetections.dispose();
     _cameraController?.dispose();
+    _noDetectionTimer?.cancel();
     super.dispose();
+  }
+
+  /// Drives the delayed position-guide visibility: the guide stays hidden
+  /// until the camera has gone `_noDetectionDelay` straight without
+  /// detecting a crayfish, instead of showing immediately on every frame
+  /// with no detection.
+  void _handleDetectionChange() {
+    final hasDetections = _liveDetections.value.isNotEmpty;
+    if (hasDetections) {
+      _noDetectionTimer?.cancel();
+      _noDetectionTimer = null;
+      if (_showPositionGuide) setState(() => _showPositionGuide = false);
+    } else if (_noDetectionTimer == null && !_showPositionGuide) {
+      _noDetectionTimer = Timer(_noDetectionDelay, () {
+        if (mounted) setState(() => _showPositionGuide = true);
+      });
+    }
   }
 
   // ── Live camera ───────────────────────────────────────────────────────────
@@ -94,6 +125,17 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
         await controller.setFocusMode(FocusMode.auto);
         await controller.setExposureMode(ExposureMode.auto);
         await controller.setZoomLevel(1.0);
+
+        // Auto-exposure alone tends to under-expose close-up underside
+        // shots (small subject against a dark tank background biases the
+        // metering dark). Nudge exposure up by default so the preview
+        // isn't dark; user can also turn on the torch for very dim spots.
+        final minOffset = await controller.getMinExposureOffset();
+        final maxOffset = await controller.getMaxExposureOffset();
+        final boosted = (maxOffset * 0.5).clamp(minOffset, maxOffset);
+        if (boosted > 0) {
+          await controller.setExposureOffset(boosted);
+        }
       } catch (_) {}
 
       _cameraController = controller;
@@ -115,6 +157,19 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
     _liveDetections.value = [];
     _captured = false;
     _capturedDetection = null;
+    _torchOn = false;
+    _noDetectionTimer?.cancel();
+    _showPositionGuide = false;
+  }
+
+  Future<void> _toggleTorch() async {
+    final controller = _cameraController;
+    if (controller == null || !controller.value.isInitialized) return;
+    final next = !_torchOn;
+    try {
+      await controller.setFlashMode(next ? FlashMode.torch : FlashMode.off);
+      setState(() => _torchOn = next);
+    } catch (_) {}
   }
 
   Future<void> _onCameraFrame(CameraImage frame) async {
@@ -518,6 +573,34 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
               child: CameraPreview(controller),
             ),
 
+            // Torch toggle — for scan setups too dark for auto-exposure
+            // alone to compensate. Placed on the side, clear of the top
+            // banner area (position guide / result card) and the bottom
+            // capture button.
+            Positioned(
+              bottom: 110,
+              right: 16,
+              child: GestureDetector(
+                onTap: _toggleTorch,
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: _torchOn
+                        ? AppColors.primary
+                        : Colors.black.withValues(alpha: 0.5),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    _torchOn
+                        ? Icons.flash_on_rounded
+                        : Icons.flash_off_rounded,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                ),
+              ),
+            ),
+
             // Tap-to-focus ring animation.
             if (_showFocusRing && _focusPoint != null)
               Positioned(
@@ -542,12 +625,13 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
                 ),
               ),
 
-            // Position guide — visible only when no detections.
+            // Position guide — hidden at first; only fades in once the
+            // camera has gone a few seconds without detecting a crayfish.
             AnimatedOpacity(
-              opacity: hasDetections ? 0.0 : 1.0,
+              opacity: _showPositionGuide && !hasDetections ? 1.0 : 0.0,
               duration: const Duration(milliseconds: 300),
               child: IgnorePointer(
-                ignoring: hasDetections,
+                ignoring: !_showPositionGuide || hasDetections,
                 child: _buildPositionGuide(),
               ),
             ),

@@ -329,7 +329,14 @@ class CrayfishDetectionService extends ChangeNotifier {
     flatten(outputBuffer);
 
     // ── Debug output ───────────────────────────────────────────────────────
-    if (flat.isNotEmpty) {
+    // Gated behind kDebugMode — this used to run unconditionally, meaning
+    // every single live camera frame (~8x/sec) paid for a full min/max scan
+    // over the output array PLUS a second full anchor loop just to print
+    // stats nobody sees in release builds. That extra per-frame CPU work
+    // was a major contributor to the live-scan lag. kDebugMode is a
+    // compile-time constant, so this whole block is stripped out of
+    // release builds entirely.
+    if (kDebugMode && flat.isNotEmpty) {
       double mn = flat[0], mx = flat[0];
       for (final v in flat) {
         if (v < mn) mn = v;
@@ -436,8 +443,10 @@ class CrayfishDetectionService extends ChangeNotifier {
       ));
     }
 
-    debugPrint(
-        '$tag ✅ $aboveThreshold anchors above threshold, ${candidates.length} candidates, bestScore=${globalBestScore.toStringAsFixed(4)}');
+    if (kDebugMode) {
+      debugPrint(
+          '$tag ✅ $aboveThreshold anchors above threshold, ${candidates.length} candidates, bestScore=${globalBestScore.toStringAsFixed(4)}');
+    }
     lastBestScore = globalBestScore;
 
     final nms = _nonMaxSuppression(candidates);
