@@ -11,6 +11,7 @@ import 'controls_screen.dart';
 import 'production_screen.dart';
 import 'notifications_screen.dart';
 import 'settings_screen.dart';
+import 'admin_screen.dart';
 
 
 class MainShell extends StatefulWidget {
@@ -27,14 +28,20 @@ class _MainShellState extends State<MainShell> {
   final _productionKey = GlobalKey<ProductionScreenState>();
   final _controlsKey = GlobalKey<ControlsScreenState>();
   String? _photoUrl;
+  bool _isAdmin = false;
 
-  static const List<_NavItem> _navItems = [
+  static const List<_NavItem> _baseNavItems = [
     _NavItem(icon: Icons.dashboard_rounded, label: 'Dashboard'),
     _NavItem(icon: Icons.bar_chart_rounded, label: 'Analytics'),
     _NavItem(icon: Icons.oil_barrel_rounded, label: 'Tank'),
     _NavItem(icon: Icons.memory_rounded, label: 'Controls'),
     _NavItem(icon: Icons.notifications_rounded, label: 'Notifications'),
   ];
+
+  static const _adminNavItem = _NavItem(icon: Icons.admin_panel_settings_rounded, label: 'Admin');
+
+  List<_NavItem> get _navItems =>
+      _isAdmin ? [..._baseNavItems, _adminNavItem] : _baseNavItems;
 
   void _setPhoto(String url) {
     _photoUrl = url;
@@ -74,9 +81,14 @@ class _MainShellState extends State<MainShell> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
     final data = await DatabaseService.instance.getUserProfile(user.uid);
-    if (data != null && data['photoUrl'] != null && mounted) {
-      setState(() => _setPhoto(data['photoUrl'] as String));
-    }
+    if (data == null || !mounted) return;
+    setState(() {
+      if (data['photoUrl'] != null) _setPhoto(data['photoUrl'] as String);
+      _isAdmin = data['role'] == 'admin';
+      // If the admin tab was showing and the role changed, don't strand
+      // the user on an index that no longer exists.
+      if (_currentIndex >= _navItems.length) _currentIndex = 0;
+    });
   }
 
   void _goToAnalytics(String chartKey) {
@@ -115,6 +127,7 @@ class _MainShellState extends State<MainShell> {
                       ProductionScreen(key: _productionKey),
                       ControlsScreen(key: _controlsKey),
                       const NotificationsScreen(),
+                      if (_isAdmin) const AdminScreen(),
                     ],
                   ),
               ),

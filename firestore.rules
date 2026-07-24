@@ -2,9 +2,42 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Users can only read/write their own profile
+    // ─── Role helpers ────────────────────────────────────────────────
+    // An 'admin' role can only be set directly on a users/{uid} document
+    // from the Firestore console — there is no app code path that lets a
+    // user grant themselves admin.
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function myProfile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && myProfile().role == 'admin';
+    }
+
+    function deviceOwnerUid() {
+      return exists(/databases/$(database)/documents/config/deviceOwner)
+        ? get(/databases/$(database)/documents/config/deviceOwner).data.ownerUid
+        : null;
+    }
+
+    // The assigned owner themself, or a 'monitor' account linked to that
+    // owner via users/{uid}.ownerUid.
+    function isDeviceOwnerOrLinkedMonitor() {
+      return isSignedIn() && (
+        request.auth.uid == deviceOwnerUid() ||
+        (myProfile().role == 'monitor' && myProfile().ownerUid == deviceOwnerUid())
+      );
+    }
+
+    // Users can read/write their own profile; admins can read/write any
+    // profile (needed for the admin screen: disable accounts, change
+    // roles, assign the device owner).
     match /users/{uid} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read, write: if isSignedIn() && (request.auth.uid == uid || isAdmin());
     }
 
     // Users can only read/write their own notification prefs
@@ -47,8 +80,13 @@ service cloud.firestore {
       allow delete: if request.auth != null && resource.data.uid == request.auth.uid;
     }
 
-    match /config/{uid} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+    // Per-user threshold docs (document id == uid) keep working as
+    // before. config/deviceOwner is a special admin-only doc (document id
+    // 'deviceOwner' never equals a real uid, so isAdmin() is the only way
+    // in) that says which owner the single physical device belongs to.
+    match /config/{document} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (request.auth.uid == document || isAdmin());
     }
 
     match /notifications/{docId} {
@@ -69,13 +107,17 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == uid;
     }
 
+    // Only the assigned device owner (config/deviceOwner.ownerUid), a
+    // monitor linked to that owner, or an admin can read live/historical
+    // readings. The ESP hardware itself writes unauthenticated, so
+    // create/update stay open — that part of the pipeline is unchanged.
     match /sensorReadings/{doc} {
-      allow read: if request.auth != null;
+      allow read: if isAdmin() || isDeviceOwnerOrLinkedMonitor();
       allow create, update: if true;
     }
 
     match /sensorReadings/history/{date}/{doc} {
-      allow read: if request.auth != null;
+      allow read: if isAdmin() || isDeviceOwnerOrLinkedMonitor();
       allow create, update: if true;
     }
 

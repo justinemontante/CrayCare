@@ -173,6 +173,96 @@ class DatabaseService {
     return null;
   }
 
+  // ─── Admin: user management ──────────────────────────────────────────
+  //
+  // Every account created via AuthService.signUp/signInWithGoogle defaults
+  // to role 'owner'. There is no in-app way to become 'admin' — that has
+  // to be set directly on the users/{uid} document in the Firestore
+  // console (data['role'] = 'admin'). This is deliberate: admin can't be
+  // self-granted through the app.
+
+  /// Returns all user profiles, for the admin user-management screen.
+  /// Requires the caller's own role to be 'admin' (enforced by
+  /// firestore.rules — this will simply come back empty/error otherwise).
+  Future<List<Map<String, dynamic>>> getAllUsers() async {
+    final snap = await FirebaseFirestore.instance.collection('users').get();
+    return snap.docs.map((d) {
+      final data = Map<String, dynamic>.from(d.data());
+      data['uid'] = d.id;
+      return data;
+    }).toList();
+  }
+
+  /// Enables or disables a user's account. A disabled account is signed
+  /// out immediately and blocked from signing back in (see AuthService).
+  Future<void> setUserStatus(String uid, String status) async {
+    await FirebaseFirestore.instance.collection('users').doc(uid).set(
+      {'status': status, 'updatedAt': FieldValue.serverTimestamp()},
+      SetOptions(merge: true),
+    );
+  }
+
+  /// Changes a user's role: 'admin' | 'owner' | 'monitor'.
+  Future<void> setUserRole(String uid, String role) async {
+    await FirebaseFirestore.instance.collection('users').doc(uid).set(
+      {'role': role, 'updatedAt': FieldValue.serverTimestamp()},
+      SetOptions(merge: true),
+    );
+  }
+
+  /// Links a 'monitor' account to the owner whose tank it should view.
+  Future<void> setMonitorOwner(String monitorUid, String ownerUid) async {
+    await FirebaseFirestore.instance.collection('users').doc(monitorUid).set(
+      {'ownerUid': ownerUid, 'updatedAt': FieldValue.serverTimestamp()},
+      SetOptions(merge: true),
+    );
+  }
+
+  // ─── Admin: which owner the single physical device belongs to ────────
+  //
+  // The ESP hardware itself is unaware of any of this — it always writes
+  // to sensorReadings/latest exactly as before. This just controls, at
+  // the app/rules layer, whose account that live data is currently
+  // attributed to, so only that owner (+ their linked monitors) and
+  // admins can read it.
+
+  Future<Map<String, dynamic>?> getDeviceOwner() async {
+    final doc = await FirebaseFirestore.instance.collection('config').doc('deviceOwner').get();
+    if (doc.exists && doc.data() != null) return doc.data();
+    return null;
+  }
+
+  Stream<DocumentSnapshot<Map<String, dynamic>>> get deviceOwnerStream =>
+      FirebaseFirestore.instance.collection('config').doc('deviceOwner').snapshots();
+
+  /// Admin-only (enforced by firestore.rules): assigns which owner the
+  /// shared hardware currently belongs to.
+  Future<void> setDeviceOwner(String ownerUid) async {
+    final admin = FirebaseAuth.instance.currentUser;
+    await FirebaseFirestore.instance.collection('config').doc('deviceOwner').set({
+      'ownerUid': ownerUid,
+      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedBy': admin?.uid,
+    });
+  }
+
+  /// True if the signed-in user is allowed to view the live sensor
+  /// readings: they're the assigned owner, a monitor linked to that
+  /// owner, or an admin.
+  Future<bool> canViewDeviceReadings() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return false;
+    final profile = await getUserProfile(user.uid);
+    final role = profile?['role'] as String?;
+    if (role == 'admin') return true;
+
+    final deviceOwner = await getDeviceOwner();
+    final ownerUid = deviceOwner?['ownerUid'] as String?;
+    if (ownerUid == null) return false;
+    if (role == 'monitor') return profile?['ownerUid'] == ownerUid;
+    return user.uid == ownerUid;
+  }
+
   /// Saves a gender detection result to Firestore under the user's
   /// genderScans collection.
   Future<void> saveCrayfishGender({
