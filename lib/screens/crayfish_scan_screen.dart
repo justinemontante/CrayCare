@@ -172,8 +172,33 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
     final controller = _cameraController;
     if (controller == null || !controller.value.isInitialized) return;
     final next = !_torchOn.value;
+
+    // A direct off→torch call is exactly what silently fails on a chunk of
+    // Android devices (Samsung/Moto camera HALs show up repeatedly in the
+    // camera plugin's own issue tracker for this) — setFlashMode resolves
+    // without throwing, but the LED never actually lights. Explicitly
+    // forcing FlashMode.off first, then issuing a fresh torch call, is the
+    // workaround that reliably re-applies the flash state on those
+    // devices. The retry after a short delay covers the other common case:
+    // the capture session is still settling right after camera init and
+    // rejects the very first flash-mode change.
+    Future<void> applyFlash() async {
+      if (next) {
+        await controller.setFlashMode(FlashMode.off);
+        await Future.delayed(const Duration(milliseconds: 60));
+        await controller.setFlashMode(FlashMode.torch);
+      } else {
+        await controller.setFlashMode(FlashMode.off);
+      }
+    }
+
     try {
-      await controller.setFlashMode(next ? FlashMode.torch : FlashMode.off);
+      try {
+        await applyFlash();
+      } catch (_) {
+        await Future.delayed(const Duration(milliseconds: 150));
+        await applyFlash();
+      }
       // Torch adds its own light — the default exposure boost we apply on
       // start (for auto-exposure-only conditions) would overexpose /
       // wash out the picture once torch is also contributing light, so
@@ -223,8 +248,12 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
     _isDetecting = true;
     _lastInferenceStart = now;
     try {
-      final results =
-          await CrayfishDetectionService.instance.detectFromCameraImage(frame);
+      final results = await CrayfishDetectionService.instance
+          .detectFromCameraImage(
+        frame,
+        sensorOrientation:
+            _cameraController?.description.sensorOrientation ?? 90,
+      );
       _liveDetections.value = results;
     } catch (e, stack) {
       debugPrintError('Live detection error', e);

@@ -180,9 +180,12 @@ class CrayfishDetectionService extends ChangeNotifier {
     return detections;
   }
 
-  Future<List<CrayfishDetection>> detectFromCameraImage(CameraImage frame) async {
+  Future<List<CrayfishDetection>> detectFromCameraImage(
+    CameraImage frame, {
+    int sensorOrientation = 90,
+  }) async {
     if (!_isReady) return [];
-    final decoded = _convertYUV420ToImage(frame);
+    final decoded = _convertYUV420ToImage(frame, sensorOrientation);
     if (decoded == null) return [];
     final detections = await _runInference(decoded, '[Camera]');
     _latestDetections = detections;
@@ -507,25 +510,70 @@ class CrayfishDetectionService extends ChangeNotifier {
     return interArea / unionArea;
   }
 
-  /// Convert Android YUV_420_888 CameraImage to an RGB img.Image.
-  img.Image? _convertYUV420ToImage(CameraImage frame) {
+  /// Convert Android YUV_420_888 CameraImage to an upright RGB img.Image,
+  /// resized to the model's square input size.
+  ///
+  /// CameraImage.planes are always delivered in the sensor's native
+  /// orientation — landscape, for essentially every phone back camera —
+  /// even though this screen is portrait-locked and the CameraPreview the
+  /// user sees on screen is already rotated upright by the platform. That
+  /// rotation only happens for the preview texture; the raw frames handed
+  /// to startImageStream are NOT rotated. Without correcting for that here,
+  /// the model was being fed a frame rotated ~90° from what's on screen —
+  /// which is why live detections were weak/inconsistent and, when a box
+  /// did show, it didn't line up with the crayfish. [sensorOrientation]
+  /// comes from the active CameraDescription (typically 90 for a back
+  /// camera) and tells us how much to rotate the raw buffer back to match
+  /// the upright preview.
+  img.Image? _convertYUV420ToImage(CameraImage frame, int sensorOrientation) {
     try {
       final width = frame.width;
       final height = frame.height;
       final yPlane = frame.planes[0];
       final uPlane = frame.planes[1];
       final vPlane = frame.planes[2];
+      final uvPixelStride = uPlane.bytesPerPixel ?? 1;
+
+      final rotation = ((sensorOrientation % 360) + 360) % 360;
+      // Upright (post-rotation, pre-resize) dimensions — width/height swap
+      // for the 90/270 cases, which covers the vast majority of phones.
+      final bool swapped = rotation == 90 || rotation == 270;
+      final uprightW = swapped ? height : width;
+      final uprightH = swapped ? width : height;
 
       final image = img.Image(width: _inputSize, height: _inputSize);
-      final double scaleX = width / _inputSize;
-      final double scaleY = height / _inputSize;
+      final double scaleX = uprightW / _inputSize;
+      final double scaleY = uprightH / _inputSize;
 
       for (int ty = 0; ty < _inputSize; ty++) {
-        final int sy = (ty * scaleY).toInt().clamp(0, height - 1);
+        final int uy = (ty * scaleY).toInt().clamp(0, uprightH - 1);
         for (int tx = 0; tx < _inputSize; tx++) {
-          final int sx = (tx * scaleX).toInt().clamp(0, width - 1);
+          final int ux = (tx * scaleX).toInt().clamp(0, uprightW - 1);
+
+          // Map the upright (ux, uy) sample point back to raw sensor
+          // coordinates, undoing whichever way the sensor is rotated.
+          int sx, sy;
+          switch (rotation) {
+            case 90:
+              sx = uy;
+              sy = height - 1 - ux;
+              break;
+            case 270:
+              sx = width - 1 - uy;
+              sy = ux;
+              break;
+            case 180:
+              sx = width - 1 - ux;
+              sy = height - 1 - uy;
+              break;
+            default: // 0 — sensor already upright
+              sx = ux;
+              sy = uy;
+          }
+          sx = sx.clamp(0, width - 1);
+          sy = sy.clamp(0, height - 1);
+
           final yIndex = sy * yPlane.bytesPerRow + sx;
-          final uvPixelStride = uPlane.bytesPerPixel ?? 1;
           final uvIndex =
               (sy ~/ 2) * uPlane.bytesPerRow + (sx ~/ 2) * uvPixelStride;
 
