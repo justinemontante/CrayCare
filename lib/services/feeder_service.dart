@@ -13,7 +13,7 @@ class FeederService extends ChangeNotifier {
 
   // The feeder schedule times (and the Cloud Function that dispatches/confirms
   // them) are always expressed in Asia/Manila wall-clock time, regardless of
-  // where the viewing device is physically located (e.g. a "monitor" user
+  // where the viewing device is physically located (e.g. someone
   // checking in from a different timezone). Using DateTime.now() directly
   // would compare schedule times against the DEVICE's local clock instead,
   // causing missed-schedule false positives and feederDispatched date-key

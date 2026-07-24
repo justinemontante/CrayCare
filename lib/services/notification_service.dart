@@ -300,7 +300,6 @@ class NotificationService extends ChangeNotifier {
   final Set<String> _osScheduled = {};
   String _lastSamplingReminderDate = '';
 
-  String? _effectiveUid;
   String? _userRole;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _profileFirestoreSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _notifSub;
@@ -316,24 +315,13 @@ class NotificationService extends ChangeNotifier {
     return _notifications[idx].isUnreadBy(uid);
   }
 
-  Future<void> setEffectiveUid(String uid) async {
-    _cancelSubscriptions();
-    _effectiveUid = uid;
-    _listenFirebase();
-    _loadUserPrefs();
-    _initPreviousStates();
-    notifyListeners();
-  }
-
-  bool get _isMonitor => _effectiveUid != null;
-
   // Feeding schedules are configured in — and the Cloud Function
   // (functions/notifications/index.js) dispatches/confirms them in — fixed
-  // Asia/Manila wall-clock time (MANILA_OFFSET_MS there). A "monitor" user
-  // viewing from a different timezone would otherwise have their local
-  // reminder timers, OS alarms, and marker date-keys computed against their
-  // OWN device clock instead, causing wrong-time or duplicate reminders.
-  // This mirrors the same fixed +8h approach so both sides agree.
+  // Asia/Manila wall-clock time (MANILA_OFFSET_MS there). Using
+  // DateTime.now() directly would compare schedule times against the
+  // DEVICE's local clock instead, causing wrong-time or duplicate
+  // reminders for anyone outside that timezone. This mirrors the same
+  // fixed +8h approach so both sides agree.
   static const _manilaOffset = Duration(hours: 8);
   DateTime _manilaNow() => DateTime.now().toUtc().add(_manilaOffset);
 
@@ -392,7 +380,6 @@ class NotificationService extends ChangeNotifier {
 
     FirebaseAuth.instance.authStateChanges().listen((user) {
       _notifications.clear();
-      _effectiveUid = null;
       _cancelSubscriptions();
       _cancelAutoControlSubs();
       _reminderTimer?.cancel();
@@ -1050,7 +1037,7 @@ class NotificationService extends ChangeNotifier {
   }
 
   void _listenFirebase() {
-    final uid = _effectiveUid ?? FirebaseAuth.instance.currentUser?.uid ?? '';
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (uid.isEmpty) return;
     final fs = FirebaseFirestore.instance;
 
@@ -1099,7 +1086,6 @@ class NotificationService extends ChangeNotifier {
 
   void _onSensorUpdate() {
     if (_userRole == 'admin') return;
-    if (_isMonitor) return;
     final hasData = SensorService.sensorKeys.any(
       (k) => SensorService.instance.getZone(k) != 'UNKNOWN',
     );

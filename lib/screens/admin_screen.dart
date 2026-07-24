@@ -89,8 +89,7 @@ class _AdminScreenState extends State<AdminScreen> {
       title: 'Assign hardware to this account?',
       message:
           '${user['email']} will become the owner of the sensor readings — only '
-          'they (and any monitors linked to them) will be able to view live '
-          'readings from the tank.',
+          'they and admins will be able to view live readings from the tank.',
     );
     if (confirmed != true) return;
 
@@ -247,7 +246,7 @@ class _AdminScreenState extends State<AdminScreen> {
                   foregroundColor: isDisabled ? AppColors.success : AppColors.critical,
                 ),
               ),
-              if (!isDeviceOwner && role != 'monitor')
+              if (!isDeviceOwner)
                 OutlinedButton.icon(
                   onPressed: () => _assignDeviceOwner(user),
                   icon: const Icon(Icons.sensors_rounded, size: 16),
@@ -274,7 +273,6 @@ class _AdminScreenState extends State<AdminScreen> {
           isDense: true,
           items: const [
             DropdownMenuItem(value: 'owner', child: Text('Owner')),
-            DropdownMenuItem(value: 'monitor', child: Text('Monitor')),
             DropdownMenuItem(value: 'admin', child: Text('Admin')),
           ],
           onChanged: (v) {

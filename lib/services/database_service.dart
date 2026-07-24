@@ -78,11 +78,11 @@ class DatabaseService {
 
     // This writes to config/default, which every user's alerts and the
     // sensor-alert Cloud Function read from — it is shared, global state,
-    // not per-user. A "monitor" or "admin" account should never be able to
-    // silently overwrite the tank owner's thresholds.
+    // not per-user. An "admin" account should never be able to silently
+    // overwrite the tank owner's thresholds.
     final profile = await getUserProfile(user.uid);
     final role = profile?['role'] as String?;
-    if (role == 'monitor' || role == 'admin') {
+    if (role == 'admin') {
       throw Exception('Only the tank owner can change sensor thresholds.');
     }
 
@@ -202,18 +202,10 @@ class DatabaseService {
     );
   }
 
-  /// Changes a user's role: 'admin' | 'owner' | 'monitor'.
+  /// Changes a user's role: 'admin' | 'owner'.
   Future<void> setUserRole(String uid, String role) async {
     await FirebaseFirestore.instance.collection('users').doc(uid).set(
       {'role': role, 'updatedAt': FieldValue.serverTimestamp()},
-      SetOptions(merge: true),
-    );
-  }
-
-  /// Links a 'monitor' account to the owner whose tank it should view.
-  Future<void> setMonitorOwner(String monitorUid, String ownerUid) async {
-    await FirebaseFirestore.instance.collection('users').doc(monitorUid).set(
-      {'ownerUid': ownerUid, 'updatedAt': FieldValue.serverTimestamp()},
       SetOptions(merge: true),
     );
   }
@@ -223,8 +215,7 @@ class DatabaseService {
   // The ESP hardware itself is unaware of any of this — it always writes
   // to sensorReadings/latest exactly as before. This just controls, at
   // the app/rules layer, whose account that live data is currently
-  // attributed to, so only that owner (+ their linked monitors) and
-  // admins can read it.
+  // attributed to, so only that owner and admins can read it.
 
   Future<Map<String, dynamic>?> getDeviceOwner() async {
     final doc = await FirebaseFirestore.instance.collection('config').doc('deviceOwner').get();
@@ -247,8 +238,7 @@ class DatabaseService {
   }
 
   /// True if the signed-in user is allowed to view the live sensor
-  /// readings: they're the assigned owner, a monitor linked to that
-  /// owner, or an admin.
+  /// readings: they're the assigned owner, or an admin.
   Future<bool> canViewDeviceReadings() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return false;
@@ -258,9 +248,7 @@ class DatabaseService {
 
     final deviceOwner = await getDeviceOwner();
     final ownerUid = deviceOwner?['ownerUid'] as String?;
-    if (ownerUid == null) return false;
-    if (role == 'monitor') return profile?['ownerUid'] == ownerUid;
-    return user.uid == ownerUid;
+    return ownerUid != null && user.uid == ownerUid;
   }
 
   /// Saves a gender detection result to Firestore under the user's

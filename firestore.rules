@@ -24,13 +24,9 @@ service cloud.firestore {
         : null;
     }
 
-    // The assigned owner themself, or a 'monitor' account linked to that
-    // owner via users/{uid}.ownerUid.
-    function isDeviceOwnerOrLinkedMonitor() {
-      return isSignedIn() && (
-        request.auth.uid == deviceOwnerUid() ||
-        (myProfile().role == 'monitor' && myProfile().ownerUid == deviceOwnerUid())
-      );
+    // The assigned owner of the single shared device.
+    function isDeviceOwner() {
+      return isSignedIn() && request.auth.uid == deviceOwnerUid();
     }
 
     // Users can read/write their own profile; admins can read/write any
@@ -107,17 +103,17 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == uid;
     }
 
-    // Only the assigned device owner (config/deviceOwner.ownerUid), a
-    // monitor linked to that owner, or an admin can read live/historical
-    // readings. The ESP hardware itself writes unauthenticated, so
-    // create/update stay open — that part of the pipeline is unchanged.
+    // Only the assigned device owner (config/deviceOwner.ownerUid) or an
+    // admin can read live/historical readings. The ESP hardware itself
+    // writes unauthenticated, so create/update stay open — that part of
+    // the pipeline is unchanged.
     match /sensorReadings/{doc} {
-      allow read: if isAdmin() || isDeviceOwnerOrLinkedMonitor();
+      allow read: if isAdmin() || isDeviceOwner();
       allow create, update: if true;
     }
 
     match /sensorReadings/history/{date}/{doc} {
-      allow read: if isAdmin() || isDeviceOwnerOrLinkedMonitor();
+      allow read: if isAdmin() || isDeviceOwner();
       allow create, update: if true;
     }
 
