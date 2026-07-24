@@ -44,13 +44,15 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
   Offset? _focusPoint;
   bool _showFocusRing = false;
 
-  // Torch (flashlight) — off by default, user can toggle if the scan area
-  // is too dark for the auto-exposure to compensate on its own.
-  bool _torchOn = false;
+  // Torch (flashlight) — its own notifier so toggling it only rebuilds the
+  // small torch button, never the CameraPreview / rest of the live view.
+  final ValueNotifier<bool> _torchOn = ValueNotifier(false);
 
   // Position guide — only shown after a few seconds of no detection, not
-  // immediately. See _noDetectionTimer below.
-  bool _showPositionGuide = false;
+  // immediately. Own notifier for the same reason as _torchOn: showing it
+  // should not force the CameraPreview to rebuild (that rebuild churn was
+  // itself reading as visible stutter/blur right as the label appeared).
+  final ValueNotifier<bool> _showPositionGuide = ValueNotifier(false);
   Timer? _noDetectionTimer;
   static const Duration _noDetectionDelay = Duration(seconds: 4);
 
@@ -76,22 +78,26 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
     _liveDetections.dispose();
     _cameraController?.dispose();
     _noDetectionTimer?.cancel();
+    _torchOn.dispose();
+    _showPositionGuide.dispose();
     super.dispose();
   }
 
   /// Drives the delayed position-guide visibility: the guide stays hidden
   /// until the camera has gone `_noDetectionDelay` straight without
   /// detecting a crayfish, instead of showing immediately on every frame
-  /// with no detection.
+  /// with no detection. Writes straight to the notifier — no setState,
+  /// so this never triggers a rebuild of the camera preview or anything
+  /// else in the live view.
   void _handleDetectionChange() {
     final hasDetections = _liveDetections.value.isNotEmpty;
     if (hasDetections) {
       _noDetectionTimer?.cancel();
       _noDetectionTimer = null;
-      if (_showPositionGuide) setState(() => _showPositionGuide = false);
-    } else if (_noDetectionTimer == null && !_showPositionGuide) {
+      _showPositionGuide.value = false;
+    } else if (_noDetectionTimer == null && !_showPositionGuide.value) {
       _noDetectionTimer = Timer(_noDetectionDelay, () {
-        if (mounted) setState(() => _showPositionGuide = true);
+        if (mounted) _showPositionGuide.value = true;
       });
     }
   }
@@ -157,19 +163,43 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
     _liveDetections.value = [];
     _captured = false;
     _capturedDetection = null;
-    _torchOn = false;
+    _torchOn.value = false;
     _noDetectionTimer?.cancel();
-    _showPositionGuide = false;
+    _showPositionGuide.value = false;
   }
 
   Future<void> _toggleTorch() async {
     final controller = _cameraController;
     if (controller == null || !controller.value.isInitialized) return;
-    final next = !_torchOn;
+    final next = !_torchOn.value;
     try {
       await controller.setFlashMode(next ? FlashMode.torch : FlashMode.off);
-      setState(() => _torchOn = next);
-    } catch (_) {}
+      // Torch adds its own light — the default exposure boost we apply on
+      // start (for auto-exposure-only conditions) would overexpose /
+      // wash out the picture once torch is also contributing light, so
+      // relax it back to neutral while torch is on and restore it after.
+      try {
+        if (next) {
+          await controller.setExposureOffset(0.0);
+        } else {
+          final minOffset = await controller.getMinExposureOffset();
+          final maxOffset = await controller.getMaxExposureOffset();
+          final boosted = (maxOffset * 0.5).clamp(minOffset, maxOffset);
+          if (boosted > 0) await controller.setExposureOffset(boosted);
+        }
+      } catch (_) {}
+      _torchOn.value = next;
+    } catch (e) {
+      debugPrintError('Torch toggle failed', e);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Couldn't switch the torch on this device."),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _onCameraFrame(CameraImage frame) async {
@@ -561,188 +591,217 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
       return const Center(child: CircularProgressIndicator());
     }
 
-    return ValueListenableBuilder<List<CrayfishDetection>>(
-      valueListenable: _liveDetections,
-      builder: (context, detections, _) {
-        final hasDetections = detections.isNotEmpty;
-        return Stack(
-          fit: StackFit.expand,
-          children: [
-            GestureDetector(
-              onTapUp: _onTapToFocus,
-              child: CameraPreview(controller),
-            ),
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // Camera preview + tap-to-focus. Deliberately OUTSIDE the
+        // detections ValueListenableBuilder below — this used to be
+        // rebuilt on every single inference tick (~8x/sec, since a new
+        // detection list is produced every run whether or not anything
+        // was found), which is heavy for a texture-backed widget and is
+        // what made things feel janky/blurry right when other overlays
+        // changed at the same time. It now only rebuilds for its own
+        // lifecycle (camera start/stop), not for detection updates.
+        GestureDetector(
+          onTapUp: _onTapToFocus,
+          child: CameraPreview(controller),
+        ),
 
-            // Torch toggle — for scan setups too dark for auto-exposure
-            // alone to compensate. Placed on the side, clear of the top
-            // banner area (position guide / result card) and the bottom
-            // capture button.
-            Positioned(
-              bottom: 110,
-              right: 16,
-              child: GestureDetector(
-                onTap: _toggleTorch,
-                child: Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: _torchOn
-                        ? AppColors.primary
-                        : Colors.black.withValues(alpha: 0.5),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    _torchOn
-                        ? Icons.flash_on_rounded
-                        : Icons.flash_off_rounded,
-                    color: Colors.white,
-                    size: 20,
-                  ),
+        // Torch toggle — own notifier, so tapping it (or it changing
+        // state) never touches the camera preview or detection overlay.
+        Positioned(
+          bottom: 110,
+          right: 16,
+          child: ValueListenableBuilder<bool>(
+            valueListenable: _torchOn,
+            builder: (context, torchOn, _) => GestureDetector(
+              onTap: _toggleTorch,
+              child: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: torchOn
+                      ? AppColors.primary
+                      : Colors.black.withValues(alpha: 0.5),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  torchOn ? Icons.flash_on_rounded : Icons.flash_off_rounded,
+                  color: Colors.white,
+                  size: 20,
                 ),
               ),
             ),
+          ),
+        ),
 
-            // Tap-to-focus ring animation.
-            if (_showFocusRing && _focusPoint != null)
-              Positioned(
-                left: _focusPoint!.dx - 30,
-                top: _focusPoint!.dy - 30,
-                child: TweenAnimationBuilder<double>(
-                  tween: Tween(begin: 1.5, end: 1.0),
-                  duration: const Duration(milliseconds: 300),
-                  builder: (context, scale, child) {
-                    return Transform.scale(
-                      scale: scale,
-                      child: Container(
-                        width: 60,
-                        height: 60,
-                        decoration: BoxDecoration(
-                          border: Border.all(color: Colors.white, width: 2),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
+        // Tap-to-focus ring animation.
+        if (_showFocusRing && _focusPoint != null)
+          Positioned(
+            left: _focusPoint!.dx - 30,
+            top: _focusPoint!.dy - 30,
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 1.5, end: 1.0),
+              duration: const Duration(milliseconds: 300),
+              builder: (context, scale, child) {
+                return Transform.scale(
+                  scale: scale,
+                  child: Container(
+                    width: 60,
+                    height: 60,
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.white, width: 2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
 
-            // Position guide — hidden at first; only fades in once the
-            // camera has gone a few seconds without detecting a crayfish.
-            AnimatedOpacity(
-              opacity: _showPositionGuide && !hasDetections ? 1.0 : 0.0,
+        // Position guide — own notifier too, same reasoning as torch.
+        // Fades in only once _handleDetectionChange flips it after
+        // _noDetectionDelay of no detections.
+        Positioned(
+          top: 16,
+          left: 16,
+          right: 16,
+          child: ValueListenableBuilder<bool>(
+            valueListenable: _showPositionGuide,
+            builder: (context, show, _) => AnimatedOpacity(
+              opacity: show ? 1.0 : 0.0,
               duration: const Duration(milliseconds: 300),
               child: IgnorePointer(
-                ignoring: !_showPositionGuide || hasDetections,
+                ignoring: !show,
                 child: _buildPositionGuide(),
               ),
             ),
+          ),
+        ),
 
-            // Real-time bounding box overlay.
-            RepaintBoundary(
-              child: CustomPaint(
-                painter: _DetectionOverlayPainter(detections),
-              ),
-            ),
-
-            // Result card at top — shows when detection is present.
-            AnimatedPositioned(
-              duration: const Duration(milliseconds: 250),
-              curve: Curves.easeOut,
-              top: hasDetections ? 16 : -120,
-              left: 16,
-              right: 16,
-              child: hasDetections
-                  ? _buildResultCardWithSave(
-                      detections.reduce(
-                          (a, b) => a.confidence > b.confidence ? a : b),
-                    )
-                  : const SizedBox.shrink(),
-            ),
-
-            // Captured confirmation — shown after tapping Capture, replaces
-            // the live feed with the frozen result until the user rescans.
-            if (_captured && _capturedDetection != null)
-              Positioned.fill(
-                child: Container(
-                  color: Colors.black.withValues(alpha: 0.55),
-                  child: Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.check_circle_rounded,
-                              color: Colors.white, size: 48),
-                          const SizedBox(height: 12),
-                          Text(
-                            'Captured: ${_capturedDetection!.label}',
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w800),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '${(_capturedDetection!.confidence * 100).toStringAsFixed(0)}% confidence',
-                            style: const TextStyle(
-                                color: Colors.white70, fontSize: 12),
-                          ),
-                          const SizedBox(height: 20),
-                          GestureDetector(
-                            onTap: _rescan,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 20, vertical: 12),
-                              decoration: BoxDecoration(
-                                color: AppColors.primary,
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: const Text('Scan Again',
-                                  style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w700)),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+        // Everything below genuinely depends on live detections each
+        // tick, so it's the only part still scoped to that builder:
+        // bounding-box overlay, result card, captured overlay, capture
+        // button.
+        ValueListenableBuilder<List<CrayfishDetection>>(
+          valueListenable: _liveDetections,
+          builder: (context, detections, _) {
+            final hasDetections = detections.isNotEmpty;
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                // Real-time bounding box overlay.
+                RepaintBoundary(
+                  child: CustomPaint(
+                    painter: _DetectionOverlayPainter(detections),
                   ),
                 ),
-              ),
 
-            // Capture button — always visible while live-scanning (not
-            // captured).  Taps are ignored when no crayfish is detected.
-            if (!_captured)
-              Positioned(
-                bottom: 24,
-                left: 0,
-                right: 0,
-                child: Center(
-                  child: GestureDetector(
-                    onTap: hasDetections ? _onCapturePressed : null,
+                // Result card at top — shows when detection is present.
+                AnimatedPositioned(
+                  duration: const Duration(milliseconds: 250),
+                  curve: Curves.easeOut,
+                  top: hasDetections ? 16 : -120,
+                  left: 16,
+                  right: 16,
+                  child: hasDetections
+                      ? _buildResultCardWithSave(
+                          detections.reduce(
+                              (a, b) => a.confidence > b.confidence ? a : b),
+                        )
+                      : const SizedBox.shrink(),
+                ),
+
+                // Captured confirmation — shown after tapping Capture,
+                // replaces the live feed with the frozen result until the
+                // user rescans.
+                if (_captured && _capturedDetection != null)
+                  Positioned.fill(
                     child: Container(
-                      width: 68,
-                      height: 68,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: AppColors.primary, width: 4),
-                        boxShadow: const [
-                          BoxShadow(color: Color(0x33000000), blurRadius: 10),
-                        ],
+                      color: Colors.black.withValues(alpha: 0.55),
+                      child: Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.check_circle_rounded,
+                                  color: Colors.white, size: 48),
+                              const SizedBox(height: 12),
+                              Text(
+                                'Captured: ${_capturedDetection!.label}',
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '${(_capturedDetection!.confidence * 100).toStringAsFixed(0)}% confidence',
+                                style: const TextStyle(
+                                    color: Colors.white70, fontSize: 12),
+                              ),
+                              const SizedBox(height: 20),
+                              GestureDetector(
+                                onTap: _rescan,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 20, vertical: 12),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.primary,
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: const Text('Scan Again',
+                                      style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w700)),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
-                      child: hasDetections
-                          ? Icon(Icons.camera_alt_rounded,
-                              color: AppColors.primary, size: 28)
-                          : Icon(Icons.camera_alt_rounded,
-                              color: AppColors.darkWith(0.2), size: 28),
                     ),
                   ),
-                ),
-              ),
-          ],
-        );
-      },
+
+                // Capture button — always visible while live-scanning
+                // (not captured). Taps are ignored when no crayfish is
+                // detected.
+                if (!_captured)
+                  Positioned(
+                    bottom: 24,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: GestureDetector(
+                        onTap: hasDetections ? _onCapturePressed : null,
+                        child: Container(
+                          width: 68,
+                          height: 68,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            shape: BoxShape.circle,
+                            border:
+                                Border.all(color: AppColors.primary, width: 4),
+                            boxShadow: const [
+                              BoxShadow(
+                                  color: Color(0x33000000), blurRadius: 10),
+                            ],
+                          ),
+                          child: hasDetections
+                              ? Icon(Icons.camera_alt_rounded,
+                                  color: AppColors.primary, size: 28)
+                              : Icon(Icons.camera_alt_rounded,
+                                  color: AppColors.darkWith(0.2), size: 28),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          },
+        ),
+      ],
     );
   }
 
