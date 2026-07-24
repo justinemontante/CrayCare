@@ -623,73 +623,30 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
     return Stack(
       fit: StackFit.expand,
       children: [
-        // Camera preview + tap-to-focus. Deliberately OUTSIDE the
-        // detections ValueListenableBuilder below — this used to be
-        // rebuilt on every single inference tick (~8x/sec, since a new
-        // detection list is produced every run whether or not anything
-        // was found), which is heavy for a texture-backed widget and is
-        // what made things feel janky/blurry right when other overlays
-        // changed at the same time. It now only rebuilds for its own
-        // lifecycle (camera start/stop), not for detection updates.
+        // 1) Camera preview + tap-to-focus — bottom layer, never rebuilds
+        //    on detection ticks.
         GestureDetector(
           onTapUp: _onTapToFocus,
           child: CameraPreview(controller),
         ),
 
-        // Torch toggle — own notifier, so tapping it (or it changing
-        // state) never touches the camera preview or detection overlay.
-        Positioned(
-          bottom: 110,
-          right: 16,
-          child: ValueListenableBuilder<bool>(
-            valueListenable: _torchOn,
-            builder: (context, torchOn, _) => GestureDetector(
-              onTap: _toggleTorch,
-              child: Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: torchOn
-                      ? AppColors.primary
-                      : Colors.black.withValues(alpha: 0.5),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  torchOn ? Icons.flash_on_rounded : Icons.flash_off_rounded,
-                  color: Colors.white,
-                  size: 20,
+        // 2) Bounding-box overlay — purely visual, IgnorePointer so it
+        //    NEVER eats taps.  Only repaints when the detection list changes.
+        ValueListenableBuilder<List<CrayfishDetection>>(
+          valueListenable: _liveDetections,
+          builder: (context, detections, _) {
+            return IgnorePointer(
+              ignoring: true,
+              child: RepaintBoundary(
+                child: CustomPaint(
+                  painter: _DetectionOverlayPainter(detections),
                 ),
               ),
-            ),
-          ),
+            );
+          },
         ),
 
-        // Tap-to-focus ring animation.
-        if (_showFocusRing && _focusPoint != null)
-          Positioned(
-            left: _focusPoint!.dx - 30,
-            top: _focusPoint!.dy - 30,
-            child: TweenAnimationBuilder<double>(
-              tween: Tween(begin: 1.5, end: 1.0),
-              duration: const Duration(milliseconds: 300),
-              builder: (context, scale, child) {
-                return Transform.scale(
-                  scale: scale,
-                  child: Container(
-                    width: 60,
-                    height: 60,
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.white, width: 2),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-
-        // Position guide — own notifier too, same reasoning as torch.
-        // Fades in only once _handleDetectionChange flips it after
-        // _noDetectionDelay of no detections.
+        // 3) Position guide — own notifier, fades in after no-detection delay.
         Positioned(
           top: 16,
           left: 16,
@@ -707,129 +664,170 @@ class _CrayfishScanScreenState extends State<CrayfishScanScreen> {
           ),
         ),
 
-        // Everything below genuinely depends on live detections each
-        // tick, so it's the only part still scoped to that builder:
-        // bounding-box overlay, result card, captured overlay, capture
-        // button.
+        // 4) Result card — depends on detections, floats at top.
         ValueListenableBuilder<List<CrayfishDetection>>(
           valueListenable: _liveDetections,
           builder: (context, detections, _) {
             final hasDetections = detections.isNotEmpty;
-            return Stack(
-              fit: StackFit.expand,
-              children: [
-                // Real-time bounding box overlay.
-                RepaintBoundary(
-                  child: CustomPaint(
-                    painter: _DetectionOverlayPainter(detections),
-                  ),
-                ),
-
-                // Result card at top — shows when detection is present.
-                AnimatedPositioned(
-                  duration: const Duration(milliseconds: 250),
-                  curve: Curves.easeOut,
-                  top: hasDetections ? 16 : -120,
-                  left: 16,
-                  right: 16,
-                  child: hasDetections
-                      ? _buildResultCardWithSave(
-                          detections.reduce(
-                              (a, b) => a.confidence > b.confidence ? a : b),
-                        )
-                      : const SizedBox.shrink(),
-                ),
-
-                // Captured confirmation — shown after tapping Capture,
-                // replaces the live feed with the frozen result until the
-                // user rescans.
-                if (_captured && _capturedDetection != null)
-                  Positioned.fill(
-                    child: Container(
-                      color: Colors.black.withValues(alpha: 0.55),
-                      child: Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.check_circle_rounded,
-                                  color: Colors.white, size: 48),
-                              const SizedBox(height: 12),
-                              Text(
-                                'Captured: ${_capturedDetection!.label}',
-                                style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w800),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '${(_capturedDetection!.confidence * 100).toStringAsFixed(0)}% confidence',
-                                style: const TextStyle(
-                                    color: Colors.white70, fontSize: 12),
-                              ),
-                              const SizedBox(height: 20),
-                              GestureDetector(
-                                onTap: _rescan,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 20, vertical: 12),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.primary,
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: const Text('Scan Again',
-                                      style: TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w700)),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-
-                // Capture button — always visible while live-scanning
-                // (not captured). Taps are ignored when no crayfish is
-                // detected.
-                if (!_captured)
-                  Positioned(
-                    bottom: 24,
-                    left: 0,
-                    right: 0,
-                    child: Center(
-                      child: GestureDetector(
-                        onTap: hasDetections ? _onCapturePressed : null,
-                        child: Container(
-                          width: 68,
-                          height: 68,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            shape: BoxShape.circle,
-                            border:
-                                Border.all(color: AppColors.primary, width: 4),
-                            boxShadow: const [
-                              BoxShadow(
-                                  color: Color(0x33000000), blurRadius: 10),
-                            ],
-                          ),
-                          child: hasDetections
-                              ? Icon(Icons.camera_alt_rounded,
-                                  color: AppColors.primary, size: 28)
-                              : Icon(Icons.camera_alt_rounded,
-                                  color: AppColors.darkWith(0.2), size: 28),
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
+            return AnimatedPositioned(
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeOut,
+              top: hasDetections ? 16 : -120,
+              left: 16,
+              right: 16,
+              child: hasDetections
+                  ? _buildResultCardWithSave(
+                      detections.reduce(
+                          (a, b) => a.confidence > b.confidence ? a : b),
+                    )
+                  : const SizedBox.shrink(),
             );
           },
         ),
+
+        // 5) Captured overlay — covers everything when user taps Capture.
+        if (_captured && _capturedDetection != null)
+          Positioned.fill(
+            child: Container(
+              color: Colors.black.withValues(alpha: 0.55),
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.check_circle_rounded,
+                          color: Colors.white, size: 48),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Captured: ${_capturedDetection!.label}',
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${(_capturedDetection!.confidence * 100).toStringAsFixed(0)}% confidence',
+                        style: const TextStyle(
+                            color: Colors.white70, fontSize: 12),
+                      ),
+                      const SizedBox(height: 20),
+                      GestureDetector(
+                        onTap: _rescan,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Text('Scan Again',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+        // 6) Torch button — ABOVE the overlay so taps always land.
+        //    Own ValueListenableBuilder so toggling it only rebuilds this.
+        if (!_captured)
+          Positioned(
+            bottom: 110,
+            right: 16,
+            child: ValueListenableBuilder<bool>(
+              valueListenable: _torchOn,
+              builder: (context, torchOn, _) => GestureDetector(
+                onTap: _toggleTorch,
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: torchOn
+                        ? AppColors.primary
+                        : Colors.black.withValues(alpha: 0.5),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    torchOn ? Icons.flash_on_rounded : Icons.flash_off_rounded,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+        // 7) Capture button — topmost interactive element.
+        if (!_captured)
+          Positioned(
+            bottom: 24,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: ValueListenableBuilder<List<CrayfishDetection>>(
+                valueListenable: _liveDetections,
+                builder: (context, detections, _) {
+                  final hasDetections = detections.isNotEmpty;
+                  return GestureDetector(
+                    onTap: hasDetections ? _onCapturePressed : null,
+                    child: Container(
+                      width: 68,
+                      height: 68,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        border:
+                            Border.all(color: AppColors.primary, width: 4),
+                        boxShadow: const [
+                          BoxShadow(
+                              color: Color(0x33000000), blurRadius: 10),
+                        ],
+                      ),
+                      child: hasDetections
+                          ? Icon(Icons.camera_alt_rounded,
+                              color: AppColors.primary, size: 28)
+                          : Icon(Icons.camera_alt_rounded,
+                              color: AppColors.darkWith(0.2), size: 28),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+
+        // 8) Tap-to-focus ring — decorative, always on top.
+        if (_showFocusRing && _focusPoint != null)
+          Positioned(
+            left: _focusPoint!.dx - 30,
+            top: _focusPoint!.dy - 30,
+            child: IgnorePointer(
+              ignoring: true,
+              child: TweenAnimationBuilder<double>(
+                tween: Tween(begin: 1.5, end: 1.0),
+                duration: const Duration(milliseconds: 300),
+                builder: (context, scale, child) {
+                  return Transform.scale(
+                    scale: scale,
+                    child: Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.white, width: 2),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
       ],
     );
   }
