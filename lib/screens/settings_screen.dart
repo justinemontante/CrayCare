@@ -27,6 +27,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _profileName = 'Loading...';
   String _profileEmail = 'Loading...';
   String? _photoUrl; // URL ng profile picture galing RTDB
+  bool _isAdmin = false;
 
   final _nameCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
@@ -51,10 +52,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadUserData() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
-      setState(() {
-        _profileName = user.displayName ?? 'CrayCare User';
-        _profileEmail = user.email ?? 'No email linked';
-      });
+      final profile = await DatabaseService.instance.getUserProfile(user.uid);
+      if (profile != null && mounted) {
+        setState(() {
+          _profileName = (profile['displayName'] as String?) ?? user.displayName ?? 'CrayCare User';
+          _profileEmail = (profile['email'] as String?) ?? user.email ?? 'No email linked';
+          _isAdmin = profile['role'] == 'admin';
+        });
+      } else if (mounted) {
+        setState(() {
+          _profileName = user.displayName ?? 'CrayCare User';
+          _profileEmail = user.email ?? 'No email linked';
+        });
+      }
       if (widget.initialPhotoUrl != null) {
         setState(() => _photoUrl = widget.initialPhotoUrl);
       } else {
@@ -109,6 +119,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _goTo(int page) {
+    if (_isAdmin && page == 4) return; // Admin can't access sensor thresholds
     _nameCtrl.text = _profileName;
     _emailCtrl.text = _profileEmail;
     setState(() => _currentPage = page);
@@ -342,6 +353,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onGoTo: _goTo,
                   onLogout: _showLogoutSheet,
                   photoUrl: _photoUrl,
+                  isAdmin: _isAdmin,
                 ),
                 ProfileEditForm(
                   key: const ValueKey('edit-profile'),

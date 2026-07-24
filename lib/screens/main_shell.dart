@@ -1,8 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../theme/app_colors.dart';
-import '../services/database_service.dart';
 import '../services/notification_service.dart';
 import '../services/connectivity_service.dart';
 import 'dashboard_screen.dart';
@@ -29,8 +30,9 @@ class _MainShellState extends State<MainShell> {
   final _controlsKey = GlobalKey<ControlsScreenState>();
   String? _photoUrl;
   bool _isAdmin = false;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _profileSub;
 
-  static const List<_NavItem> _baseNavItems = [
+  static const List<_NavItem> _ownerNavItems = [
     _NavItem(icon: Icons.dashboard_rounded, label: 'Dashboard'),
     _NavItem(icon: Icons.bar_chart_rounded, label: 'Analytics'),
     _NavItem(icon: Icons.oil_barrel_rounded, label: 'Tank'),
@@ -38,10 +40,11 @@ class _MainShellState extends State<MainShell> {
     _NavItem(icon: Icons.notifications_rounded, label: 'Notifications'),
   ];
 
-  static const _adminNavItem = _NavItem(icon: Icons.admin_panel_settings_rounded, label: 'Admin');
+  static const List<_NavItem> _adminNavItems = [
+    _NavItem(icon: Icons.admin_panel_settings_rounded, label: 'Users'),
+  ];
 
-  List<_NavItem> get _navItems =>
-      _isAdmin ? [..._baseNavItems, _adminNavItem] : _baseNavItems;
+  List<_NavItem> get _navItems => _isAdmin ? _adminNavItems : _ownerNavItems;
 
   void _setPhoto(String url) {
     _photoUrl = url;
@@ -63,12 +66,13 @@ class _MainShellState extends State<MainShell> {
   @override
   void initState() {
     super.initState();
-    _loadPhoto();
+    _listenToProfile();
     NotificationService.instance.addListener(_onNotificationChange);
   }
 
   @override
   void dispose() {
+    _profileSub?.cancel();
     NotificationService.instance.removeListener(_onNotificationChange);
     super.dispose();
   }
@@ -77,17 +81,28 @@ class _MainShellState extends State<MainShell> {
     if (mounted) setState(() {});
   }
 
-  Future<void> _loadPhoto() async {
+  /// Real-time Firestore listener — updates instantly when admin changes
+  /// role/status in the console or from another device. No restart needed.
+  void _listenToProfile() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
-    final data = await DatabaseService.instance.getUserProfile(user.uid);
-    if (data == null || !mounted) return;
-    setState(() {
-      if (data['photoUrl'] != null) _setPhoto(data['photoUrl'] as String);
-      _isAdmin = data['role'] == 'admin';
-      // If the admin tab was showing and the role changed, don't strand
-      // the user on an index that no longer exists.
-      if (_currentIndex >= _navItems.length) _currentIndex = 0;
+    _profileSub?.cancel();
+    _profileSub = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .snapshots()
+        .listen((doc) {
+      if (!doc.exists || !mounted) return;
+      final data = doc.data()!;
+      final wasAdmin = _isAdmin;
+      setState(() {
+        if (data['photoUrl'] != null) _setPhoto(data['photoUrl'] as String);
+        _isAdmin = data['role'] == 'admin';
+        // If the admin role changed, reset to first tab.
+        if (wasAdmin != _isAdmin) _currentIndex = 0;
+      });
+    }, onError: (e) {
+      debugPrint('[MainShell] Profile stream error: $e');
     });
   }
 
@@ -108,28 +123,29 @@ class _MainShellState extends State<MainShell> {
               _buildHeader(photoImage),
               _buildOfflineBanner(),
               Expanded(
-                  child: IndexedStack(
-                    index: _currentIndex,
-                    children: [
-                      DashboardScreen(
-                        onViewGraph: _goToAnalytics,
-                        onNavigate: (i) => setState(() => _currentIndex = i),
-                        onTankTab: (tab) {
-                          setState(() => _currentIndex = 2);
-                          _productionKey.currentState?.switchToTab(tab);
-                        },
-                        onControlTab: (tab) {
-                          setState(() => _currentIndex = 3);
-                          _controlsKey.currentState?.switchToTab(tab);
-                        },
-                      ),
-                      AnalyticsScreen(key: _analyticsKey),
-                      ProductionScreen(key: _productionKey),
-                      ControlsScreen(key: _controlsKey),
-                      const NotificationsScreen(),
-                      if (_isAdmin) const AdminScreen(),
-                    ],
-                  ),
+                  child: _isAdmin
+                      ? const AdminScreen()
+                      : IndexedStack(
+                          index: _currentIndex,
+                          children: [
+                            DashboardScreen(
+                              onViewGraph: _goToAnalytics,
+                              onNavigate: (i) => setState(() => _currentIndex = i),
+                              onTankTab: (tab) {
+                                setState(() => _currentIndex = 2);
+                                _productionKey.currentState?.switchToTab(tab);
+                              },
+                              onControlTab: (tab) {
+                                setState(() => _currentIndex = 3);
+                                _controlsKey.currentState?.switchToTab(tab);
+                              },
+                            ),
+                            AnalyticsScreen(key: _analyticsKey),
+                            ProductionScreen(key: _productionKey),
+                            ControlsScreen(key: _controlsKey),
+                            const NotificationsScreen(),
+                          ],
+                        ),
               ),
               _buildBottomNav(),
             ],

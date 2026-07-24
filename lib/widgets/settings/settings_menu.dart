@@ -6,6 +6,7 @@ class SettingsMenu extends StatelessWidget {
   final String profileName;
   final String profileEmail;
   final String? photoUrl;
+  final bool isAdmin;
   final void Function(int page) onGoTo;
   final VoidCallback onLogout;
 
@@ -14,6 +15,7 @@ class SettingsMenu extends StatelessWidget {
     required this.profileName,
     required this.profileEmail,
     this.photoUrl,
+    this.isAdmin = false,
     required this.onGoTo,
     required this.onLogout,
   });
@@ -67,13 +69,14 @@ class SettingsMenu extends StatelessWidget {
                 chevron: true,
                 onTap: () => onGoTo(3),
               ),
-              _buildMenuItem(
-                'Sensor Thresholds',
-                Icons.tune_rounded,
-                AppColors.primary,
-                chevron: true,
-                onTap: () => onGoTo(4),
-              ),
+              if (!isAdmin)
+                _buildMenuItem(
+                  'Sensor Thresholds',
+                  Icons.tune_rounded,
+                  AppColors.primary,
+                  chevron: true,
+                  onTap: () => onGoTo(4),
+                ),
             ]),
             const SizedBox(height: 10),
             _buildMenuItem(

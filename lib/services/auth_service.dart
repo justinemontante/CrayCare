@@ -51,7 +51,7 @@ class AuthService {
       User? user = result.user;
 
       if (user != null) {
-        final profile = await DatabaseService.instance.getUserProfile(user.uid);
+        var profile = await DatabaseService.instance.getUserProfile(user.uid);
         if (profile != null && profile['status'] == 'disabled') {
           await signOut();
           throw Exception('Your account has been disabled. Please contact the administrator.');
@@ -64,12 +64,19 @@ class AuthService {
           );
         }
 
-        await DatabaseService.instance.saveUserProfile(
-          uid: user.uid,
-          name: user.displayName ?? 'CrayCare User',
-          email: user.email ?? '',
-          photoUrl: profile?['photoUrl'] as String?,
-        );
+        // Only backfill if profile doc is missing or lacks role/status.
+        // Never overwrite existing values — admin may have set them.
+        final needsRole = profile == null || profile['role'] == null;
+        final needsStatus = profile == null || profile['status'] == null;
+        if (needsRole || needsStatus) {
+          await DatabaseService.instance.saveUserProfile(
+            uid: user.uid,
+            name: user.displayName ?? 'CrayCare User',
+            email: user.email ?? '',
+            role: needsRole ? 'owner' : null,
+            status: needsStatus ? 'active' : null,
+          );
+        }
       }
       return user;
     } on FirebaseAuthException catch (e) {
@@ -99,7 +106,7 @@ class AuthService {
 
       final user = userCredential.user;
       if (user != null) {
-        final profile = await DatabaseService.instance.getUserProfile(user.uid);
+        var profile = await DatabaseService.instance.getUserProfile(user.uid);
         if (profile != null && profile['status'] == 'disabled') {
           await signOut();
           throw Exception('Your account has been disabled. Please contact the administrator.');
@@ -107,13 +114,19 @@ class AuthService {
 
         final isNewUser = userCredential.additionalUserInfo?.isNewUser ?? (profile == null);
 
-        await DatabaseService.instance.saveUserProfile(
-          uid: user.uid,
-          name: user.displayName ?? 'Google User',
-          email: user.email ?? '',
-          photoUrl: profile?['photoUrl'] as String?,
-          role: isNewUser ? 'owner' : null,
-        );
+        // Only backfill if profile doc is missing or lacks role/status.
+        // Never overwrite existing values — admin may have set them.
+        final needsRole = isNewUser || profile == null || profile['role'] == null;
+        final needsStatus = profile == null || profile['status'] == null;
+        if (needsRole || needsStatus) {
+          await DatabaseService.instance.saveUserProfile(
+            uid: user.uid,
+            name: user.displayName ?? 'Google User',
+            email: user.email ?? '',
+            role: needsRole ? 'owner' : null,
+            status: needsStatus ? 'active' : null,
+          );
+        }
       }
 
       return userCredential.user;

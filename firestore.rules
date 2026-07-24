@@ -33,6 +33,7 @@ service cloud.firestore {
     // profile (needed for the admin screen: disable accounts, change
     // roles, assign the device owner).
     match /users/{uid} {
+      allow list: if isAdmin();
       allow read, write: if isSignedIn() && (request.auth.uid == uid || isAdmin());
     }
 
