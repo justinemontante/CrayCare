@@ -615,25 +615,24 @@ class TankService extends ChangeNotifier {
     if (sampleCount <= 0) throw ArgumentError('Sample count must be greater than 0');
     if (totalWeight < 0 || totalLength < 0) throw ArgumentError('Weight and length must be non-negative');
 
-    // Mark currently active batch as superseded
+    // Mark currently active batch as superseded — await the inner set() so
+    // the write completes before we overwrite local state below.
     final existingActive = _batches.where((b) => b.status == 'active').firstOrNull;
     if (existingActive != null) {
       try {
-        await _fs.collection('batches')
+        final snap = await _fs.collection('batches')
             .where('tankId', isEqualTo: _tankOwnerUid)
             .where('batchId', isEqualTo: existingActive.batchId)
-            .get()
-            .then((snap) {
-          if (snap.docs.isNotEmpty) {
-            snap.docs.first.reference.set({
-              'status': 'superseded',
-              'daysInCulture': DateTime.now().difference(existingActive.stockingDate).inDays,
-              'finalAbw': _samplingHistory.isNotEmpty ? _samplingHistory.last.abw : existingActive.initialAbw,
-              'finalAbl': _samplingHistory.isNotEmpty ? _samplingHistory.last.avgLength : existingActive.initialAbl,
-              'totalMortality': _mortality,
-            }, SetOptions(merge: true));
-          }
-        });
+            .get();
+        if (snap.docs.isNotEmpty) {
+          await snap.docs.first.reference.set({
+            'status': 'superseded',
+            'daysInCulture': DateTime.now().difference(existingActive.stockingDate).inDays,
+            'finalAbw': _samplingHistory.isNotEmpty ? _samplingHistory.last.abw : existingActive.initialAbw,
+            'finalAbl': _samplingHistory.isNotEmpty ? _samplingHistory.last.avgLength : existingActive.initialAbl,
+            'totalMortality': _mortality,
+          }, SetOptions(merge: true));
+        }
       } catch (e) {
         debugPrint('[TankService] could not mark previous batch as superseded: $e');
       }

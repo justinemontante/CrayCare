@@ -11,11 +11,19 @@ class BackgroundHelper {
 
   static String get _userId => FirebaseAuth.instance.currentUser?.uid ?? '';
 
+  // Background tasks run on the device's local clock, but all schedule times
+  // and Firestore date-keys are expressed in Asia/Manila wall-clock time (UTC+8)
+  // to match FeederService._manilaNow() and the Cloud Function. Using
+  // DateTime.now() here would cause missed-schedule mismatches for users
+  // outside UTC+8.
+  static const _manilaOffset = Duration(hours: 8);
+  static DateTime _manilaTime() => DateTime.now().toUtc().add(_manilaOffset);
+
   static Future<void> checkAndDispatchFeeding() async {
     final uid = _userId;
     if (uid.isEmpty) return;
     final fs = FirebaseFirestore.instance;
-    final now = DateTime.now();
+    final now = _manilaTime();
     final todayKey = '${now.year}-${now.month}-${now.day}';
 
     final schedSnap = await fs.collection('feederSchedules').get();
@@ -139,7 +147,7 @@ class BackgroundHelper {
     final uid = _userId;
     if (uid.isEmpty) return;
     final fs = FirebaseFirestore.instance;
-    final now = DateTime.now();
+    final now = _manilaTime();
     final todayKey = '${now.year}-${now.month}-${now.day}';
     final nowMins = now.hour * 60 + now.minute;
 
@@ -166,6 +174,7 @@ class BackgroundHelper {
 
       final schedMins = h * 60 + m;
       final reminderKey = 'reminder_${todayKey}_${doc.id}';
+
       final confirmKey = 'confirm_${todayKey}_${doc.id}';
 
       final reminderMarker = await fs
@@ -230,12 +239,13 @@ class BackgroundHelper {
   static Future<void> checkSamplingReminders() async {
     final uid = _userId;
     if (uid.isEmpty) return;
-    final now = DateTime.now();
+    final now = _manilaTime();
     final fs = FirebaseFirestore.instance;
 
     Map<String, dynamic>? tank;
     try {
-      final configSnap = await fs.collection('config').doc(uid).get();
+      // TankService persists to 'tanks', not 'config' — must match.
+      final configSnap = await fs.collection('tanks').doc(uid).get();
       if (configSnap.exists) tank = configSnap.data();
     } catch (e) {
       debugPrint('[BackgroundHelper] Failed to read config from Firestore: $e');
