@@ -244,7 +244,7 @@ exports.stampHistorySensorOwner = functions.region("asia-southeast1").firestore
   });
 
 // ═══════════════════════════════════════════════════════════════════════
-//  1. SENSOR ALERT — triggered on every write to RTDB sensor_readings/latest
+//  1. SENSOR ALERT — triggered on every write to Firestore sensorReadings/latest
 // ═══════════════════════════════════════════════════════════════════════
 exports.onSensorUpdate = functions.region("asia-southeast1").firestore
   .document("sensorReadings/latest")

@@ -16,7 +16,9 @@ def _get_db():
     global _db
     if _db is None:
         import firebase_admin
-        if not firebase_admin._apps:
+        try:
+            firebase_admin.get_app()
+        except ValueError:
             firebase_admin.initialize_app()
         from firebase_admin import firestore
         _db = firestore.client()
