@@ -153,23 +153,15 @@ class DatabaseService {
     if (user == null) return;
 
     final tankId = user.uid;
-    final fieldMap = <String, dynamic>{
-      'tankId': tankId,
-      'updatedAt': FieldValue.serverTimestamp(),
-    };
 
-    if (deviceId == 'aerator1' || deviceId == 'aerator') {
-      fieldMap['aeratorMode'] = mode;
-    } else if (deviceId == 'aerator2') {
-      fieldMap['aerator2Mode'] = mode;
-    } else if (deviceId == 'pump') {
-      fieldMap['pumpMode'] = mode;
-    } else if (deviceId == 'feeder') {
-      fieldMap['feederMode'] = mode;
-    }
-
-    await FirebaseFirestore.instance.collection('hardware_status').doc(tankId).set(
-      fieldMap,
+    // Write to deviceModes/{deviceId} — matches the path the ESP32 firmware
+    // reads: Firebase.Firestore.getDocument(..., "deviceModes/{devId}", "mode")
+    await FirebaseFirestore.instance.collection('deviceModes').doc(deviceId).set(
+      {
+        'mode': mode,
+        'tankId': tankId,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
       SetOptions(merge: true),
     );
 
@@ -181,9 +173,6 @@ class DatabaseService {
       'timestamp': FieldValue.serverTimestamp(),
     });
   }
-
-  Stream<DocumentSnapshot<Map<String, dynamic>>> hardwareStatusStream(String tankId) =>
-      FirebaseFirestore.instance.collection('hardware_status').doc(tankId).snapshots();
 
   Stream<QuerySnapshot<Map<String, dynamic>>> deviceLogsStream(String deviceId) {
     final user = FirebaseAuth.instance.currentUser;

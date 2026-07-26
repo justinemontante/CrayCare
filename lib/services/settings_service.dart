@@ -85,13 +85,21 @@ class SettingsService extends ChangeNotifier {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
+      final rangesPayload = {
+        for (final e in _ranges.entries)
+          e.key: {'min': e.value['min'], 'max': e.value['max']},
+      };
+      // Save per-user config for the app.
       await FirebaseFirestore.instance.collection('config').doc(user.uid).set({
-        'ranges': {
-          for (final e in _ranges.entries)
-            e.key: {'min': e.value['min'], 'max': e.value['max']},
-        },
+        'ranges': rangesPayload,
         'updatedAt': FieldValue.serverTimestamp(),
       });
+      // Mirror to config/default so the ESP32 firmware picks up the thresholds.
+      // ESP reads: Firebase.Firestore.getDocument(..., "config/default", "ranges")
+      await FirebaseFirestore.instance.collection('config').doc('default').set({
+        'ranges': rangesPayload,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
     } catch (e) {
       debugPrint('[SettingsService] Firestore syncTo failed: $e');
     }
@@ -109,14 +117,20 @@ class SettingsService extends ChangeNotifier {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      await FirebaseFirestore.instance
-          .collection('config')
-          .doc(user.uid)
-          .update({
+      final update = {
         'ranges.$sensorKey.min': min,
         'ranges.$sensorKey.max': max,
         'updatedAt': FieldValue.serverTimestamp(),
-      });
+      };
+      await FirebaseFirestore.instance
+          .collection('config')
+          .doc(user.uid)
+          .update(update);
+      // Mirror to config/default so the ESP32 picks up the new threshold.
+      await FirebaseFirestore.instance
+          .collection('config')
+          .doc('default')
+          .set(update, SetOptions(merge: true));
     } catch (e) {
       debugPrint('[SettingsService] Firestore updateRange failed: $e');
     }
@@ -133,13 +147,19 @@ class SettingsService extends ChangeNotifier {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      await FirebaseFirestore.instance.collection('config').doc(user.uid).set({
+      final defaultPayload = {
         'ranges': {
           for (final e in defaultRanges.entries)
             e.key: {'min': e.value['min'], 'max': e.value['max']},
         },
         'updatedAt': FieldValue.serverTimestamp(),
-      });
+      };
+      await FirebaseFirestore.instance.collection('config').doc(user.uid).set(defaultPayload);
+      // Mirror to config/default so the ESP32 picks up the reset thresholds.
+      await FirebaseFirestore.instance
+          .collection('config')
+          .doc('default')
+          .set(defaultPayload, SetOptions(merge: true));
     } catch (e) {
       debugPrint('[SettingsService] Firestore resetToDefaults failed: $e');
     }

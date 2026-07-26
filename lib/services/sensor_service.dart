@@ -393,16 +393,10 @@ class SensorService extends ChangeNotifier {
       final remainingUncached = <String>[];
       final cacheFutures = uncachedDays.map((dateStr) async {
         try {
-          final uid = FirebaseAuth.instance.currentUser?.uid;
-          if (uid == null) {
-            remainingUncached.add(dateStr);
-            return <Map<String, dynamic>>[];
-          }
           final snap = await FirebaseFirestore.instance
               .collection('sensorReadings')
               .doc('history')
               .collection(dateStr)
-              .where('ownerUid', isEqualTo: uid)
               .get(const GetOptions(source: Source.cache));
           if (snap.docs.isNotEmpty) {
             final docs = snap.docs.map((doc) {
@@ -433,13 +427,10 @@ class SensorService extends ChangeNotifier {
           );
           final serverFutures = chunk.map((dateStr) async {
             try {
-              final uid = FirebaseAuth.instance.currentUser?.uid;
-              if (uid == null) return <Map<String, dynamic>>[];
               final snap = await FirebaseFirestore.instance
                   .collection('sensorReadings')
                   .doc('history')
                   .collection(dateStr)
-                  .where('ownerUid', isEqualTo: uid)
                   .get(const GetOptions(source: Source.serverAndCache));
               final docs = snap.docs.map((doc) {
                 final data = doc.data();
