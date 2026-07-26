@@ -21,6 +21,7 @@ enum GrowthStage {
 }
 
 class SamplingEntry {
+  final String id;
   final DateTime date;
   final double abw;
   final double avgLength;
@@ -32,6 +33,7 @@ class SamplingEntry {
   final bool isBaseline;
 
   SamplingEntry({
+    this.id = '',
     required this.date,
     required this.abw,
     required this.avgLength,
@@ -67,23 +69,16 @@ class TankActivity {
 }
 
 class MortalityEntry {
+  final String id;
   final DateTime date;
   final int count;
-  MortalityEntry({required this.date, required this.count});
+  MortalityEntry({this.id = '', required this.date, required this.count});
 }
 
 class TankService extends ChangeNotifier {
   static final TankService instance = TankService._();
   TankService._();
 
-  static Map<String, dynamic> _convertMap(Object? value) {
-    if (value is Map) {
-      return value.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
-    }
-    return {};
-  }
-
-  // Active batch state (backward-compatible)
   int _initialCount = 0;
   int _mortality = 0;
   bool _isInitialized = false;
@@ -91,13 +86,9 @@ class TankService extends ChangeNotifier {
   DateTime _stockingDate = DateTime.now();
   DateTime _lastSampleDate = DateTime.now();
 
-  // Multi-batch support
   List<CrayfishBatch> _batches = [];
   String? _selectedBatchId;
-
-  // Archive view mode
   bool _isArchiveView = false;
-
   String _tankOwnerUid = '';
 
   final FirebaseFirestore _fs = FirebaseFirestore.instance;
@@ -109,7 +100,7 @@ class TankService extends ChangeNotifier {
   double _totalSampleLength = 0.0;
   List<SamplingEntry> _samplingHistory = [];
   String? _lastSamplingDocId;
-  List<TankActivity> _activities = [];
+  final List<TankActivity> _activities = [];
   List<MortalityEntry> _mortalityHistory = [];
   List<CrayfishBatch> _harvestHistory = [];
   List<CrayfishHarvestRecord> _harvestRecords = [];
@@ -182,7 +173,6 @@ class TankService extends ChangeNotifier {
     return List.unmodifiable(filtered.reversed);
   }
 
-  // Multi-batch getters
   List<CrayfishBatch> get batches => List.unmodifiable(_batches);
   List<CrayfishBatch> get activeBatches =>
       _batches.where((b) => b.status == 'active').toList();
@@ -200,7 +190,7 @@ class TankService extends ChangeNotifier {
     return _batches.first;
   }
 
-  int get totalMortality => _mortalityHistory.fold(0, (acc, e) => acc + e.count);
+  int get totalMortalityFromHistory => _mortalityHistory.fold(0, (acc, e) => acc + e.count);
 
   GrowthStage get currentGrowthStage {
     final latest = _samplingHistory.isNotEmpty ? _samplingHistory.last : null;
@@ -212,11 +202,27 @@ class TankService extends ChangeNotifier {
     return GrowthStage.marketSize;
   }
 
+  // ─── Flat collection references ──────────────────────────────────
+
+  Query<Map<String, dynamic>> get _batchesQ =>
+      _fs.collection('batches').where('tankId', isEqualTo: _tankOwnerUid);
+
+  Query<Map<String, dynamic>> _samplingQ(String batchId) =>
+      _fs.collection('sampling_records').where('batchId', isEqualTo: batchId);
+
+  Query<Map<String, dynamic>> _mortalityQ(String batchId) =>
+      _fs.collection('mortality_records').where('batchId', isEqualTo: batchId);
+
+  Query<Map<String, dynamic>> get _harvestsQ =>
+      _fs.collection('harvest_records').where('tankId', isEqualTo: _tankOwnerUid);
+
+  // ─── Lifecycle ─────────────────────────────────────────────────────
+
   Future<void> refresh() async {
     if (_tankOwnerUid.isEmpty) return;
-    debugPrint('[TankService] refresh() — reloading data');
+    debugPrint('[TankService] refresh()');
     _cancelSubscriptions();
-    await _loadConfig();
+    await _loadTank();
     _listenFirebase();
   }
 
@@ -225,10 +231,11 @@ class TankService extends ChangeNotifier {
     debugPrint('[TankService] init() currentUser.uid="$initialUid"');
     if (initialUid.isNotEmpty) {
       _tankOwnerUid = initialUid;
-      await _loadConfig();
+      await _loadTank();
+      await _ensureTankExists();
       _listenFirebase();
     }
-    FirebaseAuth.instance.authStateChanges().listen((user) {
+    FirebaseAuth.instance.authStateChanges().listen((user) async {
       final uid = user?.uid ?? '';
       debugPrint('[TankService] authStateChanges event: uid="$uid"');
       if (uid.isEmpty) {
@@ -238,56 +245,60 @@ class TankService extends ChangeNotifier {
       if (uid == _tankOwnerUid) return;
       _tankOwnerUid = uid;
       _cancelSubscriptions();
-      _loadConfig().then((_) => _listenFirebase());
+      await _loadTank();
+      await _ensureTankExists();
+      _listenFirebase();
     });
     ConnectivityService.instance.addOnConnectCallback(_onReconnect);
   }
 
   void _onReconnect() {
-    debugPrint('[TankService] Internet reconnected — refreshing listeners');
+    debugPrint('[TankService] Internet reconnected');
     refresh();
   }
 
-  Future<void> _loadConfig() async {
+  Future<void> _ensureTankExists() async {
+    if (_tankOwnerUid.isEmpty) return;
+    final doc = await _fs.collection('tanks').doc(_tankOwnerUid).get();
+    if (!doc.exists) {
+      await _fs.collection('tanks').doc(_tankOwnerUid).set({
+        'userId': _tankOwnerUid,
+        'currentBatchId': '',
+        'lifetimeMortality': 0,
+        'lifetimeHarvested': 0,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    }
+  }
+
+  Future<void> _loadTank() async {
     try {
-      final doc = await _fs.collection('config').doc(_tankOwnerUid).get();
+      final doc = await _fs.collection('tanks').doc(_tankOwnerUid).get();
       if (!doc.exists) {
-        debugPrint('[TankService] _loadConfig: config doc does NOT exist');
+        debugPrint('[TankService] _loadTank: tank doc does NOT exist');
         _resetAll();
         return;
       }
       final data = doc.data() ?? <String, dynamic>{};
-      final isInit = (data['isInitialized'] as bool?) ?? false;
-      if (!isInit) {
-        _resetAll();
-        return;
-      }
       _initialCount = (data['initialPopulation'] as int?) ?? 0;
-      _mortality = (data['Mortality'] as int?) ?? 0;
-      _totalHarvested = (data['totalHarvested'] as int?) ?? 0;
+      _mortality = (data['lifetimeMortality'] as int?) ?? 0;
+      _totalHarvested = (data['lifetimeHarvested'] as int?) ?? 0;
       _stockingDate = DateTime.fromMillisecondsSinceEpoch(
         (data['stockingDate'] as int?) ?? DateTime.now().millisecondsSinceEpoch,
       );
       _sampleCount = (data['sampleCount'] as int?) ?? 0;
       _totalSampleWeight = (data['initialTotalSampleWeight'] as num?)?.toDouble() ?? 0.0;
       _totalSampleLength = (data['initialTotalSampleLength'] as num?)?.toDouble() ?? 0.0;
-      if (data.containsKey('initialSampleWeight')) {
-        _initialWeight = (data['initialSampleWeight'] as num?)?.toDouble() ?? 0.0;
-        _initialLength = (data['initialSampleLength'] as num?)?.toDouble() ?? 0.0;
-        _totalSampleWeight = _initialWeight * _sampleCount;
-        _totalSampleLength = _initialLength * _sampleCount;
-      } else {
-        _initialWeight = _sampleCount > 0 ? _totalSampleWeight / _sampleCount : 0.0;
-        _initialLength = _sampleCount > 0 ? _totalSampleLength / _sampleCount : 0.0;
-      }
+      _initialWeight = _sampleCount > 0 ? _totalSampleWeight / _sampleCount : 0.0;
+      _initialLength = _sampleCount > 0 ? _totalSampleLength / _sampleCount : 0.0;
       _lastSampleDate = DateTime.fromMillisecondsSinceEpoch(
         (data['lastSampleDate'] as int?) ?? _stockingDate.millisecondsSinceEpoch,
       );
-      _isInitialized = isInit;
-      _setupComplete = isInit;
+      _isInitialized = _initialCount > 0;
+      _setupComplete = _isInitialized;
       notifyListeners();
     } catch (e) {
-      debugPrint('[TankService] loadConfig ERROR: $e');
+      debugPrint('[TankService] _loadTank ERROR: $e');
     }
   }
 
@@ -306,13 +317,16 @@ class TankService extends ChangeNotifier {
     _mortalityHistory.clear();
     _activities.clear();
     _harvestRecords.clear();
+    _batches.clear();
+    _harvestHistory.clear();
     notifyListeners();
   }
+
+  // ─── Listeners (flat collections) ──────────────────────────────────
 
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _batchesSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _samplingSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _mortalitySub;
-  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _activitiesSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _harvestsSub;
 
   void _cancelSubscriptions() {
@@ -322,8 +336,6 @@ class TankService extends ChangeNotifier {
     _samplingSub = null;
     _mortalitySub?.cancel();
     _mortalitySub = null;
-    _activitiesSub?.cancel();
-    _activitiesSub = null;
     _harvestsSub?.cancel();
     _harvestsSub = null;
   }
@@ -333,19 +345,10 @@ class TankService extends ChangeNotifier {
     for (final doc in snap.docs) {
       try {
         final map = Map<String, dynamic>.from(doc.data());
-        if (map['archivedSampling'] is Map) {
-          map['archivedSampling'] = _convertMap(map['archivedSampling'] as Map);
-        }
-        if (map['archivedMortality'] is Map) {
-          map['archivedMortality'] = _convertMap(map['archivedMortality'] as Map);
-        }
-        if (map['batchId'] == null) {
-          debugPrint('[TankService] _parseBatchesFromSnapshot: skipping entry without batchId');
-          continue;
-        }
+        if (map['batchId'] == null) continue;
         list.add(CrayfishBatch.fromJson(map));
       } catch (e) {
-        debugPrint('[TankService] _parseBatchesFromSnapshot: error parsing batch entry: $e');
+        debugPrint('[TankService] error parsing batch: $e');
       }
     }
     list.sort((a, b) => b.stockingDate.compareTo(a.stockingDate));
@@ -360,14 +363,10 @@ class TankService extends ChangeNotifier {
       _selectedBatchId = newBatchId;
       if (newBatchId != null) {
         final batch = active.first;
-        if (batch.status == 'harvested' || batch.status == 'superseded') {
-          _enterArchiveView(batch);
-        } else {
-          _isArchiveView = false;
-          _clearArchiveState();
-          _restoreFromBatchRecord(batch);
-          _reloadLiveDataFromFirebase();
-        }
+        _isArchiveView = false;
+        _clearState();
+        _restoreFromBatchRecord(batch);
+        _resubscribeToBatch();
       }
     }
     notifyListeners();
@@ -375,7 +374,7 @@ class TankService extends ChangeNotifier {
 
   bool get isArchiveView => _isArchiveView;
 
-  void _clearArchiveState() {
+  void _clearState() {
     _samplingHistory.clear();
     _lastSamplingDocId = null;
     _mortalityHistory.clear();
@@ -402,173 +401,10 @@ class TankService extends ChangeNotifier {
     _setupComplete = true;
   }
 
-  Future<void> _reloadLiveDataFromFirebase() async {
-    // 1. Load config
-    try {
-      final doc = await _fs.collection('config').doc(_tankOwnerUid).get();
-      if (_isArchiveView) return;
-      if (doc.exists) {
-        final data = doc.data() ?? <String, dynamic>{};
-        final isInit = (data['isInitialized'] as bool?) ?? false;
-        if (isInit) {
-          _isInitialized = true;
-          _setupComplete = true;
-          _initialCount = (data['initialPopulation'] as int?) ?? _initialCount;
-          _mortality = (data['Mortality'] as int?) ?? _mortality;
-          _totalHarvested = (data['totalHarvested'] as int?) ?? _totalHarvested;
-          _sampleCount = (data['sampleCount'] as int?) ?? _sampleCount;
-          _totalSampleWeight = (data['initialTotalSampleWeight'] as num?)?.toDouble() ?? _totalSampleWeight;
-          _totalSampleLength = (data['initialTotalSampleLength'] as num?)?.toDouble() ?? _totalSampleLength;
-          if (data['initialSampleWeight'] != null) {
-            _initialWeight = (data['initialSampleWeight'] as num).toDouble();
-            _initialLength = (data['initialSampleLength'] as num).toDouble();
-          } else {
-            _initialWeight = _sampleCount > 0 ? _totalSampleWeight / _sampleCount : 0.0;
-            _initialLength = _sampleCount > 0 ? _totalSampleLength / _sampleCount : 0.0;
-          }
-          if (data.containsKey('stockingDate')) {
-            _stockingDate = DateTime.fromMillisecondsSinceEpoch(data['stockingDate'] as int);
-          }
-          if (data.containsKey('lastSampleDate')) {
-            _lastSampleDate = DateTime.fromMillisecondsSinceEpoch(data['lastSampleDate'] as int);
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint('[TankService] _reloadLiveDataFromFirebase loadConfig error: $e');
-    }
-
-    // sampling, mortality, activities, harvests are kept up to date by
-    // the real-time listeners in _listenFirebase(), so no need to re-fetch.
-
-    notifyListeners();
-  }
-
-  Future<void> selectBatch(String? batchId) async {
-    if (batchId == null) {
-      _selectedBatchId = null;
-      notifyListeners();
-      if (_isArchiveView) {
-        _isArchiveView = false;
-        _clearArchiveState();
-        final activeBatch = _batches.where((b) => b.status == 'active').firstOrNull;
-        if (activeBatch != null) {
-          _restoreFromBatchRecord(activeBatch);
-        }
-        await _reloadLiveDataFromFirebase();
-      }
-      notifyListeners();
-      return;
-    }
-
-    final exists = _batches.any((b) => b.batchId == batchId);
-    if (!exists) return;
-
-    if (_selectedBatchId == batchId) return;
-
-    _selectedBatchId = batchId;
-    final batch = _batches.firstWhere((b) => b.batchId == batchId);
-
-    notifyListeners();
-
-    if (batch.status == 'harvested' || batch.status == 'superseded') {
-      await _enterArchiveView(batch);
-    } else {
-      _isArchiveView = false;
-      _clearArchiveState();
-      _restoreFromBatchRecord(batch);
-      await _reloadLiveDataFromFirebase();
-      notifyListeners();
-    }
-  }
-
-  Future<void> _enterArchiveView(CrayfishBatch batch) async {
-    _isArchiveView = true;
-    _clearArchiveState();
-    _initialCount = batch.initialCount;
-    _mortality = batch.totalMortality;
-    _totalHarvested = batch.harvestCount;
-    _stockingDate = batch.stockingDate;
-    _initialWeight = batch.initialAbw;
-    _initialLength = batch.initialAbl;
-    _isInitialized = true;
-    _setupComplete = true;
-    _sampleCount = batch.sampleCount;
-    _totalSampleWeight = batch.initialTotalWeight;
-    _totalSampleLength = batch.initialTotalLength;
-
-    final List<SamplingEntry> archivedSampling = [];
-    final rawSampling = batch.archivedSampling;
-    if (rawSampling != null) {
-      for (final v in rawSampling.values) {
-        if (v is! Map) continue;
-        final sm = _convertMap(v);
-        final dateRaw = sm['date'];
-        if (dateRaw is! num) {
-          debugPrint('[TankService] _enterArchiveView: skipping archived sampling without date');
-          continue;
-        }
-        archivedSampling.add(SamplingEntry(
-          date: DateTime.fromMillisecondsSinceEpoch(dateRaw.toInt()),
-          abw: (sm['abw'] as num?)?.toDouble() ?? 0.0,
-          avgLength: (sm['avgLength'] as num?)?.toDouble() ?? 0.0,
-          sampleSize: (sm['sampleSize'] as num?)?.toInt() ?? 0,
-          totalWeight: (sm['totalWeight'] as num?)?.toDouble() ?? 0.0,
-          totalLength: (sm['totalLength'] as num?)?.toDouble() ?? 0.0,
-          biomass: (sm['biomass'] as num?)?.toDouble() ?? 0.0,
-          liveCount: (sm['liveCount'] as num?)?.toInt() ?? 0,
-          isBaseline: sm['isBaseline'] == true,
-        ));
-      }
-      archivedSampling.sort((a, b) => a.date.compareTo(b.date));
-    }
-    _samplingHistory = archivedSampling;
-
-    final List<MortalityEntry> archivedMortality = [];
-    final rawMortality = batch.archivedMortality;
-    if (rawMortality != null) {
-      for (final v in rawMortality.values) {
-        if (v is! Map) continue;
-        final mm = _convertMap(v);
-        final dateRaw = mm['date'];
-        final countRaw = mm['count'];
-        if (dateRaw is! num || countRaw is! num) {
-          debugPrint('[TankService] _enterArchiveView: skipping archived mortality without date/count');
-          continue;
-        }
-        archivedMortality.add(MortalityEntry(
-          date: DateTime.fromMillisecondsSinceEpoch(dateRaw.toInt()),
-          count: countRaw.toInt(),
-        ));
-      }
-      archivedMortality.sort((a, b) => a.date.compareTo(b.date));
-    }
-    _mortalityHistory = archivedMortality;
-
-    // Load harvest records from Firestore
-    try {
-      final snap = await _fs
-          .collection('harvests')
-          .where('uid', isEqualTo: _tankOwnerUid)
-          .get();
-      if (snap.docs.isNotEmpty) {
-        _harvestRecords = snap.docs
-            .map((doc) => CrayfishHarvestRecord.fromJson(
-                doc.id, Map<String, dynamic>.from(doc.data())))
-            .toList()
-          ..sort((a, b) => a.date.compareTo(b.date));
-      }
-    } catch (e) {
-      debugPrint('[TankService] _enterArchiveView load harvest error: $e');
-    }
-
-    notifyListeners();
-  }
-
   void _listenFirebase() {
-    _batchesSub = _fs
-        .collection('batches')
-        .where('uid', isEqualTo: _tankOwnerUid)
+    // Listen to batches (flat collection)
+    _batchesSub = _batchesQ
+        .orderBy('stockingDate', descending: true)
         .snapshots()
         .listen((snap) {
       if (_isArchiveView) return;
@@ -584,117 +420,14 @@ class TankService extends ChangeNotifier {
       debugPrint('[TankService] _batchesSub error: $e');
     });
 
-    _samplingSub = _fs
-        .collection('sampling')
-        .where('uid', isEqualTo: _tankOwnerUid)
-        .snapshots()
-        .listen((snap) {
-      if (_isArchiveView) return;
-      if (snap.docs.isEmpty) {
-        _samplingHistory.clear();
-        _lastSamplingDocId = null;
-        notifyListeners();
-        return;
-      }
-      final entries = <SamplingEntry>[];
-      String? lastId;
-      DateTime? lastDate;
-      for (final doc in snap.docs) {
-        final map = doc.data();
-        final dateRaw = map['date'];
-        if (dateRaw is! num) {
-          debugPrint('[TankService] sampling listener: skipping entry without valid date');
-          continue;
-        }
-        final date = DateTime.fromMillisecondsSinceEpoch(dateRaw.toInt());
-        entries.add(SamplingEntry(
-          date: date,
-          abw: (map['abw'] as num?)?.toDouble() ?? 0.0,
-          avgLength: (map['avgLength'] as num?)?.toDouble() ?? 0.0,
-          sampleSize: (map['sampleSize'] as num?)?.toInt() ?? 0,
-          totalWeight: (map['totalWeight'] as num?)?.toDouble() ?? 0.0,
-          totalLength: (map['totalLength'] as num?)?.toDouble() ?? 0.0,
-          biomass: (map['biomass'] as num?)?.toDouble() ?? 0.0,
-          liveCount: (map['liveCount'] as num?)?.toInt() ?? 0,
-          isBaseline: map['isBaseline'] == true,
-        ));
-        if (lastDate == null || date.isAfter(lastDate)) { lastDate = date; lastId = doc.id; }
-      }
-      entries.sort((a, b) => a.date.compareTo(b.date));
-      _samplingHistory = entries;
-      _lastSamplingDocId = lastId;
-      notifyListeners();
-    }, onError: (e) {
-      debugPrint('[TankService] _samplingSub error: $e');
-    });
+    _resubscribeToBatch();
 
-    _mortalitySub = _fs
-        .collection('mortality')
-        .where('uid', isEqualTo: _tankOwnerUid)
+    // Listen to harvest records (flat)
+    _harvestsSub = _harvestsQ
+        .orderBy('timestamp')
         .snapshots()
         .listen((snap) {
       if (_isArchiveView) return;
-      if (snap.docs.isEmpty) {
-        _mortalityHistory.clear();
-        notifyListeners();
-        return;
-      }
-      _mortalityHistory = snap.docs.map((doc) {
-        final map = doc.data();
-        final dateRaw = map['date'];
-        final countRaw = map['count'];
-        if (dateRaw is! num || countRaw is! num) {
-          debugPrint('[TankService] mortality listener: skipping entry with missing date/count');
-          return null;
-        }
-        return MortalityEntry(
-          date: DateTime.fromMillisecondsSinceEpoch(dateRaw.toInt()),
-          count: countRaw.toInt(),
-        );
-      }).whereType<MortalityEntry>().toList()..sort((a, b) => a.date.compareTo(b.date));
-      _mortality = _mortalityHistory.fold(0, (acc, e) => acc + e.count);
-      notifyListeners();
-    }, onError: (e) {
-      debugPrint('[TankService] _mortalitySub error: $e');
-    });
-
-    _activitiesSub = _fs
-        .collection('activities')
-        .where('uid', isEqualTo: _tankOwnerUid)
-        .snapshots()
-        .listen((snap) {
-      if (_isArchiveView) return;
-      if (snap.docs.isEmpty) {
-        _activities.clear();
-        notifyListeners();
-        return;
-      }
-      _activities = snap.docs.map((doc) {
-        final map = doc.data();
-        return TankActivity(
-          action: map['action'] ?? '',
-          date: map['date'] as String? ?? '',
-          time: map['time'] as String? ?? '',
-          type: map['type'] ?? '',
-          timestamp: map['timestamp'] ?? 0,
-        );
-      }).toList()..sort((a, b) => a.timestamp.compareTo(b.timestamp));
-      notifyListeners();
-    }, onError: (e) {
-      debugPrint('[TankService] _activitiesSub error: $e');
-    });
-
-    _harvestsSub = _fs
-        .collection('harvests')
-        .where('uid', isEqualTo: _tankOwnerUid)
-        .snapshots()
-        .listen((snap) {
-      if (_isArchiveView) return;
-      if (snap.docs.isEmpty) {
-        _harvestRecords.clear();
-        notifyListeners();
-        return;
-      }
       _harvestRecords = snap.docs
           .map((doc) => CrayfishHarvestRecord.fromJson(
               doc.id, Map<String, dynamic>.from(doc.data())))
@@ -706,51 +439,171 @@ class TankService extends ChangeNotifier {
     });
   }
 
-  Future<void> _saveConfig() async {
-    if (!_setupComplete) return;
-    if (_tankOwnerUid.isEmpty) {
-      debugPrint('[TankService] _saveConfig: No user UID, skipping save');
+  void _resubscribeToBatch() {
+    _samplingSub?.cancel();
+    _samplingSub = null;
+    _mortalitySub?.cancel();
+    _mortalitySub = null;
+
+    if (_selectedBatchId == null) return;
+
+    final batchId = _selectedBatchId!;
+
+    // Listen to sampling_records (flat, filtered by batchId)
+    _samplingSub = _samplingQ(batchId)
+        .orderBy('date')
+        .snapshots()
+        .listen((snap) {
+      if (_isArchiveView) return;
+      final entries = <SamplingEntry>[];
+      String? lastId;
+      DateTime? lastDate;
+      for (final doc in snap.docs) {
+        final map = doc.data();
+        final dateRaw = map['date'];
+        if (dateRaw is! num) continue;
+        final date = DateTime.fromMillisecondsSinceEpoch(dateRaw.toInt());
+        entries.add(SamplingEntry(
+          id: doc.id,
+          date: date,
+          abw: (map['abw'] as num?)?.toDouble() ?? 0.0,
+          avgLength: (map['avgLength'] as num?)?.toDouble() ?? 0.0,
+          sampleSize: (map['sampleSize'] as num?)?.toInt() ?? 0,
+          totalWeight: (map['totalWeight'] as num?)?.toDouble() ?? 0.0,
+          totalLength: (map['totalLength'] as num?)?.toDouble() ?? 0.0,
+          biomass: (map['biomass'] as num?)?.toDouble() ?? 0.0,
+          liveCount: (map['liveCount'] as num?)?.toInt() ?? 0,
+          isBaseline: map['isBaseline'] == true,
+        ));
+        if (lastDate == null || date.isAfter(lastDate)) {
+          lastDate = date;
+          lastId = doc.id;
+        }
+      }
+      entries.sort((a, b) => a.date.compareTo(b.date));
+      _samplingHistory = entries;
+      _lastSamplingDocId = lastId;
+      notifyListeners();
+    }, onError: (e) {
+      debugPrint('[TankService] _samplingSub error: $e');
+    });
+
+    // Listen to mortality_records (flat, filtered by batchId)
+    _mortalitySub = _mortalityQ(batchId)
+        .orderBy('date')
+        .snapshots()
+        .listen((snap) {
+      if (_isArchiveView) return;
+      _mortalityHistory = snap.docs.map((doc) {
+        final map = doc.data();
+        final dateRaw = map['date'];
+        final countRaw = map['count'];
+        if (dateRaw is! num || countRaw is! num) return null;
+        return MortalityEntry(
+          id: doc.id,
+          date: DateTime.fromMillisecondsSinceEpoch(dateRaw.toInt()),
+          count: countRaw.toInt(),
+        );
+      }).whereType<MortalityEntry>().toList()
+        ..sort((a, b) => a.date.compareTo(b.date));
+      _mortality = _mortalityHistory.fold(0, (acc, e) => acc + e.count);
+      notifyListeners();
+    }, onError: (e) {
+      debugPrint('[TankService] _mortalitySub error: $e');
+    });
+  }
+
+  Future<void> selectBatch(String? batchId) async {
+    if (batchId == null) {
+      _selectedBatchId = null;
+      if (_isArchiveView) {
+        _isArchiveView = false;
+        _clearState();
+        final activeBatch = _batches.where((b) => b.status == 'active').firstOrNull;
+        if (activeBatch != null) {
+          _restoreFromBatchRecord(activeBatch);
+        }
+        _resubscribeToBatch();
+      }
+      notifyListeners();
       return;
     }
+
+    final exists = _batches.any((b) => b.batchId == batchId);
+    if (!exists) return;
+    if (_selectedBatchId == batchId) return;
+
+    _selectedBatchId = batchId;
+    final batch = _batches.firstWhere((b) => b.batchId == batchId);
+
+    if (batch.status == 'harvested' || batch.status == 'superseded') {
+      _enterArchiveView(batch);
+    } else {
+      _isArchiveView = false;
+      _clearState();
+      _restoreFromBatchRecord(batch);
+      _resubscribeToBatch();
+    }
+    notifyListeners();
+  }
+
+  void _enterArchiveView(CrayfishBatch batch) {
+    _isArchiveView = true;
+    _clearState();
+    _initialCount = batch.initialCount;
+    _mortality = batch.totalMortality;
+    _totalHarvested = batch.harvestCount;
+    _stockingDate = batch.stockingDate;
+    _initialWeight = batch.initialAbw;
+    _initialLength = batch.initialAbl;
+    _isInitialized = true;
+    _setupComplete = true;
+    _sampleCount = batch.sampleCount;
+    _totalSampleWeight = batch.initialTotalWeight;
+    _totalSampleLength = batch.initialTotalLength;
+    _resubscribeToBatch();
+    notifyListeners();
+  }
+
+  Future<void> _saveConfig() async {
+    if (!_setupComplete) return;
+    if (_tankOwnerUid.isEmpty) return;
     try {
-      await _fs.collection('config').doc(_tankOwnerUid).set({
+      await _fs.collection('tanks').doc(_tankOwnerUid).set({
         'initialPopulation': _initialCount,
         'stockingDate': _stockingDate.millisecondsSinceEpoch,
         'lastSampleDate': _lastSampleDate.millisecondsSinceEpoch,
-        'Mortality': _mortality,
+        'lifetimeMortality': _mortality,
         'sampleCount': _sampleCount,
         'initialTotalSampleWeight': _totalSampleWeight,
         'initialTotalSampleLength': _totalSampleLength,
-        'Alive': inTankCount,
-        'totalHarvested': _totalHarvested,
-        'isInitialized': _isInitialized,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+        'lifetimeHarvested': _totalHarvested,
+        'currentBatchId': _selectedBatchId ?? '',
+      }, SetOptions(merge: true));
     } catch (e) {
-      debugPrint('[TankService] Error saving config: $e');
+      debugPrint('[TankService] _saveConfig error: $e');
       rethrow;
     }
   }
 
   Future<void> resetExperiment() async {
     _resetAll();
-    _batches = [];
-    _harvestHistory = [];
-    await Future.wait([
-      _fs.collection('config').doc(_tankOwnerUid).delete(),
-      _fs.collection('sampling').where('uid', isEqualTo: _tankOwnerUid).get().then((snap) {
-        for (final doc in snap.docs) { doc.reference.delete(); }
-      }),
-      _fs.collection('mortality').where('uid', isEqualTo: _tankOwnerUid).get().then((snap) {
-        for (final doc in snap.docs) { doc.reference.delete(); }
-      }),
-      _fs.collection('activities').where('uid', isEqualTo: _tankOwnerUid).get().then((snap) {
-        for (final doc in snap.docs) { doc.reference.delete(); }
-      }),
-      _fs.collection('batches').where('uid', isEqualTo: _tankOwnerUid).get().then((snap) {
-        for (final doc in snap.docs) { doc.reference.delete(); }
-      }),
-    ]);
+    // Delete tank doc
+    await _fs.collection('tanks').doc(_tankOwnerUid).delete();
+    // Delete flat collections
+    final batchSnap = await _batchesQ.get();
+    for (final d in batchSnap.docs) { await d.reference.delete(); }
+    final samplingSnap = await _fs.collection('sampling_records')
+        .where('tankId', isEqualTo: _tankOwnerUid).get();
+    for (final d in samplingSnap.docs) { await d.reference.delete(); }
+    final mortalitySnap = await _fs.collection('mortality_records')
+        .where('tankId', isEqualTo: _tankOwnerUid).get();
+    for (final d in mortalitySnap.docs) { await d.reference.delete(); }
+    final harvestSnap = await _harvestsQ.get();
+    for (final d in harvestSnap.docs) { await d.reference.delete(); }
+    final deviceSnap = await _fs.collection('device_logs')
+        .where('tankId', isEqualTo: _tankOwnerUid).get();
+    for (final d in deviceSnap.docs) { await d.reference.delete(); }
     notifyListeners();
   }
 
@@ -758,83 +611,34 @@ class TankService extends ChangeNotifier {
     if (_tankOwnerUid.isEmpty) {
       throw Exception('User not authenticated. Please sign in and try again.');
     }
-    if (initial <= 0) {
-      throw ArgumentError('Initial population must be greater than 0');
-    }
-    if (sampleCount <= 0) {
-      throw ArgumentError('Sample count must be greater than 0');
-    }
-    if (totalWeight < 0 || totalLength < 0) {
-      throw ArgumentError('Weight and length must be non-negative');
-    }
+    if (initial <= 0) throw ArgumentError('Initial population must be greater than 0');
+    if (sampleCount <= 0) throw ArgumentError('Sample count must be greater than 0');
+    if (totalWeight < 0 || totalLength < 0) throw ArgumentError('Weight and length must be non-negative');
 
-    // --- Step 1: Archive the currently active batch (if any) before creating a new one ---
+    // Mark currently active batch as superseded
     final existingActive = _batches.where((b) => b.status == 'active').firstOrNull;
     if (existingActive != null) {
       try {
-        final samplingSnap = await _fs
-            .collection('sampling')
-            .where('uid', isEqualTo: _tankOwnerUid)
-            .get();
-        final mortalitySnap = await _fs
-            .collection('mortality')
-            .where('uid', isEqualTo: _tankOwnerUid)
-            .get();
-        final archivedBatch = CrayfishBatch(
-          batchId: existingActive.batchId,
-          status: 'superseded',
-          stockingDate: existingActive.stockingDate,
-          initialCount: existingActive.initialCount,
-          harvestCount: 0, totalMortality: _mortality,
-          initialAbw: existingActive.initialAbw, initialAbl: existingActive.initialAbl,
-          finalAbw: _samplingHistory.isNotEmpty ? _samplingHistory.last.abw : existingActive.initialAbw,
-          finalAbl: _samplingHistory.isNotEmpty ? _samplingHistory.last.avgLength : existingActive.initialAbl,
-          daysInCulture: DateTime.now().difference(existingActive.stockingDate).inDays,
-          sampleCount: _sampleCount,
-          initialTotalWeight: _totalSampleWeight,
-          initialTotalLength: _totalSampleLength,
-          archivedSampling: samplingSnap.docs.isNotEmpty
-              ? Map.fromEntries(samplingSnap.docs.map((d) => MapEntry(d.id, d.data())))
-              : null,
-          archivedMortality: mortalitySnap.docs.isNotEmpty
-              ? Map.fromEntries(mortalitySnap.docs.map((d) => MapEntry(d.id, d.data())))
-              : null,
-        );
-        // Find and update the existing batch doc (preserve uid)
-        final batchSnap = await _fs
-            .collection('batches')
+        await _fs.collection('batches')
+            .where('tankId', isEqualTo: _tankOwnerUid)
             .where('batchId', isEqualTo: existingActive.batchId)
-            .where('uid', isEqualTo: _tankOwnerUid)
-            .get();
-        if (batchSnap.docs.isNotEmpty) {
-          await batchSnap.docs.first.reference.set({
-            ...archivedBatch.toJson(),
-            'uid': _tankOwnerUid,
-          });
-        }
+            .get()
+            .then((snap) {
+          if (snap.docs.isNotEmpty) {
+            snap.docs.first.reference.set({
+              'status': 'superseded',
+              'daysInCulture': DateTime.now().difference(existingActive.stockingDate).inDays,
+              'finalAbw': _samplingHistory.isNotEmpty ? _samplingHistory.last.abw : existingActive.initialAbw,
+              'finalAbl': _samplingHistory.isNotEmpty ? _samplingHistory.last.avgLength : existingActive.initialAbl,
+              'totalMortality': _mortality,
+            }, SetOptions(merge: true));
+          }
+        });
       } catch (e) {
-        debugPrint('[TankService] initializeGrowOut: could not archive previous batch: $e');
+        debugPrint('[TankService] could not mark previous batch as superseded: $e');
       }
     }
 
-    // --- Step 2: Clear sampling/mortality/activities data from Firestore ---
-    try {
-      await Future.wait([
-        _fs.collection('sampling').where('uid', isEqualTo: _tankOwnerUid).get().then((snap) {
-          for (final d in snap.docs) { d.reference.delete(); }
-        }),
-        _fs.collection('mortality').where('uid', isEqualTo: _tankOwnerUid).get().then((snap) {
-          for (final d in snap.docs) { d.reference.delete(); }
-        }),
-        _fs.collection('activities').where('uid', isEqualTo: _tankOwnerUid).get().then((snap) {
-          for (final d in snap.docs) { d.reference.delete(); }
-        }),
-      ]);
-    } catch (e) {
-      debugPrint('[TankService] Error clearing old data: $e');
-    }
-
-    // --- Step 3: Set up local state for the new batch ---
     _initialCount = initial;
     _stockingDate = date;
     _lastSampleDate = date;
@@ -852,49 +656,56 @@ class TankService extends ChangeNotifier {
     _activities.clear();
     _isArchiveView = false;
 
-    // --- Step 4: Save new config to Firestore ---
     await _saveConfig();
     _addActivity('Initialized new grow-out batch with $initial population', 'init', customDate: date);
 
-    // --- Step 5: Build unique batch ID and push to Firestore ---
     final dateStr = "${date.year}${date.month.toString().padLeft(2, '0')}${date.day.toString().padLeft(2, '0')}";
     final seq = (_batches.length + 1).toString().padLeft(3, '0');
     final fallbackBid = 'CR-$dateStr-$seq';
     final bid = (batchName != null && batchName.trim().isNotEmpty) ? batchName.trim() : fallbackBid;
 
-    final newBatch = CrayfishBatch(
-      batchId: bid, status: 'active', stockingDate: _stockingDate,
-      initialCount: _initialCount, initialAbw: _initialWeight, initialAbl: _initialLength,
-      daysInCulture: 0,
-      sampleCount: _sampleCount,
-      initialTotalWeight: _totalSampleWeight,
-      initialTotalLength: _totalSampleLength,
-    );
-
     try {
       await _fs.collection('batches').add({
-        ...newBatch.toJson(),
-        'uid': _tankOwnerUid,
+        'batchId': bid,
+        'tankId': _tankOwnerUid,
+        'status': 'active',
+        'stockingDate': _stockingDate.millisecondsSinceEpoch,
+        'harvestDate': null,
+        'initialCount': _initialCount,
+        'currentCount': _initialCount,
+        'harvestCount': 0,
+        'totalMortality': 0,
+        'harvestWeightGrams': null,
+        'initialAbw': _initialWeight,
+        'initialAbl': _initialLength,
+        'finalAbw': 0,
+        'finalAbl': 0,
+        'daysInCulture': 0,
+        'sampleCount': _sampleCount,
+        'initialTotalWeight': _totalSampleWeight,
+        'initialTotalLength': _totalSampleLength,
       });
     } catch (e) {
-      debugPrint('[TankService] Batch push error (non-fatal): $e');
+      debugPrint('[TankService] Batch push error: $e');
     }
 
-    // --- Step 6: Update local batch list and select the new batch immediately ---
-    _batches.removeWhere((b) => b.batchId == bid);
-    _batches.insert(0, newBatch);
+    _batches.insert(0, CrayfishBatch(
+      batchId: bid, status: 'active', stockingDate: _stockingDate,
+      initialCount: _initialCount, initialAbw: _initialWeight, initialAbl: _initialLength,
+      daysInCulture: 0, sampleCount: _sampleCount,
+      initialTotalWeight: _totalSampleWeight, initialTotalLength: _totalSampleLength,
+    ));
     _selectedBatchId = bid;
 
+    _resubscribeToBatch();
     notifyListeners();
   }
 
   void addSamplingEntry(int count, double weight, double length) {
-    if (count <= 0) {
-      throw ArgumentError('Sample count must be greater than 0');
-    }
-    if (weight < 0 || length < 0) {
-      throw ArgumentError('Weight and length must be non-negative');
-    }
+    if (count <= 0) throw ArgumentError('Sample count must be greater than 0');
+    if (weight < 0 || length < 0) throw ArgumentError('Weight and length must be non-negative');
+    if (_selectedBatchId == null) throw ArgumentError('No batch selected');
+
     _setupComplete = true;
     final now = DateTime.now();
     _lastSampleDate = now;
@@ -906,9 +717,9 @@ class TankService extends ChangeNotifier {
     );
     _samplingHistory.add(entry);
     try {
-      _fs.collection('sampling').add({
-        'uid': _tankOwnerUid,
-        'batchId': _selectedBatchId ?? '',
+      _fs.collection('sampling_records').add({
+        'batchId': _selectedBatchId!,
+        'tankId': _tankOwnerUid,
         'date': entry.date.millisecondsSinceEpoch,
         'abw': entry.abw,
         'avgLength': entry.avgLength,
@@ -931,22 +742,21 @@ class TankService extends ChangeNotifier {
 
   void updateLastSamplingEntry(int count, double weight, double length) {
     if (_lastSamplingDocId == null || _samplingHistory.isEmpty) return;
-    if (count <= 0) {
-      throw ArgumentError('Sample count must be greater than 0');
-    }
-    if (weight < 0 || length < 0) {
-      throw ArgumentError('Weight and length must be non-negative');
-    }
+    if (_selectedBatchId == null) return;
+    if (count <= 0) throw ArgumentError('Sample count must be greater than 0');
+    if (weight < 0 || length < 0) throw ArgumentError('Weight and length must be non-negative');
+
     final abw = weight / count;
     final avgLength = length / count;
     final updated = SamplingEntry(
+      id: _lastSamplingDocId!,
       date: _samplingHistory.last.date, abw: abw, avgLength: avgLength,
       sampleSize: count, totalWeight: weight, totalLength: length,
       biomass: inTankCount * abw, liveCount: inTankCount,
     );
     _samplingHistory.last = updated;
     try {
-      _fs.collection('sampling').doc(_lastSamplingDocId!).update({
+      _fs.collection('sampling_records').doc(_lastSamplingDocId!).update({
         'abw': updated.abw,
         'avgLength': updated.avgLength,
         'sampleSize': updated.sampleSize,
@@ -965,17 +775,17 @@ class TankService extends ChangeNotifier {
   }
 
   void addMortality(int val, {DateTime? date}) {
-    if (val <= 0) {
-      throw ArgumentError('Mortality count must be greater than 0');
-    }
+    if (val <= 0) throw ArgumentError('Mortality count must be greater than 0');
+    if (_selectedBatchId == null) throw ArgumentError('No batch selected');
+
     _mortality += val;
     _setupComplete = true;
     final mEntry = MortalityEntry(date: date ?? DateTime.now(), count: val);
     _mortalityHistory.add(mEntry);
     try {
-      _fs.collection('mortality').add({
-        'uid': _tankOwnerUid,
-        'batchId': _selectedBatchId ?? '',
+      _fs.collection('mortality_records').add({
+        'batchId': _selectedBatchId!,
+        'tankId': _tankOwnerUid,
         'date': mEntry.date.millisecondsSinceEpoch,
         'count': mEntry.count,
         'timestamp': FieldValue.serverTimestamp(),
@@ -994,43 +804,41 @@ class TankService extends ChangeNotifier {
     required double totalWeightKg,
     String? batchId,
   }) {
-    if (harvestedCount < 0) {
-      throw ArgumentError('Harvested count must be non-negative');
-    }
-    if (totalWeightKg < 0) {
-      throw ArgumentError('Total weight must be non-negative');
-    }
+    if (harvestedCount < 0) throw ArgumentError('Harvested count must be non-negative');
+    if (totalWeightKg < 0) throw ArgumentError('Total weight must be non-negative');
+
     final now = DateTime.now();
     final abwGrams = harvestedCount > 0 ? (totalWeightKg * 1000) / harvestedCount : 0.0;
     _totalHarvested += harvestedCount;
     final sr = _initialCount > 0 ? (liveCount / _initialCount * 100) : 0.0;
+    final resolvedBatchId = batchId ?? _selectedBatchId ?? '';
+
     try {
-      _fs.collection('harvests').add({
-        'uid': _tankOwnerUid,
-        'batchId': batchId ?? _selectedBatchId ?? '',
-        'date': now.millisecondsSinceEpoch,
-        'harvestedCount': harvestedCount,
+      _fs.collection('harvest_records').add({
+        'tankId': _tankOwnerUid,
+        'batchId': resolvedBatchId,
         'totalWeightKg': totalWeightKg,
-        'abwGrams': abwGrams,
         'survivalRate': sr,
         'timestamp': FieldValue.serverTimestamp(),
       });
+
       _fs.collection('batches')
-          .where('batchId', isEqualTo: batchId ?? _selectedBatchId ?? '')
-          .where('uid', isEqualTo: _tankOwnerUid)
+          .where('tankId', isEqualTo: _tankOwnerUid)
+          .where('batchId', isEqualTo: resolvedBatchId)
           .get()
           .then((snap) {
         if (snap.docs.isNotEmpty) {
           final existing = snap.docs.first.data();
-          final totalHarvested = ((existing['harvestCount'] as num?)?.toInt() ?? 0) + harvestedCount;
+          final totalH = ((existing['harvestCount'] as num?)?.toInt() ?? 0) + harvestedCount;
           final existingWeight = (existing['harvestWeightGrams'] as num?)?.toDouble() ?? 0;
           snap.docs.first.reference.set({
             'harvestDate': now.millisecondsSinceEpoch,
-            'harvestCount': totalHarvested,
+            'harvestCount': totalH,
             'harvestWeightGrams': existingWeight + (totalWeightKg * 1000),
           }, SetOptions(merge: true));
         }
       });
+
       _addActivity(
         'Harvested $harvestedCount crayfish, ${totalWeightKg.toStringAsFixed(2)}kg total (ABW: ${abwGrams.toStringAsFixed(1)}g)',
         'harvest',
@@ -1052,18 +860,6 @@ class TankService extends ChangeNotifier {
     final timeStr = '$h:${now.minute.toString().padLeft(2, '0')} $ampm';
     final act = TankActivity(action: action, date: dateStr, time: timeStr, type: type, timestamp: now.millisecondsSinceEpoch, sampleSize: sampleSize, abw: abw, avgLength: avgLength);
     _activities.add(act);
-    _fs.collection('activities').add({
-      'uid': _tankOwnerUid,
-      'batchId': _selectedBatchId ?? '',
-      'action': action,
-      'type': type,
-      'date': dateStr,
-      'time': timeStr,
-      'timestamp': now.millisecondsSinceEpoch,
-      ...?sampleSize != null ? {'sampleSize': sampleSize} : null,
-      ...?abw != null ? {'abw': abw} : null,
-      ...?avgLength != null ? {'avgLength': avgLength} : null,
-    });
   }
 
   Future<void> completeBatch({required int harvestCount, double? harvestWeightGrams, String? batchId}) async {
@@ -1073,58 +869,23 @@ class TankService extends ChangeNotifier {
     final resolvedId = batchId ?? activeBatchId ?? 'Batch ${_batches.length + 1}';
 
     try {
-      final samplingSnap = await _fs
-          .collection('sampling')
-          .where('uid', isEqualTo: _tankOwnerUid)
-          .get();
-      final mortalitySnap = await _fs
-          .collection('mortality')
-          .where('uid', isEqualTo: _tankOwnerUid)
-          .get();
-
-      final batch = CrayfishBatch(
-        batchId: resolvedId, status: 'harvested',
-        stockingDate: _stockingDate, harvestDate: now,
-        initialCount: _initialCount, harvestCount: harvestCount, totalMortality: _mortality,
-        harvestWeightGrams: harvestWeightGrams,
-        initialAbw: _initialWeight, initialAbl: _initialLength,
-        finalAbw: samplingHistory.isNotEmpty ? samplingHistory.last.abw : _initialWeight,
-        finalAbl: samplingHistory.isNotEmpty ? samplingHistory.last.avgLength : _initialLength,
-        daysInCulture: daysInCulture,
-        sampleCount: _sampleCount,
-        initialTotalWeight: _totalSampleWeight,
-        initialTotalLength: _totalSampleLength,
-        archivedSampling: samplingSnap.docs.isNotEmpty
-            ? Map.fromEntries(samplingSnap.docs.map((d) => MapEntry(d.id, d.data())))
-            : null,
-        archivedMortality: mortalitySnap.docs.isNotEmpty
-            ? Map.fromEntries(mortalitySnap.docs.map((d) => MapEntry(d.id, d.data())))
-            : null,
-      );
-
-      // Update batch doc (preserve uid)
-      final batchSnap = await _fs
-          .collection('batches')
+      final batchSnap = await _fs.collection('batches')
+          .where('tankId', isEqualTo: _tankOwnerUid)
           .where('batchId', isEqualTo: resolvedId)
-          .where('uid', isEqualTo: _tankOwnerUid)
           .get();
       if (batchSnap.docs.isNotEmpty) {
         await batchSnap.docs.first.reference.set({
-          ...batch.toJson(),
-          'uid': _tankOwnerUid,
-        });
+          'status': 'harvested',
+          'harvestDate': now.millisecondsSinceEpoch,
+          'harvestCount': harvestCount,
+          'harvestWeightGrams': harvestWeightGrams,
+          'daysInCulture': daysInCulture,
+          'totalMortality': _mortality,
+          'finalAbw': samplingHistory.isNotEmpty ? samplingHistory.last.abw : _initialWeight,
+          'finalAbl': samplingHistory.isNotEmpty ? samplingHistory.last.avgLength : _initialLength,
+        }, SetOptions(merge: true));
       }
 
-      // Clear config + sampling + mortality
-      await Future.wait([
-        _fs.collection('config').doc(_tankOwnerUid).delete(),
-        _fs.collection('sampling').where('uid', isEqualTo: _tankOwnerUid).get().then((snap) {
-          for (final d in snap.docs) { d.reference.delete(); }
-        }),
-        _fs.collection('mortality').where('uid', isEqualTo: _tankOwnerUid).get().then((snap) {
-          for (final d in snap.docs) { d.reference.delete(); }
-        }),
-      ]);
       _addActivity('Completed grow-out batch ($resolvedId). Harvested $harvestCount crayfish${harvestWeightGrams != null ? ', ${harvestWeightGrams.toStringAsFixed(1)}g total' : ''}.', 'harvest');
       _resetAll();
     } catch (e) {

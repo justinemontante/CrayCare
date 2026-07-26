@@ -27,9 +27,9 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>CrayCare needs camera access to scan crayfish and identify their gender.</string>
+	<string>CrayCare needs camera access to capture photos.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>CrayCare needs photo library access so you can upload a crayfish photo for gender scanning.</string>
+	<string>CrayCare needs photo library access so you can upload photos.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>CrayCare does not use audio, but the camera plugin requires this permission to be declared.</string>
 	<key>UIApplicationSceneManifest</key>

@@ -387,8 +387,8 @@ class FeederTab extends StatelessWidget {
 
         String? display;
         if (!noUpcoming) {
-          int h = int.parse(next.time.split(':')[0]);
-          final m = int.parse(next.time.split(':')[1]);
+          int h = int.tryParse(next.time.split(':')[0]) ?? 6;
+          final m = int.tryParse(next.time.split(':')[1]) ?? 0;
           if (next.ampm == 'PM' && h != 12) h += 12;
           if (next.ampm == 'AM' && h == 12) h = 0;
           final target = DateTime(now.year, now.month, now.day, h, m);
@@ -1010,8 +1010,8 @@ class FeederTab extends StatelessWidget {
     final isEdit = existing != null;
     TimeOfDay selectedTime;
     if (isEdit) {
-      int h = int.parse(existing.time.split(':')[0]);
-      final m = int.parse(existing.time.split(':')[1]);
+      int h = int.tryParse(existing.time.split(':')[0]) ?? 6;
+      final m = int.tryParse(existing.time.split(':')[1]) ?? 0;
       if (existing.ampm == 'PM' && h != 12) h += 12;
       if (existing.ampm == 'AM' && h == 12) h = 0;
       selectedTime = TimeOfDay(hour: h, minute: m);
