@@ -42,6 +42,36 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == uid;
     }
 
+    // ─── NEW STRUCTURE ──────────────────────────────────────────────
+    // One tank == one user, so the tank's data lives entirely under
+    // users/{uid}. batchId is the doc id directly (no separate uid or
+    // batchId fields needed inside the documents anymore — the path
+    // itself carries that information).
+    match /users/{uid}/batches/{batchId} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+
+      match /sampling/{docId} {
+        allow read, write: if request.auth != null && request.auth.uid == uid;
+      }
+
+      match /mortality/{docId} {
+        allow read, write: if request.auth != null && request.auth.uid == uid;
+      }
+
+      match /activities/{docId} {
+        allow read, write: if request.auth != null && request.auth.uid == uid;
+      }
+
+      match /harvests/{docId} {
+        allow read, write: if request.auth != null && request.auth.uid == uid;
+      }
+    }
+
+    // ─── OLD FLAT STRUCTURE (transitional) ─────────────────────────
+    // Kept temporarily so the migration script can still read the old
+    // data. Remove this whole block once migrate_to_subcollections.js
+    // has run with --write --delete-old and the app has been updated
+    // to only use the users/{uid}/batches/... paths above.
     match /batches/{docId} {
       allow read: if request.auth != null && resource.data.uid == request.auth.uid;
       allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
