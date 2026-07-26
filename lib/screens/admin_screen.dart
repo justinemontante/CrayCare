@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../theme/app_colors.dart';
@@ -16,6 +17,7 @@ class _AdminScreenState extends State<AdminScreen> {
   String? _deviceOwnerUid;
   bool _loading = true;
   String? _error;
+  int _userFilterTab = 0; // 0 = All, 1 = Owners, 2 = Admins
 
   @override
   void initState() {
@@ -536,9 +538,13 @@ class _AdminScreenState extends State<AdminScreen> {
                   ),
                 ),
                 Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
+                  child: _buildUserFilterTabBar(),
+                ),
+                Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 14),
                   child: Column(
-                    children: _users.map(_buildUserCard).toList(),
+                    children: _filteredUsers().map(_buildUserCard).toList(),
                   ),
                 ),
                 const SizedBox(height: 32),
@@ -546,6 +552,76 @@ class _AdminScreenState extends State<AdminScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  List<Map<String, dynamic>> _filteredUsers() {
+    if (_userFilterTab == 1) {
+      return _users.where((u) => (u['role'] as String? ?? 'owner') == 'owner').toList();
+    }
+    if (_userFilterTab == 2) {
+      return _users.where((u) => (u['role'] as String? ?? 'owner') == 'admin').toList();
+    }
+    return _users;
+  }
+
+  Widget _buildUserFilterTabBar() {
+    final tabs = [
+      (Icons.people_alt_rounded, 'All'),
+      (Icons.person_outline_rounded, 'Owners'),
+      (Icons.admin_panel_settings_outlined, 'Admins'),
+    ];
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: AppColors.dark.withValues(alpha: 0.02),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: List.generate(tabs.length, (i) {
+          final isActive = _userFilterTab == i;
+          return Expanded(
+            child: GestureDetector(
+              onTap: () => setState(() => _userFilterTab = i),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: isActive ? Colors.white : Colors.transparent,
+                  borderRadius: BorderRadius.circular(10),
+                  boxShadow: isActive
+                      ? [
+                          BoxShadow(
+                            color: AppColors.dark.withValues(alpha: 0.04),
+                            blurRadius: 6,
+                            offset: const Offset(0, 1),
+                          ),
+                        ]
+                      : null,
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      tabs[i].$1,
+                      size: 13,
+                      color: isActive ? AppColors.primary : AppColors.dark.withValues(alpha: 0.45),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      tabs[i].$2,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: isActive ? AppColors.primary : AppColors.dark.withValues(alpha: 0.45),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }),
       ),
     );
   }
@@ -738,6 +814,7 @@ class _AdminScreenState extends State<AdminScreen> {
 
     final initials = name.split(' ').map((w) => w.isNotEmpty ? w[0] : '').take(2).join();
     final avatarColor = isAdmin ? AppColors.dark : AppColors.primary;
+    final photoImage = _photoImageProvider(user['photoUrl'] as String?);
 
     return GestureDetector(
       onTap: () => _openUserSheet(user),
@@ -766,54 +843,36 @@ class _AdminScreenState extends State<AdminScreen> {
                   color: avatarColor.withValues(alpha: isDisabled ? 0.06 : 0.1),
                   width: 1.5,
                 ),
+                image: photoImage != null
+                    ? DecorationImage(image: photoImage, fit: BoxFit.cover)
+                    : null,
               ),
-              child: Center(
-                child: Text(
-                  initials.toUpperCase(),
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                    color: isDisabled ? AppColors.mutedText : avatarColor,
-                  ),
-                ),
-              ),
+              child: photoImage == null
+                  ? Center(
+                      child: Text(
+                        initials.toUpperCase(),
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: isDisabled ? AppColors.mutedText : avatarColor,
+                        ),
+                      ),
+                    )
+                  : null,
             ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      Flexible(
-                        child: Text(name,
-                            style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13,
-                              color: isDisabled ? AppColors.mutedText : AppColors.darkText,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis),
+                  Text(name,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                        color: isDisabled ? AppColors.mutedText : AppColors.darkText,
                       ),
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                        decoration: BoxDecoration(
-                          color: (isAdmin ? AppColors.dark : AppColors.primary).withValues(alpha: 0.08),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          role.toUpperCase(),
-                          style: TextStyle(
-                            fontSize: 8,
-                            fontWeight: FontWeight.w800,
-                            color: isAdmin ? AppColors.dark : AppColors.primary,
-                            letterSpacing: 0.3,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
                   if (email.isNotEmpty) ...[
                     const SizedBox(height: 2),
                     Text(email,
@@ -824,33 +883,24 @@ class _AdminScreenState extends State<AdminScreen> {
                 ],
               ),
             ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                if (isDeviceOwner)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.sensors_rounded, size: 9, color: AppColors.primary),
-                        SizedBox(width: 3),
-                        Text('HW',
-                            style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800, color: AppColors.primary, letterSpacing: 0.3)),
-                      ],
-                    ),
-                  ),
-              ],
-            ),
             const SizedBox(width: 8),
             Icon(Icons.chevron_right_rounded, size: 18, color: AppColors.darkWith(0.2)),
           ],
         ),
       ),
     );
+  }
+
+  ImageProvider<Object>? _photoImageProvider(String? photoUrl) {
+    if (photoUrl == null || photoUrl.isEmpty) return null;
+    final uri = Uri.tryParse(photoUrl);
+    if (uri != null && (uri.scheme == 'http' || uri.scheme == 'https')) {
+      return NetworkImage(photoUrl);
+    }
+    try {
+      return MemoryImage(base64Decode(photoUrl.split(',').last));
+    } on FormatException {
+      return null;
+    }
   }
 }
