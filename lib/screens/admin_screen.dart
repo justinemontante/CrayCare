@@ -14,7 +14,8 @@ class AdminScreen extends StatefulWidget {
 
 class _AdminScreenState extends State<AdminScreen> {
   List<Map<String, dynamic>> _users = [];
-  String? _deviceOwnerUid;
+  // ownerUid -> hardwareId (from hardwareAssignments collection)
+  Map<String, String> _hardwareOwnerMap = {};
   bool _loading = true;
   String? _error;
   int _userFilterTab = 0; // 0 = All, 1 = Owners, 2 = Admins
@@ -57,14 +58,30 @@ class _AdminScreenState extends State<AdminScreen> {
       _error = null;
     });
     try {
-      final users = await DatabaseService.instance.getAllUsers();
-      final assignment = await DatabaseService.instance.getDeviceAssignment();
+      final results = await Future.wait([
+        DatabaseService.instance.getAllUsers(),
+        DatabaseService.instance.getAllHardwareAssignments(),
+      ]);
+      final users = results[0] as List<Map<String, dynamic>>;
+      final assignments = results[1] as List<Map<String, dynamic>>;
+
       users.sort((a, b) => (a['email'] as String? ?? '')
           .compareTo(b['email'] as String? ?? ''));
+
+      // Build ownerUid -> hardwareId map
+      final hwMap = <String, String>{};
+      for (final a in assignments) {
+        final ownerUid = a['ownerUid'] as String?;
+        final hardwareId = a['hardwareId'] as String?;
+        if (ownerUid != null && hardwareId != null) {
+          hwMap[ownerUid] = hardwareId;
+        }
+      }
+
       if (!mounted) return;
       setState(() {
         _users = users;
-        _deviceOwnerUid = assignment?['assignedTankId'] as String?;
+        _hardwareOwnerMap = hwMap;
         _loading = false;
       });
     } catch (e) {
@@ -189,7 +206,7 @@ class _AdminScreenState extends State<AdminScreen> {
             String currentRole = role;
             String currentStatus = status;
             bool isDisabled = currentStatus == 'disabled';
-            bool isOwner = uid == _deviceOwnerUid;
+            String? assignedHardwareId = _hardwareOwnerMap[uid];
 
             return SafeArea(
               child: Padding(
@@ -259,7 +276,7 @@ class _AdminScreenState extends State<AdminScreen> {
                           label: isDisabled ? 'DISABLED' : 'ACTIVE',
                           color: isDisabled ? AppColors.critical : AppColors.success,
                         ),
-                        if (isOwner) ...[
+                        if (assignedHardwareId != null) ...[
                           const SizedBox(width: 8),
                           _buildMiniBadge(label: 'HARDWARE', color: AppColors.primary),
                         ],
@@ -433,6 +450,152 @@ class _AdminScreenState extends State<AdminScreen> {
                       ),
                     ),
 
+                    const SizedBox(height: 16),
+
+                    // Hardware Assignment section (owners only)
+                    if (currentRole != 'admin') ...[
+                      _buildSectionHeader(Icons.developer_board_rounded, 'Hardware Assignment'),
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: AppColors.darkWith(0.03),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: AppColors.darkWith(0.08)),
+                        ),
+                        child: assignedHardwareId != null
+                            ? Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Container(
+                                        width: 36,
+                                        height: 36,
+                                        decoration: BoxDecoration(
+                                          color: AppColors.primary.withValues(alpha: 0.1),
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        child: const Icon(Icons.developer_board_rounded,
+                                            size: 18, color: AppColors.primary),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            const Text('Assigned Device',
+                                                style: TextStyle(
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: AppColors.subtitleText)),
+                                            const SizedBox(height: 2),
+                                            Text(assignedHardwareId,
+                                                style: const TextStyle(
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.w700,
+                                                    color: AppColors.darkText,
+                                                    fontFamily: 'monospace'),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: GestureDetector(
+                                          onTap: () async {
+                                            final newId = await _showHardwareInputDialog(
+                                              prefill: assignedHardwareId,
+                                            );
+                                            if (newId == null || !ctx.mounted) return;
+                                            await DatabaseService.instance
+                                                .setHardwareAssignment(newId, uid);
+                                            if (!mounted) return;
+                                            await _load();
+                                            setSheetState(() {
+                                              assignedHardwareId = newId;
+                                            });
+                                            _showSnack('Hardware reassigned.');
+                                          },
+                                          child: _buildActionChip(
+                                              'Change', Icons.edit_outlined, AppColors.primary),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: GestureDetector(
+                                          onTap: () async {
+                                            final confirmed = await _confirm(
+                                              title: 'Remove Hardware?',
+                                              message:
+                                                  'The device $assignedHardwareId will be unassigned from $name. Sensor data will stop routing to their account.',
+                                              icon: Icons.link_off_rounded,
+                                              iconColor: AppColors.critical,
+                                            );
+                                            if (confirmed != true || !ctx.mounted) return;
+                                            await DatabaseService.instance
+                                                .removeHardwareAssignment(assignedHardwareId!);
+                                            if (!mounted) return;
+                                            await _load();
+                                            setSheetState(() {
+                                              assignedHardwareId = null;
+                                            });
+                                            _showSnack('Hardware unassigned.');
+                                          },
+                                          child: _buildActionChip(
+                                              'Remove', Icons.link_off_rounded, AppColors.critical),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              )
+                            : GestureDetector(
+                                onTap: () async {
+                                  final newId = await _showHardwareInputDialog();
+                                  if (newId == null || !ctx.mounted) return;
+                                  await DatabaseService.instance
+                                      .setHardwareAssignment(newId, uid);
+                                  if (!mounted) return;
+                                  await _load();
+                                  setSheetState(() {
+                                    assignedHardwareId = newId;
+                                  });
+                                  _showSnack('Hardware assigned to $name.');
+                                },
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 36,
+                                      height: 36,
+                                      decoration: BoxDecoration(
+                                        color: AppColors.darkWith(0.05),
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Icon(Icons.add_rounded,
+                                          size: 18, color: AppColors.darkWith(0.4)),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    const Expanded(
+                                      child: Text('Tap to assign a hardware device',
+                                          style: TextStyle(
+                                              fontSize: 12,
+                                              color: AppColors.subtitleText,
+                                              fontWeight: FontWeight.w500)),
+                                    ),
+                                    Icon(Icons.chevron_right_rounded,
+                                        size: 18, color: AppColors.darkWith(0.25)),
+                                  ],
+                                ),
+                              ),
+                      ),
+                    ],
+
                     const SizedBox(height: 8),
                   ],
                 ),
@@ -441,6 +604,107 @@ class _AdminScreenState extends State<AdminScreen> {
           },
         );
       },
+    );
+  }
+
+  Future<String?> _showHardwareInputDialog({String? prefill}) async {
+    final controller = TextEditingController(text: prefill ?? '');
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        title: const Text('Hardware ID',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.darkText)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Enter the hardware ID printed on the ESP32 device (e.g. ESP_AABBCCDDEEFF). '
+              'You can also find it in the Serial Monitor output on boot.',
+              style: TextStyle(fontSize: 12, color: AppColors.subtitleText, height: 1.5),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              textCapitalization: TextCapitalization.characters,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                fontFamily: 'monospace',
+                color: AppColors.darkText,
+              ),
+              decoration: InputDecoration(
+                hintText: 'ESP_AABBCCDDEEFF',
+                hintStyle: TextStyle(color: AppColors.darkWith(0.3), fontSize: 12),
+                filled: true,
+                fillColor: AppColors.darkWith(0.03),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: AppColors.darkWith(0.1)),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: AppColors.darkWith(0.1)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+                ),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            child: const Text('Cancel',
+                style: TextStyle(color: AppColors.mutedText, fontWeight: FontWeight.w600, fontSize: 13)),
+          ),
+          TextButton(
+            onPressed: () {
+              final val = controller.text.trim();
+              if (val.isEmpty) return;
+              Navigator.pop(ctx, val);
+            },
+            style: TextButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            child: const Text('Save', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionChip(String label, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 9),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Text(label,
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color)),
+        ],
+      ),
     );
   }
 
@@ -837,7 +1101,7 @@ class _AdminScreenState extends State<AdminScreen> {
     final role = (user['role'] as String?) ?? 'owner';
     final status = (user['status'] as String?) ?? 'active';
     final isDisabled = status == 'disabled';
-    final isDeviceOwner = uid == _deviceOwnerUid;
+    final isDeviceOwner = _hardwareOwnerMap.containsKey(uid);
     final isAdmin = role == 'admin';
 
     final initials = name.split(' ').map((w) => w.isNotEmpty ? w[0] : '').take(2).join();
