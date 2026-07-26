@@ -100,56 +100,38 @@ class SensorService extends ChangeNotifier {
     return 'OPTIMAL';
   }
 
-  String getTrend(String key) {
-    final history = _history[key];
-    if (history == null || history.length < 3) return 'stable';
-    final recent = history.length >= 5 ? history.sublist(history.length - 5) : history;
-    final delta = recent.last - recent.first;
-    final rate = delta / (recent.length - 1);
-
-    double stableThreshold;
-    double fastThreshold;
-
-    switch (key) {
-      case 'temp':
-        stableThreshold = 0.02;
-        fastThreshold = 0.15;
-        break;
-      case 'ph':
-        stableThreshold = 0.01;
-        fastThreshold = 0.08;
-        break;
-      case 'do':
-        stableThreshold = 0.03;
-        fastThreshold = 0.2;
-        break;
-      case 'turb':
-        stableThreshold = 0.5;
-        fastThreshold = 2.0;
-        break;
-      case 'waterlevel':
-        stableThreshold = 0.5;
-        fastThreshold = 1.5;
-        break;
-      default:
-        stableThreshold = 0.05;
-        fastThreshold = 0.3;
-    }
-
-    if (rate.abs() < stableThreshold) return 'stable';
-    if (rate > 0) {
-      return rate >= fastThreshold ? 'rising_fast' : 'rising';
-    } else {
-      return rate <= -fastThreshold ? 'falling_fast' : 'falling';
-    }
-  }
-
+  /// Average per-reading change over the last 5 live readings.
+  /// Returns 0.0 when there is insufficient history (< 3 points).
   double getTrendRate(String key) {
     final history = _history[key];
     if (history == null || history.length < 3) return 0.0;
     final recent = history.length >= 5 ? history.sublist(history.length - 5) : history;
-    final delta = recent.last - recent.first;
-    return delta / (recent.length - 1);
+    return (recent.last - recent.first) / (recent.length - 1);
+  }
+
+  /// Classifies the current trend as one of:
+  /// 'stable' | 'rising' | 'rising_fast' | 'falling' | 'falling_fast'
+  ///
+  /// Thresholds are per-reading deltas that make physical sense for each
+  /// sensor's typical live range (readings arrive every few seconds).
+  String getTrend(String key) {
+    final rate = getTrendRate(key); // single computation, reused below
+    if (rate == 0.0) return 'stable';
+
+    double stableThreshold;
+    double fastThreshold;
+    switch (key) {
+      case 'temp':       stableThreshold = 0.02; fastThreshold = 0.15; break;
+      case 'ph':         stableThreshold = 0.01; fastThreshold = 0.08; break;
+      case 'do':         stableThreshold = 0.03; fastThreshold = 0.20; break;
+      case 'turb':       stableThreshold = 0.50; fastThreshold = 2.00; break;
+      case 'waterlevel': stableThreshold = 0.50; fastThreshold = 1.50; break;
+      default:           stableThreshold = 0.05; fastThreshold = 0.30;
+    }
+
+    if (rate.abs() < stableThreshold) return 'stable';
+    if (rate > 0) return rate >= fastThreshold ? 'rising_fast' : 'rising';
+    return rate <= -fastThreshold ? 'falling_fast' : 'falling';
   }
 
   void _initFirebaseListener() {

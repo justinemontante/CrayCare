@@ -1436,123 +1436,46 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Widget _buildModalTrendIndicator(String trend, double rate, String status, {String? sensorKey}) {
+    // Rising is beneficial for DO and water level; falling is beneficial for turbidity.
+    // Everything else (temp, pH): any fast movement is a concern regardless of direction.
+    final risingIsGood = sensorKey == 'do' || sensorKey == 'waterlevel';
+    final fallingIsGood = sensorKey == 'turb';
+    final isBadStatus = status == 'CRITICAL' || status == 'WARNING';
+
+    Color goodColor() => AppColors.success;
+    Color badColor() => isBadStatus ? AppColors.critical : AppColors.warning;
+
     IconData icon;
     Color color;
     String label;
 
-    if (sensorKey == 'do') {
-      switch (trend) {
-        case 'rising_fast':
-          icon = Icons.keyboard_double_arrow_up;
-          color = AppColors.success;
-          label = 'Rising Fast';
-          break;
-        case 'rising':
-          icon = Icons.arrow_upward;
-          color = AppColors.success;
-          label = 'Rising';
-          break;
-        case 'falling_fast':
-          icon = Icons.keyboard_double_arrow_down;
-          color = status == 'CRITICAL' || status == 'WARNING' ? AppColors.critical : AppColors.warning;
-          label = 'Falling Fast';
-          break;
-        case 'falling':
-          icon = Icons.arrow_downward;
-          color = status == 'CRITICAL' || status == 'WARNING' ? AppColors.critical : AppColors.warning;
-          label = 'Falling';
-          break;
-        default:
-          icon = Icons.trending_flat;
-          color = AppColors.dark.withValues(alpha: 0.5);
-          label = status == 'OPTIMAL' ? 'Stable' : '';
-          break;
-      }
-    } else if (sensorKey == 'turb') {
-      switch (trend) {
-        case 'falling_fast':
-          icon = Icons.keyboard_double_arrow_down;
-          color = AppColors.success;
-          label = 'Falling Fast';
-          break;
-        case 'falling':
-          icon = Icons.arrow_downward;
-          color = AppColors.success;
-          label = 'Falling';
-          break;
-        case 'rising_fast':
-          icon = Icons.keyboard_double_arrow_up;
-          color = status == 'CRITICAL' || status == 'WARNING' ? AppColors.critical : AppColors.warning;
-          label = 'Rising Fast';
-          break;
-        case 'rising':
-          icon = Icons.arrow_upward;
-          color = status == 'CRITICAL' || status == 'WARNING' ? AppColors.critical : AppColors.warning;
-          label = 'Rising';
-          break;
-        default:
-          icon = Icons.trending_flat;
-          color = AppColors.dark.withValues(alpha: 0.5);
-          label = status == 'OPTIMAL' ? 'Stable' : '';
-          break;
-      }
-    } else if (sensorKey == 'waterlevel') {
-      switch (trend) {
-        case 'rising_fast':
-          icon = Icons.keyboard_double_arrow_up;
-          color = AppColors.success;
-          label = 'Rising Fast';
-          break;
-        case 'rising':
-          icon = Icons.arrow_upward;
-          color = AppColors.success;
-          label = 'Rising';
-          break;
-        case 'falling_fast':
-          icon = Icons.keyboard_double_arrow_down;
-          color = status == 'CRITICAL' || status == 'WARNING' ? AppColors.critical : AppColors.warning;
-          label = 'Falling Fast';
-          break;
-        case 'falling':
-          icon = Icons.arrow_downward;
-          color = status == 'CRITICAL' || status == 'WARNING' ? AppColors.critical : AppColors.warning;
-          label = 'Falling';
-          break;
-        default:
-          icon = Icons.trending_flat;
-          color = AppColors.dark.withValues(alpha: 0.5);
-          label = status == 'OPTIMAL' ? 'Stable' : '';
-          break;
-      }
-    } else {
-      switch (trend) {
-        case 'rising_fast':
-          icon = Icons.keyboard_double_arrow_up;
-          color = AppColors.critical;
-          label = 'Rising Fast';
-          break;
-        case 'rising':
-          icon = Icons.arrow_upward;
-          color = AppColors.warning;
-          label = 'Rising';
-          break;
-        case 'falling_fast':
-          icon = Icons.keyboard_double_arrow_down;
-          color = AppColors.critical;
-          label = 'Falling Fast';
-          break;
-        case 'falling':
-          icon = Icons.arrow_downward;
-          color = AppColors.warning;
-          label = 'Falling';
-          break;
-        case 'stable':
-        default:
-          icon = Icons.trending_flat;
-          color = AppColors.dark.withValues(alpha: 0.5);
-          label = status == 'OPTIMAL' ? 'Stable' : '';
-          break;
-      }
+    switch (trend) {
+      case 'rising_fast':
+        icon = Icons.keyboard_double_arrow_up;
+        label = 'Rising Fast';
+        color = risingIsGood ? goodColor() : (fallingIsGood ? badColor() : AppColors.critical);
+        break;
+      case 'rising':
+        icon = Icons.arrow_upward;
+        label = 'Rising';
+        color = risingIsGood ? goodColor() : (fallingIsGood ? badColor() : AppColors.warning);
+        break;
+      case 'falling_fast':
+        icon = Icons.keyboard_double_arrow_down;
+        label = 'Falling Fast';
+        color = fallingIsGood ? goodColor() : (risingIsGood ? badColor() : AppColors.critical);
+        break;
+      case 'falling':
+        icon = Icons.arrow_downward;
+        label = 'Falling';
+        color = fallingIsGood ? goodColor() : (risingIsGood ? badColor() : AppColors.warning);
+        break;
+      case 'stable':
+      default:
+        icon = Icons.trending_flat;
+        color = AppColors.dark.withValues(alpha: 0.5);
+        label = status == 'OPTIMAL' ? 'Stable' : '';
+        break;
     }
     
     return Row(
