@@ -454,7 +454,6 @@ class TankService extends ChangeNotifier {
         .orderBy('date')
         .snapshots()
         .listen((snap) {
-      if (_isArchiveView) return;
       final entries = <SamplingEntry>[];
       String? lastId;
       DateTime? lastDate;
@@ -493,7 +492,6 @@ class TankService extends ChangeNotifier {
         .orderBy('date')
         .snapshots()
         .listen((snap) {
-      if (_isArchiveView) return;
       _mortalityHistory = snap.docs.map((doc) {
         final map = doc.data();
         final dateRaw = map['date'];
@@ -802,11 +800,12 @@ class TankService extends ChangeNotifier {
     required int harvestedCount,
     required double totalWeightKg,
     String? batchId,
+    DateTime? date,
   }) {
-    if (harvestedCount < 0) throw ArgumentError('Harvested count must be non-negative');
+    if (harvestedCount <= 0) throw ArgumentError('Harvested count must be greater than 0');
     if (totalWeightKg < 0) throw ArgumentError('Total weight must be non-negative');
 
-    final now = DateTime.now();
+    final now = date ?? DateTime.now();
     final abwGrams = harvestedCount > 0 ? (totalWeightKg * 1000) / harvestedCount : 0.0;
     _totalHarvested += harvestedCount;
     final sr = _initialCount > 0 ? (liveCount / _initialCount * 100) : 0.0;
@@ -816,7 +815,10 @@ class TankService extends ChangeNotifier {
       _fs.collection('harvest_records').add({
         'tankId': _tankOwnerUid,
         'batchId': resolvedBatchId,
+        'date': now.millisecondsSinceEpoch,
+        'harvestedCount': harvestedCount,
         'totalWeightKg': totalWeightKg,
+        'abwGrams': abwGrams,
         'survivalRate': sr,
         'timestamp': FieldValue.serverTimestamp(),
       });

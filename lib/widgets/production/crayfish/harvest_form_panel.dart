@@ -57,7 +57,7 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
       showBeautifulSnackbar(context, 'Harvest count exceeds in-tank population (${service.inTankCount}).', false);
       return;
     }
-    service.addHarvestRecord(harvestedCount: count, totalWeightKg: weight);
+    service.addHarvestRecord(harvestedCount: count, totalWeightKg: weight, date: _selectedDate);
     widget.onSaved?.call();
     Navigator.pop(context);
   }

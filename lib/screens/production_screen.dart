@@ -713,12 +713,6 @@ class ProductionScreenState extends State<ProductionScreen> {
                                 if (count > 0 && sampleCount > 0) {
                                   setLocalState(() => isSaving = true);
                                   try {
-                                    if (TankService.instance.isInitialized && !TankService.instance.isArchiveView) {
-                                      await TankService.instance.completeBatch(
-                                        harvestCount: 0,
-                                        harvestWeightGrams: null,
-                                      );
-                                    }
                                     await TankService.instance.initializeGrowOut(
                                       count,
                                       sampleCount,
@@ -1308,7 +1302,7 @@ class ProductionScreenState extends State<ProductionScreen> {
                                         ),
                                       ),
                                     Text(
-                                      act.date.isNotEmpty ? '${act.date} Â· ${act.time}' : _formatTimestamp(act.timestamp),
+                                      act.date.isNotEmpty ? '${act.date} · ${act.time}' : _formatTimestamp(act.timestamp),
                                       style: TextStyle(
                                         fontSize: 10,
                                         fontWeight: FontWeight.w500,

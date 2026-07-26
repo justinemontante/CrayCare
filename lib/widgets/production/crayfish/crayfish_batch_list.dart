@@ -105,9 +105,15 @@ class CrayfishBatchList extends StatelessWidget {
   Widget _buildBatchCard(BuildContext context, CrayfishBatch batch, bool isActive) {
     final service = TankService.instance;
     final isSelected = service.selectedBatchId == batch.batchId;
-    final survivalPct = batch.initialCount > 0
-        ? ((batch.initialCount - batch.totalMortality) / batch.initialCount * 100)
-        : 0.0;
+    // For active batches totalMortality on the batch record is 0 until archived;
+    // use the live mortality from the service instead.
+    final survivalPct = isActive
+        ? (service.initialCount > 0
+            ? ((service.initialCount - service.mortality) / service.initialCount * 100)
+            : 0.0)
+        : (batch.initialCount > 0
+            ? ((batch.initialCount - batch.totalMortality) / batch.initialCount * 100)
+            : 0.0);
     final duration = isActive
         ? DateTime.now().difference(batch.stockingDate).inDays
         : batch.daysInCulture;
