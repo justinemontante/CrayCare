@@ -575,13 +575,22 @@ class _AdminScreenState extends State<AdminScreen> {
   }
 
   List<Map<String, dynamic>> _filteredUsers() {
+    final selfUid = FirebaseAuth.instance.currentUser?.uid;
+    List<Map<String, dynamic>> list;
     if (_userFilterTab == 1) {
-      return _users.where((u) => (u['role'] as String? ?? 'owner') == 'owner').toList();
+      list = _users.where((u) => (u['role'] as String? ?? 'owner') == 'owner').toList();
+    } else if (_userFilterTab == 2) {
+      list = _users.where((u) => (u['role'] as String? ?? 'owner') == 'admin').toList();
+    } else {
+      list = List.from(_users);
     }
-    if (_userFilterTab == 2) {
-      return _users.where((u) => (u['role'] as String? ?? 'owner') == 'admin').toList();
-    }
-    return _users;
+    // Always pin the logged-in user's card to the top.
+    list.sort((a, b) {
+      final aIsSelf = a['uid'] == selfUid ? 0 : 1;
+      final bIsSelf = b['uid'] == selfUid ? 0 : 1;
+      return aIsSelf.compareTo(bIsSelf);
+    });
+    return list;
   }
 
   Widget _buildUserFilterTabBar() {
@@ -899,6 +908,29 @@ class _AdminScreenState extends State<AdminScreen> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis),
                   ],
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: (isAdmin ? AppColors.dark : AppColors.primary).withValues(alpha: isDisabled ? 0.05 : 0.1),
+                          borderRadius: BorderRadius.circular(5),
+                        ),
+                        child: Text(
+                          isAdmin ? 'Admin' : 'Owner',
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                            color: isDisabled
+                                ? AppColors.mutedText
+                                : (isAdmin ? AppColors.dark : AppColors.primary),
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
