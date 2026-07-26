@@ -358,6 +358,8 @@ class SensorService extends ChangeNotifier {
     required DateTime start,
     required DateTime end,
   }) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+
     final days = <String>[];
     for (var d = DateTime(start.year, start.month, start.day);
         !d.isAfter(end);
@@ -405,7 +407,9 @@ class SensorService extends ChangeNotifier {
       final cacheResults = await Future.wait(cacheFutures);
       cachedRecords.addAll(cacheResults.expand((r) => r));
 
-      // Pass 2: If online, fetch remaining missing days from server in parallel chunks
+      // Pass 2: If online, fetch remaining missing days from server in parallel chunks.
+      // Filter by ownerUid so the query matches Firestore rules
+      // (rule: resource.data.ownerUid == request.auth.uid).
       if (remainingUncached.isNotEmpty && ConnectivityService.instance.isOnline) {
         const chunkSize = 6;
         for (var i = 0; i < remainingUncached.length; i += chunkSize) {
@@ -417,11 +421,18 @@ class SensorService extends ChangeNotifier {
           );
           final serverFutures = chunk.map((dateStr) async {
             try {
-              final snap = await FirebaseFirestore.instance
+              // Scope to this owner so the query satisfies Firestore rules
+              // (rule: resource.data.ownerUid == request.auth.uid).
+              final baseCol = FirebaseFirestore.instance
                   .collection('sensorReadings')
                   .doc('history')
-                  .collection(dateStr)
-                  .get(const GetOptions(source: Source.serverAndCache));
+                  .collection(dateStr);
+              final snap = uid != null
+                  ? await baseCol
+                      .where('ownerUid', isEqualTo: uid)
+                      .get(const GetOptions(source: Source.serverAndCache))
+                  : await baseCol
+                      .get(const GetOptions(source: Source.serverAndCache));
               final docs = snap.docs.map((doc) {
                 final data = doc.data();
                 data['id'] = doc.id;
