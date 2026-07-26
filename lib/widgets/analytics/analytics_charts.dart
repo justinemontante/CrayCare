@@ -14,6 +14,7 @@ class AnalyticsLineChart extends StatefulWidget {
   final double? thresholdMin;
   final double? thresholdMax;
   final int decimalPlaces;
+  final bool initialScrollToEnd;
 
   const AnalyticsLineChart({
     super.key,
@@ -28,6 +29,7 @@ class AnalyticsLineChart extends StatefulWidget {
     this.thresholdMin,
     this.thresholdMax,
     this.decimalPlaces = 1,
+    this.initialScrollToEnd = false,
   });
 
   @override
@@ -37,12 +39,23 @@ class AnalyticsLineChart extends StatefulWidget {
 class _AnalyticsLineChartState extends State<AnalyticsLineChart> {
   double _scrollOffset = 0.0;
   double _visibleWidth = 0.0;
+  bool _needsScrollToEnd = false;
 
   static const double _minPointSpacing = 12.0;
 
   @override
+  void initState() {
+    super.initState();
+    if (widget.initialScrollToEnd) _needsScrollToEnd = true;
+  }
+
+  @override
   void didUpdateWidget(covariant AnalyticsLineChart oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // When new data arrives and initialScrollToEnd is set, scroll to end again.
+    if (widget.initialScrollToEnd && widget.data != oldWidget.data) {
+      _needsScrollToEnd = true;
+    }
     if (widget.selectedIndex != oldWidget.selectedIndex &&
         widget.selectedIndex != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -134,6 +147,11 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart> {
     return LayoutBuilder(
       builder: (context, constraints) {
         _visibleWidth = constraints.maxWidth;
+        if (_needsScrollToEnd) {
+          _needsScrollToEnd = false;
+          final maxScroll = max(0.0, _virtualWidth() - _visibleWidth);
+          _scrollOffset = maxScroll;
+        }
         _clampScroll();
         final vw = _virtualWidth();
         final scrollable = _isScrollable;

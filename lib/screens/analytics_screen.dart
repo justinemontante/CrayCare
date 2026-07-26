@@ -217,15 +217,20 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     // 24h, 7d, 30d, custom: use bucketed aggregation
     List<DateTime> labelTimes;
     if (range == '24h') {
-      labelTimes = List<DateTime>.generate(pts, (i) {
-        return now.subtract(Duration(minutes: (pts - 1 - i) * 10));
-      });
+      // Plot every raw record — no bucketing — so all real readings are visible.
       final months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-      _labels[range] = labelTimes.map((d) {
+      _labels[range] = parsedTs.map((d) {
         final h = d.hour > 12 ? d.hour - 12 : (d.hour == 0 ? 12 : d.hour);
         final ampm = d.hour >= 12 ? 'PM' : 'AM';
-        return '${months[d.month - 1]} $d.day, $h:${d.minute.toString().padLeft(2, '0')} $ampm';
+        return '${months[d.month - 1]} ${d.day}, $h:${d.minute.toString().padLeft(2, '0')} $ampm';
       }).toList();
+      for (final key in SensorService.sensorKeys) {
+        final hKey = _historyKeyMap[key]!;
+        _data['$key-$range'] = List<double>.generate(records.length, (i) {
+          return _toDouble(records[i][hKey]) ?? double.nan;
+        });
+      }
+      return;
     } else if (range == '7d') {
       labelTimes = List<DateTime>.generate(pts, (i) {
         return now.subtract(Duration(hours: (pts - 1 - i)));
@@ -819,6 +824,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                         thresholdMin: thresholds['min'],
                         thresholdMax: thresholds['max'],
                         decimalPlaces: dp,
+                        initialScrollToEnd: _activeFilter == '24h',
                       ),
               ),
               if (hasValid) ...[
@@ -1342,6 +1348,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                                 thresholdMin: thresholds['min'],
                                 thresholdMax: thresholds['max'],
                                 decimalPlaces: dp,
+                                initialScrollToEnd: _activeFilter == '24h',
                               ),
                             )
                           else
