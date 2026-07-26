@@ -720,7 +720,7 @@ class _TrendsTabState extends State<TrendsTab> {
   Widget _buildMortalityChartContainer() {
     final service = TankService.instance;
     final entries = service.mortalityHistory;
-    final totalMort = service.totalMortality;
+    final totalMort = service.totalMortalityFromHistory;
 
     // Group entries by date para iwas multiple bars sa same day
     final dailyMap = <DateTime, int>{};
