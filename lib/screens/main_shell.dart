@@ -30,6 +30,7 @@ class _MainShellState extends State<MainShell> {
   final _controlsKey = GlobalKey<ControlsScreenState>();
   String? _photoUrl;
   bool _isAdmin = false;
+  bool _roleLoaded = false;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _profileSub;
 
   static const List<_NavItem> _ownerNavItems = [
@@ -39,12 +40,6 @@ class _MainShellState extends State<MainShell> {
     _NavItem(icon: Icons.memory_rounded, label: 'Controls'),
     _NavItem(icon: Icons.notifications_rounded, label: 'Notifications'),
   ];
-
-  static const List<_NavItem> _adminNavItems = [
-    _NavItem(icon: Icons.admin_panel_settings_rounded, label: 'Users'),
-  ];
-
-  List<_NavItem> get _navItems => _isAdmin ? _adminNavItems : _ownerNavItems;
 
   void _setPhoto(String url) {
     _photoUrl = url;
@@ -81,8 +76,6 @@ class _MainShellState extends State<MainShell> {
     if (mounted) setState(() {});
   }
 
-  /// Real-time Firestore listener — updates instantly when admin changes
-  /// role/status in the console or from another device. No restart needed.
   void _listenToProfile() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -94,15 +87,17 @@ class _MainShellState extends State<MainShell> {
         .listen((doc) {
       if (!doc.exists || !mounted) return;
       final data = doc.data()!;
-      final wasAdmin = _isAdmin;
       setState(() {
         if (data['photoUrl'] != null) _setPhoto(data['photoUrl'] as String);
         _isAdmin = data['role'] == 'admin';
-        // If the admin role changed, reset to first tab.
-        if (wasAdmin != _isAdmin) _currentIndex = 0;
+        _roleLoaded = true;
+        if (_isAdmin && _currentIndex > 0) _currentIndex = 0;
       });
     }, onError: (e) {
       debugPrint('[MainShell] Profile stream error: $e');
+      if (mounted && !_roleLoaded) {
+        setState(() => _roleLoaded = true);
+      }
     });
   }
 
@@ -114,6 +109,15 @@ class _MainShellState extends State<MainShell> {
   @override
   Widget build(BuildContext context) {
     final photoImage = _photoImageProvider(_photoUrl);
+
+    if (!_roleLoaded) {
+      return const Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(color: AppColors.primary),
+        ),
+      );
+    }
+
     return Scaffold(
       key: _scaffoldKey,
       body: Stack(
@@ -147,7 +151,7 @@ class _MainShellState extends State<MainShell> {
                           ],
                         ),
               ),
-              _buildBottomNav(),
+              if (!_isAdmin) _buildBottomNav(),
             ],
           ),
         ],
@@ -238,8 +242,8 @@ class _MainShellState extends State<MainShell> {
         ],
       ),
       child: Row(
-        children: List.generate(_navItems.length, (i) {
-          final item = _navItems[i];
+        children: List.generate(_ownerNavItems.length, (i) {
+          final item = _ownerNavItems[i];
           final isActive = i == _currentIndex;
           return Expanded(
             child: GestureDetector(

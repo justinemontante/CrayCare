@@ -747,75 +747,113 @@ class _AdminScreenState extends State<AdminScreen> {
     final disabledUsers = totalUsers - activeUsers;
     final hasHardware = _deviceOwnerUid != null;
 
-    return Container(
-      margin: const EdgeInsets.fromLTRB(14, 4, 14, 8),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: AppColors.darkWith(0.02),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.darkWith(0.06)),
-      ),
-      child: Row(
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
+      child: Column(
         children: [
-          _buildStatChip('$totalUsers', 'Total', AppColors.dark),
-          const SizedBox(width: 8),
-          _buildStatChip('$activeUsers', 'Active', AppColors.success),
-          const SizedBox(width: 8),
-          _buildStatChip('$disabledUsers', 'Disabled', AppColors.critical),
-          const Spacer(),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: (hasHardware ? AppColors.success : AppColors.darkWith(0.15)).withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.sensors_rounded,
-                  size: 12,
+          Row(
+            children: [
+              Expanded(
+                child: _buildStatCard(
+                  value: '$totalUsers',
+                  label: 'Total Users',
+                  icon: Icons.people_alt_rounded,
+                  color: AppColors.primary,
+                  bgColor: AppColors.primaryWith(0.08),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _buildStatCard(
+                  value: '$activeUsers',
+                  label: 'Active',
+                  icon: Icons.check_circle_outline_rounded,
+                  color: AppColors.success,
+                  bgColor: AppColors.successWith(0.08),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _buildStatCard(
+                  value: '$disabledUsers',
+                  label: 'Disabled',
+                  icon: Icons.block_rounded,
+                  color: AppColors.critical,
+                  bgColor: AppColors.criticalWith(0.08),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _buildStatCard(
+                  value: hasHardware ? '1' : '0',
+                  label: 'Hardware',
+                  icon: Icons.sensors_rounded,
                   color: hasHardware ? AppColors.success : AppColors.mutedText,
+                  bgColor: (hasHardware ? AppColors.success : AppColors.mutedText).withValues(alpha: 0.08),
                 ),
-                const SizedBox(width: 4),
-                Text(
-                  hasHardware ? 'Online' : 'None',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    color: hasHardware ? AppColors.success : AppColors.mutedText,
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ],
       ),
     );
   }
 
-  Widget _buildStatChip(String value, String label, Color color) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w800,
-            color: color,
+  Widget _buildStatCard({
+    required String value,
+    required String label,
+    required IconData icon,
+    required Color color,
+    required Color bgColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withValues(alpha: 0.12)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, size: 20, color: color),
           ),
-        ),
-        const SizedBox(width: 3),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 10,
-            fontWeight: FontWeight.w600,
-            color: AppColors.darkWith(0.4),
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: color,
+                  height: 1.1,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.darkWith(0.5),
+                ),
+              ),
+            ],
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
