@@ -618,23 +618,27 @@ class _AdminScreenState extends State<AdminScreen> {
   /// Shows a hardware picker sheet.
   /// Returns the selected/typed hardware ID, or null if cancelled.
   /// [currentOwnerUid] — the user being assigned; their current hardware is pre-selected.
+  /// Shows a hardware picker sheet listing ALL known hardware in the system.
+  /// Returns the selected hardware ID, or null if cancelled.
   Future<String?> _showHardwarePicker({
     required String currentOwnerUid,
     String? currentHardwareId,
   }) async {
-    // Build list: all known hardware IDs in the system.
-    // Key = hardwareId, Value = ownerUid (or null if free).
-    // Exclude hardware assigned to OTHER users so admin can't accidentally steal it.
+    // Build reverse map: hardwareId → ownerUid
     final Map<String, String> reverseMap = {};
     for (final entry in _hardwareOwnerMap.entries) {
-      reverseMap[entry.value] = entry.key; // hardwareId → ownerUid
+      reverseMap[entry.value] = entry.key;
     }
 
-    // Available = hardware assigned to this user, or hardware not assigned to anyone else.
-    final List<String> existingIds = reverseMap.entries
-        .where((e) => e.value == currentOwnerUid) // only this user's hardware
-        .map((e) => e.key)
-        .toList();
+    // Build owner name lookup: uid → displayName
+    final Map<String, String> nameMap = {};
+    for (final u in _users) {
+      final uid = u['uid'] as String?;
+      if (uid != null) nameMap[uid] = _displayName(u);
+    }
+
+    // ALL hardware IDs in the system, sorted alphabetically
+    final List<String> allIds = reverseMap.keys.toList()..sort();
 
     String? selected = currentHardwareId; // pre-select current if any
 
@@ -647,144 +651,195 @@ class _AdminScreenState extends State<AdminScreen> {
       ),
       builder: (ctx) {
         return StatefulBuilder(builder: (ctx, setPickerState) {
-          return Padding(
-            padding: EdgeInsets.fromLTRB(
-                20, 14, 20, MediaQuery.of(ctx).viewInsets.bottom + 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Handle
-                Center(
-                  child: Container(
-                    width: 40, height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(4),
+          return SafeArea(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                  20, 14, 20, MediaQuery.of(ctx).viewInsets.bottom + 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Handle
+                  Center(
+                    child: Container(
+                      width: 40, height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 18),
+                  const SizedBox(height: 18),
 
-                // Header
-                Row(
-                  children: [
-                    Container(
-                      width: 40, height: 40,
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(Icons.developer_board_rounded,
-                          size: 20, color: AppColors.primary),
-                    ),
-                    const SizedBox(width: 12),
-                    const Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Assign Hardware',
-                              style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppColors.darkText)),
-                          SizedBox(height: 2),
-                          Text('Select the device to assign',
-                              style: TextStyle(
-                                  fontSize: 11, color: AppColors.subtitleText)),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Container(height: 1, color: AppColors.darkWith(0.06)),
-                const SizedBox(height: 14),
-
-                // Existing hardware tiles
-                if (existingIds.isNotEmpty) ...[
-                  Text('Known Devices',
-                      style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.darkWith(0.45))),
-                  const SizedBox(height: 8),
-                  ...existingIds.map((id) {
-                    final isSelected = selected == id;
-                    return GestureDetector(
-                      onTap: () => setPickerState(() => selected = id),
-                      child: Container(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 12),
+                  // Header
+                  Row(
+                    children: [
+                      Container(
+                        width: 40, height: 40,
                         decoration: BoxDecoration(
-                          color: isSelected
-                              ? AppColors.primary.withValues(alpha: 0.07)
-                              : AppColors.darkWith(0.03),
+                          color: AppColors.primary.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: isSelected
-                                ? AppColors.primary.withValues(alpha: 0.3)
-                                : AppColors.darkWith(0.08),
-                            width: isSelected ? 1.5 : 1,
-                          ),
                         ),
-                        child: Row(
+                        child: const Icon(Icons.developer_board_rounded,
+                            size: 20, color: AppColors.primary),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Icon(Icons.memory_rounded,
-                                size: 16,
-                                color: isSelected
-                                    ? AppColors.primary
-                                    : AppColors.darkWith(0.35)),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(id,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
-                                    fontFamily: 'monospace',
-                                    color: isSelected
-                                        ? AppColors.primary
-                                        : AppColors.darkText,
-                                  )),
-                            ),
-                            if (isSelected)
-                              const Icon(Icons.check_circle_rounded,
-                                  size: 18, color: AppColors.primary),
+                            Text('Assign Hardware',
+                                style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppColors.darkText)),
+                            SizedBox(height: 2),
+                            Text('Tap a device to select it',
+                                style: TextStyle(
+                                    fontSize: 11,
+                                    color: AppColors.subtitleText)),
                           ],
                         ),
                       ),
-                    );
-                  }),
-                  const SizedBox(height: 12),
-                ],
-
-                // Confirm button
-                SizedBox(
-                  width: double.infinity,
-                  child: TextButton(
-                    onPressed: selected == null
-                        ? null
-                        : () => Navigator.pop(ctx, selected),
-                    style: TextButton.styleFrom(
-                      backgroundColor: selected == null
-                          ? AppColors.darkWith(0.06)
-                          : AppColors.primary,
-                      foregroundColor: selected == null
-                          ? AppColors.mutedText
-                          : Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14)),
-                    ),
-                    child: Text(
-                      selected == null ? 'Select a device' : 'Confirm Assignment',
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w700, fontSize: 13),
-                    ),
+                    ],
                   ),
-                ),
-              ],
+                  const SizedBox(height: 16),
+                  Container(height: 1, color: AppColors.darkWith(0.06)),
+                  const SizedBox(height: 14),
+
+                  // Hardware tiles — all devices in the system
+                  if (allIds.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      child: Center(
+                        child: Text(
+                          'No hardware devices found in the system.',
+                          style: TextStyle(
+                              fontSize: 12, color: AppColors.darkWith(0.4)),
+                        ),
+                      ),
+                    )
+                  else
+                    ...allIds.map((id) {
+                      final isSelected = selected == id;
+                      final assignedToUid = reverseMap[id];
+                      final isThisUser = assignedToUid == currentOwnerUid;
+                      final assignedName = assignedToUid != null
+                          ? nameMap[assignedToUid] ?? 'Unknown'
+                          : null;
+
+                      return GestureDetector(
+                        onTap: () => setPickerState(() => selected = id),
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? AppColors.primary.withValues(alpha: 0.07)
+                                : AppColors.darkWith(0.03),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isSelected
+                                  ? AppColors.primary.withValues(alpha: 0.3)
+                                  : AppColors.darkWith(0.08),
+                              width: isSelected ? 1.5 : 1,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.memory_rounded,
+                                  size: 16,
+                                  color: isSelected
+                                      ? AppColors.primary
+                                      : AppColors.darkWith(0.35)),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(id,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                          fontFamily: 'monospace',
+                                          color: isSelected
+                                              ? AppColors.primary
+                                              : AppColors.darkText,
+                                        )),
+                                    if (assignedName != null) ...[
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        isThisUser
+                                            ? 'Currently assigned to this user'
+                                            : 'Assigned to $assignedName',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          color: isThisUser
+                                              ? AppColors.primary
+                                              : AppColors.darkWith(0.4),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                              if (isSelected)
+                                const Icon(Icons.check_circle_rounded,
+                                    size: 18, color: AppColors.primary),
+                            ],
+                          ),
+                        ),
+                      );
+                    }),
+
+                  const SizedBox(height: 8),
+
+                  // Assign + Cancel buttons
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14)),
+                            backgroundColor: AppColors.darkWith(0.05),
+                            foregroundColor: AppColors.mutedText,
+                          ),
+                          child: const Text('Cancel',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w700, fontSize: 13)),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        flex: 2,
+                        child: TextButton(
+                          onPressed: selected == null
+                              ? null
+                              : () => Navigator.pop(ctx, selected),
+                          style: TextButton.styleFrom(
+                            backgroundColor: selected == null
+                                ? AppColors.darkWith(0.06)
+                                : AppColors.primary,
+                            foregroundColor: selected == null
+                                ? AppColors.mutedText
+                                : Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14)),
+                          ),
+                          child: const Text('Assign',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w700, fontSize: 13)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           );
         });
