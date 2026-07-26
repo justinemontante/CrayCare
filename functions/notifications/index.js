@@ -30,6 +30,30 @@ const UNITS = {
 
 const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
 
+// ─── Multi-device token helpers ────────────────────────────────────────
+// Returns all FCM tokens for a user — supports both the new `fcmTokens`
+// array (one entry per logged-in device) and the legacy `fcmToken` string
+// so older client versions keep working during the migration window.
+function getTokensFromUserData(userData) {
+  const tokens = [];
+  if (Array.isArray(userData.fcmTokens)) {
+    tokens.push(...userData.fcmTokens.filter(Boolean));
+  }
+  if (userData.fcmToken && typeof userData.fcmToken === "string") {
+    if (!tokens.includes(userData.fcmToken)) tokens.push(userData.fcmToken);
+  }
+  return tokens;
+}
+
+// Removes one stale/invalid token from the user's token array.
+async function removeStaleToken(uid, token) {
+  try {
+    await firestoreDb.collection("users").doc(uid).update({
+      fcmTokens: admin.firestore.FieldValue.arrayRemove(token),
+    });
+  } catch (_) {}
+}
+
 // ─── Helper: resolve notification target UID ───────────────────────────
 // (No redirect logic anymore — every account is its own notification
 // target now that the 'monitor' role has been removed.)
@@ -88,7 +112,7 @@ async function getAuthorizedUids() {
   return uids;
 }
 
-// ─── Helper: send FCM push to a user ──────────────────────────────────
+// ─── Helper: send FCM push to a user (all logged-in devices) ──────────
 async function sendPush(uid, payload, prefsCheck) {
   try {
     // Check user prefs from Firestore
@@ -96,11 +120,11 @@ async function sendPush(uid, payload, prefsCheck) {
     const prefs = prefsSnap.data() || {};
     if (prefsCheck && prefs[prefsCheck] === false) return;
 
-    // Read FCM token from Firestore
+    // Read FCM tokens from Firestore (multi-device support)
     const userSnap = await firestoreDb.collection("users").doc(uid).get();
     const userData = userSnap.data() || {};
-    const token = userData.fcmToken;
-    if (!token) return;
+    const tokens = getTokensFromUserData(userData);
+    if (tokens.length === 0) return;
 
     const sound = prefs.sound !== false;
     const vibration = prefs.vibration !== false;
@@ -110,31 +134,34 @@ async function sendPush(uid, payload, prefsCheck) {
     else if (sound) targetChannelId = "craycare_alerts_sound_only";
     else if (vibration) targetChannelId = "craycare_alerts_vibrate_only";
 
-    await admin.messaging().send({
-      token,
-      notification: payload.notification,
-      data: { ...payload.data, sound: String(sound), vibration: String(vibration) },
-      android: {
-        priority: "high",
-        notification: { channelId: targetChannelId, priority: "high" },
-      },
-    });
+    await Promise.allSettled(
+      tokens.map(async (token) => {
+        try {
+          await admin.messaging().send({
+            token,
+            notification: payload.notification,
+            data: { ...payload.data, sound: String(sound), vibration: String(vibration) },
+            android: {
+              priority: "high",
+              notification: { channelId: targetChannelId, priority: "high" },
+            },
+          });
+        } catch (err) {
+          if (
+            err.code === "messaging/invalid-registration-token" ||
+            err.code === "messaging/registration-token-not-registered"
+          ) {
+            await removeStaleToken(uid, token);
+          } else {
+            throw err;
+          }
+        }
+      })
+    );
 
-    functions.logger.log(`Push sent to ${uid}: ${payload.notification.title}`);
+    functions.logger.log(`Push sent to ${uid} (${tokens.length} device(s)): ${payload.notification.title}`);
   } catch (err) {
-    if (
-      err.code === "messaging/invalid-registration-token" ||
-      err.code === "messaging/registration-token-not-registered"
-    ) {
-      // Remove stale FCM token from Firestore
-      try {
-        await firestoreDb.collection("users").doc(uid).update({
-          fcmToken: admin.firestore.FieldValue.delete(),
-        });
-      } catch (_) {}
-    } else {
-      functions.logger.error(`Push failed for ${uid}:`, err.message);
-    }
+    functions.logger.error(`Push failed for ${uid}:`, err.message);
   }
 }
 
@@ -317,8 +344,8 @@ exports.onSensorUpdate = functions.region("asia-southeast1").firestore
 
           const userSnap = await firestoreDb.collection("users").doc(uid).get();
           const userData = userSnap.data() || {};
-          const token = userData.fcmToken;
-          if (!token) return;
+          const tokens = getTokensFromUserData(userData);
+          if (tokens.length === 0) return;
 
           const sound = prefs.sound !== false;
           const vibration = prefs.vibration !== false;
@@ -328,33 +355,34 @@ exports.onSensorUpdate = functions.region("asia-southeast1").firestore
           else if (sound) targetChannelId = "craycare_alerts_sound_only";
           else if (vibration) targetChannelId = "craycare_alerts_vibrate_only";
 
-          try {
-            await admin.messaging().send({
-              token,
-              notification: { title: notifPayload.title, body: msgLines.join("\n") },
-              data: {
-                title: notifPayload.title,
-                body: msgLines.join("\n"),
-                sound: String(sound),
-                vibration: String(vibration),
-                critical: String(true),
-              },
-              android: {
-                priority: "high",
-                notification: { channelId: targetChannelId, priority: "high" },
-              },
-            });
-          } catch (err) {
-            if (
-              err.code === "messaging/invalid-registration-token" ||
-              err.code === "messaging/registration-token-not-registered"
-            ) {
-              await firestoreDb
-                .collection("users")
-                .doc(uid)
-                .update({ fcmToken: admin.firestore.FieldValue.delete() });
-            }
-          }
+          await Promise.allSettled(
+            tokens.map(async (token) => {
+              try {
+                await admin.messaging().send({
+                  token,
+                  notification: { title: notifPayload.title, body: msgLines.join("\n") },
+                  data: {
+                    title: notifPayload.title,
+                    body: msgLines.join("\n"),
+                    sound: String(sound),
+                    vibration: String(vibration),
+                    critical: String(true),
+                  },
+                  android: {
+                    priority: "high",
+                    notification: { channelId: targetChannelId, priority: "high" },
+                  },
+                });
+              } catch (err) {
+                if (
+                  err.code === "messaging/invalid-registration-token" ||
+                  err.code === "messaging/registration-token-not-registered"
+                ) {
+                  await removeStaleToken(uid, token);
+                }
+              }
+            })
+          );
         })
       );
 
@@ -417,8 +445,8 @@ exports.processFeeding = functions.region("asia-southeast1").pubsub
             uids.map(async (uid) => {
               const userSnap = await firestoreDb.collection("users").doc(uid).get();
               const userData = userSnap.data() || {};
-              const token = userData.fcmToken;
-              if (!token) return;
+              const tokens = getTokensFromUserData(userData);
+              if (tokens.length === 0) return;
 
               const prefsSnap = await firestoreDb.collection("notifPrefs").doc(uid).get();
               const prefs = prefsSnap.data() || {};
@@ -427,30 +455,31 @@ exports.processFeeding = functions.region("asia-southeast1").pubsub
               const marker = await readMarker(uid, preArmKey);
               if (marker) return;
 
-              try {
-                await admin.messaging().send({
-                  token,
-                  data: {
-                    type: "pre_arm",
-                    scheduleTime: time,
-                    scheduleAmPm: ampm,
-                    scheduleEpoch: String(scheduleEpoch),
-                  },
-                  android: { priority: "high" },
-                });
-                await saveMarker(uid, preArmKey, Date.now());
-                functions.logger.log(`[Pre-arm] Sent to ${uid} for ${time} ${ampm}`);
-              } catch (err) {
-                if (
-                  err.code === "messaging/invalid-registration-token" ||
-                  err.code === "messaging/registration-token-not-registered"
-                ) {
-                  await firestoreDb
-                    .collection("users")
-                    .doc(uid)
-                    .update({ fcmToken: admin.firestore.FieldValue.delete() });
-                }
-              }
+              await Promise.allSettled(
+                tokens.map(async (token) => {
+                  try {
+                    await admin.messaging().send({
+                      token,
+                      data: {
+                        type: "pre_arm",
+                        scheduleTime: time,
+                        scheduleAmPm: ampm,
+                        scheduleEpoch: String(scheduleEpoch),
+                      },
+                      android: { priority: "high" },
+                    });
+                  } catch (err) {
+                    if (
+                      err.code === "messaging/invalid-registration-token" ||
+                      err.code === "messaging/registration-token-not-registered"
+                    ) {
+                      await removeStaleToken(uid, token);
+                    }
+                  }
+                })
+              );
+              await saveMarker(uid, preArmKey, Date.now());
+              functions.logger.log(`[Pre-arm] Sent to ${uid} (${tokens.length} device(s)) for ${time} ${ampm}`);
             })
           );
         }

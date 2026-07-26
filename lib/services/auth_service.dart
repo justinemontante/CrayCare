@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
@@ -179,10 +180,15 @@ class AuthService {
     final uid = _auth.currentUser?.uid;
     if (uid != null) {
       try {
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(uid)
-            .update({'fcmToken': FieldValue.delete()});
+        // Remove only this device's token so other logged-in devices keep
+        // receiving push notifications.
+        final token = await FirebaseMessaging.instance.getToken();
+        if (token != null) {
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(uid)
+              .update({'fcmTokens': FieldValue.arrayRemove([token])});
+        }
       } catch (e) {
         debugPrint('[AuthService] Failed to clear FCM token on signout: $e');
       }

@@ -411,11 +411,16 @@ class NotificationService extends ChangeNotifier {
             _notifSub?.cancel();
             _prefsSub?.cancel();
             _notifications.clear();
-            FirebaseFirestore.instance
-                .collection('users')
-                .doc(user.uid)
-                .update({'fcmToken': FieldValue.delete()})
-                .catchError((_) {});
+            // Remove only this device's token from the array.
+            try {
+              final token = await FirebaseMessaging.instance.getToken();
+              if (token != null) {
+                await FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(user.uid)
+                    .update({'fcmTokens': FieldValue.arrayRemove([token])});
+              }
+            } catch (_) {}
             notifyListeners();
           } else {
             _listenFirebase();
@@ -532,16 +537,23 @@ class NotificationService extends ChangeNotifier {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
         if (_userRole == 'admin') {
+          // Admin accounts don't receive push notifications — remove this
+          // device's token without affecting other logged-in devices.
           await FirebaseFirestore.instance
               .collection('users')
               .doc(user.uid)
-              .update({'fcmToken': FieldValue.delete()});
+              .update({'fcmTokens': FieldValue.arrayRemove([token])});
           return;
         }
+        // Store as an array so multiple devices (same account) each keep
+        // their own token and all receive notifications independently.
         await FirebaseFirestore.instance
             .collection('users')
             .doc(user.uid)
-            .set({'fcmToken': token}, SetOptions(merge: true));
+            .set(
+              {'fcmTokens': FieldValue.arrayUnion([token])},
+              SetOptions(merge: true),
+            );
       }
     } catch (e) {
       debugPrint('[NotificationService] Token save error: $e');
