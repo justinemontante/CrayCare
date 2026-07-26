@@ -91,7 +91,6 @@ XGB_PARAMS = dict(
     objective           = "multi:softprob",
     num_class           = 4,
     eval_metric         = "mlogloss",
-    use_label_encoder   = False,
     random_state        = 42,
 )
 
