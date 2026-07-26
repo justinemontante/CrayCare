@@ -792,50 +792,50 @@ class _AdminScreenState extends State<AdminScreen> {
   Widget build(BuildContext context) {
     return Container(
       color: Colors.white,
-      child: RefreshIndicator(
-        onRefresh: _load,
-        color: AppColors.primary,
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildGreeting(),
-              if (_loading)
-                const Padding(
-                  padding: EdgeInsets.all(40),
-                  child: Center(child: CircularProgressIndicator(color: AppColors.primary)),
-                )
-              else if (_error != null)
-                Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Text(_error!, style: const TextStyle(color: AppColors.critical)),
-                )
-              else ...[
-                _buildStatsBar(),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 4),
-                  child: SectionLabel(
-                    label: 'Users',
-                    showLiveData: false,
-                    icon: Icons.people_alt_rounded,
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
-                  child: _buildUserFilterTabBar(),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  child: Column(
-                    children: _filteredUsers().map(_buildUserCard).toList(),
-                  ),
-                ),
-                const SizedBox(height: 32),
-              ],
-            ],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Sticky header — never scrolls ─────────────────────────
+          _buildGreeting(),
+          if (!_loading && _error == null) ...[
+            _buildStatsBar(),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 4),
+              child: SectionLabel(
+                label: 'Users',
+                showLiveData: false,
+                icon: Icons.people_alt_rounded,
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
+              child: _buildUserFilterTabBar(),
+            ),
+          ],
+          // ── Scrollable user list ───────────────────────────────────
+          Expanded(
+            child: _loading
+                ? const Center(
+                    child: CircularProgressIndicator(color: AppColors.primary),
+                  )
+                : _error != null
+                    ? Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Text(
+                          _error!,
+                          style: const TextStyle(color: AppColors.critical),
+                        ),
+                      )
+                    : RefreshIndicator(
+                        onRefresh: _load,
+                        color: AppColors.primary,
+                        child: ListView(
+                          padding: const EdgeInsets.fromLTRB(14, 4, 14, 32),
+                          children: _filteredUsers().map(_buildUserCard).toList(),
+                        ),
+                      ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -1105,38 +1105,45 @@ class _AdminScreenState extends State<AdminScreen> {
     final isDisabled = status == 'disabled';
     final isDeviceOwner = _hardwareOwnerMap.containsKey(uid);
     final isAdmin = role == 'admin';
+    final photoImage = _photoImageProvider(user['photoUrl'] as String?);
 
     final initials = name.split(' ').map((w) => w.isNotEmpty ? w[0] : '').take(2).join();
-    final avatarColor = isAdmin ? AppColors.dark : AppColors.primary;
-    final photoImage = _photoImageProvider(user['photoUrl'] as String?);
+
+    // Accent color mirrors notification type-color logic
+    final Color accentColor = isDisabled
+        ? AppColors.critical
+        : isAdmin
+            ? AppColors.dark
+            : AppColors.primary;
+
+    final bool highlighted = isDeviceOwner || isDisabled;
 
     return GestureDetector(
       onTap: () => _openUserSheet(user),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.all(14),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        margin: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.fromLTRB(10, 10, 6, 10),
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
+          color: highlighted ? accentColor.withValues(alpha: 0.04) : Colors.white,
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isDeviceOwner
-                ? AppColors.primary.withValues(alpha: 0.3)
+            color: highlighted
+                ? accentColor.withValues(alpha: 0.25)
                 : AppColors.darkWith(0.08),
-            width: isDeviceOwner ? 1.5 : 1,
+            width: highlighted ? 1.5 : 1.0,
           ),
         ),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Avatar — same 28×28 / radius-8 as notification icon container
             Container(
-              width: 40,
-              height: 40,
+              width: 28,
+              height: 28,
               decoration: BoxDecoration(
-                color: avatarColor.withValues(alpha: isDisabled ? 0.06 : 0.1),
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: avatarColor.withValues(alpha: isDisabled ? 0.06 : 0.1),
-                  width: 1.5,
-                ),
+                color: accentColor.withValues(alpha: isDisabled ? 0.07 : 0.12),
+                borderRadius: BorderRadius.circular(8),
                 image: photoImage != null
                     ? DecorationImage(image: photoImage, fit: BoxFit.cover)
                     : null,
@@ -1146,62 +1153,112 @@ class _AdminScreenState extends State<AdminScreen> {
                       child: Text(
                         initials.toUpperCase(),
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: 10,
                           fontWeight: FontWeight.w800,
-                          color: isDisabled ? AppColors.mutedText : avatarColor,
+                          color: isDisabled ? AppColors.mutedText : accentColor,
                         ),
                       ),
                     )
                   : null,
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(name,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13,
-                        color: isDisabled ? AppColors.mutedText : AppColors.darkText,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis),
-                  if (email.isNotEmpty) ...[
-                    const SizedBox(height: 2),
-                    Text(email,
-                        style: const TextStyle(fontSize: 11, color: AppColors.subtitleText),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis),
-                  ],
-                  const SizedBox(height: 4),
                   Row(
                     children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: (isAdmin ? AppColors.dark : AppColors.primary).withValues(alpha: isDisabled ? 0.05 : 0.1),
-                          borderRadius: BorderRadius.circular(5),
-                        ),
+                      Expanded(
                         child: Text(
-                          isAdmin ? 'Admin' : 'Owner',
+                          name,
                           style: TextStyle(
-                            fontSize: 9,
+                            fontSize: 11,
                             fontWeight: FontWeight.w700,
-                            color: isDisabled
-                                ? AppColors.mutedText
-                                : (isAdmin ? AppColors.dark : AppColors.primary),
-                            letterSpacing: 0.3,
+                            color: isDisabled ? AppColors.mutedText : AppColors.dark,
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
+                      // Hardware-assigned dot — mirrors unread dot in notif card
+                      if (isDeviceOwner)
+                        Container(
+                          width: 7,
+                          height: 7,
+                          margin: const EdgeInsets.only(left: 4),
+                          decoration: const BoxDecoration(
+                            color: AppColors.primary,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                    ],
+                  ),
+                  if (email.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      email,
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: AppColors.darkWith(0.6),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                  const SizedBox(height: 4),
+                  // Meta row — role · status · hardware tag
+                  Row(
+                    children: [
+                      Text(
+                        isAdmin ? 'Admin' : 'Owner',
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                          color: isDisabled ? AppColors.mutedText : accentColor,
+                        ),
+                      ),
+                      Text(
+                        ' · ',
+                        style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.3)),
+                      ),
+                      Text(
+                        isDisabled ? 'Disabled' : 'Active',
+                        style: TextStyle(
+                          fontSize: 9,
+                          color: isDisabled
+                              ? AppColors.critical
+                              : AppColors.darkWith(0.4),
+                        ),
+                      ),
+                      if (isDeviceOwner) ...[
+                        Text(
+                          ' · ',
+                          style: TextStyle(
+                              fontSize: 9, color: AppColors.darkWith(0.3)),
+                        ),
+                        Text(
+                          'Hardware assigned',
+                          style: TextStyle(
+                            fontSize: 9,
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ],
               ),
             ),
-            const SizedBox(width: 8),
-            Icon(Icons.chevron_right_rounded, size: 18, color: AppColors.darkWith(0.2)),
+            const SizedBox(width: 4),
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Icon(
+                Icons.chevron_right_rounded,
+                size: 18,
+                color: AppColors.darkWith(0.2),
+              ),
+            ),
           ],
         ),
       ),
