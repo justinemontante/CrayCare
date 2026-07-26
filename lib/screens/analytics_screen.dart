@@ -824,7 +824,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                         thresholdMin: thresholds['min'],
                         thresholdMax: thresholds['max'],
                         decimalPlaces: dp,
-                        initialScrollToEnd: _activeFilter == '24h',
+                        initialScrollToEnd: true,
                       ),
               ),
               if (hasValid) ...[
@@ -1348,7 +1348,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                                 thresholdMin: thresholds['min'],
                                 thresholdMax: thresholds['max'],
                                 decimalPlaces: dp,
-                                initialScrollToEnd: _activeFilter == '24h',
+                                initialScrollToEnd: true,
                               ),
                             )
                           else
