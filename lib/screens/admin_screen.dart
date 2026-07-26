@@ -495,7 +495,7 @@ class _AdminScreenState extends State<AdminScreen> {
                                                     fontWeight: FontWeight.w600,
                                                     color: AppColors.subtitleText)),
                                             const SizedBox(height: 2),
-                                            Text(assignedHardwareId,
+                                            Text(assignedHardwareId!,
                                                 style: const TextStyle(
                                                     fontSize: 12,
                                                     fontWeight: FontWeight.w700,
