@@ -1,8 +1,8 @@
-"""CrayCare — WQRI XGBoost Classifier
-=====================================
+"""CrayCare — Water Quality Classification XGBoost Model
+========================================================
 
-Trains a Water Quality Risk Index (WQRI) classifier on sensor_dataset.csv
-and saves the bundle to wqri_model.joblib.
+Trains a Water Quality Classification model on sensor_dataset.csv
+and saves the bundle to wqc_model.joblib.
 
 All thresholds used in label generation are aligned with:
   DENR DAO 2016-08 (Class C Inland Waters)
@@ -18,7 +18,7 @@ READ BEFORE QUOTING ACCURACY IN A DEFENSE:
    "prototype/development-stage validation on synthetic data," NOT field validation.
    Field validation requires real historical sensor data from Firestore.
 
-2. LABELS ARE AUTO-DERIVED from the deterministic compute_wqri_score() formula,
+2. LABELS ARE AUTO-DERIVED from the deterministic compute_wqc_score() formula,
    not independent biological labeling. High accuracy means the model reproduces a
    known formula using richer temporal features — see Stage 1.5 ablation for the
    honest number to cite (temporal features vs. raw readings alone).
@@ -41,7 +41,7 @@ from sklearn.metrics import (
     classification_report, confusion_matrix, accuracy_score, balanced_accuracy_score
 )
 
-from features import SENSORS, CLASS_NAMES, build_features, compute_wqri_score, classify
+from features import SENSORS, CLASS_NAMES, build_features, compute_wqc_score, classify
 
 _DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -52,13 +52,13 @@ df = (
     .reset_index(drop=True)
 )
 
-# Auto-label via deterministic WQRI formula (see docstring note 2 above)
-wqri_score      = compute_wqri_score(df)
-df["wqri_score"] = wqri_score.round(1)
+# Auto-label via deterministic hazard formula (see docstring note 2 above)
+wqri_score       = compute_wqc_score(df)
+df["wqc_score"]  = wqri_score.round(1)
 df["wqri_class"] = wqri_score.apply(lambda v: classify(v)[0])
 
 print("=" * 65)
-print("CrayCare WQRI Classifier — Training")
+print("CrayCare Water Quality Classification — Training")
 print("=" * 65)
 print(f"Dataset: {len(df):,} rows × {len(df.columns)} columns")
 print(f"Date range: {df['timestamp'].min().date()} → {df['timestamp'].max().date()}\n")
@@ -200,7 +200,7 @@ for s in SENSORS:
     print(f"  {s:<15s}: {s_imp:.4f}")
 
 # ── Rule-based baseline comparison ────────────────────────────────────────────
-wqri_val   = compute_wqri_score(df.iloc[split_idx + CV_GAP:])
+wqri_val   = compute_wqc_score(df.iloc[split_idx + CV_GAP:])
 rule_pred  = wqri_val.apply(lambda v: classify(v)[0])
 print("\n── Rule-based baseline (same validation slice) ──")
 print(classification_report(
@@ -231,9 +231,9 @@ bundle = {
         "waterLevel_cm":    "120–160",
     },
 }
-out_path = os.path.join(_DIR, "wqri_model.joblib")
+out_path = os.path.join(_DIR, "wqc_model.joblib")
 joblib.dump(bundle, out_path)
-print(f"\nSaved: wqri_model.joblib")
+print(f"\nSaved: wqc_model.joblib")
 print(f"  Features:      {len(X.columns)}")
 print(f"  Training rows: {len(Xtr_f):,}")
 print(f"  Agencies cited: {len(bundle['agencies'])}")

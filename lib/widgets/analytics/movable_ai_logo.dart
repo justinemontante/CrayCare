@@ -148,7 +148,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                       : ListView(
                           padding: const EdgeInsets.only(bottom: 24),
                           children: [
-                            _buildScoreCard(hr.result!),
+                            _buildClassificationCard(hr.result!),
                             const SizedBox(height: 16),
                             _buildDetailCard(
                               label: 'Problem',
@@ -212,7 +212,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
     );
   }
 
-  Widget _buildScoreCard(HealthRiskResult result) {
+  Widget _buildClassificationCard(HealthRiskResult result) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -229,99 +229,128 @@ class _MovableAiLogoState extends State<MovableAiLogo>
         border: Border.all(color: result.color.withValues(alpha: 0.2)),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(8),
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: result.color.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(
                   _iconForLevel(result.level),
-                  size: 24,
+                  size: 28,
                   color: result.color,
                 ),
               ),
-              const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: result.color,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      result.level,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Water Quality Classification',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.darkWith(0.45),
+                        letterSpacing: 0.4,
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${result.confidence}% confidence',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
-                      color: result.color.withValues(alpha: 0.6),
+                    const SizedBox(height: 4),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: result.color,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        result.level.toUpperCase(),
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
                     ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                result.score.toStringAsFixed(0),
-                style: TextStyle(
-                  fontSize: 56,
-                  fontWeight: FontWeight.w800,
-                  color: result.color,
-                  height: 1,
-                ),
-              ),
-              const SizedBox(width: 4),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Text(
-                  '/ 100',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: result.color.withValues(alpha: 0.5),
-                  ),
+                  ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 16),
           Row(
             children: [
-              Icon(Icons.trending_up, size: 14, color: AppColors.darkWith(0.4)),
-              const SizedBox(width: 6),
-              Text(
-                'Driver: ${result.driver}',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.darkWith(0.5),
-                ),
+              _buildStatChip(
+                icon: Icons.verified_rounded,
+                label: 'Confidence',
+                value: '${result.confidence}%',
+                color: result.color,
+              ),
+              const SizedBox(width: 10),
+              _buildStatChip(
+                icon: Icons.trending_up,
+                label: 'Driver',
+                value: result.driver,
+                color: result.color,
               ),
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildStatChip({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+  }) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.7),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: color.withValues(alpha: 0.15)),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 13, color: color.withValues(alpha: 0.7)),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.darkWith(0.4),
+                    ),
+                  ),
+                  Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: color,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

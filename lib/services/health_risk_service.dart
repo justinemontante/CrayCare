@@ -5,7 +5,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'connectivity_service.dart';
 
 class HealthRiskResult {
-  final double score;
   final String level;
   final int confidence;
   final String driver;
@@ -15,7 +14,6 @@ class HealthRiskResult {
   final DateTime timestamp;
 
   HealthRiskResult({
-    required this.score,
     required this.level,
     required this.confidence,
     required this.driver,
@@ -27,7 +25,6 @@ class HealthRiskResult {
 
   factory HealthRiskResult.fromMap(Map<String, dynamic> data) {
     return HealthRiskResult(
-      score: (data['score'] as num?)?.toDouble() ?? 0,
       level: data['level'] as String? ?? 'Insufficient',
       confidence: (data['confidence'] as num?)?.toInt() ?? 0,
       driver: data['driver'] as String? ?? 'N/A',

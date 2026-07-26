@@ -7,7 +7,7 @@ _bundle = None
 _recs = None
 _db = None
 
-_MODEL_PATH = os.path.join(os.path.dirname(__file__), "wqri_model.joblib")
+_MODEL_PATH = os.path.join(os.path.dirname(__file__), "wqc_model.joblib")
 _RECS_PATH = os.path.join(os.path.dirname(__file__), "recommendations.json")
 
 
@@ -38,7 +38,7 @@ def _load_model():
         _bundle = joblib.load(_MODEL_PATH)
     except Exception:
         _bundle = None
-        print("[WQRI] No trained model found, will use rule-based fallback")
+        print("[WQC] No trained model found, will use rule-based fallback")
     try:
         with open(_RECS_PATH) as f:
             _recs = json.load(f)
@@ -73,16 +73,16 @@ def _load_model():
     return _bundle, _recs
 
 
-def _predict_wqri(df):
-    """Run WQRI prediction (ML or rule-based) on a sensor DataFrame.
+def _predict_wqc(df):
+    """Run Water Quality Classification (ML or rule-based) on a sensor DataFrame.
 
-    Thin wrapper around the shared features.predict_wqri() — kept here so
+    Thin wrapper around the shared features.predict_wqc() — kept here so
     on_sensor_update() doesn't need to know about model/recs loading.
     """
-    from features import predict_wqri
+    from features import predict_wqc
 
     bundle, recs = _load_model()
-    return predict_wqri(df, bundle, recs)
+    return predict_wqc(df, bundle, recs)
 
 
 def _fetch_sensor_history(hours: int = 24):
@@ -120,7 +120,7 @@ def _fetch_sensor_history(hours: int = 24):
             for d in docs:
                 rows.append(d.to_dict())
         except Exception as e:
-            print(f"[WQRI] Error fetching history for {date_str}: {e}")
+            print(f"[WQC] Error fetching history for {date_str}: {e}")
 
     # Fallback: grab the most recent 144 rows from today's collection
     if not rows:
@@ -137,7 +137,7 @@ def _fetch_sensor_history(hours: int = 24):
             for d in docs:
                 rows.append(d.to_dict())
         except Exception as e:
-            print(f"[WQRI] Fallback fetch error: {e}")
+            print(f"[WQC] Fallback fetch error: {e}")
 
     if not rows:
         return pd.DataFrame()
@@ -173,10 +173,8 @@ from firebase_functions import firestore_fn
 @firestore_fn.on_document_written(
     document="sensorReadings/{ownerUid}", region="asia-southeast1"
 )
-def on_sensor_update(
-    event: firestore_fn.Event[firestore_fn.Change[firestore_fn.DocumentSnapshot]],
-) -> None:
-    """Triggered when sensorReadings/{ownerUid} is written. Runs ML WQRI prediction."""
+def on_sensor_update(event: firestore_fn.Event[firestore_fn.Change[firestore_fn.DocumentSnapshot]]) -> None:
+    """Triggered when sensorReadings/{ownerUid} is written. Runs Water Quality Classification."""
 
     after_data = event.data.after.to_dict() if event.data.after else None
     if not after_data:
@@ -188,9 +186,8 @@ def on_sensor_update(
     db = _get_db()
 
     if df.empty or len(df) < 36:
-        print(f"[WQRI] Insufficient data ({len(df)} rows), need at least 36")
+        print(f"[WQC] Insufficient data ({len(df)} rows), need at least 36")
         result = {
-            "score": 0,
             "level": "Insufficient",
             "confidence": 0,
             "driver": "N/A",
@@ -203,11 +200,11 @@ def on_sensor_update(
         db.collection("healthRisk").document(owner_uid or "latest").set(result)
         return
 
-    result = _predict_wqri(df)
+    result = _predict_wqc(df)
     if owner_uid:
         result["uid"] = owner_uid
 
     db.collection("healthRisk").document(owner_uid or "latest").set(result)
     print(
-        f"[WQRI] Result: {result['level']} (score={result['score']}, driver={result['driver']})"
+        f"[WQC] Classification: {result['level']} (confidence={result['confidence']}%, driver={result['driver']})"
     )

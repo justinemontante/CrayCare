@@ -1,7 +1,7 @@
 """Local CLI test script: run the current model + recommendations on the
-latest row of sensor_dataset.csv and print the full WQRI result.
+latest row of sensor_dataset.csv and print the full classification result.
 
-Uses the exact same features.predict_wqri() that the deployed Cloud
+Uses the exact same features.predict_wqc() that the deployed Cloud
 Function (main.py) uses, so this is a true preview of what production
 would output for that row -- not a separate reimplementation.
 
@@ -13,11 +13,11 @@ import json
 import joblib
 import pandas as pd
 
-from features import predict_wqri
+from features import predict_wqc
 
 _DIR = os.path.dirname(os.path.abspath(__file__))
 
-bundle = joblib.load(os.path.join(_DIR, "wqri_model.joblib"))
+bundle = joblib.load(os.path.join(_DIR, "wqc_model.joblib"))
 
 with open(os.path.join(_DIR, "recommendations.json")) as f:
     recs = json.load(f)
@@ -28,10 +28,11 @@ df = (
     .reset_index(drop=True)
 )
 
-result = predict_wqri(df, bundle, recs)
+result = predict_wqc(df, bundle, recs)
 
-print(f"Water Quality Risk: {result['level']} (score={result['score']}, confidence={result['confidence']}%)")
-print(f"Primary driver: {result['problem']}")
+print(f"Water Quality Classification: {result['level']} (confidence={result['confidence']}%)")
+print(f"Primary driver: {result['driver']}")
+print(f"Problem: {result['problem']}")
 print(f"Insight: {result['insight']}")
 print(f"Recommended action: {result['action']}")
 print(f"Basis: {result['source']}")

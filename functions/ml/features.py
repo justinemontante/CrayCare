@@ -1,6 +1,5 @@
-"""Shared feature engineering, WQRI scoring, and constants for the CrayCare ML pipeline.
+"""Shared feature engineering, scoring, and constants for the CrayCare Water Quality Classification pipeline.
 
-WQRI = Water Quality Risk Index
 All threshold values are aligned with official agency standards:
   - DENR DAO 2016-08  (Class C Inland Waters — Fishery Water Supply)
   - DA-BFAR           (Philippine Freshwater Aquaculture Water Quality)
@@ -10,14 +9,13 @@ All threshold values are aligned with official agency standards:
 See agency_standards.py for full citations and threshold rationale.
 
 METHODOLOGY NOTE (for thesis/defense):
-`wqri_class` (the ML training label) is derived from the deterministic
-`compute_wqri_score()` formula — it is NOT independent, expert-labeled ground truth.
-The ML model approximates/generalises this formula using richer temporal features
-(rolling trend, volatility, hours-in-bad-condition) than the formula itself uses.
-High classification accuracy primarily demonstrates that the model can closely
-reproduce a known deterministic function. Frame the ML component as
-"trend-aware early warning / smoothing over the rule-based system."
-See train_model.py Stage 1.5 for ablation numbers to cite in the defense.
+The ML training label is derived from the deterministic `compute_wqc_score()` formula —
+it is NOT independent, expert-labeled ground truth.
+The Water Quality Classification model approximates/generalises this formula using richer
+temporal features (rolling trend, volatility, hours-in-bad-condition) than the formula itself uses.
+High classification accuracy primarily demonstrates that the model can closely reproduce a known
+deterministic function. Frame the ML component as "trend-aware early warning / smoothing over the
+rule-based system." See train_model.py Stage 1.5 for ablation numbers to cite in the defense.
 """
 
 SENSORS = ["temp", "pH", "DO", "turbidity", "waterLevel"]
@@ -59,11 +57,11 @@ TURB_CRIT_MAX    = 100.0 # NTU — extreme; severe oxygen demand
 WATER_MIN_CM    = 120.0
 WATER_MAX_CM    = 160.0
 
-# ── WQRI normalisation reference ────────────────────────────────────────────────
-# p96 of the raw rolling WQRI hazard on the 90-day dataset → balanced class split.
-# Recompute if thresholds change: run compute_wqri_score() on the new dataset
+# ── Normalisation reference ──────────────────────────────────────────────────────
+# p96 of the raw rolling hazard on the 90-day dataset → balanced class split.
+# Recompute if thresholds change: run compute_wqc_score() on the new dataset
 # and take np.percentile(wqri_raw / p96 * 100, 96).
-WQRI_NORM_REF = 28.50
+WQC_NORM_REF = 28.50
 
 CLASS_NAMES = ["Low", "Moderate", "High", "Critical"]
 
@@ -150,9 +148,12 @@ def build_features(df):
     return feat, SENSORS
 
 
-# ── WQRI score computation (deterministic rule-based) ───────────────────────────
-def compute_wqri_score(df):
-    """Compute a 0–100 Water Quality Risk Index from raw sensor DataFrame.
+# ── Hazard score computation (deterministic rule-based, used for label generation) ──
+def compute_wqc_score(df):
+    """Compute a 0–100 internal hazard score from raw sensor DataFrame.
+
+    Used internally to auto-generate Water Quality Classification training labels.
+    NOT exposed in the final classification output.
 
     Uses a rolling 36-tick (6-hour) window sum of instantaneous per-sensor
     hazard sub-scores, normalised to [0, 100].
@@ -165,9 +166,6 @@ def compute_wqri_score(df):
       - temp_lo:    deficit below DA-BFAR min (20°C)
       - turbidity:  excess above DENR Class C limit (50 NTU)
       - water_lo/hi: deviation from configured operating range
-
-    This is a DETERMINISTIC formula, not ML. It is used to auto-generate the
-    `wqri_class` training label (see train_model.py docstring for implications).
     """
     import numpy as np
     import pandas as pd
@@ -196,7 +194,7 @@ def compute_wqri_score(df):
     row_hazard = s.sum(axis=1)
     WIN = 36   # 6-hour window
     wqri_raw   = row_hazard.rolling(WIN, min_periods=1).sum()
-    wqri_score = np.clip(wqri_raw / WQRI_NORM_REF * 100, 0, 100)
+    wqri_score = np.clip(wqri_raw / WQC_NORM_REF * 100, 0, 100)
     return wqri_score
 
 
@@ -265,19 +263,19 @@ def generate_insight(driver, last_row, level):
     return templates.get(driver, f"{driver} reading is outside the agency-recommended range.")
 
 
-# ── Full prediction pipeline ─────────────────────────────────────────────────────
-def predict_wqri(df, bundle, recs):
-    """Single source of truth: raw sensor history → full WQRI prediction result.
+# ── Full classification pipeline ─────────────────────────────────────────────────
+def predict_wqc(df, bundle, recs):
+    """Single source of truth: raw sensor history → Water Quality Classification result.
 
     Used by BOTH the deployed Cloud Function (main.py) and the local test
     script (predict.py) so there is exactly one place to fix prediction bugs.
 
     Args:
         df:     raw sensor DataFrame sorted by timestamp (columns: {sensor}_avg/_min/_max)
-        bundle: dict {"model", "features", "type"} from wqri_model.joblib, or None
+        bundle: dict {"model", "features", "type"} from wqc_model.joblib, or None
         recs:   dict loaded from recommendations.json
 
-    Returns dict: score, level, confidence, driver, problem, insight, action,
+    Returns dict: level, confidence, driver, problem, insight, action,
                   source, timestamp.
     """
     import numpy as np
@@ -285,8 +283,8 @@ def predict_wqri(df, bundle, recs):
 
     feat, _ = build_features(df)
 
-    # Always compute the deterministic WQRI score first — stable 0–100 metric
-    wqri_series = compute_wqri_score(df)
+    # Compute internal hazard score for level classification
+    wqri_series = compute_wqc_score(df)
     score       = round(float(wqri_series.iloc[-1]), 1)
 
     if bundle is not None:
@@ -346,7 +344,6 @@ def predict_wqri(df, bundle, recs):
 
     from datetime import datetime, timezone
     return {
-        "score":      score,
         "level":      level,
         "confidence": confidence,
         "driver":     driver,
