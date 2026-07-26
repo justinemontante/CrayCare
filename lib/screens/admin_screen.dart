@@ -203,12 +203,15 @@ class _AdminScreenState extends State<AdminScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) {
+        // Declare mutable state OUTSIDE StatefulBuilder.builder so they
+        // persist across setSheetState rebuilds (not re-initialized each call).
+        String currentRole = role;
+        String currentStatus = status;
+        String? assignedHardwareId = _hardwareOwnerMap[uid];
+
         return StatefulBuilder(
           builder: (ctx, setSheetState) {
-            String currentRole = role;
-            String currentStatus = status;
             bool isDisabled = currentStatus == 'disabled';
-            String? assignedHardwareId = _hardwareOwnerMap[uid];
 
             return SafeArea(
               child: Padding(
@@ -611,22 +614,38 @@ class _AdminScreenState extends State<AdminScreen> {
 
   Future<String?> _showHardwareInputDialog({String? prefill}) async {
     final controller = TextEditingController(text: prefill ?? '');
+    final isChange = prefill != null && prefill.isNotEmpty;
     return showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
         actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        title: const Text('Hardware ID',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.darkText)),
+        title: null,
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Enter the hardware ID printed on the ESP32 device (e.g. ESP_AABBCCDDEEFF). '
-              'You can also find it in the Serial Monitor output on boot.',
-              style: TextStyle(fontSize: 12, color: AppColors.subtitleText, height: 1.5),
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.developer_board_rounded, size: 22, color: AppColors.primary),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              isChange ? 'Change Hardware ID' : 'Assign Hardware',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.darkText),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              isChange
+                  ? 'Enter the new hardware ID to reassign this device.'
+                  : 'Enter the hardware ID printed on the ESP32 device (e.g. ESP_AABBCCDDEEFF).',
+              style: const TextStyle(fontSize: 12, color: AppColors.subtitleText, height: 1.5),
             ),
             const SizedBox(height: 16),
             TextField(
@@ -658,6 +677,11 @@ class _AdminScreenState extends State<AdminScreen> {
                 ),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               ),
+              onSubmitted: (val) {
+                final trimmed = val.trim();
+                if (trimmed.isEmpty) return;
+                Navigator.pop(ctx, trimmed);
+              },
             ),
           ],
         ),
@@ -683,7 +707,7 @@ class _AdminScreenState extends State<AdminScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
-            child: const Text('Save', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+            child: const Text('Confirm', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
           ),
         ],
       ),
