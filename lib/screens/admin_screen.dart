@@ -283,7 +283,7 @@ class _AdminScreenState extends State<AdminScreen> {
                         ),
                         if (assignedHardwareId != null) ...[
                           const SizedBox(width: 8),
-                          _buildMiniBadge(label: 'LINKED', color: AppColors.success),
+                          _buildMiniBadge(label: 'HARDWARE', color: AppColors.primary),
                         ],
                       ],
                     ),
@@ -459,7 +459,7 @@ class _AdminScreenState extends State<AdminScreen> {
 
                     // Hardware Assignment section (owners only)
                     if (currentRole != 'admin') ...[
-                      _buildSectionHeader(Icons.developer_board_rounded, 'Sensor Readings'),
+                      _buildSectionHeader(Icons.developer_board_rounded, 'Hardware'),
                       const SizedBox(height: 10),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -489,7 +489,7 @@ class _AdminScreenState extends State<AdminScreen> {
                                         child: Column(
                                           crossAxisAlignment: CrossAxisAlignment.start,
                                           children: [
-                                            const Text('Sensor readings linked',
+                                            const Text('Hardware linked',
                                                 style: TextStyle(
                                                     fontSize: 11,
                                                     fontWeight: FontWeight.w600,
@@ -510,9 +510,9 @@ class _AdminScreenState extends State<AdminScreen> {
                                     child: GestureDetector(
                                       onTap: () async {
                                         final confirmed = await _confirm(
-                                          title: 'Unassign Sensor Readings?',
+                                          title: 'Unassign Hardware?',
                                           message:
-                                              '${_displayName(user)} will stop receiving sensor data. The device will no longer route readings to their account.',
+                                              '${_displayName(user)} will lose access to the hardware. Sensor data, auto feeder, and all device features will stop routing to their account.',
                                           icon: Icons.link_off_rounded,
                                           iconColor: AppColors.critical,
                                         );
@@ -524,7 +524,7 @@ class _AdminScreenState extends State<AdminScreen> {
                                         setSheetState(() {
                                           assignedHardwareId = null;
                                         });
-                                        _showSnack('Sensor readings unassigned.');
+                                        _showSnack('Hardware unassigned.');
                                       },
                                       child: _buildActionChip(
                                           'Unassign', Icons.link_off_rounded, AppColors.critical),
@@ -545,9 +545,9 @@ class _AdminScreenState extends State<AdminScreen> {
                                   }
                                   if (!ctx.mounted) return;
                                   final confirmed = await _confirm(
-                                    title: 'Assign Sensor Readings?',
+                                    title: 'Assign Hardware?',
                                     message:
-                                        'Sensor data from the device will be routed to ${_displayName(user)}\'s account.',
+                                        'The hardware will be linked to ${_displayName(user)}\'s account. Sensor data, auto feeder, and all device features will route to them.',
                                     icon: Icons.developer_board_rounded,
                                     iconColor: AppColors.primary,
                                   );
@@ -559,7 +559,7 @@ class _AdminScreenState extends State<AdminScreen> {
                                   setSheetState(() {
                                     assignedHardwareId = hardwareIdToAssign;
                                   });
-                                  _showSnack('Sensor readings assigned to ${_displayName(user)}.');
+                                  _showSnack('Hardware assigned to ${_displayName(user)}.');
                                 },
                                 child: Row(
                                   children: [
@@ -575,7 +575,7 @@ class _AdminScreenState extends State<AdminScreen> {
                                     ),
                                     const SizedBox(width: 12),
                                     const Expanded(
-                                      child: Text('Link sensor readings to this account',
+                                      child: Text('Link hardware to this account',
                                           style: TextStyle(
                                               fontSize: 12,
                                               color: AppColors.subtitleText,
