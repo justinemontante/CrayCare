@@ -214,6 +214,11 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       return at.compareTo(bt);
     });
 
+    // Pre-parse timestamps ONCE for all branches
+    final parsedTs = List<DateTime>.generate(records.length, (i) {
+      return _parseTimestamp(records[i]['timestamp']);
+    });
+
     // 24h, 7d, 30d, custom: use bucketed aggregation
     List<DateTime> labelTimes;
     if (range == '24h') {
@@ -250,10 +255,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       _labels[range] = labelTimes.map((d) => '${months[d.month - 1]} ${d.day}').toList();
     }
 
-    // Pre-parse timestamps and extract values ONCE for all keys
-    final parsedTs = List<DateTime>.generate(records.length, (i) {
-      return _parseTimestamp(records[i]['timestamp']);
-    });
+    // Extract values ONCE for all keys
     final valuesPerKey = <String, List<double?>>{};
     for (final key in SensorService.sensorKeys) {
       final hKey = _historyKeyMap[key]!;
