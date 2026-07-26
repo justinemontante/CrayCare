@@ -311,6 +311,13 @@ class _AdminScreenState extends State<AdminScreen> {
                               isSelected: currentRole == 'admin',
                               onTap: () async {
                                 if (currentRole == 'admin') return;
+                                final confirmed = await _confirm(
+                                  title: 'Promote to Admin?',
+                                  message: '$name will gain full admin privileges, including the ability to manage other users.',
+                                  icon: Icons.admin_panel_settings_rounded,
+                                  iconColor: AppColors.dark,
+                                );
+                                if (confirmed != true) return;
                                 await DatabaseService.instance.setUserRole(uid, 'admin');
                                 if (!ctx.mounted) return;
                                 setSheetState(() => currentRole = 'admin');
