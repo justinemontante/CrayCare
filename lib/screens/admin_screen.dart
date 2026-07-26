@@ -514,8 +514,9 @@ class _AdminScreenState extends State<AdminScreen> {
                                       Expanded(
                                         child: GestureDetector(
                                           onTap: () async {
-                                            final newId = await _showHardwareInputDialog(
-                                              prefill: assignedHardwareId,
+                                            final newId = await _showHardwarePicker(
+                                              currentOwnerUid: uid,
+                                              currentHardwareId: assignedHardwareId,
                                             );
                                             if (newId == null || !ctx.mounted) return;
                                             await DatabaseService.instance
@@ -562,7 +563,9 @@ class _AdminScreenState extends State<AdminScreen> {
                               )
                             : GestureDetector(
                                 onTap: () async {
-                                  final newId = await _showHardwareInputDialog();
+                                  final newId = await _showHardwarePicker(
+                                    currentOwnerUid: uid,
+                                  );
                                   if (newId == null || !ctx.mounted) return;
                                   await DatabaseService.instance
                                       .setHardwareAssignment(newId, uid);
@@ -612,105 +615,180 @@ class _AdminScreenState extends State<AdminScreen> {
     );
   }
 
-  Future<String?> _showHardwareInputDialog({String? prefill}) async {
-    final controller = TextEditingController(text: prefill ?? '');
-    final isChange = prefill != null && prefill.isNotEmpty;
-    return showDialog<String>(
+  /// Shows a hardware picker sheet.
+  /// Returns the selected/typed hardware ID, or null if cancelled.
+  /// [currentOwnerUid] — the user being assigned; their current hardware is pre-selected.
+  Future<String?> _showHardwarePicker({
+    required String currentOwnerUid,
+    String? currentHardwareId,
+  }) async {
+    // Build list: all known hardware IDs in the system.
+    // Key = hardwareId, Value = ownerUid (or null if free).
+    // Exclude hardware assigned to OTHER users so admin can't accidentally steal it.
+    final Map<String, String> reverseMap = {};
+    for (final entry in _hardwareOwnerMap.entries) {
+      reverseMap[entry.value] = entry.key; // hardwareId → ownerUid
+    }
+
+    // Available = hardware assigned to this user, or hardware not assigned to anyone else.
+    final List<String> existingIds = reverseMap.entries
+        .where((e) => e.value == currentOwnerUid) // only this user's hardware
+        .map((e) => e.key)
+        .toList();
+
+    String? selected = currentHardwareId; // pre-select current if any
+
+    return showModalBottomSheet<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
-        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        title: null,
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(Icons.developer_board_rounded, size: 22, color: AppColors.primary),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              isChange ? 'Change Hardware ID' : 'Assign Hardware',
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.darkText),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              isChange
-                  ? 'Enter the new hardware ID to reassign this device.'
-                  : 'Enter the hardware ID printed on the ESP32 device (e.g. ESP_AABBCCDDEEFF).',
-              style: const TextStyle(fontSize: 12, color: AppColors.subtitleText, height: 1.5),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: controller,
-              autofocus: true,
-              textCapitalization: TextCapitalization.characters,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                fontFamily: 'monospace',
-                color: AppColors.darkText,
-              ),
-              decoration: InputDecoration(
-                hintText: 'ESP_AABBCCDDEEFF',
-                hintStyle: TextStyle(color: AppColors.darkWith(0.3), fontSize: 12),
-                filled: true,
-                fillColor: AppColors.darkWith(0.03),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: AppColors.darkWith(0.1)),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: AppColors.darkWith(0.1)),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
-                ),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              ),
-              onSubmitted: (val) {
-                final trimmed = val.trim();
-                if (trimmed.isEmpty) return;
-                Navigator.pop(ctx, trimmed);
-              },
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-            child: const Text('Cancel',
-                style: TextStyle(color: AppColors.mutedText, fontWeight: FontWeight.w600, fontSize: 13)),
-          ),
-          TextButton(
-            onPressed: () {
-              final val = controller.text.trim();
-              if (val.isEmpty) return;
-              Navigator.pop(ctx, val);
-            },
-            style: TextButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-            child: const Text('Confirm', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-          ),
-        ],
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
+      builder: (ctx) {
+        return StatefulBuilder(builder: (ctx, setPickerState) {
+          return Padding(
+            padding: EdgeInsets.fromLTRB(
+                20, 14, 20, MediaQuery.of(ctx).viewInsets.bottom + 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Handle
+                Center(
+                  child: Container(
+                    width: 40, height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+
+                // Header
+                Row(
+                  children: [
+                    Container(
+                      width: 40, height: 40,
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(Icons.developer_board_rounded,
+                          size: 20, color: AppColors.primary),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Assign Hardware',
+                              style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.darkText)),
+                          SizedBox(height: 2),
+                          Text('Select the device to assign',
+                              style: TextStyle(
+                                  fontSize: 11, color: AppColors.subtitleText)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Container(height: 1, color: AppColors.darkWith(0.06)),
+                const SizedBox(height: 14),
+
+                // Existing hardware tiles
+                if (existingIds.isNotEmpty) ...[
+                  Text('Known Devices',
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.darkWith(0.45))),
+                  const SizedBox(height: 8),
+                  ...existingIds.map((id) {
+                    final isSelected = selected == id;
+                    return GestureDetector(
+                      onTap: () => setPickerState(() => selected = id),
+                      child: Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? AppColors.primary.withValues(alpha: 0.07)
+                              : AppColors.darkWith(0.03),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: isSelected
+                                ? AppColors.primary.withValues(alpha: 0.3)
+                                : AppColors.darkWith(0.08),
+                            width: isSelected ? 1.5 : 1,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.memory_rounded,
+                                size: 16,
+                                color: isSelected
+                                    ? AppColors.primary
+                                    : AppColors.darkWith(0.35)),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(id,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    fontFamily: 'monospace',
+                                    color: isSelected
+                                        ? AppColors.primary
+                                        : AppColors.darkText,
+                                  )),
+                            ),
+                            if (isSelected)
+                              const Icon(Icons.check_circle_rounded,
+                                  size: 18, color: AppColors.primary),
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
+                  const SizedBox(height: 12),
+                ],
+
+                // Confirm button
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton(
+                    onPressed: selected == null
+                        ? null
+                        : () => Navigator.pop(ctx, selected),
+                    style: TextButton.styleFrom(
+                      backgroundColor: selected == null
+                          ? AppColors.darkWith(0.06)
+                          : AppColors.primary,
+                      foregroundColor: selected == null
+                          ? AppColors.mutedText
+                          : Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14)),
+                    ),
+                    child: Text(
+                      selected == null ? 'Select a device' : 'Confirm Assignment',
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w700, fontSize: 13),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        });
+      },
     );
   }
 
