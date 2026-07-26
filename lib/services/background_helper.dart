@@ -284,7 +284,12 @@ class BackgroundHelper {
     if (daysSince < 7) return;
 
     const markerKey = 'sampling_reminder';
+    // How often to re-notify while sampling is still overdue.
+    const _reminderIntervalHours = 4;
+
     final markerDoc = await fs.collection('notifMarkers').doc('${uid}_$markerKey').get();
+    bool isFirstReminder = true;
+
     if (markerDoc.exists && markerDoc.data() != null) {
       final data = markerDoc.data()!;
       final val = data['value'];
@@ -292,12 +297,19 @@ class BackgroundHelper {
         final lastSampleTs = val['sampleTs'] as int? ?? 0;
         final lastReminderTs = val['reminderTs'] as int? ?? 0;
         if (lastSampleTs == effectiveSampleTs && lastReminderTs > 0) {
+          // User has NOT sampled yet since the last reminder — keep nudging
+          // every _reminderIntervalHours hours instead of waiting 7 days.
           final lastReminder = DateTime.fromMillisecondsSinceEpoch(lastReminderTs);
-          if (now.difference(lastReminder).inDays < 7) return;
+          if (now.difference(lastReminder).inHours < _reminderIntervalHours) return;
+          isFirstReminder = false;
         }
+        // If lastSampleTs != effectiveSampleTs the user sampled recently;
+        // the daysSince < 7 guard above already returned early.
       } else if (val is int && val > 0) {
+        // Legacy marker format — treat as still-pending, same interval.
         final lastReminder = DateTime.fromMillisecondsSinceEpoch(val);
-        if (now.difference(lastReminder).inDays < 7) return;
+        if (now.difference(lastReminder).inHours < _reminderIntervalHours) return;
+        isFirstReminder = false;
       }
     }
 
@@ -307,10 +319,15 @@ class BackgroundHelper {
       android: androidSettings,
     ));
 
+    // First notification: informational. Follow-ups: increasingly urgent.
+    final String notifBody = isFirstReminder
+        ? "It's been $daysSince days since last sampling. Time to record growth data!"
+        : "Reminder: Sampling is still overdue ($daysSince days). Please record your crayfish growth data!";
+
     await localNotif.show(
       '${now.millisecondsSinceEpoch}_sampling'.hashCode,
-      'Sampling Reminder',
-      "It's been $daysSince days since last sampling. Time to record growth data!",
+      isFirstReminder ? 'Sampling Reminder' : '⚠️ Sampling Overdue',
+      notifBody,
       const NotificationDetails(
         android: AndroidNotificationDetails(
           _notifChannelId,
