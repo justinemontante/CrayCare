@@ -1055,10 +1055,11 @@ class _AdminScreenState extends State<AdminScreen> {
         border: Border.all(color: color.withValues(alpha: 0.18)),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         mainAxisSize: MainAxisSize.min,
         children: [
           Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Container(
@@ -1087,6 +1088,7 @@ class _AdminScreenState extends State<AdminScreen> {
           const SizedBox(height: 8),
           Text(
             label,
+            textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.w600,
