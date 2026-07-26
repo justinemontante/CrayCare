@@ -56,6 +56,7 @@ esp/.clang_complete
 esp/.gcc_flags
 
 # Node modules
+node_modules/
 test_tools/node_modules/
 functions/node_modules/
 /serviceAccountKey.json
