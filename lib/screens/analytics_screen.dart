@@ -29,6 +29,9 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   late final ScrollController _scrollController;
 
   bool _isLoading = false;
+  bool _isFetching = false; // guard against overlapping Firestore fetches
+  final Map<String, DateTime> _lastFetchedAt = {}; // range → when last fetched
+  static const _historyRefreshInterval = Duration(minutes: 10);
   Timer? _autoRefreshTimer;
   Timer? _liveTimer;
 
@@ -81,6 +84,13 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   Future<void> _maybeAutoRefreshHistory() async {
     if (!mounted) return;
     if (!_activeRangeIncludesToday) return;
+    if (_isFetching) return; // another fetch is already in flight
+    // Skip if we fetched this range recently (ESP writes every 10 min)
+    final lastFetch = _lastFetchedAt[_activeFilter];
+    if (lastFetch != null &&
+        DateTime.now().difference(lastFetch) < _historyRefreshInterval) {
+      return;
+    }
     await _generateData(_activeFilter);
     if (mounted) setState(() {});
   }
@@ -103,8 +113,10 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     _generateLive();
     _startLiveTimer();
     SettingsService.instance.addListener(_onSettingsChanged);
+    // Auto-refresh every 10 min — matches the ESP32 history write cadence.
+    // Refreshing more often just reads docs that haven't changed yet.
     _autoRefreshTimer = Timer.periodic(
-      const Duration(seconds: 60),
+      _historyRefreshInterval,
       (_) => _maybeAutoRefreshHistory(),
     );
   }
@@ -135,6 +147,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       _generateLive();
       return;
     }
+    if (_isFetching) return;
+    _isFetching = true;
     int pts;
     int intervalMinutes;
     if (range == '24h') {
@@ -181,6 +195,9 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       ).timeout(const Duration(seconds: 10));
     } catch (_) {
       records = [];
+    } finally {
+      _isFetching = false;
+      _lastFetchedAt[range] = DateTime.now();
     }
 
     if (records.isEmpty || pts == 0) {
@@ -357,6 +374,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                     activeFilter: _activeFilter,
                     showCustom: _showCustom,
                     onFilterChanged: (val) async {
+                      if (_isFetching) return; // don't stack requests on rapid taps
                       setState(() {
                         _activeFilter = val;
                         _showCustom = false;
