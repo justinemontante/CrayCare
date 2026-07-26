@@ -128,15 +128,39 @@ class _AdminScreenState extends State<AdminScreen> {
     );
   }
 
+  // A regular SnackBar is anchored to this screen's own Scaffold, which
+  // sits BELOW modal bottom sheets in the overlay stack — so it renders
+  // hidden behind the modal instead of on top of it. Inserting into the
+  // root overlay guarantees it always shows in front, even while a
+  // modal (like the user sheet) is open.
   void _showSnack(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message, style: const TextStyle(fontSize: 12)),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        backgroundColor: AppColors.dark,
+    final overlay = Overlay.of(context, rootOverlay: true);
+    late OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (ctx) => Positioned(
+        left: 16,
+        right: 16,
+        bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: AppColors.dark,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              message,
+              style: const TextStyle(fontSize: 12, color: Colors.white),
+            ),
+          ),
+        ),
       ),
     );
+    overlay.insert(entry);
+    Future.delayed(const Duration(seconds: 3), () {
+      if (entry.mounted) entry.remove();
+    });
   }
 
   void _openUserSheet(Map<String, dynamic> user) {
@@ -389,127 +413,7 @@ class _AdminScreenState extends State<AdminScreen> {
                       ),
                     ),
 
-                    const SizedBox(height: 16),
-
-                    // Hardware section
-                    _buildSectionHeader(Icons.sensors_rounded, 'Hardware Assignment'),
-                    const SizedBox(height: 10),
-                    if (isOwner)
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        decoration: BoxDecoration(
-                          color: AppColors.primary.withValues(alpha: 0.06),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: AppColors.primary.withValues(alpha: 0.15)),
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 36,
-                              height: 36,
-                              decoration: BoxDecoration(
-                                color: AppColors.primary.withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: const Icon(Icons.check_circle_outline_rounded, size: 18, color: AppColors.primary),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    'Currently Assigned',
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w700,
-                                      color: AppColors.primary,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 1),
-                                  Text(
-                                    'This user receives sensor alerts & feeding reminders',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: AppColors.darkWith(0.45),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
-                    else
-                      GestureDetector(
-                        onTap: () async {
-                          final confirmed = await _confirm(
-                            title: 'Assign hardware to $name?',
-                            message:
-                                'This will transfer the sensor hardware to $name. '
-                                'Only they will receive live sensor alerts and feeding reminders. '
-                                'The previous owner will lose access.',
-                            icon: Icons.sensors_rounded,
-                            iconColor: AppColors.primary,
-                          );
-                          if (confirmed != true) return;
-                          await DatabaseService.instance.setDeviceAssignment(uid);
-                          if (!ctx.mounted) return;
-                          Navigator.pop(ctx);
-                          if (!mounted) return;
-                          await _load();
-                        },
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: AppColors.darkWith(0.03),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: AppColors.darkWith(0.1)),
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 36,
-                                height: 36,
-                                decoration: BoxDecoration(
-                                  color: AppColors.primary.withValues(alpha: 0.08),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: const Icon(Icons.sensors_rounded, size: 18, color: AppColors.primary),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      'Transfer Hardware',
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w700,
-                                        color: AppColors.darkText,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 1),
-                                    Text(
-                                      'Assign sensor hardware to this user',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: AppColors.darkWith(0.45),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Icon(Icons.chevron_right_rounded, size: 20, color: AppColors.darkWith(0.3)),
-                            ],
-                          ),
-                        ),
-                      ),
-
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 8),
                   ],
                 ),
               ),
@@ -626,19 +530,6 @@ class _AdminScreenState extends State<AdminScreen> {
                 const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 4),
                   child: SectionLabel(
-                    label: 'Shared Hardware',
-                    showLiveData: false,
-                    icon: Icons.sensors_rounded,
-                    topPadding: 4,
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 0, 14, 4),
-                  child: _buildDeviceOwnerCard(),
-                ),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 4),
-                  child: SectionLabel(
                     label: 'Users',
                     showLiveData: false,
                     icon: Icons.people_alt_rounded,
@@ -745,58 +636,36 @@ class _AdminScreenState extends State<AdminScreen> {
     final totalUsers = _users.length;
     final activeUsers = _users.where((u) => (u['status'] ?? 'active') == 'active').length;
     final disabledUsers = totalUsers - activeUsers;
-    final hasHardware = _deviceOwnerUid != null;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
-      child: Column(
+      child: Row(
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: _buildStatCard(
-                  value: '$totalUsers',
-                  label: 'Total Users',
-                  icon: Icons.people_alt_rounded,
-                  color: AppColors.primary,
-                  bgColor: AppColors.primaryWith(0.08),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _buildStatCard(
-                  value: '$activeUsers',
-                  label: 'Active',
-                  icon: Icons.check_circle_outline_rounded,
-                  color: AppColors.success,
-                  bgColor: AppColors.successWith(0.08),
-                ),
-              ),
-            ],
+          Expanded(
+            child: _buildStatCard(
+              value: '$totalUsers',
+              label: 'Total Users',
+              icon: Icons.people_alt_rounded,
+              color: AppColors.primary,
+            ),
           ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: _buildStatCard(
-                  value: '$disabledUsers',
-                  label: 'Disabled',
-                  icon: Icons.block_rounded,
-                  color: AppColors.critical,
-                  bgColor: AppColors.criticalWith(0.08),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _buildStatCard(
-                  value: hasHardware ? '1' : '0',
-                  label: 'Hardware',
-                  icon: Icons.sensors_rounded,
-                  color: hasHardware ? AppColors.success : AppColors.mutedText,
-                  bgColor: (hasHardware ? AppColors.success : AppColors.mutedText).withValues(alpha: 0.08),
-                ),
-              ),
-            ],
+          const SizedBox(width: 10),
+          Expanded(
+            child: _buildStatCard(
+              value: '$activeUsers',
+              label: 'Active',
+              icon: Icons.check_circle_outline_rounded,
+              color: AppColors.success,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: _buildStatCard(
+              value: '$disabledUsers',
+              label: 'Disabled',
+              icon: Icons.block_rounded,
+              color: AppColors.critical,
+            ),
           ),
         ],
       ),
@@ -808,14 +677,13 @@ class _AdminScreenState extends State<AdminScreen> {
     required String label,
     required IconData icon,
     required Color color,
-    required Color bgColor,
   }) {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: bgColor,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withValues(alpha: 0.12)),
+        border: Border.all(color: AppColors.darkWith(0.08)),
       ),
       child: Row(
         children: [
@@ -857,75 +725,6 @@ class _AdminScreenState extends State<AdminScreen> {
     );
   }
 
-  Widget _buildDeviceOwnerCard() {
-    final owner = _users.where((u) => u['uid'] == _deviceOwnerUid).toList();
-    final ownerName = owner.isNotEmpty ? _displayName(owner.first) : null;
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFCFCFC),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.darkWith(0.12),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: _deviceOwnerUid != null
-                  ? AppColors.primary.withValues(alpha: 0.12)
-                  : AppColors.darkWith(0.06),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(
-              Icons.sensors_rounded,
-              color: _deviceOwnerUid != null ? AppColors.primary : AppColors.mutedText,
-              size: 22,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Hardware currently assigned to',
-                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.5)),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  ownerName ?? 'Not assigned',
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.darkText),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-          if (_deviceOwnerUid != null)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: AppColors.success.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: const Text('ACTIVE',
-                  style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: AppColors.success, letterSpacing: 0.5)),
-            ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildUserCard(Map<String, dynamic> user) {
     final uid = user['uid'] as String;
     final email = user['email'] as String? ?? '';
@@ -945,21 +744,14 @@ class _AdminScreenState extends State<AdminScreen> {
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: const Color(0xFFFCFCFC),
+          color: Colors.white,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color: isDeviceOwner
                 ? AppColors.primary.withValues(alpha: 0.3)
-                : AppColors.darkWith(0.1),
+                : AppColors.darkWith(0.08),
             width: isDeviceOwner ? 1.5 : 1,
           ),
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.darkWith(isDeviceOwner ? 0.1 : 0.06),
-              blurRadius: 12,
-              offset: const Offset(0, 2),
-            ),
-          ],
         ),
         child: Row(
           children: [
@@ -1051,15 +843,6 @@ class _AdminScreenState extends State<AdminScreen> {
                       ],
                     ),
                   ),
-                const SizedBox(height: 4),
-                Container(
-                  width: 7,
-                  height: 7,
-                  decoration: BoxDecoration(
-                    color: isDisabled ? AppColors.critical : AppColors.success,
-                    shape: BoxShape.circle,
-                  ),
-                ),
               ],
             ),
             const SizedBox(width: 8),
