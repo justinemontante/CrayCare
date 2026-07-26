@@ -51,6 +51,7 @@ const LATEST_KEYS = [
 
 let OPTIMAL_MODE = false; // --optimal flag
 let CRITICAL_MODE = false; // --critical flag
+const TANK_OWNER_UID = process.env.TANK_OWNER_UID || 'test-owner';
 
 // Config thresholds (pre_adult default — matched sa writeDefaultConfig)
 const CONFIG_RANGES = {
@@ -316,7 +317,7 @@ async function writeLatest() {
   try {
     const data = generateReading();
 
-    await firestore.collection('sensorReadings').doc('latest').set({
+    await firestore.collection('sensorReadings').doc(TANK_OWNER_UID).set({
       temperature: data.temperature,
       phLevel: data.phLevel,
       dissolvedOxygen: data.dissolvedOxygen,
@@ -448,8 +449,9 @@ async function main() {
       : '🌡️  Temperature cycles: stable → slow rise → fast rise → fall → ...';
     console.log('\n🚀 Starting real-time simulation…');
     console.log(`   ${modeLabel}`);
-    console.log('   Every 5s  → Firestore sensorReadings/latest');
+    console.log('   Every 5s  → Firestore sensorReadings/{ownerUid}');
     console.log('   Every 10m → Firestore sensorReadings/history (min/max/avg)');
+    console.log(`   Owner UID: ${TANK_OWNER_UID}`);
     console.log('   Press Ctrl+C to stop.\n');
 
     await writeLatest();

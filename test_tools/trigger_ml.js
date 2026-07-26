@@ -16,8 +16,10 @@ if (!serviceAccount) { console.error('No service account found'); process.exit(1
 admin.initializeApp({ credential: admin.cert(serviceAccount) });
 const db = getFirestore();
 
+const TANK_OWNER_UID = process.env.TANK_OWNER_UID || 'test-owner';
+
 async function trigger() {
-  await db.collection('sensorReadings').doc('latest').set({
+  await db.collection('sensorReadings').doc(TANK_OWNER_UID).set({
     temperature: 26.5,
     phLevel: 7.8,
     dissolvedOxygen: 6.0,
@@ -25,7 +27,7 @@ async function trigger() {
     waterLevel: 7.5,
     timestamp: FieldValue.serverTimestamp(),
   });
-  console.log('✅ sensorReadings/latest written — ML Cloud Function should trigger now.');
+  console.log(`✅ sensorReadings/${TANK_OWNER_UID} written — ML Cloud Function should trigger now.`);
   console.log('   Check logs: firebase functions:log --only on_sensor_update');
   process.exit(0);
 }

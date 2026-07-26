@@ -16,16 +16,18 @@ if (!serviceAccount) { console.error('No SA'); process.exit(1); }
 admin.initializeApp({ credential: admin.cert(serviceAccount) });
 const db = getFirestore();
 
+const TANK_OWNER_UID = process.env.TANK_OWNER_UID || 'test-owner';
+
 async function check() {
-  const snap = await db.collection('healthRisk').doc('latest').get();
+  const snap = await db.collection('healthRisk').doc(TANK_OWNER_UID).get();
   if (snap.exists) {
     const data = snap.data();
-    console.log('✅ healthRisk/latest EXISTS:\n');
+    console.log(`✅ healthRisk/${TANK_OWNER_UID} EXISTS:\n`);
     console.log(JSON.stringify(data, null, 2));
   } else {
-    console.log('❌ healthRisk/latest does NOT exist yet');
+    console.log(`❌ healthRisk/${TANK_OWNER_UID} does NOT exist yet`);
     console.log('   The ML function may not have triggered yet.');
-    console.log('   Try writing to sensorReadings/latest again.');
+    console.log('   Try writing to sensorReadings/{ownerUid} again.');
   }
   process.exit(0);
 }

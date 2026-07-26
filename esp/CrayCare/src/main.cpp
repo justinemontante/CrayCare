@@ -39,7 +39,7 @@
  *
  * A Cloud Function resolves hardwareId -> ownerUid via
  * hardwareAssignments/{hardwareId} and copies data into:
- *  sensorReadings/latest                  -> Flutter reads latest
+ *  sensorReadings/{ownerUid}              -> Flutter reads latest
  *  sensorReadings/history/{date}/{doc}    -> Flutter reads history
  *
  * RTDB is kept only for feeder commands/status/schedules/logs.
@@ -695,7 +695,7 @@ void buildFirestorePayload(FirebaseJson &json, bool includeTimestamp) {
 // Path: sensorIngestion/{hardwareId}  (patch — overwrites in place)
 // A Cloud Function triggers on this path, resolves hardwareId ->
 // ownerUid via hardwareAssignments/{hardwareId}, and copies the data
-// into sensorReadings/latest for the Flutter app to read.
+// into sensorReadings/{ownerUid} for the Flutter app to read.
 void sendLatestToFirestore() {
   if (!ensureFirebaseReady()) return;
 
