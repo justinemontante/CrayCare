@@ -177,6 +177,46 @@ async function readMarker(uid, key) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+//  0. OWNERSHIP STAMPING — the ESP firmware has no concept of "who owns
+//     the device right now"; it just writes sensor data to fixed global
+//     paths. So we stamp the CURRENT device owner onto every reading the
+//     instant it lands in Firestore. That timestamp-of-capture ownership
+//     is what lets us isolate data per farmer: readings captured while
+//     Farmer A was the assigned owner stay tagged ownerUid = A forever,
+//     even after the hardware gets reassigned to Farmer B.
+// ═══════════════════════════════════════════════════════════════════════
+async function currentDeviceOwnerUid() {
+  const snap = await firestoreDb.collection("config").doc("deviceOwner").get();
+  const data = snap.data();
+  return data && data.ownerUid ? data.ownerUid : null;
+}
+
+// sensorReadings/latest is overwritten in place by the ESP on every
+// reading, so we guard against re-triggering ourselves in an infinite
+// loop: only write back if ownerUid is missing or stale.
+exports.stampLatestSensorOwner = functions.region("asia-southeast1").firestore
+  .document("sensorReadings/latest")
+  .onWrite(async (change) => {
+    if (!change.after.exists) return null;
+    const after = change.after.data();
+    const ownerUid = await currentDeviceOwnerUid();
+    if (!ownerUid) return null;
+    if (after.ownerUid === ownerUid) return null; // already stamped, avoid loop
+    return change.after.ref.set({ ownerUid }, { merge: true });
+  });
+
+// sensorReadings/history/{date}/{doc} — each history doc is only ever
+// created once by the ESP (never updated in place), so onCreate is safe
+// and naturally loop-free: the write we do here doesn't re-fire onCreate.
+exports.stampHistorySensorOwner = functions.region("asia-southeast1").firestore
+  .document("sensorReadings/history/{date}/{doc}")
+  .onCreate(async (snap) => {
+    const ownerUid = await currentDeviceOwnerUid();
+    if (!ownerUid) return null;
+    return snap.ref.set({ ownerUid }, { merge: true });
+  });
+
+// ═══════════════════════════════════════════════════════════════════════
 //  1. SENSOR ALERT — triggered on every write to RTDB sensor_readings/latest
 // ═══════════════════════════════════════════════════════════════════════
 exports.onSensorUpdate = functions.region("asia-southeast1").firestore

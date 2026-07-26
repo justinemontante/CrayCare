@@ -134,17 +134,28 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == uid;
     }
 
-    // Only the assigned device owner (config/deviceOwner.ownerUid) or an
-    // admin can read live/historical readings. The ESP hardware itself
-    // writes unauthenticated, so create/update stay open — that part of
-    // the pipeline is unchanged.
+    // Every reading gets stamped with `ownerUid` by a Cloud Function
+    // (stampLatestSensorOwner / stampHistorySensorOwner) the instant it's
+    // written, using whoever config/deviceOwner.ownerUid was at that
+    // moment. That's what isolates data per farmer: once the hardware is
+    // reassigned to a new owner, past readings keep the OLD owner's uid
+    // and stay invisible to the new one — only the still-unstamped
+    // in-flight write briefly falls back to isDeviceOwner() before the
+    // function stamps it. The ESP hardware itself writes unauthenticated,
+    // so create/update stay open.
     match /sensorReadings/{doc} {
-      allow read: if isAdmin() || isDeviceOwner();
+      allow read: if isAdmin() || (isSignedIn() && (
+        resource.data.ownerUid == request.auth.uid ||
+        (!("ownerUid" in resource.data) && isDeviceOwner())
+      ));
       allow create, update: if true;
     }
 
     match /sensorReadings/history/{date}/{doc} {
-      allow read: if isAdmin() || isDeviceOwner();
+      allow read: if isAdmin() || (isSignedIn() && (
+        resource.data.ownerUid == request.auth.uid ||
+        (!("ownerUid" in resource.data) && isDeviceOwner())
+      ));
       allow create, update: if true;
     }
 
