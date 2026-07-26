@@ -739,7 +739,7 @@ class _AdminScreenState extends State<AdminScreen> {
             child: _buildStatCard(
               value: '$totalUsers',
               label: 'Total Users',
-              icon: Icons.people_alt_rounded,
+              icon: Icons.groups_rounded,
               color: AppColors.primary,
             ),
           ),
@@ -748,7 +748,7 @@ class _AdminScreenState extends State<AdminScreen> {
             child: _buildStatCard(
               value: '$activeUsers',
               label: 'Active',
-              icon: Icons.check_circle_outline_rounded,
+              icon: Icons.how_to_reg_rounded,
               color: AppColors.success,
             ),
           ),
@@ -757,7 +757,7 @@ class _AdminScreenState extends State<AdminScreen> {
             child: _buildStatCard(
               value: '$disabledUsers',
               label: 'Disabled',
-              icon: Icons.block_rounded,
+              icon: Icons.person_off_rounded,
               color: AppColors.critical,
             ),
           ),
@@ -777,7 +777,7 @@ class _AdminScreenState extends State<AdminScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.darkWith(0.08)),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -787,18 +787,19 @@ class _AdminScreenState extends State<AdminScreen> {
             width: 32,
             height: 32,
             decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.15),
+              color: Colors.white,
               borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: color.withValues(alpha: 0.35), width: 1.5),
             ),
             child: Icon(icon, size: 16, color: color),
           ),
           const SizedBox(height: 8),
           Text(
             value,
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w800,
-              color: color,
+              color: AppColors.darkText,
               height: 1.1,
             ),
             maxLines: 1,
@@ -809,8 +810,8 @@ class _AdminScreenState extends State<AdminScreen> {
             label,
             style: TextStyle(
               fontSize: 10,
-              fontWeight: FontWeight.w600,
-              color: AppColors.darkWith(0.5),
+              fontWeight: FontWeight.w700,
+              color: color,
             ),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
