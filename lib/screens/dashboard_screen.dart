@@ -528,28 +528,23 @@ class _DashboardScreenState extends State<DashboardScreen>
     return AppColors.darkWith(0.4);
   }
 
+  /// Rising is beneficial for DO and water level.
+  bool _risingIsGood(String key) => key == 'do' || key == 'waterlevel';
+
+  /// Falling is beneficial for turbidity.
+  bool _fallingIsGood(String key) => key == 'turb';
+
   Color _getTrendColor(String key, double value, String trend, double rate, String status) {
-    if (key == 'do') {
-      if (trend == 'rising' || trend == 'rising_fast') return AppColors.success;
-      if (trend == 'falling' || trend == 'falling_fast') {
-        return status == 'CRITICAL' || status == 'WARNING' ? AppColors.critical : AppColors.warning;
-      }
-      return AppColors.dark.withValues(alpha: 0.4);
-    }
-
-    if (key == 'turb') {
-      if (trend == 'falling' || trend == 'falling_fast') return AppColors.success;
-      if (trend == 'rising' || trend == 'rising_fast') {
-        return status == 'CRITICAL' || status == 'WARNING' ? AppColors.critical : AppColors.warning;
-      }
-      return AppColors.dark.withValues(alpha: 0.4);
-    }
-
-    if (key == 'waterlevel') {
-      if (trend == 'rising' || trend == 'rising_fast') return AppColors.success;
-      if (trend == 'falling' || trend == 'falling_fast') {
-        return status == 'CRITICAL' || status == 'WARNING' ? AppColors.critical : AppColors.warning;
-      }
+    // Sensors with a clear preferred direction — collapse the 3 identical branches into one.
+    if (_risingIsGood(key) || _fallingIsGood(key)) {
+      final bool goodDir = _risingIsGood(key)
+          ? (trend == 'rising' || trend == 'rising_fast')
+          : (trend == 'falling' || trend == 'falling_fast');
+      final bool badDir = _risingIsGood(key)
+          ? (trend == 'falling' || trend == 'falling_fast')
+          : (trend == 'rising' || trend == 'rising_fast');
+      if (goodDir) return AppColors.success;
+      if (badDir) return status == 'CRITICAL' || status == 'WARNING' ? AppColors.critical : AppColors.warning;
       return AppColors.dark.withValues(alpha: 0.4);
     }
 
@@ -1436,10 +1431,9 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Widget _buildModalTrendIndicator(String trend, double rate, String status, {String? sensorKey}) {
-    // Rising is beneficial for DO and water level; falling is beneficial for turbidity.
-    // Everything else (temp, pH): any fast movement is a concern regardless of direction.
-    final risingIsGood = sensorKey == 'do' || sensorKey == 'waterlevel';
-    final fallingIsGood = sensorKey == 'turb';
+    // Delegate direction semantics to the class-level helpers (single source of truth).
+    final risingIsGood = sensorKey != null && _risingIsGood(sensorKey);
+    final fallingIsGood = sensorKey != null && _fallingIsGood(sensorKey);
     final isBadStatus = status == 'CRITICAL' || status == 'WARNING';
 
     Color goodColor() => AppColors.success;
