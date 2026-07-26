@@ -110,30 +110,43 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == uid;
     }
 
+    // ─── Hardware assignments ─────────────────────────────────────────
+    // Admin-managed: hardwareId -> { ownerUid, assignedAt }.
+    // Cloud Functions use the server SDK (bypasses rules) to read these.
+    // Admins can also read them in-app for the assignment UI.
+    match /hardwareAssignments/{hardwareId} {
+      allow read, write: if isAdmin();
+    }
+
+    // ─── Sensor ingestion (ESP32 write-only) ─────────────────────────
+    // ESP32 writes raw data keyed by its hardware ID.
+    // Cloud Functions (onSensorIngestionWrite / onSensorIngestionHistoryCreate)
+    // resolve hardwareId -> ownerUid and copy into sensorReadings.
+    // App clients never need to read ingestion documents.
+    match /sensorIngestion/{hardwareId} {
+      allow create, update: if true;   // unauthenticated ESP32 writes
+      allow read, delete: if isAdmin();
+    }
+
+    match /sensorIngestion/{hardwareId}/history/{doc} {
+      allow create: if true;           // unauthenticated ESP32 writes
+      allow read, delete: if isAdmin();
+    }
+
     // ─── Sensor readings ─────────────────────────────────────────────
-    // Every reading gets stamped with `ownerUid` by a Cloud Function
-    // (stampLatestSensorOwner / stampHistorySensorOwner) the instant it's
-    // written, using whoever config/deviceOwner.ownerUid was at that
-    // moment. That's what isolates data per farmer: once the hardware is
-    // reassigned to a new owner, past readings keep the OLD owner's uid
-    // and stay invisible to the new one — only the still-unstamped
-    // in-flight write briefly falls back to isDeviceOwner() before the
-    // function stamps it. The ESP hardware itself writes unauthenticated,
-    // so create/update stay open.
+    // Written exclusively by Cloud Functions. ownerUid is resolved from
+    // hardwareAssignments before landing here, so every document is
+    // already owner-tagged when clients read it.
     match /sensorReadings/{doc} {
-      allow read: if isAdmin() || (isSignedIn() && (
-        resource.data.ownerUid == request.auth.uid ||
-        (!("ownerUid" in resource.data) && isDeviceOwner())
-      ));
-      allow create, update: if true;
+      allow read: if isAdmin() || (isSignedIn() &&
+        resource.data.ownerUid == request.auth.uid);
+      allow create, update: if true;   // server functions write here
     }
 
     match /sensorReadings/history/{date}/{doc} {
-      allow read: if isAdmin() || (isSignedIn() && (
-        resource.data.ownerUid == request.auth.uid ||
-        (!("ownerUid" in resource.data) && isDeviceOwner())
-      ));
-      allow create, update: if true;
+      allow read: if isAdmin() || (isSignedIn() &&
+        resource.data.ownerUid == request.auth.uid);
+      allow create, update: if true;   // server functions write here
     }
 
     // ─── Feeder ──────────────────────────────────────────────────────

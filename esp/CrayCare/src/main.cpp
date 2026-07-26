@@ -1,6 +1,6 @@
 /*
  * ============================================================
- *  CrayCare — ESP32 Multi-Sensor Monitor + Firebase RTDB
+ *  CrayCare — ESP32 Multi-Sensor Monitor + Firebase Firestore
  *  Board   : ESP32 DevKit
  *  Flow    : Flutter App writes config -> ESP32 reads config
  *            ESP32 writes sensor values only -> Flutter reads
@@ -33,10 +33,17 @@
  *   First boot: enter via Serial Monitor.
  *   Reset: send "RESET_WIFI" over Serial.
  *
- * Firebase paths:
- *  /sensor_readings/latest   -> overwritten every 5s (1 record)
- *  /sensor_readings/history  -> pushed every 60s (for time-series)
- *  /sensor_readings/config   -> threshold config written by Flutter app
+ * Firestore ingestion paths (written by ESP32):
+ *  sensorIngestion/{hardwareId}           -> overwritten every 5s (latest)
+ *  sensorIngestion/{hardwareId}/history/  -> pushed every 60s (time-series)
+ *
+ * A Cloud Function resolves hardwareId -> ownerUid via
+ * hardwareAssignments/{hardwareId} and copies data into:
+ *  sensorReadings/latest                  -> Flutter reads latest
+ *  sensorReadings/history/{date}/{doc}    -> Flutter reads history
+ *
+ * RTDB is kept only for feeder commands/status/schedules/logs.
+ * Sensor writes are Firestore-only.
  */
 
 #include <WiFi.h>
@@ -61,19 +68,26 @@ String pass;
 // ============================================================
 //  FIREBASE SETTINGS
 // ============================================================
-#define FIREBASE_API_KEY "AIzaSyCjDOkzE4iubiLx_xA2YufMUMo6jgIKcaw"
-#define FIREBASE_DATABASE_URL "https://craycare-8436c-default-rtdb.asia-southeast1.firebasedatabase.app"
+#define FIREBASE_API_KEY        "AIzaSyCjDOkzE4iubiLx_xA2YufMUMo6jgIKcaw"
+#define FIREBASE_DATABASE_URL   "https://craycare-8436c-default-rtdb.asia-southeast1.firebasedatabase.app"
+#define FIREBASE_PROJECT_ID     "craycare-8436c"
 
-#define FIREBASE_LATEST_PATH   "/sensor_readings/latest"
-#define FIREBASE_HISTORY_PATH  "/sensor_readings/history"
-#define FIREBASE_CONFIG_PATH   "/sensor_readings/config"
+// Firestore sensor ingestion paths (keyed by hardware ID)
+// Full path resolved at runtime: sensorIngestion/{hardwareId}
+#define FIRESTORE_INGESTION_COLLECTION "sensorIngestion"
 
-// ESP / Feeder Firebase paths
+// RTDB: config still read from RTDB; feeder commands/status/schedules stay on RTDB
+#define FIREBASE_CONFIG_PATH           "/sensor_readings/config"
+
+// ESP / Feeder RTDB paths (unchanged — feeder control stays on RTDB)
 #define FIREBASE_ESP_PATH              "/esp"
 #define FIREBASE_FEEDER_COMMANDS_PATH  "/feeder/commands"
 #define FIREBASE_FEEDER_STATUS_PATH    "/feeder/status"
 #define FIREBASE_FEEDER_SCHEDULES_PATH "/feeder/schedules"
 #define FIREBASE_FEEDER_LOGS_PATH      "/feeder/logs"
+
+// Hardware ID derived from MAC address on first use (see getHardwareId())
+String hardwareId = "";
 
 #define FIREBASE_SEND_INTERVAL_MS 5000
 #define HISTORY_SEND_INTERVAL_MS 60000
@@ -587,6 +601,22 @@ void syncConfigFromFirebase() {
 }
 
 // ============================================================
+//  HARDWARE ID — derived from ESP32 MAC address (unique per board)
+//  Format: ESP_AABBCCDDEEFF
+//  Generated once per boot; never stored in NVS (MAC is static).
+// ============================================================
+String getHardwareId() {
+  if (hardwareId != "") return hardwareId;
+  uint8_t mac[6];
+  WiFi.macAddress(mac);
+  char buf[20];
+  snprintf(buf, sizeof(buf), "ESP_%02X%02X%02X%02X%02X%02X",
+           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  hardwareId = String(buf);
+  return hardwareId;
+}
+
+// ============================================================
 //  FIREBASE READY CHECK — Re-auth if token expired
 // ============================================================
 bool ensureFirebaseReady() {
@@ -603,7 +633,7 @@ bool ensureFirebaseReady() {
 }
 
 // ============================================================
-//  FIREBASE CONFIG PUSH — ESP32 sends calibration to Firebase
+//  FIREBASE CONFIG PUSH — ESP32 sends calibration to RTDB
 // ============================================================
 void sendConfigToFirebase() {
   if (!ensureFirebaseReady()) return;
@@ -612,82 +642,93 @@ void sendConfigToFirebase() {
   cfg.set("turbidityVDirty", turbidityVDirty);
   cfg.set("turbidityVAirMax", turbidityVAirMax);
   if (Firebase.RTDB.updateNode(&fbdo, FIREBASE_CONFIG_PATH, &cfg)) {
-    Serial.println("[CONFIG PUSH] Calibration sent to Firebase");
+    Serial.println("[CONFIG PUSH] Calibration sent to RTDB");
   } else {
     Serial.printf("[CONFIG PUSH] Failed: %s\n", fbdo.errorReason().c_str());
   }
 }
 
 // ============================================================
-//  FIREBASE JSON — MINIMAL PAYLOAD
-//  Only raw sensor values. Flutter computes zones & status.
-//  Turbidity is sent as NTU (Nephelometric Turbidity Units).
+//  FIRESTORE PAYLOAD BUILDER
+//  Formats sensor readings as Firestore typed-value JSON.
+//  Used for both latest (patch) and history (create) writes.
+//  includeTimestamp=true adds a timestamp field for history.
 // ============================================================
-void buildMinimalJson(FirebaseJson &json, bool includeTimestamp) {
+void buildFirestorePayload(FirebaseJson &json, bool includeTimestamp) {
+  String hwId = getHardwareId();
+  json.set("fields/hardwareId/stringValue", hwId);
+  json.set("fields/temperature/doubleValue", smoothedTemp);
 
-  json.set("temperature", smoothedTemp);
   if (turbiditySensorOK) {
-    json.set("turbidityAir", false);
-    json.set("turbidity", smoothedTurbidityNTU);
+    json.set("fields/turbidityAir/booleanValue", false);
+    json.set("fields/turbidity/doubleValue", smoothedTurbidityNTU);
   } else {
-    json.set("turbidityAir", true);
-    json.set("turbidity", 0);
+    json.set("fields/turbidityAir/booleanValue", true);
+    json.set("fields/turbidity/doubleValue", 0.0);
   }
 
   if (ENABLE_DO_SENSOR) {
-    json.set("dissolvedOxygen", dissolvedOxygen);
+    json.set("fields/dissolvedOxygen/doubleValue", dissolvedOxygen);
   }
 
   if (ENABLE_PH_SENSOR) {
-    json.set("phLevel", phLevel);
+    json.set("fields/phLevel/doubleValue", phLevel);
   }
 
   if (ENABLE_WATER_LEVEL_SENSOR) {
-    json.set("waterLevelPercent", waterLevelPercent);
+    json.set("fields/waterLevelPercent/doubleValue", waterLevelPercent);
   }
 
   if (includeTimestamp) {
-    json.set("timestamp", getEpochMillis());
+    // Firestore integerValue must be a string when > 32-bit
+    json.set("fields/timestamp/integerValue", String(getEpochMillis()));
   }
-}
 
-void sendLatestToFirebase() {
-  if (!ensureFirebaseReady()) return;
-
-  FirebaseJson json;
-  buildMinimalJson(json, false);
-
-  if (Firebase.RTDB.updateNode(&fbdo, FIREBASE_LATEST_PATH, &json)) {
-    Serial.println("[FIREBASE] Latest sent");
-  } else {
-    Serial.printf("[FIREBASE ERROR] %s\n", fbdo.errorReason().c_str());
-  }
-}
-
-void sendEspLastSeen() {
-  if (!ensureFirebaseReady()) return;
+  // Always include lastSeen so the Flutter app can display device status
   time_t now;
   time(&now);
   unsigned long epochMs = (now > 1700000000) ? (unsigned long)now * 1000UL : 0;
-  if (epochMs == 0) return;
+  json.set("fields/lastSeen/integerValue", String(epochMs));
+}
 
-  if (Firebase.RTDB.setInt(&fbdo, FIREBASE_ESP_PATH "/lastSeen", (int)epochMs)) {
-    // success
-  } else if (fbdo.httpConnected()) {
-    Serial.printf("[ESP STATUS ERROR] %s\n", fbdo.errorReason().c_str());
+// ─── Write latest sensor reading to Firestore ───────────────────────
+// Path: sensorIngestion/{hardwareId}  (patch — overwrites in place)
+// A Cloud Function triggers on this path, resolves hardwareId ->
+// ownerUid via hardwareAssignments/{hardwareId}, and copies the data
+// into sensorReadings/latest for the Flutter app to read.
+void sendLatestToFirestore() {
+  if (!ensureFirebaseReady()) return;
+
+  FirebaseJson content;
+  buildFirestorePayload(content, false);
+
+  String docPath = String(FIRESTORE_INGESTION_COLLECTION) + "/" + getHardwareId();
+
+  if (Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "(default)",
+                                       docPath.c_str(), content.raw(), "")) {
+    Serial.println("[FIRESTORE] Latest sent");
+  } else {
+    Serial.printf("[FIRESTORE ERROR] %s\n", fbdo.errorReason().c_str());
   }
 }
 
-void sendHistoryToFirebase() {
+// ─── Write history entry to Firestore ───────────────────────────────
+// Path: sensorIngestion/{hardwareId}/history  (create — auto-ID doc)
+// A Cloud Function copies this into sensorReadings/history/{date}/{id}
+// with ownerUid stamped.
+void sendHistoryToFirestore() {
   if (!ensureFirebaseReady()) return;
 
-  FirebaseJson json;
-  buildMinimalJson(json, true);
+  FirebaseJson content;
+  buildFirestorePayload(content, true);
 
-  if (Firebase.RTDB.pushJSON(&fbdo, FIREBASE_HISTORY_PATH, &json)) {
-    Serial.println("[FIREBASE] History saved");
+  String colPath = String(FIRESTORE_INGESTION_COLLECTION) + "/" + getHardwareId() + "/history";
+
+  if (Firebase.Firestore.createDocument(&fbdo, FIREBASE_PROJECT_ID, "(default)",
+                                        colPath.c_str(), "", content.raw())) {
+    Serial.println("[FIRESTORE] History saved");
   } else {
-    Serial.printf("[FIREBASE HISTORY ERROR] %s\n", fbdo.errorReason().c_str());
+    Serial.printf("[FIRESTORE HISTORY ERROR] %s\n", fbdo.errorReason().c_str());
   }
 }
 
@@ -891,16 +932,17 @@ void setup() {
   connectWiFi();
   initTime();
   connectFirebase();
+  getHardwareId();  // resolve MAC-based ID after WiFi is up
   syncConfigFromFirebase();
   sendConfigToFirebase();
   initFeeder();
   syncFeederSchedules();
 
   Serial.println("============================================");
-  Serial.println("  CrayCare Monitor — Calibrated Turbidity");
-  Serial.printf("  Latest path : %s\n", FIREBASE_LATEST_PATH);
-  Serial.printf("  History path: %s\n", FIREBASE_HISTORY_PATH);
-  Serial.printf("  Config path : %s\n", FIREBASE_CONFIG_PATH);
+  Serial.println("  CrayCare Monitor — Firestore Ingestion");
+  Serial.printf("  Hardware ID : %s\n", hardwareId.c_str());
+  Serial.printf("  Ingestion   : %s/%s\n", FIRESTORE_INGESTION_COLLECTION, hardwareId.c_str());
+  Serial.printf("  Config path : %s (RTDB)\n", FIREBASE_CONFIG_PATH);
   Serial.println("  Turbidity: NTU (calibrated)");
   Serial.println("============================================");
 }
@@ -983,13 +1025,13 @@ void loop() {
 
   if (now - lastFirebaseSendTime >= FIREBASE_SEND_INTERVAL_MS) {
     lastFirebaseSendTime = now;
-    sendLatestToFirebase();
-    sendEspLastSeen();
+    // Sensor writes go to Firestore; lastSeen is embedded in the payload.
+    sendLatestToFirestore();
   }
 
   if (now - lastHistorySendTime >= HISTORY_SEND_INTERVAL_MS) {
     lastHistorySendTime = now;
-    sendHistoryToFirebase();
+    sendHistoryToFirestore();
   }
 }
 

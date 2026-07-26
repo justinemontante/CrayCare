@@ -217,6 +217,68 @@ class DatabaseService {
     return null;
   }
 
+  // ─── Hardware Assignment (admin) ───────────────────────────────────
+  // Each ESP32 device has a unique hardwareId (MAC-derived, e.g.
+  // "ESP_AABBCCDDEEFF"). Admins assign it to exactly one owner UID here.
+  // The Cloud Function onSensorIngestionWrite reads these assignments to
+  // route incoming sensor data to the correct owner's account.
+
+  Future<void> setHardwareAssignment(String hardwareId, String ownerUid) async {
+    if (hardwareId.isEmpty) throw ArgumentError('hardwareId cannot be empty');
+    if (ownerUid.isEmpty) throw ArgumentError('ownerUid cannot be empty');
+    final admin = FirebaseAuth.instance.currentUser;
+    await FirebaseFirestore.instance
+        .collection('hardwareAssignments')
+        .doc(hardwareId)
+        .set({
+      'ownerUid': ownerUid,
+      'assignedBy': admin?.uid,
+      'assignedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<Map<String, dynamic>?> getHardwareAssignment(String hardwareId) async {
+    final doc = await FirebaseFirestore.instance
+        .collection('hardwareAssignments')
+        .doc(hardwareId)
+        .get();
+    if (doc.exists && doc.data() != null) {
+      final data = Map<String, dynamic>.from(doc.data()!);
+      data['hardwareId'] = doc.id;
+      return data;
+    }
+    return null;
+  }
+
+  Future<List<Map<String, dynamic>>> getAllHardwareAssignments() async {
+    final snap = await FirebaseFirestore.instance
+        .collection('hardwareAssignments')
+        .get();
+    return snap.docs.map((d) {
+      final data = Map<String, dynamic>.from(d.data());
+      data['hardwareId'] = d.id;
+      return data;
+    }).toList();
+  }
+
+  Future<void> removeHardwareAssignment(String hardwareId) async {
+    await FirebaseFirestore.instance
+        .collection('hardwareAssignments')
+        .doc(hardwareId)
+        .delete();
+  }
+
+  /// Returns the hardwareId assigned to [ownerUid], or null if not found.
+  Future<String?> hardwareIdForOwner(String ownerUid) async {
+    final snap = await FirebaseFirestore.instance
+        .collection('hardwareAssignments')
+        .where('ownerUid', isEqualTo: ownerUid)
+        .limit(1)
+        .get();
+    if (snap.docs.isEmpty) return null;
+    return snap.docs.first.id;
+  }
+
   // ─── Admin: user management ────────────────────────────────────────
 
   Future<List<Map<String, dynamic>>> getAllUsers() async {

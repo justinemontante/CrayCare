@@ -204,43 +204,92 @@ async function readMarker(uid, key) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-//  0. OWNERSHIP STAMPING — the ESP firmware has no concept of "who owns
-//     the device right now"; it just writes sensor data to fixed global
-//     paths. So we stamp the CURRENT device owner onto every reading the
-//     instant it lands in Firestore. That timestamp-of-capture ownership
-//     is what lets us isolate data per farmer: readings captured while
-//     Farmer A was the assigned owner stay tagged ownerUid = A forever,
-//     even after the hardware gets reassigned to Farmer B.
+//  0. HARDWARE-BASED OWNERSHIP ROUTING
+//
+//  The ESP32 now writes sensor data to a private ingestion path keyed by
+//  its unique hardware ID:
+//    sensorIngestion/{hardwareId}           (latest — patched every 5 s)
+//    sensorIngestion/{hardwareId}/history/* (pushed every 60 s)
+//
+//  These two Cloud Functions trigger on those writes, look up the owner
+//  via hardwareAssignments/{hardwareId}, and copy the reading into:
+//    sensorReadings/latest                  (Flutter reads latest)
+//    sensorReadings/history/{date}/{doc}    (Flutter reads history)
+//
+//  Only the assigned owner can read their own sensorReadings documents
+//  (enforced by the ownerUid field + Firestore rules).
 // ═══════════════════════════════════════════════════════════════════════
-async function currentDeviceOwnerUid() {
-  const snap = await firestoreDb.collection("config").doc("deviceOwner").get();
+
+// ─── Resolve owner UID for a hardware ID ──────────────────────────────
+async function ownerUidForHardware(hardwareId) {
+  const snap = await firestoreDb.collection("hardwareAssignments").doc(hardwareId).get();
+  if (!snap.exists) return null;
   const data = snap.data();
   return data && data.ownerUid ? data.ownerUid : null;
 }
 
-// sensorReadings/latest is overwritten in place by the ESP on every
-// reading, so we guard against re-triggering ourselves in an infinite
-// loop: only write back if ownerUid is missing or stale.
-exports.stampLatestSensorOwner = functions.region("asia-southeast1").firestore
-  .document("sensorReadings/latest")
-  .onWrite(async (change) => {
+// ─── 0a. Route latest reading ─────────────────────────────────────────
+// Triggered when ESP patches sensorIngestion/{hardwareId}.
+// Copies all fields + ownerUid into sensorReadings/latest.
+// onSensorUpdate then fires on sensorReadings/latest as before.
+exports.onSensorIngestionWrite = functions.region("asia-southeast1").firestore
+  .document("sensorIngestion/{hardwareId}")
+  .onWrite(async (change, context) => {
     if (!change.after.exists) return null;
-    const after = change.after.data();
-    const ownerUid = await currentDeviceOwnerUid();
-    if (!ownerUid) return null;
-    if (after.ownerUid === ownerUid) return null; // already stamped, avoid loop
-    return change.after.ref.set({ ownerUid }, { merge: true });
+    const { hardwareId } = context.params;
+
+    const ownerUid = await ownerUidForHardware(hardwareId);
+    if (!ownerUid) {
+      functions.logger.warn(`[Ingestion] No assignment for hardwareId: ${hardwareId}`);
+      return null;
+    }
+
+    const sensorData = change.after.data();
+    // Copy into the flat sensorReadings/latest path that Flutter listens to.
+    await firestoreDb.collection("sensorReadings").doc("latest").set({
+      ...sensorData,
+      ownerUid,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    functions.logger.log(`[Ingestion] Latest routed: ${hardwareId} -> ${ownerUid}`);
+    return null;
   });
 
-// sensorReadings/history/{date}/{doc} — each history doc is only ever
-// created once by the ESP (never updated in place), so onCreate is safe
-// and naturally loop-free: the write we do here doesn't re-fire onCreate.
-exports.stampHistorySensorOwner = functions.region("asia-southeast1").firestore
-  .document("sensorReadings/history/{date}/{doc}")
-  .onCreate(async (snap) => {
-    const ownerUid = await currentDeviceOwnerUid();
-    if (!ownerUid) return null;
-    return snap.ref.set({ ownerUid }, { merge: true });
+// ─── 0b. Route history entries ────────────────────────────────────────
+// Triggered when ESP creates sensorIngestion/{hardwareId}/history/{docId}.
+// Copies into sensorReadings/history/{YYYY-MM-DD}/{docId} with ownerUid.
+exports.onSensorIngestionHistoryCreate = functions.region("asia-southeast1").firestore
+  .document("sensorIngestion/{hardwareId}/history/{docId}")
+  .onCreate(async (snap, context) => {
+    const { hardwareId, docId } = context.params;
+
+    const ownerUid = await ownerUidForHardware(hardwareId);
+    if (!ownerUid) {
+      functions.logger.warn(`[Ingestion] No assignment for hardwareId: ${hardwareId} (history)`);
+      return null;
+    }
+
+    const sensorData = snap.data();
+
+    // Derive Manila-timezone date key for the history subcollection.
+    const manilaOffset = 8 * 60 * 60 * 1000;
+    const manilaTime = new Date(Date.now() + manilaOffset);
+    const dateKey = [
+      manilaTime.getUTCFullYear(),
+      String(manilaTime.getUTCMonth() + 1).padStart(2, "0"),
+      String(manilaTime.getUTCDate()).padStart(2, "0"),
+    ].join("-");
+
+    await firestoreDb
+      .collection("sensorReadings")
+      .doc("history")
+      .collection(dateKey)
+      .doc(docId)
+      .set({ ...sensorData, ownerUid });
+
+    functions.logger.log(`[Ingestion] History routed: ${hardwareId}/${docId} -> ${ownerUid} (${dateKey})`);
+    return null;
   });
 
 // ═══════════════════════════════════════════════════════════════════════
