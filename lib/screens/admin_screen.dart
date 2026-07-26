@@ -294,6 +294,17 @@ class _AdminScreenState extends State<AdminScreen> {
                                   _showSnack('You can\'t remove your own admin role from here.');
                                   return;
                                 }
+                                if (currentRole == 'admin') {
+                                  _showSnack('You can\'t demote another admin. Only the admin themselves can change their role.');
+                                  return;
+                                }
+                                final confirmed = await _confirm(
+                                  title: 'Demote to Owner?',
+                                  message: '$name will lose admin privileges and return to a regular owner account.',
+                                  icon: Icons.person_outline_rounded,
+                                  iconColor: AppColors.primary,
+                                );
+                                if (confirmed != true) return;
                                 await DatabaseService.instance.setUserRole(uid, 'owner');
                                 if (!ctx.mounted) return;
                                 setSheetState(() => currentRole = 'owner');
