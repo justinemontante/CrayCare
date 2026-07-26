@@ -599,7 +599,7 @@ class TankService extends ChangeNotifier {
     for (final d in mortalitySnap.docs) { await d.reference.delete(); }
     final harvestSnap = await _harvestsQ.get();
     for (final d in harvestSnap.docs) { await d.reference.delete(); }
-    final deviceSnap = await _fs.collection('device_logs')
+    final deviceSnap = await _fs.collection('deviceLogs')
         .where('tankId', isEqualTo: _tankOwnerUid).get();
     for (final d in deviceSnap.docs) { await d.reference.delete(); }
     notifyListeners();

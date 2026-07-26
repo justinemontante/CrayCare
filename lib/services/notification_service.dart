@@ -919,8 +919,8 @@ class NotificationService extends ChangeNotifier {
     // Read latest sampling record from Firestore
     try {
       final sampleSnap = await fs
-          .collection('sampling')
-          .where('uid', isEqualTo: uid)
+          .collection('sampling_records')
+          .where('tankId', isEqualTo: uid)
           .orderBy('date', descending: true)
           .limit(1)
           .get();

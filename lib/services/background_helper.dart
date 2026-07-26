@@ -258,8 +258,8 @@ class BackgroundHelper {
     int effectiveSampleTs = 0;
     try {
       final samplingSnap = await fs
-          .collection('sampling')
-          .where('uid', isEqualTo: uid)
+          .collection('sampling_records')
+          .where('tankId', isEqualTo: uid)
           .get();
       if (samplingSnap.docs.isNotEmpty) {
         int? latestTs;

@@ -29,6 +29,7 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == deviceOwnerUid();
     }
 
+    // ─── User profiles ───────────────────────────────────────────────
     // Users can read/write their own profile; admins can read/write any
     // profile (needed for the admin screen: disable accounts, change
     // roles, assign the device owner).
@@ -37,85 +38,60 @@ service cloud.firestore {
       allow read, write: if isSignedIn() && (request.auth.uid == uid || isAdmin());
     }
 
-    // Users can only read/write their own notification prefs
+    // ─── Tank ────────────────────────────────────────────────────────
+    // Document ID == owner uid, so the ownership check is on the path.
+    match /tanks/{uid} {
+      allow read, write: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+    }
+
+    // ─── Notification prefs ──────────────────────────────────────────
     match /notifPrefs/{uid} {
       allow read, write: if request.auth != null && request.auth.uid == uid;
     }
 
-    // ─── NEW STRUCTURE ──────────────────────────────────────────────
-    // One tank == one user, so the tank's data lives entirely under
-    // users/{uid}. batchId is the doc id directly (no separate uid or
-    // batchId fields needed inside the documents anymore — the path
-    // itself carries that information).
-    match /users/{uid}/batches/{batchId} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
-
-      match /sampling/{docId} {
-        allow read, write: if request.auth != null && request.auth.uid == uid;
-      }
-
-      match /mortality/{docId} {
-        allow read, write: if request.auth != null && request.auth.uid == uid;
-      }
-
-      match /activities/{docId} {
-        allow read, write: if request.auth != null && request.auth.uid == uid;
-      }
-
-      match /harvests/{docId} {
-        allow read, write: if request.auth != null && request.auth.uid == uid;
-      }
-    }
-
-    // ─── OLD FLAT STRUCTURE (transitional) ─────────────────────────
-    // Kept temporarily so the migration script can still read the old
-    // data. Remove this whole block once migrate_to_subcollections.js
-    // has run with --write --delete-old and the app has been updated
-    // to only use the users/{uid}/batches/... paths above.
+    // ─── Tank production data (flat collections) ─────────────────────
+    // All documents carry a `tankId` field equal to the owner's UID.
     match /batches/{docId} {
-      allow read: if request.auth != null && resource.data.uid == request.auth.uid;
-      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
-      allow update: if request.auth != null && resource.data.uid == request.auth.uid;
-      allow delete: if request.auth != null && resource.data.uid == request.auth.uid;
+      allow read: if request.auth != null && resource.data.tankId == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.tankId == request.auth.uid;
+      allow update, delete: if request.auth != null && resource.data.tankId == request.auth.uid;
     }
 
-    match /sampling/{docId} {
-      allow read: if request.auth != null && resource.data.uid == request.auth.uid;
-      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
-      allow update: if request.auth != null && resource.data.uid == request.auth.uid;
-      allow delete: if request.auth != null && resource.data.uid == request.auth.uid;
+    match /sampling_records/{docId} {
+      allow read: if request.auth != null && resource.data.tankId == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.tankId == request.auth.uid;
+      allow update, delete: if request.auth != null && resource.data.tankId == request.auth.uid;
     }
 
-    match /mortality/{docId} {
-      allow read: if request.auth != null && resource.data.uid == request.auth.uid;
-      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
-      allow update: if request.auth != null && resource.data.uid == request.auth.uid;
-      allow delete: if request.auth != null && resource.data.uid == request.auth.uid;
+    match /mortality_records/{docId} {
+      allow read: if request.auth != null && resource.data.tankId == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.tankId == request.auth.uid;
+      allow update, delete: if request.auth != null && resource.data.tankId == request.auth.uid;
     }
 
-    match /activities/{docId} {
-      allow read: if request.auth != null && resource.data.uid == request.auth.uid;
-      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
-      allow update: if request.auth != null && resource.data.uid == request.auth.uid;
-      allow delete: if request.auth != null && resource.data.uid == request.auth.uid;
+    match /harvest_records/{docId} {
+      allow read: if request.auth != null && resource.data.tankId == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.tankId == request.auth.uid;
+      allow update, delete: if request.auth != null && resource.data.tankId == request.auth.uid;
     }
 
-    match /harvests/{docId} {
-      allow read: if request.auth != null && resource.data.uid == request.auth.uid;
-      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
-      allow update: if request.auth != null && resource.data.uid == request.auth.uid;
-      allow delete: if request.auth != null && resource.data.uid == request.auth.uid;
-    }
-
-    // Per-user threshold docs (document id == uid) keep working as
-    // before. config/deviceOwner is a special admin-only doc (document id
-    // 'deviceOwner' never equals a real uid, so isAdmin() is the only way
-    // in) that says which owner the single physical device belongs to.
+    // ─── Sensor range config ─────────────────────────────────────────
+    // Per-user threshold docs (document id == uid). config/deviceOwner
+    // and config/default are special docs only admins can write.
     match /config/{document} {
       allow read: if isSignedIn();
       allow write: if isSignedIn() && (request.auth.uid == document || isAdmin());
     }
 
+    // ─── System configuration ────────────────────────────────────────
+    // Admins manage device assignment; any signed-in user can read it
+    // (needed for the dashboard to determine device ownership).
+    match /system_config/{doc} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // ─── Notifications ───────────────────────────────────────────────
     match /notifications/{docId} {
       allow read: if request.auth != null && resource.data.uid == request.auth.uid;
       allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
@@ -134,6 +110,7 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == uid;
     }
 
+    // ─── Sensor readings ─────────────────────────────────────────────
     // Every reading gets stamped with `ownerUid` by a Cloud Function
     // (stampLatestSensorOwner / stampHistorySensorOwner) the instant it's
     // written, using whoever config/deviceOwner.ownerUid was at that
@@ -159,6 +136,7 @@ service cloud.firestore {
       allow create, update: if true;
     }
 
+    // ─── Feeder ──────────────────────────────────────────────────────
     match /feederSchedules/{doc} {
       allow read, write: if request.auth != null;
     }
@@ -180,6 +158,7 @@ service cloud.firestore {
       allow read, write: if request.auth != null;
     }
 
+    // ─── Device control ──────────────────────────────────────────────
     match /deviceModes/{doc} {
       allow read, write: if request.auth != null;
     }
@@ -188,6 +167,7 @@ service cloud.firestore {
       allow read, create: if request.auth != null;
     }
 
+    // ─── ML / Health ─────────────────────────────────────────────────
     match /mlPredictions/{doc} {
       allow read: if request.auth != null;
       allow create, update: if true;

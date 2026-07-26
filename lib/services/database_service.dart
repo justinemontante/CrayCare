@@ -133,7 +133,9 @@ class DatabaseService {
     };
     if (changedKey != null) data['lastChangedSensor'] = changedKey;
 
-    await FirebaseFirestore.instance.collection('tanks').doc(user.uid).set(
+    // Write to config/{uid} — same path SettingsService reads from, so the
+    // UI immediately reflects the saved values on the next sync.
+    await FirebaseFirestore.instance.collection('config').doc(user.uid).set(
       data,
       SetOptions(merge: true),
     );
@@ -165,7 +167,7 @@ class DatabaseService {
       SetOptions(merge: true),
     );
 
-    await FirebaseFirestore.instance.collection('device_logs').add({
+    await FirebaseFirestore.instance.collection('deviceLogs').add({
       'tankId': tankId,
       'device': deviceId,
       'action': mode == 'auto' || mode == 'manual' ? 'turned_on' : 'turned_off',
@@ -180,7 +182,7 @@ class DatabaseService {
       return const Stream.empty();
     }
     return FirebaseFirestore.instance
-        .collection('device_logs')
+        .collection('deviceLogs')
         .where('tankId', isEqualTo: user.uid)
         .where('device', isEqualTo: deviceId)
         .orderBy('timestamp', descending: true)
@@ -199,7 +201,7 @@ class DatabaseService {
     required bool sampling,
     bool warning = true,
   }) async {
-    await FirebaseFirestore.instance.collection('notif_prefs').doc(uid).set({
+    await FirebaseFirestore.instance.collection('notifPrefs').doc(uid).set({
       'sound': sound,
       'vibration': vibration,
       'critical': critical,
@@ -210,7 +212,7 @@ class DatabaseService {
   }
 
   Future<Map<String, dynamic>?> getNotificationPrefs(String uid) async {
-    final doc = await FirebaseFirestore.instance.collection('notif_prefs').doc(uid).get();
+    final doc = await FirebaseFirestore.instance.collection('notifPrefs').doc(uid).get();
     if (doc.exists && doc.data() != null) return doc.data()!;
     return null;
   }
