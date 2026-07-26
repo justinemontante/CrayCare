@@ -118,14 +118,12 @@ class HealthRiskService extends ChangeNotifier {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     _sub = FirebaseFirestore.instance
         .collection('healthRisk')
-        .doc('latest')
+        .doc(uid ?? 'latest')
         .snapshots()
         .listen((snap) {
       if (snap.exists && snap.data() != null) {
         final data = snap.data()!;
-        if (data['uid'] == null || data['uid'] == '' || data['uid'] == uid) {
-          _result = HealthRiskResult.fromMap(data);
-        }
+        _result = HealthRiskResult.fromMap(data);
       }
       _loading = false;
       notifyListeners();

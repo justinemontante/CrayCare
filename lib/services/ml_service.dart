@@ -60,9 +60,10 @@ class MlService extends ChangeNotifier {
 
   void _startListening() {
     _loading = true;
+    final uid = FirebaseAuth.instance.currentUser?.uid;
     _sub = FirebaseFirestore.instance
         .collection('healthRisk')
-        .doc('latest')
+        .doc(uid ?? 'latest')
         .snapshots()
         .listen(_onPredictionUpdate, onError: (e) {
       _error = e.toString();

@@ -213,11 +213,11 @@ async function readMarker(uid, key) {
 //
 //  These two Cloud Functions trigger on those writes, look up the owner
 //  via hardwareAssignments/{hardwareId}, and copy the reading into:
-//    sensorReadings/latest                  (Flutter reads latest)
+//    sensorReadings/{ownerUid}              (Flutter reads latest)
 //    sensorReadings/history/{date}/{doc}    (Flutter reads history)
 //
-//  Only the assigned owner can read their own sensorReadings documents
-//  (enforced by the ownerUid field + Firestore rules).
+//  Each owner has their own document — the document ID IS the owner's
+//  UID, so the ownership check is on the path itself.
 // ═══════════════════════════════════════════════════════════════════════
 
 // ─── Resolve owner UID for a hardware ID ──────────────────────────────
@@ -230,8 +230,8 @@ async function ownerUidForHardware(hardwareId) {
 
 // ─── 0a. Route latest reading ─────────────────────────────────────────
 // Triggered when ESP patches sensorIngestion/{hardwareId}.
-// Copies all fields + ownerUid into sensorReadings/latest.
-// onSensorUpdate then fires on sensorReadings/latest as before.
+// Copies all fields into sensorReadings/{ownerUid}.
+// onSensorUpdate then fires on that per-owner document.
 exports.onSensorIngestionWrite = functions.region("asia-southeast1").firestore
   .document("sensorIngestion/{hardwareId}")
   .onWrite(async (change, context) => {
@@ -245,10 +245,10 @@ exports.onSensorIngestionWrite = functions.region("asia-southeast1").firestore
     }
 
     const sensorData = change.after.data();
-    // Copy into the flat sensorReadings/latest path that Flutter listens to.
-    await firestoreDb.collection("sensorReadings").doc("latest").set({
+    // Copy into the per-owner sensorReadings/{ownerUid} path that Flutter
+    // listens to — the document ID IS the owner UID.
+    await firestoreDb.collection("sensorReadings").doc(ownerUid).set({
       ...sensorData,
-      ownerUid,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
@@ -293,19 +293,20 @@ exports.onSensorIngestionHistoryCreate = functions.region("asia-southeast1").fir
   });
 
 // ═══════════════════════════════════════════════════════════════════════
-//  1. SENSOR ALERT — triggered on every write to Firestore sensorReadings/latest
+//  1. SENSOR ALERT — triggered on every write to sensorReadings/{ownerUid}
 // ═══════════════════════════════════════════════════════════════════════
 exports.onSensorUpdate = functions.region("asia-southeast1").firestore
-  .document("sensorReadings/latest")
+  .document("sensorReadings/{ownerUid}")
   .onWrite(async (change, context) => {
     const afterData = change.after.exists ? change.after.data() : null;
     const beforeData = change.before.exists ? change.before.data() : null;
     if (!afterData) return;
 
+    const { ownerUid } = context.params;
+
     try {
-      // Read thresholds from Firestore config/default/ranges
-      // (written by the Flutter app via DatabaseService.saveSensorThresholds)
-      const configSnap = await firestoreDb.collection("config").doc("default").get();
+      // Read thresholds from the owner's config doc
+      const configSnap = await firestoreDb.collection("config").doc(ownerUid).get();
       const config = configSnap.data();
       if (!config) return;
 
@@ -367,34 +368,17 @@ exports.onSensorUpdate = functions.region("asia-southeast1").firestore
         message: msgLines.join("; "),
       };
 
-      const uids = await getAuthorizedUids();
+      // Target the specific owner of this sensor reading
+      await writeNotification(ownerUid, notifPayload);
 
-      // Write to Firestore (once per unique owner target)
-      const uniqueTargets = new Set();
-      await Promise.all(
-        uids.map(async (uid) => {
-          const target = await getNotificationTargetUid(uid);
-          uniqueTargets.add(target);
-        })
-      );
-
-      await Promise.all(
-        Array.from(uniqueTargets).map(async (targetUid) => {
-          await writeNotification(targetUid, notifPayload);
-        })
-      );
-
-      // Send FCM push
-      await Promise.allSettled(
-        uids.map(async (uid) => {
-          const prefsSnap = await firestoreDb.collection("notifPrefs").doc(uid).get();
-          const prefs = prefsSnap.data() || {};
-          if (prefs.critical === false) return;
-
-          const userSnap = await firestoreDb.collection("users").doc(uid).get();
+      // Send FCM push to this owner
+      try {
+        const prefsSnap = await firestoreDb.collection("notifPrefs").doc(ownerUid).get();
+        const prefs = prefsSnap.data() || {};
+        if (prefs.critical !== false) {
+          const userSnap = await firestoreDb.collection("users").doc(ownerUid).get();
           const userData = userSnap.data() || {};
           const tokens = getTokensFromUserData(userData);
-          if (tokens.length === 0) return;
 
           const sound = prefs.sound !== false;
           const vibration = prefs.vibration !== false;
@@ -427,16 +411,18 @@ exports.onSensorUpdate = functions.region("asia-southeast1").firestore
                   err.code === "messaging/invalid-registration-token" ||
                   err.code === "messaging/registration-token-not-registered"
                 ) {
-                  await removeStaleToken(uid, token);
+                  await removeStaleToken(ownerUid, token);
                 }
               }
             })
           );
-        })
-      );
+        }
+      } catch (err) {
+        functions.logger.error("FCM send error:", err.message);
+      }
 
       functions.logger.log(
-        `Sensor update: ${stateChanges.length} change(s), ${uids.length} user(s) notified`
+        `Sensor update: ${stateChanges.length} change(s), owner ${ownerUid} notified`
       );
     } catch (e) {
       functions.logger.error("onSensorUpdate error:", e.message);

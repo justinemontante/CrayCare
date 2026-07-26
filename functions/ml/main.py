@@ -16,11 +16,13 @@ def _get_db():
     global _db
     if _db is None:
         import firebase_admin
+
         try:
             firebase_admin.get_app()
         except ValueError:
             firebase_admin.initialize_app()
         from firebase_admin import firestore
+
         _db = firestore.client()
     return _db
 
@@ -31,6 +33,7 @@ def _load_model():
     if _bundle is not None:
         return _bundle, _recs
     import joblib
+
     try:
         _bundle = joblib.load(_MODEL_PATH)
     except Exception:
@@ -141,11 +144,21 @@ def _fetch_sensor_history(hours: int = 24):
 
     df = pd.DataFrame(rows)
     required = {
-        "temp_avg", "temp_min", "temp_max",
-        "pH_avg", "pH_min", "pH_max",
-        "DO_avg", "DO_min", "DO_max",
-        "turbidity_avg", "turbidity_min", "turbidity_max",
-        "waterLevel_avg", "waterLevel_min", "waterLevel_max",
+        "temp_avg",
+        "temp_min",
+        "temp_max",
+        "pH_avg",
+        "pH_min",
+        "pH_max",
+        "DO_avg",
+        "DO_min",
+        "DO_max",
+        "turbidity_avg",
+        "turbidity_min",
+        "turbidity_max",
+        "waterLevel_avg",
+        "waterLevel_min",
+        "waterLevel_max",
     }
     missing = required - set(df.columns)
     for m in missing:
@@ -158,17 +171,18 @@ from firebase_functions import firestore_fn
 
 
 @firestore_fn.on_document_written(
-    document="sensorReadings/latest",
-    region="asia-southeast1"
+    document="sensorReadings/{ownerUid}", region="asia-southeast1"
 )
-def on_sensor_update(event: firestore_fn.Event[firestore_fn.Change[firestore_fn.DocumentSnapshot]]) -> None:
-    """Triggered when sensorReadings/latest is written. Runs ML WQRI prediction."""
+def on_sensor_update(
+    event: firestore_fn.Event[firestore_fn.Change[firestore_fn.DocumentSnapshot]],
+) -> None:
+    """Triggered when sensorReadings/{ownerUid} is written. Runs ML WQRI prediction."""
 
     after_data = event.data.after.to_dict() if event.data.after else None
     if not after_data:
         return
 
-    uid = os.environ.get("TANK_OWNER_UID", "")
+    owner_uid = event.params.get("ownerUid", "")
 
     df = _fetch_sensor_history()
     db = _get_db()
@@ -186,14 +200,14 @@ def on_sensor_update(event: firestore_fn.Event[firestore_fn.Change[firestore_fn.
             "source": "System",
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-        db.collection("healthRisk").document("latest").set(result)
+        db.collection("healthRisk").document(owner_uid or "latest").set(result)
         return
 
     result = _predict_wqri(df)
-    if uid:
-        result["uid"] = uid
+    if owner_uid:
+        result["uid"] = owner_uid
 
-    db.collection("healthRisk").document("latest").set(result)
+    db.collection("healthRisk").document(owner_uid or "latest").set(result)
     print(
         f"[WQRI] Result: {result['level']} (score={result['score']}, driver={result['driver']})"
     )

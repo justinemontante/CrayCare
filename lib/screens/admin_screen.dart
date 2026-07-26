@@ -58,24 +58,26 @@ class _AdminScreenState extends State<AdminScreen> {
       _error = null;
     });
     try {
-      final results = await Future.wait([
-        DatabaseService.instance.getAllUsers(),
-        DatabaseService.instance.getAllHardwareAssignments(),
-      ]);
-      final users = results[0] as List<Map<String, dynamic>>;
-      final assignments = results[1] as List<Map<String, dynamic>>;
-
+      // Load users first — this must succeed.
+      final users = await DatabaseService.instance.getAllUsers();
       users.sort((a, b) => (a['email'] as String? ?? '')
           .compareTo(b['email'] as String? ?? ''));
 
-      // Build ownerUid -> hardwareId map
+      // Load hardware assignments separately — failure is non-fatal so the
+      // admin can still manage users while Firestore rules are being deployed.
       final hwMap = <String, String>{};
-      for (final a in assignments) {
-        final ownerUid = a['ownerUid'] as String?;
-        final hardwareId = a['hardwareId'] as String?;
-        if (ownerUid != null && hardwareId != null) {
-          hwMap[ownerUid] = hardwareId;
+      try {
+        final assignments = await DatabaseService.instance.getAllHardwareAssignments();
+        for (final a in assignments) {
+          final ownerUid = a['ownerUid'] as String?;
+          final hardwareId = a['hardwareId'] as String?;
+          if (ownerUid != null && hardwareId != null) {
+            hwMap[ownerUid] = hardwareId;
+          }
         }
+      } catch (_) {
+        // Hardware assignment rules may not be deployed yet — continue
+        // without the hardware overlay on user cards.
       }
 
       if (!mounted) return;

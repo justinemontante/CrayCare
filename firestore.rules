@@ -134,12 +134,11 @@ service cloud.firestore {
     }
 
     // ─── Sensor readings ─────────────────────────────────────────────
-    // Written exclusively by Cloud Functions. ownerUid is resolved from
-    // hardwareAssignments before landing here, so every document is
-    // already owner-tagged when clients read it.
-    match /sensorReadings/{doc} {
-      allow read: if isAdmin() || (isSignedIn() &&
-        resource.data.ownerUid == request.auth.uid);
+    // Written exclusively by Cloud Functions. Each owner has their own
+    // document at sensorReadings/{ownerUid} — the document ID IS the
+    // owner's UID, so the ownership check is on the path itself.
+    match /sensorReadings/{ownerUid} {
+      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == ownerUid);
       allow create, update: if true;   // server functions write here
     }
 
@@ -186,8 +185,8 @@ service cloud.firestore {
       allow create, update: if true;
     }
 
-    match /healthRisk/{doc} {
-      allow read: if request.auth != null;
+    match /healthRisk/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
       allow create, update: if true;
     }
   }

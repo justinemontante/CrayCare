@@ -144,9 +144,11 @@ class SensorService extends ChangeNotifier {
         _markStale();
       }
     });
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
     _subscription = FirebaseFirestore.instance
         .collection('sensorReadings')
-        .doc('latest')
+        .doc(uid)
         .snapshots()
         .listen(
       (snapshot) {
@@ -155,7 +157,13 @@ class SensorService extends ChangeNotifier {
         _parseAndUpdate(snapshot.data()!);
       },
       onError: (error) {
-        _lastError = error.toString();
+        final msg = error.toString();
+        // Surface a friendlier message for Firestore permission errors.
+        if (msg.contains('permission-denied') || msg.contains('PERMISSION_DENIED')) {
+          _lastError = 'Sensor access not configured. Waiting for hardware assignment...';
+        } else {
+          _lastError = msg;
+        }
         debugPrint('[SensorService] Firestore stream error: $error');
         notifyListeners();
       },

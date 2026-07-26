@@ -30,7 +30,7 @@ class BackgroundHelper {
     if (schedSnap.docs.isEmpty) return;
     final schedDocs = schedSnap.docs;
 
-    final latestSnap = await fs.collection('sensorReadings').doc('latest').get();
+    final latestSnap = await fs.collection('sensorReadings').doc(uid).get();
     bool feedSafe = true;
     String blockReason = '';
     if (latestSnap.exists && latestSnap.data() != null) {
