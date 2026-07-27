@@ -219,6 +219,11 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       return _parseTimestamp(records[i]['timestamp']);
     });
 
+    // Pre-parse timestamps once — used by 24h (raw plot) and bucketed ranges
+    final parsedTs = List<DateTime>.generate(records.length, (i) {
+      return _parseTimestamp(records[i]['timestamp']);
+    });
+
     // 24h, 7d, 30d, custom: use bucketed aggregation
     List<DateTime> labelTimes;
     if (range == '24h') {
