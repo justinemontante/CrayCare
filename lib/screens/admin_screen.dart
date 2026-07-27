@@ -199,7 +199,7 @@ class _AdminScreenState extends State<AdminScreen> {
 
         return StatefulBuilder(
           builder: (ctx, setSheetState) {
-            bool isDisabled = currentStatus == 'disabled';
+            final bool isDisabled = currentStatus == 'disabled';
 
             return SafeArea(
               child: Padding(
@@ -383,7 +383,7 @@ class _AdminScreenState extends State<AdminScreen> {
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(color: AppColors.darkWith(0.08)),
                         ),
-                        child: assignedHardwareId != null
+                        child: isLinked
                             ? Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
@@ -432,13 +432,10 @@ class _AdminScreenState extends State<AdminScreen> {
                                           iconColor: AppColors.critical,
                                         );
                                         if (confirmed != true || !ctx.mounted) return;
-                                        await DatabaseService.instance
-                                            .removeHardwareAssignment(assignedHardwareId!);
+                                        await DatabaseService.instance.removeCurrentOwner();
                                         if (!mounted) return;
                                         await _load();
-                                        setSheetState(() {
-                                          assignedHardwareId = null;
-                                        });
+                                        setSheetState(() => isLinked = false);
                                         _showSnack('Hardware unassigned.');
                                       },
                                       child: _buildActionChip(
@@ -449,20 +446,12 @@ class _AdminScreenState extends State<AdminScreen> {
                               )
                             : GestureDetector(
                                 onTap: () async {
-                                  final hwId = _knownHardwareId;
-                                  if (hwId == null) {
-                                    _showSnack('No device found. Make sure the hardware is powered on and connected.');
-                                    return;
-                                  }
-                                  // Check if this hardware is already linked to a different owner.
-                                  final currentOwnerId = _hardwareOwnerMap.entries
-                                      .firstWhere((e) => e.value == hwId,
-                                          orElse: () => const MapEntry('', ''))
-                                      .key;
-                                  final isReassign = currentOwnerId.isNotEmpty && currentOwnerId != uid;
+                                  // Check if hardware is already linked to a different owner.
+                                  final currentOwner = _currentOwnerUid;
+                                  final isReassign = currentOwner != null && currentOwner != uid;
                                   final otherName = isReassign
                                       ? _displayName(_users.firstWhere(
-                                          (u) => u['uid'] == currentOwnerId,
+                                          (u) => u['uid'] == currentOwner,
                                           orElse: () => <String, dynamic>{'fullName': 'another user'},
                                         ))
                                       : null;
@@ -476,10 +465,10 @@ class _AdminScreenState extends State<AdminScreen> {
                                     iconColor: isReassign ? AppColors.warning : AppColors.primary,
                                   );
                                   if (confirmed != true || !ctx.mounted) return;
-                                  await DatabaseService.instance.setHardwareAssignment(hwId, uid);
+                                  await DatabaseService.instance.setCurrentOwner(uid);
                                   if (!mounted) return;
                                   await _load();
-                                  setSheetState(() => assignedHardwareId = hwId);
+                                  setSheetState(() => isLinked = true);
                                   _showSnack('Hardware linked to ${_displayName(user)}.');
                                 },
                                 child: Row(

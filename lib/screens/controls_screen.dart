@@ -365,7 +365,7 @@ class ControlsScreenState extends State<ControlsScreen> {
                     child: ElevatedButton(
                       onPressed: gramsError != null
                           ? null
-                          : () {
+                          : () async {
                               final grams = gramsCtl.text.isNotEmpty
                                   ? double.tryParse(gramsCtl.text)
                                   : null;
