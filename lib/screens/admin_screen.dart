@@ -16,6 +16,8 @@ class _AdminScreenState extends State<AdminScreen> {
   List<Map<String, dynamic>> _users = [];
   // ownerUid -> hardwareId (from hardwareAssignments collection)
   Map<String, String> _hardwareOwnerMap = {};
+  // Hardware ID auto-discovered from deviceModes (ESP self-registers on boot)
+  String? _knownHardwareId;
   bool _loading = true;
   String? _error;
   int _userFilterTab = 0; // 0 = All, 1 = Owners, 2 = Admins
@@ -80,10 +82,20 @@ class _AdminScreenState extends State<AdminScreen> {
         // without the hardware overlay on user cards.
       }
 
+      // Discover the hardware device ID from deviceModes (ESP self-registers on boot).
+      // Falls back to any ID already present in hardwareAssignments.
+      String? knownHwId;
+      try {
+        final deviceIds = await DatabaseService.instance.getKnownDeviceIds();
+        if (deviceIds.isNotEmpty) knownHwId = deviceIds.first;
+      } catch (_) {}
+      knownHwId ??= hwMap.isNotEmpty ? hwMap.values.first : null;
+
       if (!mounted) return;
       setState(() {
         _users = users;
         _hardwareOwnerMap = hwMap;
+        _knownHardwareId = knownHwId;
         _loading = false;
       });
     } catch (e) {
@@ -205,7 +217,6 @@ class _AdminScreenState extends State<AdminScreen> {
       builder: (ctx) {
         // Declare mutable state OUTSIDE StatefulBuilder.builder so they
         // persist across setSheetState rebuilds (not re-initialized each call).
-        String currentRole = role;
         String currentStatus = status;
         String? assignedHardwareId = _hardwareOwnerMap[uid];
 
@@ -273,7 +284,7 @@ class _AdminScreenState extends State<AdminScreen> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         _buildMiniBadge(
-                          label: currentRole.toUpperCase(),
+                          label: role.toUpperCase(),
                           color: isAdmin ? AppColors.dark : AppColors.primary,
                         ),
                         const SizedBox(width: 8),
@@ -290,79 +301,6 @@ class _AdminScreenState extends State<AdminScreen> {
 
                     const SizedBox(height: 20),
                     Container(height: 1, color: AppColors.darkWith(0.06)),
-                    const SizedBox(height: 16),
-
-                    // Role section
-                    _buildSectionHeader(Icons.badge_outlined, 'Role'),
-                    const SizedBox(height: 10),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      decoration: BoxDecoration(
-                        color: AppColors.darkWith(0.03),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: _buildRoleOption(
-                              ctx: ctx,
-                              label: 'Owner',
-                              icon: Icons.person_outline_rounded,
-                              isSelected: currentRole == 'owner',
-                              onTap: () async {
-                                if (currentRole == 'owner') return;
-                                final selfUid = FirebaseAuth.instance.currentUser?.uid;
-                                if (uid == selfUid) {
-                                  _showSnack('You can\'t remove your own admin role from here.');
-                                  return;
-                                }
-                                if (currentRole == 'admin') {
-                                  _showSnack('You can\'t demote another admin. Only the admin themselves can change their role.');
-                                  return;
-                                }
-                                final confirmed = await _confirm(
-                                  title: 'Demote to Owner?',
-                                  message: '$name will lose admin privileges and return to a regular owner account.',
-                                  icon: Icons.person_outline_rounded,
-                                  iconColor: AppColors.primary,
-                                );
-                                if (confirmed != true) return;
-                                await DatabaseService.instance.setUserRole(uid, 'owner');
-                                if (!ctx.mounted) return;
-                                setSheetState(() => currentRole = 'owner');
-                                if (!mounted) return;
-                                await _load();
-                              },
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: _buildRoleOption(
-                              ctx: ctx,
-                              label: 'Admin',
-                              icon: Icons.admin_panel_settings_outlined,
-                              isSelected: currentRole == 'admin',
-                              onTap: () async {
-                                if (currentRole == 'admin') return;
-                                final confirmed = await _confirm(
-                                  title: 'Promote to Admin?',
-                                  message: '$name will gain full admin privileges, including the ability to manage other users.',
-                                  icon: Icons.admin_panel_settings_rounded,
-                                  iconColor: AppColors.dark,
-                                );
-                                if (confirmed != true) return;
-                                await DatabaseService.instance.setUserRole(uid, 'admin');
-                                if (!ctx.mounted) return;
-                                setSheetState(() => currentRole = 'admin');
-                                if (!mounted) return;
-                                await _load();
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
                     const SizedBox(height: 16),
 
                     // Status section
@@ -458,7 +396,7 @@ class _AdminScreenState extends State<AdminScreen> {
                     const SizedBox(height: 16),
 
                     // Hardware Assignment section (owners only)
-                    if (currentRole != 'admin') ...[
+                    if (!isAdmin) ...[
                       _buildSectionHeader(Icons.developer_board_rounded, 'Hardware'),
                       const SizedBox(height: 10),
                       Container(
@@ -534,32 +472,38 @@ class _AdminScreenState extends State<AdminScreen> {
                               )
                             : GestureDetector(
                                 onTap: () async {
-                                  // If we already know the hardware ID from another owner, use it directly.
-                                  // Otherwise, ask the admin to enter it once.
-                                  String? hardwareIdToAssign;
-                                  if (_hardwareOwnerMap.isNotEmpty) {
-                                    hardwareIdToAssign = _hardwareOwnerMap.values.first;
-                                  } else {
-                                    hardwareIdToAssign = await _showHardwareInputDialog();
-                                    if (hardwareIdToAssign == null) return;
+                                  final hwId = _knownHardwareId;
+                                  if (hwId == null) {
+                                    _showSnack('No device found. Make sure the hardware is powered on and connected.');
+                                    return;
                                   }
+                                  // Check if this hardware is already linked to a different owner.
+                                  final currentOwnerId = _hardwareOwnerMap.entries
+                                      .firstWhere((e) => e.value == hwId,
+                                          orElse: () => const MapEntry('', ''))
+                                      .key;
+                                  final isReassign = currentOwnerId.isNotEmpty && currentOwnerId != uid;
+                                  final otherName = isReassign
+                                      ? _displayName(_users.firstWhere(
+                                          (u) => u['uid'] == currentOwnerId,
+                                          orElse: () => <String, dynamic>{'fullName': 'another user'},
+                                        ))
+                                      : null;
                                   if (!ctx.mounted) return;
                                   final confirmed = await _confirm(
-                                    title: 'Assign Hardware?',
-                                    message:
-                                        'The hardware will be linked to ${_displayName(user)}\'s account. Sensor data, auto feeder, and all device features will route to them.',
+                                    title: isReassign ? 'Reassign Hardware?' : 'Link Hardware?',
+                                    message: isReassign
+                                        ? 'This hardware is currently linked to $otherName. It will be unlinked from them and linked to ${_displayName(user)} instead.'
+                                        : 'The hardware will be linked to ${_displayName(user)}\'s account. Sensor data and all device features will route to them.',
                                     icon: Icons.developer_board_rounded,
-                                    iconColor: AppColors.primary,
+                                    iconColor: isReassign ? AppColors.warning : AppColors.primary,
                                   );
                                   if (confirmed != true || !ctx.mounted) return;
-                                  await DatabaseService.instance
-                                      .setHardwareAssignment(hardwareIdToAssign, uid);
+                                  await DatabaseService.instance.setHardwareAssignment(hwId, uid);
                                   if (!mounted) return;
                                   await _load();
-                                  setSheetState(() {
-                                    assignedHardwareId = hardwareIdToAssign;
-                                  });
-                                  _showSnack('Hardware assigned to ${_displayName(user)}.');
+                                  setSheetState(() => assignedHardwareId = hwId);
+                                  _showSnack('Hardware linked to ${_displayName(user)}.');
                                 },
                                 child: Row(
                                   children: [
@@ -597,87 +541,6 @@ class _AdminScreenState extends State<AdminScreen> {
           },
         );
       },
-    );
-  }
-
-  Future<String?> _showHardwareInputDialog({String? prefill}) async {
-    final controller = TextEditingController(text: prefill ?? '');
-    return showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
-        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        title: const Text('Hardware ID',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.darkText)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Enter the hardware ID printed on the ESP32 device (e.g. ESP_AABBCCDDEEFF). '
-              'You can also find it in the Serial Monitor output on boot.',
-              style: TextStyle(fontSize: 12, color: AppColors.subtitleText, height: 1.5),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: controller,
-              autofocus: true,
-              textCapitalization: TextCapitalization.characters,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                fontFamily: 'monospace',
-                color: AppColors.darkText,
-              ),
-              decoration: InputDecoration(
-                hintText: 'ESP_AABBCCDDEEFF',
-                hintStyle: TextStyle(color: AppColors.darkWith(0.3), fontSize: 12),
-                filled: true,
-                fillColor: AppColors.darkWith(0.03),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: AppColors.darkWith(0.1)),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: AppColors.darkWith(0.1)),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
-                ),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-            child: const Text('Cancel',
-                style: TextStyle(color: AppColors.mutedText, fontWeight: FontWeight.w600, fontSize: 13)),
-          ),
-          TextButton(
-            onPressed: () {
-              final val = controller.text.trim();
-              if (val.isEmpty) return;
-              Navigator.pop(ctx, val);
-            },
-            style: TextButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-            child: const Text('Save', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-          ),
-        ],
-      ),
     );
   }
 
@@ -734,48 +597,6 @@ class _AdminScreenState extends State<AdminScreen> {
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildRoleOption({
-    required BuildContext ctx,
-    required String label,
-    required IconData icon,
-    required bool isSelected,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(
-          color: isSelected ? AppColors.primary.withValues(alpha: 0.1) : Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isSelected ? AppColors.primary.withValues(alpha: 0.3) : AppColors.darkWith(0.08),
-            width: isSelected ? 1.5 : 1,
-          ),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              icon,
-              size: 16,
-              color: isSelected ? AppColors.primary : AppColors.darkWith(0.35),
-            ),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
-                color: isSelected ? AppColors.primary : AppColors.darkWith(0.45),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 

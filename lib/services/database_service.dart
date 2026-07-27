@@ -279,6 +279,13 @@ class DatabaseService {
     return snap.docs.first.id;
   }
 
+  /// Returns all device IDs that have self-registered in the deviceModes
+  /// collection (ESP32 writes to deviceModes/{deviceId} on boot).
+  Future<List<String>> getKnownDeviceIds() async {
+    final snap = await FirebaseFirestore.instance.collection('deviceModes').get();
+    return snap.docs.map((d) => d.id).toList();
+  }
+
   // ─── Admin: user management ────────────────────────────────────────
 
   Future<List<Map<String, dynamic>>> getAllUsers() async {
