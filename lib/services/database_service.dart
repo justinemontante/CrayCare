@@ -217,73 +217,44 @@ class DatabaseService {
     return null;
   }
 
-  // ─── Hardware Assignment (admin) ───────────────────────────────────
-  // Each ESP32 device has a unique hardwareId (MAC-derived, e.g.
-  // "ESP_AABBCCDDEEFF"). Admins assign it to exactly one owner UID here.
-  // The Cloud Function onSensorIngestionWrite reads these assignments to
-  // route incoming sensor data to the correct owner's account.
+  // ─── Hardware Owner (admin) ─────────────────────────────────────────
+  // A single document, hardware_system/currentOwner { uid }, stores the
+  // UID of the owner whose account receives all sensor data.
+  //
+  // The Cloud Function onSensorIngestionWrite reads this document to route
+  // ESP32 sensor writes to the correct per-owner sensorReadings path.
+  // Re-assigning is instant and works without touching the ESP32 firmware.
 
-  Future<void> setHardwareAssignment(String hardwareId, String ownerUid) async {
-    if (hardwareId.isEmpty) throw ArgumentError('hardwareId cannot be empty');
+  /// Returns the UID of the currently assigned hardware owner, or null.
+  Future<String?> getCurrentOwnerUid() async {
+    final doc = await FirebaseFirestore.instance
+        .collection('hardware_system')
+        .doc('currentOwner')
+        .get();
+    if (!doc.exists || doc.data() == null) return null;
+    return doc.data()!['uid'] as String?;
+  }
+
+  /// Assigns the hardware to [ownerUid] by writing hardware_system/currentOwner.
+  Future<void> setCurrentOwner(String ownerUid) async {
     if (ownerUid.isEmpty) throw ArgumentError('ownerUid cannot be empty');
     final admin = FirebaseAuth.instance.currentUser;
     await FirebaseFirestore.instance
-        .collection('hardwareAssignments')
-        .doc(hardwareId)
+        .collection('hardware_system')
+        .doc('currentOwner')
         .set({
-      'ownerUid': ownerUid,
+      'uid': ownerUid,
       'assignedBy': admin?.uid,
       'assignedAt': FieldValue.serverTimestamp(),
     });
   }
 
-  Future<Map<String, dynamic>?> getHardwareAssignment(String hardwareId) async {
-    final doc = await FirebaseFirestore.instance
-        .collection('hardwareAssignments')
-        .doc(hardwareId)
-        .get();
-    if (doc.exists && doc.data() != null) {
-      final data = Map<String, dynamic>.from(doc.data()!);
-      data['hardwareId'] = doc.id;
-      return data;
-    }
-    return null;
-  }
-
-  Future<List<Map<String, dynamic>>> getAllHardwareAssignments() async {
-    final snap = await FirebaseFirestore.instance
-        .collection('hardwareAssignments')
-        .get();
-    return snap.docs.map((d) {
-      final data = Map<String, dynamic>.from(d.data());
-      data['hardwareId'] = d.id;
-      return data;
-    }).toList();
-  }
-
-  Future<void> removeHardwareAssignment(String hardwareId) async {
+  /// Removes the current hardware owner (hardware_system/currentOwner deleted).
+  Future<void> removeCurrentOwner() async {
     await FirebaseFirestore.instance
-        .collection('hardwareAssignments')
-        .doc(hardwareId)
+        .collection('hardware_system')
+        .doc('currentOwner')
         .delete();
-  }
-
-  /// Returns the hardwareId assigned to [ownerUid], or null if not found.
-  Future<String?> hardwareIdForOwner(String ownerUid) async {
-    final snap = await FirebaseFirestore.instance
-        .collection('hardwareAssignments')
-        .where('ownerUid', isEqualTo: ownerUid)
-        .limit(1)
-        .get();
-    if (snap.docs.isEmpty) return null;
-    return snap.docs.first.id;
-  }
-
-  /// Returns all device IDs that have self-registered in the deviceModes
-  /// collection (ESP32 writes to deviceModes/{deviceId} on boot).
-  Future<List<String>> getKnownDeviceIds() async {
-    final snap = await FirebaseFirestore.instance.collection('deviceModes').get();
-    return snap.docs.map((d) => d.id).toList();
   }
 
   // ─── Admin: user management ────────────────────────────────────────

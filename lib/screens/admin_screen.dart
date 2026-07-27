@@ -14,10 +14,8 @@ class AdminScreen extends StatefulWidget {
 
 class _AdminScreenState extends State<AdminScreen> {
   List<Map<String, dynamic>> _users = [];
-  // ownerUid -> hardwareId (from hardwareAssignments collection)
-  Map<String, String> _hardwareOwnerMap = {};
-  // Hardware ID auto-discovered from deviceModes (ESP self-registers on boot)
-  String? _knownHardwareId;
+  // UID of the owner currently assigned to the hardware (hardware_system/currentOwner)
+  String? _currentOwnerUid;
   bool _loading = true;
   String? _error;
   int _userFilterTab = 0; // 0 = All, 1 = Owners, 2 = Admins
@@ -65,37 +63,16 @@ class _AdminScreenState extends State<AdminScreen> {
       users.sort((a, b) => (a['email'] as String? ?? '')
           .compareTo(b['email'] as String? ?? ''));
 
-      // Load hardware assignments separately — failure is non-fatal so the
-      // admin can still manage users while Firestore rules are being deployed.
-      final hwMap = <String, String>{};
+      // Load current hardware owner — non-fatal if the document doesn't exist yet.
+      String? currentOwner;
       try {
-        final assignments = await DatabaseService.instance.getAllHardwareAssignments();
-        for (final a in assignments) {
-          final ownerUid = a['ownerUid'] as String?;
-          final hardwareId = a['hardwareId'] as String?;
-          if (ownerUid != null && hardwareId != null) {
-            hwMap[ownerUid] = hardwareId;
-          }
-        }
-      } catch (_) {
-        // Hardware assignment rules may not be deployed yet — continue
-        // without the hardware overlay on user cards.
-      }
-
-      // Discover the hardware device ID from deviceModes (ESP self-registers on boot).
-      // Falls back to any ID already present in hardwareAssignments.
-      String? knownHwId;
-      try {
-        final deviceIds = await DatabaseService.instance.getKnownDeviceIds();
-        if (deviceIds.isNotEmpty) knownHwId = deviceIds.first;
+        currentOwner = await DatabaseService.instance.getCurrentOwnerUid();
       } catch (_) {}
-      knownHwId ??= hwMap.isNotEmpty ? hwMap.values.first : null;
 
       if (!mounted) return;
       setState(() {
         _users = users;
-        _hardwareOwnerMap = hwMap;
-        _knownHardwareId = knownHwId;
+        _currentOwnerUid = currentOwner;
         _loading = false;
       });
     } catch (e) {
@@ -218,7 +195,7 @@ class _AdminScreenState extends State<AdminScreen> {
         // Declare mutable state OUTSIDE StatefulBuilder.builder so they
         // persist across setSheetState rebuilds (not re-initialized each call).
         String currentStatus = status;
-        String? assignedHardwareId = _hardwareOwnerMap[uid];
+        bool isLinked = _currentOwnerUid == uid;
 
         return StatefulBuilder(
           builder: (ctx, setSheetState) {
@@ -292,7 +269,7 @@ class _AdminScreenState extends State<AdminScreen> {
                           label: isDisabled ? 'DISABLED' : 'ACTIVE',
                           color: isDisabled ? AppColors.critical : AppColors.success,
                         ),
-                        if (assignedHardwareId != null) ...[
+                        if (isLinked) ...[
                           const SizedBox(width: 8),
                           _buildMiniBadge(label: 'HARDWARE', color: AppColors.primary),
                         ],

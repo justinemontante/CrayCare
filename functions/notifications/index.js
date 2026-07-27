@@ -211,21 +211,23 @@ async function readMarker(uid, key) {
 //    sensorIngestion/{hardwareId}           (latest — patched every 5 s)
 //    sensorIngestion/{hardwareId}/history/* (pushed every 60 s)
 //
-//  These two Cloud Functions trigger on those writes, look up the owner
-//  via hardwareAssignments/{hardwareId}, and copy the reading into:
+//  These two Cloud Functions trigger on those writes, look up the current
+//  owner via hardware_system/currentOwner, and copy the reading into:
 //    sensorReadings/{ownerUid}              (Flutter reads latest)
 //    sensorReadings/history/{date}/{doc}    (Flutter reads history)
 //
-//  Each owner has their own document — the document ID IS the owner's
-//  UID, so the ownership check is on the path itself.
+//  The admin app writes hardware_system/currentOwner { uid } to reassign
+//  the device to a different owner without touching the ESP32 firmware.
 // ═══════════════════════════════════════════════════════════════════════
 
-// ─── Resolve owner UID for a hardware ID ──────────────────────────────
+// ─── Resolve current owner UID ────────────────────────────────────────
+// Reads hardware_system/currentOwner — set by the admin app.
+// The hardwareId param is kept for call-site compatibility but is unused.
 async function ownerUidForHardware(hardwareId) {
-  const snap = await firestoreDb.collection("hardwareAssignments").doc(hardwareId).get();
+  const snap = await firestoreDb.collection("hardware_system").doc("currentOwner").get();
   if (!snap.exists) return null;
   const data = snap.data();
-  return data && data.ownerUid ? data.ownerUid : null;
+  return data && data.uid ? data.uid : null;
 }
 
 // ─── 0a. Route latest reading ─────────────────────────────────────────
