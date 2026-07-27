@@ -9,6 +9,7 @@ class HealthRiskResult {
   final int confidence;
   final String driver;
   final String problem;
+  final String insight;
   final String action;
   final String source;
   final DateTime timestamp;
@@ -18,6 +19,7 @@ class HealthRiskResult {
     required this.confidence,
     required this.driver,
     required this.problem,
+    required this.insight,
     required this.action,
     required this.source,
     required this.timestamp,
@@ -29,6 +31,7 @@ class HealthRiskResult {
       confidence: (data['confidence'] as num?)?.toInt() ?? 0,
       driver: data['driver'] as String? ?? 'N/A',
       problem: data['problem'] as String? ?? '',
+      insight: data['insight'] as String? ?? '',
       action: data['action'] as String? ?? '',
       source: data['source'] as String? ?? '',
       timestamp: data['timestamp'] != null

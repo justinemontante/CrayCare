@@ -214,11 +214,6 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       return at.compareTo(bt);
     });
 
-    // Pre-parse timestamps ONCE for all branches
-    final parsedTs = List<DateTime>.generate(records.length, (i) {
-      return _parseTimestamp(records[i]['timestamp']);
-    });
-
     // Pre-parse timestamps once — used by 24h (raw plot) and bucketed ranges
     final parsedTs = List<DateTime>.generate(records.length, (i) {
       return _parseTimestamp(records[i]['timestamp']);

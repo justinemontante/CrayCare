@@ -156,6 +156,15 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                               icon: Icons.warning_amber_rounded,
                               color: hr.result!.color,
                             ),
+                            if (hr.result!.insight.isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              _buildDetailCard(
+                                label: 'Insight',
+                                text: hr.result!.insight,
+                                icon: Icons.science_outlined,
+                                color: AppColors.primary,
+                              ),
+                            ],
                             const SizedBox(height: 12),
                             _buildDetailCard(
                               label: 'Recommendation',
@@ -443,7 +452,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
             ),
           ),
           Text(
-            'WQRI v1',
+            'WQC v1',
             style: TextStyle(
               fontSize: 9,
               fontWeight: FontWeight.w700,

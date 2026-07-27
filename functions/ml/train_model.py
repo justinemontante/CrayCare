@@ -28,7 +28,7 @@ READ BEFORE QUOTING ACCURACY IN A DEFENSE:
 
 Usage:
   python train_model.py
-  -> wqri_model.joblib  (model bundle)
+  -> wqc_model.joblib  (model bundle)
 """
 
 import os
@@ -53,9 +53,9 @@ df = (
 )
 
 # Auto-label via deterministic hazard formula (see docstring note 2 above)
-wqri_score       = compute_wqc_score(df)
-df["wqc_score"]  = wqri_score.round(1)
-df["wqri_class"] = wqri_score.apply(lambda v: classify(v)[0])
+wqc_score        = compute_wqc_score(df)
+df["wqc_score"]  = wqc_score.round(1)
+df["wqc_class"]  = wqc_score.apply(lambda v: classify(v)[0])
 
 print("=" * 65)
 print("CrayCare Water Quality Classification — Training")
@@ -63,7 +63,7 @@ print("=" * 65)
 print(f"Dataset: {len(df):,} rows × {len(df.columns)} columns")
 print(f"Date range: {df['timestamp'].min().date()} → {df['timestamp'].max().date()}\n")
 print("Label distribution (DENR/DA-BFAR/FAO agency-aligned):")
-dist = df["wqri_class"].value_counts().sort_index()
+dist = df["wqc_class"].value_counts().sort_index()
 for cls_int, count in dist.items():
     pct  = count / len(df) * 100
     name = CLASS_NAMES[cls_int]
@@ -71,7 +71,7 @@ for cls_int, count in dist.items():
 
 # ── Build features ─────────────────────────────────────────────────────────────
 feat, _ = build_features(df)
-X, y    = feat, df["wqri_class"]
+X, y    = feat, df["wqc_class"]
 
 RAW_BASE_COLS = [f"{s}_{stat}" for s in SENSORS for stat in ("avg", "min", "max")]
 
@@ -200,8 +200,8 @@ for s in SENSORS:
     print(f"  {s:<15s}: {s_imp:.4f}")
 
 # ── Rule-based baseline comparison ────────────────────────────────────────────
-wqri_val   = compute_wqc_score(df.iloc[split_idx + CV_GAP:])
-rule_pred  = wqri_val.apply(lambda v: classify(v)[0])
+wqc_val   = compute_wqc_score(df.iloc[split_idx + CV_GAP:])
+rule_pred = wqc_val.apply(lambda v: classify(v)[0])
 print("\n── Rule-based baseline (same validation slice) ──")
 print(classification_report(
     yval, rule_pred,

@@ -60,7 +60,7 @@ WATER_MAX_CM    = 160.0
 # ── Normalisation reference ──────────────────────────────────────────────────────
 # p96 of the raw rolling hazard on the 90-day dataset → balanced class split.
 # Recompute if thresholds change: run compute_wqc_score() on the new dataset
-# and take np.percentile(wqri_raw / p96 * 100, 96).
+# and take np.percentile(hazard_raw / p96 * 100, 96).
 WQC_NORM_REF = 28.50
 
 CLASS_NAMES = ["Low", "Moderate", "High", "Critical"]
@@ -191,16 +191,16 @@ def compute_wqc_score(df):
     s["water_lo"] = np.clip(WATER_MIN_CM - df["waterLevel_min"], 0, None) / water_range
     s["water_hi"] = np.clip(df["waterLevel_max"] - WATER_MAX_CM, 0, None) / water_range
 
-    row_hazard = s.sum(axis=1)
-    WIN = 36   # 6-hour window
-    wqri_raw   = row_hazard.rolling(WIN, min_periods=1).sum()
-    wqri_score = np.clip(wqri_raw / WQC_NORM_REF * 100, 0, 100)
-    return wqri_score
+    row_hazard  = s.sum(axis=1)
+    WIN         = 36   # 6-hour window
+    hazard_raw  = row_hazard.rolling(WIN, min_periods=1).sum()
+    hazard_score = np.clip(hazard_raw / WQC_NORM_REF * 100, 0, 100)
+    return hazard_score
 
 
 # ── Class label mapping ──────────────────────────────────────────────────────────
 def classify(score):
-    """Map a WQRI score (0–100) to (class_int, class_name).
+    """Map a WQC hazard score (0–100) to (class_int, class_name).
 
       0 — Low      (score < 25)  : All parameters within DENR/DA-BFAR optimal
       1 — Moderate (25 ≤ score < 50): Minor deviation; within good bounds
@@ -283,9 +283,9 @@ def predict_wqc(df, bundle, recs):
 
     feat, _ = build_features(df)
 
-    # Compute internal hazard score for level classification
-    wqri_series = compute_wqc_score(df)
-    score       = round(float(wqri_series.iloc[-1]), 1)
+    # Compute internal hazard score for rule-based level and fallback
+    hazard_series = compute_wqc_score(df)
+    score         = round(float(hazard_series.iloc[-1]), 1)
 
     if bundle is not None:
         model      = bundle["model"]
@@ -301,7 +301,7 @@ def predict_wqc(df, bundle, recs):
             pred_score = float(np.clip(model.predict(latest_feat)[0], 0, 100))
             score      = round(pred_score, 1)
             _, level   = classify(score)
-            diff       = abs(pred_score - float(wqri_series.iloc[-1]))
+            diff       = abs(pred_score - float(hazard_series.iloc[-1]))
             confidence = 92 if diff < 5 else (85 if diff < 10 else (75 if diff < 20 else 65))
         else:
             raw_pred   = model.predict(latest_feat)
@@ -309,12 +309,12 @@ def predict_wqc(df, bundle, recs):
             cls        = int(pred_1d[0])
             proba      = model.predict_proba(latest_feat)[0]
             confidence = round(proba[cls] * 100)
-            _, level   = classify(score)
+            level      = CLASS_NAMES[cls]
 
         imp    = pd.Series(model.feature_importances_, index=FEATURES)
         driver = max(SENSORS, key=lambda s: imp[[c for c in FEATURES if c.startswith(s)]].sum())
     else:
-        # Rule-based fallback: driver from WQRI hazard sub-scores
+        # Rule-based fallback: driver from WQC hazard sub-scores
         _, level   = classify(score)
         confidence = 85
         last       = df.iloc[-1]
