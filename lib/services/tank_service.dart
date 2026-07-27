@@ -698,7 +698,7 @@ class TankService extends ChangeNotifier {
     notifyListeners();
   }
 
-  void addSamplingEntry(int count, double weight, double length) {
+  Future<void> addSamplingEntry(int count, double weight, double length) async {
     if (count <= 0) throw ArgumentError('Sample count must be greater than 0');
     if (weight < 0 || length < 0) throw ArgumentError('Weight and length must be non-negative');
     if (_selectedBatchId == null) throw ArgumentError('No batch selected');
@@ -714,7 +714,7 @@ class TankService extends ChangeNotifier {
     );
     _samplingHistory.add(entry);
     try {
-      _fs.collection('sampling_records').add({
+      await _fs.collection('sampling_records').add({
         'batchId': _selectedBatchId!,
         'tankId': _tankOwnerUid,
         'date': entry.date.millisecondsSinceEpoch,
@@ -737,7 +737,7 @@ class TankService extends ChangeNotifier {
     notifyListeners();
   }
 
-  void updateLastSamplingEntry(int count, double weight, double length) {
+  Future<void> updateLastSamplingEntry(int count, double weight, double length) async {
     if (_lastSamplingDocId == null || _samplingHistory.isEmpty) return;
     if (_selectedBatchId == null) return;
     if (count <= 0) throw ArgumentError('Sample count must be greater than 0');
@@ -753,7 +753,7 @@ class TankService extends ChangeNotifier {
     );
     _samplingHistory.last = updated;
     try {
-      _fs.collection('sampling_records').doc(_lastSamplingDocId!).update({
+      await _fs.collection('sampling_records').doc(_lastSamplingDocId!).update({
         'abw': updated.abw,
         'avgLength': updated.avgLength,
         'sampleSize': updated.sampleSize,
@@ -771,7 +771,7 @@ class TankService extends ChangeNotifier {
     notifyListeners();
   }
 
-  void addMortality(int val, {DateTime? date}) {
+  Future<void> addMortality(int val, {DateTime? date}) async {
     if (val <= 0) throw ArgumentError('Mortality count must be greater than 0');
     if (_selectedBatchId == null) throw ArgumentError('No batch selected');
 
@@ -780,7 +780,7 @@ class TankService extends ChangeNotifier {
     final mEntry = MortalityEntry(date: date ?? DateTime.now(), count: val);
     _mortalityHistory.add(mEntry);
     try {
-      _fs.collection('mortality_records').add({
+      await _fs.collection('mortality_records').add({
         'batchId': _selectedBatchId!,
         'tankId': _tankOwnerUid,
         'date': mEntry.date.millisecondsSinceEpoch,
@@ -796,12 +796,12 @@ class TankService extends ChangeNotifier {
     notifyListeners();
   }
 
-  void addHarvestRecord({
+  Future<void> addHarvestRecord({
     required int harvestedCount,
     required double totalWeightKg,
     String? batchId,
     DateTime? date,
-  }) {
+  }) async {
     if (harvestedCount <= 0) throw ArgumentError('Harvested count must be greater than 0');
     if (totalWeightKg < 0) throw ArgumentError('Total weight must be non-negative');
 
@@ -812,7 +812,7 @@ class TankService extends ChangeNotifier {
     final resolvedBatchId = batchId ?? _selectedBatchId ?? '';
 
     try {
-      _fs.collection('harvest_records').add({
+      await _fs.collection('harvest_records').add({
         'tankId': _tankOwnerUid,
         'batchId': resolvedBatchId,
         'date': now.millisecondsSinceEpoch,
@@ -823,22 +823,20 @@ class TankService extends ChangeNotifier {
         'timestamp': FieldValue.serverTimestamp(),
       });
 
-      _fs.collection('batches')
+      final batchSnap = await _fs.collection('batches')
           .where('tankId', isEqualTo: _tankOwnerUid)
           .where('batchId', isEqualTo: resolvedBatchId)
-          .get()
-          .then((snap) {
-        if (snap.docs.isNotEmpty) {
-          final existing = snap.docs.first.data();
-          final totalH = ((existing['harvestCount'] as num?)?.toInt() ?? 0) + harvestedCount;
-          final existingWeight = (existing['harvestWeightGrams'] as num?)?.toDouble() ?? 0;
-          snap.docs.first.reference.set({
+          .get();
+      if (batchSnap.docs.isNotEmpty) {
+        final existing = batchSnap.docs.first.data();
+        final totalH = ((existing['harvestCount'] as num?)?.toInt() ?? 0) + harvestedCount;
+        final existingWeight = (existing['harvestWeightGrams'] as num?)?.toDouble() ?? 0;
+        await batchSnap.docs.first.reference.set({
             'harvestDate': now.millisecondsSinceEpoch,
             'harvestCount': totalH,
             'harvestWeightGrams': existingWeight + (totalWeightKg * 1000),
-          }, SetOptions(merge: true));
-        }
-      });
+        }, SetOptions(merge: true));
+      }
 
       _addActivity(
         'Harvested $harvestedCount crayfish, ${totalWeightKg.toStringAsFixed(2)}kg total (ABW: ${abwGrams.toStringAsFixed(1)}g)',

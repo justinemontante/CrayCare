@@ -1096,8 +1096,8 @@ class ProductionScreenState extends State<ProductionScreen> {
                     width: double.infinity,
                     child: ElevatedButton(
                       onPressed: errorText == null && mortalityVal > 0
-                          ? () {
-                              TankService.instance.addMortality(mortalityVal);
+                           ? () async {
+                               await TankService.instance.addMortality(mortalityVal);
                               Navigator.pop(ctx);
                               showBeautifulSnackbar(
                                 context,

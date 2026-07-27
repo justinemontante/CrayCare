@@ -165,7 +165,7 @@ class ControlsScreenState extends State<ControlsScreen> {
         _dispenseTimer?.cancel();
         _dispenseTimer = Timer(const Duration(seconds: 60), () {
           if (!mounted) return;
-          FeederService.instance.logFeedFailure();
+          unawaited(FeederService.instance.logFeedFailure());
           _feedState = _FeedState.failed;
           _feedTimer?.cancel();
           _feedTimer = Timer(const Duration(seconds: 3), () {
@@ -177,7 +177,7 @@ class ControlsScreenState extends State<ControlsScreen> {
         _dispenseTimer?.cancel();
         // isRunning went true → false: check if feed actually dispensed
         if (_feedState == _FeedState.dispensing && svc.feedCount == _feedCountAtStart) {
-          FeederService.instance.logFeedFailure();
+          unawaited(FeederService.instance.logFeedFailure());
           _feedState = _FeedState.failed;
           _feedTimer?.cancel();
           _feedTimer = Timer(const Duration(seconds: 3), () {
@@ -250,7 +250,7 @@ class ControlsScreenState extends State<ControlsScreen> {
     return '';
   }
 
-  void _feedNow({double? grams}) {
+  Future<void> _feedNow({double? grams}) async {
     final svc = FeederService.instance;
     if (!svc.isOnline) {
       setState(() => _feedState = _FeedState.failed);
@@ -264,7 +264,7 @@ class ControlsScreenState extends State<ControlsScreen> {
     _dispenseTimer?.cancel();
     _dispenseTimer = Timer(const Duration(seconds: 60), () {
       if (!mounted) return;
-      FeederService.instance.logFeedFailure();
+      unawaited(FeederService.instance.logFeedFailure());
       _feedState = _FeedState.failed;
       _feedTimer?.cancel();
       _feedTimer = Timer(const Duration(seconds: 3), () {
@@ -272,7 +272,7 @@ class ControlsScreenState extends State<ControlsScreen> {
       });
       if (mounted) setState(() {});
     });
-    svc.feedNow(grams: grams);
+    await svc.feedNow(grams: grams);
     setState(() => _feedState = _FeedState.dispensing);
   }
 
@@ -370,7 +370,7 @@ class ControlsScreenState extends State<ControlsScreen> {
                                   ? double.tryParse(gramsCtl.text)
                                   : null;
                               Navigator.pop(sheetCtx);
-                              _feedNow(grams: grams);
+                              await _feedNow(grams: grams);
                             },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
@@ -403,23 +403,23 @@ class ControlsScreenState extends State<ControlsScreen> {
     return '$h12:$m $ampm';
   }
 
-  void _addSchedule({double? grams}) {
+  Future<void> _addSchedule({double? grams}) async {
     if (_timeCtl.text.isEmpty) return;
     final formatted = _formatTimeInput(_timeCtl.text);
     final isPM = formatted.contains('PM');
     final hStr = formatted.split(':')[0];
     final hour = int.tryParse(hStr) ?? 6;
     final timeStr = '$hour:${formatted.split(':')[1].split(' ')[0]}';
-    FeederService.instance.addSchedule(timeStr, isPM ? 'PM' : 'AM', grams: grams);
+    await FeederService.instance.addSchedule(timeStr, isPM ? 'PM' : 'AM', grams: grams);
     _timeCtl.clear();
   }
 
-  void _deleteSchedule(int index) {
-    FeederService.instance.deleteSchedule(index);
+  Future<void> _deleteSchedule(int index) async {
+    await FeederService.instance.deleteSchedule(index);
   }
 
-  void _editSchedule(int index, ScheduleItem item) {
-    FeederService.instance.editSchedule(
+  Future<void> _editSchedule(int index, ScheduleItem item) async {
+    await FeederService.instance.editSchedule(
       index,
       time: item.time,
       ampm: item.ampm,
@@ -485,9 +485,9 @@ class ControlsScreenState extends State<ControlsScreen> {
                       schedules: FeederService.instance.schedules,
                       timeCtl: _timeCtl,
                       onFeedNow: _showFeedNowDialog,
-                      onAddSchedule: (grams) => _addSchedule(grams: grams),
-                      onDeleteSchedule: _deleteSchedule,
-                      onEditSchedule: _editSchedule,
+                      onAddSchedule: (grams) => unawaited(_addSchedule(grams: grams)),
+                      onDeleteSchedule: (index) => unawaited(_deleteSchedule(index)),
+                      onEditSchedule: (index, item) => unawaited(_editSchedule(index, item)),
                       feederLogs: FeederService.instance.logs,
                       fedToday: _fedToday,
                       feederError: FeederService.instance.feederError,

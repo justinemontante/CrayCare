@@ -1097,7 +1097,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
     }
   }
 
-  void _handleCompute() {
+  Future<void> _handleCompute() async {
     if (!TankService.instance.canSample && !_isEditing) {
       showBeautifulSnackbar(context, '7-day cooldown not yet over. Please wait.', false);
       return;
@@ -1145,9 +1145,9 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
       }
 
       if (wasEditing) {
-        TankService.instance.updateLastSamplingEntry(count, weight, length);
+        await TankService.instance.updateLastSamplingEntry(count, weight, length);
       } else {
-        TankService.instance.addSamplingEntry(count, weight, length);
+        await TankService.instance.addSamplingEntry(count, weight, length);
       }
       setState(() {
         _isRecorded = true;

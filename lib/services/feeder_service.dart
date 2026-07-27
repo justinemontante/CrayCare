@@ -120,7 +120,7 @@ class FeederService extends ChangeNotifier {
           .collection('feederStatus')
           .doc('status')
           .snapshots()
-          .listen((snapshot) {
+          .listen((snapshot) async {
         _lastError = null;
         if (!snapshot.exists || snapshot.data() == null) return;
         try {
@@ -131,7 +131,7 @@ class FeederService extends ChangeNotifier {
           _hopperLevel = (data['hopperLevel'] as num?)?.toDouble() ?? 100;
           _feederError = (data['feederError'] as String?) ?? '';
           if (_feederError.isNotEmpty && !_isRunning) {
-            FirebaseFirestore.instance
+          await FirebaseFirestore.instance
                 .collection('feederStatus')
                 .doc('status')
                 .update({'feederError': ''});
@@ -227,7 +227,7 @@ class FeederService extends ChangeNotifier {
     }
   }
 
-  void feedNow({String source = 'manual', String? scheduleKey, double? grams}) {
+  Future<void> feedNow({String source = 'manual', String? scheduleKey, double? grams}) async {
     try {
       final cmd = <String, dynamic>{
         'action': 'feed_now',
@@ -237,22 +237,22 @@ class FeederService extends ChangeNotifier {
       if (grams != null) {
         cmd['grams'] = grams;
       }
-      FirebaseFirestore.instance.collection('feederCommands').add(cmd);
+      await FirebaseFirestore.instance.collection('feederCommands').add(cmd);
       final gramsStr = grams != null ? ' (${grams.toStringAsFixed(1)}g)' : '';
       if (source == 'scheduled') {
-        _addLogEntry(
+        await _addLogEntry(
           action: 'Auto feed dispensed$gramsStr',
           type: 'auto',
         );
         if (scheduleKey != null) {
           final mNow = _manilaNow();
-          FirebaseFirestore.instance
+            await FirebaseFirestore.instance
               .collection('feederDispatched')
               .doc('${mNow.year}-${mNow.month}-${mNow.day}')
               .set({scheduleKey: true}, SetOptions(merge: true));
         }
       } else {
-        _addLogEntry(
+        await _addLogEntry(
           action: 'Feed dispensed$gramsStr',
           type: 'manual',
         );
@@ -263,14 +263,14 @@ class FeederService extends ChangeNotifier {
     notifyListeners();
   }
 
-  void logFeedFailure() {
-    _addLogEntry(
+  Future<void> logFeedFailure() async {
+    await _addLogEntry(
       action: 'Feed failed to dispense',
       type: 'error',
     );
   }
 
-  void _addLogEntry({required String action, required String type}) {
+  Future<void> _addLogEntry({required String action, required String type}) async {
     final now = DateTime.now();
     final months = [
       'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -281,7 +281,7 @@ class FeederService extends ChangeNotifier {
     final ampm = now.hour >= 12 ? 'PM' : 'AM';
     final timeStr = '$h:${now.minute.toString().padLeft(2, '0')} $ampm';
     try {
-      FirebaseFirestore.instance.collection('feederLogs').add({
+      await FirebaseFirestore.instance.collection('feederLogs').add({
         'action': action,
         'type': type,
         'time': timeStr,
@@ -293,13 +293,13 @@ class FeederService extends ChangeNotifier {
     }
   }
 
-  void addSchedule(String time, String ampm, {double? grams}) {
+  Future<void> addSchedule(String time, String ampm, {double? grams}) async {
     try {
       final parts = time.split(':');
       final h = int.tryParse(parts[0]) ?? 6;
       final m = int.tryParse(parts[1]) ?? 0;
       final timeValue = (ampm == 'PM' && h != 12 ? h + 12 : h) * 60 + m;
-      FirebaseFirestore.instance.collection('feederSchedules').add({
+      await FirebaseFirestore.instance.collection('feederSchedules').add({
         'time': time,
         'ampm': ampm,
         'enabled': true,
@@ -308,7 +308,7 @@ class FeederService extends ChangeNotifier {
         'timeValue': timeValue,
       });
       final gramsStr = grams != null ? ' (${grams.toStringAsFixed(1)}g)' : '';
-      _addLogEntry(
+      await _addLogEntry(
         action: 'Scheduled auto feed at $time $ampm$gramsStr',
         type: 'auto',
       );
@@ -324,12 +324,12 @@ class FeederService extends ChangeNotifier {
     return '${s.time} ${s.ampm}';
   }
 
-  void deleteSchedule(int index) {
+  Future<void> deleteSchedule(int index) async {
     if (index < 0 || index >= _scheduleKeys.length) return;
     final timeStr = getScheduleTime(index);
     try {
-      FirebaseFirestore.instance.collection('feederSchedules').doc(_scheduleKeys[index]).delete();
-      _addLogEntry(
+      await FirebaseFirestore.instance.collection('feederSchedules').doc(_scheduleKeys[index]).delete();
+      await _addLogEntry(
         action: 'Removed schedule at $timeStr',
         type: 'auto',
       );
@@ -339,16 +339,16 @@ class FeederService extends ChangeNotifier {
     notifyListeners();
   }
 
-  void editSchedule(int index, {
+  Future<void> editSchedule(int index, {
     required String time,
     required String ampm,
     bool? enabled,
     double? grams,
     bool clearGrams = false,
-  }) {
+  }) async {
     if (index < 0 || index >= _scheduleKeys.length) return;
     try {
-      FirebaseFirestore.instance.collection('feederSchedules').doc(_scheduleKeys[index]).update({
+      await FirebaseFirestore.instance.collection('feederSchedules').doc(_scheduleKeys[index]).update({
         'time': time,
         'ampm': ampm,
         'enabled': enabled ?? true,
@@ -356,7 +356,7 @@ class FeederService extends ChangeNotifier {
         'grams': grams,
       });
       final gramsStr = grams != null ? ' (${grams.toStringAsFixed(1)}g)' : '';
-      _addLogEntry(
+      await _addLogEntry(
         action: 'Edited schedule to $time $ampm$gramsStr',
         type: 'auto',
       );
@@ -369,18 +369,18 @@ class FeederService extends ChangeNotifier {
   void _startScheduleTimer() {
     _scheduleTimer?.cancel();
     _scheduleTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      _checkSchedules();
+      unawaited(_checkSchedules());
     });
   }
 
-  void _checkSchedules() {
+  Future<void> _checkSchedules() async {
     final now = _manilaNow();
     final todayKey = '${now.year}-${now.month}-${now.day}';
     if (_lastCheckDate != todayKey) {
       _lastCheckDate = todayKey;
       _missedLogged.clear();
       for (final key in _scheduleKeys) {
-        FirebaseFirestore.instance.collection('feederSchedules').doc(key).update({'isDone': false});
+        await FirebaseFirestore.instance.collection('feederSchedules').doc(key).update({'isDone': false});
       }
     }
 
@@ -402,7 +402,7 @@ class FeederService extends ChangeNotifier {
         final reason = isOnline
             ? 'Feeder did not respond'
             : 'ESP was offline';
-        _addLogEntry(
+        await _addLogEntry(
           action: 'Feed skipped - $reason',
           type: 'missed',
         );

@@ -41,7 +41,7 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
     if (picked != null) setState(() => _selectedDate = picked);
   }
 
-  void _handleSave() {
+  Future<void> _handleSave() async {
     final service = TankService.instance;
     final count = int.tryParse(_countCtrl.text);
     final weight = double.tryParse(_weightCtrl.text);
@@ -57,7 +57,7 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
       showBeautifulSnackbar(context, 'Harvest count exceeds in-tank population (${service.inTankCount}).', false);
       return;
     }
-    service.addHarvestRecord(harvestedCount: count, totalWeightKg: weight, date: _selectedDate);
+    await service.addHarvestRecord(harvestedCount: count, totalWeightKg: weight, date: _selectedDate);
     widget.onSaved?.call();
     Navigator.pop(context);
   }
