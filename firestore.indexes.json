@@ -112,6 +112,22 @@
         { "fieldPath": "ownerUid", "order": "ASCENDING" },
         { "fieldPath": "timestamp", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "sampling_records",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tankId", "order": "ASCENDING" },
+        { "fieldPath": "batchId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "mortality_records",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tankId", "order": "ASCENDING" },
+        { "fieldPath": "batchId", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

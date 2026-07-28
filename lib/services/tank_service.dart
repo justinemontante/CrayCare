@@ -208,10 +208,14 @@ class TankService extends ChangeNotifier {
       _fs.collection('batches').where('tankId', isEqualTo: _tankOwnerUid);
 
   Query<Map<String, dynamic>> _samplingQ(String batchId) =>
-      _fs.collection('sampling_records').where('batchId', isEqualTo: batchId);
+      _fs.collection('sampling_records')
+          .where('tankId', isEqualTo: _tankOwnerUid)
+          .where('batchId', isEqualTo: batchId);
 
   Query<Map<String, dynamic>> _mortalityQ(String batchId) =>
-      _fs.collection('mortality_records').where('batchId', isEqualTo: batchId);
+      _fs.collection('mortality_records')
+          .where('tankId', isEqualTo: _tankOwnerUid)
+          .where('batchId', isEqualTo: batchId);
 
   Query<Map<String, dynamic>> get _harvestsQ =>
       _fs.collection('harvest_records').where('tankId', isEqualTo: _tankOwnerUid);

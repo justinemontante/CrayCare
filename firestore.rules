@@ -194,6 +194,7 @@ service cloud.firestore {
 
     match /deviceLogs/{doc} {
       allow read, create: if request.auth != null;
+      allow delete: if request.auth != null;
     }
 
     // ─── ML / Health ─────────────────────────────────────────────────
