@@ -42,8 +42,8 @@
  *  sensorReadings/{ownerUid}              -> Flutter reads latest
  *  sensorReadings/history/{date}/{doc}    -> Flutter reads history
  *
- * RTDB is kept only for feeder commands/status/schedules/logs.
- * Sensor writes are Firestore-only.
+ * All Firebase operations use Firestore only — zero RTDB calls.
+ * Feeder commands/status/schedules/logs all migrated to Firestore.
  */
 
 #include <WiFi.h>
@@ -76,15 +76,16 @@ String pass;
 // Full path resolved at runtime: sensorIngestion/{hardwareId}
 #define FIRESTORE_INGESTION_COLLECTION "sensorIngestion"
 
-// RTDB: config still read from RTDB; feeder commands/status/schedules stay on RTDB
-#define FIREBASE_CONFIG_PATH           "/sensor_readings/config"
-
-// ESP / Feeder RTDB paths (unchanged — feeder control stays on RTDB)
-#define FIREBASE_ESP_PATH              "/esp"
-#define FIREBASE_FEEDER_COMMANDS_PATH  "/feeder/commands"
-#define FIREBASE_FEEDER_STATUS_PATH    "/feeder/status"
-#define FIREBASE_FEEDER_SCHEDULES_PATH "/feeder/schedules"
-#define FIREBASE_FEEDER_LOGS_PATH      "/feeder/logs"
+// All Firebase operations now use Firestore (zero RTDB calls)
+// Config: Flutter writes config/default; ESP32 reads it on boot + every 10s
+#define FIRESTORE_CONFIG_DOC           "config/default"
+// Calibration upload: ESP32 writes its current calibration on boot
+#define FIRESTORE_SENSOR_CONFIG_COL    "sensorConfig"
+// Feeder Firestore paths (Flutter <-> ESP32 coordination)
+#define FIRESTORE_FEEDER_COMMANDS_COL  "feederCommands"
+#define FIRESTORE_FEEDER_STATUS_DOC    "feederStatus/status"
+#define FIRESTORE_FEEDER_SCHEDULES_COL "feederSchedules"
+#define FIRESTORE_FEEDER_LOGS_COL      "feederLogs"
 
 // Hardware ID derived from MAC address on first use (see getHardwareId())
 String hardwareId = "";
@@ -435,42 +436,40 @@ void connectFirebase() {
   Firebase.setDoubleDigits(2);
 }
 
-bool readConfigFloatPath(const char* relativePath, float &target, float minValue, float maxValue) {
-  String path = String(FIREBASE_CONFIG_PATH) + "/" + relativePath;
-
-  if (!Firebase.RTDB.getFloat(&fbdo, path.c_str())) {
-    return false;
-  }
-
-  float value = fbdo.floatData();
-
+// Read a float from a Firestore document already loaded into `doc`.
+// jsonPath is the full dotted path, e.g. "fields/turbidityVClear/doubleValue".
+bool readConfigFloatPath(FirebaseJson& doc, const char* jsonPath,
+                         float& target, float minValue, float maxValue) {
+  FirebaseJsonData d;
+  if (!doc.get(d, jsonPath)) return false;
+  float value = d.floatValue;
   if (!isfinite(value) || value < minValue || value > maxValue) {
-    Serial.printf("[CONFIG SKIP] %s invalid value: %.3f\n", relativePath, value);
+    Serial.printf("[CONFIG SKIP] %s invalid value: %.3f\n", jsonPath, value);
     return false;
   }
-
   target = value;
   return true;
 }
 
-bool readRangeConfig(const char* sensorKey, float &lowTarget, float &highTarget, float minLimit, float maxLimit) {
-  float newLow = lowTarget;
+// Read min/max from the Firestore ranges map written by Flutter settings_service.
+// Firestore path pattern: fields/ranges/mapValue/fields/{key}/mapValue/fields/{min|max}/doubleValue
+bool readRangeConfig(FirebaseJson& doc, const char* sensorKey,
+                     float& lowTarget, float& highTarget,
+                     float minLimit, float maxLimit) {
+  String prefix = String("fields/ranges/mapValue/fields/") + sensorKey
+                  + "/mapValue/fields/";
+  float newLow  = lowTarget;
   float newHigh = highTarget;
-
-  String minPath = String("ranges/") + sensorKey + "/min";
-  String maxPath = String("ranges/") + sensorKey + "/max";
-
-  bool gotMin = readConfigFloatPath(minPath.c_str(), newLow, minLimit, maxLimit);
-  bool gotMax = readConfigFloatPath(maxPath.c_str(), newHigh, minLimit, maxLimit);
-
+  bool gotMin = readConfigFloatPath(doc, (prefix + "min/doubleValue").c_str(),
+                                    newLow, minLimit, maxLimit);
+  bool gotMax = readConfigFloatPath(doc, (prefix + "max/doubleValue").c_str(),
+                                    newHigh, minLimit, maxLimit);
   if (!gotMin && !gotMax) return false;
-
   if (newLow >= newHigh) {
     Serial.printf("[CONFIG SKIP] ranges/%s min must be lower than max\n", sensorKey);
     return false;
   }
-
-  lowTarget = newLow;
+  lowTarget  = newLow;
   highTarget = newHigh;
   return true;
 }
@@ -478,126 +477,86 @@ bool readRangeConfig(const char* sensorKey, float &lowTarget, float &highTarget,
 bool ensureFirebaseReady();
 
 // ============================================================
-//  CONFIG SYNC — Read threshold config from Firebase
+//  CONFIG SYNC — Read threshold config from Firestore config/default
+//  Flutter settings_service.dart writes this document.
+//  Structure: { ranges: { temp: {min,max}, turb: {min,max}, ... },
+//               turbidityVClear, turbidityVDirty, turbidityVAirMax, ... }
 // ============================================================
 void syncConfigFromFirebase() {
   if (!ensureFirebaseReady()) return;
 
-  float oldTempLow = tempCriticalLow;
-  float oldTempHigh = tempCriticalHigh;
-  float oldTurbidityVClear = turbidityVClear;
-  float oldTurbidityVDirty = turbidityVDirty;
-  float oldTurbidityVAirMax = turbidityVAirMax;
-  float oldTurbNtuMin = turbNtuMin;
-  float oldTurbNtuMax = turbNtuMax;
-  float oldDOLow = doCriticalLow;
-  float oldDOHigh = doCriticalHigh;
-  float oldPHLow = phCriticalLow;
-  float oldPHHigh = phCriticalHigh;
-  float oldWaterLow = waterLevelCriticalLow;
-  float oldWaterHigh = waterLevelCriticalHigh;
+  if (!Firebase.Firestore.getDocument(&fbdo, FIREBASE_PROJECT_ID, "",
+                                      FIRESTORE_CONFIG_DOC, "")) {
+    Serial.printf("[CONFIG] Fetch failed: %s\n", fbdo.errorReason().c_str());
+    return;
+  }
+
+  FirebaseJson doc;
+  doc.setJsonData(fbdo.payload());
+
+  // Snapshot current values for rollback on invalid config
+  float oldTempLow = tempCriticalLow,    oldTempHigh = tempCriticalHigh;
+  float oldVClear  = turbidityVClear,    oldVDirty   = turbidityVDirty,
+        oldVAirMax = turbidityVAirMax;
+  float oldTurbMin = turbNtuMin,         oldTurbMax  = turbNtuMax;
+  float oldDOLow   = doCriticalLow,      oldDOHigh   = doCriticalHigh;
+  float oldPHLow   = phCriticalLow,      oldPHHigh   = phCriticalHigh;
+  float oldWatLow  = waterLevelCriticalLow, oldWatHigh = waterLevelCriticalHigh;
 
   bool gotAny = false;
 
-  gotAny |= readRangeConfig("temp", tempCriticalLow, tempCriticalHigh, 0.0, 50.0);
-  gotAny |= readRangeConfig("turb", turbNtuMin, turbNtuMax, 0.0, 1000.0);
-  gotAny |= readRangeConfig("do", doCriticalLow, doCriticalHigh, 0.0, 30.0);
-  gotAny |= readRangeConfig("ph", phCriticalLow, phCriticalHigh, 0.0, 14.0);
-  gotAny |= readRangeConfig("waterlevel", waterLevelCriticalLow, waterLevelCriticalHigh, 0.0, 100.0);
+  // Ranges map (written by Flutter as { ranges: { temp: {min,max}, ... } })
+  gotAny |= readRangeConfig(doc, "temp",       tempCriticalLow,       tempCriticalHigh,       0.0,   50.0);
+  gotAny |= readRangeConfig(doc, "turb",       turbNtuMin,            turbNtuMax,             0.0, 1000.0);
+  gotAny |= readRangeConfig(doc, "do",         doCriticalLow,         doCriticalHigh,         0.0,   30.0);
+  gotAny |= readRangeConfig(doc, "ph",         phCriticalLow,         phCriticalHigh,         0.0,   14.0);
+  gotAny |= readRangeConfig(doc, "waterlevel", waterLevelCriticalLow, waterLevelCriticalHigh, 0.0,  100.0);
 
-  gotAny |= readConfigFloatPath("tempCriticalLow", tempCriticalLow, 0.0, 50.0);
-  gotAny |= readConfigFloatPath("tempCriticalHigh", tempCriticalHigh, 0.0, 50.0);
+  // Turbidity voltage calibration (top-level scalar fields)
+  gotAny |= readConfigFloatPath(doc, "fields/turbidityVClear/doubleValue",  turbidityVClear,  0.0, 3.3);
+  gotAny |= readConfigFloatPath(doc, "fields/turbidityVDirty/doubleValue",  turbidityVDirty,  0.0, 3.3);
+  gotAny |= readConfigFloatPath(doc, "fields/turbidityVAirMax/doubleValue", turbidityVAirMax, 0.0, 3.3);
 
-  gotAny |= readConfigFloatPath("turbidityVClear", turbidityVClear, 0.0, 3.3);
-  gotAny |= readConfigFloatPath("turbidityVDirty", turbidityVDirty, 0.0, 3.3);
-  gotAny |= readConfigFloatPath("turbidityVAirMax", turbidityVAirMax, 0.0, 3.3);
+  // Probe calibration
+  gotAny |= readConfigFloatPath(doc, "fields/doVoltageScale/doubleValue",       doVoltageScale,       -100.0, 100.0);
+  gotAny |= readConfigFloatPath(doc, "fields/doVoltageOffset/doubleValue",      doVoltageOffset,      -100.0, 100.0);
+  gotAny |= readConfigFloatPath(doc, "fields/phVoltageSlope/doubleValue",       phVoltageSlope,       -100.0, 100.0);
+  gotAny |= readConfigFloatPath(doc, "fields/phVoltageIntercept/doubleValue",   phVoltageIntercept,   -100.0, 100.0);
+  gotAny |= readConfigFloatPath(doc, "fields/waterLevelVoltageMin/doubleValue", waterLevelVoltageMin, 0.0, 3.3);
+  gotAny |= readConfigFloatPath(doc, "fields/waterLevelVoltageMax/doubleValue", waterLevelVoltageMax, 0.0, 3.3);
 
-  gotAny |= readConfigFloatPath("doCriticalLow", doCriticalLow, 0.0, 30.0);
-  gotAny |= readConfigFloatPath("doCriticalHigh", doCriticalHigh, 0.0, 30.0);
+  // Cross-field validation
+  bool invalid = false;
+  if (tempCriticalLow        >= tempCriticalHigh)       { invalid = true; Serial.println("[CONFIG SKIP] temp: low >= high"); }
+  if (turbidityVDirty        >= turbidityVClear)        { invalid = true; Serial.println("[CONFIG SKIP] turbV: dirty >= clear"); }
+  if (turbNtuMin             >= turbNtuMax)             { invalid = true; Serial.println("[CONFIG SKIP] turbNTU: min >= max"); }
+  if (doCriticalLow          >= doCriticalHigh)         { invalid = true; Serial.println("[CONFIG SKIP] DO: low >= high"); }
+  if (phCriticalLow          >= phCriticalHigh)         { invalid = true; Serial.println("[CONFIG SKIP] pH: low >= high"); }
+  if (waterLevelCriticalLow  >= waterLevelCriticalHigh) { invalid = true; Serial.println("[CONFIG SKIP] water: low >= high"); }
+  if (waterLevelVoltageMin   >= waterLevelVoltageMax)   { invalid = true; Serial.println("[CONFIG SKIP] waterV: min >= max"); }
 
-  gotAny |= readConfigFloatPath("phCriticalLow", phCriticalLow, 0.0, 14.0);
-  gotAny |= readConfigFloatPath("phCriticalHigh", phCriticalHigh, 0.0, 14.0);
-
-  gotAny |= readConfigFloatPath("waterLevelCriticalLow", waterLevelCriticalLow, 0.0, 100.0);
-  gotAny |= readConfigFloatPath("waterLevelCriticalHigh", waterLevelCriticalHigh, 0.0, 100.0);
-
-  gotAny |= readConfigFloatPath("doVoltageScale", doVoltageScale, -100.0, 100.0);
-  gotAny |= readConfigFloatPath("doVoltageOffset", doVoltageOffset, -100.0, 100.0);
-  gotAny |= readConfigFloatPath("phVoltageSlope", phVoltageSlope, -100.0, 100.0);
-  gotAny |= readConfigFloatPath("phVoltageIntercept", phVoltageIntercept, -100.0, 100.0);
-  gotAny |= readConfigFloatPath("waterLevelVoltageMin", waterLevelVoltageMin, 0.0, 3.3);
-  gotAny |= readConfigFloatPath("waterLevelVoltageMax", waterLevelVoltageMax, 0.0, 3.3);
-
-  bool invalidConfig = false;
-
-  if (tempCriticalLow >= tempCriticalHigh) {
-    invalidConfig = true;
-    Serial.println("[CONFIG SKIP] tempCriticalLow must be lower than tempCriticalHigh");
-  }
-
-  if (turbidityVDirty >= turbidityVClear) {
-    invalidConfig = true;
-    Serial.println("[CONFIG SKIP] turbidityVDirty must be lower than turbidityVClear");
-  }
-
-  if (turbNtuMin >= turbNtuMax) {
-    invalidConfig = true;
-    Serial.println("[CONFIG SKIP] ranges/turb min must be lower than max");
-  }
-
-  if (doCriticalLow >= doCriticalHigh) {
-    invalidConfig = true;
-    Serial.println("[CONFIG SKIP] doCriticalLow must be lower than doCriticalHigh");
-  }
-
-  if (phCriticalLow >= phCriticalHigh) {
-    invalidConfig = true;
-    Serial.println("[CONFIG SKIP] phCriticalLow must be lower than phCriticalHigh");
-  }
-
-  if (waterLevelCriticalLow >= waterLevelCriticalHigh) {
-    invalidConfig = true;
-    Serial.println("[CONFIG SKIP] waterLevelCriticalLow must be lower than waterLevelCriticalHigh");
-  }
-
-  if (waterLevelVoltageMin >= waterLevelVoltageMax) {
-    invalidConfig = true;
-    Serial.println("[CONFIG SKIP] waterLevelVoltageMin must be lower than waterLevelVoltageMax");
-  }
-
-  if (invalidConfig) {
-    tempCriticalLow = oldTempLow;
-    tempCriticalHigh = oldTempHigh;
-    turbidityVClear = oldTurbidityVClear;
-    turbidityVDirty = oldTurbidityVDirty;
-    turbidityVAirMax = oldTurbidityVAirMax;
-    turbNtuMin = oldTurbNtuMin;
-    turbNtuMax = oldTurbNtuMax;
-    doCriticalLow = oldDOLow;
-    doCriticalHigh = oldDOHigh;
-    phCriticalLow = oldPHLow;
-    phCriticalHigh = oldPHHigh;
-    waterLevelCriticalLow = oldWaterLow;
-    waterLevelCriticalHigh = oldWaterHigh;
+  if (invalid) {
+    // Rollback
+    tempCriticalLow = oldTempLow;     tempCriticalHigh = oldTempHigh;
+    turbidityVClear = oldVClear;      turbidityVDirty  = oldVDirty;  turbidityVAirMax = oldVAirMax;
+    turbNtuMin      = oldTurbMin;     turbNtuMax       = oldTurbMax;
+    doCriticalLow   = oldDOLow;       doCriticalHigh   = oldDOHigh;
+    phCriticalLow   = oldPHLow;       phCriticalHigh   = oldPHHigh;
+    waterLevelCriticalLow = oldWatLow; waterLevelCriticalHigh = oldWatHigh;
     return;
   }
 
   if (!gotAny) {
-    Serial.println("[CONFIG] No Firebase config found. Using defaults.");
+    Serial.println("[CONFIG] No Firestore config found — using firmware defaults.");
     return;
   }
 
-  Serial.printf("[CONFIG] Temp %.1f-%.1f C | Turb %.0f-%.0f NTU | DO %.1f-%.1f mg/L | pH %.1f-%.1f | Water %.1f-%.1f%%\n",
-                tempCriticalLow,
-                tempCriticalHigh,
-                turbNtuMin,
-                turbNtuMax,
-                doCriticalLow,
-                doCriticalHigh,
-                phCriticalLow,
-                phCriticalHigh,
-                waterLevelCriticalLow,
-                waterLevelCriticalHigh);
+  Serial.printf("[CONFIG] Temp %.1f-%.1f°C | Turb %.0f-%.0f NTU | DO %.1f-%.1f | pH %.1f-%.1f | Water %.1f-%.1f%%\n",
+                tempCriticalLow, tempCriticalHigh,
+                turbNtuMin, turbNtuMax,
+                doCriticalLow, doCriticalHigh,
+                phCriticalLow, phCriticalHigh,
+                waterLevelCriticalLow, waterLevelCriticalHigh);
 }
 
 // ============================================================
@@ -633,16 +592,25 @@ bool ensureFirebaseReady() {
 }
 
 // ============================================================
-//  FIREBASE CONFIG PUSH — ESP32 sends calibration to RTDB
+//  FIREBASE CONFIG PUSH — ESP32 uploads its calibration to Firestore
+//  Path: sensorConfig/{hardwareId}
+//  Admin screen can read this to confirm what values the board is using.
 // ============================================================
 void sendConfigToFirebase() {
   if (!ensureFirebaseReady()) return;
+  String hwId = getHardwareId();
+  String path = String(FIRESTORE_SENSOR_CONFIG_COL) + "/" + hwId;
+
   FirebaseJson cfg;
-  cfg.set("turbidityVClear", turbidityVClear);
-  cfg.set("turbidityVDirty", turbidityVDirty);
-  cfg.set("turbidityVAirMax", turbidityVAirMax);
-  if (Firebase.RTDB.updateNode(&fbdo, FIREBASE_CONFIG_PATH, &cfg)) {
-    Serial.println("[CONFIG PUSH] Calibration sent to RTDB");
+  cfg.set("fields/hardwareId/stringValue",        hwId);
+  cfg.set("fields/turbidityVClear/doubleValue",   turbidityVClear);
+  cfg.set("fields/turbidityVDirty/doubleValue",   turbidityVDirty);
+  cfg.set("fields/turbidityVAirMax/doubleValue",  turbidityVAirMax);
+
+  if (Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "",
+        path.c_str(), &cfg,
+        "hardwareId,turbidityVClear,turbidityVDirty,turbidityVAirMax")) {
+    Serial.printf("[CONFIG PUSH] Calibration sent to Firestore %s\n", path.c_str());
   } else {
     Serial.printf("[CONFIG PUSH] Failed: %s\n", fbdo.errorReason().c_str());
   }
@@ -942,7 +910,7 @@ void setup() {
   Serial.println("  CrayCare Monitor — Firestore Ingestion");
   Serial.printf("  Hardware ID : %s\n", hardwareId.c_str());
   Serial.printf("  Ingestion   : %s/%s\n", FIRESTORE_INGESTION_COLLECTION, hardwareId.c_str());
-  Serial.printf("  Config path : %s (RTDB)\n", FIREBASE_CONFIG_PATH);
+  Serial.printf("  Config path : Firestore %s\n", FIRESTORE_CONFIG_DOC);
   Serial.println("  Turbidity: NTU (calibrated)");
   Serial.println("============================================");
 }
@@ -1037,11 +1005,11 @@ void loop() {
 
 // ============================================================
 //  FEEDER MODULE — Servo Auto-Feeder Control
-//  Firebase paths:
-//    /feeder/commands   -> Flutter pushes, ESP32 polls & deletes
-//    /feeder/status     -> ESP32 writes every 5s
-//    /feeder/schedules  -> Flutter writes, ESP32 reads
-//    /feeder/logs       -> ESP32 pushes
+//  Firestore paths (all Firestore, zero RTDB):
+//    feederCommands/{docId}  -> Flutter pushes, ESP32 polls & deletes
+//    feederStatus/status     -> ESP32 writes every 5s
+//    feederSchedules/{docId} -> Flutter writes, ESP32 reads
+//    feederLogs              -> ESP32 creates (auto-ID)
 // ============================================================
 
 // ─── Initialize Feeder ───
@@ -1062,77 +1030,71 @@ void initFeeder() {
   Serial.println("[FEEDER] Servo initialized OK");
 }
 
-// ─── Process Commands from Firebase ───
-// Reads ALL command data first, then processes and deletes.
-// This avoids fbdo/FirebaseJson buffer conflicts.
+// ─── Process Commands from Firestore ───
+// Lists feederCommands collection, processes each doc, then deletes it.
+// Reads all docs into local arrays first to avoid fbdo buffer conflicts.
 void processFeederCommands() {
   if (!ensureFirebaseReady()) return;
 
-  FirebaseJson json;
-  if (!Firebase.RTDB.getJSON(&fbdo, FIREBASE_FEEDER_COMMANDS_PATH, &json)) {
-    return;
-  }
-  // Data is already in FirebaseJson — do NOT check httpConnected() here
-
-  size_t count = json.iteratorBegin();
-  if (count == 0) {
-    json.iteratorEnd();
+  if (!Firebase.Firestore.listDocuments(&fbdo, FIREBASE_PROJECT_ID, "",
+        FIRESTORE_FEEDER_COMMANDS_COL, 20, "", "", false)) {
     return;
   }
 
-  // Store all commands in local arrays first
+  FirebaseJson response;
+  response.setJsonData(fbdo.payload());
+  FirebaseJsonData d;
+
   struct CmdEntry {
-    String key;
+    String docId;
     String action;
     String mode;
   };
   CmdEntry entries[20];
   int entryCount = 0;
 
-  for (size_t i = 0; i < count && entryCount < 20; i++) {
-    int iterType;
-    String iterKey, iterValue;
-    json.iteratorGet(i, iterType, iterKey, iterValue);
+  for (int i = 0; i < 20 && entryCount < 20; i++) {
+    String namePath = String("documents/[") + i + "]/name";
+    if (!response.get(d, namePath)) break;               // no more documents
 
-    FirebaseJson cmd;
-    cmd.setJsonData(iterValue);
-    FirebaseJsonData d;
+    // Full resource name → extract last segment as doc ID
+    String docName  = d.stringValue;
+    int lastSlash   = docName.lastIndexOf('/');
+    String docId    = (lastSlash >= 0) ? docName.substring(lastSlash + 1) : docName;
 
+    String base = String("documents/[") + i + "]/fields/";
     CmdEntry& e = entries[entryCount];
-    e.key = iterKey;
+    e.docId = docId;
 
-    if (cmd.get(d, "action")) e.action = d.stringValue;
-    if (cmd.get(d, "mode"))   e.mode   = d.stringValue;
+    if (response.get(d, base + "action/stringValue")) e.action = d.stringValue;
+    if (response.get(d, base + "mode/stringValue"))   e.mode   = d.stringValue;
 
     if (e.action != "") entryCount++;
   }
 
-  json.iteratorEnd();
-
-  // Now process stored commands (no fbdo conflict)
+  // Process then delete (separate loop avoids fbdo buffer conflict)
   for (int i = 0; i < entryCount; i++) {
     CmdEntry& e = entries[i];
-
-    Serial.printf("[FEEDER CMD] %s (mode=%s) key=%s\n",
-      e.action.c_str(), e.mode.c_str(), e.key.c_str());
+    Serial.printf("[FEEDER CMD] %s (mode=%s) id=%s\n",
+                  e.action.c_str(), e.mode.c_str(), e.docId.c_str());
 
     if (e.action == "feed_now") {
       startFeed("manual");
     } else if (e.action == "set_mode" && e.mode != "") {
       feederAutoMode = (e.mode == "auto");
-      Serial.printf("[FEEDER] Mode -> %s\n",
-        feederAutoMode ? "AUTO" : "MANUAL");
+      Serial.printf("[FEEDER] Mode -> %s\n", feederAutoMode ? "AUTO" : "MANUAL");
     }
 
-    // Delete after processing
-    String cmdPath = String(FIREBASE_FEEDER_COMMANDS_PATH) + "/" + e.key;
-    if (!Firebase.RTDB.deleteNode(&fbdo, cmdPath.c_str())) {
+    String docPath = String(FIRESTORE_FEEDER_COMMANDS_COL) + "/" + e.docId;
+    if (!Firebase.Firestore.deleteDocument(&fbdo, FIREBASE_PROJECT_ID, "",
+                                           docPath.c_str())) {
       Serial.printf("[FEEDER] Delete cmd failed: %s\n", fbdo.errorReason().c_str());
     }
   }
 }
 
-// ─── Send Feeder Status to Firebase ───
+// ─── Send Feeder Status to Firestore ───
+// Path: feederStatus/status  (single document, patched in-place)
 void sendFeederStatus() {
   if (!ensureFirebaseReady()) return;
 
@@ -1141,80 +1103,74 @@ void sendFeederStatus() {
   unsigned long epochMs = (now > 1700000000) ? (unsigned long)now * 1000UL : 0;
 
   FirebaseJson json;
-  json.set("mode", feederAutoMode ? "auto" : "manual");
-  json.set("isRunning", feederIsRunning);
-  json.set("feedSource", feederIsRunning ? feederFeedSource : "");
-  json.set("hopperLevel", feederHopperLevel);
-  json.set("lastFeedEpoch", (int)feederLastFeedEpoch);
-  json.set("lastSeen", (int)epochMs);
+  json.set("fields/mode/stringValue",        feederAutoMode ? "auto" : "manual");
+  json.set("fields/isRunning/booleanValue",  feederIsRunning);
+  json.set("fields/feedSource/stringValue",  feederIsRunning ? feederFeedSource.c_str() : "");
+  json.set("fields/hopperLevel/integerValue", String(feederHopperLevel));
+  json.set("fields/lastFeedEpoch/integerValue", String((int)feederLastFeedEpoch));
+  json.set("fields/lastSeen/integerValue",   String(epochMs));
 
-  if (Firebase.RTDB.updateNode(&fbdo, FIREBASE_FEEDER_STATUS_PATH, &json)) {
-    // success, no log needed
-  } else if (fbdo.httpConnected()) {
-    Serial.printf("[FEEDER STATUS ERROR] %s\n", fbdo.errorReason().c_str());
+  if (!Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "",
+        FIRESTORE_FEEDER_STATUS_DOC, &json,
+        "mode,isRunning,feedSource,hopperLevel,lastFeedEpoch,lastSeen")) {
+    if (fbdo.httpConnected()) {
+      Serial.printf("[FEEDER STATUS ERROR] %s\n", fbdo.errorReason().c_str());
+    }
   }
 }
 
-// ─── Sync Schedules from Firebase ───
+// ─── Sync Schedules from Firestore ───
+// Reads all docs in feederSchedules collection (max FEEDER_MAX_SCHEDULES).
 void syncFeederSchedules() {
   if (!ensureFirebaseReady()) return;
 
-  FirebaseJson json;
-  if (!Firebase.RTDB.getJSON(&fbdo, FIREBASE_FEEDER_SCHEDULES_PATH, &json)) {
-    feederScheduleCount = 0;
-    return;
-  }
-  if (!fbdo.httpConnected()) {
+  if (!Firebase.Firestore.listDocuments(&fbdo, FIREBASE_PROJECT_ID, "",
+        FIRESTORE_FEEDER_SCHEDULES_COL, FEEDER_MAX_SCHEDULES, "", "", false)) {
     feederScheduleCount = 0;
     return;
   }
 
-  size_t count = json.iteratorBegin();
-  if (count == 0) {
-    feederScheduleCount = 0;
-    json.iteratorEnd();
-    return;
-  }
+  FirebaseJson response;
+  response.setJsonData(fbdo.payload());
+  FirebaseJsonData d;
 
   feederScheduleCount = 0;
 
-  for (size_t i = 0; i < count && feederScheduleCount < FEEDER_MAX_SCHEDULES; i++) {
-    int iterType;
-    String iterKey, iterValue;
-    json.iteratorGet(i, iterType, iterKey, iterValue);
+  for (int i = 0; i < FEEDER_MAX_SCHEDULES; i++) {
+    String namePath = String("documents/[") + i + "]/name";
+    if (!response.get(d, namePath)) break;
+
+    String docName = d.stringValue;
+    int lastSlash  = docName.lastIndexOf('/');
+    String docId   = (lastSlash >= 0) ? docName.substring(lastSlash + 1) : docName;
 
     FeedSchedule& s = feederSchedules[feederScheduleCount];
-    s.key = iterKey;
+    s.key = docId;
 
-    // Parse child value as JSON
-    FirebaseJson item;
-    item.setJsonData(iterValue);
-    FirebaseJsonData d;
-
-    // Parse time "6:00" and ampm "AM"
+    String base    = String("documents/[") + i + "]/fields/";
     String timeStr = "6:00";
-    String ampm = "AM";
-    if (item.get(d, "time")) timeStr = d.stringValue;
-    if (item.get(d, "ampm")) ampm = d.stringValue;
+    String ampm    = "AM";
 
-    // Convert to 24h
+    if (response.get(d, base + "time/stringValue"))    timeStr = d.stringValue;
+    if (response.get(d, base + "ampm/stringValue"))    ampm    = d.stringValue;
+
+    // Convert to 24-hour
     int colon = timeStr.indexOf(':');
-    if (colon < 0) { continue; }
-    int hour = timeStr.substring(0, colon).toInt();
+    if (colon < 0) continue;
+    int hour   = timeStr.substring(0, colon).toInt();
     int minute = timeStr.substring(colon + 1).toInt();
     if (ampm == "PM" && hour != 12) hour += 12;
-    if (ampm == "AM" && hour == 12) hour = 0;
+    if (ampm == "AM" && hour == 12) hour  = 0;
 
-    s.hour24 = hour;
-    s.minute = minute;
+    s.hour24  = hour;
+    s.minute  = minute;
     s.enabled = true;
-    if (item.get(d, "enabled")) s.enabled = d.boolValue;
+    if (response.get(d, base + "enabled/booleanValue")) s.enabled = d.boolValue;
 
     feederScheduleCount++;
   }
 
-  json.iteratorEnd();
-  Serial.printf("[FEEDER] Synced %d schedules\n", feederScheduleCount);
+  Serial.printf("[FEEDER] Synced %d schedules from Firestore\n", feederScheduleCount);
 }
 
 // ─── Check if it's time for a scheduled feed ───
@@ -1343,7 +1299,8 @@ void processFeederTick() {
   }
 }
 
-// ─── Push Feeding Log to Firebase ───
+// ─── Push Feeding Log to Firestore ───
+// Creates a new auto-ID document in feederLogs collection.
 void pushFeederLog(String action, String type) {
   if (!ensureFirebaseReady()) return;
 
@@ -1351,28 +1308,31 @@ void pushFeederLog(String action, String type) {
   time(&now);
   struct tm* timeinfo = localtime(&now);
 
-  // Format time
+  // Format time string
   int h12 = timeinfo->tm_hour % 12;
   if (h12 == 0) h12 = 12;
   String ampm = timeinfo->tm_hour >= 12 ? "PM" : "AM";
   char timeBuf[10];
   sprintf(timeBuf, "%d:%02d %s", h12, timeinfo->tm_min, ampm.c_str());
 
-  // Format date
-  const char* months[] = {"Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"};
+  // Format date string
+  const char* months[] = {"Jan","Feb","Mar","Apr","May","Jun",
+                           "Jul","Aug","Sep","Oct","Nov","Dec"};
   char dateBuf[20];
-  sprintf(dateBuf, "%s %d, %d", months[timeinfo->tm_mon], timeinfo->tm_mday, 1900 + timeinfo->tm_year);
+  sprintf(dateBuf, "%s %d, %d",
+          months[timeinfo->tm_mon], timeinfo->tm_mday, 1900 + timeinfo->tm_year);
 
   unsigned long epochMs = ((unsigned long)now) * 1000UL;
 
   FirebaseJson json;
-  json.set("action", action);
-  json.set("type", type);
-  json.set("time", String(timeBuf));
-  json.set("date", String(dateBuf));
-  json.set("timestamp", (int)epochMs);
+  json.set("fields/action/stringValue",    action);
+  json.set("fields/type/stringValue",      type);
+  json.set("fields/time/stringValue",      String(timeBuf));
+  json.set("fields/date/stringValue",      String(dateBuf));
+  json.set("fields/timestamp/integerValue", String(epochMs));
 
-  if (Firebase.RTDB.pushJSON(&fbdo, FIREBASE_FEEDER_LOGS_PATH, &json)) {
+  if (Firebase.Firestore.createDocument(&fbdo, FIREBASE_PROJECT_ID, "",
+        FIRESTORE_FEEDER_LOGS_COL, &json, "")) {
     Serial.printf("[FEEDER LOG] %s\n", action.c_str());
   } else if (fbdo.httpConnected()) {
     Serial.printf("[FEEDER LOG ERROR] %s\n", fbdo.errorReason().c_str());
