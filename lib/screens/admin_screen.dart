@@ -577,6 +577,7 @@ class _AdminScreenState extends State<AdminScreen> {
           _buildGreeting(),
           if (!_loading && _error == null) ...[
             _buildStatsBar(),
+            _buildHardwareSection(),
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 4),
               child: SectionLabel(
@@ -712,7 +713,7 @@ class _AdminScreenState extends State<AdminScreen> {
         ],
       ),
       child: Container(
-        padding: const EdgeInsets.fromLTRB(12, 23, 20, 23),
+        padding: const EdgeInsets.fromLTRB(12, 14, 20, 14),
         decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
@@ -729,7 +730,7 @@ class _AdminScreenState extends State<AdminScreen> {
           children: [
             Container(
               width: 3,
-              height: 50,
+              height: 40,
               decoration: BoxDecoration(
                 color: AppColors.primary,
                 borderRadius: BorderRadius.circular(2),
@@ -749,7 +750,7 @@ class _AdminScreenState extends State<AdminScreen> {
                       color: AppColors.darkText,
                     ),
                   ),
-                  const SizedBox(height: 3),
+                  const SizedBox(height: 1),
                   Text(
                     _getFormattedDate(),
                     style: const TextStyle(
@@ -758,7 +759,7 @@ class _AdminScreenState extends State<AdminScreen> {
                       color: AppColors.mutedText,
                     ),
                   ),
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 1),
                   Text(
                     "Here's what's happening across all accounts today.",
                     style: TextStyle(
@@ -766,8 +767,7 @@ class _AdminScreenState extends State<AdminScreen> {
                       fontWeight: FontWeight.w500,
                       color: AppColors.subtitleText,
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                    maxLines: 2,
                   ),
                 ],
               ),
@@ -775,6 +775,121 @@ class _AdminScreenState extends State<AdminScreen> {
             Icon(Icons.admin_panel_settings_rounded, color: AppColors.primary, size: 26),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildHardwareSection() {
+    final owner = _currentOwnerUid != null
+        ? _users.cast<Map<String, dynamic>?>().firstWhere(
+            (u) => u?['uid'] == _currentOwnerUid,
+            orElse: () => null,
+          )
+        : null;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 0, 14, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: _buildSectionHeader(Icons.developer_board_rounded, 'Hardware Linked To', iconColor: AppColors.primary),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: owner != null ? AppColors.success.withValues(alpha: 0.04) : Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: owner != null
+                    ? AppColors.success.withValues(alpha: 0.25)
+                    : AppColors.darkWith(0.08),
+              ),
+            ),
+            child: owner != null
+                ? Row(
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: AppColors.success.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.check_circle_rounded,
+                            size: 20, color: AppColors.success),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _displayName(owner),
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.darkText,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              owner['email'] as String? ?? '',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: AppColors.subtitleText,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppColors.success.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Text(
+                          'Linked',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.success,
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: AppColors.darkWith(0.05),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(Icons.link_off_rounded,
+                            size: 18, color: AppColors.darkWith(0.3)),
+                      ),
+                      const SizedBox(width: 12),
+                      const Text(
+                        'No hardware assigned',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.mutedText,
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+        ],
       ),
     );
   }
