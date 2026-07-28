@@ -110,14 +110,6 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == uid;
     }
 
-    // ─── Hardware assignments ─────────────────────────────────────────
-    // Admin-managed: hardwareId -> { ownerUid, assignedAt }.
-    // Cloud Functions use the server SDK (bypasses rules) to read these.
-    // Admins can also read them in-app for the assignment UI.
-    match /hardwareAssignments/{hardwareId} {
-      allow read, write: if isAdmin();
-    }
-
     // ─── Sensor calibration upload (ESP32 write-only) ───────────────
     // ESP32 writes its current calibration values on boot so the admin
     // screen can confirm what values the board is actually using.
@@ -127,41 +119,45 @@ service cloud.firestore {
     }
 
     // ─── Hardware system (device-owner assignment) ───────────────────
-    // Flutter reads this to determine which user owns the shared device.
-    // Only admins may write/delete the assignment document.
+    // Single source of truth: hardware_system/currentOwner { uid }.
+    // Admin writes this to assign/reassign the one hardware package.
+    // Any signed-in user can read it (dashboard shows assignment status).
     match /hardware_system/{doc} {
       allow read: if isSignedIn();
       allow write, delete: if isAdmin();
     }
 
-    // ─── Sensor ingestion (ESP32 write-only) ─────────────────────────
-    // ESP32 writes raw data keyed by its hardware ID.
-    // Cloud Functions (onSensorIngestionWrite / onSensorIngestionHistoryCreate)
-    // resolve hardwareId -> ownerUid and copy into sensorReadings.
+    // ─── Sensor ingestion (ESP32 write-only, fixed path) ─────────────
+    // The ESP32 always writes to sensorIngestion/current — no hardwareId
+    // in the path because there is only one hardware package.
+    // Cloud Functions read this and route data to the current owner.
     // App clients never need to read ingestion documents.
-    match /sensorIngestion/{hardwareId} {
-      allow create, update: if true;   // unauthenticated ESP32 writes
+    match /sensorIngestion/current {
+      allow create, update: if true;   // ESP32 anonymous writes
       allow read, delete: if isAdmin();
     }
 
-    match /sensorIngestion/{hardwareId}/history/{doc} {
-      allow create: if true;           // unauthenticated ESP32 writes
+    match /sensorIngestion/current/history/{doc} {
+      allow create: if true;           // ESP32 anonymous writes (every 60 s)
       allow read, delete: if isAdmin();
     }
 
-    // ─── Sensor readings ─────────────────────────────────────────────
-    // Written exclusively by Cloud Functions. Each owner has their own
-    // document at sensorReadings/{ownerUid} — the document ID IS the
-    // owner's UID, so the ownership check is on the path itself.
+    // ─── Sensor readings (latest) ────────────────────────────────────
+    // Written exclusively by Cloud Functions.
+    // Document ID == ownerUid — path itself enforces ownership.
     match /sensorReadings/{ownerUid} {
       allow read: if isAdmin() || (isSignedIn() && request.auth.uid == ownerUid);
-      allow create, update: if true;   // server functions write here
+      allow create, update: if true;   // Cloud Functions write here
     }
 
-    match /sensorReadings/history/{date}/{doc} {
-      allow read: if isAdmin() || (isSignedIn() &&
-        resource.data.ownerUid == request.auth.uid);
-      allow create, update: if true;   // server functions write here
+    // ─── Sensor readings (history) ───────────────────────────────────
+    // sensorReadingsHistory/{ownerUid}/{YYYY-MM-DD}/{autoId}
+    // Each user owns their own history subcollection permanently.
+    // Reassigning the hardware creates NEW history under the new owner;
+    // previous owner's history is never moved or deleted.
+    match /sensorReadingsHistory/{ownerUid}/{date}/{doc} {
+      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == ownerUid);
+      allow create, update: if true;   // Cloud Functions write here
     }
 
     // ─── Feeder ──────────────────────────────────────────────────────

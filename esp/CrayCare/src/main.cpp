@@ -661,20 +661,22 @@ void buildFirestorePayload(FirebaseJson &json, bool includeTimestamp) {
 }
 
 // ─── Write latest sensor reading to Firestore ───────────────────────
-// Path: sensorIngestion/{hardwareId}  (patch — overwrites in place)
-// A Cloud Function triggers on this path, resolves hardwareId ->
-// ownerUid via hardwareAssignments/{hardwareId}, and copies the data
-// into sensorReadings/{ownerUid} for the Flutter app to read.
+// Path: sensorIngestion/current  (fixed doc — patch, overwrites in place)
+// Cloud Function onSensorIngestionWrite triggers here, reads
+// hardware_system/currentOwner to get ownerUid, and copies data into
+// sensorReadings/{ownerUid} for the Flutter app to read.
+// The ESP never knows any user UID — ownership is resolved server-side.
 void sendLatestToFirestore() {
   if (!ensureFirebaseReady()) return;
 
   FirebaseJson content;
   buildFirestorePayload(content, false);
 
-  String docPath = String(FIRESTORE_INGESTION_COLLECTION) + "/" + getHardwareId();
+  // Fixed path — no hardwareId needed. There is only one hardware package.
+  const char* docPath = "sensorIngestion/current";
 
   if (Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "(default)",
-                                       docPath.c_str(), content.raw(), "")) {
+                                       docPath, content.raw(), "")) {
     Serial.println("[FIRESTORE] Latest sent");
   } else {
     Serial.printf("[FIRESTORE ERROR] %s\n", fbdo.errorReason().c_str());
@@ -682,19 +684,21 @@ void sendLatestToFirestore() {
 }
 
 // ─── Write history entry to Firestore ───────────────────────────────
-// Path: sensorIngestion/{hardwareId}/history  (create — auto-ID doc)
-// A Cloud Function copies this into sensorReadings/history/{date}/{id}
-// with ownerUid stamped.
+// Path: sensorIngestion/current/history  (create — auto-ID doc every 60s)
+// Cloud Function onSensorIngestionHistoryCreate triggers here, reads
+// hardware_system/currentOwner, and saves into
+// sensorReadingsHistory/{ownerUid}/{YYYY-MM-DD}/{autoId}.
 void sendHistoryToFirestore() {
   if (!ensureFirebaseReady()) return;
 
   FirebaseJson content;
   buildFirestorePayload(content, true);
 
-  String colPath = String(FIRESTORE_INGESTION_COLLECTION) + "/" + getHardwareId() + "/history";
+  // Fixed subcollection — always under sensorIngestion/current.
+  const char* colPath = "sensorIngestion/current/history";
 
   if (Firebase.Firestore.createDocument(&fbdo, FIREBASE_PROJECT_ID, "(default)",
-                                        colPath.c_str(), "", content.raw())) {
+                                        colPath, "", content.raw())) {
     Serial.println("[FIRESTORE] History saved");
   } else {
     Serial.printf("[FIRESTORE HISTORY ERROR] %s\n", fbdo.errorReason().c_str());

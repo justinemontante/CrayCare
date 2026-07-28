@@ -382,12 +382,17 @@ class SensorService extends ChangeNotifier {
 
     if (uncachedDays.isNotEmpty) {
       // Pass 1: Try reading from local Firestore disk cache (lightning fast, 0ms latency)
+      // Path: sensorReadingsHistory/{uid}/{dateStr}
       final remainingUncached = <String>[];
       final cacheFutures = uncachedDays.map((dateStr) async {
+        if (uid == null) {
+          remainingUncached.add(dateStr);
+          return <Map<String, dynamic>>[];
+        }
         try {
           final snap = await FirebaseFirestore.instance
-              .collection('sensorReadings')
-              .doc('history')
+              .collection('sensorReadingsHistory')
+              .doc(uid)
               .collection(dateStr)
               .get(const GetOptions(source: Source.cache));
           if (snap.docs.isNotEmpty) {
@@ -408,9 +413,9 @@ class SensorService extends ChangeNotifier {
       cachedRecords.addAll(cacheResults.expand((r) => r));
 
       // Pass 2: If online, fetch remaining missing days from server in parallel chunks.
-      // Filter by ownerUid so the query matches Firestore rules
-      // (rule: resource.data.ownerUid == request.auth.uid).
-      if (remainingUncached.isNotEmpty && ConnectivityService.instance.isOnline) {
+      // Path is scoped to this user — sensorReadingsHistory/{uid}/{dateStr}.
+      // No extra ownerUid filter needed; the path itself is the ownership scope.
+      if (remainingUncached.isNotEmpty && ConnectivityService.instance.isOnline && uid != null) {
         const chunkSize = 6;
         for (var i = 0; i < remainingUncached.length; i += chunkSize) {
           final chunk = remainingUncached.sublist(
@@ -421,18 +426,11 @@ class SensorService extends ChangeNotifier {
           );
           final serverFutures = chunk.map((dateStr) async {
             try {
-              // Scope to this owner so the query satisfies Firestore rules
-              // (rule: resource.data.ownerUid == request.auth.uid).
-              final baseCol = FirebaseFirestore.instance
-                  .collection('sensorReadings')
-                  .doc('history')
-                  .collection(dateStr);
-              final snap = uid != null
-                  ? await baseCol
-                      .where('ownerUid', isEqualTo: uid)
-                      .get(const GetOptions(source: Source.serverAndCache))
-                  : await baseCol
-                      .get(const GetOptions(source: Source.serverAndCache));
+              final snap = await FirebaseFirestore.instance
+                  .collection('sensorReadingsHistory')
+                  .doc(uid)
+                  .collection(dateStr)
+                  .get(const GetOptions(source: Source.serverAndCache));
               final docs = snap.docs.map((doc) {
                 final data = doc.data();
                 data['id'] = doc.id;

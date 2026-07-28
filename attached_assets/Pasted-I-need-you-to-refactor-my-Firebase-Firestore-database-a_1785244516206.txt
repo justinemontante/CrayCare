@@ -1,0 +1,222 @@
+I need you to refactor my Firebase Firestore database architecture, Cloud Functions, ESP32 workflow, Flutter data flow, and Firestore Security Rules based on the following FINAL system requirements.
+
+## System Overview
+
+This is an IoT-based smart aquaculture system for crayfish farming.
+
+There is ONLY ONE physical hardware package in the entire system.
+
+The hardware package consists of:
+
+* 1 ESP32
+* Temperature Sensor
+* pH Sensor
+* Dissolved Oxygen Sensor
+* Turbidity Sensor
+* Water Level Sensor
+* Automatic Feeder
+* Water Pump
+* Aerator
+
+All sensors and actuators are connected to the SAME ESP32.
+
+The ESP32 authenticates using Firebase Anonymous Authentication only.
+
+The ESP32 NEVER knows any Firebase Authentication user UID.
+
+The ESP32 should only send sensor readings and receive hardware commands.
+
+---
+
+## Users
+
+Many users can register and log in using Firebase Authentication.
+
+Each user has:
+
+* their own sensor readings
+* their own historical sensor readings
+* their own analytics
+* their own batches
+* their own mortality records
+* their own harvest records
+* their own sampling records
+* their own notifications
+
+These data must NEVER be shared with other users.
+
+Each user can only access their own data.
+
+---
+
+## Hardware Ownership
+
+Since there is only ONE hardware package, only ONE user can own and use it at a time.
+
+The administrator assigns the hardware to a registered user.
+
+Store the current owner in:
+
+hardware_system/currentOwner
+
+Fields:
+
+* uid
+* assignedBy
+* assignedAt
+
+This document is the ONLY source of truth for who currently owns the hardware.
+
+Do NOT use hardwareAssignments or multiple hardware IDs because there is only one ESP32.
+
+---
+
+## Sensor Flow
+
+The ESP32 periodically reads:
+
+* Temperature
+* pH
+* Dissolved Oxygen
+* Turbidity
+* Water Level
+
+It writes ONLY to:
+
+sensorIngestion/current
+
+The ESP32 should never write directly to any user's collection.
+
+---
+
+## Cloud Function
+
+Whenever sensorIngestion/current changes:
+
+1. Read hardware_system/currentOwner
+2. Get ownerUid
+3. Copy the latest readings into:
+
+sensorReadings/{ownerUid}
+
+4. Save history into:
+
+sensorReadingsHistory/{ownerUid}/{YYYY-MM-DD}/{autoId}
+
+This means only the CURRENT OWNER receives NEW sensor readings.
+
+---
+
+## IMPORTANT REQUIREMENT
+
+When the administrator reassigns the hardware:
+
+Example:
+
+January
+
+Current Owner = User A
+
+Cloud Function writes to:
+
+sensorReadings/UserA
+
+sensorReadingsHistory/UserA
+
+After one month
+
+Administrator changes:
+
+hardware_system/currentOwner
+
+to
+
+User B
+
+Now ALL NEW sensor readings must be written ONLY to:
+
+sensorReadings/UserB
+
+sensorReadingsHistory/UserB
+
+User A must KEEP all of their previous data.
+
+User A should still be able to log in and view all of their historical readings, analytics, and records.
+
+However, User A must NO LONGER receive new sensor readings.
+
+No previous data should ever be deleted or moved.
+
+---
+
+## Flutter
+
+The Flutter application should only read:
+
+sensorReadings/{currentUser.uid}
+
+sensorReadingsHistory/{currentUser.uid}
+
+and all other collections using the authenticated user's UID.
+
+Users must never see another user's data.
+
+---
+
+## Feeder
+
+Manual feeding:
+
+Flutter writes commands.
+
+ESP32 executes.
+
+ESP32 updates feeder status and logs.
+
+Scheduled feeding:
+
+Flutter creates schedules.
+
+ESP32 monitors schedules and executes them automatically.
+
+---
+
+## Device Control
+
+Flutter controls:
+
+* Pump
+* Aerator
+
+ESP32 listens for changes.
+
+ESP32 updates logs after executing commands.
+
+---
+
+## Firestore Security Rules
+
+Design Firestore Security Rules so that:
+
+* Users can only read their own documents.
+* Users cannot read another user's sensor readings or history.
+* Cloud Functions can write sensor readings.
+* ESP32 only writes to sensorIngestion/current.
+* Only the current hardware owner can access live hardware controls if applicable.
+
+---
+
+## Generate
+
+Please generate:
+
+1. Complete Firestore database structure.
+2. Complete Cloud Function workflow.
+3. Complete ESP32 workflow.
+4. Complete Flutter workflow.
+5. Complete hardware reassignment workflow.
+6. Complete Firestore Security Rules.
+7. Explain why this architecture preserves each user's historical data even though only one hardware package exists.
+8. Explain how reassignment works without modifying or reflashing the ESP32 firmware.
+
+Do NOT redesign this system for multiple ESP32 devices. Assume there is permanently only ONE hardware package that is transferred between users by updating hardware_system/currentOwner.
