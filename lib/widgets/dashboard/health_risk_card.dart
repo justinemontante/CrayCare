@@ -116,7 +116,7 @@ class HealthRiskCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       Text(
-                        hr.result!.score.toStringAsFixed(0),
+                        '${hr.result!.confidence}',
                         style: TextStyle(
                           fontSize: 40,
                           fontWeight: FontWeight.w800,

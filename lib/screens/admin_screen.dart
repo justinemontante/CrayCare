@@ -889,7 +889,7 @@ class _AdminScreenState extends State<AdminScreen> {
     final role = (user['role'] as String?) ?? 'owner';
     final status = (user['status'] as String?) ?? 'active';
     final isDisabled = status == 'disabled';
-    final isDeviceOwner = _hardwareOwnerMap.containsKey(uid);
+    final isDeviceOwner = _currentOwnerUid == uid;
     final isAdmin = role == 'admin';
     final photoImage = _photoImageProvider(user['photoUrl'] as String?);
 
