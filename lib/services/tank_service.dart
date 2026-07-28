@@ -690,12 +690,6 @@ class TankService extends ChangeNotifier {
       debugPrint('[TankService] Batch push error: $e');
     }
 
-    _batches.insert(0, CrayfishBatch(
-      batchId: bid, status: 'active', stockingDate: _stockingDate,
-      initialCount: _initialCount, initialAbw: _initialWeight, initialAbl: _initialLength,
-      daysInCulture: 0, sampleCount: _sampleCount,
-      initialTotalWeight: _totalSampleWeight, initialTotalLength: _totalSampleLength,
-    ));
     _selectedBatchId = bid;
 
     _resubscribeToBatch();
