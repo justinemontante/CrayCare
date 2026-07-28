@@ -549,17 +549,18 @@ class _AdminScreenState extends State<AdminScreen> {
     );
   }
 
-  Widget _buildSectionHeader(IconData icon, String label, {Color? iconColor}) {
+  Widget _buildSectionHeader(IconData icon, String label, {Color? iconColor, Color? labelColor}) {
+    final c = iconColor ?? AppColors.darkWith(0.4);
     return Row(
       children: [
-        Icon(icon, size: 16, color: iconColor ?? AppColors.darkWith(0.4)),
+        Icon(icon, size: 16, color: c),
         const SizedBox(width: 8),
         Text(
           label,
           style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w700,
-            color: AppColors.darkWith(0.6),
+            color: labelColor ?? AppColors.darkWith(0.6),
           ),
         ),
       ],
@@ -794,7 +795,7 @@ class _AdminScreenState extends State<AdminScreen> {
         children: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: _buildSectionHeader(Icons.developer_board_rounded, 'Hardware Linked To', iconColor: AppColors.primary),
+            child: _buildSectionHeader(Icons.developer_board_rounded, 'Hardware Linked To', iconColor: AppColors.primary, labelColor: AppColors.primary),
           ),
           const SizedBox(height: 8),
           Container(
