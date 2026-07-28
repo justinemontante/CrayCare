@@ -19,8 +19,8 @@ service cloud.firestore {
     }
 
     function deviceOwnerUid() {
-      return exists(/databases/$(database)/documents/config/deviceOwner)
-        ? get(/databases/$(database)/documents/config/deviceOwner).data.ownerUid
+      return exists(/databases/$(database)/documents/hardware_system/currentOwner)
+        ? get(/databases/$(database)/documents/hardware_system/currentOwner).data.uid
         : null;
     }
 
@@ -165,36 +165,48 @@ service cloud.firestore {
     }
 
     // ─── Feeder ──────────────────────────────────────────────────────
+    // feederSchedules: Flutter (device owner) reads/writes; ESP reads anonymously.
     match /feederSchedules/{doc} {
-      allow read, write: if request.auth != null;
+      allow read: if request.auth != null;                  // ESP polls schedules (anonymous auth)
+      allow write: if isDeviceOwner() || isAdmin();
     }
 
+    // feederLogs: ESP creates (anonymous auth); only the device owner can read.
     match /feederLogs/{doc} {
-      allow read, write: if request.auth != null;
+      allow read: if isDeviceOwner() || isAdmin();
+      allow create: if request.auth != null;                // ESP + Flutter both create logs
+      allow update, delete: if isDeviceOwner() || isAdmin();
     }
 
+    // feederCommands: only the device owner may issue commands; ESP reads and
+    // deletes processed commands using anonymous auth.
     match /feederCommands/{doc} {
-      allow read, create: if request.auth != null;
-      allow delete: if request.auth != null;   // ESP32 deletes processed commands
+      allow create: if isDeviceOwner();
+      allow read, delete: if request.auth != null;          // ESP polls & deletes (anonymous auth)
       allow update: if false;
     }
 
+    // feederStatus: ESP writes (anonymous auth); only the device owner can read.
     match /feederStatus/{doc} {
-      allow read, write: if request.auth != null;
+      allow read: if isDeviceOwner() || isAdmin();
+      allow write: if request.auth != null;                 // ESP writes status (anonymous auth)
     }
 
+    // feederDispatched: Flutter-only; tracks which schedules fired today.
     match /feederDispatched/{doc} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isDeviceOwner() || isAdmin();
     }
 
     // ─── Device control ──────────────────────────────────────────────
+    // deviceModes: Flutter (device owner) writes; ESP reads anonymously.
     match /deviceModes/{doc} {
-      allow read, write: if request.auth != null;
+      allow read: if request.auth != null;                  // ESP reads modes (anonymous auth)
+      allow write: if isDeviceOwner() || isAdmin();
     }
 
+    // deviceLogs: Flutter (device owner) creates and reads; no ESP involvement.
     match /deviceLogs/{doc} {
-      allow read, create: if request.auth != null;
-      allow delete: if request.auth != null;
+      allow read, create, delete: if isDeviceOwner() || isAdmin();
     }
 
     // ─── ML / Health ─────────────────────────────────────────────────
