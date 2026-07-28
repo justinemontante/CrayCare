@@ -1,0 +1,155 @@
+{
+  "users": {
+    "_id": "uid",
+    "_description": "User profile. Readable/writable by self or admin.",
+    "fields": ["email", "role (owner|admin)", "status (active|disabled)", "photoUrl", "..."]
+  },
+
+  "tanks": {
+    "_id": "uid (== owner's uid)",
+    "_description": "One tank per user. Doc ID itself is the ownership check.",
+    "fields": ["..."]
+  },
+
+  "notifPrefs": {
+    "_id": "uid",
+    "_description": "Per-user notification preferences."
+  },
+
+  "batches": {
+    "_id": "autoId",
+    "_description": "Flat collection, scoped by tankId field (== owner uid).",
+    "fields": ["tankId", "batchId", "stockingDate", "harvestDate", "status", "..."]
+  },
+
+  "sampling_records": {
+    "_id": "autoId",
+    "_description": "Flat collection, scoped by tankId field.",
+    "fields": ["tankId", "batchId", "..."]
+  },
+
+  "mortality_records": {
+    "_id": "autoId",
+    "_description": "Flat collection, scoped by tankId field.",
+    "fields": ["tankId", "batchId", "..."]
+  },
+
+  "harvest_records": {
+    "_id": "autoId",
+    "_description": "Flat collection, scoped by tankId field.",
+    "fields": ["tankId", "..."]
+  },
+
+  "config": {
+    "_id": "uid  (per-user sensor threshold doc)",
+    "_description": "Per-user sensor range/threshold config. Special docs config/deviceOwner and config/default are admin-only writes.",
+    "special_docs": ["deviceOwner", "default"]
+  },
+
+  "system_config": {
+    "_id": "doc",
+    "_description": "Admin-managed system settings. Any signed-in user can read (dashboard needs it)."
+  },
+
+  "notifications": {
+    "_id": "autoId",
+    "_description": "Flat collection, scoped by uid field.",
+    "fields": ["uid", "title", "body", "read", "..."]
+  },
+
+  "notifMarkers": {
+    "_id": "doc",
+    "_description": "Scoped by uid field. Tracks last-seen notification markers."
+  },
+
+  "migration": {
+    "_id": "uid",
+    "_description": "Per-user migration status/flag docs."
+  },
+
+  "sensorConfig": {
+    "_id": "hardwareId",
+    "_description": "ESP32 uploads its current calibration values on boot (write-only, unauthenticated). Admin-only read.",
+    "fields": ["calibration values..."]
+  },
+
+  "hardware_system": {
+    "currentOwner": {
+      "_description": "SINGLE SOURCE OF TRUTH for who the hardware is currently assigned to.",
+      "fields": ["uid"]
+    },
+    "_description": "Admin writes to assign/reassign the one shared hardware package. Any signed-in user can read."
+  },
+
+  "sensorIngestion": {
+    "current": {
+      "_description": "ESP32 writes here directly (anonymous, fixed path — no hardwareId, since there's only one device). Admin-only read/delete. Cloud Functions read this and route/copy to sensorReadings/{ownerUid} using hardware_system/currentOwner.uid at write time.",
+      "history": {
+        "_id": "autoId",
+        "_description": "ESP32 appends every ~60s (anonymous create-only). Admin-only read."
+      }
+    }
+  },
+
+  "sensorReadings": {
+    "_id": "ownerUid  <-- doc ID IS the owner, enforced by the path itself",
+    "_description": "Latest reading per owner. Written exclusively by Cloud Functions (never directly by ESP32). Readable only by that owner or an admin.",
+    "fields": ["temperature", "phLevel", "dissolvedOxygen", "turbidity", "waterLevel", "..."]
+  },
+
+  "sensorReadingsHistory": {
+    "_id": "ownerUid",
+    "date_subcollections": {
+      "_id": "YYYY-MM-DD",
+      "docs": {
+        "_id": "autoId",
+        "_description": "Cloud-Function-written historical readings. Reassigning hardware creates NEW history under the new owner — the previous owner's history is never moved/deleted, giving permanent per-owner isolation."
+      }
+    }
+  },
+
+  "feederSchedules": {
+    "_id": "doc",
+    "_description": "Device owner (Flutter) reads/writes. ESP32 polls (read only, anonymous)."
+  },
+
+  "feederLogs": {
+    "_id": "autoId",
+    "_description": "ESP32 + Flutter both create. Only device owner/admin can read/update/delete."
+  },
+
+  "feederCommands": {
+    "_id": "autoId",
+    "_description": "Device owner creates commands. ESP32 reads & deletes processed commands (anonymous)."
+  },
+
+  "feederStatus": {
+    "_id": "doc",
+    "_description": "ESP32 writes status (anonymous). Only device owner/admin reads."
+  },
+
+  "feederDispatched": {
+    "_id": "doc",
+    "_description": "Flutter-only. Tracks which feeding schedules already fired today."
+  },
+
+  "deviceModes": {
+    "_id": "doc",
+    "_description": "Device owner (Flutter) writes control modes. ESP32 reads (anonymous)."
+  },
+
+  "deviceLogs": {
+    "_id": "autoId",
+    "_description": "Flutter-only activity log. No ESP32 involvement."
+  },
+
+  "mlPredictions": {
+    "_id": "autoId",
+    "_description": "Any signed-in user can read. Created/updated by Cloud Functions / ML pipeline."
+  },
+
+  "healthRisk": {
+    "_id": "uid",
+    "_description": "Water-quality/health-risk prediction result per user. Readable by that user or admin."
+  }
+}

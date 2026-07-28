@@ -1,0 +1,125 @@
+{
+  "users": {
+    "_id": "uid",
+    "fields": ["email", "role", "status", "photoUrl"]
+  },
+
+  "tanks": {
+    "_id": "uid"
+  },
+
+  "notifPrefs": {
+    "_id": "uid"
+  },
+
+  "batches": {
+    "_id": "autoId",
+    "fields": ["tankId", "batchId", "stockingDate", "harvestDate", "status"]
+  },
+
+  "sampling_records": {
+    "_id": "autoId",
+    "fields": ["tankId", "batchId"]
+  },
+
+  "mortality_records": {
+    "_id": "autoId",
+    "fields": ["tankId", "batchId"]
+  },
+
+  "harvest_records": {
+    "_id": "autoId",
+    "fields": ["tankId"]
+  },
+
+  "config": {
+    "_id": "uid",
+    "special_docs": ["deviceOwner", "default"]
+  },
+
+  "system_config": {
+    "_id": "doc"
+  },
+
+  "notifications": {
+    "_id": "autoId",
+    "fields": ["uid", "title", "body", "read"]
+  },
+
+  "notifMarkers": {
+    "_id": "doc"
+  },
+
+  "migration": {
+    "_id": "uid"
+  },
+
+  "sensorConfig": {
+    "_id": "hardwareId"
+  },
+
+  "hardware_system": {
+    "currentOwner": {
+      "fields": ["uid"]
+    }
+  },
+
+  "sensorIngestion": {
+    "current": {
+      "history": {
+        "_id": "autoId"
+      }
+    }
+  },
+
+  "sensorReadings": {
+    "_id": "ownerUid",
+    "fields": ["temperature", "phLevel", "dissolvedOxygen", "turbidity", "waterLevel"]
+  },
+
+  "sensorReadingsHistory": {
+    "_id": "ownerUid",
+    "date_subcollections": {
+      "_id": "YYYY-MM-DD",
+      "docs": {
+        "_id": "autoId"
+      }
+    }
+  },
+
+  "feederSchedules": {
+    "_id": "doc"
+  },
+
+  "feederLogs": {
+    "_id": "autoId"
+  },
+
+  "feederCommands": {
+    "_id": "autoId"
+  },
+
+  "feederStatus": {
+    "_id": "doc"
+  },
+
+  "feederDispatched": {
+    "_id": "doc"
+  },
+
+  "deviceModes": {
+    "_id": "doc"
+  },
+
+  "deviceLogs": {
+    "_id": "autoId"
+  },
+
+  "mlPredictions": {
+    "_id": "autoId"
+  },
+
+  "healthRisk": {
+    "_id": "uid"
+  }
+}

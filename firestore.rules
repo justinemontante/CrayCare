@@ -206,9 +206,14 @@ service cloud.firestore {
     }
 
     // ─── ML / Health ─────────────────────────────────────────────────
+    // No app code currently writes here client-side; any legitimate
+    // writes from the Python ML pipeline go through the Admin SDK,
+    // which bypasses these rules entirely. Client writes are locked to
+    // admin only so this doesn't stay open to anonymous/any signed-in
+    // writes with no real user of that access.
     match /mlPredictions/{doc} {
       allow read: if request.auth != null;
-      allow create, update: if true;
+      allow create, update: if isAdmin();
     }
 
     match /healthRisk/{uid} {
