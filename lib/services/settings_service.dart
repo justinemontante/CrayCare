@@ -50,7 +50,7 @@ class SettingsService extends ChangeNotifier {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
       final doc = await FirebaseFirestore.instance
-          .collection('config')
+          .collection('sensorThresholds')
           .doc(user.uid)
           .get();
       if (!doc.exists || doc.data() == null) {
@@ -89,14 +89,14 @@ class SettingsService extends ChangeNotifier {
         for (final e in _ranges.entries)
           e.key: {'min': e.value['min'], 'max': e.value['max']},
       };
-      // Save per-user config for the app.
-      await FirebaseFirestore.instance.collection('config').doc(user.uid).set({
+      // Save per-user sensor thresholds for the app.
+      await FirebaseFirestore.instance.collection('sensorThresholds').doc(user.uid).set({
         'ranges': rangesPayload,
         'updatedAt': FieldValue.serverTimestamp(),
       });
-      // Mirror to config/default so the ESP32 firmware picks up the thresholds.
-      // ESP reads: Firebase.Firestore.getDocument(..., "config/default", "ranges")
-      await FirebaseFirestore.instance.collection('config').doc('default').set({
+      // Mirror to sensorThresholds/default so the ESP32 firmware picks up the thresholds.
+      // ESP reads: Firebase.Firestore.getDocument(..., "sensorThresholds/default", "ranges")
+      await FirebaseFirestore.instance.collection('sensorThresholds').doc('default').set({
         'ranges': rangesPayload,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
@@ -123,12 +123,12 @@ class SettingsService extends ChangeNotifier {
         'updatedAt': FieldValue.serverTimestamp(),
       };
       await FirebaseFirestore.instance
-          .collection('config')
+          .collection('sensorThresholds')
           .doc(user.uid)
           .update(update);
-      // Mirror to config/default so the ESP32 picks up the new threshold.
+      // Mirror to sensorThresholds/default so the ESP32 picks up the new threshold.
       await FirebaseFirestore.instance
-          .collection('config')
+          .collection('sensorThresholds')
           .doc('default')
           .set(update, SetOptions(merge: true));
     } catch (e) {
@@ -154,10 +154,10 @@ class SettingsService extends ChangeNotifier {
         },
         'updatedAt': FieldValue.serverTimestamp(),
       };
-      await FirebaseFirestore.instance.collection('config').doc(user.uid).set(defaultPayload);
-      // Mirror to config/default so the ESP32 picks up the reset thresholds.
+      await FirebaseFirestore.instance.collection('sensorThresholds').doc(user.uid).set(defaultPayload);
+      // Mirror to sensorThresholds/default so the ESP32 picks up the reset thresholds.
       await FirebaseFirestore.instance
-          .collection('config')
+          .collection('sensorThresholds')
           .doc('default')
           .set(defaultPayload, SetOptions(merge: true));
     } catch (e) {

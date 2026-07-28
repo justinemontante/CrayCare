@@ -38,7 +38,7 @@ class BackgroundHelper {
       final turbAir = latest['turbidityAir'] == true;
       final turb = (latest['turbidity'] as num?)?.toDouble() ?? 0.0;
 
-      final configSnap = await fs.collection('config').doc(uid).get();
+      final configSnap = await fs.collection('sensorThresholds').doc(uid).get();
       double turbMax = 25.0;
       if (configSnap.exists && configSnap.data() != null) {
         final config = configSnap.data()!;

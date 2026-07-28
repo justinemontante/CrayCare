@@ -935,21 +935,21 @@ class NotificationService extends ChangeNotifier {
       debugPrint('[NotificationService] Failed to read sampling from Firestore: $e');
     }
 
-    // Fallback to config's stockingDate if no sampling found
+    // Fallback to tank's stockingDate if no sampling found
     if (effectiveLastDate == null) {
       try {
-        final configSnap = await fs.collection('config').doc(uid).get();
-        if (configSnap.exists) {
-          final config = configSnap.data();
-          if (config != null && config['isInitialized'] == true) {
-            final ts = config['lastSampleDate'] ?? config['stockingDate'];
+        final tankSnap = await fs.collection('tanks').doc(uid).get();
+        if (tankSnap.exists) {
+          final tank = tankSnap.data();
+          if (tank != null && tank['initialPopulation'] != null && (tank['initialPopulation'] as int?)! > 0) {
+            final ts = tank['lastSampleDate'] ?? tank['stockingDate'];
             if (ts is int) {
               effectiveLastDate = DateTime.fromMillisecondsSinceEpoch(ts);
             }
           }
         }
       } catch (e) {
-        debugPrint('[NotificationService] Failed to read config from Firestore: $e');
+        debugPrint('[NotificationService] Failed to read tank from Firestore: $e');
       }
     }
 

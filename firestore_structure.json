@@ -40,10 +40,10 @@
     "fields": ["tankId", "..."]
   },
 
-  "config": {
-    "_id": "uid  (per-user sensor threshold doc)",
-    "_description": "Per-user sensor range/threshold config. Special docs config/deviceOwner and config/default are admin-only writes.",
-    "special_docs": ["deviceOwner", "default"]
+  "sensorThresholds": {
+    "_id": "uid  (per-user threshold doc)",
+    "_description": "Per-user sensor range/threshold config. Also mirrored to sensorThresholds/default for ESP32 firmware polling.",
+    "special_docs": ["default"]
   },
 
   "system_config": {

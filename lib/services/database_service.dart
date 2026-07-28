@@ -133,9 +133,9 @@ class DatabaseService {
     };
     if (changedKey != null) data['lastChangedSensor'] = changedKey;
 
-    // Write to config/{uid} — same path SettingsService reads from, so the
+    // Write to sensorThresholds/{uid} — same path SettingsService reads from, so the
     // UI immediately reflects the saved values on the next sync.
-    await FirebaseFirestore.instance.collection('config').doc(user.uid).set(
+    await FirebaseFirestore.instance.collection('sensorThresholds').doc(user.uid).set(
       data,
       SetOptions(merge: true),
     );

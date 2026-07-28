@@ -75,10 +75,10 @@ service cloud.firestore {
       allow update, delete: if request.auth != null && resource.data.tankId == request.auth.uid;
     }
 
-    // ─── Sensor range config ─────────────────────────────────────────
-    // Per-user threshold docs (document id == uid). config/deviceOwner
-    // and config/default are special docs only admins can write.
-    match /config/{document} {
+    // ─── Sensor thresholds ──────────────────────────────────────
+    // Per-user threshold docs (document id == uid). sensorThresholds/default
+    // is a special doc only admins can write.
+    match /sensorThresholds/{document} {
       allow read: if isSignedIn();
       allow write: if isSignedIn() && (request.auth.uid == document || isAdmin());
     }
