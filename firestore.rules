@@ -77,10 +77,10 @@ service cloud.firestore {
 
     // ─── Sensor thresholds ──────────────────────────────────────
     // Per-user threshold docs (document id == uid). sensorThresholds/default
-    // is a special doc only admins can write.
+    // is read by ESP32 firmware; any signed-in user can write to it.
     match /sensorThresholds/{document} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn() && (request.auth.uid == document || isAdmin());
+      allow write: if isSignedIn() && (request.auth.uid == document || document == 'default' || isAdmin());
     }
 
     // ─── System configuration ────────────────────────────────────────
