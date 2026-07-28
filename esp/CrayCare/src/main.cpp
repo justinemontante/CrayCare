@@ -137,6 +137,7 @@ int feederHopperLevel = 100;          // percentage 0-100
 unsigned long feederLastFeedEpoch = 0;
 bool feederIsRunning = false;
 String feederFeedSource = "";          // "manual" or "scheduled"
+int feederFeedCount = 0;              // total feeds dispensed since boot
 
 // Non-blocking feeder state machine
 enum FeederRunState {
@@ -1109,10 +1110,11 @@ void sendFeederStatus() {
   json.set("fields/hopperLevel/integerValue", String(feederHopperLevel));
   json.set("fields/lastFeedEpoch/integerValue", String((int)feederLastFeedEpoch));
   json.set("fields/lastSeen/integerValue",   String(epochMs));
+  json.set("fields/feedCount/integerValue",  String(feederFeedCount));
 
   if (!Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "",
         FIRESTORE_FEEDER_STATUS_DOC, &json,
-        "mode,isRunning,feedSource,hopperLevel,lastFeedEpoch,lastSeen")) {
+        "mode,isRunning,feedSource,hopperLevel,lastFeedEpoch,lastSeen,feedCount")) {
     if (fbdo.httpConnected()) {
       Serial.printf("[FEEDER STATUS ERROR] %s\n", fbdo.errorReason().c_str());
     }
@@ -1273,9 +1275,10 @@ void processFeederTick() {
 
       _setServoAngle(0);
 
-      // Update hopper level
+      // Update hopper level and feed count
       feederHopperLevel -= 9;
       if (feederHopperLevel < 0) feederHopperLevel = 0;
+      feederFeedCount++;
 
       feederIsRunning = false;
       feederRunState = FEEDER_IDLE;

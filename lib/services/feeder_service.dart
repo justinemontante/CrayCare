@@ -238,24 +238,15 @@ class FeederService extends ChangeNotifier {
         cmd['grams'] = grams;
       }
       await FirebaseFirestore.instance.collection('feederCommands').add(cmd);
-      final gramsStr = grams != null ? ' (${grams.toStringAsFixed(1)}g)' : '';
-      if (source == 'scheduled') {
-        await _addLogEntry(
-          action: 'Auto feed dispensed$gramsStr',
-          type: 'auto',
-        );
-        if (scheduleKey != null) {
-          final mNow = _manilaNow();
-            await FirebaseFirestore.instance
-              .collection('feederDispatched')
-              .doc('${mNow.year}-${mNow.month}-${mNow.day}')
-              .set({scheduleKey: true}, SetOptions(merge: true));
-        }
-      } else {
-        await _addLogEntry(
-          action: 'Feed dispensed$gramsStr',
-          type: 'manual',
-        );
+      // NOTE: do NOT write a feederLogs entry here.
+      // The ESP32 writes the confirmed log after the servo physically completes,
+      // which is the reliable source of truth. Writing here too causes duplicates.
+      if (source == 'scheduled' && scheduleKey != null) {
+        final mNow = _manilaNow();
+        await FirebaseFirestore.instance
+            .collection('feederDispatched')
+            .doc('${mNow.year}-${mNow.month}-${mNow.day}')
+            .set({scheduleKey: true}, SetOptions(merge: true));
       }
     } catch (e) {
       debugPrint('[FeederService] feedNow error: $e');
