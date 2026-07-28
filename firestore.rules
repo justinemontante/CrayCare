@@ -118,6 +118,22 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    // ─── Sensor calibration upload (ESP32 write-only) ───────────────
+    // ESP32 writes its current calibration values on boot so the admin
+    // screen can confirm what values the board is actually using.
+    match /sensorConfig/{hardwareId} {
+      allow create, update: if true;   // unauthenticated ESP32 writes
+      allow read, delete: if isAdmin();
+    }
+
+    // ─── Hardware system (device-owner assignment) ───────────────────
+    // Flutter reads this to determine which user owns the shared device.
+    // Only admins may write/delete the assignment document.
+    match /hardware_system/{doc} {
+      allow read: if isSignedIn();
+      allow write, delete: if isAdmin();
+    }
+
     // ─── Sensor ingestion (ESP32 write-only) ─────────────────────────
     // ESP32 writes raw data keyed by its hardware ID.
     // Cloud Functions (onSensorIngestionWrite / onSensorIngestionHistoryCreate)
@@ -159,7 +175,8 @@ service cloud.firestore {
 
     match /feederCommands/{doc} {
       allow read, create: if request.auth != null;
-      allow update, delete: if false;
+      allow delete: if request.auth != null;   // ESP32 deletes processed commands
+      allow update: if false;
     }
 
     match /feederStatus/{doc} {
