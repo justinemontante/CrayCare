@@ -226,16 +226,16 @@ float tempCriticalLow = 24.0;
 float tempCriticalHigh = 30.0;
 
 float turbNtuMin = 0.0;
-float turbNtuMax = 40.0;
+float turbNtuMax = 25.0;
 
-float doCriticalLow = 4.0;
-float doCriticalHigh = 12.0;
+float doCriticalLow = 5.0;
+float doCriticalHigh = 9.0;
 
 float phCriticalLow = 7.0;
 float phCriticalHigh = 8.5;
 
-float waterLevelCriticalLow = 30.0;
-float waterLevelCriticalHigh = 95.0;
+float waterLevelCriticalLow = 70.0;
+float waterLevelCriticalHigh = 100.0;
 
 float doVoltageScale = 4.0;
 float doVoltageOffset = 0.0;
