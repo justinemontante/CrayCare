@@ -319,6 +319,42 @@
           "order": "DESCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "sampling_records",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "batchId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "tankId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "date",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "mortality_records",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "batchId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "tankId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "date",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": []
