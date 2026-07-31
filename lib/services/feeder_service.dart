@@ -393,10 +393,15 @@ class FeederService extends ChangeNotifier {
     final tankDoc = _tankDoc();
     if (tankDoc == null) return;
     try {
+      final parts = time.split(':');
+      final hour = int.tryParse(parts.first) ?? 6;
+      final minute = parts.length > 1 ? (int.tryParse(parts[1]) ?? 0) : 0;
+      final timeValue = (ampm == 'PM' && hour != 12 ? hour + 12 : (ampm == 'AM' && hour == 12 ? 0 : hour)) * 60 + minute;
       await tankDoc.collection('feeder_schedules').doc(_scheduleKeys[index]).update({
         'time': time,
         'ampm': ampm,
         'feed_time': time,
+        'timeValue': timeValue,
         'enabled': enabled ?? true,
         'is_active': enabled ?? true,
         'isDone': false,

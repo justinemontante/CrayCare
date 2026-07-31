@@ -46,6 +46,25 @@ function getTokensFromUserData(userData) {
   return tokens;
 }
 
+// Canonical paths used by the Flutter app and Firestore rules.
+async function getUserPreferences(uid) {
+  const snap = await firestoreDb.collection("users").doc(uid)
+    .collection("notification_settings").doc("preferences").get();
+  return snap.exists ? (snap.data() || {}) : {};
+}
+
+async function getUserTokens(uid) {
+  const tokens = [];
+  const userSnap = await firestoreDb.collection("users").doc(uid).get();
+  if (userSnap.exists) tokens.push(...getTokensFromUserData(userSnap.data() || {}));
+  const tokenSnap = await firestoreDb.collection("users").doc(uid).collection("fcm_tokens").get();
+  tokenSnap.forEach((doc) => {
+    const token = doc.data().token;
+    if (typeof token === "string" && token && !tokens.includes(token)) tokens.push(token);
+  });
+  return tokens;
+}
+
 // Removes one stale/invalid token from the user's token array.
 async function removeStaleToken(uid, token) {
   try {
@@ -116,15 +135,10 @@ async function getAuthorizedUids() {
 // ─── Helper: send FCM push to a user (all logged-in devices) ──────────
 async function sendPush(uid, payload, prefsCheck) {
   try {
-    // Check user prefs from Firestore
-    const prefsSnap = await firestoreDb.collection("notifPrefs").doc(uid).get();
-    const prefs = prefsSnap.data() || {};
+    const prefs = await getUserPreferences(uid);
     if (prefsCheck && prefs[prefsCheck] === false) return;
 
-    // Read FCM tokens from Firestore (multi-device support)
-    const userSnap = await firestoreDb.collection("users").doc(uid).get();
-    const userData = userSnap.data() || {};
-    const tokens = getTokensFromUserData(userData);
+    const tokens = await getUserTokens(uid);
     if (tokens.length === 0) return;
 
     const sound = prefs.sound !== false;
@@ -168,36 +182,34 @@ async function sendPush(uid, payload, prefsCheck) {
 
 // ─── Helper: write notification to Firestore ──────────────────────────
 async function writeNotification(targetUid, notif) {
-  const docRef = firestoreDb.collection("notifications").doc();
-  await docRef.set({
+  // Canonical notification schema consumed by NotificationService.
+  await firestoreDb.collection("notifications").doc().set({
     uid: targetUid,
-    ...notif,
-    timestamp: Date.now(),
-    readBy: {},
+    notif_type: notif.notif_type || notif.type || "general",
+    title: notif.title || "CrayCare",
+    body: notif.body || notif.message || "",
+    is_read: false,
+    created_at: admin.firestore.FieldValue.serverTimestamp(),
   });
 }
 
 // ─── Helper: save a marker in Firestore ───────────────────────────────
 async function saveMarker(uid, key, value) {
   try {
-    await firestoreDb.collection("notifMarkers").doc(`${uid}_${key}`).set({
-      uid,
+    await firestoreDb.collection("users").doc(uid).collection("notif_markers").doc(key).set({
       markerKey: key,
       value,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updated_at: admin.firestore.FieldValue.serverTimestamp(),
     });
   } catch (e) {
     functions.logger.error(`saveMarker error for ${uid}/${key}:`, e.message);
   }
 }
 
-// ─── Helper: read a marker from Firestore ─────────────────────────────
 async function readMarker(uid, key) {
   try {
-    const snap = await firestoreDb.collection("notifMarkers").doc(`${uid}_${key}`).get();
-    if (snap.exists) {
-      return snap.data() || null;
-    }
+    const snap = await firestoreDb.collection("users").doc(uid).collection("notif_markers").doc(key).get();
+    return snap.exists ? (snap.data() || null) : null;
   } catch (e) {
     functions.logger.error(`readMarker error for ${uid}/${key}:`, e.message);
   }
@@ -369,12 +381,9 @@ exports.onSensorUpdate = functions.region("asia-southeast1").firestore
 
       // Send FCM push to this owner
       try {
-        const prefsSnap = await firestoreDb.collection("notifPrefs").doc(ownerUid).get();
-        const prefs = prefsSnap.data() || {};
+        const prefs = await getUserPreferences(ownerUid);
         if (prefs.critical !== false) {
-          const userSnap = await firestoreDb.collection("users").doc(ownerUid).get();
-          const userData = userSnap.data() || {};
-          const tokens = getTokensFromUserData(userData);
+          const tokens = await getUserTokens(ownerUid);
 
           const sound = prefs.sound !== false;
           const vibration = prefs.vibration !== false;
@@ -428,243 +437,62 @@ exports.onSensorUpdate = functions.region("asia-southeast1").firestore
 // ═══════════════════════════════════════════════════════════════════════
 //  2. FEEDING + PRE-ARM — scheduled every 1 minute
 // ═══════════════════════════════════════════════════════════════════════
+// The project has one ESP. Scheduling follows the tank currently assigned to it.
 exports.processFeeding = functions.region("asia-southeast1").pubsub
   .schedule("every 1 minutes")
-  .onRun(async (context) => {
+  .onRun(async () => {
     try {
+      const owner = await getCurrentHardwareOwner();
+      if (!owner) return null;
+
       const now = new Date();
-      const manilaNow = new Date(now.getTime() + MANILA_OFFSET_MS);
-      const todayKey = `${manilaNow.getUTCMonth() + 1}/${manilaNow.getUTCDate()}`;
-      const yr = manilaNow.getUTCFullYear();
-      const mo = String(manilaNow.getUTCMonth() + 1).padStart(2, "0");
-      const dy = String(manilaNow.getUTCDate()).padStart(2, "0");
+      const manila = new Date(now.getTime() + MANILA_OFFSET_MS);
+      const dateKey = `${manila.getUTCFullYear()}-${String(manila.getUTCMonth() + 1).padStart(2, "0")}-${String(manila.getUTCDate()).padStart(2, "0")}`;
+      const minuteOfDay = manila.getUTCHours() * 60 + manila.getUTCMinutes();
+      const tankRef = firestoreDb.collection("tanks").doc(owner.tankId);
+      const schedules = await tankRef.collection("feeder_schedules").get();
+      const prefs = await getUserPreferences(owner.uid);
 
-      // Read feeder schedules from Firestore
-      const schedSnap = await firestoreDb.collection("feederSchedules").get();
-      if (schedSnap.empty) return;
-      const schedData = {};
-      schedSnap.forEach((doc) => {
-        schedData[doc.id] = doc.data();
-      });
+      for (const schedule of schedules.docs) {
+        const data = schedule.data();
+        if (data.enabled === false || data.is_active === false) continue;
+        const timeValue = typeof data.timeValue === "number" ? data.timeValue : null;
+        if (timeValue === null) continue;
+        const markerKey = `feed_${dateKey}_${schedule.id}`;
+        const marker = await readMarker(owner.uid, markerKey);
+        if (marker) continue;
 
-      for (const [key, s] of Object.entries(schedData)) {
-        if (!s || s.enabled !== true) continue;
-
-        const time = s.time || "6:00";
-        const ampm = s.ampm || "AM";
-        let h = parseInt(time.split(":")[0]);
-        const m = parseInt(time.split(":")[1]);
-        if (ampm === "PM" && h !== 12) h += 12;
-        if (ampm === "AM" && h === 12) h = 0;
-
-        const scheduleDate = new Date(
-          Date.UTC(manilaNow.getUTCFullYear(), manilaNow.getUTCMonth(), manilaNow.getUTCDate(), h, m)
-        );
-
-        const uids = await getAuthorizedUids();
-        if (uids.length === 0) continue;
-
-        // ── Pre-arm (T-12m to T-5m) ──
-        const twelveMinBefore = new Date(scheduleDate.getTime() - 12 * 60 * 1000);
-        const fiveMinBefore = new Date(scheduleDate.getTime() - 5 * 60 * 1000);
-        if (manilaNow >= twelveMinBefore && manilaNow < fiveMinBefore) {
-          const hhmm = `${String(h).padStart(2, "0")}${String(m).padStart(2, "0")}`;
-          const preArmKey = `prearm_${yr}-${mo}-${dy}_${hhmm}`;
-          const scheduleEpoch = scheduleDate.getTime() - MANILA_OFFSET_MS;
-
-          await Promise.allSettled(
-            uids.map(async (uid) => {
-              const userSnap = await firestoreDb.collection("users").doc(uid).get();
-              const userData = userSnap.data() || {};
-              const tokens = getTokensFromUserData(userData);
-              if (tokens.length === 0) return;
-
-              const prefsSnap = await firestoreDb.collection("notifPrefs").doc(uid).get();
-              const prefs = prefsSnap.data() || {};
-              if (prefs.feeding === false) return;
-
-              const marker = await readMarker(uid, preArmKey);
-              if (marker) return;
-
-              await Promise.allSettled(
-                tokens.map(async (token) => {
-                  try {
-                    await admin.messaging().send({
-                      token,
-                      data: {
-                        type: "pre_arm",
-                        scheduleTime: time,
-                        scheduleAmPm: ampm,
-                        scheduleEpoch: String(scheduleEpoch),
-                      },
-                      android: { priority: "high" },
-                    });
-                  } catch (err) {
-                    if (
-                      err.code === "messaging/invalid-registration-token" ||
-                      err.code === "messaging/registration-token-not-registered"
-                    ) {
-                      await removeStaleToken(uid, token);
-                    }
-                  }
-                })
-              );
-              await saveMarker(uid, preArmKey, Date.now());
-              functions.logger.log(`[Pre-arm] Sent to ${uid} (${tokens.length} device(s)) for ${time} ${ampm}`);
-            })
-          );
-        }
-
-        // ── Feeding reminder (T-5m to T) ──
-        if (manilaNow >= fiveMinBefore && manilaNow < scheduleDate) {
-          const hhmm = `${String(h).padStart(2, "0")}${String(m).padStart(2, "0")}`;
-          const reminderKey = `reminder_${yr}-${mo}-${dy}_${hhmm}`;
-          const msg = `Your feeding schedule at ${time} ${ampm} will be dispensed in 5 minutes.`;
-          const scheduleEpoch = scheduleDate.getTime() - MANILA_OFFSET_MS;
-          const reminderTimestamp = scheduleEpoch - 5 * 60 * 1000;
-
-          const uniqueTargets = new Set();
-          await Promise.all(
-            uids.map(async (uid) => {
-              const target = await getNotificationTargetUid(uid);
-              uniqueTargets.add(target);
-            })
-          );
-
-          let workerWroteMarker = false;
-          await Promise.all(
-            Array.from(uniqueTargets).map(async (targetUid) => {
-              const marker = await readMarker(targetUid, reminderKey);
-              if (marker) return;
-              await writeNotification(targetUid, {
-                type: "reminder",
-                title: "Feeding Reminder",
-                message: msg,
-                timestamp: reminderTimestamp,
-              });
-              await saveMarker(targetUid, reminderKey, Date.now());
-              workerWroteMarker = true;
-            })
-          );
-
-          if (workerWroteMarker) {
-            await Promise.allSettled(
-              uids.map(async (uid) => {
-                await sendPush(uid, {
-                  notification: { title: "Feeding Reminder", body: msg },
-                  data: { feeding: "true" },
-                }, "feeding");
-              })
-            );
-          }
+        // Reminder five minutes before the configured schedule.
+        if (minuteOfDay === timeValue - 5 && prefs.feeding !== false) {
+          const time = data.time || data.feed_time || "";
+          const ampm = data.ampm || "";
+          const body = `Your feeding schedule at ${time} ${ampm} will be dispensed in 5 minutes.`;
+          await writeNotification(owner.uid, { type: "feeder", title: "Feeding Reminder", message: body });
+          await sendPush(owner.uid, { notification: { title: "Feeding Reminder", body }, data: { feeding: "true" } }, "feeding");
+          await saveMarker(owner.uid, markerKey, Date.now());
         }
       }
-
-      // ── Feeding Complete confirmation ──
-      const fsTodayKey = `${yr}-${manilaNow.getUTCMonth() + 1}-${manilaNow.getUTCDate()}`;
-      const dispSnap = await firestoreDb.collection("feederDispatched").doc(fsTodayKey).get();
-      if (dispSnap.exists) {
-        const dispatched = dispSnap.data() || {};
-        const confirmUids = await getAuthorizedUids();
-        if (confirmUids.length > 0) {
-          for (const [schedKey] of Object.entries(dispatched)) {
-            if (dispatched[schedKey] !== true) continue;
-            const s2Snap = await firestoreDb.collection("feederSchedules").doc(schedKey).get();
-            const s2 = s2Snap.exists ? s2Snap.data() : null;
-            if (!s2 || s2.enabled !== true) continue;
-
-            const time2 = s2.time || "6:00";
-            const ampm2 = s2.ampm || "AM";
-            let h2 = parseInt(time2.split(":")[0]);
-            const m2 = parseInt(time2.split(":")[1]);
-            if (ampm2 === "PM" && h2 !== 12) h2 += 12;
-            if (ampm2 === "AM" && h2 === 12) h2 = 0;
-            const hhmm2 = `${String(h2).padStart(2, "0")}${String(m2).padStart(2, "0")}`;
-            const confirmKey = `confirm_${yr}-${mo}-${dy}_${hhmm2}`;
-            const msg2 = `Scheduled feed at ${time2} ${ampm2} has been dispensed.`;
-
-            const uniqueTargets = new Set();
-            await Promise.all(
-              confirmUids.map(async (uid) => {
-                const target = await getNotificationTargetUid(uid);
-                uniqueTargets.add(target);
-              })
-            );
-
-            let confirmWroteMarker = false;
-            await Promise.all(
-              Array.from(uniqueTargets).map(async (targetUid) => {
-                const marker = await readMarker(targetUid, confirmKey);
-                if (marker) return;
-                await writeNotification(targetUid, {
-                  type: "reminder",
-                  title: "Feeding Complete",
-                  message: msg2,
-                });
-                await saveMarker(targetUid, confirmKey, Date.now());
-                confirmWroteMarker = true;
-              })
-            );
-
-            if (confirmWroteMarker) {
-              await Promise.allSettled(
-                confirmUids.map(async (uid) => {
-                  await sendPush(uid, {
-                    notification: { title: "Feeding Complete", body: msg2 },
-                    data: { feeding: "true" },
-                  }, "feeding");
-                })
-              );
-            }
-          }
-        }
-      }
+      return null;
     } catch (e) {
       functions.logger.error("processFeeding error:", e.message);
+      return null;
     }
   });
 
-// ═══════════════════════════════════════════════════════════════════════
-//  3. SAMPLING REMINDER (crayfish only) — scheduled every 1 minute
-// ═══════════════════════════════════════════════════════════════════════
 exports.processSampling = functions.region("asia-southeast1").pubsub
   .schedule("every 1 minutes")
-  .onRun(async (context) => {
+  .onRun(async () => {
     try {
-      const uids = await getAuthorizedUids();
-      if (uids.length === 0) return;
-
-      const uniqueTargets = new Set();
-      await Promise.all(
-        uids.map(async (uid) => {
-          const target = await getNotificationTargetUid(uid);
-          uniqueTargets.add(target);
-        })
-      );
-
-      // Check each target for crayfish sampling due
-      await Promise.all(
-        Array.from(uniqueTargets).map(async (targetUid) => {
-          const due = await getSamplingDue(targetUid);
-          if (due) {
-            await writeSamplingNotification(targetUid, due.daysSince);
-          }
-        })
-      );
-
-      // Send FCM pushes
-      await Promise.allSettled(
-        uids.map(async (uid) => {
-          try {
-            const notifTarget = await getNotificationTargetUid(uid);
-            await sendSamplingPush(uid, notifTarget);
-          } catch (err) {
-            functions.logger.error(`Sampling push failed for ${uid}:`, err.message);
-          }
-        })
-      );
+      const owner = await getCurrentHardwareOwner();
+      if (!owner) return null;
+      const due = await getSamplingDue(owner.uid);
+      if (!due) return null;
+      const wrote = await writeSamplingNotification(owner.uid, due.daysSince);
+      if (wrote) await sendSamplingPush(owner.uid, owner.uid);
+      return null;
     } catch (e) {
       functions.logger.error("processSampling error:", e.message);
+      return null;
     }
   });
 
@@ -674,10 +502,10 @@ async function getSamplingDue(notifTarget) {
   let lastSampleTs = null;
 
   try {
-    const snap = await firestoreDb
-      .collection("config")
-      .doc(notifTarget)
-      .get();
+    const profile = await firestoreDb.collection("users").doc(notifTarget).get();
+    const tankId = profile.exists ? (profile.data() || {}).tank_id : null;
+    if (!tankId) return null;
+    const snap = await firestoreDb.collection("tanks").doc(tankId).get();
     if (!snap.exists) return null;
     const config = snap.data() || {};
     if (!config.isInitialized) return null;
