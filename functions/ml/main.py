@@ -85,104 +85,74 @@ def _predict_wqc(df):
     return predict_wqc(df, bundle, recs)
 
 
-def _fetch_sensor_history(hours: int = 24):
-    """Fetch sensor readings from Firestore for the last N hours.
-
-    Uses Firestore .where() filtering to minimise data transfer.
-    """
+def _fetch_sensor_history(tank_id: str, hours: int = 24):
+    """Fetch one tank's canonical history documents from the final schema."""
     import pandas as pd
-    from firebase_admin import firestore
 
     db = _get_db()
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     now_utc = datetime.now(timezone.utc)
-    cutoff_ts = cutoff.timestamp()
-
-    # Collect all date strings in the window (may span multiple days)
-    date_set = set()
-    cur = cutoff.date()
-    while cur <= now_utc.date():
-        date_set.add(cur.strftime("%Y-%m-%d"))
-        cur += timedelta(days=1)
-
     rows = []
-    for date_str in sorted(date_set):
-        try:
-            # Use indexed Firestore filter instead of fetching everything
-            docs = (
-                db.collection("sensorReadings")
-                .document("history")
-                .collection(date_str)
-                .where("timestamp", ">=", cutoff_ts)
-                .order_by("timestamp")
-                .get()
-            )
-            for d in docs:
-                rows.append(d.to_dict())
-        except Exception as e:
-            print(f"[WQC] Error fetching history for {date_str}: {e}")
 
-    # Fallback: grab the most recent 144 rows from today's collection
-    if not rows:
-        today_str = now_utc.strftime("%Y-%m-%d")
+    # History is partitioned by Manila date: tanks/{tankId}/sensor_readings_history/{date}/entries.
+    manila_now = now_utc + timedelta(hours=8)
+    manila_cutoff = cutoff + timedelta(hours=8)
+    current_day = manila_cutoff.date()
+    while current_day <= manila_now.date():
+        date_key = current_day.strftime("%Y-%m-%d")
         try:
             docs = (
-                db.collection("sensorReadings")
-                .document("history")
-                .collection(today_str)
-                .order_by("timestamp", direction=firestore.Query.DESCENDING)
-                .limit(144)
-                .get()
+                db.collection("tanks").document(tank_id)
+                .collection("sensor_readings_history").document(date_key)
+                .collection("entries").where("recorded_at", ">=", cutoff).get()
             )
-            for d in docs:
-                rows.append(d.to_dict())
+            for doc in docs:
+                data = doc.to_dict()
+                recorded_at = data.get("recorded_at")
+                if not recorded_at:
+                    continue
+                # The ML feature pipeline uses these aggregate-style field names.
+                # Each canonical history document is one snapshot, so min/max/avg are equal.
+                temp = data.get("temperature", 0.0)
+                ph = data.get("ph_level", 0.0)
+                do = data.get("dissolved_oxygen", 0.0)
+                turb = data.get("turbidity", 0.0)
+                water = data.get("water_level", 0.0)
+                rows.append({
+                    "timestamp": recorded_at.timestamp(),
+                    "temp_avg": temp, "temp_min": temp, "temp_max": temp,
+                    "pH_avg": ph, "pH_min": ph, "pH_max": ph,
+                    "DO_avg": do, "DO_min": do, "DO_max": do,
+                    "turbidity_avg": turb, "turbidity_min": turb, "turbidity_max": turb,
+                    "waterLevel_avg": water, "waterLevel_min": water, "waterLevel_max": water,
+                })
         except Exception as e:
-            print(f"[WQC] Fallback fetch error: {e}")
+            print(f"[WQC] Error fetching {tank_id}/{date_key}: {e}")
+        current_day += timedelta(days=1)
 
-    if not rows:
-        return pd.DataFrame()
-
-    df = pd.DataFrame(rows)
-    required = {
-        "temp_avg",
-        "temp_min",
-        "temp_max",
-        "pH_avg",
-        "pH_min",
-        "pH_max",
-        "DO_avg",
-        "DO_min",
-        "DO_max",
-        "turbidity_avg",
-        "turbidity_min",
-        "turbidity_max",
-        "waterLevel_avg",
-        "waterLevel_min",
-        "waterLevel_max",
-    }
-    missing = required - set(df.columns)
-    for m in missing:
-        df[m] = 0.0
-    df = df.sort_values("timestamp")
-    return df
+    return pd.DataFrame(rows).sort_values("timestamp") if rows else pd.DataFrame()
 
 
 from firebase_functions import firestore_fn
 
 
 @firestore_fn.on_document_written(
-    document="sensorReadings/{ownerUid}", region="asia-southeast1"
+    document="tanks/{tankId}/sensor_readings/latest", region="asia-southeast1"
 )
 def on_sensor_update(event: firestore_fn.Event[firestore_fn.Change[firestore_fn.DocumentSnapshot]]) -> None:
-    """Triggered when sensorReadings/{ownerUid} is written. Runs Water Quality Classification."""
+    """Triggered when a tank's canonical latest sensor document is written."""
 
     after_data = event.data.after.to_dict() if event.data.after else None
     if not after_data:
         return
 
-    owner_uid = event.params.get("ownerUid", "")
+    tank_id = event.params.get("tankId", "")
+    if not tank_id:
+        return
+    tank = _get_db().collection("tanks").document(tank_id).get()
+    owner_uid = (tank.to_dict() or {}).get("owner_uid", "") if tank.exists else ""
 
-    df = _fetch_sensor_history()
+    df = _fetch_sensor_history(tank_id)
     db = _get_db()
 
     if df.empty or len(df) < 36:
@@ -197,14 +167,15 @@ def on_sensor_update(event: firestore_fn.Event[firestore_fn.Change[firestore_fn.
             "source": "System",
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-        db.collection("healthRisk").document(owner_uid or "latest").set(result)
+        db.collection("healthRisk").document(tank_id).set(result)
         return
 
     result = _predict_wqc(df)
+    result["tank_id"] = tank_id
     if owner_uid:
         result["uid"] = owner_uid
 
-    db.collection("healthRisk").document(owner_uid or "latest").set(result)
+    db.collection("healthRisk").document(tank_id).set(result)
     print(
         f"[WQC] Classification: {result['level']} (confidence={result['confidence']}%, driver={result['driver']})"
     )

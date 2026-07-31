@@ -1,24 +1,31 @@
-"""Export Firestore 10-min logs -> sensor_dataset.csv"""
+"""Export one tank's canonical 10-minute Firestore history to sensor_dataset.csv.
 
+Usage: CRAYCARE_TANK_ID=tank_juan_001 python export_firestore.py
+"""
+import os
 import firebase_admin
 from firebase_admin import credentials, firestore
 import pandas as pd
+
+TANK_ID = os.environ.get("CRAYCARE_TANK_ID")
+if not TANK_ID:
+    raise SystemExit("Set CRAYCARE_TANK_ID to the tank document ID before exporting.")
 
 cred = credentials.Certificate("serviceAccountKey.json")
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
-# Sensor history is stored as date-named subcollections under
-# sensorReadings/history/{date_str}, not a top-level "sensor_logs"
-# collection (see functions/ml/main.py's _fetch_sensor_history).
+# Final path: tanks/{tankId}/sensor_readings_history/{YYYY-MM-DD}/entries/{id}
 rows = []
-date_docs = db.collection("sensorReadings").document("history").collections()
-for date_collection in date_docs:
-    docs = date_collection.order_by("timestamp").stream()
-    rows.extend(d.to_dict() for d in docs)
+history_docs = (
+    db.collection("tanks").document(TANK_ID)
+    .collection("sensor_readings_history").collections()
+)
+for date_collection in history_docs:
+    rows.extend(d.to_dict() for d in date_collection.stream())
 
 df = pd.DataFrame(rows)
-if not df.empty and "timestamp" in df.columns:
-    df = df.sort_values("timestamp")
+if not df.empty and "recorded_at" in df.columns:
+    df = df.sort_values("recorded_at")
 df.to_csv("sensor_dataset.csv", index=False)
-print(f"Exported {len(df):,} rows from Firestore")
+print(f"Exported {len(df):,} readings for tank {TANK_ID}")

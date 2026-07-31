@@ -4,12 +4,13 @@ admin.initializeApp();
 
 const firestoreDb = admin.firestore(); // Firestore — user data & notifications
 
+// Final Firestore sensor field -> internal alert key.
 const SENSOR_MAP = {
   temperature: "temp",
-  phLevel: "ph",
-  dissolvedOxygen: "do",
+  ph_level: "ph",
+  dissolved_oxygen: "do",
   turbidity: "turb",
-  waterLevel: "waterlevel",
+  water_level: "waterlevel",
 };
 
 const LABELS = {
@@ -208,12 +209,12 @@ async function readMarker(uid, key) {
 //
 //  There is ONE hardware package. The ESP32 writes to a fixed path:
 //    sensorIngestion/current              (latest — patched every 5 s)
-//    sensorIngestion/current/history/*    (history — created every 60 s)
+//    sensorIngestion/current/history/*    (history — created every 10 min)
 //
 //  These two Cloud Functions trigger on those writes, look up the current
 //  owner via hardware_system/currentOwner { uid }, and copy into:
-//    sensorReadings/{ownerUid}                          (Flutter reads latest)
-//    sensorReadingsHistory/{ownerUid}/{YYYY-MM-DD}/{id} (Flutter reads history)
+//    tanks/{tankId}/sensor_readings/latest
+//    tanks/{tankId}/sensor_readings_history/{YYYY-MM-DD}/entries/{id}
 //
 //  Reassignment: admin updates hardware_system/currentOwner to a new uid.
 //  From that moment ALL new readings go to the new owner.
@@ -221,104 +222,99 @@ async function readMarker(uid, key) {
 //  ever moved or deleted. The ESP firmware never needs to be reflashed.
 // ═══════════════════════════════════════════════════════════════════════
 
-// ─── Resolve current owner UID ────────────────────────────────────────
-// Reads hardware_system/currentOwner — written by the admin app.
-async function getCurrentOwnerUid() {
+// ─── Hardware ownership routing ───────────────────────────────────────
+// The ESP always writes only to the private ingestion paths.  Functions use
+// hardware_system/currentOwner to resolve the assigned tank, so an ESP never
+// needs a user UID and changing the assignment takes effect immediately.
+async function getCurrentHardwareOwner() {
   const snap = await firestoreDb.collection("hardware_system").doc("currentOwner").get();
   if (!snap.exists) return null;
-  const data = snap.data();
-  return data && data.uid ? data.uid : null;
+  const data = snap.data() || {};
+  if (!data.uid || !data.tank_id) return null;
+  return { uid: data.uid, tankId: data.tank_id };
 }
 
-// ─── 0a. Route latest reading ─────────────────────────────────────────
-// Triggered when ESP patches sensorIngestion/current (every 5 s).
-// Copies all sensor fields into sensorReadings/{ownerUid}.
-// onSensorUpdate then fires on that per-owner document.
+function normalizeSensorReading(raw) {
+  // Accept the present ESP payload during migration, but write only the final
+  // thesis/app schema into tanks/{tankId}/... .
+  const reading = {
+    temperature: raw.temperature ?? null,
+    ph_level: raw.ph_level ?? raw.phLevel ?? null,
+    dissolved_oxygen: raw.dissolved_oxygen ?? raw.dissolvedOxygen ?? null,
+    turbidity: raw.turbidity ?? null,
+    water_level: raw.water_level ?? raw.waterLevelPercent ?? raw.waterLevel ?? null,
+    recorded_at: admin.firestore.FieldValue.serverTimestamp(),
+  };
+  return Object.fromEntries(Object.entries(reading).filter(([, value]) => value !== null));
+}
+
+// Latest ESP upload (every 5 seconds) -> active tank's canonical latest doc.
 exports.onSensorIngestionWrite = functions.region("asia-southeast1").firestore
   .document("sensorIngestion/current")
-  .onWrite(async (change, context) => {
+  .onWrite(async (change) => {
     if (!change.after.exists) return null;
-
-    const ownerUid = await getCurrentOwnerUid();
-    if (!ownerUid) {
-      functions.logger.warn("[Ingestion] No current owner assigned — sensor data dropped.");
+    const owner = await getCurrentHardwareOwner();
+    if (!owner) {
+      functions.logger.warn("[Ingestion] No hardware owner/tank assigned; latest reading not routed.");
       return null;
     }
-
-    const sensorData = change.after.data();
-    await firestoreDb.collection("sensorReadings").doc(ownerUid).set({
-      ...sensorData,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-
-    functions.logger.log(`[Ingestion] Latest routed -> sensorReadings/${ownerUid}`);
+    await firestoreDb.collection("tanks").doc(owner.tankId)
+      .collection("sensor_readings").doc("latest")
+      .set(normalizeSensorReading(change.after.data()), { merge: true });
+    functions.logger.log(`[Ingestion] Latest routed -> tanks/${owner.tankId}/sensor_readings/latest`);
     return null;
   });
 
-// ─── 0b. Route history entries ────────────────────────────────────────
-// Triggered when ESP creates sensorIngestion/current/history/{docId} (every 60 s).
-// Copies into sensorReadingsHistory/{ownerUid}/{YYYY-MM-DD}/{docId}.
-// Each owner accumulates their own history; previous owners keep theirs forever.
+// Historical ESP upload -> canonical tank history path.
 exports.onSensorIngestionHistoryCreate = functions.region("asia-southeast1").firestore
   .document("sensorIngestion/current/history/{docId}")
   .onCreate(async (snap, context) => {
-    const { docId } = context.params;
-
-    const ownerUid = await getCurrentOwnerUid();
-    if (!ownerUid) {
-      functions.logger.warn("[Ingestion] No current owner assigned — history entry dropped.");
+    const owner = await getCurrentHardwareOwner();
+    if (!owner) {
+      functions.logger.warn("[Ingestion] No hardware owner/tank assigned; history reading not routed.");
       return null;
     }
-
-    const sensorData = snap.data();
-
-    // Manila-timezone date key (system runs in PH time).
-    const manilaOffset = 8 * 60 * 60 * 1000;
-    const manilaTime = new Date(Date.now() + manilaOffset);
-    const dateKey = [
-      manilaTime.getUTCFullYear(),
-      String(manilaTime.getUTCMonth() + 1).padStart(2, "0"),
-      String(manilaTime.getUTCDate()).padStart(2, "0"),
-    ].join("-");
-
-    await firestoreDb
-      .collection("sensorReadingsHistory")
-      .doc(ownerUid)
-      .collection(dateKey)
-      .doc(docId)
-      .set({ ...sensorData, ownerUid });
-
-    functions.logger.log(`[Ingestion] History routed -> sensorReadingsHistory/${ownerUid}/${dateKey}/${docId}`);
+    const manilaTime = new Date(Date.now() + MANILA_OFFSET_MS);
+    const dateKey = [manilaTime.getUTCFullYear(), String(manilaTime.getUTCMonth() + 1).padStart(2, "0"), String(manilaTime.getUTCDate()).padStart(2, "0")].join("-");
+    await firestoreDb.collection("tanks").doc(owner.tankId)
+      .collection("sensor_readings_history").doc(dateKey)
+      .collection("entries").doc(context.params.docId)
+      .set(normalizeSensorReading(snap.data()));
+    functions.logger.log(`[Ingestion] History routed -> tanks/${owner.tankId}/sensor_readings_history/${dateKey}/entries/${context.params.docId}`);
     return null;
   });
 
 // ═══════════════════════════════════════════════════════════════════════
-//  1. SENSOR ALERT — triggered on every write to sensorReadings/{ownerUid}
+//  1. SENSOR ALERT — triggered on every write to tanks/{tankId}/sensor_readings/latest
 // ═══════════════════════════════════════════════════════════════════════
 exports.onSensorUpdate = functions.region("asia-southeast1").firestore
-  .document("sensorReadings/{ownerUid}")
+  .document("tanks/{tankId}/sensor_readings/latest")
   .onWrite(async (change, context) => {
     const afterData = change.after.exists ? change.after.data() : null;
     const beforeData = change.before.exists ? change.before.data() : null;
     if (!afterData) return;
 
-    const { ownerUid } = context.params;
+    const { tankId } = context.params;
 
     try {
-      // Read thresholds from the owner's config doc
-      const configSnap = await firestoreDb.collection("config").doc(ownerUid).get();
-      const config = configSnap.data();
-      if (!config) return;
+      const tankSnap = await firestoreDb.collection("tanks").doc(tankId).get();
+      const ownerUid = tankSnap.exists ? tankSnap.data().owner_uid : null;
+      if (!ownerUid) return;
 
-      const ranges = config.ranges;
-      if (!ranges) return;
+      // Thresholds use the canonical per-tank sensor documents.
+      const thresholds = {};
+      const sensorsSnap = await firestoreDb.collection("tanks").doc(tankId).collection("sensors").get();
+      sensorsSnap.forEach((doc) => {
+        const data = doc.data();
+        thresholds[doc.id] = { min: data.min_value, max: data.max_value };
+      });
 
       const stateChanges = [];
 
       for (const [espKey, svcKey] of Object.entries(SENSOR_MAP)) {
         const newVal = afterData[espKey];
         const oldVal = beforeData ? beforeData[espKey] : null;
-        const range = ranges[svcKey];
+        const range = thresholds[espKey];
         if (newVal == null || !range) continue;
 
         const isCritical =

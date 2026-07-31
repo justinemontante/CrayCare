@@ -34,13 +34,12 @@
  *   Reset: send "RESET_WIFI" over Serial.
  *
  * Firestore ingestion paths (written by ESP32):
- *  sensorIngestion/{hardwareId}           -> overwritten every 5s (latest)
- *  sensorIngestion/{hardwareId}/history/  -> pushed every 60s (time-series)
+ *  sensorIngestion/current                  -> latest payload every 5 seconds
+ *  sensorIngestion/current/history/{docId}  -> history payload every 10 minutes
  *
- * A Cloud Function resolves hardwareId -> ownerUid via
- * hardwareAssignments/{hardwareId} and copies data into:
- *  sensorReadings/{ownerUid}              -> Flutter reads latest
- *  sensorReadings/history/{date}/{doc}    -> Flutter reads history
+ * Cloud Functions resolve hardware_system/currentOwner.tank_id and route to:
+ *  tanks/{tankId}/sensor_readings/latest
+ *  tanks/{tankId}/sensor_readings_history/{YYYY-MM-DD}/entries/{docId}
  *
  * All Firebase operations use Firestore only — zero RTDB calls.
  * Feeder commands/status/schedules/logs all migrated to Firestore.
@@ -72,15 +71,12 @@ String pass;
 #define FIREBASE_DATABASE_URL   "https://craycare-8436c-default-rtdb.asia-southeast1.firebasedatabase.app"
 #define FIREBASE_PROJECT_ID     "craycare-8436c"
 
-// Firestore sensor ingestion paths (keyed by hardware ID)
-// Full path resolved at runtime: sensorIngestion/{hardwareId}
+// Firestore staging paths. Cloud Functions route these to the assigned tank.
 #define FIRESTORE_INGESTION_COLLECTION "sensorIngestion"
 
 // All Firebase operations now use Firestore (zero RTDB calls)
-// Config: Flutter writes config/default; ESP32 reads it on boot + every 10s
-#define FIRESTORE_CONFIG_DOC           "config/default"
+// Thresholds are read from tanks/{currentTankId}/sensors/{sensorName}.
 // Calibration upload: ESP32 writes its current calibration on boot
-#define FIRESTORE_SENSOR_CONFIG_COL    "sensorConfig"
 // Feeder Firestore paths (Flutter <-> ESP32 coordination)
 #define FIRESTORE_FEEDER_COMMANDS_COL  "feederCommands"
 #define FIRESTORE_FEEDER_STATUS_DOC    "feederStatus/status"
@@ -92,7 +88,7 @@ String hardwareId = "";
 String currentTankId = "";
 
 #define FIREBASE_SEND_INTERVAL_MS 5000
-#define HISTORY_SEND_INTERVAL_MS 60000
+#define HISTORY_SEND_INTERVAL_MS 600000  // 10 minutes; matches the documented schema
 #define CONFIG_SYNC_INTERVAL_MS 10000
 #define SENSOR_POLL_MS 500
 
@@ -105,6 +101,7 @@ String currentTankId = "";
 #define FEEDER_MAX_SCHEDULES 20
 
 // Resolve tank_id from hardware_system/currentOwner (used for subcollection paths)
+bool ensureFirebaseReady();
 void fetchTankId() {
   if (!ensureFirebaseReady()) return;
   // Read hardware_system/currentOwner to get tank_id for subcollection paths
@@ -117,12 +114,6 @@ void fetchTankId() {
   FirebaseJsonData d;
   if (resp.get(d, "fields/tank_id/stringValue")) {
     currentTankId = d.stringValue;
-  } else if (resp.get(d, "fields/tank_id/stringValue")) {
-    // try with different key name just in case
-    currentTankId = d.stringValue;
-  }
-  if (currentTankId.length() == 0 && resp.get(d, "fields/uid/stringValue")) {
-    currentTankId = d.stringValue; // fallback
   }
   Serial.printf("[ESP] Resolved tank_id = %s\n", currentTankId.c_str());
 }
@@ -328,15 +319,6 @@ float computeAverage(float buffer[], uint8_t count) {
   return sum / n;
 }
 
-unsigned long getEpochMillis() {
-  time_t now;
-  time(&now);
-
-  if (now < 1700000000) return 0;
-
-  return (unsigned long)now * 1000UL;
-}
-
 // ============================================================
 //  TURBIDITY: VOLTAGE -> NTU CONVERSION
 //  Based on calibrated field data:
@@ -502,86 +484,53 @@ bool readRangeConfig(FirebaseJson& doc, const char* sensorKey,
 bool ensureFirebaseReady();
 
 // ============================================================
-//  CONFIG SYNC — Read threshold config from Firestore config/default
-//  Flutter settings_service.dart writes this document.
-//  Structure: { ranges: { temp: {min,max}, turb: {min,max}, ... },
-//               turbidityVClear, turbidityVDirty, turbidityVAirMax, ... }
+//  CONFIG SYNC — Read per-tank thresholds from the final Firestore schema.
 // ============================================================
-void syncConfigFromFirebase() {
-  if (!ensureFirebaseReady()) return;
-
-  if (!Firebase.Firestore.getDocument(&fbdo, FIREBASE_PROJECT_ID, "",
-                                      FIRESTORE_CONFIG_DOC, "")) {
-    Serial.printf("[CONFIG] Fetch failed: %s\n", fbdo.errorReason().c_str());
-    return;
+// Read one threshold document from the final schema:
+// tanks/{tankId}/sensors/{temperature|ph_level|dissolved_oxygen|turbidity|water_level}
+bool syncTankRange(const char* sensorDoc, float &lowTarget, float &highTarget,
+                   float minLimit, float maxLimit) {
+  String path = String("tanks/") + currentTankId + "/sensors/" + sensorDoc;
+  if (!Firebase.Firestore.getDocument(&fbdo, FIREBASE_PROJECT_ID, "", path.c_str(), "")) {
+    Serial.printf("[CONFIG] %s unavailable: %s\n", path.c_str(), fbdo.errorReason().c_str());
+    return false;
   }
-
   FirebaseJson doc;
   doc.setJsonData(fbdo.payload());
+  float low = lowTarget, high = highTarget;
+  bool gotLow = readConfigFloatPath(doc, "fields/min_value/doubleValue", low, minLimit, maxLimit);
+  bool gotHigh = readConfigFloatPath(doc, "fields/max_value/doubleValue", high, minLimit, maxLimit);
+  if (!gotLow || !gotHigh || low >= high) {
+    Serial.printf("[CONFIG] Invalid threshold document: %s\n", path.c_str());
+    return false;
+  }
+  lowTarget = low;
+  highTarget = high;
+  return true;
+}
 
-  // Snapshot current values for rollback on invalid config
-  float oldTempLow = tempCriticalLow,    oldTempHigh = tempCriticalHigh;
-  float oldVClear  = turbidityVClear,    oldVDirty   = turbidityVDirty,
-        oldVAirMax = turbidityVAirMax;
-  float oldTurbMin = turbNtuMin,         oldTurbMax  = turbNtuMax;
-  float oldDOLow   = doCriticalLow,      oldDOHigh   = doCriticalHigh;
-  float oldPHLow   = phCriticalLow,      oldPHHigh   = phCriticalHigh;
-  float oldWatLow  = waterLevelCriticalLow, oldWatHigh = waterLevelCriticalHigh;
-
-  bool gotAny = false;
-
-  // Ranges map (written by Flutter as { ranges: { temp: {min,max}, ... } })
-  gotAny |= readRangeConfig(doc, "temp",       tempCriticalLow,       tempCriticalHigh,       0.0,   50.0);
-  gotAny |= readRangeConfig(doc, "turb",       turbNtuMin,            turbNtuMax,             0.0, 1000.0);
-  gotAny |= readRangeConfig(doc, "do",         doCriticalLow,         doCriticalHigh,         0.0,   30.0);
-  gotAny |= readRangeConfig(doc, "ph",         phCriticalLow,         phCriticalHigh,         0.0,   14.0);
-  gotAny |= readRangeConfig(doc, "waterlevel", waterLevelCriticalLow, waterLevelCriticalHigh, 0.0,  100.0);
-
-  // Turbidity voltage calibration (top-level scalar fields)
-  gotAny |= readConfigFloatPath(doc, "fields/turbidityVClear/doubleValue",  turbidityVClear,  0.0, 3.3);
-  gotAny |= readConfigFloatPath(doc, "fields/turbidityVDirty/doubleValue",  turbidityVDirty,  0.0, 3.3);
-  gotAny |= readConfigFloatPath(doc, "fields/turbidityVAirMax/doubleValue", turbidityVAirMax, 0.0, 3.3);
-
-  // Probe calibration
-  gotAny |= readConfigFloatPath(doc, "fields/doVoltageScale/doubleValue",       doVoltageScale,       -100.0, 100.0);
-  gotAny |= readConfigFloatPath(doc, "fields/doVoltageOffset/doubleValue",      doVoltageOffset,      -100.0, 100.0);
-  gotAny |= readConfigFloatPath(doc, "fields/phVoltageSlope/doubleValue",       phVoltageSlope,       -100.0, 100.0);
-  gotAny |= readConfigFloatPath(doc, "fields/phVoltageIntercept/doubleValue",   phVoltageIntercept,   -100.0, 100.0);
-  gotAny |= readConfigFloatPath(doc, "fields/waterLevelVoltageMin/doubleValue", waterLevelVoltageMin, 0.0, 3.3);
-  gotAny |= readConfigFloatPath(doc, "fields/waterLevelVoltageMax/doubleValue", waterLevelVoltageMax, 0.0, 3.3);
-
-  // Cross-field validation
-  bool invalid = false;
-  if (tempCriticalLow        >= tempCriticalHigh)       { invalid = true; Serial.println("[CONFIG SKIP] temp: low >= high"); }
-  if (turbidityVDirty        >= turbidityVClear)        { invalid = true; Serial.println("[CONFIG SKIP] turbV: dirty >= clear"); }
-  if (turbNtuMin             >= turbNtuMax)             { invalid = true; Serial.println("[CONFIG SKIP] turbNTU: min >= max"); }
-  if (doCriticalLow          >= doCriticalHigh)         { invalid = true; Serial.println("[CONFIG SKIP] DO: low >= high"); }
-  if (phCriticalLow          >= phCriticalHigh)         { invalid = true; Serial.println("[CONFIG SKIP] pH: low >= high"); }
-  if (waterLevelCriticalLow  >= waterLevelCriticalHigh) { invalid = true; Serial.println("[CONFIG SKIP] water: low >= high"); }
-  if (waterLevelVoltageMin   >= waterLevelVoltageMax)   { invalid = true; Serial.println("[CONFIG SKIP] waterV: min >= max"); }
-
-  if (invalid) {
-    // Rollback
-    tempCriticalLow = oldTempLow;     tempCriticalHigh = oldTempHigh;
-    turbidityVClear = oldVClear;      turbidityVDirty  = oldVDirty;  turbidityVAirMax = oldVAirMax;
-    turbNtuMin      = oldTurbMin;     turbNtuMax       = oldTurbMax;
-    doCriticalLow   = oldDOLow;       doCriticalHigh   = oldDOHigh;
-    phCriticalLow   = oldPHLow;       phCriticalHigh   = oldPHHigh;
-    waterLevelCriticalLow = oldWatLow; waterLevelCriticalHigh = oldWatHigh;
+// Thresholds are owned by the currently assigned tank. The ESP obtains its
+// tank ID from hardware_system/currentOwner, never from a user UID.
+void syncConfigFromFirebase() {
+  fetchTankId();
+  if (currentTankId.length() == 0) {
+    Serial.println("[CONFIG] No tank assigned; retaining firmware defaults.");
     return;
   }
 
-  if (!gotAny) {
-    Serial.println("[CONFIG] No Firestore config found — using firmware defaults.");
-    return;
-  }
+  bool changed = false;
+  changed |= syncTankRange("temperature",       tempCriticalLow,       tempCriticalHigh,       0.0,   50.0);
+  changed |= syncTankRange("turbidity",         turbNtuMin,            turbNtuMax,             0.0, 1000.0);
+  changed |= syncTankRange("dissolved_oxygen",  doCriticalLow,         doCriticalHigh,          0.0,   30.0);
+  changed |= syncTankRange("ph_level",          phCriticalLow,         phCriticalHigh,          0.0,   14.0);
+  changed |= syncTankRange("water_level",       waterLevelCriticalLow, waterLevelCriticalHigh,  0.0,  100.0);
 
-  Serial.printf("[CONFIG] Temp %.1f-%.1f°C | Turb %.0f-%.0f NTU | DO %.1f-%.1f | pH %.1f-%.1f | Water %.1f-%.1f%%\n",
-                tempCriticalLow, tempCriticalHigh,
-                turbNtuMin, turbNtuMax,
-                doCriticalLow, doCriticalHigh,
-                phCriticalLow, phCriticalHigh,
-                waterLevelCriticalLow, waterLevelCriticalHigh);
+  if (changed) {
+    Serial.printf("[CONFIG] Tank %s | Temp %.1f-%.1f | Turb %.0f-%.0f | DO %.1f-%.1f | pH %.1f-%.1f | Water %.1f-%.1f%%\n",
+                  currentTankId.c_str(), tempCriticalLow, tempCriticalHigh,
+                  turbNtuMin, turbNtuMax, doCriticalLow, doCriticalHigh,
+                  phCriticalLow, phCriticalHigh, waterLevelCriticalLow, waterLevelCriticalHigh);
+  }
 }
 
 // ============================================================
@@ -617,31 +566,6 @@ bool ensureFirebaseReady() {
 }
 
 // ============================================================
-//  FIREBASE CONFIG PUSH — ESP32 uploads its calibration to Firestore
-//  Path: sensorConfig/{hardwareId}
-//  Admin screen can read this to confirm what values the board is using.
-// ============================================================
-void sendConfigToFirebase() {
-  if (!ensureFirebaseReady()) return;
-  String hwId = getHardwareId();
-  String path = String(FIRESTORE_SENSOR_CONFIG_COL) + "/" + hwId;
-
-  FirebaseJson cfg;
-  cfg.set("fields/hardwareId/stringValue",        hwId);
-  cfg.set("fields/turbidityVClear/doubleValue",   turbidityVClear);
-  cfg.set("fields/turbidityVDirty/doubleValue",   turbidityVDirty);
-  cfg.set("fields/turbidityVAirMax/doubleValue",  turbidityVAirMax);
-
-  if (Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "",
-        path.c_str(), &cfg,
-        "hardwareId,turbidityVClear,turbidityVDirty,turbidityVAirMax")) {
-    Serial.printf("[CONFIG PUSH] Calibration sent to Firestore %s\n", path.c_str());
-  } else {
-    Serial.printf("[CONFIG PUSH] Failed: %s\n", fbdo.errorReason().c_str());
-  }
-}
-
-// ============================================================
 //  FIRESTORE PAYLOAD BUILDER
 //  Formats sensor readings as Firestore typed-value JSON.
 //  Used for both latest (patch) and history (create) writes.
@@ -653,42 +577,35 @@ void buildFirestorePayload(FirebaseJson &json, bool includeTimestamp) {
   json.set("fields/temperature/doubleValue", smoothedTemp);
 
   if (turbiditySensorOK) {
-    json.set("fields/turbidityAir/booleanValue", false);
+    json.set("fields/turbidity_air/booleanValue", false);
     json.set("fields/turbidity/doubleValue", smoothedTurbidityNTU);
   } else {
-    json.set("fields/turbidityAir/booleanValue", true);
+    json.set("fields/turbidity_air/booleanValue", true);
     json.set("fields/turbidity/doubleValue", 0.0);
   }
 
   if (ENABLE_DO_SENSOR) {
-    json.set("fields/dissolvedOxygen/doubleValue", dissolvedOxygen);
+    json.set("fields/dissolved_oxygen/doubleValue", dissolvedOxygen);
   }
 
   if (ENABLE_PH_SENSOR) {
-    json.set("fields/phLevel/doubleValue", phLevel);
+    json.set("fields/ph_level/doubleValue", phLevel);
   }
 
   if (ENABLE_WATER_LEVEL_SENSOR) {
-    json.set("fields/waterLevelPercent/doubleValue", waterLevelPercent);
+    json.set("fields/water_level/doubleValue", waterLevelPercent);
   }
 
-  if (includeTimestamp) {
-    // Firestore integerValue must be a string when > 32-bit
-    json.set("fields/timestamp/integerValue", String(getEpochMillis()));
-  }
-
-  // Always include lastSeen so the Flutter app can display device status
-  time_t now;
-  time(&now);
-  unsigned long epochMs = (now > 1700000000) ? (unsigned long)now * 1000UL : 0;
-  json.set("fields/lastSeen/integerValue", String(epochMs));
+  // Final tank documents receive recorded_at from the Cloud Function using
+  // Firestore serverTimestamp(), avoiding invalid ESP clock/32-bit epochs.
+  (void)includeTimestamp;
 }
 
 // ─── Write latest sensor reading to Firestore ───────────────────────
 // Path: sensorIngestion/current  (fixed doc — patch, overwrites in place)
 // Cloud Function onSensorIngestionWrite triggers here, reads
 // hardware_system/currentOwner to get ownerUid, and copies data into
-// sensorReadings/{ownerUid} for the Flutter app to read.
+// tanks/{tankId}/sensor_readings/latest for the Flutter app to read.
 // The ESP never knows any user UID — ownership is resolved server-side.
 void sendLatestToFirestore() {
   if (!ensureFirebaseReady()) return;
@@ -708,10 +625,10 @@ void sendLatestToFirestore() {
 }
 
 // ─── Write history entry to Firestore ───────────────────────────────
-// Path: sensorIngestion/current/history  (create — auto-ID doc every 60s)
+// Path: sensorIngestion/current/history  (create — auto-ID doc every 10 minutes)
 // Cloud Function onSensorIngestionHistoryCreate triggers here, reads
 // hardware_system/currentOwner, and saves into
-// sensorReadingsHistory/{ownerUid}/{YYYY-MM-DD}/{autoId}.
+// tanks/{tankId}/sensor_readings_history/{YYYY-MM-DD}/entries/{autoId}.
 void sendHistoryToFirestore() {
   if (!ensureFirebaseReady()) return;
 
@@ -930,16 +847,16 @@ void setup() {
   initTime();
   connectFirebase();
   getHardwareId();  // resolve MAC-based ID after WiFi is up
+  fetchTankId();
   syncConfigFromFirebase();
-  sendConfigToFirebase();
   initFeeder();
   syncFeederSchedules();
 
   Serial.println("============================================");
   Serial.println("  CrayCare Monitor — Firestore Ingestion");
   Serial.printf("  Hardware ID : %s\n", hardwareId.c_str());
-  Serial.printf("  Ingestion   : %s/%s\n", FIRESTORE_INGESTION_COLLECTION, hardwareId.c_str());
-  Serial.printf("  Config path : Firestore %s\n", FIRESTORE_CONFIG_DOC);
+  Serial.printf("  Ingestion   : %s/current\n", FIRESTORE_INGESTION_COLLECTION);
+  Serial.printf("  Tank config : tanks/%s/sensors\n", currentTankId.c_str());
   Serial.println("  Turbidity: NTU (calibrated)");
   Serial.println("============================================");
 }
@@ -1022,7 +939,7 @@ void loop() {
 
   if (now - lastFirebaseSendTime >= FIREBASE_SEND_INTERVAL_MS) {
     lastFirebaseSendTime = now;
-    // Sensor writes go to Firestore; lastSeen is embedded in the payload.
+    // Sensor writes go to Firestore; Cloud Functions add recorded_at server timestamps.
     sendLatestToFirestore();
   }
 
