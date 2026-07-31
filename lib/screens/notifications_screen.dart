@@ -16,7 +16,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   List<NotificationItem> get _filtered {
     final all = NotificationService.instance.notifications;
     if (_activeFilter == 'all') return all;
-    return all.where((n) => n.type == _activeFilter).toList();
+    return all.where((n) => n.notif_type == _activeFilter).toList();
   }
 
   @override
@@ -110,7 +110,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Widget _buildFilterRow() {
-    // FIX: Changed 'reminders' to 'reminder' para mag-match sa object n.type
+    // FIX: Changed 'reminders' to 'reminder' para mag-match sa object n.notif_type
     final filters = ['all', 'critical', 'warning', 'operational', 'reminder'];
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
@@ -186,7 +186,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   Widget _buildList() {
     final grouped = <String, List<NotificationItem>>{};
     for (var n in _filtered) {
-      final key = _dateGroupKey(n.timestamp);
+      final key = _dateGroupKey(n.created_at);
       grouped.putIfAbsent(key, () => []).add(n);
     }
 
@@ -215,7 +215,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Widget _buildNotificationItem(NotificationItem n) {
-    final color = _typeColor(n.type);
+    final color = _typeColor(n.notif_type);
     final isUnread = NotificationService.instance.unreadStatus(n.id);
     return GestureDetector(
       onTap: () => _showDetail(n),  // markAsRead happens inside _showDetail
@@ -242,7 +242,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 color: color.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Icon(_typeIcon(n.type), size: 14, color: color),
+              child: Icon(_typeIcon(n.notif_type), size: 14, color: color),
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -274,7 +274,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    n.message,
+                    n.body,
                     style: TextStyle(
                       fontSize: 10,
                       color: AppColors.darkWith(0.6),
@@ -284,7 +284,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    _timeAgo(n.timestamp),
+                    _timeAgo(n.created_at),
                     style: TextStyle(
                       fontSize: 9,
                       color: AppColors.darkWith(0.4),
@@ -324,8 +324,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   void _showDetail(NotificationItem n) {
-    final color = _typeColor(n.type);
-    // Mark as read as soon as the user opens the detail — per-user via readBy/{uid} in Firebase.
+    final color = _typeColor(n.notif_type);
+    // Mark as read as soon as the user opens the detail — per-user via is_read / per-user in Firebase.
     // Each user's read state is independent; tapping here only marks IT for the current user.
     NotificationService.instance.markAsRead(n.id);
 
@@ -367,7 +367,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         color: color.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: Icon(_typeIcon(n.type), size: 20, color: color),
+                      child: Icon(_typeIcon(n.notif_type), size: 20, color: color),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -384,7 +384,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            _timeAgo(n.timestamp),
+                            _timeAgo(n.created_at),
                             style: TextStyle(
                               fontSize: 10,
                               color: AppColors.darkWith(0.4),
@@ -433,7 +433,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     border: Border.all(color: AppColors.darkWith(0.08)),
                   ),
                   child: Text(
-                    n.message,
+                    n.body,
                     style: TextStyle(
                       fontSize: 12,
                       color: AppColors.darkWith(0.8),
@@ -446,7 +446,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 Padding(
                   padding: const EdgeInsets.only(left: 2),
                   child: Text(
-                    '${n.timestamp.month}/${n.timestamp.day}/${n.timestamp.year} · ${n.timestamp.hour.toString().padLeft(2, '0')}:${n.timestamp.minute.toString().padLeft(2, '0')}',
+                    '${n.created_at.month}/${n.created_at.day}/${n.created_at.year} · ${n.created_at.hour.toString().padLeft(2, '0')}:${n.created_at.minute.toString().padLeft(2, '0')}',
                     style: TextStyle(
                       fontSize: 9,
                       color: AppColors.darkWith(0.35),
