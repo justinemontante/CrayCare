@@ -100,7 +100,13 @@ Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
-        final prefsDoc = await FirebaseFirestore.instance.collection('notifPrefs').doc(user.uid).get();
+        // notifPrefs migrated to users/{uid}/notification_settings/preferences
+        final prefsDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .collection('notification_settings')
+            .doc('preferences')
+            .get();
         if (prefsDoc.exists && prefsDoc.data() != null) {
           final map = prefsDoc.data()!;
 
@@ -199,7 +205,11 @@ Future<void> _handlePreArm(Map<String, String> data) async {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
         final prefsDoc = await FirebaseFirestore.instance
-            .collection('notifPrefs').doc(user.uid).get();
+            .collection('users')
+            .doc(user.uid)
+            .collection('notification_settings')
+            .doc('preferences')
+            .get();
         if (prefsDoc.exists && prefsDoc.data() != null) {
           final prefs = prefsDoc.data()!;
           playSound = prefs['sound'] != false;
@@ -645,8 +655,10 @@ class NotificationService extends ChangeNotifier {
     if (user == null) return;
     _prefsSub?.cancel();
     _prefsSub = FirebaseFirestore.instance
-        .collection('notifPrefs')
+        .collection('users')
         .doc(user.uid)
+        .collection('notification_settings')
+        .doc('preferences')
         .snapshots()
         .listen((doc) {
           if (!doc.exists || doc.data() == null) return;
@@ -1170,6 +1182,12 @@ class NotificationService extends ChangeNotifier {
 
     docRef.set({
       'uid': uid,
+      // New schema field names (notifications/{notif_id}):
+      'notif_type': notif.type,
+      'body': notif.message,
+      'created_at': FieldValue.serverTimestamp(),
+      'is_read': false,
+      // Legacy field names kept so existing listeners/UI keep working.
       'type': notif.type,
       'title': notif.title,
       'message': notif.message,
@@ -1195,6 +1213,7 @@ class NotificationService extends ChangeNotifier {
     for (final n in _notifications) {
       fs.collection('notifications').doc(n.id).update({
         'readBy.$uid': true,
+        'is_read': true,
       }).catchError((_) {});
     }
   }
@@ -1208,6 +1227,7 @@ class NotificationService extends ChangeNotifier {
         notifyListeners();
         FirebaseFirestore.instance.collection('notifications').doc(id).update({
           'readBy.$uid': true,
+          'is_read': true,
         }).catchError((_) {});
         return;
       }
@@ -1244,10 +1264,13 @@ class NotificationService extends ChangeNotifier {
   Future<void> _saveMarker(String key, dynamic value) async {
     if (_uid.isEmpty) return;
     try {
+      // Markers now live under the user doc: users/{uid}/notif_markers/{key}
       await FirebaseFirestore.instance
-          .collection('notifMarkers')
-          .doc('${_uid}_$key')
-          .set({'uid': _uid, 'markerKey': key, 'value': value, 'updatedAt': FieldValue.serverTimestamp()});
+          .collection('users')
+          .doc(_uid)
+          .collection('notif_markers')
+          .doc(key)
+          .set({'markerKey': key, 'value': value, 'updatedAt': FieldValue.serverTimestamp()});
     } catch (e) {
       debugPrint('[NotificationService] Failed to save marker: $e');
     }
@@ -1257,8 +1280,10 @@ class NotificationService extends ChangeNotifier {
     if (_uid.isEmpty) return null;
     try {
       final doc = await FirebaseFirestore.instance
-          .collection('notifMarkers')
-          .doc('${_uid}_$key')
+          .collection('users')
+          .doc(_uid)
+          .collection('notif_markers')
+          .doc(key)
           .get();
       if (doc.exists && doc.data() != null) {
         final data = doc.data()!;

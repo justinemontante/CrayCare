@@ -39,6 +39,10 @@ class SensorService extends ChangeNotifier {
 
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _subscription;
 
+  /// Resolved tank_id for the signed-in user (from users/{uid}.tank_id).
+  /// Sensor data now lives at tanks/{tank_id}/sensor_readings/latest.
+  String? _tankId;
+
   final Map<String, List<double>> _history = {};
   final Map<String, double> _latest = {};
   bool? _turbidityAir;
@@ -134,7 +138,7 @@ class SensorService extends ChangeNotifier {
     return rate <= -fastThreshold ? 'falling_fast' : 'falling';
   }
 
-  void _initFirebaseListener() {
+  void _initFirebaseListener() async {
     _subscription?.cancel();
     _initialDataLoaded = false;
     _staleTimer?.cancel();
@@ -146,9 +150,28 @@ class SensorService extends ChangeNotifier {
     });
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
+
+    // Resolve tank_id from the user's profile — sensor data lives under
+    // tanks/{tank_id}/sensor_readings/latest, not tied directly to uid.
+    try {
+      final profileDoc =
+          await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      _tankId = profileDoc.data()?['tank_id'] as String?;
+    } catch (e) {
+      debugPrint('[SensorService] Failed to resolve tank_id: $e');
+    }
+    final tankId = _tankId;
+    if (tankId == null) {
+      _lastError = 'No tank assigned to this account yet.';
+      notifyListeners();
+      return;
+    }
+
     _subscription = FirebaseFirestore.instance
-        .collection('sensorReadings')
-        .doc(uid)
+        .collection('tanks')
+        .doc(tankId)
+        .collection('sensor_readings')
+        .doc('latest')
         .snapshots()
         .listen(
       (snapshot) {
@@ -171,7 +194,7 @@ class SensorService extends ChangeNotifier {
   }
 
   DateTime? _extractTimestamp(Map<String, dynamic> data) {
-    final rawTs = data['timestamp'] ?? data['updatedAt'] ?? data['time'];
+    final rawTs = data['recorded_at'] ?? data['timestamp'] ?? data['updatedAt'] ?? data['time'];
     if (rawTs == null) return null;
     if (rawTs is Timestamp) return rawTs.toDate();
     if (rawTs is int) {
@@ -213,12 +236,15 @@ class SensorService extends ChangeNotifier {
     _lastUpdated = readingTime;
     _hasLiveData = true;
 
+    // New schema field names (tanks/{tank_id}/sensor_readings/latest):
+    // temperature, ph_level, dissolved_oxygen, turbidity, water_level.
+    // Legacy camelCase keys kept as a fallback during migration.
     final tempRaw = _toDouble(data['temperature']);
     final turbRaw = _toDouble(data['turbidity']);
-    final doRaw = _toDouble(data['dissolvedOxygen']);
-    final phRaw = _toDouble(data['phLevel']);
-    final wlRaw = _toDouble(data['waterLevel']);
-    final turbAirRaw = data['turbidityAir'];
+    final doRaw = _toDouble(data['dissolved_oxygen'] ?? data['dissolvedOxygen']);
+    final phRaw = _toDouble(data['ph_level'] ?? data['phLevel']);
+    final wlRaw = _toDouble(data['water_level'] ?? data['waterLevel']);
+    final turbAirRaw = data['turbidity_air'] ?? data['turbidityAir'];
     _turbidityAir = turbAirRaw is bool ? turbAirRaw : (turbAirRaw == true);
 
     _updateSensor('temp', tempRaw);
@@ -358,7 +384,18 @@ class SensorService extends ChangeNotifier {
     required DateTime start,
     required DateTime end,
   }) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    // History now lives under the tank, not the uid directly:
+    // tanks/{tank_id}/sensor_readings_history/{dateStr}/{autoId}
+    var tankId = _tankId;
+    if (tankId == null) {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null) {
+        final profileDoc =
+            await FirebaseFirestore.instance.collection('users').doc(uid).get();
+        tankId = profileDoc.data()?['tank_id'] as String?;
+        _tankId = tankId;
+      }
+    }
 
     final days = <String>[];
     for (var d = DateTime(start.year, start.month, start.day);
@@ -382,18 +419,20 @@ class SensorService extends ChangeNotifier {
 
     if (uncachedDays.isNotEmpty) {
       // Pass 1: Try reading from local Firestore disk cache (lightning fast, 0ms latency)
-      // Path: sensorReadingsHistory/{uid}/{dateStr}
+      // Path: tanks/{tank_id}/sensor_readings_history/{dateStr}
       final remainingUncached = <String>[];
       final cacheFutures = uncachedDays.map((dateStr) async {
-        if (uid == null) {
+        if (tankId == null) {
           remainingUncached.add(dateStr);
           return <Map<String, dynamic>>[];
         }
         try {
           final snap = await FirebaseFirestore.instance
-              .collection('sensorReadingsHistory')
-              .doc(uid)
-              .collection(dateStr)
+              .collection('tanks')
+              .doc(tankId)
+              .collection('sensor_readings_history')
+              .doc(dateStr)
+              .collection('entries')
               .get(const GetOptions(source: Source.cache));
           if (snap.docs.isNotEmpty) {
             final docs = snap.docs.map((doc) {
@@ -413,9 +452,9 @@ class SensorService extends ChangeNotifier {
       cachedRecords.addAll(cacheResults.expand((r) => r));
 
       // Pass 2: If online, fetch remaining missing days from server in parallel chunks.
-      // Path is scoped to this user — sensorReadingsHistory/{uid}/{dateStr}.
+      // Path is scoped to this tank — tanks/{tank_id}/sensor_readings_history/{dateStr}.
       // No extra ownerUid filter needed; the path itself is the ownership scope.
-      if (remainingUncached.isNotEmpty && ConnectivityService.instance.isOnline && uid != null) {
+      if (remainingUncached.isNotEmpty && ConnectivityService.instance.isOnline && tankId != null) {
         const chunkSize = 6;
         for (var i = 0; i < remainingUncached.length; i += chunkSize) {
           final chunk = remainingUncached.sublist(
@@ -427,9 +466,11 @@ class SensorService extends ChangeNotifier {
           final serverFutures = chunk.map((dateStr) async {
             try {
               final snap = await FirebaseFirestore.instance
-                  .collection('sensorReadingsHistory')
-                  .doc(uid)
-                  .collection(dateStr)
+                  .collection('tanks')
+                  .doc(tankId)
+                  .collection('sensor_readings_history')
+                  .doc(dateStr)
+                  .collection('entries')
                   .get(const GetOptions(source: Source.serverAndCache));
               final docs = snap.docs.map((doc) {
                 final data = doc.data();

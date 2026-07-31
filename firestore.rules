@@ -2,10 +2,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ─── Role helpers ────────────────────────────────────────────────
-    // An 'admin' role can only be set directly on a users/{uid} document
-    // from the Firestore console — there is no app code path that lets a
-    // user grant themselves admin.
+    // ─── Role / ownership helpers ──────────────────────────────────────
     function isSignedIn() {
       return request.auth != null;
     }
@@ -18,207 +15,200 @@ service cloud.firestore {
       return isSignedIn() && myProfile().role == 'admin';
     }
 
+    // uid of the account currently assigned the single ESP32 hardware.
     function deviceOwnerUid() {
       return exists(/databases/$(database)/documents/hardware_system/currentOwner)
         ? get(/databases/$(database)/documents/hardware_system/currentOwner).data.uid
         : null;
     }
 
-    // The assigned owner of the single shared device.
     function isDeviceOwner() {
       return isSignedIn() && request.auth.uid == deviceOwnerUid();
     }
 
-    // ─── User profiles ───────────────────────────────────────────────
-    // Users can read/write their own profile; admins can read/write any
-    // profile (needed for the admin screen: disable accounts, change
-    // roles, assign the device owner).
+    // True if the caller owns tanks/{tankId} (their profile's tank_id matches).
+    function isTankOwner(tankId) {
+      return isSignedIn() && myProfile().tank_id == tankId;
+    }
+
+    // ─── Users ──────────────────────────────────────────────────────────
     match /users/{uid} {
       allow list: if isAdmin();
       allow read, write: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+
+      // users/{uid}/fcm_tokens/{tokenId} — device push tokens, owner-only.
+      match /fcm_tokens/{tokenId} {
+        allow read, write: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+      }
+
+      // users/{uid}/notification_settings/preferences — owner-only.
+      match /notification_settings/{doc} {
+        allow read, write: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+      }
+
+      // users/{uid}/notif_markers/{key} — internal reminder-dedup markers.
+      match /notif_markers/{key} {
+        allow read, write: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+      }
     }
 
-    // ─── Tank ────────────────────────────────────────────────────────
-    // Document ID == owner uid, so the ownership check is on the path.
-    match /tanks/{uid} {
-      allow read, write: if isSignedIn() && (request.auth.uid == uid || isAdmin());
-    }
-
-    // ─── Notification prefs ──────────────────────────────────────────
-    match /notifPrefs/{uid} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
-    }
-
-    // ─── Tank production data (flat collections) ─────────────────────
-    // All documents carry a `tankId` field equal to the owner's UID.
-    match /batches/{docId} {
-      allow read: if request.auth != null && resource.data.tankId == request.auth.uid;
-      allow create: if request.auth != null && request.resource.data.tankId == request.auth.uid;
-      allow update, delete: if request.auth != null && resource.data.tankId == request.auth.uid;
-    }
-
-    match /sampling_records/{docId} {
-      allow read: if request.auth != null && resource.data.tankId == request.auth.uid;
-      allow create: if request.auth != null && request.resource.data.tankId == request.auth.uid;
-      allow update, delete: if request.auth != null && resource.data.tankId == request.auth.uid;
-    }
-
-    match /mortality_records/{docId} {
-      allow read: if request.auth != null && resource.data.tankId == request.auth.uid;
-      allow create: if request.auth != null && request.resource.data.tankId == request.auth.uid;
-      allow update, delete: if request.auth != null && resource.data.tankId == request.auth.uid;
-    }
-
-    match /harvest_records/{docId} {
-      allow read: if request.auth != null && resource.data.tankId == request.auth.uid;
-      allow create: if request.auth != null && request.resource.data.tankId == request.auth.uid;
-      allow update, delete: if request.auth != null && resource.data.tankId == request.auth.uid;
-    }
-
-    // ─── Sensor thresholds ──────────────────────────────────────
-    // Per-user threshold docs (document id == uid). sensorThresholds/default
-    // is read by ESP32 firmware; any signed-in user can write to it.
-    match /sensorThresholds/{document} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn() && (request.auth.uid == document || document == 'default' || isAdmin());
-    }
-
-    // ─── System configuration ────────────────────────────────────────
-    // Admins manage device assignment; any signed-in user can read it
-    // (needed for the dashboard to determine device ownership).
-    match /system_config/{doc} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
-    }
-
-    // ─── Notifications ───────────────────────────────────────────────
-    match /notifications/{docId} {
-      allow read: if request.auth != null && resource.data.uid == request.auth.uid;
-      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
-      allow update: if request.auth != null && resource.data.uid == request.auth.uid;
-      allow delete: if request.auth != null && resource.data.uid == request.auth.uid;
-    }
-
-    match /notifMarkers/{doc} {
-      allow read: if request.auth != null && resource.data.uid == request.auth.uid;
-      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
-      allow update: if request.auth != null && resource.data.uid == request.auth.uid;
-      allow delete: if request.auth != null && resource.data.uid == request.auth.uid;
-    }
-
-    match /migration/{uid} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
-    }
-
-    // ─── Sensor calibration upload (ESP32 write-only) ───────────────
-    // ESP32 writes its current calibration values on boot so the admin
-    // screen can confirm what values the board is actually using.
-    match /sensorConfig/{hardwareId} {
-      allow create, update: if true;   // unauthenticated ESP32 writes
-      allow read, delete: if isAdmin();
-    }
-
-    // ─── Hardware system (device-owner assignment) ───────────────────
-    // Single source of truth: hardware_system/currentOwner { uid }.
-    // Admin writes this to assign/reassign the one hardware package.
-    // Any signed-in user can read it (dashboard shows assignment status).
+    // ─── Hardware system (single-device assignment) ────────────────────
+    // hardware_system/currentOwner { uid, tank_id, assigned_at, assigned_by }
+    // Only admins assign/unassign; any signed-in user can read (dashboard
+    // needs it to know whether it currently owns the hardware).
     match /hardware_system/{doc} {
       allow read: if isSignedIn();
       allow write, delete: if isAdmin();
     }
 
+    // ─── Tanks ──────────────────────────────────────────────────────────
+    match /tanks/{tankId} {
+      allow read, write: if isTankOwner(tankId) || isAdmin();
+
+      // tanks/{tankId}/sensor_readings/latest — overwritten by Cloud
+      // Functions/ESP32 every few seconds; owner + admin read.
+      match /sensor_readings/{doc} {
+        allow read: if isTankOwner(tankId) || isAdmin();
+        allow create, update: if true; // Cloud Functions / ESP32 ingestion
+      }
+
+      // tanks/{tankId}/sensors/{sensorName} — min/max thresholds.
+      match /sensors/{sensorName} {
+        allow read: if isTankOwner(tankId) || isAdmin();
+        allow write: if isTankOwner(tankId) || isAdmin();
+      }
+
+      // tanks/{tankId}/actuators/{pump|aerator}
+      match /actuators/{actuatorId} {
+        allow read: if isTankOwner(tankId) || isAdmin();
+        allow write: if isTankOwner(tankId) || isAdmin();
+      }
+
+      // tanks/{tankId}/actuator_logs/{logId} — written by app, read by owner.
+      match /actuator_logs/{logId} {
+        allow read: if isTankOwner(tankId) || isAdmin();
+        allow create: if isTankOwner(tankId) || isAdmin();
+        allow update, delete: if isAdmin();
+      }
+
+      // tanks/{tankId}/feeder/status — ESP32 writes anonymously, owner reads.
+      match /feeder/{doc} {
+        allow read: if isTankOwner(tankId) || isAdmin();
+        allow write: if request.auth != null; // ESP32 anonymous auth writes status
+      }
+
+      // tanks/{tankId}/feeder_schedules/{scheduleId}
+      match /feeder_schedules/{scheduleId} {
+        allow read: if request.auth != null; // ESP32 polls schedules
+        allow write: if isTankOwner(tankId) || isAdmin();
+      }
+
+      // tanks/{tankId}/pending_commands/{commandId}
+      // Owner issues feed_now/cancel/test commands; ESP32 reads & deletes
+      // once executed (anonymous auth).
+      match /pending_commands/{commandId} {
+        allow create: if isTankOwner(tankId) || isAdmin();
+        allow read, delete: if request.auth != null;
+        allow update: if false;
+      }
+
+      // tanks/{tankId}/feeder_logs/{logId} — ESP32 + app both create logs.
+      match /feeder_logs/{logId} {
+        allow read: if isTankOwner(tankId) || isAdmin();
+        allow create: if request.auth != null;
+        allow update, delete: if isTankOwner(tankId) || isAdmin();
+      }
+
+      // tanks/{tankId}/feeder_dispatched/{dateKey} — tracks which schedules
+      // already fired today, so the app doesn't double-dispatch.
+      match /feeder_dispatched/{dateKey} {
+        allow read, write: if isTankOwner(tankId) || isAdmin();
+      }
+
+      // tanks/{tankId}/actuator_logs already declared above.
+
+      // tanks/{tankId}/sensor_readings_history/{dateStr}/entries/{entryId}
+      match /sensor_readings_history/{dateStr}/entries/{entryId} {
+        allow read: if isTankOwner(tankId) || isAdmin();
+        allow create, update: if true; // Cloud Functions / ESP32 write history
+      }
+    }
+
+    // ─── Production data (batches, sampling, mortality, harvest) ──────
+    // Kept as flat collections filtered by the `tankId` field (camelCase —
+    // matches TankService's actual writes; tank_id == uid in this app, so
+    // isTankOwner() still correctly scopes access to the owning user).
+    match /batches/{docId} {
+      allow read: if isTankOwner(resource.data.tankId) || isAdmin();
+      allow create: if isTankOwner(request.resource.data.tankId) || isAdmin();
+      allow update, delete: if isTankOwner(resource.data.tankId) || isAdmin();
+    }
+
+    match /sampling_records/{docId} {
+      allow read: if isTankOwner(resource.data.tankId) || isAdmin();
+      allow create: if isTankOwner(request.resource.data.tankId) || isAdmin();
+      allow update, delete: if isTankOwner(resource.data.tankId) || isAdmin();
+    }
+
+    match /mortality_records/{docId} {
+      allow read: if isTankOwner(resource.data.tankId) || isAdmin();
+      allow create: if isTankOwner(request.resource.data.tankId) || isAdmin();
+      allow update, delete: if isTankOwner(resource.data.tankId) || isAdmin();
+    }
+
+    match /harvest_records/{docId} {
+      allow read: if isTankOwner(resource.data.tankId) || isAdmin();
+      allow create: if isTankOwner(request.resource.data.tankId) || isAdmin();
+      allow update, delete: if isTankOwner(resource.data.tankId) || isAdmin();
+    }
+
+    // deviceLogs kept flat for backward-compat with existing TankService
+    // cleanup code (filtered by tankId field). Superseded going forward by
+    // tanks/{tankId}/actuator_logs, but not yet fully migrated off.
+    match /deviceLogs/{docId} {
+      allow read: if isTankOwner(resource.data.tankId) || isAdmin();
+      allow create: if isTankOwner(request.resource.data.tankId) || isAdmin();
+      allow delete: if isTankOwner(resource.data.tankId) || isAdmin();
+    }
+
+    // ─── Notifications (root collection) ───────────────────────────────
+    match /notifications/{docId} {
+      allow read: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.uid == request.auth.uid;
+    }
+
+    match /migration/{uid} {
+      allow read, write: if isSignedIn() && request.auth.uid == uid;
+    }
+
+    // ─── Sensor calibration upload (ESP32 write-only) ───────────────
+    match /sensorConfig/{hardwareId} {
+      allow create, update: if true; // unauthenticated ESP32 writes
+      allow read, delete: if isAdmin();
+    }
+
     // ─── Sensor ingestion (ESP32 write-only, fixed path) ─────────────
-    // The ESP32 always writes to sensorIngestion/current — no hardwareId
-    // in the path because there is only one hardware package.
-    // Cloud Functions read this and route data to the current owner.
-    // App clients never need to read ingestion documents.
+    // Cloud Functions read this and route data into tanks/{tankId}/sensor_readings.
     match /sensorIngestion/current {
-      allow create, update: if true;   // ESP32 anonymous writes
+      allow create, update: if true;
       allow read, delete: if isAdmin();
     }
 
     match /sensorIngestion/current/history/{doc} {
-      allow create: if true;           // ESP32 anonymous writes (every 60 s)
+      allow create: if true;
       allow read, delete: if isAdmin();
     }
 
-    // ─── Sensor readings (latest) ────────────────────────────────────
-    // Written exclusively by Cloud Functions.
-    // Document ID == ownerUid — path itself enforces ownership.
-    match /sensorReadings/{ownerUid} {
-      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == ownerUid);
-      allow create, update: if true;   // Cloud Functions write here
-    }
-
-    // ─── Sensor readings (history) ───────────────────────────────────
-    // sensorReadingsHistory/{ownerUid}/{YYYY-MM-DD}/{autoId}
-    // Each user owns their own history subcollection permanently.
-    // Reassigning the hardware creates NEW history under the new owner;
-    // previous owner's history is never moved or deleted.
-    match /sensorReadingsHistory/{ownerUid}/{date}/{doc} {
-      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == ownerUid);
-      allow create, update: if true;   // Cloud Functions write here
-    }
-
-    // ─── Feeder ──────────────────────────────────────────────────────
-    // feederSchedules: Flutter (device owner) reads/writes; ESP reads anonymously.
-    match /feederSchedules/{doc} {
-      allow read: if request.auth != null;                  // ESP polls schedules (anonymous auth)
-      allow write: if isDeviceOwner() || isAdmin();
-    }
-
-    // feederLogs: ESP creates (anonymous auth); only the device owner can read.
-    match /feederLogs/{doc} {
-      allow read: if isDeviceOwner() || isAdmin();
-      allow create: if request.auth != null;                // ESP + Flutter both create logs
-      allow update, delete: if isDeviceOwner() || isAdmin();
-    }
-
-    // feederCommands: only the device owner may issue commands; ESP reads and
-    // deletes processed commands using anonymous auth.
-    match /feederCommands/{doc} {
-      allow create: if isDeviceOwner();
-      allow read, delete: if request.auth != null;          // ESP polls & deletes (anonymous auth)
-      allow update: if false;
-    }
-
-    // feederStatus: ESP writes (anonymous auth); only the device owner can read.
-    match /feederStatus/{doc} {
-      allow read: if isDeviceOwner() || isAdmin();
-      allow write: if request.auth != null;                 // ESP writes status (anonymous auth)
-    }
-
-    // feederDispatched: Flutter-only; tracks which schedules fired today.
-    match /feederDispatched/{doc} {
-      allow read, write: if isDeviceOwner() || isAdmin();
-    }
-
-    // ─── Device control ──────────────────────────────────────────────
-    // deviceModes: Flutter (device owner) writes; ESP reads anonymously.
-    match /deviceModes/{doc} {
-      allow read: if request.auth != null;                  // ESP reads modes (anonymous auth)
-      allow write: if isDeviceOwner() || isAdmin();
-    }
-
-    // deviceLogs: Flutter (device owner) creates and reads; no ESP involvement.
-    match /deviceLogs/{doc} {
-      allow read, create, delete: if isDeviceOwner() || isAdmin();
-    }
-
     // ─── ML / Health ─────────────────────────────────────────────────
-    // No app code currently writes here client-side; any legitimate
-    // writes from the Python ML pipeline go through the Admin SDK,
-    // which bypasses these rules entirely. Client writes are locked to
-    // admin only so this doesn't stay open to anonymous/any signed-in
-    // writes with no real user of that access.
     match /mlPredictions/{doc} {
-      allow read: if request.auth != null;
+      allow read: if isSignedIn();
       allow create, update: if isAdmin();
     }
 
-    match /healthRisk/{uid} {
-      allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
-      allow create, update: if true;
+    match /healthRisk/{tankId} {
+      allow read: if isTankOwner(tankId) || isAdmin();
+      allow create, update: if true; // written by ML pipeline / Cloud Functions
     }
   }
 }

@@ -25,6 +25,23 @@ class FeederService extends ChangeNotifier {
 
   bool _initialized = false;
 
+  /// Resolved tank_id for the signed-in user. Feeder data now lives under
+  /// tanks/{tank_id}/feeder, feeder_schedules, feeder_logs, pending_commands.
+  String? _tankId;
+
+  Future<String?> _resolveTankId() async {
+    if (_tankId != null) return _tankId;
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return null;
+    final profileDoc =
+        await FirebaseFirestore.instance.collection('users').doc(uid).get();
+    _tankId = profileDoc.data()?['tank_id'] as String?;
+    return _tankId;
+  }
+
+  DocumentReference<Map<String, dynamic>>? _tankDoc() =>
+      _tankId == null ? null : FirebaseFirestore.instance.collection('tanks').doc(_tankId);
+
   StreamSubscription? _statusSub;
   StreamSubscription? _schedulesSub;
   StreamSubscription? _logsSub;
@@ -65,24 +82,33 @@ class FeederService extends ChangeNotifier {
     try {
       _startScheduleTimer();
       if (FirebaseAuth.instance.currentUser != null) {
-        _listenStatus();
-        _listenSchedules();
-        _listenLogs();
+        _reinitListeners();
       }
       FirebaseAuth.instance.authStateChanges().listen((user) {
         if (user != null) {
           _cancelSubscriptions();
-          _listenStatus();
-          _listenSchedules();
-          _listenLogs();
+          _tankId = null;
+          _reinitListeners();
         } else {
           _cancelSubscriptions();
+          _tankId = null;
         }
       });
     } catch (e) {
       debugPrint('[FeederService] Initialization error: $e');
     }
     ConnectivityService.instance.addOnConnectCallback(_onReconnect);
+  }
+
+  Future<void> _reinitListeners() async {
+    final tankId = await _resolveTankId();
+    if (tankId == null) {
+      debugPrint('[FeederService] No tank_id resolved for user; feeder listeners not started.');
+      return;
+    }
+    _listenStatus();
+    _listenSchedules();
+    _listenLogs();
   }
 
   bool canFeedNow() {
@@ -98,9 +124,7 @@ class FeederService extends ChangeNotifier {
     debugPrint('[FeederService] Internet reconnected — refreshing listeners');
     if (FirebaseAuth.instance.currentUser != null) {
       _cancelSubscriptions();
-      _listenStatus();
-      _listenSchedules();
-      _listenLogs();
+      unawaited(_reinitListeners());
     }
   }
 
@@ -115,9 +139,11 @@ class FeederService extends ChangeNotifier {
 
   void _listenStatus() {
     _statusSub?.cancel();
+    final tankDoc = _tankDoc();
+    if (tankDoc == null) return;
     try {
-      _statusSub = FirebaseFirestore.instance
-          .collection('feederStatus')
+      _statusSub = tankDoc
+          .collection('feeder')
           .doc('status')
           .snapshots()
           .listen((snapshot) async {
@@ -125,16 +151,13 @@ class FeederService extends ChangeNotifier {
         if (!snapshot.exists || snapshot.data() == null) return;
         try {
           final data = snapshot.data()!;
-          _isRunning = data['isRunning'] == true;
+          _isRunning = data['isRunning'] == true || data['status'] == 'dispensing';
           _feedSource = (data['feedSource'] as String?) ?? '';
           _feedCount = (data['feedCount'] as num?)?.toInt() ?? _feedCount;
           _hopperLevel = (data['hopperLevel'] as num?)?.toDouble() ?? 100;
           _feederError = (data['feederError'] as String?) ?? '';
           if (_feederError.isNotEmpty && !_isRunning) {
-          await FirebaseFirestore.instance
-                .collection('feederStatus')
-                .doc('status')
-                .update({'feederError': ''});
+            await tankDoc.collection('feeder').doc('status').update({'feederError': ''});
             _feederError = '';
           }
           final seen = data['lastSeen'];
@@ -159,9 +182,11 @@ class FeederService extends ChangeNotifier {
 
   void _listenSchedules() {
     _schedulesSub?.cancel();
+    final tankDoc = _tankDoc();
+    if (tankDoc == null) return;
     try {
-      _schedulesSub = FirebaseFirestore.instance
-          .collection('feederSchedules')
+      _schedulesSub = tankDoc
+          .collection('feeder_schedules')
           .orderBy('timeValue')
           .limit(20)
           .snapshots()
@@ -175,9 +200,9 @@ class FeederService extends ChangeNotifier {
             _schedules.add(ScheduleItem(
               data['time'] as String? ?? '6:00',
               data['ampm'] as String? ?? 'AM',
-              enabled: data['enabled'] as bool? ?? true,
+              enabled: data['enabled'] as bool? ?? data['is_active'] as bool? ?? true,
               isDone: data['isDone'] as bool? ?? false,
-              grams: (data['grams'] as num?)?.toDouble(),
+              grams: (data['grams'] as num?)?.toDouble() ?? (data['portion_grams'] as num?)?.toDouble(),
             ));
           }
           FeedState.schedules.value = List.from(_schedules);
@@ -195,9 +220,11 @@ class FeederService extends ChangeNotifier {
 
   void _listenLogs() {
     _logsSub?.cancel();
+    final tankDoc = _tankDoc();
+    if (tankDoc == null) return;
     try {
-      _logsSub = FirebaseFirestore.instance
-          .collection('feederLogs')
+      _logsSub = tankDoc
+          .collection('feeder_logs')
           .orderBy('timestamp', descending: true)
           .limit(50)
           .snapshots()
@@ -228,8 +255,19 @@ class FeederService extends ChangeNotifier {
   }
 
   Future<void> feedNow({String source = 'manual', String? scheduleKey, double? grams}) async {
+    final tankDoc = _tankDoc();
+    if (tankDoc == null) return;
+    final uid = FirebaseAuth.instance.currentUser?.uid;
     try {
+      // New structure: tanks/{tank_id}/pending_commands/{autoId}
+      // ESP32 listens here, executes, then deletes the command.
       final cmd = <String, dynamic>{
+        'command_type': 'feed_now',
+        'trigger_type': source == 'scheduled' ? 'scheduled' : 'manual',
+        'status': 'pending',
+        'issued_by': uid,
+        'issued_at': FieldValue.serverTimestamp(),
+        // legacy fields kept for firmware compatibility during rollout
         'action': 'feed_now',
         'timestamp': FieldValue.serverTimestamp(),
         'source': 'flutter-app',
@@ -237,14 +275,14 @@ class FeederService extends ChangeNotifier {
       if (grams != null) {
         cmd['grams'] = grams;
       }
-      await FirebaseFirestore.instance.collection('feederCommands').add(cmd);
-      // NOTE: do NOT write a feederLogs entry here.
+      await tankDoc.collection('pending_commands').add(cmd);
+      // NOTE: do NOT write a feeder_logs entry here.
       // The ESP32 writes the confirmed log after the servo physically completes,
       // which is the reliable source of truth. Writing here too causes duplicates.
       if (source == 'scheduled' && scheduleKey != null) {
         final mNow = _manilaNow();
-        await FirebaseFirestore.instance
-            .collection('feederDispatched')
+        await tankDoc
+            .collection('feeder_dispatched')
             .doc('${mNow.year}-${mNow.month}-${mNow.day}')
             .set({scheduleKey: true}, SetOptions(merge: true));
       }
@@ -262,6 +300,8 @@ class FeederService extends ChangeNotifier {
   }
 
   Future<void> _addLogEntry({required String action, required String type}) async {
+    final tankDoc = _tankDoc();
+    if (tankDoc == null) return;
     final now = DateTime.now();
     final months = [
       'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -272,12 +312,15 @@ class FeederService extends ChangeNotifier {
     final ampm = now.hour >= 12 ? 'PM' : 'AM';
     final timeStr = '$h:${now.minute.toString().padLeft(2, '0')} $ampm';
     try {
-      await FirebaseFirestore.instance.collection('feederLogs').add({
+      // tanks/{tank_id}/feeder_logs/{autoId}
+      await tankDoc.collection('feeder_logs').add({
         'action': action,
         'type': type,
         'time': timeStr,
         'date': dateStr,
         'timestamp': DateTime.now().millisecondsSinceEpoch,
+        'trigger_type': type == 'auto' ? 'scheduled' : 'manual',
+        'logged_at': FieldValue.serverTimestamp(),
       });
     } catch (e) {
       debugPrint('[FeederService] addLogEntry error: $e');
@@ -285,18 +328,25 @@ class FeederService extends ChangeNotifier {
   }
 
   Future<void> addSchedule(String time, String ampm, {double? grams}) async {
+    final tankDoc = _tankDoc();
+    if (tankDoc == null) return;
     try {
       final parts = time.split(':');
       final h = int.tryParse(parts[0]) ?? 6;
       final m = int.tryParse(parts[1]) ?? 0;
       final timeValue = (ampm == 'PM' && h != 12 ? h + 12 : h) * 60 + m;
-      await FirebaseFirestore.instance.collection('feederSchedules').add({
+      // tanks/{tank_id}/feeder_schedules/{autoId}
+      await tankDoc.collection('feeder_schedules').add({
         'time': time,
         'ampm': ampm,
         'enabled': true,
+        'is_active': true,
         'isDone': false,
         'grams': grams,
+        'portion_grams': grams,
+        'feed_time': time,
         'timeValue': timeValue,
+        'created_at': FieldValue.serverTimestamp(),
       });
       final gramsStr = grams != null ? ' (${grams.toStringAsFixed(1)}g)' : '';
       await _addLogEntry(
@@ -317,9 +367,11 @@ class FeederService extends ChangeNotifier {
 
   Future<void> deleteSchedule(int index) async {
     if (index < 0 || index >= _scheduleKeys.length) return;
+    final tankDoc = _tankDoc();
+    if (tankDoc == null) return;
     final timeStr = getScheduleTime(index);
     try {
-      await FirebaseFirestore.instance.collection('feederSchedules').doc(_scheduleKeys[index]).delete();
+      await tankDoc.collection('feeder_schedules').doc(_scheduleKeys[index]).delete();
       await _addLogEntry(
         action: 'Removed schedule at $timeStr',
         type: 'auto',
@@ -338,13 +390,18 @@ class FeederService extends ChangeNotifier {
     bool clearGrams = false,
   }) async {
     if (index < 0 || index >= _scheduleKeys.length) return;
+    final tankDoc = _tankDoc();
+    if (tankDoc == null) return;
     try {
-      await FirebaseFirestore.instance.collection('feederSchedules').doc(_scheduleKeys[index]).update({
+      await tankDoc.collection('feeder_schedules').doc(_scheduleKeys[index]).update({
         'time': time,
         'ampm': ampm,
+        'feed_time': time,
         'enabled': enabled ?? true,
+        'is_active': enabled ?? true,
         'isDone': false,
         'grams': grams,
+        'portion_grams': grams,
       });
       final gramsStr = grams != null ? ' (${grams.toStringAsFixed(1)}g)' : '';
       await _addLogEntry(
@@ -365,13 +422,15 @@ class FeederService extends ChangeNotifier {
   }
 
   Future<void> _checkSchedules() async {
+    final tankDoc = _tankDoc();
+    if (tankDoc == null) return;
     final now = _manilaNow();
     final todayKey = '${now.year}-${now.month}-${now.day}';
     if (_lastCheckDate != todayKey) {
       _lastCheckDate = todayKey;
       _missedLogged.clear();
       for (final key in _scheduleKeys) {
-        await FirebaseFirestore.instance.collection('feederSchedules').doc(key).update({'isDone': false});
+        await tankDoc.collection('feeder_schedules').doc(key).update({'isDone': false});
       }
     }
 
