@@ -101,6 +101,7 @@ String currentTankId = "";
 #define FEEDER_MAX_SCHEDULES 20
 
 // Resolve tank_id from hardware_system/currentOwner (used for subcollection paths)
+extern FirebaseData fbdo;
 bool ensureFirebaseReady();
 void fetchTankId() {
   if (!ensureFirebaseReady()) return;
@@ -639,7 +640,7 @@ void sendHistoryToFirestore() {
   const char* colPath = "sensorIngestion/current/history";
 
   if (Firebase.Firestore.createDocument(&fbdo, FIREBASE_PROJECT_ID, "(default)",
-                                        colPath, "", content.raw())) {
+                                        colPath, "", content.raw(), "")) {
     Serial.println("[FIRESTORE] History saved");
   } else {
     Serial.printf("[FIRESTORE HISTORY ERROR] %s\n", fbdo.errorReason().c_str());
@@ -985,7 +986,7 @@ void processFeederCommands() {
 
     String cmdCol = (currentTankId.length()>0) ? ("tanks/" + currentTankId + "/pending_commands") : FIRESTORE_FEEDER_COMMANDS_COL;
   if (!Firebase.Firestore.listDocuments(&fbdo, FIREBASE_PROJECT_ID, "",
-        cmdCol.c_str(), 20, "", "", false)) {
+        cmdCol.c_str(), 20, "", "", "", false)) {
     return;
   }
 
@@ -1066,7 +1067,7 @@ void sendFeederStatus() {
 
   String statusDoc = (currentTankId.length()>0) ? ("tanks/" + currentTankId + "/feeder/status") : FIRESTORE_FEEDER_STATUS_DOC;
   if (!Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "",
-        statusDoc.c_str(), &json,
+        statusDoc.c_str(), json.raw(),
         "status,last_dispensed_at,last_dispensed_grams")) {
     if (fbdo.httpConnected()) {
       Serial.printf("[FEEDER STATUS ERROR] %s\n", fbdo.errorReason().c_str());
@@ -1081,7 +1082,7 @@ void syncFeederSchedules() {
 
   String schedCol = (currentTankId.length()>0) ? ("tanks/" + currentTankId + "/feeder_schedules") : FIRESTORE_FEEDER_SCHEDULES_COL;
   if (!Firebase.Firestore.listDocuments(&fbdo, FIREBASE_PROJECT_ID, "",
-        schedCol.c_str(), FEEDER_MAX_SCHEDULES, "", "", false)) {
+        schedCol.c_str(), FEEDER_MAX_SCHEDULES, "", "", "", false)) {
     feederScheduleCount = 0;
     return;
   }
@@ -1288,7 +1289,7 @@ void pushFeederLog(String action, String type) {
   json.set("fields/timestamp/integerValue", String(epochMs));
 
   if (Firebase.Firestore.createDocument(&fbdo, FIREBASE_PROJECT_ID, "",
-        FIRESTORE_FEEDER_LOGS_COL, &json, "")) {
+        FIRESTORE_FEEDER_LOGS_COL, "", json.raw(), "")) {
     Serial.printf("[FEEDER LOG] %s\n", action.c_str());
   } else if (fbdo.httpConnected()) {
     Serial.printf("[FEEDER LOG ERROR] %s\n", fbdo.errorReason().c_str());
