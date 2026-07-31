@@ -1,24 +1,24 @@
 import 'package:flutter/material.dart';
-import 'hardware_group.dart';
+import 'actuator_group.dart';
 
-class DevicesTab extends StatelessWidget {
-  final Map<String, String> hwModes;
-  final void Function(String deviceId, String mode) onSetMode;
+class ActuatorsTab extends StatelessWidget {
+  final Map<String, String> actuatorModes;
+  final void Function(String actuatorId, String mode) onSetActuatorMode;
   final void Function(
     BuildContext context,
     String label,
-    List<(String, String, String, String?)> devices,
+    List<(String, String, String, String?)> actuators,
   ) onShowGroupLog;
-  final Map<String, String> deviceRuntimeLabels;
+  final Map<String, String> actuatorRuntimeLabels;
 
   final bool isOnline;
 
-  const DevicesTab({
+  const ActuatorsTab({
     super.key,
-    required this.hwModes,
-    required this.onSetMode,
+    required this.actuatorModes,
+    required this.onSetActuatorMode,
     required this.onShowGroupLog,
-    required this.deviceRuntimeLabels,
+    required this.actuatorRuntimeLabels,
     this.isOnline = true,
   });
 
@@ -29,30 +29,30 @@ class DevicesTab extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          HardwareGroup(
+          ActuatorGroup(
             label: 'Aeration',
             icon: Icons.air,
-            devices: const [
+            actuators: const [
               ('aerator1', 'Aerator 1', 'Air Pump', 'assets/images/aerator.png'),
               ('aerator2', 'Aerator 2', 'Air Pump', 'assets/images/aerator.png'),
             ],
-            hwModes: hwModes,
-            onSetMode: onSetMode,
+            actuatorModes: actuatorModes,
+            onSetActuatorMode: onSetActuatorMode,
             onShowGroupLog: onShowGroupLog,
-            deviceRuntimeLabels: deviceRuntimeLabels,
+            actuatorRuntimeLabels: actuatorRuntimeLabels,
             isOnline: isOnline,
           ),
           const SizedBox(height: 14),
-          HardwareGroup(
+          ActuatorGroup(
             label: 'Filtration',
             icon: Icons.water_drop,
-            devices: const [
+            actuators: const [
               ('pump', 'Water Pump', 'For Filtration System', 'assets/images/waterPump.png'),
             ],
-            hwModes: hwModes,
-            onSetMode: onSetMode,
+            actuatorModes: actuatorModes,
+            onSetActuatorMode: onSetActuatorMode,
             onShowGroupLog: onShowGroupLog,
-            deviceRuntimeLabels: deviceRuntimeLabels,
+            actuatorRuntimeLabels: actuatorRuntimeLabels,
             isOnline: isOnline,
           ),
           const SizedBox(height: 32),

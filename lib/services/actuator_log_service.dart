@@ -4,25 +4,25 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/control_types.dart';
 
-class AutoControlEvent {
-  final String deviceId;
-  final String deviceLabel;
+class AutoActuatorEvent {
+  final String actuatorId;
+  final String actuatorLabel;
   final String action;
   final DateTime timestamp;
-  const AutoControlEvent({
-    required this.deviceId,
-    required this.deviceLabel,
+  const AutoActuatorEvent({
+    required this.actuatorId,
+    required this.actuatorLabel,
     required this.action,
     required this.timestamp,
   });
 }
 
-class DeviceLogService extends ChangeNotifier {
-  static final DeviceLogService instance = DeviceLogService._();
-  DeviceLogService._();
+class ActuatorLogService extends ChangeNotifier {
+  static final ActuatorLogService instance = ActuatorLogService._();
+  ActuatorLogService._();
 
-  static const deviceIds = ['aerator1', 'aerator2', 'pump'];
-  static const deviceLabels = {
+  static const actuatorIds = ['aerator1', 'aerator2', 'pump'];
+  static const actuatorLabels = {
     'aerator1': 'Aerator 1',
     'aerator2': 'Aerator 2',
     'pump': 'Water Pump',
@@ -35,9 +35,9 @@ class DeviceLogService extends ChangeNotifier {
   final Set<String> _seenKeys = {};
   StreamSubscription<User?>? _authSub;
 
-  final StreamController<AutoControlEvent> _autoControlController =
-      StreamController<AutoControlEvent>.broadcast();
-  Stream<AutoControlEvent> get autoControlEvents => _autoControlController.stream;
+  final StreamController<AutoActuatorEvent> _autoControlController =
+      StreamController<AutoActuatorEvent>.broadcast();
+  Stream<AutoActuatorEvent> get autoControlEvents => _autoControlController.stream;
 
   void init() {
     if (_initialized) return;
@@ -63,8 +63,8 @@ class DeviceLogService extends ChangeNotifier {
     _authSub?.cancel();
     _authSub = null;
 
-    // deviceLogs migrated to tanks/{tank_id}/actuator_logs, filtered by the
-    // 'actuator_type' field instead of 'deviceId'.
+    // Legacy deviceLogs migrated to tanks/{tank_id}/actuator_logs, filtered by the
+    // 'actuator_type' field instead of 'actuatorId'.
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
     final profileDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
@@ -72,10 +72,10 @@ class DeviceLogService extends ChangeNotifier {
     final tankLogsRef =
         FirebaseFirestore.instance.collection('tanks').doc(tankId).collection('actuator_logs');
 
-    for (final deviceId in deviceIds) {
-      _logs[deviceId] = [];
+    for (final actuatorId in actuatorIds) {
+      _logs[actuatorId] = [];
       final sub = tankLogsRef
-          .where('actuator_type', isEqualTo: deviceId)
+          .where('actuator_type', isEqualTo: actuatorId)
           .orderBy('timestamp', descending: true)
           .limit(50)
           .snapshots()
@@ -92,7 +92,7 @@ class DeviceLogService extends ChangeNotifier {
         }).toList()
           ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
 
-        _logs[deviceId] = list;
+        _logs[actuatorId] = list;
         notifyListeners();
 
         if (!_warmup) {
@@ -109,11 +109,11 @@ class DeviceLogService extends ChangeNotifier {
             final tsRaw = data['timestamp'] as num? ?? 0;
             final tsMs = tsRaw < 100000000000 ? tsRaw * 1000 : tsRaw;
             final ts = DateTime.fromMillisecondsSinceEpoch(tsMs.toInt());
-            final label = deviceLabels[deviceId] ?? deviceId;
+            final label = actuatorLabels[actuatorId] ?? actuatorId;
 
-            _autoControlController.add(AutoControlEvent(
-              deviceId: deviceId,
-              deviceLabel: label,
+            _autoControlController.add(AutoActuatorEvent(
+              actuatorId: actuatorId,
+              actuatorLabel: label,
               action: action,
               timestamp: ts,
             ));
@@ -128,7 +128,7 @@ class DeviceLogService extends ChangeNotifier {
     });
   }
 
-  List<LogEntry> getLogs(String deviceId) => _logs[deviceId] ?? [];
+  List<LogEntry> getLogs(String actuatorId) => _logs[actuatorId] ?? [];
 
   Map<String, List<LogEntry>> get allLogs =>
       Map.unmodifiable(_logs);

@@ -2,31 +2,31 @@ import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/snackbar_helper.dart';
 
-class HardwareGroup extends StatelessWidget {
+class ActuatorGroup extends StatelessWidget {
   final String label;
   final IconData icon;
-  final List<(String, String, String, String?)> devices;
-  final Map<String, String> hwModes;
-  final void Function(String deviceId, String mode) onSetMode;
+  final List<(String, String, String, String?)> actuators;
+  final Map<String, String> actuatorModes;
+  final void Function(String actuatorId, String mode) onSetActuatorMode;
   final void Function(
     BuildContext context,
     String label,
-    List<(String, String, String, String?)> devices,
+    List<(String, String, String, String?)> actuators,
   )
   onShowGroupLog;
-  final Map<String, String> deviceRuntimeLabels;
+  final Map<String, String> actuatorRuntimeLabels;
 
   final bool isOnline;
 
-  const HardwareGroup({
+  const ActuatorGroup({
     super.key,
     required this.label,
     required this.icon,
-    required this.devices,
-    required this.hwModes,
-    required this.onSetMode,
+    required this.actuators,
+    required this.actuatorModes,
+    required this.onSetActuatorMode,
     required this.onShowGroupLog,
-    required this.deviceRuntimeLabels,
+    required this.actuatorRuntimeLabels,
     this.isOnline = true,
   });
 
@@ -64,7 +64,7 @@ class HardwareGroup extends StatelessWidget {
                 ),
               ),
               GestureDetector(
-                onTap: () => onShowGroupLog(context, label, devices),
+                onTap: () => onShowGroupLog(context, label, actuators),
                 child: Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 10,
@@ -95,10 +95,10 @@ class HardwareGroup extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          ...devices.map(
+          ...actuators.map(
             (d) => Padding(
               padding: const EdgeInsets.only(bottom: 6),
-              child: _buildHwCard(d.$1, d.$2, d.$3, d.$4, context),
+              child: _buildActuatorCard(d.$1, d.$2, d.$3, d.$4, context),
             ),
           ),
         ],
@@ -106,14 +106,14 @@ class HardwareGroup extends StatelessWidget {
     );
   }
 
-  Widget _buildHwCard(
-    String deviceId,
+  Widget _buildActuatorCard(
+    String actuatorId,
     String title,
     String subtitle,
     String? imageAsset,
     BuildContext context,
   ) {
-    final mode = hwModes[deviceId] ?? 'auto';
+    final mode = actuatorModes[actuatorId] ?? 'auto';
     final offline = !isOnline;
     final borderColor = offline
         ? AppColors.darkWith(0.1)
@@ -221,12 +221,12 @@ class HardwareGroup extends StatelessWidget {
                               ),
                             ],
                             const SizedBox(height: 4),
-                            _buildRuntimeIndicator(deviceId),
+                            _buildRuntimeIndicator(actuatorId),
                           ],
                         ),
                       ),
                       const SizedBox(width: 6),
-                      _buildHwModeToggle(deviceId, title, mode, context, offline: offline),
+                      _buildActuatorModeToggle(actuatorId, title, mode, context, offline: offline),
                     ],
                   ),
                 ),
@@ -238,12 +238,12 @@ class HardwareGroup extends StatelessWidget {
     );
   }
 
-  Widget _buildRuntimeIndicator(String deviceId) {
+  Widget _buildRuntimeIndicator(String actuatorId) {
     final offline = !isOnline;
-    final runtime = deviceRuntimeLabels[deviceId];
+    final runtime = actuatorRuntimeLabels[actuatorId];
     if (runtime == null || runtime.isEmpty || offline) return const SizedBox.shrink();
 
-    final mode = hwModes[deviceId] ?? 'auto';
+    final mode = actuatorModes[actuatorId] ?? 'auto';
     final color = mode == 'on'
         ? AppColors.primary
         : mode == 'auto'
@@ -283,8 +283,8 @@ class HardwareGroup extends StatelessWidget {
     );
   }
 
-  Widget _buildHwModeToggle(
-    String deviceId,
+  Widget _buildActuatorModeToggle(
+    String actuatorId,
     String title,
     String currentMode,
     BuildContext context, {
@@ -303,7 +303,7 @@ class HardwareGroup extends StatelessWidget {
           return GestureDetector(
             onTap: offline
               ? () => showBeautifulSnackbar(context, '$title is offline. Mode toggle is unavailable.', false, title: '$title Offline')
-              : () => onSetMode(deviceId, m),
+              : () => onSetActuatorMode(actuatorId, m),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
               decoration: BoxDecoration(

@@ -7,7 +7,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz;
 import 'sensor_service.dart';
-import 'device_log_service.dart';
+import 'actuator_log_service.dart';
 import '../models/notification_item.dart';
 import '../models/control_types.dart';
 
@@ -296,7 +296,7 @@ class NotificationService extends ChangeNotifier {
   bool _initialized = false;
 
   // Auto-control notification tracking
-  StreamSubscription<AutoControlEvent>? _autoControlSub;
+  StreamSubscription<AutoActuatorEvent>? _autoControlSub;
 
   bool _notifSound = true;
   bool _notifVibration = true;
@@ -376,7 +376,7 @@ class NotificationService extends ChangeNotifier {
     if (_initialized) return;
     _initialized = true;
     SensorService.instance.addListener(_onSensorUpdate);
-    DeviceLogService.instance.init();
+    ActuatorLogService.instance.init();
     _initPreviousStates();
     tz.initializeTimeZones();
     FeedState.schedules.addListener(_onSchedulesChanged);
@@ -675,13 +675,13 @@ class NotificationService extends ChangeNotifier {
 
   void _initAutoControlListener() {
     _autoControlSub?.cancel();
-    _autoControlSub = DeviceLogService.instance.autoControlEvents.listen((event) {
+    _autoControlSub = ActuatorLogService.instance.autoControlEvents.listen((event) {
       String title, message;
       if (event.action.contains('ON')) {
-        title = '${event.deviceLabel} turned ON';
+        title = '${event.actuatorLabel} turned ON';
         message = event.action.replaceFirst('Switched ON (AUTO) - ', '');
       } else {
-        title = '${event.deviceLabel} turned OFF';
+        title = '${event.actuatorLabel} turned OFF';
         message = event.action.replaceFirst('Switched OFF (AUTO) - ', '');
       }
       _addNotification(type: 'operational', title: title, message: message, timestamp: event.timestamp);

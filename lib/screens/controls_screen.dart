@@ -4,13 +4,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../theme/app_colors.dart';
 import '../widgets/controls/feeder_tab.dart';
-import '../widgets/controls/devices_tab.dart';
+import '../widgets/controls/actuators_tab.dart';
 import '../models/control_types.dart';
 import '../services/feeder_service.dart';
 import '../services/sensor_service.dart';
 import '../services/settings_service.dart';
 import '../services/esp_service.dart';
-import '../services/device_log_service.dart';
+import '../services/actuator_log_service.dart';
 import '../services/database_service.dart';
 
 class ControlsScreen extends StatefulWidget {
@@ -50,8 +50,8 @@ class ControlsScreenState extends State<ControlsScreen> {
     SensorService.instance.addListener(_onSensorDataUpdate);
     EspService.instance.addListener(_onEspUpdate);
     EspService.instance.init();
-    DeviceLogService.instance.init();
-    _initDeviceModes();
+    ActuatorLogService.instance.init();
+    _initActuatorModes();
     _runtimeTimer = Timer.periodic(
       const Duration(seconds: 1),
       (_) {
@@ -60,15 +60,15 @@ class ControlsScreenState extends State<ControlsScreen> {
     );
   }
 
-  void _initDeviceModes() async {
-    // deviceModes/{deviceId} migrated to tanks/{tank_id}/actuators/{deviceId},
+  void _initActuatorModes() async {
+    // actuator modes/{actuatorId} migrated to tanks/{tank_id}/actuators/{actuatorId},
     // with the mode stored under 'control_mode' instead of 'mode'.
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
     final profileDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
     final tankId = profileDoc.data()?['tank_id'] as String? ?? uid;
 
-    _devicesSub = FirebaseFirestore.instance
+    _actuatorsSub = FirebaseFirestore.instance
         .collection('tanks')
         .doc(tankId)
         .collection('actuators')
@@ -80,7 +80,7 @@ class ControlsScreenState extends State<ControlsScreen> {
         final data = doc.data();
         modes[doc.id] = data['control_mode'] as String? ?? data['mode'] as String? ?? 'auto';
       }
-      if (mounted) setState(() => _hwModes = modes);
+      if (mounted) setState(() => _actuatorModes = modes);
     });
   }
 
@@ -88,8 +88,8 @@ class ControlsScreenState extends State<ControlsScreen> {
     final now = DateTime.now().millisecondsSinceEpoch;
     final labels = <String, String>{};
 
-    for (final deviceId in _hwModes.keys) {
-      final logs = DeviceLogService.instance.getLogs(deviceId);
+    for (final actuatorId in _actuatorModes.keys) {
+      final logs = ActuatorLogService.instance.getLogs(actuatorId);
       int? lastOnTs;
       int? lastOffTs;
 
@@ -107,13 +107,13 @@ class ControlsScreenState extends State<ControlsScreen> {
 
       if (lastOnTs != null && (lastOffTs == null || lastOnTs > lastOffTs)) {
         final elapsed = now - lastOnTs;
-        labels[deviceId] = _formatDuration(elapsed ~/ 1000);
+        labels[actuatorId] = _formatDuration(elapsed ~/ 1000);
       } else {
-        labels[deviceId] = '';
+        labels[actuatorId] = '';
       }
     }
 
-    _deviceRuntimeLabels = labels;
+    _actuatorRuntimeLabels = labels;
   }
 
   String _formatDuration(int seconds) {
@@ -141,7 +141,7 @@ class ControlsScreenState extends State<ControlsScreen> {
     FeederService.instance.removeListener(_onFeederUpdate);
     SensorService.instance.removeListener(_onSensorDataUpdate);
     EspService.instance.removeListener(_onEspUpdate);
-    _devicesSub?.cancel();
+    _actuatorsSub?.cancel();
     _feedTimer?.cancel();
     _dispenseTimer?.cancel();
     _runtimeTimer?.cancel();
@@ -230,13 +230,13 @@ class ControlsScreenState extends State<ControlsScreen> {
     }
   }
 
-  Map<String, String> _hwModes = {
+  Map<String, String> _actuatorModes = {
     'aerator1': 'auto',
     'aerator2': 'auto',
     'pump': 'auto',
   };
-  StreamSubscription? _devicesSub;
-  Map<String, String> _deviceRuntimeLabels = {};
+  StreamSubscription? _actuatorsSub;
+  Map<String, String> _actuatorRuntimeLabels = {};
   Timer? _runtimeTimer;
 
   bool get _canFeed {
@@ -439,8 +439,8 @@ class ControlsScreenState extends State<ControlsScreen> {
     );
   }
 
-  void _setHwMode(String device, String mode) {
-    setState(() => _hwModes[device] = mode);
+  void _setActuatorMode(String actuatorId, String mode) {
+    setState(() => _actuatorModes[actuatorId] = mode);
     final now = DateTime.now();
     final h = now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour);
     final ampm = now.hour >= 12 ? 'PM' : 'AM';
@@ -452,24 +452,24 @@ class ControlsScreenState extends State<ControlsScreen> {
       'auto': 'Set to AUTO',
       'off': 'Switched OFF',
     };
-    final deviceNames = {
+    final actuatorNames = {
       'aerator1': 'Aerator 1',
       'aerator2': 'Aerator 2',
       'pump': 'Water Pump',
     };
-    DatabaseService.instance.saveDeviceMode(
-      deviceId: device,
+    DatabaseService.instance.saveActuatorMode(
+      actuatorId: actuatorId,
       mode: mode,
-      deviceName: deviceNames[device] ?? device,
+      actuatorName: actuatorNames[actuatorId] ?? actuatorId,
       modeLabel: modeNames[mode] ?? mode,
       time: time,
       date: dateStr,
     ).catchError((e) {
-      debugPrint('[Controls] ERROR saving $device: $e');
+      debugPrint('[Controls] ERROR saving $actuatorId: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to save $device mode: $e'),
+            content: Text('Failed to save $actuatorId mode: $e'),
             backgroundColor: Colors.redAccent,
           ),
         );
@@ -506,11 +506,11 @@ class ControlsScreenState extends State<ControlsScreen> {
                       canFeed: _canFeed,
                       feedBlockedReason: _feedBlockedReason,
                     ),
-                    DevicesTab(
-                      hwModes: _hwModes,
-                      onSetMode: _setHwMode,
-                      onShowGroupLog: _showHwGroupLog,
-                      deviceRuntimeLabels: _deviceRuntimeLabels,
+                    ActuatorsTab(
+                      actuatorModes: _actuatorModes,
+                      onSetActuatorMode: _setActuatorMode,
+                      onShowGroupLog: _showActuatorGroupLog,
+                      actuatorRuntimeLabels: _actuatorRuntimeLabels,
                       isOnline: EspService.instance.isEspOnline,
                     ),
                   ],
@@ -668,7 +668,7 @@ class ControlsScreenState extends State<ControlsScreen> {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      'Feeder & Devices',
+                      'Feeder & Actuators',
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
@@ -688,7 +688,7 @@ class ControlsScreenState extends State<ControlsScreen> {
   Widget _buildTabBar() {
     final tabs = [
       (Icons.bubble_chart, 'Feeding'),
-      (Icons.developer_board_outlined, 'Devices'),
+      (Icons.developer_board_outlined, 'Actuators'),
     ];
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 4, 12, 14),
@@ -749,29 +749,29 @@ class ControlsScreenState extends State<ControlsScreen> {
     );
   }
 
-  void _showHwGroupLog(
+  void _showActuatorGroupLog(
     BuildContext context,
     String label,
-    List<(String, String, String, String?)> devices,
+    List<(String, String, String, String?)> actuators,
   ) {
     final allLogs = <LogEntry>[];
-    for (final d in devices) {
-      final deviceId = d.$1;
-      final logs = DeviceLogService.instance.getLogs(deviceId);
+    for (final d in actuators) {
+      final actuatorId = d.$1;
+      final logs = ActuatorLogService.instance.getLogs(actuatorId);
       allLogs.addAll(logs);
     }
     allLogs.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-    final imageAsset = devices.isNotEmpty ? devices.first.$4 : null;
-    _showDeviceLogSheet(context, label, '', '', allLogs, null, imageAsset: imageAsset);
+    final imageAsset = actuators.isNotEmpty ? actuators.first.$4 : null;
+    _showActuatorLogSheet(context, label, '', '', allLogs, null, imageAsset: imageAsset);
   }
 
-  void _showDeviceLogSheet(
+  void _showActuatorLogSheet(
     BuildContext context,
     String title,
     String subtitle,
     String mode,
     List<LogEntry> logs,
-    String? deviceId, {
+    String? actuatorId, {
     String? imageAsset,
   }) {
     showModalBottomSheet(
@@ -848,7 +848,7 @@ class ControlsScreenState extends State<ControlsScreen> {
                       ),
                     ],
                   ),
-                  if (deviceId != null) ...[
+                  if (actuatorId != null) ...[
                     const SizedBox(height: 12),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,

@@ -269,10 +269,10 @@ class DatabaseService {
 
   // ─── Actuators (tanks/{tank_id}/actuators/{pump|aerator}) ─────────
 
-  Future<void> saveDeviceMode({
-    required String deviceId, // 'pump' or 'aerator'
+  Future<void> saveActuatorMode({
+    required String actuatorId, // 'pump' or 'aerator'
     required String mode,     // 'on' | 'off' | 'auto'
-    required String deviceName,
+    required String actuatorName,
     required String modeLabel,
     required String time,
     required String date,
@@ -285,17 +285,17 @@ class DatabaseService {
 
     final tankRef = _db.collection('tanks').doc(tankId);
 
-    await tankRef.collection('actuators').doc(deviceId).set({
+    await tankRef.collection('actuators').doc(actuatorId).set({
       'control_mode': mode,
       'current_state': mode == 'off' ? 'off' : 'on',
       'last_changed': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
     await tankRef.collection('actuator_logs').add({
-      'actuator_type': deviceId,
-      'action': 'Switched ${mode.toUpperCase()} — $deviceName ($modeLabel)',
+      'actuator_type': actuatorId,
+      'action': 'Switched ${mode.toUpperCase()} — $actuatorName ($modeLabel)',
       'log_level': 'info',
-      'message': '$deviceName set to $modeLabel',
+      'message': '$actuatorName set to $modeLabel',
       'type': mode,
       'time': time,
       'date': date,
@@ -304,12 +304,12 @@ class DatabaseService {
     });
   }
 
-  Stream<QuerySnapshot<Map<String, dynamic>>> deviceLogsStream(String tankId, String deviceId) {
+  Stream<QuerySnapshot<Map<String, dynamic>>> actuatorLogsStream(String tankId, String actuatorId) {
     return _db
         .collection('tanks')
         .doc(tankId)
         .collection('actuator_logs')
-        .where('actuator_type', isEqualTo: deviceId)
+        .where('actuator_type', isEqualTo: actuatorId)
         .orderBy('logged_at', descending: true)
         .limit(50)
         .snapshots();
