@@ -1,19 +1,19 @@
 class NotificationItem {
   final String id;
-  final String type;
+  final String notif_type;
   final String title;
-  final String message;
-  final DateTime timestamp;
-  Map<String, bool> readBy;
+  final String body;
+  final DateTime created_at;
+  bool is_read;
 
   NotificationItem({
     required this.id,
-    required this.type,
+    required this.notif_type,
     required this.title,
-    required this.message,
-    required this.timestamp,
-    Map<String, bool>? readBy,
-  }) : readBy = readBy ?? {};
+    required this.body,
+    required this.created_at,
+    this.is_read = false,
+  });
 
-  bool isUnreadBy(String uid) => uid.isEmpty || !readBy.containsKey(uid) || readBy[uid] != true;
+  bool isUnreadBy(String uid) => !is_read;
 }

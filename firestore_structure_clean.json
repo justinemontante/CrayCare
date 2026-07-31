@@ -1,125 +1,190 @@
 {
   "users": {
     "_id": "uid",
-    "fields": ["email", "role", "status", "photoUrl"]
+    "_description": "User profile. Subcollections: fcm_tokens (device tokens) and notification_settings (preferences doc 'preferences'). Only self or admin can read/write.",
+    "fields": ["full_name", "email", "role (owner|admin)", "status (active|disabled)", "photo_url / photoUrl (legacy)", "tank_id", "created_at"]
   },
-
-  "tanks": {
-    "_id": "uid"
+  "users/{uid}/fcm_tokens/{tokenId}": {
+    "_description": "Per-device FCM tokens for push notifications.",
+    "fields": ["token", "device_type (android|ios)", "created_at"]
   },
-
-  "notifPrefs": {
-    "_id": "uid"
+  "users/{uid}/notification_settings/preferences": {
+    "_description": "Per-user notification preferences (replaces legacy notifPrefs flat collection). Created automatically on user signup.",
+    "fields": ["enable_sensor_alerts", "enable_feeder_alerts", "enable_system_alerts", "sound", "vibration", "critical", "warning", "feeding", "sampling", "updated_at"]
   },
-
-  "batches": {
-    "_id": "autoId",
-    "fields": ["tankId", "batchId", "stockingDate", "harvestDate", "status"]
-  },
-
-  "sampling_records": {
-    "_id": "autoId",
-    "fields": ["tankId", "batchId"]
-  },
-
-  "mortality_records": {
-    "_id": "autoId",
-    "fields": ["tankId", "batchId"]
-  },
-
-  "harvest_records": {
-    "_id": "autoId",
-    "fields": ["tankId"]
-  },
-
-  "config": {
-    "_id": "uid",
-    "special_docs": ["deviceOwner", "default"]
-  },
-
-  "system_config": {
-    "_id": "doc"
-  },
-
-  "notifications": {
-    "_id": "autoId",
-    "fields": ["uid", "title", "body", "read"]
-  },
-
-  "notifMarkers": {
-    "_id": "doc"
-  },
-
-  "migration": {
-    "_id": "uid"
-  },
-
-  "sensorConfig": {
-    "_id": "hardwareId"
-  },
-
   "hardware_system": {
+    "_description": "Single source of truth for hardware assignment. Written by admin; readable by any signed-in user (ESP32 reads anonymous if needed via separate mechanism).",
     "currentOwner": {
-      "fields": ["uid"]
+      "_id": "currentOwner",
+      "_description": "Assigned owner doc. Contains uid + tank_id.",
+      "fields": ["uid", "tank_id", "assigned_by (admin uid)", "assigned_at (Timestamp)"]
     }
   },
-
-  "sensorIngestion": {
-    "current": {
-      "history": {
-        "_id": "autoId"
+  "tanks": {
+    "_id": "tank_id (== owner's uid by default, but may diverge later)",
+    "_description": "One tank per user. Contains subcollections for sensors, actuators, feeder, schedules, pending commands, and actuator logs.",
+    "fields": ["owner_uid", "current_batch_id (nullable)", "lifetime_mortality (int)", "lifetime_harvested (int)", "created_at"],
+    "subcollections": {
+      "sensor_readings/latest": {
+        "_description": "Latest sensor reading per tank. Written exclusively by Cloud Functions (ESP32 writes to sensorIngestion; CF routes here using hardware_system/currentOwner.uid at write time). Readable by owner or admin.",
+        "fields": ["temperature (double)", "ph_level (double)", "dissolved_oxygen (double)", "turbidity (double)", "water_level (double)", "recorded_at (Timestamp)"]
+      },
+      "sensors/{sensorName}": {
+        "_description": "Per-sensor threshold/min-max config. Seeding done by _createTankIfMissing(). Readable/writable by tank owner.",
+        "fields": ["min_value (double)", "max_value (double)", "updated_at (Timestamp)"],
+        "examples": ["temperature", "ph_level", "dissolved_oxygen", "turbidity", "water_level"]
+      },
+      "actuators/{deviceId}": {
+        "_description": "Pump and aerator control state. Written by Flutter (database_service.saveDeviceMode); ESP32 reads anonymous.",
+        "fields": ["control_mode (auto | off | on)", "current_state (on | off)", "last_changed (Timestamp)"],
+        "examples": ["pump", "aerator"]
+      },
+      "feeder/status": {
+        "_description": "Current feeder status. ESP32 writes anonymous; readable by owner/admin.",
+        "fields": ["status (idle | feeding)", "last_dispensed_at (Timestamp | null)", "last_dispensed_grams (double)"]
+      },
+      "feeder_schedules/{scheduleId}": {
+        "_description": "Scheduled feeding times. Flutter reads/writes; ESP32 polls anonymous.",
+        "fields": ["feed_time (string HH:MM)", "portion_grams (double)", "is_active (bool)", "created_at (Timestamp)"]
+      },
+      "pending_commands/{commandId}": {
+        "_description": "Manual / automatic feed commands pending ESP32 execution. Flutter creates; ESP32 reads and deletes processed commands (anonymous).",
+        "fields": ["command_type (feed_now)", "trigger_type (manual | auto)", "grams (double)", "issued_by (uid)", "status (pending | done)", "issued_at (Timestamp)"]
+      },
+      "actuator_logs/{logId}": {
+        "_description": "Flutter-only device activity log (no ESP32 involvement). Readable by owner/admin.",
+        "fields": ["actuator_type (pump | aerator)", "action (string)", "log_level (info | warning | error)", "message (string)", "type (on | off | auto)", "time (string)", "date (string)", "timestamp (int)", "logged_at (Timestamp)"]
       }
     }
   },
-
-  "sensorReadings": {
-    "_id": "ownerUid",
-    "fields": ["temperature", "phLevel", "dissolvedOxygen", "turbidity", "waterLevel"]
+  "notifications/{notifId}": {
+    "_id": "autoId",
+    "_description": "Root notification collection. Scoped by uid field (not doc ID). Readable if uid matches auth.user or readBy[auth.uid] == true.",
+    "fields": ["uid", "title (string)", "message (string) — note: diagram uses 'body'; code uses 'message'", "type (sensor | alert | feeder | system)", "is_read (bool)", "readBy (map uid->bool)", "timestamp (Timestamp)"]
   },
-
+  "batches": {
+    "_id": "autoId",
+    "_description": "Flat collection for crayfish batches. Scoped by tankId field.",
+    "fields": ["tankId", "batchId", "stockingDate (Timestamp)", "harvestDate (Timestamp | null)", "status (stocked | growing | harvested | dead)", "..."]
+  },
+  "sampling_records": {
+    "_id": "autoId",
+    "_description": "Flat collection for water-quality sampling records. Scoped by tankId.",
+    "fields": ["tankId", "batchId", "..."]
+  },
+  "mortality_records": {
+    "_id": "autoId",
+    "_description": "Flat collection for mortality records. Scoped by tankId.",
+    "fields": ["tankId", "batchId", "..."]
+  },
+  "harvest_records": {
+    "_id": "autoId",
+    "_description": "Flat collection for harvest records. Scoped by tankId.",
+    "fields": ["tankId", "batchId", "...", "harvestWeight", "harvestDate"]
+  },
+  "sensorThresholds": {
+    "_id": "uid (per-user threshold doc)",
+    "_description": "Legacy flat collection mirroring tanks/{tankId}/sensors. Also mirrored to sensorThresholds/default for ESP32 firmware polling.",
+    "special_docs": ["default"],
+    "fields": ["temperature", "ph_level", "dissolved_oxygen", "turbidity", "water_level"]
+  },
+  "system_config": {
+    "_id": "doc",
+    "_description": "Admin-managed global settings. Any signed-in user can read (dashboard needs it).",
+    "fields": ["..."]
+  },
+  "notifPrefs": {
+    "_id": "uid",
+    "_description": "LEGACY — replaced by users/{uid}/notification_settings/preferences. Kept for backward compatibility.",
+    "fields": ["enable_sensor_alerts", "enable_feeder_alerts", "enable_system_alerts", "updated_at"]
+  },
+  "notifMarkers": {
+    "_id": "doc",
+    "_description": "LEGACY — tracks last-seen notification markers, scoped by uid field.",
+    "fields": ["uid", "last_read_at"]
+  },
+  "migration": {
+    "_id": "uid",
+    "_description": "Per-user data-migration status / flags.",
+    "fields": ["migrated (bool)", "migrated_at (Timestamp)"]
+  },
+  "sensorConfig": {
+    "_id": "hardwareId",
+    "_description": "ESP32 uploads its current calibration values on boot (anonymous write; admin-only read).",
+    "fields": ["calibration_values (map)", "updated_at (Timestamp)"]
+  },
+  "sensorIngestion": {
+    "_description": "Anonymous ESP32 ingestion endpoint (fixed path — no hardwareId since only one device exists). Cloud Functions read this and route/copy to sensorReadings/{ownerUid} using hardware_system/currentOwner.uid at write time.",
+    "current": {
+      "_id": "current",
+      "_description": "Latest anonymous ingestion doc from ESP32 (~60s interval). Admin-only read/delete.",
+      "fields": ["temperature", "ph_level", "dissolved_oxygen", "turbidity", "water_level", "recorded_at"]
+    },
+    "history": {
+      "_id": "autoId",
+      "_description": "Anonymous append-only history (~60s interval). Admin-only read. Never edited/deleted by ESP32.",
+      "fields": ["temperature", "ph_level", "dissolved_oxygen", "turbidity", "water_level", "recorded_at"]
+    }
+  },
+  "sensorReadings": {
+    "_id": "ownerUid (doc ID IS owner — enforced by path)",
+    "_description": "LEGACY / ALTERNATIVE flat collection for latest readings (written exclusively by Cloud Functions; never by ESP32 directly). Readable only by that owner or admin.",
+    "fields": ["temperature", "phLevel", "dissolvedOxygen", "turbidity", "waterLevel", "recorded_at"]
+  },
   "sensorReadingsHistory": {
     "_id": "ownerUid",
+    "_description": "Legacy historical readings with date subcollections.",
     "date_subcollections": {
       "_id": "YYYY-MM-DD",
       "docs": {
-        "_id": "autoId"
+        "_id": "autoId",
+        "_description": "Cloud-Function-written historical readings. Reassigning hardware creates NEW history under new owner — previous owner's history is preserved permanently."
       }
     }
   },
-
   "feederSchedules": {
-    "_id": "doc"
+    "_id": "doc",
+    "_description": "LEGACY flat collection (replaced by tanks/{tankId}/feeder_schedules). Device owner reads/writes; ESP32 polls anonymous.",
+    "fields": ["tankId", "feed_time", "portion_grams", "is_active", "created_at"]
   },
-
   "feederLogs": {
-    "_id": "autoId"
+    "_id": "autoId",
+    "_description": "ESP32 + Flutter both create. Only device owner/admin can read/update/delete.",
+    "fields": ["tankId", "batchId", "feed_time", "portion_grams", "status", "..."]
   },
-
   "feederCommands": {
-    "_id": "autoId"
+    "_id": "autoId",
+    "_description": "LEGACY flat command collection (replaced by tanks/{tankId}/pending_commands). Device owner creates; ESP32 reads & deletes processed commands (anonymous).",
+    "fields": ["tankId", "command_type", "grams", "status", "...", "issued_by", "issued_at"]
   },
-
   "feederStatus": {
-    "_id": "doc"
+    "_id": "doc",
+    "_description": "LEGACY flat status (replaced by tanks/{tankId}/feeder/status). ESP32 writes anonymous; only owner/admin reads.",
+    "fields": ["tankId", "status (idle/feeding)", "last_dispensed_at", "last_dispensed_grams"]
   },
-
   "feederDispatched": {
-    "_id": "doc"
+    "_id": "doc",
+    "_description": "Flutter-only. Tracks which feeding schedules already fired today.",
+    "fields": ["tankId", "scheduleIds (array)", "dispatched_at"]
   },
-
   "deviceModes": {
-    "_id": "doc"
+    "_id": "doc",
+    "_description": "Device owner (Flutter) writes control modes. ESP32 reads anonymous.",
+    "fields": ["tankId", "pump (on|off|auto)", "aerator (on|off|auto)"]
   },
-
   "deviceLogs": {
-    "_id": "autoId"
+    "_id": "autoId",
+    "_description": "Flutter-only activity log. No ESP32 involvement.",
+    "fields": ["tankId", "deviceId", "action", "message", "timestamp", "logged_at"]
   },
-
   "mlPredictions": {
-    "_id": "autoId"
+    "_id": "autoId",
+    "_description": "ML prediction results. Any signed-in user can read. Created/updated by Cloud Functions / ML pipeline.",
+    "fields": ["tankId", "batchId", "prediction", "confidence", "model_version", "created_at"]
   },
-
   "healthRisk": {
-    "_id": "uid"
+    "_id": "uid",
+    "_description": "Water-quality / health-risk prediction result per user.",
+    "fields": ["uid", "tankId", "risk_level (low|medium|high)", "factors (array)", "updated_at"]
   }
 }

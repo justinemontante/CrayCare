@@ -89,6 +89,7 @@ String pass;
 
 // Hardware ID derived from MAC address on first use (see getHardwareId())
 String hardwareId = "";
+String currentTankId = "";
 
 #define FIREBASE_SEND_INTERVAL_MS 5000
 #define HISTORY_SEND_INTERVAL_MS 60000
@@ -102,6 +103,29 @@ String hardwareId = "";
 #define FEEDER_SCHEDULE_CHECK_MS 1000
 #define FEEDER_SERVO_PULSE_WIDTH 2000   // microseconds for full rotation
 #define FEEDER_MAX_SCHEDULES 20
+
+// Resolve tank_id from hardware_system/currentOwner (used for subcollection paths)
+void fetchTankId() {
+  if (!ensureFirebaseReady()) return;
+  // Read hardware_system/currentOwner to get tank_id for subcollection paths
+  if (!Firebase.Firestore.getDocument(&fbdo, FIREBASE_PROJECT_ID, "",
+        "hardware_system/currentOwner")) {
+    return;
+  }
+  FirebaseJson resp;
+  resp.setJsonData(fbdo.payload());
+  FirebaseJsonData d;
+  if (resp.get(d, "fields/tank_id/stringValue")) {
+    currentTankId = d.stringValue;
+  } else if (resp.get(d, "fields/tank_id/stringValue")) {
+    // try with different key name just in case
+    currentTankId = d.stringValue;
+  }
+  if (currentTankId.length() == 0 && resp.get(d, "fields/uid/stringValue")) {
+    currentTankId = d.stringValue; // fallback
+  }
+  Serial.printf("[ESP] Resolved tank_id = %s\n", currentTankId.c_str());
+}
 
 FirebaseData fbdo;
 FirebaseAuth auth;
@@ -1019,6 +1043,7 @@ void loop() {
 
 // ─── Initialize Feeder ───
 void initFeeder() {
+  fetchTankId();
   ledcSetup(SERVO_LEDC_CHANNEL, SERVO_LEDC_FREQ, SERVO_LEDC_RESOLUTION);
   ledcAttachPin(FEEDER_SERVO_PIN, SERVO_LEDC_CHANNEL);
   _setServoAngle(0);
@@ -1041,8 +1066,9 @@ void initFeeder() {
 void processFeederCommands() {
   if (!ensureFirebaseReady()) return;
 
+    String cmdCol = (currentTankId.length()>0) ? ("tanks/" + currentTankId + "/pending_commands") : FIRESTORE_FEEDER_COMMANDS_COL;
   if (!Firebase.Firestore.listDocuments(&fbdo, FIREBASE_PROJECT_ID, "",
-        FIRESTORE_FEEDER_COMMANDS_COL, 20, "", "", false)) {
+        cmdCol.c_str(), 20, "", "", false)) {
     return;
   }
 
@@ -1071,8 +1097,11 @@ void processFeederCommands() {
     CmdEntry& e = entries[entryCount];
     e.docId = docId;
 
-    if (response.get(d, base + "action/stringValue")) e.action = d.stringValue;
-    if (response.get(d, base + "mode/stringValue"))   e.mode   = d.stringValue;
+    if (response.get(d, base + "command_type/stringValue")) e.action = d.stringValue;
+    // Legacy fallback: try old action field if new not present
+    if (e.action == "" && response.get(d, base + "action/stringValue")) e.action = d.stringValue;
+    if (response.get(d, base + "trigger_type/stringValue")) e.mode = d.stringValue;
+    if (e.mode == "" && response.get(d, base + "mode/stringValue")) e.mode = d.stringValue;
 
     if (e.action != "") entryCount++;
   }
@@ -1090,7 +1119,7 @@ void processFeederCommands() {
       Serial.printf("[FEEDER] Mode -> %s\n", feederAutoMode ? "AUTO" : "MANUAL");
     }
 
-    String docPath = String(FIRESTORE_FEEDER_COMMANDS_COL) + "/" + e.docId;
+    String docPath = (currentTankId.length()>0) ? (String("tanks/") + currentTankId + "/pending_commands/" + e.docId) : (String(FIRESTORE_FEEDER_COMMANDS_COL) + "/" + e.docId);
     if (!Firebase.Firestore.deleteDocument(&fbdo, FIREBASE_PROJECT_ID, "",
                                            docPath.c_str())) {
       Serial.printf("[FEEDER] Delete cmd failed: %s\n", fbdo.errorReason().c_str());
@@ -1108,17 +1137,20 @@ void sendFeederStatus() {
   unsigned long epochMs = (now > 1700000000) ? (unsigned long)now * 1000UL : 0;
 
   FirebaseJson json;
-  json.set("fields/mode/stringValue",        feederAutoMode ? "auto" : "manual");
-  json.set("fields/isRunning/booleanValue",  feederIsRunning);
-  json.set("fields/feedSource/stringValue",  feederIsRunning ? feederFeedSource.c_str() : "");
-  json.set("fields/hopperLevel/integerValue", String(feederHopperLevel));
-  json.set("fields/lastFeedEpoch/integerValue", String((int)feederLastFeedEpoch));
-  json.set("fields/lastSeen/integerValue",   String(epochMs));
-  json.set("fields/feedCount/integerValue",  String(feederFeedCount));
+  // Write to new subcollection path fields (matching Flutter database_service.dart)
+  json.set("fields/status/stringValue",         feederIsRunning ? "feeding" : "idle");
+  if (feederLastFeedEpoch > 0) {
+    json.set("fields/last_dispensed_at/integerValue", String((int)feederLastFeedEpoch * 1000));
+  } else {
+    json.set("fields/last_dispensed_at/nullValue",    "NULL_VALUE");
+  }
+  // ESP does not track grams directly; use default 20g if recently fed, else 0
+  json.set("fields/last_dispensed_grams/doubleValue", (feederIsRunning || (feederLastFeedEpoch > 0)) ? "20.0" : "0.0");
 
+  String statusDoc = (currentTankId.length()>0) ? ("tanks/" + currentTankId + "/feeder/status") : FIRESTORE_FEEDER_STATUS_DOC;
   if (!Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "",
-        FIRESTORE_FEEDER_STATUS_DOC, &json,
-        "mode,isRunning,feedSource,hopperLevel,lastFeedEpoch,lastSeen,feedCount")) {
+        statusDoc.c_str(), &json,
+        "status,last_dispensed_at,last_dispensed_grams")) {
     if (fbdo.httpConnected()) {
       Serial.printf("[FEEDER STATUS ERROR] %s\n", fbdo.errorReason().c_str());
     }
@@ -1130,8 +1162,9 @@ void sendFeederStatus() {
 void syncFeederSchedules() {
   if (!ensureFirebaseReady()) return;
 
+  String schedCol = (currentTankId.length()>0) ? ("tanks/" + currentTankId + "/feeder_schedules") : FIRESTORE_FEEDER_SCHEDULES_COL;
   if (!Firebase.Firestore.listDocuments(&fbdo, FIREBASE_PROJECT_ID, "",
-        FIRESTORE_FEEDER_SCHEDULES_COL, FEEDER_MAX_SCHEDULES, "", "", false)) {
+        schedCol.c_str(), FEEDER_MAX_SCHEDULES, "", "", false)) {
     feederScheduleCount = 0;
     return;
   }
@@ -1157,21 +1190,20 @@ void syncFeederSchedules() {
     String timeStr = "6:00";
     String ampm    = "AM";
 
-    if (response.get(d, base + "time/stringValue"))    timeStr = d.stringValue;
-    if (response.get(d, base + "ampm/stringValue"))    ampm    = d.stringValue;
+    if (response.get(d, base + "feed_time/stringValue"))    timeStr = d.stringValue;
+    // ampm no longer used; feed_time is 24h format (e.g. 08:00)
 
-    // Convert to 24-hour
+    // Convert feed_time (24h format, e.g. 08:00) directly
     int colon = timeStr.indexOf(':');
     if (colon < 0) continue;
     int hour   = timeStr.substring(0, colon).toInt();
     int minute = timeStr.substring(colon + 1).toInt();
-    if (ampm == "PM" && hour != 12) hour += 12;
-    if (ampm == "AM" && hour == 12) hour  = 0;
+    // No AM/PM conversion needed — feed_time is already 24h
 
     s.hour24  = hour;
     s.minute  = minute;
     s.enabled = true;
-    if (response.get(d, base + "enabled/booleanValue")) s.enabled = d.boolValue;
+    if (response.get(d, base + "is_active/booleanValue")) s.enabled = d.boolValue;
 
     feederScheduleCount++;
   }

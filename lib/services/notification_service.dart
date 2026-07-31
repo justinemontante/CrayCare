@@ -356,21 +356,21 @@ class NotificationService extends ChangeNotifier {
   };
 
   List<NotificationItem> get notifications =>
-      List.unmodifiable(_notifications.where((n) => n.type != 'device_auto'));
+      List.unmodifiable(_notifications.where((n) => n.notif_type != 'device_auto'));
 
   int get unreadCount {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     return uid.isEmpty ? 0 : _notifications.where((n) => n.isUnreadBy(uid)).length;
   }
   int get criticalCount =>
-      _notifications.where((n) => n.type == 'critical').length;
+      _notifications.where((n) => n.notif_type == 'critical').length;
 
   List<NotificationItem> get todayNotifications =>
-      _notifications.where((n) => _isToday(n.timestamp)).toList();
+      _notifications.where((n) => _isToday(n.created_at)).toList();
 
   int get todayCount => todayNotifications.length;
   int get reminderCount =>
-      _notifications.where((n) => n.type == 'reminder').length;
+      _notifications.where((n) => n.notif_type == 'reminder').length;
 
   void init() {
     if (_initialized) return;
@@ -841,7 +841,7 @@ class NotificationService extends ChangeNotifier {
 
     final scheduleLabel = '${s.time} ${s.ampm}';
     final alreadyAdded = _notifications.any(
-      (n) => n.type == 'reminder' && n.message.contains(scheduleLabel),
+      (n) => n.notif_type == 'reminder' && n.body.contains(scheduleLabel),
     );
 
     if (!alreadyAdded) {
@@ -1069,7 +1069,7 @@ class NotificationService extends ChangeNotifier {
     _notifSub = fs
         .collection('notifications')
         .where('uid', isEqualTo: uid)
-        .orderBy('timestamp', descending: true)
+        .orderBy('created_at', descending: true)
         .limit(100)
         .snapshots()
         .listen((snap) {
@@ -1078,32 +1078,39 @@ class NotificationService extends ChangeNotifier {
         final data = doc.data();
         if (data == null) continue;
         final key = doc.id;
-        final readByRaw = data['readBy'] as Map<String, dynamic>? ?? {};
+        final isReadRaw = data['is_read'] as bool? ?? false;
 
         if (change.type == DocumentChangeType.added) {
           if (_notifications.any((n) => n.id == key)) continue;
+          final tsData = data['created_at'];
+          DateTime? createdDt;
+          if (tsData is Timestamp) {
+            createdDt = tsData.toDate();
+          } else if (tsData is int) {
+            createdDt = DateTime.fromMillisecondsSinceEpoch(tsData);
+          } else {
+            createdDt = DateTime.now();
+          }
           _notifications.add(
             NotificationItem(
               id: key,
-              type: data['type'] ?? 'operational',
+              notif_type: data['notif_type'] ?? 'operational',
               title: data['title'] ?? '',
-              message: data['message'] ?? '',
-              timestamp: DateTime.fromMillisecondsSinceEpoch(
-                (data['timestamp'] as num).toInt(),
-              ),
-              readBy: readByRaw.map((k, v) => MapEntry(k, v == true)),
+              body: data['body'] ?? '',
+              created_at: createdDt,
+              is_read: isReadRaw,
             ),
           );
         } else if (change.type == DocumentChangeType.modified) {
           final idx = _notifications.indexWhere((n) => n.id == key);
           if (idx != -1) {
-            _notifications[idx].readBy = readByRaw.map((k, v) => MapEntry(k, v == true));
+            _notifications[idx].is_read = isReadRaw;
           }
         } else if (change.type == DocumentChangeType.removed) {
           _notifications.removeWhere((n) => n.id == key);
         }
       }
-      _notifications.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      _notifications.sort((a, b) => b.created_at.compareTo(a.created_at));
       notifyListeners();
     });
   }
@@ -1171,10 +1178,11 @@ class NotificationService extends ChangeNotifier {
     final docRef = FirebaseFirestore.instance.collection('notifications').doc();
     final notif = NotificationItem(
       id: docRef.id,
-      type: type,
+      notif_type: type,
       title: title,
-      message: message,
-      timestamp: timestamp,
+      body: message,
+      created_at: timestamp,
+      is_read: false,
     );
 
     _notifications.insert(0, notif);
@@ -1182,17 +1190,11 @@ class NotificationService extends ChangeNotifier {
 
     docRef.set({
       'uid': uid,
-      // New schema field names (notifications/{notif_id}):
-      'notif_type': notif.type,
-      'body': notif.message,
+      'notif_type': notif.notif_type,
+      'title': notif.title,
+      'body': notif.body,
       'created_at': FieldValue.serverTimestamp(),
       'is_read': false,
-      // Legacy field names kept so existing listeners/UI keep working.
-      'type': notif.type,
-      'title': notif.title,
-      'message': notif.message,
-      'timestamp': notif.timestamp.millisecondsSinceEpoch,
-      'readBy': {},
     }).catchError((e) {
       debugPrint('[NotificationService] Failed to save: $e');
     });
@@ -1206,13 +1208,12 @@ class NotificationService extends ChangeNotifier {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (uid.isEmpty) return;
     for (final n in _notifications) {
-      n.readBy[uid] = true;
+      n.is_read = true;
     }
     notifyListeners();
     final fs = FirebaseFirestore.instance;
     for (final n in _notifications) {
       fs.collection('notifications').doc(n.id).update({
-        'readBy.$uid': true,
         'is_read': true,
       }).catchError((_) {});
     }
@@ -1223,10 +1224,9 @@ class NotificationService extends ChangeNotifier {
     if (uid.isEmpty) return;
     for (final n in _notifications) {
       if (n.id == id) {
-        n.readBy[uid] = true;
+        n.is_read = true;
         notifyListeners();
         FirebaseFirestore.instance.collection('notifications').doc(id).update({
-          'readBy.$uid': true,
           'is_read': true,
         }).catchError((_) {});
         return;
