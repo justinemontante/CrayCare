@@ -64,7 +64,10 @@ class DatabaseService {
         'email': email,
         'role': effectiveRole,
       };
-      if (photoUrl != null) data['photo_url'] = photoUrl;
+      if (photoUrl != null) {
+        data['photo_url'] = photoUrl;
+        data['photoUrl'] = photoUrl; // legacy key read by main_shell.dart
+      }
       if (status != null) data['status'] = status;
       if (isNewUser) {
         data['status'] ??= 'active';
@@ -290,9 +293,13 @@ class DatabaseService {
 
     await tankRef.collection('actuator_logs').add({
       'actuator_type': deviceId,
-      'action': mode,
+      'action': 'Switched ${mode.toUpperCase()} — $deviceName ($modeLabel)',
       'log_level': 'info',
       'message': '$deviceName set to $modeLabel',
+      'type': mode,
+      'time': time,
+      'date': date,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
       'logged_at': FieldValue.serverTimestamp(),
     });
   }

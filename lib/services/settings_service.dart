@@ -14,6 +14,27 @@ class SettingsService extends ChangeNotifier {
 
   Map<String, Map<String, double>> get currentRanges => _ranges;
 
+  // The app uses short internal sensor keys ('temp','ph','do','turb',
+  // 'waterlevel'), but the new Firestore schema stores thresholds under
+  // tanks/{tank_id}/sensors/{longName} with long names to match the
+  // sensor_readings field names. This maps between the two.
+  static const Map<String, String> _longKeyFor = {
+    'temp': 'temperature',
+    'ph': 'ph_level',
+    'do': 'dissolved_oxygen',
+    'turb': 'turbidity',
+    'waterlevel': 'water_level',
+  };
+
+  String? _tankId;
+
+  Future<String?> _resolveTankId(String uid) async {
+    if (_tankId != null) return _tankId;
+    final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+    _tankId = doc.data()?['tank_id'] as String? ?? uid;
+    return _tankId;
+  }
+
   Future<void> init() async {
     if (_initialized) return;
     _ranges = {};
@@ -40,6 +61,7 @@ class SettingsService extends ChangeNotifier {
     _initialized = true;
     FirebaseAuth.instance.authStateChanges().listen((user) {
       if (user != null) {
+        _tankId = null;
         _syncFromFirebase();
       }
     });
@@ -49,30 +71,39 @@ class SettingsService extends ChangeNotifier {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final doc = await FirebaseFirestore.instance
-          .collection('sensorThresholds')
-          .doc(user.uid)
+      final tankId = await _resolveTankId(user.uid);
+      if (tankId == null) return;
+
+      // tanks/{tank_id}/sensors/{longKey} — one doc per sensor.
+      final sensorsSnap = await FirebaseFirestore.instance
+          .collection('tanks')
+          .doc(tankId)
+          .collection('sensors')
           .get();
-      if (!doc.exists || doc.data() == null) {
+
+      if (sensorsSnap.docs.isEmpty) {
         await _syncToFirebase();
         return;
       }
-      final data = doc.data()!;
-      final ranges = data['ranges'] as Map<String, dynamic>?;
-      if (ranges == null) {
-        await _syncToFirebase();
-        return;
-      }
-      for (final entry in ranges.entries) {
-        final sensorKey = entry.key;
-        if (_ranges.containsKey(sensorKey)) {
-          final range = entry.value as Map<String, dynamic>;
-          final min = (range['min'] as num?)?.toDouble();
-          final max = (range['max'] as num?)?.toDouble();
-          if (min != null && max != null) {
-            _ranges[sensorKey] = {'min': min, 'max': max};
-          }
+
+      bool anyApplied = false;
+      for (final doc in sensorsSnap.docs) {
+        final longKey = doc.id;
+        final shortKey = _longKeyFor.entries
+            .firstWhere((e) => e.value == longKey, orElse: () => const MapEntry('', ''))
+            .key;
+        if (shortKey.isEmpty || !_ranges.containsKey(shortKey)) continue;
+        final data = doc.data();
+        final min = (data['min_value'] as num?)?.toDouble();
+        final max = (data['max_value'] as num?)?.toDouble();
+        if (min != null && max != null) {
+          _ranges[shortKey] = {'min': min, 'max': max};
+          anyApplied = true;
         }
+      }
+      if (!anyApplied) {
+        await _syncToFirebase();
+        return;
       }
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('sensorRanges', jsonEncode(_ranges));
@@ -85,21 +116,21 @@ class SettingsService extends ChangeNotifier {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final rangesPayload = {
-        for (final e in _ranges.entries)
-          e.key: {'min': e.value['min'], 'max': e.value['max']},
-      };
-      // Save per-user sensor thresholds for the app.
-      await FirebaseFirestore.instance.collection('sensorThresholds').doc(user.uid).set({
-        'ranges': rangesPayload,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-      // Mirror to sensorThresholds/default so the ESP32 firmware picks up the thresholds.
-      // ESP reads: Firebase.Firestore.getDocument(..., "sensorThresholds/default", "ranges")
-      await FirebaseFirestore.instance.collection('sensorThresholds').doc('default').set({
-        'ranges': rangesPayload,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      final tankId = await _resolveTankId(user.uid);
+      if (tankId == null) return;
+
+      final tankRef = FirebaseFirestore.instance.collection('tanks').doc(tankId);
+      final batch = FirebaseFirestore.instance.batch();
+      for (final e in _ranges.entries) {
+        final longKey = _longKeyFor[e.key];
+        if (longKey == null) continue;
+        batch.set(tankRef.collection('sensors').doc(longKey), {
+          'min_value': e.value['min'],
+          'max_value': e.value['max'],
+          'updated_at': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+      await batch.commit();
     } catch (e) {
       debugPrint('[SettingsService] Firestore syncTo failed: $e');
     }
@@ -117,20 +148,22 @@ class SettingsService extends ChangeNotifier {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final update = {
-        'ranges.$sensorKey.min': min,
-        'ranges.$sensorKey.max': max,
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
+      final tankId = await _resolveTankId(user.uid);
+      final longKey = _longKeyFor[sensorKey];
+      if (tankId == null || longKey == null) return;
+
+      // tanks/{tank_id}/sensors/{longKey} — the ESP32 firmware reads
+      // thresholds directly from here (per-tank, not a global default).
       await FirebaseFirestore.instance
-          .collection('sensorThresholds')
-          .doc(user.uid)
-          .update(update);
-      // Mirror to sensorThresholds/default so the ESP32 picks up the new threshold.
-      await FirebaseFirestore.instance
-          .collection('sensorThresholds')
-          .doc('default')
-          .set(update, SetOptions(merge: true));
+          .collection('tanks')
+          .doc(tankId)
+          .collection('sensors')
+          .doc(longKey)
+          .set({
+        'min_value': min,
+        'max_value': max,
+        'updated_at': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
     } catch (e) {
       debugPrint('[SettingsService] Firestore updateRange failed: $e');
     }
@@ -147,19 +180,21 @@ class SettingsService extends ChangeNotifier {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final defaultPayload = {
-        'ranges': {
-          for (final e in defaultRanges.entries)
-            e.key: {'min': e.value['min'], 'max': e.value['max']},
-        },
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
-      await FirebaseFirestore.instance.collection('sensorThresholds').doc(user.uid).set(defaultPayload);
-      // Mirror to sensorThresholds/default so the ESP32 picks up the reset thresholds.
-      await FirebaseFirestore.instance
-          .collection('sensorThresholds')
-          .doc('default')
-          .set(defaultPayload, SetOptions(merge: true));
+      final tankId = await _resolveTankId(user.uid);
+      if (tankId == null) return;
+
+      final tankRef = FirebaseFirestore.instance.collection('tanks').doc(tankId);
+      final batch = FirebaseFirestore.instance.batch();
+      for (final e in defaultRanges.entries) {
+        final longKey = _longKeyFor[e.key];
+        if (longKey == null) continue;
+        batch.set(tankRef.collection('sensors').doc(longKey), {
+          'min_value': e.value['min'],
+          'max_value': e.value['max'],
+          'updated_at': FieldValue.serverTimestamp(),
+        });
+      }
+      await batch.commit();
     } catch (e) {
       debugPrint('[SettingsService] Firestore resetToDefaults failed: $e');
     }

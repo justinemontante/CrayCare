@@ -4,12 +4,26 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
+/// Background feeding/notification checks. Migrated to the new Firestore
+/// structure: everything feeder/sensor related now lives under
+/// tanks/{tank_id}/..., and notif prefs/markers under users/{uid}/....
 class BackgroundHelper {
   static const _notifChannelId = 'craycare_alerts';
   static const _notifChannelName = 'CrayCare Alerts';
   static const _notifChannelDesc = 'Sensor threshold alerts';
 
   static String get _userId => FirebaseAuth.instance.currentUser?.uid ?? '';
+
+  /// Resolves tank_id from the user's profile (tanks/{tank_id}). Falls back
+  /// to uid if the profile lookup fails, since tank_id == uid in this app.
+  static Future<String?> _resolveTankId(String uid) async {
+    try {
+      final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      return doc.data()?['tank_id'] as String? ?? uid;
+    } catch (_) {
+      return uid;
+    }
+  }
 
   // Background tasks run on the device's local clock, but all schedule times
   // and Firestore date-keys are expressed in Asia/Manila wall-clock time (UTC+8)
@@ -22,33 +36,33 @@ class BackgroundHelper {
   static Future<void> checkAndDispatchFeeding() async {
     final uid = _userId;
     if (uid.isEmpty) return;
+    final tankId = await _resolveTankId(uid);
+    if (tankId == null) return;
     final fs = FirebaseFirestore.instance;
+    final tankDoc = fs.collection('tanks').doc(tankId);
     final now = _manilaTime();
     final todayKey = '${now.year}-${now.month}-${now.day}';
 
-    final schedSnap = await fs.collection('feederSchedules').get();
+    // tanks/{tank_id}/feeder_schedules
+    final schedSnap = await tankDoc.collection('feeder_schedules').get();
     if (schedSnap.docs.isEmpty) return;
     final schedDocs = schedSnap.docs;
 
-    final latestSnap = await fs.collection('sensorReadings').doc(uid).get();
+    // tanks/{tank_id}/sensor_readings/latest
+    final latestSnap = await tankDoc.collection('sensor_readings').doc('latest').get();
     bool feedSafe = true;
     String blockReason = '';
     if (latestSnap.exists && latestSnap.data() != null) {
       final latest = latestSnap.data()!;
-      final turbAir = latest['turbidityAir'] == true;
+      final turbAir = latest['turbidity_air'] == true || latest['turbidityAir'] == true;
       final turb = (latest['turbidity'] as num?)?.toDouble() ?? 0.0;
 
-      final configSnap = await fs.collection('sensorThresholds').doc(uid).get();
+      // tanks/{tank_id}/sensors/turbidity — new per-sensor threshold doc.
       double turbMax = 25.0;
+      final configSnap = await tankDoc.collection('sensors').doc('turbidity').get();
       if (configSnap.exists && configSnap.data() != null) {
         final config = configSnap.data()!;
-        final ranges = config['ranges'] as Map<String, dynamic>?;
-        if (ranges != null) {
-          final turbRange = ranges['turb'] as Map<String, dynamic>?;
-          if (turbRange != null) {
-            turbMax = (turbRange['max'] as num?)?.toDouble() ?? 25.0;
-          }
-        }
+        turbMax = (config['max_value'] as num?)?.toDouble() ?? 25.0;
       }
 
       if (turbAir) {
@@ -62,9 +76,9 @@ class BackgroundHelper {
 
     for (final doc in schedDocs) {
       final s = doc.data();
-      if (s['enabled'] != true) continue;
+      if (s['enabled'] != true && s['is_active'] != true) continue;
 
-      final time = s['time'] as String? ?? '6:00';
+      final time = s['time'] as String? ?? s['feed_time'] as String? ?? '6:00';
       final ampm = s['ampm'] as String? ?? 'AM';
       int h = int.parse(time.split(':')[0]);
       final m = int.parse(time.split(':')[1]);
@@ -77,8 +91,9 @@ class BackgroundHelper {
       if (nowMins < schedMins || nowMins > schedMins + 15) continue;
 
       final dispatchedKey = doc.id;
-      final dispatchedDoc = await fs
-          .collection('feederDispatched')
+      // tanks/{tank_id}/feeder_dispatched/{dateKey}
+      final dispatchedDoc = await tankDoc
+          .collection('feeder_dispatched')
           .doc(todayKey)
           .get();
       final dispatchedData = dispatchedDoc.data();
@@ -94,20 +109,28 @@ class BackgroundHelper {
         final timeStr = '$h12:${m.toString().padLeft(2, '0')} $ampmStr';
         final dateStr = '${months[now.month - 1]} ${now.day}, ${now.year}';
 
-        await fs.collection('feederLogs').add({
+        // tanks/{tank_id}/feeder_logs
+        await tankDoc.collection('feeder_logs').add({
           'action': 'Scheduled feed skipped: $blockReason',
           'type': 'skipped',
           'time': timeStr,
           'date': dateStr,
           'timestamp': now.millisecondsSinceEpoch,
+          'logged_at': FieldValue.serverTimestamp(),
         });
         debugPrint('[BackgroundHelper] Skipped feed for $time $ampm: $blockReason');
         continue;
       }
 
-      final grams = (s['grams'] as num?)?.toDouble();
+      final grams = (s['grams'] as num?)?.toDouble() ?? (s['portion_grams'] as num?)?.toDouble();
 
       final Map<String, dynamic> cmd = {
+        'command_type': 'feed_now',
+        'trigger_type': 'scheduled',
+        'status': 'pending',
+        'issued_by': uid,
+        'issued_at': FieldValue.serverTimestamp(),
+        // legacy fields kept for firmware compatibility during rollout
         'action': 'feed_now',
         'timestamp': FieldValue.serverTimestamp(),
         'source': 'background',
@@ -115,7 +138,8 @@ class BackgroundHelper {
       if (grams != null) {
         cmd['grams'] = grams;
       }
-      await fs.collection('feederCommands').add(cmd);
+      // tanks/{tank_id}/pending_commands
+      await tankDoc.collection('pending_commands').add(cmd);
 
       final months = [
         'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -127,15 +151,16 @@ class BackgroundHelper {
       final dateStr = '${months[now.month - 1]} ${now.day}, ${now.year}';
       final gramsStr = grams != null ? ' (${grams.toStringAsFixed(1)}g)' : '';
 
-      await fs.collection('feederLogs').add({
+      await tankDoc.collection('feeder_logs').add({
         'action': 'Auto feed dispensed$gramsStr',
         'type': 'auto',
         'time': timeStr,
         'date': dateStr,
         'timestamp': now.millisecondsSinceEpoch,
+        'logged_at': FieldValue.serverTimestamp(),
       });
 
-      await fs.collection('feederDispatched').doc(todayKey).set({
+      await tankDoc.collection('feeder_dispatched').doc(todayKey).set({
         dispatchedKey: true,
       }, SetOptions(merge: true));
 
@@ -146,12 +171,16 @@ class BackgroundHelper {
   static Future<void> showPendingNotifications() async {
     final uid = _userId;
     if (uid.isEmpty) return;
+    final tankId = await _resolveTankId(uid);
+    if (tankId == null) return;
     final fs = FirebaseFirestore.instance;
+    final tankDoc = fs.collection('tanks').doc(tankId);
+    final userDoc = fs.collection('users').doc(uid);
     final now = _manilaTime();
     final todayKey = '${now.year}-${now.month}-${now.day}';
     final nowMins = now.hour * 60 + now.minute;
 
-    final schedSnap = await fs.collection('feederSchedules').get();
+    final schedSnap = await tankDoc.collection('feeder_schedules').get();
     if (schedSnap.docs.isEmpty) return;
     final schedDocs = schedSnap.docs;
 
@@ -163,9 +192,9 @@ class BackgroundHelper {
 
     for (final doc in schedDocs) {
       final s = doc.data();
-      if (s['enabled'] != true) continue;
+      if (s['enabled'] != true && s['is_active'] != true) continue;
 
-      final time = s['time'] as String? ?? '6:00';
+      final time = s['time'] as String? ?? s['feed_time'] as String? ?? '6:00';
       final ampm = s['ampm'] as String? ?? 'AM';
       int h = int.parse(time.split(':')[0]);
       final m = int.parse(time.split(':')[1]);
@@ -174,19 +203,14 @@ class BackgroundHelper {
 
       final schedMins = h * 60 + m;
       final reminderKey = 'reminder_${todayKey}_${doc.id}';
-
       final confirmKey = 'confirm_${todayKey}_${doc.id}';
 
-      final reminderMarker = await fs
-          .collection('notifMarkers')
-          .doc('${uid}_$reminderKey')
-          .get();
-      final confirmMarker = await fs
-          .collection('notifMarkers')
-          .doc('${uid}_$confirmKey')
-          .get();
+      // users/{uid}/notif_markers/{key} — no more uid prefix, path scopes it.
+      final reminderMarker = await userDoc.collection('notif_markers').doc(reminderKey).get();
+      final confirmMarker = await userDoc.collection('notif_markers').doc(confirmKey).get();
 
-      final prefsDoc = await fs.collection('notifPrefs').doc(uid).get();
+      // users/{uid}/notification_settings/preferences
+      final prefsDoc = await userDoc.collection('notification_settings').doc('preferences').get();
       final prefs = prefsDoc.data();
       final isFeedingEnabled = prefs == null || prefs['feeding'] != false;
 
@@ -206,12 +230,13 @@ class BackgroundHelper {
             ),
           ),
         );
-        await fs.collection('notifMarkers').doc('${uid}_$reminderKey').set({'uid': uid, 'markerKey': reminderKey, 'value': true, 'updatedAt': FieldValue.serverTimestamp()});
+        await userDoc.collection('notif_markers').doc(reminderKey).set(
+            {'markerKey': reminderKey, 'value': true, 'updatedAt': FieldValue.serverTimestamp()});
       }
 
       if (isFeedingEnabled && !confirmMarker.exists && nowMins > schedMins && nowMins <= schedMins + 15) {
-        final dispatchedDoc = await fs
-            .collection('feederDispatched')
+        final dispatchedDoc = await tankDoc
+            .collection('feeder_dispatched')
             .doc(todayKey)
             .get();
         final dispatchedData = dispatchedDoc.data();
@@ -230,7 +255,8 @@ class BackgroundHelper {
               ),
             ),
           );
-          await fs.collection('notifMarkers').doc('${uid}_$confirmKey').set({'uid': uid, 'markerKey': confirmKey, 'value': true, 'updatedAt': FieldValue.serverTimestamp()});
+          await userDoc.collection('notif_markers').doc(confirmKey).set(
+              {'markerKey': confirmKey, 'value': true, 'updatedAt': FieldValue.serverTimestamp()});
         }
       }
     }
@@ -239,16 +265,19 @@ class BackgroundHelper {
   static Future<void> checkSamplingReminders() async {
     final uid = _userId;
     if (uid.isEmpty) return;
+    final tankId = await _resolveTankId(uid);
+    if (tankId == null) return;
     final now = _manilaTime();
     final fs = FirebaseFirestore.instance;
+    final userDoc = fs.collection('users').doc(uid);
 
     Map<String, dynamic>? tank;
     try {
-      // TankService persists to 'tanks', not 'config' — must match.
-      final configSnap = await fs.collection('tanks').doc(uid).get();
+      // tanks/{tank_id} — not 'config', must match TankService's writes.
+      final configSnap = await fs.collection('tanks').doc(tankId).get();
       if (configSnap.exists) tank = configSnap.data();
     } catch (e) {
-      debugPrint('[BackgroundHelper] Failed to read config from Firestore: $e');
+      debugPrint('[BackgroundHelper] Failed to read tank from Firestore: $e');
     }
     if (tank == null) return;
 
@@ -257,9 +286,11 @@ class BackgroundHelper {
 
     int effectiveSampleTs = 0;
     try {
+      // sampling_records is a flat collection filtered by tankId (camelCase),
+      // matching TankService's writes. tank_id == uid in this app.
       final samplingSnap = await fs
           .collection('sampling_records')
-          .where('tankId', isEqualTo: uid)
+          .where('tankId', isEqualTo: tankId)
           .get();
       if (samplingSnap.docs.isNotEmpty) {
         int? latestTs;
@@ -287,7 +318,8 @@ class BackgroundHelper {
     // How often to re-notify while sampling is still overdue.
     const _reminderIntervalHours = 4;
 
-    final markerDoc = await fs.collection('notifMarkers').doc('${uid}_$markerKey').get();
+    // users/{uid}/notif_markers/{markerKey}
+    final markerDoc = await userDoc.collection('notif_markers').doc(markerKey).get();
     bool isFirstReminder = true;
 
     if (markerDoc.exists && markerDoc.data() != null) {
@@ -339,8 +371,7 @@ class BackgroundHelper {
       ),
     );
 
-    await fs.collection('notifMarkers').doc('${uid}_$markerKey').set({
-      'uid': uid,
+    await userDoc.collection('notif_markers').doc(markerKey).set({
       'markerKey': markerKey,
       'value': {
         'reminderTs': now.millisecondsSinceEpoch,

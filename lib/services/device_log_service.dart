@@ -57,17 +57,25 @@ class DeviceLogService extends ChangeNotifier {
     _startListening();
   }
 
-  void _startListening() {
+  void _startListening() async {
     if (_initialized) return;
     _initialized = true;
     _authSub?.cancel();
     _authSub = null;
 
+    // deviceLogs migrated to tanks/{tank_id}/actuator_logs, filtered by the
+    // 'actuator_type' field instead of 'deviceId'.
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    final profileDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+    final tankId = profileDoc.data()?['tank_id'] as String? ?? uid;
+    final tankLogsRef =
+        FirebaseFirestore.instance.collection('tanks').doc(tankId).collection('actuator_logs');
+
     for (final deviceId in deviceIds) {
       _logs[deviceId] = [];
-      final sub = FirebaseFirestore.instance
-          .collection('deviceLogs')
-          .where('deviceId', isEqualTo: deviceId)
+      final sub = tankLogsRef
+          .where('actuator_type', isEqualTo: deviceId)
           .orderBy('timestamp', descending: true)
           .limit(50)
           .snapshots()
@@ -75,8 +83,8 @@ class DeviceLogService extends ChangeNotifier {
         final list = snapshot.docs.map((doc) {
           final map = doc.data();
           return LogEntry(
-            map['action'] as String? ?? '',
-            map['type'] as String? ?? '',
+            map['action'] as String? ?? map['message'] as String? ?? '',
+            map['type'] as String? ?? map['log_level'] as String? ?? '',
             map['time'] as String? ?? '',
             map['date'] as String? ?? '',
             timestamp: map['timestamp'] as int? ?? 0,

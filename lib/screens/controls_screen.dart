@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../theme/app_colors.dart';
 import '../widgets/controls/feeder_tab.dart';
 import '../widgets/controls/devices_tab.dart';
@@ -59,16 +60,25 @@ class ControlsScreenState extends State<ControlsScreen> {
     );
   }
 
-  void _initDeviceModes() {
+  void _initDeviceModes() async {
+    // deviceModes/{deviceId} migrated to tanks/{tank_id}/actuators/{deviceId},
+    // with the mode stored under 'control_mode' instead of 'mode'.
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    final profileDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+    final tankId = profileDoc.data()?['tank_id'] as String? ?? uid;
+
     _devicesSub = FirebaseFirestore.instance
-        .collection('deviceModes')
+        .collection('tanks')
+        .doc(tankId)
+        .collection('actuators')
         .limit(10)
         .snapshots()
         .listen((snapshot) {
       final modes = <String, String>{};
       for (final doc in snapshot.docs) {
         final data = doc.data();
-        modes[doc.id] = data['mode'] as String? ?? 'auto';
+        modes[doc.id] = data['control_mode'] as String? ?? data['mode'] as String? ?? 'auto';
       }
       if (mounted) setState(() => _hwModes = modes);
     });
