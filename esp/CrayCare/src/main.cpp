@@ -155,6 +155,16 @@ bool feederIsRunning = false;
 String feederFeedSource = "";          // "manual" or "scheduled"
 int feederFeedCount = 0;              // total feeds dispensed since boot
 
+// Firestore integerValue is textual. Avoid 32-bit unsigned-long overflow
+// when sending epoch milliseconds from the ESP32.
+String epochMillisString(time_t seconds) {
+  if (seconds < 1700000000) return "0";
+  char buffer[24];
+  const uint64_t millisValue = static_cast<uint64_t>(seconds) * 1000ULL;
+  snprintf(buffer, sizeof(buffer), "%llu", static_cast<unsigned long long>(millisValue));
+  return String(buffer);
+}
+
 // Non-blocking feeder state machine
 enum FeederRunState {
   FEEDER_IDLE,
@@ -1052,23 +1062,29 @@ void sendFeederStatus() {
 
   time_t now;
   time(&now);
-  unsigned long epochMs = (now > 1700000000) ? (unsigned long)now * 1000UL : 0;
+  const String nowMs = epochMillisString(now);
 
   FirebaseJson json;
-  // Write to new subcollection path fields (matching Flutter database_service.dart)
-  json.set("fields/status/stringValue",         feederIsRunning ? "feeding" : "idle");
+  // Match FeederService's canonical status fields and keep the heartbeat fresh.
+  json.set("fields/status/stringValue", feederIsRunning ? "dispensing" : "idle");
+  json.set("fields/isRunning/booleanValue", feederIsRunning);
+  json.set("fields/feedSource/stringValue", feederFeedSource);
+  json.set("fields/feedCount/integerValue", String(feederFeedCount));
+  json.set("fields/hopperLevel/doubleValue", String(feederHopperLevel));
+  json.set("fields/lastSeen/integerValue", nowMs);
   if (feederLastFeedEpoch > 0) {
-    json.set("fields/last_dispensed_at/integerValue", String((int)feederLastFeedEpoch * 1000));
+    json.set("fields/last_dispensed_at/integerValue", epochMillisString((time_t)feederLastFeedEpoch));
   } else {
-    json.set("fields/last_dispensed_at/nullValue",    "NULL_VALUE");
+    json.set("fields/last_dispensed_at/nullValue", "NULL_VALUE");
   }
-  // ESP does not track grams directly; use default 20g if recently fed, else 0
-  json.set("fields/last_dispensed_grams/doubleValue", (feederIsRunning || (feederLastFeedEpoch > 0)) ? "20.0" : "0.0");
+  json.set("fields/last_dispensed_grams/doubleValue", (feederIsRunning || feederLastFeedEpoch > 0) ? "20.0" : "0.0");
 
-  String statusDoc = (currentTankId.length()>0) ? ("tanks/" + currentTankId + "/feeder/status") : FIRESTORE_FEEDER_STATUS_DOC;
+  String statusDoc = (currentTankId.length() > 0)
+      ? ("tanks/" + currentTankId + "/feeder/status")
+      : FIRESTORE_FEEDER_STATUS_DOC;
   if (!Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "",
         statusDoc.c_str(), json.raw(),
-        "status,last_dispensed_at,last_dispensed_grams")) {
+        "status,isRunning,feedSource,feedCount,hopperLevel,lastSeen,last_dispensed_at,last_dispensed_grams")) {
     if (fbdo.httpConnected()) {
       Serial.printf("[FEEDER STATUS ERROR] %s\n", fbdo.errorReason().c_str());
     }
@@ -1279,7 +1295,7 @@ void pushFeederLog(String action, String type) {
   sprintf(dateBuf, "%s %d, %d",
           months[timeinfo->tm_mon], timeinfo->tm_mday, 1900 + timeinfo->tm_year);
 
-  unsigned long epochMs = ((unsigned long)now) * 1000UL;
+  const String epochMs = epochMillisString(now);
 
   FirebaseJson json;
   json.set("fields/action/stringValue",    action);
@@ -1288,8 +1304,11 @@ void pushFeederLog(String action, String type) {
   json.set("fields/date/stringValue",      String(dateBuf));
   json.set("fields/timestamp/integerValue", String(epochMs));
 
+  String logCollection = (currentTankId.length() > 0)
+      ? ("tanks/" + currentTankId + "/feeder_logs")
+      : FIRESTORE_FEEDER_LOGS_COL;
   if (Firebase.Firestore.createDocument(&fbdo, FIREBASE_PROJECT_ID, "",
-        FIRESTORE_FEEDER_LOGS_COL, "", json.raw(), "")) {
+        logCollection.c_str(), "", json.raw(), "")) {
     Serial.printf("[FEEDER LOG] %s\n", action.c_str());
   } else if (fbdo.httpConnected()) {
     Serial.printf("[FEEDER LOG ERROR] %s\n", fbdo.errorReason().c_str());
