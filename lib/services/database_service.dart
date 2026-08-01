@@ -120,9 +120,12 @@ class DatabaseService {
     final existing = await ref.get();
     if (existing.exists) return;
     await ref.set({
-      'enable_sensor_alerts': true,
-      'enable_feeder_alerts': true,
-      'enable_system_alerts': true,
+      'sound': true,
+      'vibration': true,
+      'critical': true,
+      'warning': true,
+      'feeding': true,
+      'sampling': true,
       'updated_at': FieldValue.serverTimestamp(),
     });
   }
@@ -142,9 +145,6 @@ class DatabaseService {
         .collection('notification_settings')
         .doc('preferences')
         .set({
-      'enable_sensor_alerts': critical || warning,
-      'enable_feeder_alerts': feeding,
-      'enable_system_alerts': sampling,
       'sound': sound,
       'vibration': vibration,
       'critical': critical,

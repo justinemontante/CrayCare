@@ -23,15 +23,12 @@
   "users/{uid}/notification_settings/preferences": {
     "_description": "Per-user notification preferences. Created automatically on signup.",
     "fields": [
-      "enable_sensor_alerts",
-      "enable_feeder_alerts",
-      "enable_system_alerts",
-      "sound",
-      "vibration",
-      "critical",
-      "warning",
-      "feeding",
-      "sampling",
+      "sound (bool)",
+      "vibration (bool)",
+      "critical (bool) — critical sensor alerts",
+      "warning (bool) — sensor warnings (approaching threshold)",
+      "feeding (bool) — feeding reminders",
+      "sampling (bool) — weekly sampling reminders",
       "updated_at (Timestamp)"
     ]
   },

@@ -13,6 +13,11 @@ const SENSOR_MAP = {
   water_level: "waterlevel",
 };
 
+// Warning zone: a sensor value within this fraction of the valid range's edge
+// (but not past the threshold) is reported as a WARNING instead of CRITICAL.
+// The per-user "Warning Alerts" preference gates these pushes.
+const WARNING_MARGIN_FRACTION = 0.1;
+
 const LABELS = {
   temp: "Temperature",
   ph: "pH Level",
@@ -338,6 +343,24 @@ exports.onSensorUpdate = functions.region("asia-southeast1").firestore
           ((range.min != null && oldVal < range.min) ||
             (range.max != null && oldVal > range.max));
 
+        // Warning zone: within WARNING_MARGIN_FRACTION of the range edge —
+        // approaching the threshold but not past it yet.
+        const span =
+          range.min != null && range.max != null ? range.max - range.min : 0;
+        const margin = span > 0 ? span * WARNING_MARGIN_FRACTION : 0;
+        const warnLow = range.min != null ? range.min + margin : null;
+        const warnHigh = range.max != null ? range.max - margin : null;
+
+        const isWarning =
+          !isCritical &&
+          ((warnLow != null && newVal >= range.min && newVal < warnLow) ||
+            (warnHigh != null && newVal <= range.max && newVal > warnHigh));
+
+        const wasWarning =
+          oldVal != null &&
+          ((warnLow != null && oldVal >= range.min && oldVal < warnLow) ||
+            (warnHigh != null && oldVal <= range.max && oldVal > warnHigh));
+
         if (isCritical && !wasCritical) {
           let dir, threshold;
           if (range.min != null && newVal < range.min) {
@@ -348,7 +371,18 @@ exports.onSensorUpdate = functions.region("asia-southeast1").firestore
             threshold = range.max;
           }
           stateChanges.push({ svcKey, val: newVal, threshold, dir, state: "critical" });
-        } else if (!isCritical && wasCritical) {
+        } else if (isWarning && !wasWarning && !wasCritical) {
+          // Entering the warning zone from normal — alert once (no spam).
+          let dir, threshold;
+          if (warnLow != null && newVal < warnLow) {
+            dir = "low";
+            threshold = range.min;
+          } else {
+            dir = "high";
+            threshold = range.max;
+          }
+          stateChanges.push({ svcKey, val: newVal, threshold, dir, state: "warning" });
+        } else if (!isCritical && !isWarning && (wasCritical || wasWarning)) {
           stateChanges.push({ svcKey, val: newVal, state: "resolved" });
         }
       }
@@ -362,27 +396,50 @@ exports.onSensorUpdate = functions.region("asia-southeast1").firestore
           return unit
             ? `${label} is back to normal (${val.toFixed(1)} ${unit})`
             : `${label} is back to normal (${val.toFixed(1)})`;
-        } else {
-          const d = dir === "low" ? "below minimum" : "above maximum";
-          return unit
-            ? `${label} (${val.toFixed(1)} ${unit}) is ${d} of ${threshold}`
-            : `${label} (${val.toFixed(1)}) is ${d} of ${threshold}`;
         }
+        const d =
+          state === "warning"
+            ? dir === "low"
+              ? "is approaching minimum"
+              : "is approaching maximum"
+            : dir === "low"
+              ? "is below minimum"
+              : "is above maximum";
+        return unit
+          ? `${label} (${val.toFixed(1)} ${unit}) ${d} of ${threshold}`
+          : `${label} (${val.toFixed(1)}) ${d} of ${threshold}`;
       });
 
+      const hasCritical = stateChanges.some((c) => c.state === "critical");
+      const hasWarning = stateChanges.some((c) => c.state === "warning");
+      const alertType = hasCritical ? "critical" : hasWarning ? "warning" : "operational";
       const notifPayload = {
-        type: stateChanges.some((c) => c.state === "critical") ? "critical" : "operational",
-        title: stateChanges.some((c) => c.state === "critical") ? "Sensor Alert" : "Sensor Normalized",
+        type: alertType,
+        title: hasCritical
+          ? "Sensor Alert"
+          : hasWarning
+            ? "Sensor Warning"
+            : "Sensor Normalized",
         message: msgLines.join("; "),
       };
 
       // Target the specific owner of this sensor reading
       await writeNotification(ownerUid, notifPayload);
 
-      // Send FCM push to this owner
+      // Send FCM push to this owner. Respect the per-user notification toggles:
+      //  - "critical" alerts  -> prefs.critical  (Sensor Alert)
+      //  - "warning" alerts   -> prefs.warning   (Sensor Warning)
+      //  - "operational" (resolved) -> always sent (good news / back to normal)
       try {
         const prefs = await getUserPreferences(ownerUid);
-        if (prefs.critical !== false) {
+        const pushAllowed =
+          alertType === "critical"
+            ? prefs.critical !== false
+            : alertType === "warning"
+              ? prefs.warning !== false
+              : true; // resolved
+
+        if (pushAllowed) {
           const tokens = await getUserTokens(ownerUid);
 
           const sound = prefs.sound !== false;
@@ -404,7 +461,9 @@ exports.onSensorUpdate = functions.region("asia-southeast1").firestore
                     body: msgLines.join("\n"),
                     sound: String(sound),
                     vibration: String(vibration),
-                    critical: String(true),
+                    critical: String(hasCritical),
+                    warning: String(hasWarning),
+                    alertType,
                   },
                   android: {
                     priority: "high",

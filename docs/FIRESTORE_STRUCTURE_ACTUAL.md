@@ -21,7 +21,8 @@
 `token`, `device_type` (android|ios), `created_at`
 
 ### `users/{uid}/notification_settings/preferences` ✓
-`enable_sensor_alerts`, `enable_feeder_alerts`, `enable_system_alerts`, `sound`, `vibration`, `critical`, `warning`, `feeding`, `sampling`, `updated_at`
+`sound`, `vibration`, `critical` (sensor alerts), `warning` (approaching threshold), `feeding` (feeding reminders), `sampling` (weekly sampling), `updated_at`
+> Per-user ✓ — naka-scope sa `users/{uid}`. Sine-save ng app, chine-check ng Cloud Function para i-gate ang pushes.
 
 ### `users/{uid}/notif_markers/{key}` ✓
 Tracks last-seen notification markers (reminders/confirmations) — `last_read_at`-style flags
