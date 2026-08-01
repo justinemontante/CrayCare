@@ -167,7 +167,13 @@ def on_sensor_update(event: firestore_fn.Event[firestore_fn.Change[firestore_fn.
             "source": "System",
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-        db.collection("healthRisk").document(tank_id).set(result)
+        (
+            db.collection("tanks")
+            .document(tank_id)
+            .collection("health_risk")
+            .document("current")
+            .set(result)
+        )
         return
 
     result = _predict_wqc(df)
@@ -175,7 +181,13 @@ def on_sensor_update(event: firestore_fn.Event[firestore_fn.Change[firestore_fn.
     if owner_uid:
         result["uid"] = owner_uid
 
-    db.collection("healthRisk").document(tank_id).set(result)
+    (
+        db.collection("tanks")
+        .document(tank_id)
+        .collection("health_risk")
+        .document("current")
+        .set(result)
+    )
     print(
         f"[WQC] Classification: {result['level']} (confidence={result['confidence']}%, driver={result['driver']})"
     )

@@ -58,18 +58,39 @@ class MlService extends ChangeNotifier {
     }
   }
 
-  void _startListening() {
+  void _startListening() async {
+    _sub?.cancel();
     _loading = true;
+    _error = null;
+    notifyListeners();
+
     final uid = FirebaseAuth.instance.currentUser?.uid;
-    _sub = FirebaseFirestore.instance
-        .collection('healthRisk')
-        .doc(uid ?? 'latest')
-        .snapshots()
-        .listen(_onPredictionUpdate, onError: (e) {
+    if (uid == null) {
+      _latestPrediction = null;
+      _loading = false;
+      notifyListeners();
+      return;
+    }
+
+    try {
+      final profile = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      final tankId = profile.data()?['tank_id'] as String? ?? uid;
+      _sub = FirebaseFirestore.instance
+          .collection('tanks')
+          .doc(tankId)
+          .collection('health_risk')
+          .doc('current')
+          .snapshots()
+          .listen(_onPredictionUpdate, onError: (e) {
+        _error = e.toString();
+        _loading = false;
+        notifyListeners();
+      });
+    } catch (e) {
       _error = e.toString();
       _loading = false;
       notifyListeners();
-    });
+    }
   }
 
   void _onPredictionUpdate(DocumentSnapshot<Map<String, dynamic>> snapshot) {

@@ -505,11 +505,29 @@ async function getSamplingDue(notifTarget) {
     const profile = await firestoreDb.collection("users").doc(notifTarget).get();
     const tankId = profile.exists ? (profile.data() || {}).tank_id : null;
     if (!tankId) return null;
+
     const snap = await firestoreDb.collection("tanks").doc(tankId).get();
     if (!snap.exists) return null;
     const config = snap.data() || {};
-    if (!config.isInitialized) return null;
-    lastSampleTs = config.lastSampleDate || config.stockingDate;
+
+    const isInitialized = config.isInitialized === true || config.is_initialized === true;
+    if (!isInitialized) return null;
+
+    const currentBatchId = config.currentBatchId || config.current_batch_id || "";
+    if (currentBatchId) {
+      const latestSampling = await firestoreDb
+        .collection("tanks").doc(tankId)
+        .collection("batches").doc(currentBatchId)
+        .collection("sampling_records")
+        .orderBy("date", "desc")
+        .limit(1)
+        .get();
+      if (!latestSampling.empty) {
+        lastSampleTs = latestSampling.docs[0].data().date || null;
+      }
+    }
+
+    lastSampleTs = lastSampleTs || config.lastSampleDate || config.last_sample_date || config.stockingDate || config.stocking_date;
   } catch (e) {
     functions.logger.error(`getSamplingDue error for ${notifTarget}:`, e.message);
     return null;

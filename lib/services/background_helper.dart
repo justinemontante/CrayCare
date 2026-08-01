@@ -281,31 +281,35 @@ class BackgroundHelper {
     }
     if (tank == null) return;
 
-    final isInitialized = tank['isInitialized'] as bool? ?? false;
+    final isInitialized =
+        (tank['isInitialized'] as bool?) ?? (tank['is_initialized'] as bool?) ?? false;
     if (!isInitialized) return;
+
+    final currentBatchId =
+        (tank['currentBatchId'] ?? tank['current_batch_id']) as String?;
+    final fallbackStockingTs =
+        (tank['stockingDate'] as int?) ?? (tank['stocking_date'] as int?) ?? 0;
 
     int effectiveSampleTs = 0;
     try {
-      // sampling_records is a flat collection filtered by tankId (camelCase),
-      // matching TankService's writes. tank_id == uid in this app.
-      final samplingSnap = await fs
-          .collection('sampling_records')
-          .where('tankId', isEqualTo: tankId)
-          .get();
-      if (samplingSnap.docs.isNotEmpty) {
-        int? latestTs;
-        for (final doc in samplingSnap.docs) {
-          final data = doc.data();
-          final ts = data['date'] as int?;
-          if (ts != null && (latestTs == null || ts > latestTs)) latestTs = ts;
+      if (currentBatchId != null && currentBatchId.isNotEmpty) {
+        final samplingSnap = await fs
+            .collection('tanks')
+            .doc(tankId)
+            .collection('batches')
+            .doc(currentBatchId)
+            .collection('sampling_records')
+            .orderBy('date', descending: true)
+            .limit(1)
+            .get();
+        if (samplingSnap.docs.isNotEmpty) {
+          effectiveSampleTs = samplingSnap.docs.first.data()['date'] as int? ?? 0;
         }
-        effectiveSampleTs = latestTs ?? (tank['stockingDate'] as int? ?? 0);
-      } else {
-        effectiveSampleTs = tank['stockingDate'] as int? ?? 0;
       }
+      effectiveSampleTs = effectiveSampleTs > 0 ? effectiveSampleTs : fallbackStockingTs;
     } catch (e) {
       debugPrint('[BackgroundHelper] Failed to read sampling from Firestore: $e');
-      effectiveSampleTs = tank['stockingDate'] as int? ?? 0;
+      effectiveSampleTs = fallbackStockingTs;
     }
     if (effectiveSampleTs <= 0) return;
 

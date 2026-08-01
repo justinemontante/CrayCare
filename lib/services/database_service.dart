@@ -175,10 +175,17 @@ class DatabaseService {
 
     await ref.set({
       'owner_uid': tankId,
-      'current_batch_id': null,
+      'userId': tankId,
+      'current_batch_id': '',
+      'currentBatchId': '',
       'lifetime_mortality': 0,
+      'lifetimeMortality': 0,
       'lifetime_harvested': 0,
+      'lifetimeHarvested': 0,
+      'is_initialized': false,
+      'isInitialized': false,
       'created_at': FieldValue.serverTimestamp(),
+      'createdAt': FieldValue.serverTimestamp(),
     });
 
     // Seed default sensor thresholds.

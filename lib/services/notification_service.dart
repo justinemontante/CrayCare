@@ -928,36 +928,54 @@ class NotificationService extends ChangeNotifier {
 
     final fs = FirebaseFirestore.instance;
 
-    // Read latest sampling record from Firestore
+    Map<String, dynamic>? tank;
+    String tankId = uid;
+
+    // Read latest sampling record from the currently selected batch:
+    // tanks/{tankId}/batches/{batchId}/sampling_records/{recordId}
     try {
-      final sampleSnap = await fs
-          .collection('sampling_records')
-          .where('tankId', isEqualTo: uid)
-          .orderBy('date', descending: true)
-          .limit(1)
-          .get();
-      if (sampleSnap.docs.isNotEmpty) {
-        final data = sampleSnap.docs.first.data();
-        final ts = data['date'] as int?;
-        if (ts != null) {
-          effectiveLastDate = DateTime.fromMillisecondsSinceEpoch(ts);
+      final profileSnap = await fs.collection('users').doc(uid).get();
+      tankId = profileSnap.data()?['tank_id'] as String? ?? uid;
+      final tankSnap = await fs.collection('tanks').doc(tankId).get();
+      if (tankSnap.exists) tank = tankSnap.data();
+
+      final currentBatchId =
+          (tank?['currentBatchId'] ?? tank?['current_batch_id']) as String?;
+      if (currentBatchId != null && currentBatchId.isNotEmpty) {
+        final sampleSnap = await fs
+            .collection('tanks')
+            .doc(tankId)
+            .collection('batches')
+            .doc(currentBatchId)
+            .collection('sampling_records')
+            .orderBy('date', descending: true)
+            .limit(1)
+            .get();
+        if (sampleSnap.docs.isNotEmpty) {
+          final data = sampleSnap.docs.first.data();
+          final ts = data['date'] as int?;
+          if (ts != null) {
+            effectiveLastDate = DateTime.fromMillisecondsSinceEpoch(ts);
+          }
         }
       }
     } catch (e) {
       debugPrint('[NotificationService] Failed to read sampling from Firestore: $e');
     }
 
-    // Fallback to tank's stockingDate if no sampling found
+    // Fallback to the tank's last_sample_date / stocking_date.
     if (effectiveLastDate == null) {
       try {
-        final tankSnap = await fs.collection('tanks').doc(uid).get();
-        if (tankSnap.exists) {
-          final tank = tankSnap.data();
-          if (tank != null && tank['initialPopulation'] != null && (tank['initialPopulation'] as int?)! > 0) {
-            final ts = tank['lastSampleDate'] ?? tank['stockingDate'];
-            if (ts is int) {
-              effectiveLastDate = DateTime.fromMillisecondsSinceEpoch(ts);
-            }
+        tank ??= (await fs.collection('tanks').doc(tankId).get()).data();
+        final initialPopulation = (tank?['initialPopulation'] as int?) ??
+            (tank?['initial_population'] as int?);
+        if (tank != null && (initialPopulation ?? 0) > 0) {
+          final ts = tank!['lastSampleDate'] ??
+              tank!['last_sample_date'] ??
+              tank!['stockingDate'] ??
+              tank!['stocking_date'];
+          if (ts is int) {
+            effectiveLastDate = DateTime.fromMillisecondsSinceEpoch(ts);
           }
         }
       } catch (e) {

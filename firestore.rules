@@ -105,28 +105,28 @@ service cloud.firestore {
       match /feeder_dispatched/{dateKey} {
         allow read, write: if isTankOwner(tankId) || isAdmin();
       }
-    }
 
-    // Flat production records currently use camelCase tankId/batchId fields.
-    match /batches/{docId} {
-      allow read: if isTankOwner(resource.data.tankId) || isAdmin();
-      allow create: if isTankOwner(request.resource.data.tankId) || isAdmin();
-      allow update, delete: if isTankOwner(resource.data.tankId) || isAdmin();
-    }
-    match /sampling_records/{docId} {
-      allow read: if isTankOwner(resource.data.tankId) || isAdmin();
-      allow create: if isTankOwner(request.resource.data.tankId) || isAdmin();
-      allow update, delete: if isTankOwner(resource.data.tankId) || isAdmin();
-    }
-    match /mortality_records/{docId} {
-      allow read: if isTankOwner(resource.data.tankId) || isAdmin();
-      allow create: if isTankOwner(request.resource.data.tankId) || isAdmin();
-      allow update, delete: if isTankOwner(resource.data.tankId) || isAdmin();
-    }
-    match /harvest_records/{docId} {
-      allow read: if isTankOwner(resource.data.tankId) || isAdmin();
-      allow create: if isTankOwner(request.resource.data.tankId) || isAdmin();
-      allow update, delete: if isTankOwner(resource.data.tankId) || isAdmin();
+      // ML output for this tank.
+      match /health_risk/{docId} {
+        allow read: if isTankOwner(tankId) || isAdmin();
+        // Written by the Admin SDK ML function; never directly by an app/ESP.
+        allow create, update, delete: if false;
+      }
+
+      // Production records now live under their owning tank and batch.
+      match /batches/{batchId} {
+        allow read, write: if isTankOwner(tankId) || isAdmin();
+
+        match /sampling_records/{docId} {
+          allow read, write: if isTankOwner(tankId) || isAdmin();
+        }
+        match /mortality_records/{docId} {
+          allow read, write: if isTankOwner(tankId) || isAdmin();
+        }
+        match /harvest_records/{docId} {
+          allow read, write: if isTankOwner(tankId) || isAdmin();
+        }
+      }
     }
     match /deviceLogs/{docId} {
       allow read: if isTankOwner(resource.data.tankId) || isAdmin();
@@ -156,11 +156,6 @@ service cloud.firestore {
     match /mlPredictions/{doc} {
       allow read: if isSignedIn();
       allow create, update: if isAdmin();
-    }
-    match /healthRisk/{tankId} {
-      allow read: if isTankOwner(tankId) || isAdmin();
-      // Written by the Admin SDK ML function; never directly by an app/ESP.
-      allow create, update, delete: if false;
     }
   }
 }

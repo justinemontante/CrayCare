@@ -114,24 +114,44 @@ class HealthRiskService extends ChangeNotifier {
     }
   }
 
-  void _startListening() {
+  void _startListening() async {
+    _sub?.cancel();
     final uid = FirebaseAuth.instance.currentUser?.uid;
-    _sub = FirebaseFirestore.instance
-        .collection('healthRisk')
-        .doc(uid ?? 'latest')
-        .snapshots()
-        .listen((snap) {
-      if (snap.exists && snap.data() != null) {
-        final data = snap.data()!;
-        _result = HealthRiskResult.fromMap(data);
-      }
+    if (uid == null) {
+      _result = null;
       _loading = false;
       notifyListeners();
-    }, onError: (e) {
-      debugPrint('[HealthRiskService] Stream error: $e');
+      return;
+    }
+
+    try {
+      final profile = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      final tankId = profile.data()?['tank_id'] as String? ?? uid;
+      _sub = FirebaseFirestore.instance
+          .collection('tanks')
+          .doc(tankId)
+          .collection('health_risk')
+          .doc('current')
+          .snapshots()
+          .listen((snap) {
+        if (snap.exists && snap.data() != null) {
+          final data = snap.data()!;
+          _result = HealthRiskResult.fromMap(data);
+        } else {
+          _result = null;
+        }
+        _loading = false;
+        notifyListeners();
+      }, onError: (e) {
+        debugPrint('[HealthRiskService] Stream error: $e');
+        _loading = false;
+        notifyListeners();
+      });
+    } catch (e) {
+      debugPrint('[HealthRiskService] Listener setup error: $e');
       _loading = false;
       notifyListeners();
-    });
+    }
   }
 
   @override
