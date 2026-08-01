@@ -6,7 +6,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 /// DatabaseService — rewritten for the NEW Firestore structure:
 ///
 /// users/{uid}
-///   ├── fcm_tokens/{tokenId}
 ///   └── notification_settings/preferences
 /// hardware_system/currentOwner            (⭐ single hardware assignment doc)
 /// tanks/{tank_id}
@@ -17,6 +16,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 ///   ├── feeder_schedules/{scheduleId}
 ///   └── pending_commands/{commandId}
 /// notifications/{notifId}
+///
+/// NOTE: FCM device tokens are stored on users/{uid}.fcmTokens (arrayUnion),
+/// NOT in the legacy users/{uid}/fcm_tokens subcollection. The Cloud Function
+/// still reads that subcollection as a backward-compat fallback only.
 ///
 /// NOTE: tank_id is generated once per user at signup and stored on the
 /// user's profile (users/{uid}.tank_id). We keep tank_id == uid for
@@ -98,16 +101,6 @@ class DatabaseService {
 
   Stream<DocumentSnapshot<Map<String, dynamic>>> userProfileStream(String uid) =>
       _db.collection('users').doc(uid).snapshots();
-
-  // ─── User FCM Tokens (users/{uid}/fcm_tokens) ──────────────────────
-
-  Future<void> saveFcmToken(String uid, String tokenId, String token, {String? deviceType}) async {
-    await _db.collection('users').doc(uid).collection('fcm_tokens').doc(tokenId).set({
-      'token': token,
-      if (deviceType != null) 'device_type': deviceType,
-      'created_at': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-  }
 
   // ─── Notification Settings (users/{uid}/notification_settings) ────
 

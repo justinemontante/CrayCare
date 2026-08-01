@@ -134,19 +134,10 @@ service cloud.firestore {
         }
       }
     }
-    match /deviceLogs/{docId} {
-      allow read: if isTankOwner(resource.data.tankId) || isAdmin();
-      allow create: if isTankOwner(request.resource.data.tankId) || isAdmin();
-      allow delete: if isTankOwner(resource.data.tankId) || isAdmin();
-    }
-
     match /notifications/{docId} {
       allow read: if isSignedIn() && resource.data.uid == request.auth.uid;
       allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
       allow update, delete: if isSignedIn() && resource.data.uid == request.auth.uid;
-    }
-    match /migration/{uid} {
-      allow read, write: if isSignedIn() && request.auth.uid == uid;
     }
 
     // ESP staging paths. Cloud Functions route these into the assigned tank.

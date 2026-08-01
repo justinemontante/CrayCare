@@ -13,7 +13,7 @@
     ]
   },
   "users/{uid}/fcm_tokens/{tokenId}": {
-    "_description": "Per-device FCM tokens for push notifications.",
+    "_description": "LEGACY — FCM device tokens are now stored in users/{uid}.fcmTokens (arrayUnion). This subcollection is read by the Cloud Function only as a backward-compat fallback; the app no longer writes here.",
     "fields": [
       "token",
       "device_type (android|ios)",
