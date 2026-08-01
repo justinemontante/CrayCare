@@ -1,0 +1,199 @@
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
+import 'database_service.dart';
+
+class AuthService {
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final GoogleSignIn _googleSignIn = GoogleSignIn();
+
+  Stream<User?> get user => _auth.authStateChanges();
+
+  Future<User?> signUp(String name, String email, String password) async {
+    try {
+      UserCredential result = await _auth.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+
+      User? user = result.user;
+
+      if (user != null) {
+        await user.updateDisplayName(name);
+        if (!user.emailVerified) {
+          await user.sendEmailVerification();
+        }
+        // Every new account defaults to 'owner' — there's no in-app path
+        // to becoming 'admin'. An admin has to set that role directly on
+        // the users/{uid} document in the Firestore console.
+        await DatabaseService.instance.saveUserProfile(
+          uid: user.uid,
+          name: name,
+          email: email,
+          role: 'owner',
+        );
+      }
+
+      return user;
+    } on FirebaseAuthException catch (e) {
+      throw Exception(e.message);
+    }
+  }
+
+  Future<User?> signIn(String email, String password) async {
+    try {
+      UserCredential result = await _auth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+
+      User? user = result.user;
+
+      if (user != null) {
+        var profile = await DatabaseService.instance.getUserProfile(user.uid);
+        if (profile != null && profile['status'] == 'disabled') {
+          await signOut();
+          throw Exception('Your account has been disabled. Please contact the administrator.');
+        }
+
+        if (!user.emailVerified) {
+          await _auth.signOut();
+          throw Exception(
+            'Please verify your email first. A verification link was sent to your inbox.',
+          );
+        }
+
+        // Only backfill if profile doc is missing or lacks role/status.
+        // Never overwrite existing values — admin may have set them.
+        final needsRole = profile == null || profile['role'] == null;
+        final needsStatus = profile == null || profile['status'] == null;
+        if (needsRole || needsStatus) {
+          await DatabaseService.instance.saveUserProfile(
+            uid: user.uid,
+            name: user.displayName ?? 'CrayCare User',
+            email: user.email ?? '',
+            role: needsRole ? 'owner' : null,
+            status: needsStatus ? 'active' : null,
+          );
+        }
+      }
+      return user;
+    } on FirebaseAuthException catch (e) {
+      throw Exception(e.message);
+    }
+  }
+
+  Future<User?> signInWithGoogle() async {
+    try {
+      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+
+      if (googleUser == null) {
+        return null;
+      }
+
+      final GoogleSignInAuthentication googleAuth =
+          await googleUser.authentication;
+
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      UserCredential userCredential = await _auth.signInWithCredential(
+        credential,
+      );
+
+      final user = userCredential.user;
+      if (user != null) {
+        var profile = await DatabaseService.instance.getUserProfile(user.uid);
+        if (profile != null && profile['status'] == 'disabled') {
+          await signOut();
+          throw Exception('Your account has been disabled. Please contact the administrator.');
+        }
+
+        final isNewUser = userCredential.additionalUserInfo?.isNewUser ?? (profile == null);
+
+        // Only backfill if profile doc is missing or lacks role/status.
+        // Never overwrite existing values — admin may have set them.
+        final needsRole = isNewUser || profile == null || profile['role'] == null;
+        final needsStatus = profile == null || profile['status'] == null;
+        if (needsRole || needsStatus) {
+          await DatabaseService.instance.saveUserProfile(
+            uid: user.uid,
+            name: user.displayName ?? 'Google User',
+            email: user.email ?? '',
+            role: needsRole ? 'owner' : null,
+            status: needsStatus ? 'active' : null,
+          );
+        }
+      }
+
+      return userCredential.user;
+    } on FirebaseAuthException catch (e) {
+      throw Exception(e.message);
+    } catch (e) {
+      throw Exception(e.toString());
+    }
+  }
+
+  Future<void> changePassword({
+    required String email,
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final user = _auth.currentUser;
+    if (user == null) throw Exception('No user logged in.');
+
+    final hasEmailProvider = user.providerData.any(
+      (info) => info.providerId == 'password',
+    );
+
+    if (hasEmailProvider) {
+      final credential = EmailAuthProvider.credential(
+        email: email,
+        password: currentPassword,
+      );
+      try {
+        await user.reauthenticateWithCredential(credential);
+      } on FirebaseAuthException catch (e) {
+        if (e.code == 'requires-recent-login') {
+          // Re-issuing the identical reauthentication call fails the same
+          // way again - it isn't a retryable state. Surface a clear error
+          // instead so the caller can prompt the user to log out and back
+          // in before retrying the password change.
+          throw FirebaseAuthException(
+            code: e.code,
+            message: 'Your session is too old to change your password. '
+                'Please log out and log back in, then try again.',
+          );
+        }
+        rethrow;
+      }
+    }
+
+    await user.updatePassword(newPassword);
+  }
+
+  Future<void> signOut() async {
+    final uid = _auth.currentUser?.uid;
+    if (uid != null) {
+      try {
+        // Remove only this device's token so other logged-in devices keep
+        // receiving push notifications.
+        final token = await FirebaseMessaging.instance.getToken();
+        if (token != null) {
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(uid)
+              .update({'fcmTokens': FieldValue.arrayRemove([token])});
+        }
+      } catch (e) {
+        debugPrint('[AuthService] Failed to clear FCM token on signout: $e');
+      }
+    }
+    await _googleSignIn.signOut();
+    await _auth.signOut();
+  }
+}

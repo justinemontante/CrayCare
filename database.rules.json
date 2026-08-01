@@ -1,0 +1,114 @@
+{
+  "rules": {
+    "users": {
+      "$uid": {
+        ".read": "auth != null && auth.uid == $uid",
+        ".write": "auth != null && auth.uid == $uid",
+        "fcm_tokens": {
+          "$tokenId": {
+            ".read": "auth != null && auth.uid == $uid",
+            ".write": "auth != null && auth.uid == $uid"
+          }
+        },
+        "notification_settings": {
+          "preferences": {
+            ".read": "auth != null && auth.uid == $uid",
+            ".write": "auth != null && auth.uid == $uid"
+          }
+        }
+      }
+    },
+    "hardware_system": {
+      "currentOwner": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    "tanks": {
+      "$tankId": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        "sensor_readings": {
+          "latest": {
+            ".read": "auth != null",
+            ".write": "auth != null"
+          }
+        },
+        "sensors": {
+          "$sensorName": {
+            ".read": "auth != null",
+            ".write": "auth != null"
+          }
+        },
+        "actuators": {
+          "$deviceId": {
+            ".read": "auth != null",
+            ".write": "auth != null"
+          }
+        },
+        "feeder": {
+          "status": {
+            ".read": "auth != null",
+            ".write": "auth != null"
+          }
+        },
+        "feeder_schedules": {
+          "$scheduleId": {
+            ".read": "auth != null",
+            ".write": "auth != null"
+          }
+        },
+        "pending_commands": {
+          "$commandId": {
+            ".read": "auth != null",
+            ".write": "auth != null"
+          }
+        },
+        "actuator_logs": {
+          "$logId": {
+            ".read": "auth != null",
+            ".write": "auth != null"
+          }
+        }
+      }
+    },
+    "notifications": {
+      "$notifId": {
+        ".read": "auth != null && (resource.data.uid == auth.uid || resource.data.readBy[auth.uid] == true)",
+        ".write": "auth != null && resource.data.uid == auth.uid"
+      }
+    },
+    "ml_predictions": {
+      ".read": true,
+      ".write": true
+    },
+    "production": {
+      "$uid": {
+        ".read": "auth != null && auth.uid == $uid",
+        ".write": "auth != null && auth.uid == $uid"
+      }
+    },
+    "sensor_readings": {
+      ".read": "auth != null",
+      ".write": true
+    },
+    "tank_data": {
+      "$ownerUid": {
+        ".read": "auth != null && auth.uid == $ownerUid",
+        ".write": "auth != null && auth.uid == $ownerUid"
+      }
+    },
+    "feeder": {
+      ".read": "auth != null",
+      ".write": true
+    },
+    "devices": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "system": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    }
+  }
+}

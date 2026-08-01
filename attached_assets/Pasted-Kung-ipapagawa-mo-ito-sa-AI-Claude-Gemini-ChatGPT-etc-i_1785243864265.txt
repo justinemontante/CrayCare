@@ -1,0 +1,70 @@
+Kung ipapagawa mo ito sa AI (Claude, Gemini, ChatGPT, etc.), ito ang magandang prompt para maintindihan niya ang gusto mong i-refactor.
+
+I want to refactor my Firebase Firestore database architecture and system flow based on my actual hardware implementation.
+
+Current Situation:
+
+* My capstone only has ONE integrated hardware system.
+* The hardware consists of:
+
+  * 1 ESP32
+  * Temperature Sensor
+  * pH Sensor
+  * Dissolved Oxygen Sensor
+  * Turbidity Sensor
+  * Water Level Sensor
+  * Automatic Feeder
+  * Water Pump
+  * Aerator
+* All sensors and actuators are connected to the SAME ESP32.
+* There is only ONE physical hardware package in the entire system.
+* Multiple users can register and log in to the mobile application.
+* However, only ONE user can own and use the hardware at a time.
+* The administrator can reassign the hardware ownership to another registered user.
+* When ownership changes, the ESP32 firmware must NOT be modified or reflashed.
+
+Current Problem:
+My current database uses `hardwareAssignments/{hardwareId}` to map hardware IDs to users. However, since there is only one ESP32 and one hardware package, this collection is unnecessary and overcomplicates the design.
+
+What I want:
+
+1. Remove the entire `hardwareAssignments/{hardwareId}` architecture.
+2. Replace it with a single document:
+   `hardware_system/currentOwner`
+   containing:
+
+   * uid
+   * assignedBy
+   * assignedAt
+3. Keep Firebase Authentication for users.
+4. The ESP32 should authenticate anonymously only. It should never know the user UID.
+5. The ESP32 should only write sensor data to:
+   `sensorIngestion/current`
+6. A Cloud Function should trigger whenever `sensorIngestion/current` changes.
+7. The Cloud Function should:
+
+   * Read `hardware_system/currentOwner`
+   * Get the current owner's UID
+   * Copy the latest sensor readings to `sensorReadings/{ownerUid}`
+   * Save historical records to `sensorReadingsHistory/{ownerUid}/{date}`
+8. Flutter should only read:
+   `sensorReadings/{FirebaseAuth.currentUser.uid}`
+9. Feeder commands, feeder schedules, feeder status, pump control, and aerator control should continue working with the single hardware system.
+10. Explain how the ESP32 reads commands and writes statuses.
+11. Explain how hardware reassignment works without changing the ESP32 firmware.
+12. Update the Firestore Security Rules based on this architecture.
+13. Generate the complete Firestore database structure after the refactoring.
+14. Generate the complete system flow from:
+
+    * User Registration
+    * Admin Assignment
+    * ESP32 Startup
+    * Sensor Reading
+    * Cloud Function
+    * Flutter Dashboard
+    * Feeder Control
+    * Device Control
+    * Hardware Reassignment
+
+Important:
+Do NOT redesign this for multiple ESP32 devices. Assume there is always exactly ONE hardware package in the entire system, and ownership simply transfers between registered users through `hardware_system/currentOwner`.
