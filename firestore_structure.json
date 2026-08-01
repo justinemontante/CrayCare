@@ -1,7 +1,7 @@
 {
   "users": {
     "_id": "uid",
-    "_description": "User profile. Subcollections: fcm_tokens (device tokens), notification_settings/preferences, notif_markers. Only self or admin can read/write.",
+    "_description": "User profile. Subcollections: notification_settings/preferences and notif_markers. FCM device tokens live in the users/{uid}.fcmTokens array. Only self or admin can read/write.",
     "fields": [
       "full_name (string)",
       "email (string)",
@@ -9,14 +9,6 @@
       "status (active|disabled)",
       "tank_id (= uid by default; source of tank ownership)",
       "photo_url / photoUrl (legacy)",
-      "created_at (Timestamp)"
-    ]
-  },
-  "users/{uid}/fcm_tokens/{tokenId}": {
-    "_description": "LEGACY — FCM device tokens are now stored in users/{uid}.fcmTokens (arrayUnion). This subcollection is read by the Cloud Function only as a backward-compat fallback; the app no longer writes here.",
-    "fields": [
-      "token",
-      "device_type (android|ios)",
       "created_at (Timestamp)"
     ]
   },

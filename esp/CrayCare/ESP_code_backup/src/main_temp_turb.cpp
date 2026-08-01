@@ -29,7 +29,7 @@
 // ------------------------------------------------------------------
 //  Firebase configuration & paths
 // ------------------------------------------------------------------
-#define FIREBASE_API_KEY          "AIzaSyCjDOkzE4iubiLx_xA2YufMUMo6jgIKcaw"
+#define FIREBASE_API_KEY          "SEE_SECRETS_H"
 #define FIREBASE_DATABASE_URL     "https://craycare-8436c-default-rtdb.asia-southeast1.firebasedatabase.app"
 
 #define FIREBASE_LATEST_PATH      "/sensor_readings/latest"

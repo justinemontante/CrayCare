@@ -69,6 +69,7 @@ tmp_*.json
 .env
 *.pem
 *.key
+esp/CrayCare/include/secrets.h
 
 # Python build artifacts
 __pycache__/

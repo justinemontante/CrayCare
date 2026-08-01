@@ -1,4 +1,5 @@
 #include "common.h"
+#include "secrets.h"
 #include <stdlib.h> // for strdup, free
 #include "esp_task_wdt.h"
 
@@ -12,11 +13,13 @@ const char* WIFI_KEY_PASS  = "password";
 const char* ssid = NULL;
 const char* password = NULL;
 
-const char* firebase_api_key = "AIzaSyBIidS1Y6wysetztz1pSSIWlHTcaQFeAE4";
-const char* firebase_user_email = "esp32@craycare.com";
-const char* firebase_user_password = "Craycare123";
-const char* firebase_database_url = "https://craycare-8436c-default-rtdb.asia-southeast1.firebasedatabase.app";
-const char* firebase_project_id = "craycare-8436c";
+// Firebase credentials come from secrets.h (gitignored). See
+// include/secrets.h.example for the template.
+const char* firebase_api_key = SECRETS_FIREBASE_API_KEY;
+const char* firebase_user_email = SECRETS_FIREBASE_USER_EMAIL;
+const char* firebase_user_password = SECRETS_FIREBASE_USER_PASSWORD;
+const char* firebase_database_url = SECRETS_FIREBASE_DATABASE_URL;
+const char* firebase_project_id = SECRETS_FIREBASE_PROJECT_ID;
 
 // ***** Global Firebase objects *****
 FirebaseData fbdo;

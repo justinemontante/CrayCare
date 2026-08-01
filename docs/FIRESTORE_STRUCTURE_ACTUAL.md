@@ -17,8 +17,7 @@
 | photo_url / photoUrl | string | legacy alias |
 | created_at | timestamp | |
 
-### `users/{uid}/fcm_tokens/{tokenId}` ✓
-`token`, `device_type` (android|ios), `created_at`
+> **FCM device tokens:** stored in the `users/{uid}.fcmTokens` **array** (each device adds its own via `arrayUnion`; removed per-device via `arrayRemove` on sign-out). No subcollection is used.
 
 ### `users/{uid}/notification_settings/preferences` ✓
 `sound`, `vibration`, `critical` (sensor alerts), `warning` (approaching threshold), `feeding` (feeding reminders), `sampling` (weekly sampling), `updated_at`
@@ -47,19 +46,19 @@ Tracks last-seen notification markers (reminders/confirmations) — `last_read_a
 | Field | Type |
 |---|---|
 | owner_uid | string |
-| userId | string (alias) |
-| current_batch_id / currentBatchId | string |
-| lifetime_mortality / lifetimeMortality | int |
-| lifetime_harvested / lifetimeHarvested | int |
-| stocking_date / stockingDate | int (epoch ms) |
-| last_sample_date / lastSampleDate | int (epoch ms) |
-| sample_count / sampleCount | int |
-| initial_total_sample_weight / initialTotalSampleWeight | double |
-| initial_total_sample_length / initialTotalSampleLength | double |
-| is_initialized / isInitialized | bool |
+| current_batch_id | string |
+| lifetime_mortality | int |
+| lifetime_harvested | int |
+| stocking_date | int (epoch ms) |
+| last_sample_date | int (epoch ms) |
+| sample_count | int |
+| initial_population | int |
+| initial_total_sample_weight | double |
+| initial_total_sample_length | double |
+| is_initialized | bool |
 | created_at | timestamp |
 
-> May snake_case at camelCase aliases (para backward-compat sa app).
+> Canonical field names = **snake_case** (consistent sa Cloud Function at ESP32).
 
 ### `tanks/{tankId}/sensor_readings/latest` ✓
 **Written by Cloud Function** (mula `sensorIngestion/current`); app reads.

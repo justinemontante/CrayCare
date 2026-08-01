@@ -45,9 +45,6 @@ function getTokensFromUserData(userData) {
   if (Array.isArray(userData.fcmTokens)) {
     tokens.push(...userData.fcmTokens.filter(Boolean));
   }
-  if (userData.fcmToken && typeof userData.fcmToken === "string") {
-    if (!tokens.includes(userData.fcmToken)) tokens.push(userData.fcmToken);
-  }
   return tokens;
 }
 
@@ -62,11 +59,6 @@ async function getUserTokens(uid) {
   const tokens = [];
   const userSnap = await firestoreDb.collection("users").doc(uid).get();
   if (userSnap.exists) tokens.push(...getTokensFromUserData(userSnap.data() || {}));
-  const tokenSnap = await firestoreDb.collection("users").doc(uid).collection("fcm_tokens").get();
-  tokenSnap.forEach((doc) => {
-    const token = doc.data().token;
-    if (typeof token === "string" && token && !tokens.includes(token)) tokens.push(token);
-  });
   return tokens;
 }
 
@@ -569,10 +561,10 @@ async function getSamplingDue(notifTarget) {
     if (!snap.exists) return null;
     const config = snap.data() || {};
 
-    const isInitialized = config.isInitialized === true || config.is_initialized === true;
+    const isInitialized = config.is_initialized === true;
     if (!isInitialized) return null;
 
-    const currentBatchId = config.currentBatchId || config.current_batch_id || "";
+    const currentBatchId = config.current_batch_id || "";
     if (currentBatchId) {
       const latestSampling = await firestoreDb
         .collection("tanks").doc(tankId)
@@ -586,7 +578,7 @@ async function getSamplingDue(notifTarget) {
       }
     }
 
-    lastSampleTs = lastSampleTs || config.lastSampleDate || config.last_sample_date || config.stockingDate || config.stocking_date;
+    lastSampleTs = lastSampleTs || config.last_sample_date || config.stocking_date;
   } catch (e) {
     functions.logger.error(`getSamplingDue error for ${notifTarget}:`, e.message);
     return null;

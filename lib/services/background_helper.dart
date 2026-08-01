@@ -281,14 +281,11 @@ class BackgroundHelper {
     }
     if (tank == null) return;
 
-    final isInitialized =
-        (tank['isInitialized'] as bool?) ?? (tank['is_initialized'] as bool?) ?? false;
+    final isInitialized = (tank['is_initialized'] as bool?) ?? false;
     if (!isInitialized) return;
 
-    final currentBatchId =
-        (tank['currentBatchId'] ?? tank['current_batch_id']) as String?;
-    final fallbackStockingTs =
-        (tank['stockingDate'] as int?) ?? (tank['stocking_date'] as int?) ?? 0;
+    final currentBatchId = tank['current_batch_id'] as String?;
+    final fallbackStockingTs = (tank['stocking_date'] as int?) ?? 0;
 
     int effectiveSampleTs = 0;
     try {

@@ -54,6 +54,11 @@
 #include <time.h>
 #include "addons/TokenHelper.h"
 #include "addons/RTDBHelper.h"
+#include "secrets.h"   // Firebase credentials — gitignored (see secrets.h.example)
+
+#ifndef FIREBASE_API_KEY
+#error "secrets.h missing — copy include/secrets.h.example to include/secrets.h and fill in your values"
+#endif
 
 // ============================================================
 //  WIFI SETTINGS — stored in NVS via Preferences
@@ -67,21 +72,15 @@ String pass;
 // ============================================================
 //  FIREBASE SETTINGS
 // ============================================================
-#define FIREBASE_API_KEY        "AIzaSyCjDOkzE4iubiLx_xA2YufMUMo6jgIKcaw"
-#define FIREBASE_DATABASE_URL   "https://craycare-8436c-default-rtdb.asia-southeast1.firebasedatabase.app"
-#define FIREBASE_PROJECT_ID     "craycare-8436c"
+// Firebase credentials are defined in secrets.h (included above).
 
 // Firestore staging paths. Cloud Functions route these to the assigned tank.
 #define FIRESTORE_INGESTION_COLLECTION "sensorIngestion"
 
-// All Firebase operations now use Firestore (zero RTDB calls)
+// All Firebase operations now use Firestore (zero RTDB calls).
 // Thresholds are read from tanks/{currentTankId}/sensors/{sensorName}.
-// Calibration upload: ESP32 writes its current calibration on boot
-// Feeder Firestore paths (Flutter <-> ESP32 coordination)
-#define FIRESTORE_FEEDER_COMMANDS_COL  "feederCommands"
-#define FIRESTORE_FEEDER_STATUS_DOC    "feederStatus/status"
-#define FIRESTORE_FEEDER_SCHEDULES_COL "feederSchedules"
-#define FIRESTORE_FEEDER_LOGS_COL      "feederLogs"
+// All feeder state lives under tanks/{currentTankId}/... — there are no
+// flat top-level feeder collections anymore (see docs/FIRESTORE_STRUCTURE_ACTUAL.md).
 
 // Hardware ID derived from MAC address on first use (see getHardwareId())
 String hardwareId = "";
@@ -1062,8 +1061,9 @@ void initFeeder() {
 // Reads all docs into local arrays first to avoid fbdo buffer conflicts.
 void processFeederCommands() {
   if (!ensureFirebaseReady()) return;
+  if (currentTankId.length() == 0) return;   // no tank assigned -> nothing to do
 
-    String cmdCol = (currentTankId.length()>0) ? ("tanks/" + currentTankId + "/pending_commands") : FIRESTORE_FEEDER_COMMANDS_COL;
+  String cmdCol = "tanks/" + currentTankId + "/pending_commands";
   if (!Firebase.Firestore.listDocuments(&fbdo, FIREBASE_PROJECT_ID, "",
         cmdCol.c_str(), 20, "", "", "", false)) {
     return;
@@ -1116,7 +1116,7 @@ void processFeederCommands() {
       Serial.printf("[FEEDER] Mode -> %s\n", feederAutoMode ? "AUTO" : "MANUAL");
     }
 
-    String docPath = (currentTankId.length()>0) ? (String("tanks/") + currentTankId + "/pending_commands/" + e.docId) : (String(FIRESTORE_FEEDER_COMMANDS_COL) + "/" + e.docId);
+    String docPath = "tanks/" + currentTankId + "/pending_commands/" + e.docId;
     if (!Firebase.Firestore.deleteDocument(&fbdo, FIREBASE_PROJECT_ID, "",
                                            docPath.c_str())) {
       Serial.printf("[FEEDER] Delete cmd failed: %s\n", fbdo.errorReason().c_str());
@@ -1125,9 +1125,10 @@ void processFeederCommands() {
 }
 
 // ─── Send Feeder Status to Firestore ───
-// Path: feederStatus/status  (single document, patched in-place)
+// Path: tanks/{tankId}/feeder/status  (single document, patched in-place)
 void sendFeederStatus() {
   if (!ensureFirebaseReady()) return;
+  if (currentTankId.length() == 0) return;   // no tank assigned -> nothing to report
 
   time_t now;
   time(&now);
@@ -1148,9 +1149,7 @@ void sendFeederStatus() {
   }
   json.set("fields/last_dispensed_grams/doubleValue", (feederIsRunning || feederLastFeedEpoch > 0) ? "20.0" : "0.0");
 
-  String statusDoc = (currentTankId.length() > 0)
-      ? ("tanks/" + currentTankId + "/feeder/status")
-      : FIRESTORE_FEEDER_STATUS_DOC;
+  String statusDoc = "tanks/" + currentTankId + "/feeder/status";
   if (!Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "",
         statusDoc.c_str(), json.raw(),
         "status,isRunning,feedSource,feedCount,hopperLevel,lastSeen,last_dispensed_at,last_dispensed_grams")) {
@@ -1161,11 +1160,12 @@ void sendFeederStatus() {
 }
 
 // ─── Sync Schedules from Firestore ───
-// Reads all docs in feederSchedules collection (max FEEDER_MAX_SCHEDULES).
+// Reads all docs in tanks/{tankId}/feeder_schedules (max FEEDER_MAX_SCHEDULES).
 void syncFeederSchedules() {
   if (!ensureFirebaseReady()) return;
+  if (currentTankId.length() == 0) return;   // no tank assigned -> nothing to sync
 
-  String schedCol = (currentTankId.length()>0) ? ("tanks/" + currentTankId + "/feeder_schedules") : FIRESTORE_FEEDER_SCHEDULES_COL;
+  String schedCol = "tanks/" + currentTankId + "/feeder_schedules";
   if (!Firebase.Firestore.listDocuments(&fbdo, FIREBASE_PROJECT_ID, "",
         schedCol.c_str(), FEEDER_MAX_SCHEDULES, "", "", "", false)) {
     feederScheduleCount = 0;
@@ -1362,9 +1362,10 @@ void processFeederTick() {
 }
 
 // ─── Push Feeding Log to Firestore ───
-// Creates a new auto-ID document in feederLogs collection.
+// Creates a new auto-ID document in tanks/{tankId}/feeder_logs.
 void pushFeederLog(String action, String type) {
   if (!ensureFirebaseReady()) return;
+  if (currentTankId.length() == 0) return;   // no tank assigned -> nothing to log
 
   time_t now;
   time(&now);
@@ -1393,9 +1394,7 @@ void pushFeederLog(String action, String type) {
   json.set("fields/date/stringValue",      String(dateBuf));
   json.set("fields/timestamp/integerValue", String(epochMs));
 
-  String logCollection = (currentTankId.length() > 0)
-      ? ("tanks/" + currentTankId + "/feeder_logs")
-      : FIRESTORE_FEEDER_LOGS_COL;
+  String logCollection = "tanks/" + currentTankId + "/feeder_logs";
   if (Firebase.Firestore.createDocument(&fbdo, FIREBASE_PROJECT_ID, "",
         logCollection.c_str(), "", json.raw(), "")) {
     Serial.printf("[FEEDER LOG] %s\n", action.c_str());

@@ -17,9 +17,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 ///   └── pending_commands/{commandId}
 /// notifications/{notifId}
 ///
-/// NOTE: FCM device tokens are stored on users/{uid}.fcmTokens (arrayUnion),
-/// NOT in the legacy users/{uid}/fcm_tokens subcollection. The Cloud Function
-/// still reads that subcollection as a backward-compat fallback only.
+/// NOTE: FCM device tokens are stored on users/{uid}.fcmTokens (arrayUnion).
+/// Each device adds its own token with arrayUnion; the Cloud Function reads
+/// the array and pushes to every device of that account.
 ///
 /// NOTE: tank_id is generated once per user at signup and stored on the
 /// user's profile (users/{uid}.tank_id). We keep tank_id == uid for
@@ -168,17 +168,11 @@ class DatabaseService {
 
     await ref.set({
       'owner_uid': ownerUid ?? tankId,
-      'userId': ownerUid ?? tankId,
       'current_batch_id': '',
-      'currentBatchId': '',
       'lifetime_mortality': 0,
-      'lifetimeMortality': 0,
       'lifetime_harvested': 0,
-      'lifetimeHarvested': 0,
       'is_initialized': false,
-      'isInitialized': false,
       'created_at': FieldValue.serverTimestamp(),
-      'createdAt': FieldValue.serverTimestamp(),
     });
 
     // Seed default sensor thresholds.

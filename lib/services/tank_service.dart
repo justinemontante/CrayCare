@@ -283,17 +283,11 @@ class TankService extends ChangeNotifier {
     if (!doc.exists) {
       await _tankRef.set({
         'owner_uid': _currentUserUid.isNotEmpty ? _currentUserUid : _tankOwnerUid,
-        'userId': _currentUserUid.isNotEmpty ? _currentUserUid : _tankOwnerUid,
         'current_batch_id': '',
-        'currentBatchId': '',
         'lifetime_mortality': 0,
-        'lifetimeMortality': 0,
         'lifetime_harvested': 0,
-        'lifetimeHarvested': 0,
         'is_initialized': false,
-        'isInitialized': false,
         'created_at': FieldValue.serverTimestamp(),
-        'createdAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
     }
   }
@@ -307,39 +301,24 @@ class TankService extends ChangeNotifier {
         return;
       }
       final data = doc.data() ?? <String, dynamic>{};
-      _initialCount =
-          (data['initialPopulation'] as int?) ?? (data['initial_population'] as int?) ?? 0;
-      _mortality =
-          (data['lifetimeMortality'] as int?) ?? (data['lifetime_mortality'] as int?) ?? 0;
-      _totalHarvested =
-          (data['lifetimeHarvested'] as int?) ?? (data['lifetime_harvested'] as int?) ?? 0;
+      _initialCount = (data['initial_population'] as int?) ?? 0;
+      _mortality = (data['lifetime_mortality'] as int?) ?? 0;
+      _totalHarvested = (data['lifetime_harvested'] as int?) ?? 0;
       _stockingDate = DateTime.fromMillisecondsSinceEpoch(
-        (data['stockingDate'] as int?) ??
-            (data['stocking_date'] as int?) ??
-            DateTime.now().millisecondsSinceEpoch,
+        (data['stocking_date'] as int?) ?? DateTime.now().millisecondsSinceEpoch,
       );
-      _sampleCount = (data['sampleCount'] as int?) ?? (data['sample_count'] as int?) ?? 0;
+      _sampleCount = (data['sample_count'] as int?) ?? 0;
       _totalSampleWeight =
-          (data['initialTotalSampleWeight'] as num?)?.toDouble() ??
-          (data['initial_total_sample_weight'] as num?)?.toDouble() ??
-          0.0;
+          (data['initial_total_sample_weight'] as num?)?.toDouble() ?? 0.0;
       _totalSampleLength =
-          (data['initialTotalSampleLength'] as num?)?.toDouble() ??
-          (data['initial_total_sample_length'] as num?)?.toDouble() ??
-          0.0;
+          (data['initial_total_sample_length'] as num?)?.toDouble() ?? 0.0;
       _initialWeight = _sampleCount > 0 ? _totalSampleWeight / _sampleCount : 0.0;
       _initialLength = _sampleCount > 0 ? _totalSampleLength / _sampleCount : 0.0;
       _lastSampleDate = DateTime.fromMillisecondsSinceEpoch(
-        (data['lastSampleDate'] as int?) ??
-            (data['last_sample_date'] as int?) ??
-            _stockingDate.millisecondsSinceEpoch,
+        (data['last_sample_date'] as int?) ?? _stockingDate.millisecondsSinceEpoch,
       );
-      _selectedBatchId =
-          (data['currentBatchId'] ?? data['current_batch_id']) as String?;
-      _isInitialized =
-          (data['isInitialized'] as bool?) ??
-          (data['is_initialized'] as bool?) ??
-          _initialCount > 0;
+      _selectedBatchId = data['current_batch_id'] as String?;
+      _isInitialized = (data['is_initialized'] as bool?) ?? _initialCount > 0;
       _setupComplete = _isInitialized;
       notifyListeners();
     } catch (e) {
@@ -618,25 +597,15 @@ class TankService extends ChangeNotifier {
       await _tankRef.set({
         'owner_uid': _currentUserUid.isNotEmpty ? _currentUserUid : _tankOwnerUid,
         'initial_population': _initialCount,
-        'initialPopulation': _initialCount,
         'stocking_date': _stockingDate.millisecondsSinceEpoch,
-        'stockingDate': _stockingDate.millisecondsSinceEpoch,
         'last_sample_date': _lastSampleDate.millisecondsSinceEpoch,
-        'lastSampleDate': _lastSampleDate.millisecondsSinceEpoch,
         'lifetime_mortality': _mortality,
-        'lifetimeMortality': _mortality,
         'sample_count': _sampleCount,
-        'sampleCount': _sampleCount,
         'initial_total_sample_weight': _totalSampleWeight,
-        'initialTotalSampleWeight': _totalSampleWeight,
         'initial_total_sample_length': _totalSampleLength,
-        'initialTotalSampleLength': _totalSampleLength,
         'lifetime_harvested': _totalHarvested,
-        'lifetimeHarvested': _totalHarvested,
         'current_batch_id': _selectedBatchId ?? '',
-        'currentBatchId': _selectedBatchId ?? '',
         'is_initialized': _isInitialized,
-        'isInitialized': _isInitialized,
       }, SetOptions(merge: true));
     } catch (e) {
       debugPrint('[TankService] _saveConfig error: $e');
@@ -910,19 +879,12 @@ class TankService extends ChangeNotifier {
 
       await _tankRef.set({
         'current_batch_id': '',
-        'currentBatchId': '',
         'initial_population': 0,
-        'initialPopulation': 0,
         'last_sample_date': 0,
-        'lastSampleDate': 0,
         'sample_count': 0,
-        'sampleCount': 0,
         'initial_total_sample_weight': 0,
-        'initialTotalSampleWeight': 0,
         'initial_total_sample_length': 0,
-        'initialTotalSampleLength': 0,
         'is_initialized': false,
-        'isInitialized': false,
       }, SetOptions(merge: true));
 
       _addActivity('Completed grow-out batch ($resolvedId). Harvested $harvestCount crayfish${harvestWeightGrams != null ? ', ${harvestWeightGrams.toStringAsFixed(1)}g total' : ''}.', 'harvest');

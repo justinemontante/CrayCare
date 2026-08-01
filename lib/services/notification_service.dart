@@ -939,8 +939,7 @@ class NotificationService extends ChangeNotifier {
       final tankSnap = await fs.collection('tanks').doc(tankId).get();
       if (tankSnap.exists) tank = tankSnap.data();
 
-      final currentBatchId =
-          (tank?['currentBatchId'] ?? tank?['current_batch_id']) as String?;
+      final currentBatchId = tank?['current_batch_id'] as String?;
       if (currentBatchId != null && currentBatchId.isNotEmpty) {
         final sampleSnap = await fs
             .collection('tanks')
@@ -967,13 +966,9 @@ class NotificationService extends ChangeNotifier {
     if (effectiveLastDate == null) {
       try {
         tank ??= (await fs.collection('tanks').doc(tankId).get()).data();
-        final initialPopulation = (tank?['initialPopulation'] as int?) ??
-            (tank?['initial_population'] as int?);
+        final initialPopulation = tank?['initial_population'] as int?;
         if (tank != null && (initialPopulation ?? 0) > 0) {
-          final ts = tank['lastSampleDate'] ??
-              tank['last_sample_date'] ??
-              tank['stockingDate'] ??
-              tank['stocking_date'];
+          final ts = tank['last_sample_date'] ?? tank['stocking_date'];
           if (ts is int) {
             effectiveLastDate = DateTime.fromMillisecondsSinceEpoch(ts);
           }
