@@ -77,11 +77,17 @@ service cloud.firestore {
         allow write: if isTankOwner(tankId) || isAdmin();
       }
       match /actuators/{actuatorId} {
-        allow read, write: if isTankOwner(tankId) || isAdmin();
+        // Owners/admins control the mode. The anonymous ESP32 reads it and
+        // reports back the ACTUAL relay state (current_state + last_changed).
+        allow read: if isTankOwner(tankId) || isAdmin() || isEspSession();
+        allow write: if isTankOwner(tankId) || isAdmin();
+        allow update: if isEspSession() && request.resource.data.diff(resource.data)
+            .affectedKeys().hasOnly(['current_state', 'last_changed']);
       }
       match /actuator_logs/{logId} {
         allow read: if isTankOwner(tankId) || isAdmin();
-        allow create: if isTankOwner(tankId) || isAdmin();
+        // ESP32 creates log entries when it physically changes a relay.
+        allow create: if isTankOwner(tankId) || isAdmin() || isEspSession();
         allow update, delete: if isAdmin();
       }
       match /feeder/{doc} {

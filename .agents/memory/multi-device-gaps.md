@@ -1,41 +1,32 @@
 ---
-name: Multi-device isolation gaps
-description: Known Firestore collections that lack per-uid isolation; safe for same-account multi-device but not multi-tenant
+name: Multi-device isolation (current schema)
+description: The system is designed around ONE physical ESP32 assigned to one farmer via hardware_system/currentOwner
 ---
 
 ## Rule
-Do not assume ALL collections are uid-isolated — several are intentionally global (single hardware device assumption).
+Do not assume ALL collections are uid-isolated — several are intentionally global
+(single hardware device assumption).
 
-**Why:** CrayCare is designed around one physical ESP32 device assigned to one farmer. Some collections are global by design. Others are global by omission and should be fixed if multi-tenant is needed.
+**Why:** CrayCare is designed around one physical ESP32 device assigned to one
+farmer through `hardware_system/currentOwner`. All real-time data lives under
+`tanks/{tankId}/...`, so two users never share a tank.
 
-## Collections WITHOUT uid filtering (known gaps)
-
-| Collection | Reason global | Risk |
-|---|---|---|
-| `healthRisk/latest` | Single device → single result | Different accounts see same ML result |
-| `feederSchedules` | No uid field | Any user can overwrite schedules |
-| `feederStatus/status` | Singleton doc | Last-write-wins across users |
-| `feederCommands` | No uid field | Any user can send feeder commands |
-| `feederDispatched/{date}` | No uid field | Shared dispatch log |
-| `deviceModes/{deviceId}` | Keyed by deviceId not uid | Shared if device not reassigned |
-| `config/default` | Mirrored from user write | Last user to save settings sets ESP32 defaults |
-
-## Collections WITH proper uid isolation
-
-| Collection | Method |
+## Data isolation by design (current schema)
+| Path | Who can access |
 |---|---|
-| `users/{uid}` | Path |
-| `users/{uid}/batches/...` | Path |
-| `notifPrefs/{uid}` | Path |
-| `config/{uid}` | Path |
-| `sensorReadings` | `ownerUid` field stamped by Cloud Function |
-| `notifications`, `notifMarkers` | `uid` field on each doc |
-| `batches`, `sampling`, `mortality`, etc. (old flat) | `uid` field on each doc |
+| `users/{uid}/...` | Self/admin |
+| `tanks/{tankId}/...` | Owner (tank_id match) / admin / anonymous ESP32 (limited) |
+| `hardware_system/currentOwner` | Read: signed-in; write: admin |
+| `notifications/{id}` | Scoped by `uid` field |
+| `sensorIngestion/...` | ESP write; admin read/delete |
+| `mlPredictions/{id}` | Any signed-in read; admin write |
 
-## Same-account multi-device behavior
-- **Safe:** Firebase Auth gives the same uid on all devices → uid-filtered queries return the same data → real-time Firestore listeners sync automatically across devices
-- **Risk:** Concurrent writes to `feederSchedules` or `config/default` from two devices → last write wins
+## Known limitation
+- `sensorIngestion/current` is a single fixed doc for the one ESP32. If a second
+  hardware unit is ever added, it needs its own ingestion path — do NOT assume
+  multi-tenant out of the box.
 
 ## How to apply
-- Do not add new global collections without uid scoping unless it's intentionally shared hardware state
-- If multi-tenant support is added later: scope `feederSchedules`, `feederStatus`, `feederCommands` under `users/{uid}/feeder/...`
+- Do not add new global collections without scoping under `users/{uid}` or
+  `tanks/{tankId}` unless it is intentionally shared hardware state.
+- Reference: `docs/FIRESTORE_STRUCTURE_ACTUAL.md` (updated 2026-08-01).

@@ -1,26 +1,23 @@
 ---
-name: Firestore composite index requirement
-description: sensorReadings/history subcollection needs a composite index on timestamp ASC for the ML Cloud Function query
+name: Firestore index requirements (current schema)
+description: Queries against the current nested tank schema and their index needs
 ---
 
 ## Rule
-`sensorReadings/history/{date}` must have a composite index on `timestamp ASC` in `firestore.indexes.json`.
+The ML Cloud Function (`functions/ml/main.py`) reads history from the NESTED path
+`tanks/{tankId}/sensor_readings_history/{YYYY-MM-DD}/entries` using a single-field
+`.where("recorded_at", ">=", cutoff)` filter — **no composite index required**.
+(Indexes needed for the app queries live in `firestore.indexes.json`; see the
+`actuator_logs` entries — `actuator_type + timestamp DESC` and
+`actuator_type + logged_at DESC`.)
 
-**Why:** The ML Cloud Function (`functions/ml/main.py`) queries this subcollection with `.where('ownerUid', '==', uid).order_by('timestamp')`. Firestore requires a composite index for combined filter + order_by queries. Without it, the query throws a `FAILED_PRECONDITION` error and the ML pipeline silently returns `insufficient_data`.
-
-## Index definition (already in firestore.indexes.json)
-```json
-{
-  "collectionGroup": "history",
-  "queryScope": "COLLECTION_GROUP",
-  "fields": [
-    { "fieldPath": "ownerUid", "order": "ASCENDING" },
-    { "fieldPath": "timestamp", "order": "ASCENDING" }
-  ]
-}
-```
-
-## How to apply
-- After any changes to the ML query in `main.py` (new `.where()` or `.order_by()` clauses), check that a matching index exists in `firestore.indexes.json`
+## When to add an index
+- Add a composite index to `firestore.indexes.json` ONLY when a new query combines
+  `.where(...)` with `.orderBy(...)` on different fields.
 - Deploy indexes with: `firebase deploy --only firestore:indexes`
-- If the ML pipeline returns `insufficient_data` unexpectedly, check the Cloud Function logs for `FAILED_PRECONDITION` — missing index is the usual cause
+- If the ML pipeline returns `insufficient_data` unexpectedly, check the Cloud
+  Function logs for `FAILED_PRECONDITION` — but note the current ML query is a
+  single-field filter, so a missing index is unlikely for it.
+
+## Reference
+Full canonical structure: `docs/FIRESTORE_STRUCTURE_ACTUAL.md` (updated 2026-08-01).

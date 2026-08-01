@@ -196,6 +196,42 @@ unsigned long lastFeederScheduleSyncMs = 0;
 unsigned long lastFeederScheduleCheckMs = 0;
 
 // ============================================================
+//  ACTUATOR STATE — pump + 2 aerators
+//  Firestore source of truth: tanks/{tankId}/actuators/{deviceId}
+//    control_mode : "on" | "off" | "auto"   (written by Flutter app)
+//    current_state: "on" | "off"            (actual relay state — ESP writes back)
+//    last_changed : Timestamp               (app) / epoch-ms int (ESP report)
+// ============================================================
+// Actuator pins — relays are ACTIVE-LOW (digitalWrite LOW = relay ON).
+// Firestore IDs match the Flutter app (lib/services/actuator_log_service.dart):
+//   "pump"     -> Water Pump       (GPIO 26)
+//   "aerator1" -> Primary Aerator  (GPIO 27)
+//   "aerator2" -> Secondary Aerator(GPIO 14)
+#define ACTUATOR_PUMP_PIN 26
+#define ACTUATOR_AER1_PIN 27
+#define ACTUATOR_AER2_PIN 14
+#define ACTUATOR_SYNC_INTERVAL_MS 5000   // poll tanks/{tankId}/actuators every 5s
+
+struct ActuatorDevice {
+  const char* deviceId;       // Firestore doc ID: "pump" | "aerator1" | "aerator2"
+  const char* label;          // human label used in logs
+  uint8_t pin;                // relay GPIO (active LOW)
+  String controlMode;         // "on" | "off" | "auto"  (last value read from Firestore)
+  bool relayOn;               // current physical relay state
+  bool cloudReported;         // true when current_state has been pushed to Firestore
+  String cloudReportedState;  // last current_state string we successfully pushed
+  unsigned long lastChangeMs; // uptime ms of last physical relay change
+};
+
+ActuatorDevice actuators[3] = {
+  { "pump",     "Water Pump",      ACTUATOR_PUMP_PIN, "off", false, false, "", 0 },
+  { "aerator1", "Aerator 1",       ACTUATOR_AER1_PIN, "off", false, false, "", 0 },
+  { "aerator2", "Aerator 2",       ACTUATOR_AER2_PIN, "off", false, false, "", 0 },
+};
+
+unsigned long lastActuatorSyncMs = 0;
+
+// ============================================================
 //  PINS
 // ============================================================
 #define TEMP_PIN 4
@@ -207,6 +243,8 @@ unsigned long lastFeederScheduleCheckMs = 0;
 // Feeder
 #define FEEDER_SERVO_PIN 13
 #define FEEDER_HOPPER_SENSOR_PIN 36   // optional: load cell / level sensor
+
+// Actuator pins are defined with the ACTUATOR STATE block above.
 
 // Set these to 1 after the actual sensor modules are connected and calibrated.
 #define ENABLE_DO_SENSOR 0
@@ -839,6 +877,15 @@ void startFeed(String source);
 void processFeederTick();
 void pushFeederLog(String action, String type);
 
+// ─── Actuator forward declarations ───
+void initActuators();
+void syncActuatorsFromFirestore();
+void applyActuatorDevice(int idx);
+bool actuatorAutoTarget(int idx);
+void setActuatorRelay(int idx, bool on);
+void reportActuatorState(int idx, bool forced);
+void pushActuatorLog(int idx, String action, String type, String level);
+
 // ============================================================
 //  SETUP
 // ============================================================
@@ -862,6 +909,7 @@ void setup() {
   syncConfigFromFirebase();
   initFeeder();
   syncFeederSchedules();
+  initActuators();
 
   Serial.println("============================================");
   Serial.println("  CrayCare Monitor — Firestore Ingestion");
@@ -892,6 +940,21 @@ void loop() {
     }
     if (cmd == "FEED") {
       startFeed("manual");
+    }
+    // Relay test commands (local only — cloud mode re-asserts on next sync)
+    if (cmd == "n1on")  { setActuatorRelay(0, true);  reportActuatorState(0, true); }
+    if (cmd == "n1off") { setActuatorRelay(0, false); reportActuatorState(0, true); }
+    if (cmd == "n2on")  { setActuatorRelay(1, true);  reportActuatorState(1, true); }
+    if (cmd == "n2off") { setActuatorRelay(1, false); reportActuatorState(1, true); }
+    if (cmd == "n3on")  { setActuatorRelay(2, true);  reportActuatorState(2, true); }
+    if (cmd == "n3off") { setActuatorRelay(2, false); reportActuatorState(2, true); }
+    if (cmd == "relay status" || cmd == "relaystatus") {
+      for (int i = 0; i < 3; i++) {
+        Serial.printf("  %s (GPIO %d): %s | mode=%s\n",
+                      actuators[i].label, actuators[i].pin,
+                      actuators[i].relayOn ? "ON" : "OFF",
+                      actuators[i].controlMode.c_str());
+      }
     }
   }
 
@@ -926,6 +989,12 @@ void loop() {
 
   // ─── Feeder state machine tick ───
   processFeederTick();
+
+  // ─── Actuators (pump + aerators) ───
+  if (now - lastActuatorSyncMs >= ACTUATOR_SYNC_INTERVAL_MS) {
+    lastActuatorSyncMs = now;
+    syncActuatorsFromFirestore();
+  }
 
   // ─── Sensors ───
 
@@ -1332,5 +1401,219 @@ void pushFeederLog(String action, String type) {
     Serial.printf("[FEEDER LOG] %s\n", action.c_str());
   } else if (fbdo.httpConnected()) {
     Serial.printf("[FEEDER LOG ERROR] %s\n", fbdo.errorReason().c_str());
+  }
+}
+
+// ============================================================
+//  ACTUATOR MODULE — Water Pump + 2 Aerators
+//  Firestore source of truth: tanks/{tankId}/actuators/{deviceId}
+//    control_mode : "on" | "off" | "auto"   (written by Flutter Controls screen)
+//    current_state: "on" | "off"            (ACTUAL relay state — ESP writes back)
+//    last_changed : Timestamp (app) / epoch-ms int (ESP report)
+//  Logs: tanks/{tankId}/actuator_logs  (ESP creates a doc on every state change)
+//  Note: relays are ACTIVE-LOW — digitalWrite(LOW) turns the relay ON.
+// ============================================================
+
+// ─── Initialize relay pins (everything OFF at boot) ───
+void initActuators() {
+  for (int i = 0; i < 3; i++) {
+    pinMode(actuators[i].pin, OUTPUT);
+    digitalWrite(actuators[i].pin, HIGH);   // active-LOW: HIGH = relay OFF
+    actuators[i].relayOn = false;
+    actuators[i].cloudReported = true;      // nothing to report yet
+    actuators[i].cloudReportedState = "off";
+    actuators[i].lastChangeMs = 0;
+  }
+  Serial.println("[ACT] Relays initialized: pump=GPIO26, aerator1=GPIO27, aerator2=GPIO14 (all OFF)");
+}
+
+// ─── Apply physical relay state (active-LOW; no-op if unchanged) ───
+void setActuatorRelay(int idx, bool on) {
+  if (idx < 0 || idx > 2) return;
+  ActuatorDevice& a = actuators[idx];
+  if (a.relayOn == on) return;
+  a.relayOn = on;
+  digitalWrite(a.pin, on ? LOW : HIGH);     // LOW = relay ON
+  a.lastChangeMs = millis();
+  a.cloudReported = false;
+  Serial.printf("[ACT] %s -> %s\n", a.label, on ? "ON" : "OFF");
+}
+
+// ─── AUTO rule per device (only used when control_mode == "auto") ───
+// Sensor-driven with graceful fallbacks: when the dedicated sensor is not
+// enabled (ENABLE_DO_SENSOR / ENABLE_WATER_LEVEL_SENSOR = 0) or not reading
+// yet, the rule falls back to temperature (warm water holds less oxygen).
+bool actuatorAutoTarget(int idx) {
+  ActuatorDevice& a = actuators[idx];
+
+  if (strcmp(a.deviceId, "pump") == 0) {
+    // Pump: circulate/refill when water level is critically low,
+    // or keep water moving when temperature is high (heat stress).
+    if (ENABLE_WATER_LEVEL_SENSOR && waterLevelSensorOK &&
+        waterLevelPercent < waterLevelCriticalLow) return true;
+    if (tempSensorOK && smoothedTemp > tempCriticalHigh) return true;
+    return false;
+  }
+
+  if (strcmp(a.deviceId, "aerator1") == 0) {
+    // Primary aerator: oxygen below threshold, or warm water.
+    if (ENABLE_DO_SENSOR && doSensorOK && dissolvedOxygen < doCriticalLow) return true;
+    if (tempSensorOK && smoothedTemp > tempCriticalHigh) return true;
+    return false;
+  }
+
+  if (strcmp(a.deviceId, "aerator2") == 0) {
+    // Secondary aerator: CRITICAL oxygen drop (extra boost), or heat stress.
+    if (ENABLE_DO_SENSOR && doSensorOK &&
+        dissolvedOxygen < (doCriticalLow - 1.5f)) return true;
+    if (tempSensorOK && smoothedTemp > tempCriticalHigh) return true;
+    return false;
+  }
+
+  return false;
+}
+
+// ─── Read control_mode for one device from Firestore ───
+// Path: tanks/{tankId}/actuators/{deviceId}  -> fields/control_mode/stringValue
+bool readActuatorMode(int idx, String& modeOut) {
+  if (!ensureFirebaseReady()) return false;
+  if (currentTankId.length() == 0) return false;
+
+  String path = String("tanks/") + currentTankId + "/actuators/" + actuators[idx].deviceId;
+  if (!Firebase.Firestore.getDocument(&fbdo, FIREBASE_PROJECT_ID, "", path.c_str(), "")) {
+    return false;   // doc may not exist yet — tank seeding happens on app side
+  }
+  FirebaseJson doc;
+  doc.setJsonData(fbdo.payload());
+  FirebaseJsonData d;
+  if (!doc.get(d, "fields/control_mode/stringValue")) return false;
+  modeOut = d.stringValue;
+  return true;
+}
+
+// ─── Write back ACTUAL relay state to Firestore ───
+// Firestore rules allow the anonymous ESP to update ONLY:
+//   current_state + last_changed   (never control_mode)
+void reportActuatorState(int idx, bool forced) {
+  if (!ensureFirebaseReady()) return;
+  if (currentTankId.length() == 0) return;
+
+  ActuatorDevice& a = actuators[idx];
+  const String state = a.relayOn ? "on" : "off";
+
+  if (!forced && a.cloudReported && a.cloudReportedState == state) return;
+
+  time_t now;
+  time(&now);
+  const String nowMs = epochMillisString(now);
+
+  FirebaseJson json;
+  json.set("fields/current_state/stringValue", state);
+  json.set("fields/last_changed/integerValue", nowMs);
+
+  String path = String("tanks/") + currentTankId + "/actuators/" + a.deviceId;
+  if (Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "",
+        path.c_str(), json.raw(), "current_state,last_changed")) {
+    a.cloudReported = true;
+    a.cloudReportedState = state;
+    Serial.printf("[ACT] Reported %s -> %s\n", a.label, state.c_str());
+  } else if (fbdo.httpConnected()) {
+    Serial.printf("[ACT REPORT ERROR] %s\n", fbdo.errorReason().c_str());
+  }
+}
+
+// ─── Push an actuator log entry (auto-ID doc) ───
+// Field names match Flutter ActuatorLogService:
+//   actuator_type, action, log_level, message, type, time, date, timestamp(ms)
+// Put "(AUTO)" in `action` so the app surfaces it as an auto-control event.
+void pushActuatorLog(int idx, String action, String type, String level) {
+  if (!ensureFirebaseReady()) return;
+  if (currentTankId.length() == 0) return;
+
+  time_t now;
+  time(&now);
+  struct tm* timeinfo = localtime(&now);
+
+  int h12 = timeinfo->tm_hour % 12;
+  if (h12 == 0) h12 = 12;
+  String ampm = timeinfo->tm_hour >= 12 ? "PM" : "AM";
+  char timeBuf[10];
+  sprintf(timeBuf, "%d:%02d %s", h12, timeinfo->tm_min, ampm.c_str());
+
+  const char* months[] = {"Jan","Feb","Mar","Apr","May","Jun",
+                           "Jul","Aug","Sep","Oct","Nov","Dec"};
+  char dateBuf[20];
+  sprintf(dateBuf, "%s %d, %d",
+          months[timeinfo->tm_mon], timeinfo->tm_mday, 1900 + timeinfo->tm_year);
+
+  const String epochMs = epochMillisString(now);
+
+  FirebaseJson json;
+  json.set("fields/actuator_type/stringValue", actuators[idx].deviceId);
+  json.set("fields/action/stringValue",        action);
+  json.set("fields/log_level/stringValue",     level);
+  json.set("fields/message/stringValue",       action);
+  json.set("fields/type/stringValue",          type);
+  json.set("fields/time/stringValue",          String(timeBuf));
+  json.set("fields/date/stringValue",          String(dateBuf));
+  json.set("fields/timestamp/integerValue",    epochMs);
+  // Also stamped as integer epoch-ms so both the Controls screen
+  // (orders by timestamp) and the legacy actuatorLogsStream
+  // (orders by logged_at) sort correctly.
+  json.set("fields/logged_at/integerValue",    epochMs);
+
+  String col = String("tanks/") + currentTankId + "/actuator_logs";
+  if (Firebase.Firestore.createDocument(&fbdo, FIREBASE_PROJECT_ID, "",
+        col.c_str(), "", json.raw(), "")) {
+    Serial.printf("[ACT LOG] %s\n", action.c_str());
+  } else if (fbdo.httpConnected()) {
+    Serial.printf("[ACT LOG ERROR] %s\n", fbdo.errorReason().c_str());
+  }
+}
+
+// ─── Apply one device's mode -> relay, then report + log changes ───
+void applyActuatorDevice(int idx) {
+  ActuatorDevice& a = actuators[idx];
+  bool target = false;
+  String reason = "";
+  String type = "auto";
+
+  if (a.controlMode == "on") {
+    target = true;
+    type = "on";
+    reason = "Manual ON";
+  } else if (a.controlMode == "off") {
+    target = false;
+    type = "off";
+    reason = "Manual OFF";
+  } else {   // "auto" (or anything unknown)
+    target = actuatorAutoTarget(idx);
+    reason = target ? "Auto condition met" : "Auto condition clear";
+  }
+
+  const bool changed = (a.relayOn != target);
+  setActuatorRelay(idx, target);
+
+  if (changed) {
+    // Action format matches what the app expects:
+    //  - "Switched ON/OFF"  -> Controls screen runtime label
+    //  - "(AUTO)"           -> ActuatorLogService auto-control event
+    String action = String("Switched ") + (target ? "ON" : "OFF") + " — " + a.label;
+    if (a.controlMode == "auto") action += String(" (AUTO) — ") + reason;
+    pushActuatorLog(idx, action, type, "info");
+  }
+  reportActuatorState(idx, false);
+}
+
+// ─── Sync all 3 actuators from Firestore: read mode -> apply -> report ───
+void syncActuatorsFromFirestore() {
+  if (currentTankId.length() == 0) return;   // no tank assigned yet
+
+  for (int i = 0; i < 3; i++) {
+    String mode;
+    if (readActuatorMode(i, mode)) {
+      actuators[i].controlMode = mode;
+    }
+    applyActuatorDevice(i);
   }
 }

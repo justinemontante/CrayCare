@@ -4,21 +4,26 @@
 =============================================
 
 --- RELAYS ---
-  n1on          Water Pump ON
-  n1off         Water Pump OFF
-  n2on          Primary Aerator ON
-  n2off         Primary Aerator OFF
-  n3on          Secondary Aerator ON
-  n3off         Secondary Aerator OFF
+  n1on          Water Pump ON            (local test only)
+  n1off         Water Pump OFF           (local test only)
+  n2on          Primary Aerator ON       (local test only)
+  n2off         Primary Aerator OFF      (local test only)
+  n3on          Secondary Aerator ON     (local test only)
+  n3off         Secondary Aerator OFF    (local test only)
   relay status  Show relay states and modes
 
   EXAMPLE:
     n1on            →  Water Pump turns ON
     n1off           →  Water Pump turns OFF
-    n2on    
-    n3on        →  Primary Aerator turns ON
+    n2on            →  Primary Aerator turns ON
     n3off           →  Secondary Aerator turns OFF
     relay status    →  Shows all 3 relay states
+
+  NOTE: n1/n2/n3 commands are LOCAL hardware test commands only. The relay
+        state is reported back to Firestore (current_state), but the next
+        5-second cloud sync re-applies the mode stored in the app
+        (tanks/{tankId}/actuators/{deviceId} -> control_mode). To control
+        relays from the app, use the Controls screen (ON/OFF/AUTO).
 
 --- SERVO / FEEDER ---
   servopause <ms>    Set servo open pause (ms)
