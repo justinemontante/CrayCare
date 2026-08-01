@@ -17,12 +17,13 @@ db = firestore.client()
 
 # Final path: tanks/{tankId}/sensor_readings_history/{YYYY-MM-DD}/entries/{id}
 rows = []
-history_docs = (
+date_docs = (
     db.collection("tanks").document(TANK_ID)
-    .collection("sensor_readings_history").collections()
+    .collection("sensor_readings_history").stream()
 )
-for date_collection in history_docs:
-    rows.extend(d.to_dict() for d in date_collection.stream())
+for date_doc in date_docs:
+    entries = date_doc.reference.collection("entries").stream()
+    rows.extend(d.to_dict() for d in entries)
 
 df = pd.DataFrame(rows)
 if not df.empty and "recorded_at" in df.columns:

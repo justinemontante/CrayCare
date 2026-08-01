@@ -89,6 +89,7 @@ class TankService extends ChangeNotifier {
   List<CrayfishBatch> _batches = [];
   String? _selectedBatchId;
   bool _isArchiveView = false;
+  String _currentUserUid = '';
   String _tankOwnerUid = '';
 
   final FirebaseFirestore _fs = FirebaseFirestore.instance;
@@ -221,7 +222,19 @@ class TankService extends ChangeNotifier {
 
   // ─── Lifecycle ─────────────────────────────────────────────────────
 
+  Future<String> _resolveTankIdForUser(String uid) async {
+    try {
+      final profile = await _fs.collection('users').doc(uid).get();
+      return profile.data()?['tank_id'] as String? ?? uid;
+    } catch (_) {
+      return uid;
+    }
+  }
+
   Future<void> refresh() async {
+    if (_currentUserUid.isNotEmpty) {
+      _tankOwnerUid = await _resolveTankIdForUser(_currentUserUid);
+    }
     if (_tankOwnerUid.isEmpty) return;
     debugPrint('[TankService] refresh()');
     _cancelSubscriptions();
@@ -233,7 +246,8 @@ class TankService extends ChangeNotifier {
     final initialUid = FirebaseAuth.instance.currentUser?.uid ?? '';
     debugPrint('[TankService] init() currentUser.uid="$initialUid"');
     if (initialUid.isNotEmpty) {
-      _tankOwnerUid = initialUid;
+      _currentUserUid = initialUid;
+      _tankOwnerUid = await _resolveTankIdForUser(initialUid);
       await _loadTank();
       await _ensureTankExists();
       _listenFirebase();
@@ -242,11 +256,14 @@ class TankService extends ChangeNotifier {
       final uid = user?.uid ?? '';
       debugPrint('[TankService] authStateChanges event: uid="$uid"');
       if (uid.isEmpty) {
+        _currentUserUid = '';
+        _tankOwnerUid = '';
         _resetAll();
         return;
       }
-      if (uid == _tankOwnerUid) return;
-      _tankOwnerUid = uid;
+      if (uid == _currentUserUid) return;
+      _currentUserUid = uid;
+      _tankOwnerUid = await _resolveTankIdForUser(uid);
       _cancelSubscriptions();
       await _loadTank();
       await _ensureTankExists();
@@ -265,8 +282,8 @@ class TankService extends ChangeNotifier {
     final doc = await _tankRef.get();
     if (!doc.exists) {
       await _tankRef.set({
-        'owner_uid': _tankOwnerUid,
-        'userId': _tankOwnerUid,
+        'owner_uid': _currentUserUid.isNotEmpty ? _currentUserUid : _tankOwnerUid,
+        'userId': _currentUserUid.isNotEmpty ? _currentUserUid : _tankOwnerUid,
         'current_batch_id': '',
         'currentBatchId': '',
         'lifetime_mortality': 0,
@@ -599,7 +616,7 @@ class TankService extends ChangeNotifier {
     if (_tankOwnerUid.isEmpty) return;
     try {
       await _tankRef.set({
-        'owner_uid': _tankOwnerUid,
+        'owner_uid': _currentUserUid.isNotEmpty ? _currentUserUid : _tankOwnerUid,
         'initial_population': _initialCount,
         'initialPopulation': _initialCount,
         'stocking_date': _stockingDate.millisecondsSinceEpoch,

@@ -12,7 +12,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 /// tanks/{tank_id}
 ///   ├── sensor_readings/latest
 ///   ├── sensors/{sensorName}
-///   ├── actuators/{pump|aerator}
+///   ├── actuators/{pump|aerator1|aerator2}
 ///   ├── feeder/status
 ///   ├── feeder_schedules/{scheduleId}
 ///   └── pending_commands/{commandId}
@@ -79,7 +79,7 @@ class DatabaseService {
         final tankId = uid; // tank_id == uid (1 user = 1 tank)
         data['tank_id'] = tankId;
         await userRef.set(data, SetOptions(merge: true));
-        await _createTankIfMissing(tankId);
+        await _createTankIfMissing(tankId, ownerUid: uid);
         await _createDefaultNotificationSettings(uid);
       } else {
         await userRef.set(data, SetOptions(merge: true));
@@ -168,14 +168,14 @@ class DatabaseService {
 
   // ─── Tank ──────────────────────────────────────────────────────────
 
-  Future<void> _createTankIfMissing(String tankId) async {
+  Future<void> _createTankIfMissing(String tankId, {String? ownerUid}) async {
     final ref = _db.collection('tanks').doc(tankId);
     final existing = await ref.get();
     if (existing.exists) return;
 
     await ref.set({
-      'owner_uid': tankId,
-      'userId': tankId,
+      'owner_uid': ownerUid ?? tankId,
+      'userId': ownerUid ?? tankId,
       'current_batch_id': '',
       'currentBatchId': '',
       'lifetime_mortality': 0,
@@ -206,7 +206,7 @@ class DatabaseService {
       });
     }
     // Seed default actuators (off, manual-off state).
-    for (final type in ['pump', 'aerator']) {
+    for (final type in ['pump', 'aerator1', 'aerator2']) {
       final actuatorRef = ref.collection('actuators').doc(type);
       batch.set(actuatorRef, {
         'control_mode': 'off',
@@ -274,10 +274,10 @@ class DatabaseService {
   Stream<QuerySnapshot<Map<String, dynamic>>> sensorThresholdsStream(String tankId) =>
       _db.collection('tanks').doc(tankId).collection('sensors').snapshots();
 
-  // ─── Actuators (tanks/{tank_id}/actuators/{pump|aerator}) ─────────
+  // ─── Actuators (tanks/{tank_id}/actuators/{pump|aerator1|aerator2}) ─────────
 
   Future<void> saveActuatorMode({
-    required String actuatorId, // 'pump' or 'aerator'
+    required String actuatorId, // 'pump', 'aerator1', or 'aerator2'
     required String mode,     // 'on' | 'off' | 'auto'
     required String actuatorName,
     required String modeLabel,
@@ -361,7 +361,7 @@ class DatabaseService {
     // Edge case: user has no tank yet (e.g. legacy account) — provision one.
     if (tankId == null || tankId.isEmpty) {
       tankId = ownerUid;
-      await _createTankIfMissing(tankId);
+      await _createTankIfMissing(tankId, ownerUid: ownerUid);
       await _db.collection('users').doc(ownerUid).set(
         {'tank_id': tankId},
         SetOptions(merge: true),

@@ -1123,16 +1123,36 @@ void syncFeederSchedules() {
     String base    = String("documents/[") + i + "]/fields/";
     String timeStr = "6:00";
     String ampm    = "AM";
+    int timeValue  = -1;
 
-    if (response.get(d, base + "feed_time/stringValue"))    timeStr = d.stringValue;
-    // ampm no longer used; feed_time is 24h format (e.g. 08:00)
+    // Preferred source: timeValue (minutes since midnight) written by Flutter.
+    if (response.get(d, base + "timeValue/integerValue")) {
+      timeValue = d.stringValue.toInt();
+    }
 
-    // Convert feed_time (24h format, e.g. 08:00) directly
-    int colon = timeStr.indexOf(':');
-    if (colon < 0) continue;
-    int hour   = timeStr.substring(0, colon).toInt();
-    int minute = timeStr.substring(colon + 1).toInt();
-    // No AM/PM conversion needed — feed_time is already 24h
+    // Fallbacks during migration/older app versions.
+    if (response.get(d, base + "time/stringValue"))         timeStr = d.stringValue;
+    if (response.get(d, base + "ampm/stringValue"))         ampm = d.stringValue;
+    if (response.get(d, base + "feed_time/stringValue") && timeStr == "6:00") {
+      timeStr = d.stringValue;
+    }
+
+    int hour = 6;
+    int minute = 0;
+
+    if (timeValue >= 0) {
+      hour = timeValue / 60;
+      minute = timeValue % 60;
+    } else {
+      int colon = timeStr.indexOf(':');
+      if (colon < 0) continue;
+      hour = timeStr.substring(0, colon).toInt();
+      minute = timeStr.substring(colon + 1).toInt();
+
+      // Convert 12-hour time + AM/PM into 24-hour time.
+      if (ampm == "PM" && hour != 12) hour += 12;
+      if (ampm == "AM" && hour == 12) hour = 0;
+    }
 
     s.hour24  = hour;
     s.minute  = minute;
