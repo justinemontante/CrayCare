@@ -1149,6 +1149,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
       } else {
         await TankService.instance.addSamplingEntry(count, weight, length);
       }
+      if (!mounted) return;
       setState(() {
         _isRecorded = true;
         _isEditing = false;

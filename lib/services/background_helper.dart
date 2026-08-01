@@ -320,7 +320,7 @@ class BackgroundHelper {
 
     const markerKey = 'sampling_reminder';
     // How often to re-notify while sampling is still overdue.
-    const _reminderIntervalHours = 4;
+    const reminderIntervalHours = 4;
 
     // users/{uid}/notif_markers/{markerKey}
     final markerDoc = await userDoc.collection('notif_markers').doc(markerKey).get();
@@ -334,9 +334,9 @@ class BackgroundHelper {
         final lastReminderTs = val['reminderTs'] as int? ?? 0;
         if (lastSampleTs == effectiveSampleTs && lastReminderTs > 0) {
           // User has NOT sampled yet since the last reminder — keep nudging
-          // every _reminderIntervalHours hours instead of waiting 7 days.
+          // every reminderIntervalHours hours instead of waiting 7 days.
           final lastReminder = DateTime.fromMillisecondsSinceEpoch(lastReminderTs);
-          if (now.difference(lastReminder).inHours < _reminderIntervalHours) return;
+          if (now.difference(lastReminder).inHours < reminderIntervalHours) return;
           isFirstReminder = false;
         }
         // If lastSampleTs != effectiveSampleTs the user sampled recently;
@@ -344,7 +344,7 @@ class BackgroundHelper {
       } else if (val is int && val > 0) {
         // Legacy marker format — treat as still-pending, same interval.
         final lastReminder = DateTime.fromMillisecondsSinceEpoch(val);
-        if (now.difference(lastReminder).inHours < _reminderIntervalHours) return;
+        if (now.difference(lastReminder).inHours < reminderIntervalHours) return;
         isFirstReminder = false;
       }
     }

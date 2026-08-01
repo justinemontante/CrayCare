@@ -970,10 +970,10 @@ class NotificationService extends ChangeNotifier {
         final initialPopulation = (tank?['initialPopulation'] as int?) ??
             (tank?['initial_population'] as int?);
         if (tank != null && (initialPopulation ?? 0) > 0) {
-          final ts = tank!['lastSampleDate'] ??
-              tank!['last_sample_date'] ??
-              tank!['stockingDate'] ??
-              tank!['stocking_date'];
+          final ts = tank['lastSampleDate'] ??
+              tank['last_sample_date'] ??
+              tank['stockingDate'] ??
+              tank['stocking_date'];
           if (ts is int) {
             effectiveLastDate = DateTime.fromMillisecondsSinceEpoch(ts);
           }

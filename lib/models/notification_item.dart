@@ -1,3 +1,5 @@
+// ignore_for_file: non_constant_identifier_names
+
 class NotificationItem {
   final String id;
   final String notif_type;

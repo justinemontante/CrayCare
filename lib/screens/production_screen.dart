@@ -1098,13 +1098,15 @@ class ProductionScreenState extends State<ProductionScreen> {
                       onPressed: errorText == null && mortalityVal > 0
                            ? () async {
                                await TankService.instance.addMortality(mortalityVal);
-                              Navigator.pop(ctx);
-                              showBeautifulSnackbar(
-                                context,
-                                'Mortality of $mortalityVal successfully logged.',
-                                true,
-                              );
-                            }
+                               if (!ctx.mounted) return;
+                               Navigator.pop(ctx);
+                               if (!mounted) return;
+                               showBeautifulSnackbar(
+                                 context,
+                                 'Mortality of $mortalityVal successfully logged.',
+                                 true,
+                               );
+                             }
                           : null,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: errorText != null

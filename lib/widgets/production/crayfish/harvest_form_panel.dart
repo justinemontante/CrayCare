@@ -58,6 +58,7 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
       return;
     }
     await service.addHarvestRecord(harvestedCount: count, totalWeightKg: weight, date: _selectedDate);
+    if (!mounted) return;
     widget.onSaved?.call();
     Navigator.pop(context);
   }
