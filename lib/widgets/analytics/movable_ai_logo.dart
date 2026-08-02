@@ -144,8 +144,8 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                           icon: Icons.cloud_off_rounded,
                           loading: false,
                           message: hr.result != null
-                              ? 'CrayAI is building your tank profile. ${hr.result!.samplesAnalyzed} / ${hr.result!.requiredSamples} readings collected. About 6 hours of sensor history is needed for the first assessment.'
-                              : 'CrayAI is building your tank profile. It needs at least 36 history readings (about 6 hours) before the first assessment.',
+                              ? 'CrayAI is building your tank profile. ${hr.result!.samplesAnalyzed} / ${hr.result!.requiredSamples} readings collected. About 1 hour of sensor history is needed for the first assessment.'
+                              : 'CrayAI is building your tank profile. It needs at least 6 history readings (about 1 hour) before the first assessment.',
                         )
                       : ListView(
                           padding: const EdgeInsets.only(bottom: 24),

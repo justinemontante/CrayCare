@@ -60,7 +60,7 @@ class HealthRiskResult {
       driverMax: (data['driver_max'] as num?)?.toDouble(),
       analysisMode: data['analysis_mode'] as String? ?? 'Water-quality assessment',
       samplesAnalyzed: (data['samples_analyzed'] as num?)?.toInt() ?? 0,
-      requiredSamples: (data['required_samples'] as num?)?.toInt() ?? 36,
+      requiredSamples: (data['required_samples'] as num?)?.toInt() ?? 6,
       timestamp: data['timestamp'] != null
           ? DateTime.tryParse(data['timestamp'] as String) ?? DateTime.now()
           : DateTime.now(),

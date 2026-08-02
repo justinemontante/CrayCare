@@ -75,8 +75,8 @@ X, y    = feat, df["wqc_class"]
 
 RAW_BASE_COLS = [f"{s}_{stat}" for s in SENSORS for stat in ("avg", "min", "max")]
 
-# CV gap = 36 ticks (6 hours) = rolling-window size, prevents look-ahead leakage
-CV_GAP = 36
+# CV gap = 6 ticks (1 hour) = rolling-window size, prevents look-ahead leakage
+CV_GAP = 6
 
 
 # ── XGBoost hyperparameters ────────────────────────────────────────────────────
@@ -129,7 +129,7 @@ def run_cv(X_subset, label, n_splits=4):
 
 # ── Stage 1: Time-series CV (full engineered features) ────────────────────────
 print("\n" + "=" * 65)
-print("STAGE 1 — Time-Series CV (full features, gap=36)")
+print(f"STAGE 1 — Time-Series CV (full features, gap={CV_GAP})")
 print("  Thresholds: DENR DAO 2016-08 / DA-BFAR / FAO TP-458")
 print("=" * 65)
 cv_scores, cv_bal = run_cv(X, "full")
@@ -229,6 +229,7 @@ bundle = {
         "temp_range_C":     "20–30",
         "turbidity_max_ntu": 50.0,
         "water_level_cm":    "120–160",
+        "analysis_window_minutes": 60,
     },
 }
 out_path = os.path.join(_DIR, "wqc_model.joblib")

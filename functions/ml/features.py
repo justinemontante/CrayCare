@@ -61,7 +61,7 @@ WATER_MAX_CM = 160.0
 # p96 of the raw rolling hazard on the 90-day dataset → balanced class split.
 # Recompute if thresholds change: run compute_wqc_score() on the new dataset
 # and take np.percentile(hazard_raw / p96 * 100, 96).
-WQC_NORM_REF = 28.50
+WQC_NORM_REF = 5.20
 
 CLASS_NAMES = ["Low", "Moderate", "High", "Critical"]
 
@@ -78,12 +78,12 @@ def build_features(df):
     Feature groups:
       - Raw avg/min/max per sensor                   (15 cols)
       - Volatility (max-min) per sensor              ( 5 cols)
-      - 6-hour rolling mean per sensor               ( 5 cols)
-      - 24-hour rolling mean per sensor              ( 5 cols)
-      - Short-term trend (6-tick slope) per sensor   ( 5 cols)
+      - 1-hour rolling mean per sensor               ( 5 cols)
+      - 2-hour rolling mean per sensor              ( 5 cols)
+      - Short-term trend (3-tick slope) per sensor   ( 5 cols)
       - Hours-in-bad-condition counts                ( 4 cols)
-      - Continuous per-sensor hazard, 6h rolling     ( 5 cols)
-      - Total combined hazard, 6h rolling            ( 1 col)
+      - Continuous per-sensor hazard, 1h rolling     ( 5 cols)
+      - Total combined hazard, 1h rolling            ( 1 col)
       ──────────────────────────────────────────────────────────
       Total                                          (45 cols)
     """
@@ -96,21 +96,21 @@ def build_features(df):
     for s in SENSORS:
         a = df[f"{s}_avg"]
         feat[f"{s}_volatility"] = df[f"{s}_max"] - df[f"{s}_min"]
-        feat[f"{s}_roll6h"]     = a.rolling(36,  min_periods=1).mean()
-        feat[f"{s}_roll24h"]    = a.rolling(144, min_periods=1).mean()
-        feat[f"{s}_trend"]      = a.diff().rolling(6, min_periods=1).mean()
+        feat[f"{s}_roll1h"]     = a.rolling(6,   min_periods=1).mean()
+        feat[f"{s}_roll2h"]    = a.rolling(12,  min_periods=1).mean()
+        feat[f"{s}_trend"]      = a.diff().rolling(3, min_periods=1).mean()
 
     # ── Hours-in-bad-condition (count of 10-min ticks / 6 = hours) ────────────
-    feat["DO_hrs_low"]       = (df["DO_min"] < DO_OPTIMAL_MIN).rolling(36, min_periods=1).sum() / 6.0
-    feat["temp_hrs_hi"]      = (df["temp_max"] > TEMP_GOOD_MAX).rolling(36, min_periods=1).sum() / 6.0
+    feat["DO_hrs_low"]       = (df["DO_min"] < DO_OPTIMAL_MIN).rolling(6, min_periods=1).sum() / 6.0
+    feat["temp_hrs_hi"]      = (df["temp_max"] > TEMP_GOOD_MAX).rolling(6, min_periods=1).sum() / 6.0
     feat["pH_hrs_bad"]       = (
         (df["pH_min"] < PH_GOOD_MIN) | (df["pH_max"] > PH_GOOD_MAX)
-    ).rolling(36, min_periods=1).sum() / 6.0
+    ).rolling(6, min_periods=1).sum() / 6.0
     feat["waterLevel_hrs_bad"] = (
         (df["waterLevel_min"] < WATER_MIN_CM) | (df["waterLevel_max"] > WATER_MAX_CM)
-    ).rolling(36, min_periods=1).sum() / 6.0
+    ).rolling(6, min_periods=1).sum() / 6.0
 
-    # ── Continuous per-sensor hazard (rolling 6h) — smooth signal for boundary ─
+    # ── Continuous per-sensor hazard (rolling 1h) — smooth signal for boundary ─
     # These give the model a continuous gradient around each class boundary,
     # not just a binary pass/fail flag (which starves the "High" class).
     water_range = max(WATER_MAX_CM - WATER_MIN_CM, 1.0)
@@ -130,17 +130,17 @@ def build_features(df):
       + np.clip(df["waterLevel_max"] - WATER_MAX_CM, 0, None) / water_range
     )
 
-    feat["DO_hazard_roll6h"]    = do_hz.rolling(36, min_periods=1).sum()
-    feat["pH_hazard_roll6h"]    = ph_hz.rolling(36, min_periods=1).sum()
-    feat["temp_hazard_roll6h"]  = temp_hz.rolling(36, min_periods=1).sum()
-    feat["turb_hazard_roll6h"]  = turb_hz.rolling(36, min_periods=1).sum()
-    feat["water_hazard_roll6h"] = water_hz.rolling(36, min_periods=1).sum()
-    feat["total_hazard_roll6h"] = (
-        feat["DO_hazard_roll6h"]
-      + feat["pH_hazard_roll6h"]
-      + feat["temp_hazard_roll6h"]
-      + feat["turb_hazard_roll6h"]
-      + feat["water_hazard_roll6h"]
+    feat["DO_hazard_roll1h"]    = do_hz.rolling(6, min_periods=1).sum()
+    feat["pH_hazard_roll1h"]    = ph_hz.rolling(6, min_periods=1).sum()
+    feat["temp_hazard_roll1h"]  = temp_hz.rolling(6, min_periods=1).sum()
+    feat["turb_hazard_roll1h"]  = turb_hz.rolling(6, min_periods=1).sum()
+    feat["water_hazard_roll1h"] = water_hz.rolling(6, min_periods=1).sum()
+    feat["total_hazard_roll1h"] = (
+        feat["DO_hazard_roll1h"]
+      + feat["pH_hazard_roll1h"]
+      + feat["temp_hazard_roll1h"]
+      + feat["turb_hazard_roll1h"]
+      + feat["water_hazard_roll1h"]
     )
 
     # Forward-fill only (no bfill) to prevent look-ahead leakage on first row
@@ -155,7 +155,7 @@ def compute_wqc_score(df):
     Used internally to auto-generate Water Quality Classification training labels.
     NOT exposed in the final classification output.
 
-    Uses a rolling 36-tick (6-hour) window sum of instantaneous per-sensor
+    Uses a rolling 6-tick (1-hour) window sum of instantaneous per-sensor
     hazard sub-scores, normalised to [0, 100].
 
     Hazard sub-scores are proportional deviations from DENR/DA-BFAR thresholds:
@@ -192,7 +192,7 @@ def compute_wqc_score(df):
     s["water_hi"] = np.clip(df["waterLevel_max"] - WATER_MAX_CM, 0, None) / water_range
 
     row_hazard  = s.sum(axis=1)
-    WIN         = 36   # 6-hour window
+    WIN         = 6    # 1-hour window (six 10-minute readings)
     hazard_raw  = row_hazard.rolling(WIN, min_periods=1).sum()
     hazard_score = np.clip(hazard_raw / WQC_NORM_REF * 100, 0, 100)
     return hazard_score

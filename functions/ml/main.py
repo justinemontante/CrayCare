@@ -133,65 +133,59 @@ def _fetch_sensor_history(tank_id: str, hours: int = 24):
     return pd.DataFrame(rows).sort_values("timestamp") if rows else pd.DataFrame()
 
 
-from firebase_functions import firestore_fn
+from firebase_functions import scheduler_fn
 
 
-@firestore_fn.on_document_written(
-    document="tanks/{tankId}/sensor_readings/latest", region="asia-southeast1"
-)
-def on_sensor_update(event: firestore_fn.Event[firestore_fn.Change[firestore_fn.DocumentSnapshot]]) -> None:
-    """Triggered when a tank's canonical latest sensor document is written."""
-
-    after_data = event.data.after.to_dict() if event.data.after else None
-    if not after_data:
-        return
-
-    tank_id = event.params.get("tankId", "")
-    if not tank_id:
-        return
-    tank = _get_db().collection("tanks").document(tank_id).get()
-    owner_uid = (tank.to_dict() or {}).get("owner_uid", "") if tank.exists else ""
-
-    df = _fetch_sensor_history(tank_id)
+def _analyze_tank(tank_id: str) -> None:
+    """Run one complete 1-hour water-quality assessment for a tank."""
     db = _get_db()
+    tank = db.collection("tanks").document(tank_id).get()
+    owner_uid = (tank.to_dict() or {}).get("owner_uid", "") if tank.exists else ""
+    df = _fetch_sensor_history(tank_id)
 
-    if df.empty or len(df) < 36:
-        print(f"[WQC] Insufficient data ({len(df)} rows), need at least 36")
+    if df.empty or len(df) < 6:
+        print(f"[WQC] Insufficient data ({len(df)} rows), need at least 6")
         result = {
             "level": "Insufficient",
             "confidence": 0,
+            "risk_score": 0,
             "driver": "N/A",
+            "driver_label": "Collecting sensor history",
             "problem": "Not enough data collected yet",
-            "insight": "Not enough data collected yet.",
-            "action": "Continue collecting data. Need at least 6 hours of readings.",
+            "insight": "A minimum of six 10-minute history readings is required.",
+            "action": "Continue collecting data. The first assessment will be available after about one hour.",
             "source": "System",
             "samples_analyzed": len(df),
-            "required_samples": 36,
+            "required_samples": 6,
+            "analysis_mode": "Waiting for one-hour history",
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-        (
-            db.collection("tanks")
-            .document(tank_id)
-            .collection("health_risk")
-            .document("current")
-            .set(result)
-        )
+    else:
+        result = _predict_wqc(df)
+        result["samples_analyzed"] = len(df)
+        result["required_samples"] = 6
+        result["tank_id"] = tank_id
+        if owner_uid:
+            result["uid"] = owner_uid
+
+    (db.collection("tanks").document(tank_id)
+       .collection("health_risk").document("current").set(result))
+    print(f"[WQC] Tank {tank_id}: {result['level']} (confidence={result['confidence']}%, driver={result['driver']})")
+
+
+@scheduler_fn.on_schedule(
+    schedule="every 1 hours",
+    timezone="Asia/Manila",
+    region="asia-southeast1",
+)
+def run_hourly_wqc(event) -> None:
+    """Analyze the one currently assigned ESP/tank once per hour."""
+    db = _get_db()
+    assignment = db.collection("hardware_system").document("currentOwner").get()
+    data = assignment.to_dict() if assignment.exists else None
+    tank_id = (data or {}).get("tank_id")
+    if not tank_id:
+        print("[WQC] No hardware owner/tank assigned; hourly analysis skipped.")
         return
+    _analyze_tank(tank_id)
 
-    result = _predict_wqc(df)
-    result["samples_analyzed"] = len(df)
-    result["required_samples"] = 36
-    result["tank_id"] = tank_id
-    if owner_uid:
-        result["uid"] = owner_uid
-
-    (
-        db.collection("tanks")
-        .document(tank_id)
-        .collection("health_risk")
-        .document("current")
-        .set(result)
-    )
-    print(
-        f"[WQC] Classification: {result['level']} (confidence={result['confidence']}%, driver={result['driver']})"
-    )
