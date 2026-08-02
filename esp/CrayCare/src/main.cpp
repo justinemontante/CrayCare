@@ -271,8 +271,8 @@ float doCriticalHigh = 9.0;
 float phCriticalLow = 7.0;
 float phCriticalHigh = 8.5;
 
-float waterLevelCriticalLow = 70.0;
-float waterLevelCriticalHigh = 100.0;
+float waterLevelCriticalLow = 120.0;
+float waterLevelCriticalHigh = 160.0;
 
 float doVoltageScale = 4.0;
 float doVoltageOffset = 0.0;
@@ -280,6 +280,9 @@ float phVoltageSlope = -5.70;
 float phVoltageIntercept = 21.34;
 float waterLevelVoltageMin = 0.0;
 float waterLevelVoltageMax = 3.3;
+// Physical water depth represented by the calibrated voltage range.
+float waterLevelCmMin = 0.0;
+float waterLevelCmMax = 160.0;
 
 // ============================================================
 //  SAMPLING / FILTERING SETTINGS
@@ -330,7 +333,7 @@ float phLevel = -1.0;
 float phVoltage = 0.0;
 bool phSensorOK = false;
 
-float waterLevelPercent = -1.0;
+float waterLevelCm = -1.0;
 float waterLevelVoltage = 0.0;
 bool waterLevelSensorOK = false;
 
@@ -571,7 +574,7 @@ void syncConfigFromFirebase() {
   changed |= syncTankRange("turbidity",         turbNtuMin,            turbNtuMax,             0.0, 1000.0);
   changed |= syncTankRange("dissolved_oxygen",  doCriticalLow,         doCriticalHigh,          0.0,   30.0);
   changed |= syncTankRange("ph_level",          phCriticalLow,         phCriticalHigh,          0.0,   14.0);
-  changed |= syncTankRange("water_level",       waterLevelCriticalLow, waterLevelCriticalHigh,  0.0,  100.0);
+  changed |= syncTankRange("water_level",       waterLevelCriticalLow, waterLevelCriticalHigh,  0.0,  300.0);
 
   if (changed) {
     Serial.printf("[CONFIG] Tank %s | Temp %.1f-%.1f | Turb %.0f-%.0f | DO %.1f-%.1f | pH %.1f-%.1f | Water %.1f-%.1f%%\n",
@@ -641,7 +644,7 @@ void buildFirestorePayload(FirebaseJson &json, bool includeTimestamp) {
   }
 
   if (ENABLE_WATER_LEVEL_SENSOR) {
-    json.set("fields/water_level/doubleValue", waterLevelPercent);
+    json.set("fields/water_level/doubleValue", waterLevelCm);
   }
 
   // Final tank documents receive recorded_at from the Cloud Function using
@@ -848,13 +851,15 @@ void readPHSensor() {
 
 void readWaterLevelSensor() {
   if (!ENABLE_WATER_LEVEL_SENSOR) {
-    waterLevelPercent = -1.0;
+    waterLevelCm = -1.0;
     return;
   }
 
   waterLevelVoltage = readAnalogVoltage(WATER_LEVEL_PIN);
-  waterLevelPercent = (waterLevelVoltage - waterLevelVoltageMin) * 100.0f / (waterLevelVoltageMax - waterLevelVoltageMin);
-  waterLevelPercent = constrain(waterLevelPercent, 0.0f, 100.0f);
+  const float ratio = (waterLevelVoltage - waterLevelVoltageMin) /
+      (waterLevelVoltageMax - waterLevelVoltageMin);
+  waterLevelCm = waterLevelCmMin + ratio * (waterLevelCmMax - waterLevelCmMin);
+  waterLevelCm = constrain(waterLevelCm, waterLevelCmMin, waterLevelCmMax);
   waterLevelSensorOK = true;
 }
 
@@ -1007,13 +1012,13 @@ void loop() {
 
     readAllSensors();
 
-    Serial.printf("[OK] Temp: %.1f C | Turb: %.0f NTU (%.3fV) | DO: %.1f | pH: %.2f | Level: %.1f%%\n",
+    Serial.printf("[OK] Temp: %.1f C | Turb: %.0f NTU (%.3fV) | DO: %.1f | pH: %.2f | Level: %.1f cm\n",
                   smoothedTemp,
                   smoothedTurbidityNTU,
                   turbidityVoltage,
                   dissolvedOxygen,
                   phLevel,
-                  waterLevelPercent);
+                  waterLevelCm);
   }
 
   if (now - lastFirebaseSendTime >= FIREBASE_SEND_INTERVAL_MS) {
@@ -1449,7 +1454,7 @@ bool actuatorAutoTarget(int idx) {
     // Pump: circulate/refill when water level is critically low,
     // or keep water moving when temperature is high (heat stress).
     if (ENABLE_WATER_LEVEL_SENSOR && waterLevelSensorOK &&
-        waterLevelPercent < waterLevelCriticalLow) return true;
+        waterLevelCm < waterLevelCriticalLow) return true;
     if (tempSensorOK && smoothedTemp > tempCriticalHigh) return true;
     return false;
   }

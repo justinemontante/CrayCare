@@ -228,7 +228,7 @@ bundle = {
         "pH_range":         "6.5–8.5",
         "temp_range_C":     "20–30",
         "turbidity_max_ntu": 50.0,
-        "water_level_percent": "70–100",
+        "water_level_cm":    "120–160",
     },
 }
 out_path = os.path.join(_DIR, "wqc_model.joblib")

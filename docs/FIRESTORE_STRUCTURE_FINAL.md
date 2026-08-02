@@ -81,7 +81,7 @@ tanks/{tank_id}
     ph_level: number
     dissolved_oxygen: number
     turbidity: number
-    water_level: number
+    water_level: number  # centimetres
     turbidity_air: boolean
     recorded_at: Timestamp
 

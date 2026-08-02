@@ -53,9 +53,9 @@ TURB_GOOD_MAX    = 25.0  # NTU — Boyd & Tucker acceptable
 TURB_FAIR_MAX    = 50.0  # NTU — DENR Class C limit
 TURB_CRIT_MAX    = 100.0 # NTU — extreme; severe oxygen demand
 
-# Water level (%) — matches the ESP32 percentage payload and Firestore threshold.
-WATER_MIN_PERCENT = 70.0
-WATER_MAX_PERCENT = 100.0
+# Water level (cm) — calibrated physical water-depth range for this tank.
+WATER_MIN_CM = 120.0
+WATER_MAX_CM = 160.0
 
 # ── Normalisation reference ──────────────────────────────────────────────────────
 # p96 of the raw rolling hazard on the 90-day dataset → balanced class split.
@@ -107,13 +107,13 @@ def build_features(df):
         (df["pH_min"] < PH_GOOD_MIN) | (df["pH_max"] > PH_GOOD_MAX)
     ).rolling(36, min_periods=1).sum() / 6.0
     feat["waterLevel_hrs_bad"] = (
-        (df["waterLevel_min"] < WATER_MIN_PERCENT) | (df["waterLevel_max"] > WATER_MAX_PERCENT)
+        (df["waterLevel_min"] < WATER_MIN_CM) | (df["waterLevel_max"] > WATER_MAX_CM)
     ).rolling(36, min_periods=1).sum() / 6.0
 
     # ── Continuous per-sensor hazard (rolling 6h) — smooth signal for boundary ─
     # These give the model a continuous gradient around each class boundary,
     # not just a binary pass/fail flag (which starves the "High" class).
-    water_range = max(WATER_MAX_PERCENT - WATER_MIN_PERCENT, 1.0)
+    water_range = max(WATER_MAX_CM - WATER_MIN_CM, 1.0)
 
     do_hz   = np.clip(DO_OPTIMAL_MIN - df["DO_min"],   0, None) / DO_OPTIMAL_MIN
     ph_hz   = (
@@ -126,8 +126,8 @@ def build_features(df):
     )
     turb_hz = np.clip(df["turbidity_max"] - TURB_GOOD_MAX, 0, None) / TURB_GOOD_MAX
     water_hz = (
-        np.clip(WATER_MIN_PERCENT - df["waterLevel_min"], 0, None) / water_range
-      + np.clip(df["waterLevel_max"] - WATER_MAX_PERCENT, 0, None) / water_range
+        np.clip(WATER_MIN_CM - df["waterLevel_min"], 0, None) / water_range
+      + np.clip(df["waterLevel_max"] - WATER_MAX_CM, 0, None) / water_range
     )
 
     feat["DO_hazard_roll6h"]    = do_hz.rolling(36, min_periods=1).sum()
@@ -187,9 +187,9 @@ def compute_wqc_score(df):
     s["turb"]    = np.clip(df["turbidity_max"] - TURB_FAIR_MAX, 0, None) / TURB_FAIR_MAX
 
     # Water level hazard
-    water_range  = max(WATER_MAX_PERCENT - WATER_MIN_PERCENT, 1.0)
-    s["water_lo"] = np.clip(WATER_MIN_PERCENT - df["waterLevel_min"], 0, None) / water_range
-    s["water_hi"] = np.clip(df["waterLevel_max"] - WATER_MAX_PERCENT, 0, None) / water_range
+    water_range  = max(WATER_MAX_CM - WATER_MIN_CM, 1.0)
+    s["water_lo"] = np.clip(WATER_MIN_CM - df["waterLevel_min"], 0, None) / water_range
+    s["water_hi"] = np.clip(df["waterLevel_max"] - WATER_MAX_CM, 0, None) / water_range
 
     row_hazard  = s.sum(axis=1)
     WIN         = 36   # 6-hour window
@@ -250,12 +250,12 @@ def generate_insight(driver, last_row, level):
             f"and impairs crayfish feeding visibility (Boyd & Tucker 1998; FAO TP-458)."
         ),
         "waterLevel": (
-            f"Water level averaged {water_avg:.1f}% — outside the "
-            f"{WATER_MIN_PERCENT:.0f}–{WATER_MAX_PERCENT:.0f}% operating range. "
+            f"Water level averaged {water_avg:.1f} cm — outside the "
+            f"{WATER_MIN_CM:.0f}–{WATER_MAX_CM:.0f}cm operating range. "
             + (
                 "Low water concentrates waste, raises stocking density, and increases territorial "
                 "aggression in crayfish (FAO TP-458; Boyd & Tucker 1998)."
-                if water_avg < WATER_MIN_PERCENT else
+                if water_avg < WATER_MIN_CM else
                 "Excess water risks overflow, stock loss, and dilution of dissolved nutrients."
             )
         ),
@@ -267,7 +267,7 @@ def generate_insight(driver, last_row, level):
 def _current_driver_details(last):
     """Identify the sensor causing the current risk from live deviations."""
     import numpy as np
-    water_range = max(WATER_MAX_PERCENT - WATER_MIN_PERCENT, 1.0)
+    water_range = max(WATER_MAX_CM - WATER_MIN_CM, 1.0)
     hazards = {
         "DO": float(np.clip(DO_OPTIMAL_MIN - last["DO_min"], 0, None) / DO_OPTIMAL_MIN),
         "pH": float(max(np.clip(PH_GOOD_MIN - last["pH_min"], 0, None) / 1.5,
@@ -275,8 +275,8 @@ def _current_driver_details(last):
         "temp": float(max(np.clip(last["temp_max"] - TEMP_GOOD_MAX, 0, None) / 5.0,
                            np.clip(TEMP_GOOD_MIN - last["temp_min"], 0, None) / 5.0)),
         "turbidity": float(np.clip(last["turbidity_max"] - TURB_GOOD_MAX, 0, None) / TURB_GOOD_MAX),
-        "waterLevel": float(max(np.clip(WATER_MIN_PERCENT - last["waterLevel_min"], 0, None) / water_range,
-                                np.clip(last["waterLevel_max"] - WATER_MAX_PERCENT, 0, None) / water_range)),
+        "waterLevel": float(max(np.clip(WATER_MIN_CM - last["waterLevel_min"], 0, None) / water_range,
+                                np.clip(last["waterLevel_max"] - WATER_MAX_CM, 0, None) / water_range)),
     }
     driver = max(hazards, key=hazards.get)
     if hazards[driver] <= 0:
@@ -286,7 +286,7 @@ def _current_driver_details(last):
         "pH": {"label": "pH Level", "value": float(last["pH_avg"]), "unit": "", "min": PH_GOOD_MIN, "max": PH_GOOD_MAX},
         "temp": {"label": "Temperature", "value": float(last["temp_avg"]), "unit": "°C", "min": TEMP_GOOD_MIN, "max": TEMP_GOOD_MAX},
         "turbidity": {"label": "Turbidity", "value": float(last["turbidity_avg"]), "unit": "NTU", "min": 0.0, "max": TURB_GOOD_MAX},
-        "waterLevel": {"label": "Water Level", "value": float(last["waterLevel_avg"]), "unit": "%", "min": WATER_MIN_PERCENT, "max": WATER_MAX_PERCENT},
+        "waterLevel": {"label": "Water Level", "value": float(last["waterLevel_avg"]), "unit": "cm", "min": WATER_MIN_CM, "max": WATER_MAX_CM},
     }
     return driver, hazards[driver], details[driver]
 
