@@ -715,9 +715,10 @@ class TankService extends ChangeNotifier {
     final bid = (batchName != null && batchName.trim().isNotEmpty) ? batchName.trim() : fallbackBid;
     _selectedBatchId = bid;
 
-    await _saveConfig();
-    _addActivity('Initialized new grow-out batch with $initial population', 'init', customDate: date);
-
+    // Persist the batch FIRST. If this write fails, we rethrow so the UI
+    // shows an error and never claims success while Firebase has nothing.
+    // The tank config is updated only after the batch exists, keeping the
+    // "is_initialized" flag consistent with an actual batch on disk.
     try {
       await _batchesRef.doc(bid).set({
         'batch_id': bid,
@@ -740,8 +741,15 @@ class TankService extends ChangeNotifier {
         'created_at': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
     } catch (e) {
+      // NEVER swallow this — the user must know the batch wasn't persisted,
+      // otherwise the app looks "saved" while Firebase has nothing.
       debugPrint('[TankService] Batch push error: $e');
+      rethrow;
     }
+
+    // Only mark the tank as initialized once the batch is confirmed on disk.
+    await _saveConfig();
+    _addActivity('Initialized new grow-out batch with $initial population', 'init', customDate: date);
 
     _resubscribeToBatch();
     notifyListeners();

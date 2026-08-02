@@ -423,7 +423,18 @@ class _AdminScreenState extends State<AdminScreen> {
                                         );
                                         if (confirmed != true || !ctx.mounted) return;
                                         final messenger = ScaffoldMessenger.of(ctx);
-                                        await DatabaseService.instance.removeCurrentOwner();
+                                        try {
+                                          await DatabaseService.instance.removeCurrentOwner();
+                                        } catch (e) {
+                                          if (!mounted) return;
+                                          if (ctx.mounted) Navigator.pop(ctx);
+                                          showBeautifulSnackbarWithMessenger(
+                                            messenger,
+                                            'Failed to unassign hardware: ${e.toString().replaceFirst('Exception: ', '')}',
+                                            false,
+                                          );
+                                          return;
+                                        }
                                         if (!mounted) return;
                                         await _load();
                                         if (ctx.mounted) Navigator.pop(ctx);
@@ -461,7 +472,18 @@ class _AdminScreenState extends State<AdminScreen> {
                                   );
                                   if (confirmed != true || !ctx.mounted) return;
                                   final messenger = ScaffoldMessenger.of(ctx);
-                                  await DatabaseService.instance.setCurrentOwner(uid);
+                                  try {
+                                    await DatabaseService.instance.setCurrentOwner(uid);
+                                  } catch (e) {
+                                    if (!mounted) return;
+                                    if (ctx.mounted) Navigator.pop(ctx);
+                                    showBeautifulSnackbarWithMessenger(
+                                      messenger,
+                                      'Failed to link hardware: ${e.toString().replaceFirst('Exception: ', '')}',
+                                      false,
+                                    );
+                                    return;
+                                  }
                                   if (!mounted) return;
                                   await _load();
                                   if (ctx.mounted) Navigator.pop(ctx);
