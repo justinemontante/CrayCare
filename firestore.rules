@@ -10,10 +10,11 @@ service cloud.firestore {
       return isSignedIn() && myProfile().tank_id == tankId;
     }
     // One-time self-provisioning for legacy owner profiles that do not yet
-    // have a tank_id. A user can claim only a tank matching their own UID.
+    // have a usable tank_id (missing OR empty string). A user can claim only
+    // a tank matching their own UID, and only the tank_id key may change.
     function canClaimInitialTank(uid) {
       return isSignedIn() && request.auth.uid == uid &&
-        resource.data.get('tank_id', null) == null &&
+        (resource.data.get('tank_id', null) == null || resource.data.tank_id == '') &&
         request.resource.data.tank_id == request.auth.uid &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['tank_id']);
     }

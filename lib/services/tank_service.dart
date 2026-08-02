@@ -232,7 +232,18 @@ class TankService extends ChangeNotifier {
       // Legacy owner accounts may predate tank provisioning. They can claim
       // only a tank with the same ID as their authenticated UID (enforced by
       // Firestore Rules), then normal tank provisioning can continue.
-      await profileRef.set({'tank_id': uid}, SetOptions(merge: true));
+      //
+      // If the profile doc does not exist at all, create a minimal owner
+      // profile so the Firestore rules "create" branch (which requires
+      // role='owner' and status='active') is satisfied. Otherwise a plain
+      // {'tank_id': uid} create would be DENIED and every subsequent tank
+      // write would fail with permission-denied.
+      final profileExists = profile.exists && profile.data() != null;
+      await profileRef.set({
+        'tank_id': uid,
+        if (!profileExists) 'role': 'owner',
+        if (!profileExists) 'status': 'active',
+      }, SetOptions(merge: true));
       return uid;
     } catch (_) {
       return uid;
@@ -287,16 +298,22 @@ class TankService extends ChangeNotifier {
 
   Future<void> _ensureTankExists() async {
     if (_tankOwnerUid.isEmpty) return;
-    final doc = await _tankRef.get();
-    if (!doc.exists) {
-      await _tankRef.set({
-        'owner_uid': _currentUserUid.isNotEmpty ? _currentUserUid : _tankOwnerUid,
-        'current_batch_id': '',
-        'lifetime_mortality': 0,
-        'lifetime_harvested': 0,
-        'is_initialized': false,
-        'created_at': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+    try {
+      final doc = await _tankRef.get();
+      if (!doc.exists) {
+        await _tankRef.set({
+          'owner_uid': _currentUserUid.isNotEmpty ? _currentUserUid : _tankOwnerUid,
+          'current_batch_id': '',
+          'lifetime_mortality': 0,
+          'lifetime_harvested': 0,
+          'is_initialized': false,
+          'created_at': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+    } catch (e) {
+      // A denied read/write here should not kill the whole init chain;
+      // the tank page will surface the real error on its first write.
+      debugPrint('[TankService] _ensureTankExists error: $e');
     }
   }
 
