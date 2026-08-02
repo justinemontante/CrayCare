@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../theme/app_colors.dart';
 import '../services/database_service.dart';
 import '../widgets/section_label.dart';
@@ -20,11 +22,60 @@ class _AdminScreenState extends State<AdminScreen> {
   bool _loading = true;
   String? _error;
   int _userFilterTab = 0; // 0 = All, 1 = Owners, 2 = Admins
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _usersSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _ownerSub;
 
   @override
   void initState() {
     super.initState();
     _load();
+    _listenRealtime();
+  }
+
+  @override
+  void dispose() {
+    _usersSub?.cancel();
+    _ownerSub?.cancel();
+    super.dispose();
+  }
+
+  // Real-time listeners so the admin screen reflects Firebase changes
+  // instantly (e.g. another device links/unlinks hardware, a user is
+  // created/disabled, or the console changes something) without needing
+  // to leave and reopen the screen.
+  void _listenRealtime() {
+    _usersSub?.cancel();
+    _usersSub = FirebaseFirestore.instance
+        .collection('users')
+        .snapshots()
+        .listen((snap) {
+      final users = snap.docs
+          .map((d) {
+            final data = Map<String, dynamic>.from(d.data());
+            data['uid'] = d.id;
+            return data;
+          })
+          .toList()
+        ..sort((a, b) => (a['email'] as String? ?? '')
+            .compareTo(b['email'] as String? ?? ''));
+      if (!mounted) return;
+      setState(() {
+        _users = users;
+        _error = null;
+      });
+    }, onError: (e) {
+      debugPrint('[AdminScreen] users stream error: $e');
+    });
+
+    _ownerSub?.cancel();
+    _ownerSub = DatabaseService.instance.streamCurrentOwner().listen((doc) {
+      final data = doc.data();
+      final uid = data?['uid'] as String?;
+      if (!mounted) return;
+      setState(() => _currentOwnerUid = uid);
+    }, onError: (e) {
+      debugPrint('[AdminScreen] owner stream error: $e');
+    });
   }
 
   String _getGreetingTime() {
@@ -290,7 +341,6 @@ class _AdminScreenState extends State<AdminScreen> {
                         final messenger = ScaffoldMessenger.of(ctx);
                         await DatabaseService.instance.setUserStatus(uid, newStatus);
                         if (!mounted) return;
-                        await _load();
                         if (ctx.mounted) Navigator.pop(ctx);
                         showBeautifulSnackbarWithMessenger(
                           messenger,
@@ -436,7 +486,6 @@ class _AdminScreenState extends State<AdminScreen> {
                                           return;
                                         }
                                         if (!mounted) return;
-                                        await _load();
                                         if (ctx.mounted) Navigator.pop(ctx);
                                         showBeautifulSnackbarWithMessenger(
                                           messenger,
@@ -485,7 +534,6 @@ class _AdminScreenState extends State<AdminScreen> {
                                     return;
                                   }
                                   if (!mounted) return;
-                                  await _load();
                                   if (ctx.mounted) Navigator.pop(ctx);
                                   showBeautifulSnackbarWithMessenger(
                                     messenger,
