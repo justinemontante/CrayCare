@@ -1097,12 +1097,25 @@ class ProductionScreenState extends State<ProductionScreen> {
                     child: ElevatedButton(
                       onPressed: errorText == null && mortalityVal > 0
                            ? () async {
-                               await TankService.instance.addMortality(mortalityVal);
+                               // Capture the messenger before popping so the
+                               // snackbar still shows after the sheet closes.
+                               final messenger = ScaffoldMessenger.of(ctx);
+                               try {
+                                 await TankService.instance.addMortality(mortalityVal);
+                               } catch (e) {
+                                 if (!ctx.mounted) return;
+                                 showBeautifulSnackbar(
+                                   ctx,
+                                   'Failed to log mortality: ${e.toString().replaceFirst('Exception: ', '')}',
+                                   false,
+                                 );
+                                 return;
+                               }
                                if (!ctx.mounted) return;
                                Navigator.pop(ctx);
                                if (!mounted) return;
-                               showBeautifulSnackbar(
-                                 context,
+                               showBeautifulSnackbarWithMessenger(
+                                 messenger,
                                  'Mortality of $mortalityVal successfully logged.',
                                  true,
                                );

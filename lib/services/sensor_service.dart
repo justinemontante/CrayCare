@@ -156,12 +156,28 @@ class SensorService extends ChangeNotifier {
     try {
       final profileDoc =
           await FirebaseFirestore.instance.collection('users').doc(uid).get();
-      _tankId = profileDoc.data()?['tank_id'] as String?;
+      var tankId = profileDoc.data()?['tank_id'] as String?;
+      // CrayCare is 1 user = 1 tank with tank_id == uid. If the profile has
+      // no usable tank_id (missing OR empty string — e.g. legacy accounts
+      // created before tank provisioning), fall back to the UID and persist
+      // the link so every other service sees it too. This prevents a wrong
+      // "No tank assigned" message when the tank doc actually exists.
+      if (tankId == null || tankId.isEmpty) {
+        tankId = uid;
+        try {
+          await profileDoc.reference
+              .set({'tank_id': uid}, SetOptions(merge: true));
+        } catch (_) {}
+      }
+      _tankId = tankId;
     } catch (e) {
       debugPrint('[SensorService] Failed to resolve tank_id: $e');
+      // If the profile read failed, still fall back to uid so the dashboard
+      // keeps listening to the expected tank path instead of erroring out.
+      _tankId = uid;
     }
     final tankId = _tankId;
-    if (tankId == null) {
+    if (tankId == null || tankId.isEmpty) {
       _lastError = 'No tank assigned to this account yet.';
       notifyListeners();
       return;

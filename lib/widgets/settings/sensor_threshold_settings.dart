@@ -51,6 +51,54 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
 
   bool _saving = false;
 
+  // Safety limits — mirror firestore.rules isSafeThreshold(). The app
+  // validates BEFORE saving so users get a clear message instead of a
+  // Firestore permission-denied error. Keys are the short sensor keys
+  // used by SettingsService ('temp','ph','do','turb','waterlevel').
+  static const Map<String, Map<String, double>> _safeBounds = {
+    'temp': {'minLow': 10.0, 'minHigh': 32.0, 'maxLow': 15.0, 'maxHigh': 38.0},
+    'ph': {'minLow': 4.0, 'minHigh': 7.5, 'maxLow': 6.5, 'maxHigh': 10.0},
+    'do': {'minLow': 1.0, 'minHigh': 8.0, 'maxLow': 3.0, 'maxHigh': 15.0},
+    'turb': {'minLow': 0.0, 'minHigh': 100.0, 'maxLow': 5.0, 'maxHigh': 1000.0},
+    'waterlevel': {'minLow': 0.0, 'minHigh': 95.0, 'maxLow': 5.0, 'maxHigh': 100.0},
+  };
+
+  static const Map<String, String> _safeUnits = {
+    'temp': '°C',
+    'ph': 'pH',
+    'do': 'mg/L',
+    'turb': 'NTU',
+    'waterlevel': 'cm',
+  };
+
+  /// Returns a human-readable error message if any current range is outside
+  /// the safe bounds, or null when everything is valid.
+  String? _validateRanges() {
+    final ranges = SettingsService.instance.currentRanges;
+    for (final entry in ranges.entries) {
+      final key = entry.key;
+      final bounds = _safeBounds[key];
+      if (bounds == null) continue;
+      final min = entry.value['min'];
+      final max = entry.value['max'];
+      if (min == null || max == null) continue;
+      final unit = _safeUnits[key] ?? '';
+      final label = sensorMeta[key]?.label ?? key;
+      if (min >= max) {
+        return '$label: minimum must be lower than maximum.';
+      }
+      if (min < bounds['minLow']! || min > bounds['minHigh']!) {
+        return '$label minimum ($min $unit) is outside the safe range '
+            '${bounds['minLow']}–${bounds['minHigh']} $unit.';
+      }
+      if (max < bounds['maxLow']! || max > bounds['maxHigh']!) {
+        return '$label maximum ($max $unit) is outside the safe range '
+            '${bounds['maxLow']}–${bounds['maxHigh']} $unit.';
+      }
+    }
+    return null;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -113,6 +161,15 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
   }
 
   Future<void> _saveConfigToFirebase({String? changedKey, bool showMessage = true}) async {
+    // Block unsafe values client-side before hitting Firestore (which also
+    // enforces the same bounds in rules).
+    final validationError = _validateRanges();
+    if (validationError != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('⚠️ $validationError'), duration: const Duration(seconds: 4)),
+      );
+      return;
+    }
     if (mounted) setState(() => _saving = true);
     try {
       await DatabaseService.instance.saveSensorThresholds(

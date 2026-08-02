@@ -1144,10 +1144,20 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
         return;
       }
 
-      if (wasEditing) {
-        await TankService.instance.updateLastSamplingEntry(count, weight, length);
-      } else {
-        await TankService.instance.addSamplingEntry(count, weight, length);
+      try {
+        if (wasEditing) {
+          await TankService.instance.updateLastSamplingEntry(count, weight, length);
+        } else {
+          await TankService.instance.addSamplingEntry(count, weight, length);
+        }
+      } catch (e) {
+        if (!mounted) return;
+        showBeautifulSnackbar(
+          context,
+          'Failed to save sampling: ${e.toString().replaceFirst('Exception: ', '')}',
+          false,
+        );
+        return;
       }
       if (!mounted) return;
       setState(() {

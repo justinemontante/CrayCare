@@ -6,7 +6,28 @@ void showBeautifulSnackbar(
   bool isSuccess, {
   String? title,
 }) {
-  ScaffoldMessenger.of(context).showSnackBar(
+  _showSnack(ScaffoldMessenger.of(context), message, isSuccess, title: title);
+}
+
+/// Same as [showBeautifulSnackbar] but uses an already-captured
+/// [ScaffoldMessengerState]. Use this AFTER `Navigator.pop(context)` when the
+/// original context is no longer valid (e.g. forms inside bottom sheets).
+void showBeautifulSnackbarWithMessenger(
+  ScaffoldMessengerState messenger,
+  String message,
+  bool isSuccess, {
+  String? title,
+}) {
+  _showSnack(messenger, message, isSuccess, title: title);
+}
+
+void _showSnack(
+  ScaffoldMessengerState messenger,
+  String message,
+  bool isSuccess, {
+  String? title,
+}) {
+  messenger.showSnackBar(
     SnackBar(
       content: Row(
         children: [
@@ -54,7 +75,7 @@ void showBeautifulSnackbar(
           ),
           const SizedBox(width: 8),
           GestureDetector(
-            onTap: () => ScaffoldMessenger.of(context).hideCurrentSnackBar(),
+            onTap: () => messenger.hideCurrentSnackBar(),
             child: Container(
               padding: const EdgeInsets.all(4),
               decoration: BoxDecoration(

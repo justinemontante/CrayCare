@@ -57,10 +57,28 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
       showBeautifulSnackbar(context, 'Harvest count exceeds in-tank population (${service.inTankCount}).', false);
       return;
     }
-    await service.addHarvestRecord(harvestedCount: count, totalWeightKg: weight, date: _selectedDate);
+    // Capture the messenger BEFORE popping the bottom sheet — the panel's
+    // context becomes invalid after Navigator.pop().
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await service.addHarvestRecord(harvestedCount: count, totalWeightKg: weight, date: _selectedDate);
+    } catch (e) {
+      if (!mounted) return;
+      showBeautifulSnackbarWithMessenger(
+        messenger,
+        'Failed to record harvest: ${e.toString().replaceFirst('Exception: ', '')}',
+        false,
+      );
+      return;
+    }
     if (!mounted) return;
     widget.onSaved?.call();
     Navigator.pop(context);
+    showBeautifulSnackbarWithMessenger(
+      messenger,
+      'Harvest of $count crayfish (${weight.toStringAsFixed(2)} kg) successfully recorded!',
+      true,
+    );
   }
 
   @override
