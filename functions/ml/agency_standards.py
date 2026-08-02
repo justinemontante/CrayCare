@@ -153,15 +153,15 @@ PARAM_STANDARDS = {
         "label": "Water Level",
         "unit": "cm",
         "direction": "range",
-        # Optimal:  120–160 cm  — Configured target depth for tank
+        # Optimal:  15–20 cm  — Configured target depth for tank
         # Good:     100–180 cm  — Acceptable operational range
-        # Fair:      80–200 cm  — Below min concentrates waste; above max overflow risk
+        # Fair:      10–25 cm  — Below min concentrates waste; above max overflow risk
         # Poor:      50–220 cm  — Severe; stocking density amplified or overflow
         # Critical: <50 or >220 — Structural risk or mass mortality (FAO/Boyd)
         "thresholds": {
-            "optimal_min": 120.0, "optimal_max": 160.0,
+            "optimal_min": 15.0, "optimal_max": 20.0,
             "good_min":    100.0, "good_max":    180.0,
-            "fair_min":     80.0, "fair_max":    200.0,
+            "fair_min":     10.0, "fair_max":    25.0,
             "poor_min":     50.0, "poor_max":    220.0,
         },
         "primary_agencies": ["BOYD", "FAO"],

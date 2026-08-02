@@ -181,7 +181,7 @@ class DatabaseService {
       'ph_level': {'min': 7.0, 'max': 8.5},
       'dissolved_oxygen': {'min': 5.0, 'max': 9.0},
       'turbidity': {'min': 0.0, 'max': 25.0},
-      'water_level': {'min': 120.0, 'max': 160.0},
+      'water_level': {'min': 15.0, 'max': 20.0},
     };
     final batch = _db.batch();
     for (final entry in defaults.entries) {

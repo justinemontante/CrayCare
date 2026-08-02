@@ -271,8 +271,8 @@ float doCriticalHigh = 9.0;
 float phCriticalLow = 7.0;
 float phCriticalHigh = 8.5;
 
-float waterLevelCriticalLow = 120.0;
-float waterLevelCriticalHigh = 160.0;
+float waterLevelCriticalLow = 15.0;
+float waterLevelCriticalHigh = 20.0;
 
 float doVoltageScale = 4.0;
 float doVoltageOffset = 0.0;
@@ -282,7 +282,7 @@ float waterLevelVoltageMin = 0.0;
 float waterLevelVoltageMax = 3.3;
 // Physical water depth represented by the calibrated voltage range.
 float waterLevelCmMin = 0.0;
-float waterLevelCmMax = 160.0;
+float waterLevelCmMax = 30.0;
 
 // ============================================================
 //  SAMPLING / FILTERING SETTINGS

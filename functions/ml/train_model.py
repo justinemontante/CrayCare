@@ -228,7 +228,7 @@ bundle = {
         "pH_range":         "6.5–8.5",
         "temp_range_C":     "20–30",
         "turbidity_max_ntu": 50.0,
-        "water_level_cm":    "120–160",
+        "water_level_cm":    "15–20",
         "analysis_window_minutes": 60,
     },
 }

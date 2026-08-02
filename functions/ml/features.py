@@ -54,8 +54,8 @@ TURB_FAIR_MAX    = 50.0  # NTU — DENR Class C limit
 TURB_CRIT_MAX    = 100.0 # NTU — extreme; severe oxygen demand
 
 # Water level (cm) — calibrated physical water-depth range for this tank.
-WATER_MIN_CM = 120.0
-WATER_MAX_CM = 160.0
+WATER_MIN_CM = 15.0
+WATER_MAX_CM = 20.0
 
 # ── Normalisation reference ──────────────────────────────────────────────────────
 # p96 of the raw rolling hazard on the 90-day dataset → balanced class split.
