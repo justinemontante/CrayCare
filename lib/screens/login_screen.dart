@@ -18,7 +18,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
   bool _rememberMe = false;
 
-  // PINAGHIWALAY NA LOADING STATES
+  // SEPARATE LOADING STATES
   bool _isEmailLoading = false;
   bool _isGoogleLoading = false;
   bool _isResetLoading = false;
@@ -26,7 +26,7 @@ class _LoginScreenState extends State<LoginScreen> {
   String? _loginError;
   String? _emailResetError;
 
-  // Global Keys para sa Form at Email FormField
+  // Global keys for the form and email field
   final _formKey = GlobalKey<FormState>();
   final _emailKey = GlobalKey<FormFieldState<String>>();
 
@@ -39,7 +39,7 @@ class _LoginScreenState extends State<LoginScreen> {
     super.initState();
     _loadSavedCredentials();
 
-    // Ibaba ang keyboard sa unang bukas ng app
+    // Dismiss the keyboard when the app first opens
     WidgetsBinding.instance.addPostFrameCallback((_) {
       FocusScope.of(context).unfocus();
     });
@@ -342,11 +342,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // BINALOT ANG BUONG SCAFFOLD SA GESTURE DETECTOR NA MAY OPAQUE BEHAVIOR PARA SENSITIVE SA LAHAT NG TAPS
+    // Wraps the whole scaffold in a gesture detector with opaque behavior so all taps are detected
     return GestureDetector(
       onTap: () => FocusScope.of(
         context,
-      ).unfocus(), // Ibaba ang keyboard kapag nagtap sa labas
+      ).unfocus(), // Dismiss the keyboard when tapping outside
       behavior: HitTestBehavior
           .opaque, // Pro-Tip: Gagana kahit sa mga transparent o bakanteng parte ng screen
       child: Scaffold(

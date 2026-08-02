@@ -69,19 +69,19 @@ class _DashboardScreenState extends State<DashboardScreen>
     setState(() {});
   }
 
-  // LOGIC PARA KUNIN ANG FIRST NAME LANG NG NAKA-LOGIN
+  // Returns the first name of the signed-in user.
   String _getFirstName() {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null &&
         user.displayName != null &&
         user.displayName!.isNotEmpty) {
-      // I-split ang pangalan gamit ang space, tapos kunin ang pinakaunang salita
+      // Split the full name by spaces and take the first word.
       return user.displayName!.trim().split(' ').first;
     }
-    return 'Farmer'; // Fallback kapag walang pangalan
+    return 'Farmer'; // Fallback when no name is set
   }
 
-  // DYNAMIC GREETING DEPENDE SA ORAS NGAYON
+  // DYNAMIC GREETING BASED ON TIME OF DAY
   String _getGreetingTime() {
     final hour = DateTime.now().hour;
     if (hour < 12) {
@@ -308,7 +308,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       // Owner has a tank but hasn't set it up yet — clearer than
       // "no tank assigned" and it updates in real time if the tank doc
       // is deleted (TankService resets on tank deletion).
-      message = 'Wala pang setup — i-set up ang iyong tank para makita ang sensor data.';
+      message = 'Tank not set up yet — initialize your grow-out batch to start seeing sensor data.';
     } else if (error != null && error.contains('No tank assigned')) {
       message = 'No tank assigned to this account yet.';
     } else if (error != null) {
