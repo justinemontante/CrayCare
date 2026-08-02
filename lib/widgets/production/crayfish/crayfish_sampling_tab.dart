@@ -963,6 +963,11 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
   void _checkLastSampling() {
     _isEditing = false;
     final history = TankService.instance.samplingHistory;
+    // Sample size stays FIXED for the whole batch (consistency standard).
+    // It always mirrors the batch's initial sample count, never the last
+    // record — so week-over-week ABW/ABL comparisons stay apples-to-apples.
+    final fixedSampleSize = TankService.instance.sampleCount;
+    _countController.text = fixedSampleSize.toString();
     if (history.isNotEmpty) {
       final last = history.last;
       final today = DateTime.now();
@@ -970,16 +975,13 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
           last.date.month == today.month &&
           last.date.year == today.year) {
         _isRecorded = true;
-        _countController.text = last.sampleSize.toString();
         _weightController.text = last.totalWeight.toStringAsFixed(1);
         _lengthController.text = last.totalLength.toStringAsFixed(1);
       } else {
         _isRecorded = false;
-        _countController.text = TankService.instance.sampleCount.toString();
       }
     } else {
       _isRecorded = false;
-      _countController.text = TankService.instance.sampleCount.toString();
     }
   }
 
@@ -1088,10 +1090,12 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
   }
 
   void _revalidateCount() {
-    final count = int.tryParse(_countController.text) ?? 0;
+    // Sample count is fixed for the whole batch — validate the fixed size
+    // against the live count (it can never exceed the crayfish in the tank).
+    final count = TankService.instance.sampleCount;
     final maxSample = TankService.instance.inTankCount;
     if (count > 0 && maxSample > 0 && count > maxSample) {
-      setState(() => _countError = 'Exceeds live count ($maxSample)');
+      setState(() => _countError = 'Sample size ($count) exceeds live count ($maxSample)');
     } else {
       setState(() => _countError = null);
     }
@@ -1105,11 +1109,10 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
     _revalidateCount();
     if (_countError != null) return;
 
-    final count = int.tryParse(_countController.text);
     final weight = double.tryParse(_weightController.text);
     final length = double.tryParse(_lengthController.text);
 
-    if (count == null || weight == null || length == null || count <= 0 || weight <= 0 || length <= 0) {
+    if (weight == null || length == null || weight <= 0 || length <= 0) {
       showBeautifulSnackbar(context, 'All sampling values must be positive numbers.', false);
       return;
     }
@@ -1118,20 +1121,36 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
       final service = TankService.instance;
       final history = service.samplingHistory;
 
-      // Get previous values to compare against
+      // Sample count is FIXED for the whole batch — always use the batch's
+      // initial sample count so every weekly ABW/ABL comparison is fair.
+      final count = service.sampleCount;
+      if (count <= 0) {
+        showBeautifulSnackbar(
+          context,
+          'No sample size set. Please complete the initial setup first.',
+          false,
+        );
+        return;
+      }
+
+      // Get previous values to compare against (average-based, so the check
+      // stays valid even if the fixed sample size changes between batches).
       final lastEntry = (wasEditing && history.length > 1)
           ? history[history.length - 2]
           : (history.isNotEmpty ? history.last : null);
 
-      final lastTotalWeight = lastEntry != null ? lastEntry.totalWeight : service.initialTotalWeight;
-      final lastTotalLength = lastEntry != null ? lastEntry.totalLength : service.initialTotalLength;
+      final lastAbw = lastEntry != null ? lastEntry.abw : service.initialWeight;
+      final lastAbl = lastEntry != null ? lastEntry.avgLength : service.initialLength;
+
+      final newAbw = weight / count;
+      final newAbl = length / count;
 
       final List<String> errors = [];
-      if (weight < lastTotalWeight) {
-        errors.add('weight must be at least ${lastTotalWeight.toStringAsFixed(1)} g');
+      if (newAbw < lastAbw) {
+        errors.add('ABW must be at least ${lastAbw.toStringAsFixed(2)} g (${lastAbw.toStringAsFixed(2)}g avg per crayfish)');
       }
-      if (length < lastTotalLength) {
-        errors.add('length must be at least ${lastTotalLength.toStringAsFixed(1)} cm');
+      if (newAbl < lastAbl) {
+        errors.add('ABL must be at least ${lastAbl.toStringAsFixed(2)} cm');
       }
 
       if (errors.isNotEmpty) {

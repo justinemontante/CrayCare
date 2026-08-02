@@ -373,12 +373,13 @@ class TankService extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ─── Listeners (flat collections) ──────────────────────────────────
+  // ─── Listeners (nested collections) ────────────────────────────────
 
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _batchesSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _samplingSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _mortalitySub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _harvestsSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _tankSub;
 
   void _cancelSubscriptions() {
     _batchesSub?.cancel();
@@ -389,6 +390,8 @@ class TankService extends ChangeNotifier {
     _mortalitySub = null;
     _harvestsSub?.cancel();
     _harvestsSub = null;
+    _tankSub?.cancel();
+    _tankSub = null;
   }
 
   void _parseBatchesFromSnapshot(QuerySnapshot<Map<String, dynamic>> snap) {
@@ -453,6 +456,32 @@ class TankService extends ChangeNotifier {
   }
 
   void _listenFirebase() {
+    // Real-time tank document listener. Reflects external changes instantly:
+    //  - tank doc deleted (admin/console)  -> reset state, dashboard shows
+    //    "not set up yet"
+    //  - is_initialized flipped elsewhere   -> reload tank + batches
+    _tankSub?.cancel();
+    _tankSub = _tankRef.snapshots().listen((doc) {
+      final data = doc.data();
+      if (data == null) {
+        // Tank document was deleted — treat as "no setup yet".
+        if (_isInitialized || _batches.isNotEmpty || _samplingHistory.isNotEmpty) {
+          _resetAll();
+        }
+        return;
+      }
+      final nowInitialized = data['is_initialized'] == true;
+      if (_isInitialized != nowInitialized) {
+        // Setup state changed somewhere else (e.g. another device).
+        _cancelSubscriptions();
+        _loadTank();
+        _listenFirebase();
+        notifyListeners();
+      }
+    }, onError: (e) {
+      debugPrint('[TankService] _tankSub error: $e');
+    });
+
     // Listen to this tank's nested batches collection.
     _batchesSub = _batchesRef
         .orderBy('stocking_date', descending: true)

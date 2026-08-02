@@ -303,7 +303,15 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (hasAnyData && error == null) return const SizedBox.shrink();
 
     final String message;
-    if (error != null) {
+    final tankService = TankService.instance;
+    if (!tankService.isInitialized) {
+      // Owner has a tank but hasn't set it up yet — clearer than
+      // "no tank assigned" and it updates in real time if the tank doc
+      // is deleted (TankService resets on tank deletion).
+      message = 'Wala pang setup — i-set up ang iyong tank para makita ang sensor data.';
+    } else if (error != null && error.contains('No tank assigned')) {
+      message = 'No tank assigned to this account yet.';
+    } else if (error != null) {
       message = error;
     } else if (!ss.initialDataLoaded) {
       message = 'Connecting to sensors...';
