@@ -165,6 +165,8 @@ def on_sensor_update(event: firestore_fn.Event[firestore_fn.Change[firestore_fn.
             "insight": "Not enough data collected yet.",
             "action": "Continue collecting data. Need at least 6 hours of readings.",
             "source": "System",
+            "samples_analyzed": len(df),
+            "required_samples": 36,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         (
@@ -177,6 +179,8 @@ def on_sensor_update(event: firestore_fn.Event[firestore_fn.Change[firestore_fn.
         return
 
     result = _predict_wqc(df)
+    result["samples_analyzed"] = len(df)
+    result["required_samples"] = 36
     result["tank_id"] = tank_id
     if owner_uid:
         result["uid"] = owner_uid

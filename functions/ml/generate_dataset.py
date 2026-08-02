@@ -38,7 +38,7 @@ BASELINES = {
     "pH":          7.6,   # — optimal 7.0–8.0 (FAO/HOLDICH)
     "DO":          6.8,   # mg/L — well above 5.0 minimum (DENR/DA-BFAR)
     "turbidity":  12.0,   # NTU — below 25 NTU good threshold (DENR/FAO)
-    "waterLevel": 140.0,  # cm — centre of 120–160 optimal range
+    "waterLevel": 85.0,   # % — centre of 70–100 operating range
 }
 
 # Diurnal amplitudes (natural daily swing for tropical pond)
@@ -47,7 +47,7 @@ AMPLITUDES = {
     "pH":         0.35,   # photosynthesis drives pH up during day
     "DO":         1.3,    # DO inversely correlated with temp (peaks dawn)
     "turbidity":  2.0,    # slight morning/evening elevation from fish activity
-    "waterLevel": 0.6,    # evaporation during day, rain refill at night
+    "waterLevel": 0.7,    # small daily percentage variation
 }
 
 # Noise standard deviations
@@ -56,7 +56,7 @@ NOISE_SD = {
     "pH":         0.07,
     "DO":         0.25,
     "turbidity":  1.00,
-    "waterLevel": 0.40,
+    "waterLevel": 0.50,
 }
 
 # DO is inversely correlated with temp (phase shift of 12 h)
@@ -109,9 +109,9 @@ FAULT_KINDS = [
     # Overfeeding: turbidity spikes, DO drops (DENR: turbidity >50 alert)
     ("overfeeding",   {"turbidity": +55.0, "DO": -2.0, "pH": -0.4},      (30, 72)),
     # Water level low: evaporation / pump failure (FAO/Boyd)
-    ("water_low",     {"waterLevel": -80.0},                              (36, 120)),
+    ("water_low",     {"waterLevel": -25.0},                              (36, 120)),
     # Water level high: heavy rain / inlet failure
-    ("water_high",    {"waterLevel": +70.0},                              (36, 72)),
+    ("water_high",    {"waterLevel": +20.0},                              (36, 72)),
     # Cold snap (sub-optimal temp; HOLDICH: < 20 warning, < 15 critical)
     ("cold_snap",     {"temp": -9.0, "DO": +1.0},                         (36, 96)),
 ]
@@ -139,7 +139,7 @@ signals["temp"]       = np.clip(signals["temp"],       10.0,  42.0)
 signals["DO"]         = np.clip(signals["DO"],           0.2,  13.0)
 signals["pH"]         = np.clip(signals["pH"],           3.5,  10.5)
 signals["turbidity"]  = np.clip(signals["turbidity"],    0.3, 160.0)
-signals["waterLevel"] = np.clip(signals["waterLevel"],  20.0, 240.0)
+signals["waterLevel"] = np.clip(signals["waterLevel"],  0.0, 100.0)
 
 
 # ── Build min/max spread around avg ───────────────────────────────────────────
@@ -167,7 +167,7 @@ temp_lo, temp_hi = spread(signals["temp"],       0.15, spike_mag=1.0,   clip_lo=
 do_lo,   do_hi   = spread(signals["DO"],         0.20, spike_mag=None,   clip_lo=0.1,  clip_hi=13)
 ph_lo,   ph_hi   = spread(signals["pH"],         0.05, spike_mag=None,   clip_lo=3.5,  clip_hi=10.5)
 turb_lo, turb_hi = spread(signals["turbidity"],  0.80, spike_mag=20.0,  clip_lo=0.1,  clip_hi=160)
-wl_lo,   wl_hi   = spread(signals["waterLevel"], 0.30, spike_mag=1.0,   clip_lo=10,   clip_hi=240)
+wl_lo,   wl_hi   = spread(signals["waterLevel"], 0.30, spike_mag=1.0,   clip_lo=0,    clip_hi=100)
 
 # ── Assemble DataFrame ────────────────────────────────────────────────────────
 df = pd.DataFrame({

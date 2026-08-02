@@ -143,7 +143,9 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                       ? _buildStateMessage(
                           icon: Icons.cloud_off_rounded,
                           loading: false,
-                          message: 'CrayAI is waiting for sensor data...',
+                          message: hr.result != null
+                              ? 'CrayAI is building your tank profile. ${hr.result!.samplesAnalyzed} / ${hr.result!.requiredSamples} readings collected. About 6 hours of sensor history is needed for the first assessment.'
+                              : 'CrayAI is building your tank profile. It needs at least 36 history readings (about 6 hours) before the first assessment.',
                         )
                       : ListView(
                           padding: const EdgeInsets.only(bottom: 24),
@@ -183,6 +185,14 @@ class _MovableAiLogoState extends State<MovableAiLogo>
         ),
       ),
     );
+  }
+
+  String _relativeTime(DateTime timestamp) {
+    final age = DateTime.now().difference(timestamp.toLocal());
+    if (age.inMinutes < 1) return 'just now';
+    if (age.inMinutes < 60) return '${age.inMinutes}m ago';
+    if (age.inHours < 24) return '${age.inHours}h ago';
+    return '${age.inDays}d ago';
   }
 
   Widget _buildStateMessage({
@@ -298,18 +308,52 @@ class _MovableAiLogoState extends State<MovableAiLogo>
             children: [
               _buildStatChip(
                 icon: Icons.verified_rounded,
-                label: 'Confidence',
+                label: 'Model confidence',
                 value: '${result.confidence}%',
                 color: result.color,
               ),
               const SizedBox(width: 10),
               _buildStatChip(
                 icon: Icons.trending_up,
-                label: 'Driver',
-                value: result.driver,
+                label: 'Primary concern',
+                value: result.driverLabel,
                 color: result.color,
               ),
             ],
+          ),
+          if (result.driverValue != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.72),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: result.color.withValues(alpha: 0.16)),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.sensors_outlined, size: 16, color: result.color),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '${result.driverLabel}: ${result.driverValue!.toStringAsFixed(1)} ${result.driverUnit}',
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.dark),
+                    ),
+                  ),
+                  if (result.driverMin != null || result.driverMax != null)
+                    Text(
+                      'Ideal: ${result.driverMin?.toStringAsFixed(1) ?? '—'} – ${result.driverMax?.toStringAsFixed(1) ?? '—'} ${result.driverUnit}',
+                      style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.5)),
+                    ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 10),
+          Text(
+            '${result.analysisMode} • Updated ${_relativeTime(result.timestamp)}',
+            style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.45)),
           ),
         ],
       ),

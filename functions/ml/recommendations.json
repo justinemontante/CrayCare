@@ -1,4 +1,10 @@
 {
+  "overall": {
+    "problem": "All monitored water parameters are within their current operating ranges.",
+    "action": "Maintain the current feeding, aeration, and water-management routine. Continue monitoring sensor trends.",
+    "critical_action": "Verify the latest readings and sensor operation before taking corrective action.",
+    "source": "CrayCare water-quality monitoring protocol"
+  },
   "DO": {
     "problem": "Low dissolved oxygen",
     "action": "Increase aeration (paddle wheels or air stones). Reduce feeding by 50% until DO recovers — decomposing feed depletes oxygen further. Target ≥5.0 mg/L per DENR DAO 2016-08 Class C and DA-BFAR freshwater aquaculture standards.",
