@@ -1010,6 +1010,7 @@ class ProductionScreenState extends State<ProductionScreen> {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setLocalState) {
+            bool savingMortality = false;
             final mortalityVal = int.tryParse(countCtrl.text) ?? 0;
             final String? errorText = mortalityVal > liveCount
                 ? 'Cannot exceed current live count ($liveCount).'
@@ -1095,8 +1096,10 @@ class ProductionScreenState extends State<ProductionScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: errorText == null && mortalityVal > 0
+                      onPressed: errorText == null && mortalityVal > 0 && !savingMortality
                            ? () async {
+                               // Guard against double taps — one log per tap.
+                               setLocalState(() => savingMortality = true);
                                // Capture the messenger before popping so the
                                // snackbar still shows after the sheet closes.
                                final messenger = ScaffoldMessenger.of(ctx);
@@ -1104,6 +1107,7 @@ class ProductionScreenState extends State<ProductionScreen> {
                                  await TankService.instance.addMortality(mortalityVal);
                                } catch (e) {
                                  if (!ctx.mounted) return;
+                                 setLocalState(() => savingMortality = false);
                                  showBeautifulSnackbar(
                                    ctx,
                                    'Failed to log mortality: ${e.toString().replaceFirst('Exception: ', '')}',

@@ -623,8 +623,11 @@ class OverviewTab extends StatelessWidget {
                 child: Container(width: 36, height: 4, decoration: BoxDecoration(color: AppColors.darkWith(0.15), borderRadius: BorderRadius.circular(2))),
               ),
               const SizedBox(height: 8),
+              // onSaved intentionally has NO snackbar — the panel itself
+              // shows the single success/error snackbar after saving, so the
+              // user never sees duplicate messages.
               CrayfishHarvestFormPanel(
-                onSaved: () => showBeautifulSnackbar(context, 'Harvest recorded!', true),
+                onSaved: () {},
               ),
               const SizedBox(height: 8),
             ],

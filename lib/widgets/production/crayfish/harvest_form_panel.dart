@@ -17,6 +17,7 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
   DateTime _selectedDate = DateTime.now();
   final _countCtrl = TextEditingController();
   final _weightCtrl = TextEditingController();
+  bool _saving = false;
 
   @override
   void dispose() {
@@ -42,6 +43,9 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
   }
 
   Future<void> _handleSave() async {
+    // Guard against double/triple taps: once a save is in flight, ignore
+    // further presses so duplicate harvest records are never created.
+    if (_saving) return;
     final service = TankService.instance;
     final count = int.tryParse(_countCtrl.text);
     final weight = double.tryParse(_weightCtrl.text);
@@ -59,10 +63,12 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
     }
     // Capture the messenger BEFORE popping the bottom sheet — the panel's
     // context becomes invalid after Navigator.pop().
+    setState(() => _saving = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
       await service.addHarvestRecord(harvestedCount: count, totalWeightKg: weight, date: _selectedDate);
     } catch (e) {
+      if (mounted) setState(() => _saving = false);
       if (!mounted) return;
       showBeautifulSnackbarWithMessenger(
         messenger,
@@ -180,11 +186,23 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: _handleSave,
-              icon: const Icon(Icons.save_rounded, size: 16),
-              label: const Text('Save Harvest', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+              onPressed: _saving ? null : _handleSave,
+              icon: _saving
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.save_rounded, size: 16),
+              label: Text(
+                _saving ? 'Saving...' : 'Save Harvest',
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+              ),
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
+                backgroundColor: _saving ? AppColors.dark.withValues(alpha: 0.4) : AppColors.primary,
                 foregroundColor: Colors.white,
                 elevation: 0,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
