@@ -26,27 +26,23 @@ service cloud.firestore {
     // physically sensible window per sensor. Absurd values (e.g. temp max
     // 45°C, DO min 0, pH 0-14) would silently disable alerts and endanger
     // the crayfish. Admins are trusted and may write any value.
+    // NOTE: Rules language is expression-only (no if statements) — this is
+    // written with let-bindings and boolean logic.
     function isSafeThreshold(sensorName) {
       let min = request.resource.data.min_value;
       let max = request.resource.data.max_value;
-      if (!(min is number) || !(max is number)) return false;
-      if (min >= max) return false;
-      if (sensorName == 'temperature') {
-        return min >= 10.0 && min <= 32.0 && max >= 15.0 && max <= 38.0;
-      }
-      if (sensorName == 'ph_level') {
-        return min >= 4.0 && min <= 7.5 && max >= 6.5 && max <= 10.0;
-      }
-      if (sensorName == 'dissolved_oxygen') {
-        return min >= 1.0 && min <= 8.0 && max >= 3.0 && max <= 15.0;
-      }
-      if (sensorName == 'turbidity') {
-        return min >= 0.0 && min <= 100.0 && max >= 5.0 && max <= 1000.0;
-      }
-      if (sensorName == 'water_level') {
-        return min >= 0.0 && min <= 95.0 && max >= 5.0 && max <= 100.0;
-      }
-      return false; // unknown sensor -> deny write
+      let validNumbers = (min is number) && (max is number) && (min < max);
+      let tempOk = sensorName == 'temperature' &&
+        min >= 10.0 && min <= 32.0 && max >= 15.0 && max <= 38.0;
+      let phOk = sensorName == 'ph_level' &&
+        min >= 4.0 && min <= 7.5 && max >= 6.5 && max <= 10.0;
+      let doOk = sensorName == 'dissolved_oxygen' &&
+        min >= 1.0 && min <= 8.0 && max >= 3.0 && max <= 15.0;
+      let turbOk = sensorName == 'turbidity' &&
+        min >= 0.0 && min <= 100.0 && max >= 5.0 && max <= 1000.0;
+      let waterOk = sensorName == 'water_level' &&
+        min >= 0.0 && min <= 95.0 && max >= 5.0 && max <= 100.0;
+      return validNumbers && (tempOk || phOk || doOk || turbOk || waterOk);
     }
     // ESP32 currently authenticates with Firebase anonymous sign-in. This is
     // a practical thesis/demo guard; use a dedicated device identity or server
