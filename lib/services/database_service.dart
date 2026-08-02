@@ -348,11 +348,14 @@ class DatabaseService {
     // Edge case: user has no tank yet (e.g. legacy account) — provision one.
     if (tankId == null || tankId.isEmpty) {
       tankId = ownerUid;
-      await _createTankIfMissing(tankId, ownerUid: ownerUid);
+      // Persist the owner-to-tank link before provisioning the tank. This
+      // keeps the user profile and Firestore ownership rule in sync even for
+      // legacy accounts that were created before tank provisioning existed.
       await _db.collection('users').doc(ownerUid).set(
         {'tank_id': tankId},
         SetOptions(merge: true),
       );
+      await _createTankIfMissing(tankId, ownerUid: ownerUid);
     }
 
     try {
