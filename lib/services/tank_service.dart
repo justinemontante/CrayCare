@@ -224,8 +224,16 @@ class TankService extends ChangeNotifier {
 
   Future<String> _resolveTankIdForUser(String uid) async {
     try {
-      final profile = await _fs.collection('users').doc(uid).get();
-      return profile.data()?['tank_id'] as String? ?? uid;
+      final profileRef = _fs.collection('users').doc(uid);
+      final profile = await profileRef.get();
+      final tankId = profile.data()?['tank_id'] as String?;
+      if (tankId != null && tankId.isNotEmpty) return tankId;
+
+      // Legacy owner accounts may predate tank provisioning. They can claim
+      // only a tank with the same ID as their authenticated UID (enforced by
+      // Firestore Rules), then normal tank provisioning can continue.
+      await profileRef.set({'tank_id': uid}, SetOptions(merge: true));
+      return uid;
     } catch (_) {
       return uid;
     }
