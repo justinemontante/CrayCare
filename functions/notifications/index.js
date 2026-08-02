@@ -570,11 +570,11 @@ async function getSamplingDue(notifTarget) {
         .collection("tanks").doc(tankId)
         .collection("batches").doc(currentBatchId)
         .collection("sampling_records")
-        .orderBy("date", "desc")
+        .orderBy("sampling_date", "desc")
         .limit(1)
         .get();
       if (!latestSampling.empty) {
-        lastSampleTs = latestSampling.docs[0].data().date || null;
+        lastSampleTs = latestSampling.docs[0].data().sampling_date || null;
       }
     }
 

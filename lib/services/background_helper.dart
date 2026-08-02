@@ -296,11 +296,11 @@ class BackgroundHelper {
             .collection('batches')
             .doc(currentBatchId)
             .collection('sampling_records')
-            .orderBy('date', descending: true)
+            .orderBy('sampling_date', descending: true)
             .limit(1)
             .get();
         if (samplingSnap.docs.isNotEmpty) {
-          effectiveSampleTs = samplingSnap.docs.first.data()['date'] as int? ?? 0;
+          effectiveSampleTs = samplingSnap.docs.first.data()['sampling_date'] as int? ?? 0;
         }
       }
       effectiveSampleTs = effectiveSampleTs > 0 ? effectiveSampleTs : fallbackStockingTs;

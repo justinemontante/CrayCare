@@ -18,22 +18,22 @@ class CrayfishHarvestRecord {
   });
 
   Map<String, dynamic> toJson() => {
-    'batchId': batchId,
-    'date': date.millisecondsSinceEpoch,
-    'harvestedCount': harvestedCount,
-    'totalWeightKg': totalWeightKg,
-    'abwGrams': abwGrams,
-    'survivalRate': survivalRate,
+    'batch_id': batchId,
+    'harvest_date': date.millisecondsSinceEpoch,
+    'harvested_count': harvestedCount,
+    'total_weight_kg': totalWeightKg,
+    'abw_grams': abwGrams,
+    'survival_rate': survivalRate,
   };
 
   factory CrayfishHarvestRecord.fromJson(String id, Map<String, dynamic> json) => CrayfishHarvestRecord(
     id: id,
-    batchId: json['batchId'] as String? ?? '',
-    date: DateTime.fromMillisecondsSinceEpoch((json['date'] as num?)?.toInt() ?? 0),
-    harvestedCount: (json['harvestedCount'] as num?)?.toInt() ?? 0,
-    totalWeightKg: (json['totalWeightKg'] as num?)?.toDouble() ?? 0,
-    abwGrams: (json['abwGrams'] as num?)?.toDouble() ?? 0,
-    survivalRate: (json['survivalRate'] as num?)?.toDouble() ?? 0,
+    batchId: json['batch_id'] as String? ?? '',
+    date: DateTime.fromMillisecondsSinceEpoch((json['harvest_date'] as num?)?.toInt() ?? 0),
+    harvestedCount: (json['harvested_count'] as num?)?.toInt() ?? 0,
+    totalWeightKg: (json['total_weight_kg'] as num?)?.toDouble() ?? 0,
+    abwGrams: (json['abw_grams'] as num?)?.toDouble() ?? 0,
+    survivalRate: (json['survival_rate'] as num?)?.toDouble() ?? 0,
   );
 }
 
@@ -79,22 +79,22 @@ class CrayfishBatch {
   });
 
   Map<String, dynamic> toJson() => {
-    'batchId': batchId,
-    'status': status,
-    'stockingDate': stockingDate.millisecondsSinceEpoch,
-    'harvestDate': harvestDate?.millisecondsSinceEpoch,
-    'initialCount': initialCount,
-    'harvestCount': harvestCount,
-    'totalMortality': totalMortality,
-    'harvestWeightGrams': harvestWeightGrams,
-    'initialAbw': initialAbw,
-    'initialAbl': initialAbl,
-    'finalAbw': finalAbw,
-    'finalAbl': finalAbl,
-    'daysInCulture': daysInCulture,
-    'sampleCount': sampleCount,
-    'initialTotalWeight': initialTotalWeight,
-    'initialTotalLength': initialTotalLength,
+    'batch_id': batchId,
+    'batch_status': status,
+    'stocking_date': stockingDate.millisecondsSinceEpoch,
+    'harvest_date': harvestDate?.millisecondsSinceEpoch,
+    'initial_count': initialCount,
+    'harvest_count': harvestCount,
+    'total_mortality': totalMortality,
+    'harvest_weight_grams': harvestWeightGrams,
+    'initial_abw': initialAbw,
+    'initial_abl': initialAbl,
+    'final_abw': finalAbw,
+    'final_abl': finalAbl,
+    'days_in_culture': daysInCulture,
+    'sample_count': sampleCount,
+    'initial_total_weight': initialTotalWeight,
+    'initial_total_length': initialTotalLength,
     if (archivedSampling != null) 'archivedSampling': archivedSampling,
     if (archivedMortality != null) 'archivedMortality': archivedMortality,
   };
@@ -107,8 +107,8 @@ class CrayfishBatch {
       return null;
     }
     final rawSampling = safeMap(json['archivedSampling']);
-    final initialAbw = (json['initialAbw'] as num?)?.toDouble() ?? 0.0;
-    final initialAbl = (json['initialAbl'] as num?)?.toDouble() ?? 0.0;
+    final initialAbw = (json['initial_abw'] as num?)?.toDouble() ?? 0.0;
+    final initialAbl = (json['initial_abl'] as num?)?.toDouble() ?? 0.0;
 
     int fallbackSampleCount = 0;
     if (rawSampling != null && rawSampling.isNotEmpty) {
@@ -118,37 +118,37 @@ class CrayfishBatch {
         }
         return <String, dynamic>{};
       }).toList()..sort((a, b) {
-        final da = a['date'] as num? ?? 0;
-        final db = b['date'] as num? ?? 0;
+        final da = a['sampling_date'] as num? ?? 0;
+        final db = b['sampling_date'] as num? ?? 0;
         return da.compareTo(db);
       });
       if (sortedEntries.isNotEmpty) {
-        fallbackSampleCount = (sortedEntries.first['sampleSize'] as num?)?.toInt() ?? 0;
+        fallbackSampleCount = (sortedEntries.first['sample_size'] as num?)?.toInt() ?? 0;
       }
     }
 
-    final sampleCount = (json['sampleCount'] as num?)?.toInt() ?? fallbackSampleCount;
-    final initialTotalWeight = (json['initialTotalWeight'] as num?)?.toDouble() ?? (initialAbw * sampleCount);
-    final initialTotalLength = (json['initialTotalLength'] as num?)?.toDouble() ?? (initialAbl * sampleCount);
+    final sampleCount = (json['sample_count'] as num?)?.toInt() ?? fallbackSampleCount;
+    final initialTotalWeight = (json['initial_total_weight'] as num?)?.toDouble() ?? (initialAbw * sampleCount);
+    final initialTotalLength = (json['initial_total_length'] as num?)?.toDouble() ?? (initialAbl * sampleCount);
 
     return CrayfishBatch(
-      batchId: json['batchId'] as String? ?? 'Unknown',
-      status: json['status'] as String? ?? 'harvested',
+      batchId: json['batch_id'] as String? ?? 'Unknown',
+      status: json['batch_status'] as String? ?? 'harvested',
       stockingDate: DateTime.fromMillisecondsSinceEpoch(
-        (json['stockingDate'] as num?)?.toInt() ?? 0,
+        (json['stocking_date'] as num?)?.toInt() ?? 0,
       ),
-      harvestDate: json['harvestDate'] != null
-          ? DateTime.fromMillisecondsSinceEpoch((json['harvestDate'] as num).toInt())
+      harvestDate: json['harvest_date'] != null
+          ? DateTime.fromMillisecondsSinceEpoch((json['harvest_date'] as num).toInt())
           : null,
-      initialCount: (json['initialCount'] as num?)?.toInt() ?? 0,
-      harvestCount: (json['harvestCount'] as num?)?.toInt() ?? 0,
-      totalMortality: (json['totalMortality'] as num?)?.toInt() ?? 0,
-      harvestWeightGrams: (json['harvestWeightGrams'] as num?)?.toDouble(),
+      initialCount: (json['initial_count'] as num?)?.toInt() ?? 0,
+      harvestCount: (json['harvest_count'] as num?)?.toInt() ?? 0,
+      totalMortality: (json['total_mortality'] as num?)?.toInt() ?? 0,
+      harvestWeightGrams: (json['harvest_weight_grams'] as num?)?.toDouble(),
       initialAbw: initialAbw,
       initialAbl: initialAbl,
-      finalAbw: (json['finalAbw'] as num?)?.toDouble() ?? 0,
-      finalAbl: (json['finalAbl'] as num?)?.toDouble() ?? 0,
-      daysInCulture: (json['daysInCulture'] as num?)?.toInt() ?? 0,
+      finalAbw: (json['final_abw'] as num?)?.toDouble() ?? 0,
+      finalAbl: (json['final_abl'] as num?)?.toDouble() ?? 0,
+      daysInCulture: (json['days_in_culture'] as num?)?.toInt() ?? 0,
       sampleCount: sampleCount,
       initialTotalWeight: initialTotalWeight,
       initialTotalLength: initialTotalLength,

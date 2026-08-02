@@ -191,3 +191,23 @@ ESP32 creates every 10min. CF → `tanks/{tankId}/sensor_readings_history/{date}
 - `notifications`: `uid + created_at DESC` ✅
 - `sampling_records` / `mortality_records`: `tankId + batchId`, `tankId + date`, etc. ✅
 - Legacy flat indexes (batches/uid, sampling/uid, etc.) — para sa lumang schema, safe i-clean
+
+
+## Canonical production hierarchy
+
+```text
+tanks/{tank_id}/batches/{batch_id}
+  batch_status, stocking_date, harvest_date, initial_count, current_count,
+  harvest_count, total_mortality, harvest_weight_grams, initial_abw, initial_abl,
+  final_abw, final_abl, days_in_culture, sample_count, created_at
+
+  sampling_records/{record_id}
+    sampling_date, avg_body_weight, avg_body_length, sample_size, total_weight,
+    total_length, biomass, live_count, is_baseline, created_at
+
+  mortality_records/{record_id}
+    mortality_date, mortality_count, created_at
+
+  harvest_records/{record_id}
+    harvest_date, harvested_count, total_weight_kg, abw_grams, survival_rate, created_at
+```

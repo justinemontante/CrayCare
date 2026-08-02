@@ -947,12 +947,12 @@ class NotificationService extends ChangeNotifier {
             .collection('batches')
             .doc(currentBatchId)
             .collection('sampling_records')
-            .orderBy('date', descending: true)
+            .orderBy('sampling_date', descending: true)
             .limit(1)
             .get();
         if (sampleSnap.docs.isNotEmpty) {
           final data = sampleSnap.docs.first.data();
-          final ts = data['date'] as int?;
+          final ts = data['sampling_date'] as int?;
           if (ts != null) {
             effectiveLastDate = DateTime.fromMillisecondsSinceEpoch(ts);
           }
