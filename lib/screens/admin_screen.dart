@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../theme/app_colors.dart';
 import '../services/database_service.dart';
 import '../widgets/section_label.dart';
+import '../utils/snackbar_helper.dart';
 
 class AdminScreen extends StatefulWidget {
   const AdminScreen({super.key});
@@ -143,34 +144,10 @@ class _AdminScreenState extends State<AdminScreen> {
   // hidden behind the modal instead of on top of it. Inserting into the
   // root overlay guarantees it always shows in front, even while a
   // modal (like the user sheet) is open.
-  void _showSnack(String message) {
-    final overlay = Overlay.of(context, rootOverlay: true);
-    late OverlayEntry entry;
-    entry = OverlayEntry(
-      builder: (ctx) => Positioned(
-        left: 16,
-        right: 16,
-        bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
-        child: Material(
-          color: Colors.transparent,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: AppColors.dark,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Text(
-              message,
-              style: const TextStyle(fontSize: 12, color: Colors.white),
-            ),
-          ),
-        ),
-      ),
-    );
-    overlay.insert(entry);
-    Future.delayed(const Duration(seconds: 3), () {
-      if (entry.mounted) entry.remove();
-    });
+  // Consistent app-wide snackbar (same green-success / red-error style used
+  // by the record/delete flows elsewhere in the app).
+  void _showSnack(String message, {bool isSuccess = true}) {
+    showBeautifulSnackbar(context, message, isSuccess);
   }
 
   void _openUserSheet(Map<String, dynamic> user) {
@@ -192,13 +169,13 @@ class _AdminScreenState extends State<AdminScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) {
-        // Declare mutable state OUTSIDE StatefulBuilder.builder so they
-        // persist across setSheetState rebuilds (not re-initialized each call).
-        String currentStatus = status;
-        bool isLinked = _currentOwnerUid == uid;
+        // Sheet is closed after every action; feedback is shown via the
+        // app-wide snackbar, so no mutable sheet state is needed.
+        final currentStatus = status;
+        final bool isLinked = _currentOwnerUid == uid;
 
         return StatefulBuilder(
-          builder: (ctx, setSheetState) {
+          builder: (ctx, _) {
             final bool isDisabled = currentStatus == 'disabled';
 
             return SafeArea(
@@ -291,7 +268,13 @@ class _AdminScreenState extends State<AdminScreen> {
                       onTap: () async {
                         final selfUid = FirebaseAuth.instance.currentUser?.uid;
                         if (uid == selfUid) {
-                          _showSnack('You can\'t disable your own admin account.');
+                          final messenger = ScaffoldMessenger.of(ctx);
+                          if (ctx.mounted) Navigator.pop(ctx);
+                          showBeautifulSnackbarWithMessenger(
+                            messenger,
+                            'You can\'t disable your own admin account.',
+                            false,
+                          );
                           return;
                         }
                         final newStatus = isDisabled ? 'active' : 'disabled';
@@ -304,11 +287,18 @@ class _AdminScreenState extends State<AdminScreen> {
                           iconColor: isDisabled ? AppColors.success : AppColors.critical,
                         );
                         if (confirmed != true) return;
+                        final messenger = ScaffoldMessenger.of(ctx);
                         await DatabaseService.instance.setUserStatus(uid, newStatus);
-                        if (!ctx.mounted) return;
-                        setSheetState(() => currentStatus = newStatus);
                         if (!mounted) return;
                         await _load();
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        showBeautifulSnackbarWithMessenger(
+                          messenger,
+                          newStatus == 'disabled'
+                              ? '${_displayName(user)} account disabled.'
+                              : '${_displayName(user)} account enabled.',
+                          true,
+                        );
                       },
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -432,11 +422,16 @@ class _AdminScreenState extends State<AdminScreen> {
                                           iconColor: AppColors.critical,
                                         );
                                         if (confirmed != true || !ctx.mounted) return;
+                                        final messenger = ScaffoldMessenger.of(ctx);
                                         await DatabaseService.instance.removeCurrentOwner();
                                         if (!mounted) return;
                                         await _load();
-                                        setSheetState(() => isLinked = false);
-                                        _showSnack('Hardware unassigned.');
+                                        if (ctx.mounted) Navigator.pop(ctx);
+                                        showBeautifulSnackbarWithMessenger(
+                                          messenger,
+                                          'Hardware unassigned.',
+                                          true,
+                                        );
                                       },
                                       child: _buildActionChip(
                                           'Unassign', Icons.link_off_rounded, AppColors.critical),
@@ -465,11 +460,16 @@ class _AdminScreenState extends State<AdminScreen> {
                                     iconColor: isReassign ? AppColors.warning : AppColors.primary,
                                   );
                                   if (confirmed != true || !ctx.mounted) return;
+                                  final messenger = ScaffoldMessenger.of(ctx);
                                   await DatabaseService.instance.setCurrentOwner(uid);
                                   if (!mounted) return;
                                   await _load();
-                                  setSheetState(() => isLinked = true);
-                                  _showSnack('Hardware linked to ${_displayName(user)}.');
+                                  if (ctx.mounted) Navigator.pop(ctx);
+                                  showBeautifulSnackbarWithMessenger(
+                                    messenger,
+                                    'Hardware linked to ${_displayName(user)}.',
+                                    true,
+                                  );
                                 },
                                 child: Row(
                                   children: [
