@@ -530,10 +530,19 @@ exports.processFeeding = functions.region("asia-southeast1").pubsub
     }
   });
 
+// Sampling reminders fire only at 8:00 AM and 2:00 PM (Philippine time),
+// with an escalating message so the researcher is reminded early and again
+// in the afternoon without spamming throughout the day.
+function isSamplingReminderHour() {
+  const manilaHour = new Date(Date.now() + 8 * 3600 * 1000).getUTCHours();
+  return manilaHour === 8 || manilaHour === 14; // 8 AM or 2 PM Manila
+}
+
 exports.processSampling = functions.region("asia-southeast1").pubsub
   .schedule("every 1 minutes")
   .onRun(async () => {
     try {
+      if (!isSamplingReminderHour()) return null;
       const owner = await getCurrentHardwareOwner();
       if (!owner) return null;
       const due = await getSamplingDue(owner.uid);
@@ -595,20 +604,40 @@ async function getSamplingDue(notifTarget) {
 async function writeSamplingNotification(targetUid, daysSince) {
   const markerKey = "sampling_reminder_crayfish";
   const marker = await readMarker(targetUid, markerKey);
+  const manilaHour = new Date(Date.now() + 8 * 3600 * 1000).getUTCHours();
+  const isMorning = manilaHour === 8;
+
   if (marker) {
     const val = marker.value;
     const lastReminderTs = typeof val === "number" ? val : 0;
     if (lastReminderTs > 0) {
-      const daysSinceReminder = Math.floor((Date.now() - lastReminderTs) / (1000 * 60 * 60 * 24));
-      if (daysSinceReminder < 7) return false;
+      // Only one reminder per window (morning OR afternoon) per day.
+      const hoursSince = (Date.now() - lastReminderTs) / (1000 * 60 * 60);
+      if (hoursSince < 5) return false;
+      // If the last reminder was within the same day, skip the second window.
+      const lastDay = new Date(lastReminderTs + 8 * 3600 * 1000).getUTCDate();
+      const today = new Date(Date.now() + 8 * 3600 * 1000).getUTCDate();
+      const lastMonth = new Date(lastReminderTs + 8 * 3600 * 1000).getUTCMonth();
+      const thisMonth = new Date(Date.now() + 8 * 3600 * 1000).getUTCMonth();
+      if (lastMonth === thisMonth && lastDay === today) return false;
     }
   }
 
-  const msg = `It's been ${daysSince} days since last Crayfish sampling. Time to record growth data!`;
+  let title = "Crayfish Sampling Reminder";
+  let msg;
+  if (daysSince === 7) {
+    msg = isMorning
+      ? "It's been 7 days since your last sampling. Time to record today's growth data!"
+      : "Sampling due today — record your weekly growth data before the day ends!";
+  } else {
+    const overdue = daysSince - 7;
+    msg = `⚠️ Sampling OVERDUE by ${overdue} day${overdue > 1 ? "s" : ""} — please record growth data as soon as possible!`;
+    if (overdue > 1) title = "Sampling Overdue";
+  }
 
   await writeNotification(targetUid, {
     type: "reminder",
-    title: "Crayfish Sampling Reminder",
+    title,
     message: msg,
   });
 
