@@ -590,6 +590,33 @@ class OverviewTab extends StatelessWidget {
             ),
           ],
         ),
+        if (_canEditLastMortality || _canEditLastHarvest) ...[
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              if (_canEditLastMortality)
+                Expanded(
+                  child: _buildActionBtn(
+                    'Edit Last Mortality',
+                    Icons.edit_rounded,
+                    AppColors.critical,
+                    () => _showEditLastMortality(context),
+                  ),
+                ),
+              if (_canEditLastMortality && _canEditLastHarvest)
+                const SizedBox(width: 8),
+              if (_canEditLastHarvest)
+                Expanded(
+                  child: _buildActionBtn(
+                    'Edit Last Harvest',
+                    Icons.edit_rounded,
+                    AppColors.success,
+                    () => _showEditLastHarvest(context),
+                  ),
+                ),
+            ],
+          ),
+        ],
         const SizedBox(height: 8),
         SizedBox(
           width: double.infinity,
@@ -632,6 +659,211 @@ class OverviewTab extends StatelessWidget {
               const SizedBox(height: 8),
             ],
           ),
+        );
+      },
+    );
+  }
+
+  bool _isToday(DateTime date) {
+    final now = DateTime.now();
+    return date.year == now.year && date.month == now.month && date.day == now.day;
+  }
+
+  bool get _canEditLastMortality {
+    final h = TankService.instance.mortalityHistory;
+    return h.isNotEmpty && _isToday(h.last.date);
+  }
+
+  bool get _canEditLastHarvest {
+    final h = TankService.instance.harvestRecords;
+    return h.isNotEmpty && _isToday(h.last.date);
+  }
+
+  // ─── Edit Last Mortality (same-day rule) ────────────────────────────
+  void _showEditLastMortality(BuildContext context) {
+    final last = TankService.instance.mortalityHistory.last;
+    final countCtrl = TextEditingController(text: last.count.toString());
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setLocalState) {
+            bool saving = false;
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(ctx).viewInsets.bottom,
+                left: 24, right: 24, top: 16,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(width: 40, height: 5,
+                      decoration: BoxDecoration(color: AppColors.dark.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(4))),
+                  ),
+                  const SizedBox(height: 24),
+                  const Text('Edit Last Mortality',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AppColors.critical)),
+                  const SizedBox(height: 6),
+                  Text('Update the mortality record logged today (${last.count} currently).',
+                    style: TextStyle(fontSize: 12, color: AppColors.dark.withValues(alpha: 0.5))),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: countCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: 'New mortality count',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: saving ? null : () async {
+                        final val = int.tryParse(countCtrl.text) ?? 0;
+                        if (val <= 0) {
+                          showBeautifulSnackbar(ctx, 'Enter a valid count.', false);
+                          return;
+                        }
+                        final messenger = ScaffoldMessenger.of(ctx);
+                        setLocalState(() => saving = true);
+                        try {
+                          await TankService.instance.updateLastMortalityEntry(val);
+                        } catch (e) {
+                          if (!ctx.mounted) return;
+                          setLocalState(() => saving = false);
+                          showBeautifulSnackbar(ctx, 'Failed to update: ${e.toString().replaceFirst('Exception: ', '')}', false);
+                          return;
+                        }
+                        if (!ctx.mounted) return;
+                        Navigator.pop(ctx);
+                        showBeautifulSnackbarWithMessenger(messenger, 'Mortality updated to $val.', true);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.critical,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        elevation: 0,
+                      ),
+                      child: Text(saving ? 'Saving...' : 'Save Changes'),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // ─── Edit Last Harvest (same-day rule) ──────────────────────────────
+  void _showEditLastHarvest(BuildContext context) {
+    final last = TankService.instance.harvestRecords.last;
+    final countCtrl = TextEditingController(text: last.harvestedCount.toString());
+    final weightCtrl = TextEditingController(text: last.totalWeightKg.toStringAsFixed(2));
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setLocalState) {
+            bool saving = false;
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(ctx).viewInsets.bottom,
+                left: 24, right: 24, top: 16,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(width: 40, height: 5,
+                      decoration: BoxDecoration(color: AppColors.dark.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(4))),
+                  ),
+                  const SizedBox(height: 24),
+                  const Text('Edit Last Harvest',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AppColors.success)),
+                  const SizedBox(height: 6),
+                  Text('Update the harvest record logged today (${last.harvestedCount} pcs / ${last.totalWeightKg.toStringAsFixed(2)} kg currently).',
+                    style: TextStyle(fontSize: 12, color: AppColors.dark.withValues(alpha: 0.5))),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: countCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: 'Harvested count',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: weightCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(
+                      labelText: 'Total weight (kg)',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: saving ? null : () async {
+                        final cnt = int.tryParse(countCtrl.text) ?? 0;
+                        final wt = double.tryParse(weightCtrl.text) ?? 0;
+                        if (cnt <= 0 || wt <= 0) {
+                          showBeautifulSnackbar(ctx, 'Enter valid count and weight.', false);
+                          return;
+                        }
+                        final messenger = ScaffoldMessenger.of(ctx);
+                        setLocalState(() => saving = true);
+                        try {
+                          await TankService.instance.updateLastHarvestRecord(
+                            harvestedCount: cnt,
+                            totalWeightKg: wt,
+                          );
+                        } catch (e) {
+                          if (!ctx.mounted) return;
+                          setLocalState(() => saving = false);
+                          showBeautifulSnackbar(ctx, 'Failed to update: ${e.toString().replaceFirst('Exception: ', '')}', false);
+                          return;
+                        }
+                        if (!ctx.mounted) return;
+                        Navigator.pop(ctx);
+                        showBeautifulSnackbarWithMessenger(messenger, 'Harvest updated to $cnt pcs / ${wt.toStringAsFixed(2)} kg.', true);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.success,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        elevation: 0,
+                      ),
+                      child: Text(saving ? 'Saving...' : 'Save Changes'),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ),
+            );
+          },
         );
       },
     );
