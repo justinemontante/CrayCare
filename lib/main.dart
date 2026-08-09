@@ -21,6 +21,7 @@ import 'services/tank_service.dart';
 import 'services/database_service.dart';
 import 'services/health_risk_service.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 
 class MyHttpOverrides extends HttpOverrides {
   @override
@@ -32,7 +33,9 @@ class MyHttpOverrides extends HttpOverrides {
 }
 
 void main() {
-  HttpOverrides.global = MyHttpOverrides();
+  if (kDebugMode) {
+    HttpOverrides.global = MyHttpOverrides();
+  }
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
@@ -154,7 +157,9 @@ class _SplashScreenState extends State<SplashScreen>
     try {
       isOnline = await ConnectivityService.instance.checkConnectivity()
           .timeout(const Duration(seconds: 3));
-    } catch (_) {}
+    } catch (e, stack) {
+      debugPrint('[Splash] Connectivity check failed: $e\n$stack');
+    }
 
     _targetProgress = 1.0;
     if (mounted) setState(() => _displayedProgress = 1.0);
@@ -188,7 +193,8 @@ class _SplashScreenState extends State<SplashScreen>
                 );
                 return;
               }
-            } catch (_) {
+            } catch (e, stack) {
+              debugPrint('[Splash] getProfile error: $e\n$stack');
             }
           }
 

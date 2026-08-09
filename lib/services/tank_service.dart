@@ -900,7 +900,7 @@ class TankService extends ChangeNotifier {
     try {
       await _harvestRef(resolvedBatchId).add({
         'harvest_date': now.millisecondsSinceEpoch,
-        'harvested_count': harvestedCount,
+        'harvest_count': harvestedCount,
         'total_weight_kg': totalWeightKg,
         'abw_grams': abwGrams,
         'survival_rate': sr,
@@ -967,7 +967,7 @@ class TankService extends ChangeNotifier {
 
     try {
       await _harvestRef(resolvedBatchId).doc(last.id).update({
-        'harvested_count': harvestedCount,
+        'harvest_count': harvestedCount,
         'total_weight_kg': totalWeightKg,
         'abw_grams': abwGrams,
         'survival_rate': sr,
