@@ -20,7 +20,7 @@ class CrayfishHarvestRecord {
   Map<String, dynamic> toJson() => {
     'batch_id': batchId,
     'harvest_date': date.millisecondsSinceEpoch,
-    'harvested_count': harvestedCount,
+    'harvest_count': harvestedCount,
     'total_weight_kg': totalWeightKg,
     'abw_grams': abwGrams,
     'survival_rate': survivalRate,
@@ -30,7 +30,7 @@ class CrayfishHarvestRecord {
     id: id,
     batchId: json['batch_id'] as String? ?? '',
     date: DateTime.fromMillisecondsSinceEpoch((json['harvest_date'] as num?)?.toInt() ?? 0),
-    harvestedCount: (json['harvested_count'] as num?)?.toInt() ?? 0,
+    harvestedCount: (json['harvest_count'] as num?)?.toInt() ?? 0,
     totalWeightKg: (json['total_weight_kg'] as num?)?.toDouble() ?? 0,
     abwGrams: (json['abw_grams'] as num?)?.toDouble() ?? 0,
     survivalRate: (json['survival_rate'] as num?)?.toDouble() ?? 0,

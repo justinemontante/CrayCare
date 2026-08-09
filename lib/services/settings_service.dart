@@ -56,7 +56,7 @@ class SettingsService extends ChangeNotifier {
             'max': (range['max'] as num).toDouble(),
           };
         }
-      } catch (_) {}
+      } catch (e, stack) { debugPrint('[Settings] load/save error: $e\n$stack'); }
     }
 
     await _syncFromFirebase();
@@ -211,7 +211,7 @@ class SettingsService extends ChangeNotifier {
           .doc(tankId)
           .collection('sensors')
           .doc(longKey)
-          .set({
+          await .set({
         'min_value': min,
         'max_value': max,
         'updated_at': FieldValue.serverTimestamp(),

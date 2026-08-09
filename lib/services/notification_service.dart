@@ -216,7 +216,7 @@ Future<void> _handlePreArm(Map<String, String> data) async {
           vibrate = prefs['vibration'] != false;
         }
       }
-    } catch (_) {}
+    } catch (e, stack) { debugPrint('[Notif] FCM token save error: $e\n$stack'); }
 
     String channelId = 'craycare_alerts_silent';
     if (playSound && vibrate) {
@@ -430,7 +430,7 @@ class NotificationService extends ChangeNotifier {
                     .doc(user.uid)
                     .update({'fcmTokens': FieldValue.arrayRemove([token])});
               }
-            } catch (_) {}
+            } catch (e, stack) { debugPrint('[Notif] FCM token cleanup error: $e\n$stack'); }
             notifyListeners();
           } else {
             _listenFirebase();
@@ -439,7 +439,7 @@ class NotificationService extends ChangeNotifier {
             try {
               final token = await messaging.getToken();
               if (token != null) _saveToken(token);
-            } catch (_) {}
+            } catch (e, stack) { debugPrint('[Notif] schedule error: $e\n$stack'); }
           }
         });
   }

@@ -284,7 +284,7 @@ class FeederService extends ChangeNotifier {
         await tankDoc
             .collection('feeder_dispatched')
             .doc('${mNow.year}-${mNow.month}-${mNow.day}')
-            .set({scheduleKey: true}, SetOptions(merge: true));
+            await .set({scheduleKey: true}, SetOptions(merge: true));
       }
     } catch (e) {
       debugPrint('[FeederService] feedNow error: $e');

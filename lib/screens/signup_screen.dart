@@ -77,7 +77,7 @@ class _SignupScreenState extends State<SignupScreen> {
             );
             return;
           }
-        } catch (_) {}
+        } catch (e, stack) { debugPrint('[Signup] error: $e\n$stack'); }
 
         setState(() {
           _emailError = 'This email is already registered. Try signing in instead.';

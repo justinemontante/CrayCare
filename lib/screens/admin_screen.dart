@@ -119,7 +119,7 @@ class _AdminScreenState extends State<AdminScreen> {
       String? currentOwner;
       try {
         currentOwner = await DatabaseService.instance.getCurrentOwnerUid();
-      } catch (_) {}
+      } catch (e, stack) { debugPrint('[Admin] action error: $e\n$stack'); }
 
       if (!mounted) return;
       setState(() {
