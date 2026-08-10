@@ -692,10 +692,7 @@ class OverviewTab extends StatelessWidget {
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setLocalState) {
-            bool saving = false;
-            return Padding(
+        return Padding(
               padding: EdgeInsets.only(
                 bottom: MediaQuery.of(ctx).viewInsets.bottom,
                 left: 24, right: 24, top: 16,
@@ -727,19 +724,17 @@ class OverviewTab extends StatelessWidget {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: saving ? null : () async {
+                      onPressed: () async {
                         final val = int.tryParse(countCtrl.text) ?? 0;
                         if (val <= 0) {
                           showBeautifulSnackbar(ctx, 'Enter a valid count.', false);
                           return;
                         }
                         final messenger = ScaffoldMessenger.of(ctx);
-                        setLocalState(() => saving = true);
                         try {
                           await TankService.instance.updateLastMortalityEntry(val);
                         } catch (e) {
                           if (!ctx.mounted) return;
-                          setLocalState(() => saving = false);
                           showBeautifulSnackbar(ctx, 'Failed to update: ${e.toString().replaceFirst('Exception: ', '')}', false);
                           return;
                         }
@@ -754,15 +749,13 @@ class OverviewTab extends StatelessWidget {
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                         elevation: 0,
                       ),
-                      child: Text(saving ? 'Saving...' : 'Save Changes'),
+                      child: const Text('Save Changes'),
                     ),
                   ),
                   const SizedBox(height: 16),
                 ],
               ),
             );
-          },
-        );
       },
     );
   }
@@ -781,10 +774,7 @@ class OverviewTab extends StatelessWidget {
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setLocalState) {
-            bool saving = false;
-            return Padding(
+        return Padding(
               padding: EdgeInsets.only(
                 bottom: MediaQuery.of(ctx).viewInsets.bottom,
                 left: 24, right: 24, top: 16,
@@ -825,7 +815,7 @@ class OverviewTab extends StatelessWidget {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: saving ? null : () async {
+                      onPressed: () async {
                         final cnt = int.tryParse(countCtrl.text) ?? 0;
                         final wt = double.tryParse(weightCtrl.text) ?? 0;
                         if (cnt <= 0 || wt <= 0) {
@@ -833,7 +823,6 @@ class OverviewTab extends StatelessWidget {
                           return;
                         }
                         final messenger = ScaffoldMessenger.of(ctx);
-                        setLocalState(() => saving = true);
                         try {
                           await TankService.instance.updateLastHarvestRecord(
                             harvestedCount: cnt,
@@ -841,7 +830,6 @@ class OverviewTab extends StatelessWidget {
                           );
                         } catch (e) {
                           if (!ctx.mounted) return;
-                          setLocalState(() => saving = false);
                           showBeautifulSnackbar(ctx, 'Failed to update: ${e.toString().replaceFirst('Exception: ', '')}', false);
                           return;
                         }
@@ -856,15 +844,13 @@ class OverviewTab extends StatelessWidget {
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                         elevation: 0,
                       ),
-                      child: Text(saving ? 'Saving...' : 'Save Changes'),
+                      child: const Text('Save Changes'),
                     ),
                   ),
                   const SizedBox(height: 16),
                 ],
               ),
             );
-          },
-        );
       },
     );
   }

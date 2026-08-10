@@ -211,7 +211,7 @@ class SettingsService extends ChangeNotifier {
           .doc(tankId)
           .collection('sensors')
           .doc(longKey)
-          await .set({
+          .set({
         'min_value': min,
         'max_value': max,
         'updated_at': FieldValue.serverTimestamp(),

@@ -187,7 +187,7 @@ class AuthService {
           await FirebaseFirestore.instance
               .collection('users')
               .doc(uid)
-              await .update({'fcmTokens': FieldValue.arrayRemove([token])});
+              .update({'fcmTokens': FieldValue.arrayRemove([token])});
         }
       } catch (e) {
         debugPrint('[AuthService] Failed to clear FCM token on signout: $e');
