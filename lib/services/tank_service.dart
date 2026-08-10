@@ -226,7 +226,15 @@ class TankService extends ChangeNotifier {
     try {
       final profileRef = _fs.collection('users').doc(uid);
       final profile = await profileRef.get();
-      final tankId = profile.data()?['tank_id'] as String?;
+      final data = profile.data();
+      final role = data?['role'] as String?;
+
+      // Admins do NOT own a tank. Return empty so the service skips all
+      // tank provisioning/listening — otherwise the admin would get a tank
+      // auto-created (current_batch_id, sensors, actuators, etc.).
+      if (role == 'admin') return '';
+
+      final tankId = data?['tank_id'] as String?;
       if (tankId != null && tankId.isNotEmpty) return tankId;
 
       // Legacy owner accounts may predate tank provisioning. They can claim
@@ -238,7 +246,7 @@ class TankService extends ChangeNotifier {
       // role='owner' and status='active') is satisfied. Otherwise a plain
       // {'tank_id': uid} create would be DENIED and every subsequent tank
       // write would fail with permission-denied.
-      final profileExists = profile.exists && profile.data() != null;
+      final profileExists = profile.exists && data != null;
       await profileRef.set({
         'tank_id': uid,
         if (!profileExists) 'role': 'owner',
@@ -267,9 +275,12 @@ class TankService extends ChangeNotifier {
     if (initialUid.isNotEmpty) {
       _currentUserUid = initialUid;
       _tankOwnerUid = await _resolveTankIdForUser(initialUid);
-      await _loadTank();
-      await _ensureTankExists();
-      _listenFirebase();
+      // Admins resolve to an empty tank id — skip tank provisioning/listeners.
+      if (_tankOwnerUid.isNotEmpty) {
+        await _loadTank();
+        await _ensureTankExists();
+        _listenFirebase();
+      }
     }
     FirebaseAuth.instance.authStateChanges().listen((user) async {
       final uid = user?.uid ?? '';
@@ -284,6 +295,11 @@ class TankService extends ChangeNotifier {
       _currentUserUid = uid;
       _tankOwnerUid = await _resolveTankIdForUser(uid);
       _cancelSubscriptions();
+      // Admins resolve to an empty tank id — skip tank provisioning/listeners.
+      if (_tankOwnerUid.isEmpty) {
+        _resetAll();
+        return;
+      }
       await _loadTank();
       await _ensureTankExists();
       _listenFirebase();
@@ -318,6 +334,10 @@ class TankService extends ChangeNotifier {
   }
 
   Future<void> _loadTank() async {
+    if (_tankOwnerUid.isEmpty) {
+      _resetAll();
+      return;
+    }
     try {
       final doc = await _tankRef.get();
       if (!doc.exists) {

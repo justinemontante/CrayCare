@@ -156,7 +156,15 @@ class SensorService extends ChangeNotifier {
     try {
       final profileDoc =
           await FirebaseFirestore.instance.collection('users').doc(uid).get();
-      var tankId = profileDoc.data()?['tank_id'] as String?;
+      final profileData = profileDoc.data();
+      // Admins do NOT own a tank — never assign one to them.
+      if (profileData?['role'] == 'admin') {
+        _tankId = null;
+        _lastError = 'Admin accounts have no tank.';
+        notifyListeners();
+        return;
+      }
+      var tankId = profileData?['tank_id'] as String?;
       // CrayCare is 1 user = 1 tank with tank_id == uid. If the profile has
       // no usable tank_id (missing OR empty string — e.g. legacy accounts
       // created before tank provisioning), fall back to the UID and persist
