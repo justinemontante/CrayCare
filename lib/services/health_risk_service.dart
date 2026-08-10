@@ -157,7 +157,7 @@ class HealthRiskService extends ChangeNotifier {
       _sub = FirebaseFirestore.instance
           .collection('tanks')
           .doc(tankId)
-          .collection('health_risk')
+          .collection('ml_predictions')
           .doc('current')
           .snapshots()
           .listen((snap) {

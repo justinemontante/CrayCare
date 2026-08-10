@@ -149,7 +149,7 @@ service cloud.firestore {
       }
 
       // ML output for this tank.
-      match /health_risk/{docId} {
+      match /ml_predictions/{docId} {
         allow read: if isTankOwner(tankId) || isAdmin();
         // Written by the Admin SDK ML function; never directly by an app/ESP.
         allow create, update, delete: if false;

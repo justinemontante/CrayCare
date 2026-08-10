@@ -169,7 +169,7 @@ def _analyze_tank(tank_id: str) -> None:
             result["uid"] = owner_uid
 
     (db.collection("tanks").document(tank_id)
-       .collection("health_risk").document("current").set(result))
+       .collection("ml_predictions").document("current").set(result))
     print(f"[WQC] Tank {tank_id}: {result['level']} (confidence={result['confidence']}%, driver={result['driver']})")
 
 
