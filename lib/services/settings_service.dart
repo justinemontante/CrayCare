@@ -33,7 +33,13 @@ class SettingsService extends ChangeNotifier {
   Future<String?> _resolveTankId(String uid) async {
     if (_tankId != null) return _tankId;
     final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
-    _tankId = doc.data()?['tank_id'] as String? ?? uid;
+    final data = doc.data();
+    // Admins do NOT own a tank — never resolve (or create) a tank for them.
+    // Without this guard, _syncFromFirebase() would recreate tanks/{adminUid}
+    // with its sensors subcollection on every app start (Firestore
+    // auto-creates the parent doc when writing to a subcollection).
+    if (data?['role'] == 'admin') return null;
+    _tankId = data?['tank_id'] as String? ?? uid;
     return _tankId;
   }
 
@@ -79,7 +85,9 @@ class SettingsService extends ChangeNotifier {
     _sensorsSub = null;
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
-    final tankId = _tankId ?? user.uid;
+    // Admin has no tank (see _resolveTankId) — skip the listener entirely.
+    final tankId = _tankId;
+    if (tankId == null || tankId.isEmpty) return;
     try {
       _sensorsSub = FirebaseFirestore.instance
           .collection('tanks')
