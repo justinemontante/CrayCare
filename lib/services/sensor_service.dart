@@ -167,7 +167,7 @@ class SensorService extends ChangeNotifier {
         try {
           await profileDoc.reference
               .set({'tank_id': uid}, SetOptions(merge: true));
-        } catch (_) {}
+        } catch (e, stack) { debugPrint('[Sensor] hardware init error: $e\n$stack'); }
       }
       _tankId = tankId;
     } catch (e) {
@@ -459,7 +459,7 @@ class SensorService extends ChangeNotifier {
             cacheDay(dateStr, docs);
             return docs;
           }
-        } catch (_) {}
+        } catch (e, stack) { debugPrint('[Sensor] history load error: $e\n$stack'); }
         remainingUncached.add(dateStr);
         return <Map<String, dynamic>>[];
       });

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -10,6 +11,7 @@ class SettingsService extends ChangeNotifier {
   SettingsService._();
 
   bool _initialized = false;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _sensorsSub;
   late Map<String, Map<String, double>> _ranges;
 
   Map<String, Map<String, double>> get currentRanges => _ranges;
@@ -54,17 +56,67 @@ class SettingsService extends ChangeNotifier {
             'max': (range['max'] as num).toDouble(),
           };
         }
-      } catch (_) {}
+      } catch (e, stack) { debugPrint('[Settings] load/save error: $e\n$stack'); }
     }
 
     await _syncFromFirebase();
     _initialized = true;
+    _listenRealtime();
     FirebaseAuth.instance.authStateChanges().listen((user) {
       if (user != null) {
         _tankId = null;
         _syncFromFirebase();
+        _listenRealtime();
       }
     });
+  }
+
+  // Real-time sync: kapag may nagbago ng threshold sa isang device (o sa
+  // Firebase console), awtomatikong ma-update ang lahat ng devices na may
+  // parehong account. Consistent ang sensor thresholds sa buong team.
+  void _listenRealtime() {
+    _sensorsSub?.cancel();
+    _sensorsSub = null;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    final tankId = _tankId ?? user.uid;
+    try {
+      _sensorsSub = FirebaseFirestore.instance
+          .collection('tanks')
+          .doc(tankId)
+          .collection('sensors')
+          .snapshots()
+          .listen((snap) {
+        if (snap.docs.isEmpty) return;
+        bool changed = false;
+        for (final doc in snap.docs) {
+          final longKey = doc.id;
+          final shortKey = _longKeyFor.entries
+              .firstWhere((e) => e.value == longKey, orElse: () => const MapEntry('', ''))
+              .key;
+          if (shortKey.isEmpty || !_ranges.containsKey(shortKey)) continue;
+          final data = doc.data();
+          final min = (data['min_value'] as num?)?.toDouble();
+          final max = (data['max_value'] as num?)?.toDouble();
+          if (min != null && max != null &&
+              (_ranges[shortKey]?['min'] != min || _ranges[shortKey]?['max'] != max)) {
+            _ranges[shortKey] = {'min': min, 'max': max};
+            changed = true;
+          }
+        }
+        if (changed) {
+          notifyListeners();
+          // Persist locally para may cache pa rin offline.
+          SharedPreferences.getInstance().then((prefs) {
+            prefs.setString('sensorRanges', jsonEncode(_ranges));
+          });
+        }
+      }, onError: (e) {
+        debugPrint('[SettingsService] Realtime sync error: $e');
+      });
+    } catch (e) {
+      debugPrint('[SettingsService] Realtime listen error: $e');
+    }
   }
 
   Future<void> _syncFromFirebase() async {
@@ -203,5 +255,11 @@ class SettingsService extends ChangeNotifier {
   Future<void> _saveRanges() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('sensorRanges', jsonEncode(_ranges));
+  }
+
+  @override
+  void dispose() {
+    _sensorsSub?.cancel();
+    super.dispose();
   }
 }

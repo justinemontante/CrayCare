@@ -193,12 +193,14 @@ class DatabaseService {
       });
     }
     // Seed default actuators (off, manual-off state).
+    // last_changed is seeded as integer epoch-ms (0 = never changed) to keep
+    // the field type consistent with ESP32 writes.
     for (final type in ['pump', 'aerator1', 'aerator2']) {
       final actuatorRef = ref.collection('actuators').doc(type);
       batch.set(actuatorRef, {
         'control_mode': 'off',
         'current_state': 'off',
-        'last_changed': FieldValue.serverTimestamp(),
+        'last_changed': 0,
       });
     }
     // Seed feeder status doc.
@@ -282,7 +284,9 @@ class DatabaseService {
     await tankRef.collection('actuators').doc(actuatorId).set({
       'control_mode': mode,
       'current_state': mode == 'off' ? 'off' : 'on',
-      'last_changed': FieldValue.serverTimestamp(),
+      // Integer epoch-ms — consistent with the ESP32 firmware which writes
+      // last_changed as an integer, so the field never mixes Timestamp/int.
+      'last_changed': DateTime.now().millisecondsSinceEpoch,
     }, SetOptions(merge: true));
 
     await tankRef.collection('actuator_logs').add({
@@ -294,19 +298,10 @@ class DatabaseService {
       'time': time,
       'date': date,
       'timestamp': DateTime.now().millisecondsSinceEpoch,
-      'logged_at': FieldValue.serverTimestamp(),
+      // Integer epoch-ms (not serverTimestamp) so both app- and ESP-written
+      // docs keep logged_at as the same type for consistent ordering.
+      'logged_at': DateTime.now().millisecondsSinceEpoch,
     });
-  }
-
-  Stream<QuerySnapshot<Map<String, dynamic>>> actuatorLogsStream(String tankId, String actuatorId) {
-    return _db
-        .collection('tanks')
-        .doc(tankId)
-        .collection('actuator_logs')
-        .where('actuator_type', isEqualTo: actuatorId)
-        .orderBy('logged_at', descending: true)
-        .limit(50)
-        .snapshots();
   }
 
   // ─── Hardware Owner (admin) ─────────────────────────────────────────

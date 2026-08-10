@@ -119,7 +119,7 @@ class _AdminScreenState extends State<AdminScreen> {
       String? currentOwner;
       try {
         currentOwner = await DatabaseService.instance.getCurrentOwnerUid();
-      } catch (_) {}
+      } catch (e, stack) { debugPrint('[Admin] action error: $e\n$stack'); }
 
       if (!mounted) return;
       setState(() {
@@ -193,14 +193,6 @@ class _AdminScreenState extends State<AdminScreen> {
   // A regular SnackBar is anchored to this screen's own Scaffold, which
   // sits BELOW modal bottom sheets in the overlay stack — so it renders
   // hidden behind the modal instead of on top of it. Inserting into the
-  // root overlay guarantees it always shows in front, even while a
-  // modal (like the user sheet) is open.
-  // Consistent app-wide snackbar (same green-success / red-error style used
-  // by the record/delete flows elsewhere in the app).
-  void _showSnack(String message, {bool isSuccess = true}) {
-    showBeautifulSnackbar(context, message, isSuccess);
-  }
-
   void _openUserSheet(Map<String, dynamic> user) {
     final uid = user['uid'] as String;
     final name = _displayName(user);
@@ -337,7 +329,7 @@ class _AdminScreenState extends State<AdminScreen> {
                           icon: isDisabled ? Icons.lock_open_rounded : Icons.lock_rounded,
                           iconColor: isDisabled ? AppColors.success : AppColors.critical,
                         );
-                        if (confirmed != true) return;
+                        if (confirmed != true || !ctx.mounted) return;
                         final messenger = ScaffoldMessenger.of(ctx);
                         await DatabaseService.instance.setUserStatus(uid, newStatus);
                         if (!mounted) return;

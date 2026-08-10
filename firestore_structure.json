@@ -177,7 +177,7 @@
           "dispatched_at (Timestamp)"
         ]
       },
-      "health_risk/current": {
+      "ml_predictions/current": {
         "_description": "Latest water-quality health-risk prediction. Written by ML Cloud Function (Admin SDK); read by app.",
         "fields": [
           "uid",
@@ -292,17 +292,6 @@
       "dissolved_oxygen",
       "ph_level",
       "water_level"
-    ]
-  },
-  "mlPredictions/{docId}": {
-    "_description": "ML prediction results (any signed-in user can read; admin creates/updates).",
-    "fields": [
-      "tankId",
-      "batchId",
-      "prediction",
-      "confidence",
-      "model_version",
-      "created_at"
     ]
   }
 }

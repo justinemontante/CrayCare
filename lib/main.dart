@@ -21,6 +21,7 @@ import 'services/tank_service.dart';
 import 'services/database_service.dart';
 import 'services/health_risk_service.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 
 class MyHttpOverrides extends HttpOverrides {
   @override
@@ -32,7 +33,9 @@ class MyHttpOverrides extends HttpOverrides {
 }
 
 void main() {
-  HttpOverrides.global = MyHttpOverrides();
+  if (kDebugMode) {
+    HttpOverrides.global = MyHttpOverrides();
+  }
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
@@ -94,10 +97,7 @@ class _SplashScreenState extends State<SplashScreen>
   void _advanceProgress() {
     _currentStep++;
     _targetProgress = (_currentStep / _totalSteps).clamp(0.0, 1.0);
-    _animController.animateTo(
-      _targetProgress,
-      duration: const Duration(milliseconds: 500),
-    );
+    _animController.animateTo(_targetProgress, duration: const Duration(milliseconds: 500));
   }
 
   Future<void> _withTimeout(Future<void> Function() fn, int timeoutMs) async {
@@ -110,15 +110,15 @@ class _SplashScreenState extends State<SplashScreen>
 
   Future<void> _initServices() async {
     await _withTimeout(
-      () => Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
-      ),
+      () => Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform),
       10000,
     );
     _advanceProgress();
     if (!mounted) return;
 
-    FirebaseFirestore.instance.settings = Settings(persistenceEnabled: true);
+    FirebaseFirestore.instance.settings = Settings(
+      persistenceEnabled: true,
+    );
     _advanceProgress();
     FirebaseMessaging.onBackgroundMessage(firebaseBackgroundMessageHandler);
 
@@ -148,16 +148,18 @@ class _SplashScreenState extends State<SplashScreen>
     HealthRiskService.instance.init();
     _advanceProgress();
 
+
     _checkAuthAndNavigate();
   }
 
   Future<void> _checkAuthAndNavigate() async {
     bool isOnline = false;
     try {
-      isOnline = await ConnectivityService.instance.checkConnectivity().timeout(
-        const Duration(seconds: 3),
-      );
-    } catch (_) {}
+      isOnline = await ConnectivityService.instance.checkConnectivity()
+          .timeout(const Duration(seconds: 3));
+    } catch (e, stack) {
+      debugPrint('[Splash] Connectivity check failed: $e\n$stack');
+    }
 
     _targetProgress = 1.0;
     if (mounted) setState(() => _displayedProgress = 1.0);
@@ -180,15 +182,9 @@ class _SplashScreenState extends State<SplashScreen>
         if (freshUser != null && freshUser.emailVerified) {
           if (isOnline) {
             try {
-              final profile = await DatabaseService.instance.getUserProfile(
-                freshUser.uid,
-              );
+              final profile = await DatabaseService.instance.getUserProfile(freshUser.uid);
               if (profile != null && profile['status'] == 'disabled') {
-                await FirebaseFirestore.instance
-                    .collection('users')
-                    .doc(freshUser.uid)
-                    .update({'fcmToken': FieldValue.delete()})
-                    .catchError((_) {});
+                await FirebaseFirestore.instance.collection('users').doc(freshUser.uid).update({'fcmToken': FieldValue.delete()}).catchError((_) {});
                 await FirebaseAuth.instance.signOut();
                 if (!mounted) return;
                 Navigator.pushReplacement(
@@ -197,7 +193,9 @@ class _SplashScreenState extends State<SplashScreen>
                 );
                 return;
               }
-            } catch (_) {}
+            } catch (e, stack) {
+              debugPrint('[Splash] getProfile error: $e\n$stack');
+            }
           }
 
           if (!mounted) return;

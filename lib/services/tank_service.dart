@@ -849,6 +849,39 @@ class TankService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Updates the MOST RECENT mortality record (same-day rule, mirroring the
+  /// sampling edit). Recalculates the total mortality and persists to Firestore.
+  Future<void> updateLastMortalityEntry(int newCount) async {
+    if (newCount <= 0) throw ArgumentError('Mortality count must be greater than 0');
+    if (_mortalityHistory.isEmpty || _selectedBatchId == null) return;
+    final last = _mortalityHistory.last;
+    if (last.id.isEmpty) return;
+
+    final diff = newCount - last.count;
+    _mortality = (_mortality + diff).clamp(0, _initialCount);
+    _mortalityHistory.last = MortalityEntry(
+      id: last.id,
+      date: last.date,
+      count: newCount,
+    );
+
+    try {
+      await _mortalityRef(_selectedBatchId!).doc(last.id).update({
+        'mortality_count': newCount,
+        'created_at': FieldValue.serverTimestamp(),
+      });
+      await _batchesRef.doc(_selectedBatchId!).set({
+        'total_mortality': _mortality,
+      }, SetOptions(merge: true));
+      _addActivity('Updated last mortality record to $newCount (Total: $_mortality)', 'mortality');
+      _saveConfig();
+    } catch (e) {
+      debugPrint('[TankService] Error updating mortality entry: $e');
+      rethrow;
+    }
+    notifyListeners();
+  }
+
   Future<void> addHarvestRecord({
     required int harvestedCount,
     required double totalWeightKg,
@@ -867,7 +900,7 @@ class TankService extends ChangeNotifier {
     try {
       await _harvestRef(resolvedBatchId).add({
         'harvest_date': now.millisecondsSinceEpoch,
-        'harvested_count': harvestedCount,
+        'harvest_count': harvestedCount,
         'total_weight_kg': totalWeightKg,
         'abw_grams': abwGrams,
         'survival_rate': sr,
@@ -894,6 +927,74 @@ class TankService extends ChangeNotifier {
       _saveConfig();
     } catch (e) {
       debugPrint('[TankService] Error saving harvest record: $e');
+      rethrow;
+    }
+    notifyListeners();
+  }
+
+  /// Updates the MOST RECENT harvest record (same-day rule). Recalculates the
+  /// running harvest totals and persists the batch-level aggregates.
+  Future<void> updateLastHarvestRecord({
+    required int harvestedCount,
+    required double totalWeightKg,
+  }) async {
+    if (harvestedCount <= 0) throw ArgumentError('Harvested count must be greater than 0');
+    if (totalWeightKg < 0) throw ArgumentError('Total weight must be non-negative');
+    if (_harvestRecords.isEmpty) return;
+    final last = _harvestRecords.last;
+    if (last.id.isEmpty) return;
+
+    final abwGrams = harvestedCount > 0 ? (totalWeightKg * 1000) / harvestedCount : 0.0;
+    final sr = _initialCount > 0 ? (liveCount / _initialCount * 100) : 0.0;
+
+    // Adjust running totals by the difference between old and new values.
+    final oldCount = last.harvestedCount;
+    final oldWeight = last.totalWeightKg;
+    _totalHarvested = (_totalHarvested - oldCount + harvestedCount).clamp(0, _initialCount);
+
+    _harvestRecords.last = CrayfishHarvestRecord(
+      id: last.id,
+      batchId: last.batchId,
+      date: last.date,
+      harvestedCount: harvestedCount,
+      totalWeightKg: totalWeightKg,
+      abwGrams: abwGrams,
+      survivalRate: sr,
+    );
+
+    final resolvedBatchId = last.batchId.isNotEmpty ? last.batchId : (_selectedBatchId ?? '');
+    if (resolvedBatchId.isEmpty) return;
+
+    try {
+      await _harvestRef(resolvedBatchId).doc(last.id).update({
+        'harvest_count': harvestedCount,
+        'total_weight_kg': totalWeightKg,
+        'abw_grams': abwGrams,
+        'survival_rate': sr,
+        'created_at': FieldValue.serverTimestamp(),
+      });
+
+      final batchRef = _batchesRef.doc(resolvedBatchId);
+      final batchSnap = await batchRef.get();
+      if (batchSnap.exists && batchSnap.data() != null) {
+        final existing = batchSnap.data()!;
+        final prevTotalH = ((existing['harvest_count'] as num?)?.toInt() ?? 0);
+        final prevWeight = (existing['harvest_weight_grams'] as num?)?.toDouble() ?? 0;
+        final newTotalH = prevTotalH - oldCount + harvestedCount;
+        final newWeight = prevWeight - (oldWeight * 1000) + (totalWeightKg * 1000);
+        await batchRef.set({
+          'harvest_count': newTotalH < 0 ? 0 : newTotalH,
+          'harvest_weight_grams': newWeight < 0 ? 0 : newWeight,
+        }, SetOptions(merge: true));
+      }
+
+      _addActivity(
+        'Updated last harvest to $harvestedCount crayfish, ${totalWeightKg.toStringAsFixed(2)}kg total',
+        'harvest',
+      );
+      _saveConfig();
+    } catch (e) {
+      debugPrint('[TankService] Error updating harvest record: $e');
       rethrow;
     }
     notifyListeners();
