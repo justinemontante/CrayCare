@@ -293,16 +293,5 @@
       "ph_level",
       "water_level"
     ]
-  },
-  "mlPredictions/{docId}": {
-    "_description": "ML prediction results (any signed-in user can read; admin creates/updates).",
-    "fields": [
-      "tankId",
-      "batchId",
-      "prediction",
-      "confidence",
-      "model_version",
-      "created_at"
-    ]
   }
 }

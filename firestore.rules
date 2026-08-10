@@ -185,10 +185,5 @@ service cloud.firestore {
       allow create: if isEspSession();
       allow read, delete: if isAdmin();
     }
-
-    match /mlPredictions/{doc} {
-      allow read: if isSignedIn();
-      allow create, update: if isAdmin();
-    }
   }
 }
