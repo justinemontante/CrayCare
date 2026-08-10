@@ -94,7 +94,10 @@ class _SplashScreenState extends State<SplashScreen>
   void _advanceProgress() {
     _currentStep++;
     _targetProgress = (_currentStep / _totalSteps).clamp(0.0, 1.0);
-    _animController.animateTo(_targetProgress, duration: const Duration(milliseconds: 500));
+    _animController.animateTo(
+      _targetProgress,
+      duration: const Duration(milliseconds: 500),
+    );
   }
 
   Future<void> _withTimeout(Future<void> Function() fn, int timeoutMs) async {
@@ -107,15 +110,15 @@ class _SplashScreenState extends State<SplashScreen>
 
   Future<void> _initServices() async {
     await _withTimeout(
-      () => Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform),
+      () => Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      ),
       10000,
     );
     _advanceProgress();
     if (!mounted) return;
 
-    FirebaseFirestore.instance.settings = Settings(
-      persistenceEnabled: true,
-    );
+    FirebaseFirestore.instance.settings = Settings(persistenceEnabled: true);
     _advanceProgress();
     FirebaseMessaging.onBackgroundMessage(firebaseBackgroundMessageHandler);
 
@@ -145,15 +148,15 @@ class _SplashScreenState extends State<SplashScreen>
     HealthRiskService.instance.init();
     _advanceProgress();
 
-
     _checkAuthAndNavigate();
   }
 
   Future<void> _checkAuthAndNavigate() async {
     bool isOnline = false;
     try {
-      isOnline = await ConnectivityService.instance.checkConnectivity()
-          .timeout(const Duration(seconds: 3));
+      isOnline = await ConnectivityService.instance.checkConnectivity().timeout(
+        const Duration(seconds: 3),
+      );
     } catch (_) {}
 
     _targetProgress = 1.0;
@@ -177,9 +180,15 @@ class _SplashScreenState extends State<SplashScreen>
         if (freshUser != null && freshUser.emailVerified) {
           if (isOnline) {
             try {
-              final profile = await DatabaseService.instance.getUserProfile(freshUser.uid);
+              final profile = await DatabaseService.instance.getUserProfile(
+                freshUser.uid,
+              );
               if (profile != null && profile['status'] == 'disabled') {
-                await FirebaseFirestore.instance.collection('users').doc(freshUser.uid).update({'fcmToken': FieldValue.delete()}).catchError((_) {});
+                await FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(freshUser.uid)
+                    .update({'fcmToken': FieldValue.delete()})
+                    .catchError((_) {});
                 await FirebaseAuth.instance.signOut();
                 if (!mounted) return;
                 Navigator.pushReplacement(
@@ -188,8 +197,7 @@ class _SplashScreenState extends State<SplashScreen>
                 );
                 return;
               }
-            } catch (_) {
-            }
+            } catch (_) {}
           }
 
           if (!mounted) return;
