@@ -72,16 +72,10 @@ String pass;
 // ============================================================
 //  FIREBASE SETTINGS
 // ============================================================
-// Firebase credentials are defined in secrets.h (included above).
-
-// Firestore staging paths. Cloud Functions route these to the assigned tank.
-#define FIRESTORE_INGESTION_COLLECTION "sensorIngestion"
-
-// All Firebase operations now use Firestore (zero RTDB calls).
-// Thresholds are read from tanks/{currentTankId}/sensors/{sensorName}.
-// All feeder state lives under tanks/{currentTankId}/... — there are no
-// flat top-level feeder collections anymore (see docs/FIRESTORE_STRUCTURE_ACTUAL.md).
-
+// Firebase credentials (FIREBASE_API_KEY, FIREBASE_DATABASE_URL,
+// FIREBASE_PROJECT_ID) are defined in secrets.h (included above).
+// All data paths route to tanks/{currentTankId}/... — no intermediate
+// sensorIngestion collection exists anymore.
 // Hardware ID derived from MAC address on first use (see getHardwareId())
 String hardwareId = "";
 String currentTankId = "";
@@ -918,7 +912,7 @@ void setup() {
   Serial.println("============================================");
   Serial.println("  CrayCare Monitor — Firestore Ingestion");
   Serial.printf("  Hardware ID : %s\n", hardwareId.c_str());
-  Serial.printf("  Ingestion   : %s/current\n", FIRESTORE_INGESTION_COLLECTION);
+  Serial.printf("  Tank ID     : %s\n", currentTankId.c_str());
   Serial.printf("  Tank config : tanks/%s/sensors\n", currentTankId.c_str());
   Serial.println("  Turbidity: NTU (calibrated)");
   Serial.println("============================================");
