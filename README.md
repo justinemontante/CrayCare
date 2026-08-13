@@ -25,6 +25,14 @@ ESP32 (anonymous device session)
 Single hardware package assigned to one farmer via `hardware_system/currentOwner`
 (admin-managed). Reassignment is instant; previous owner's data is preserved.
 
+Offline behavior: after at least one successful online synchronization, the ESP32
+continues sensing, runs cached feeding schedules locally, and stores 10-minute
+history windows in LittleFS. On reconnect it uploads the backlog oldest-first with
+deterministic IDs to avoid duplicates. Live 5-second snapshots are best-effort and
+are not buffered. A cold power-up with no network cannot know correct wall-clock
+time without an external RTC, so time-based schedules require a previously synced
+clock and uninterrupted power during the outage.
+
 ## Firestore schema
 
 See [`docs/FIRESTORE_STRUCTURE_ACTUAL.md`](docs/FIRESTORE_STRUCTURE_ACTUAL.md).

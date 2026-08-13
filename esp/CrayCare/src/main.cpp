@@ -165,14 +165,32 @@ bool bufferAppend(const String& jsonLine) {
   return true;
 }
 
-// Drop the first line (index 0) and rewrite the remaining lines.
-bool bufferDropFirst(const String* lines, size_t n) {
+// Drop exactly the first valid line while preserving the entire backlog.
+// The previous implementation rewrote only the first 32 loaded lines and
+// silently discarded everything after them during a long outage.
+bool bufferDropFirst(const String* ignoredLines, size_t ignoredCount) {
+  (void)ignoredLines;
+  (void)ignoredCount;
   if (!littlefsMounted) return false;
-  File f = LittleFS.open(BUFFER_PATH, "w");
-  if (!f) return false;
-  for (size_t i = 1; i < n; i++) f.println(lines[i]);
-  f.close();
-  return true;
+  const char* tempPath = "/buf/history.tmp";
+  File src = LittleFS.open(BUFFER_PATH, "r");
+  if (!src) return false;
+  File dst = LittleFS.open(tempPath, "w");
+  if (!dst) { src.close(); return false; }
+
+  bool dropped = false;
+  while (src.available()) {
+    String line = src.readStringUntil('\n');
+    line.trim();
+    if (line.length() <= 10) continue;
+    if (!dropped) { dropped = true; continue; }
+    dst.println(line);
+  }
+  src.close();
+  dst.close();
+  if (!dropped) { LittleFS.remove(tempPath); return false; }
+  LittleFS.remove(BUFFER_PATH);
+  return LittleFS.rename(tempPath, BUFFER_PATH);
 }
 
 // Read all buffered lines into a fixed array (bounded).
@@ -238,6 +256,7 @@ bool flushOneBufferedEntry() {
 }
 unsigned long lastConfigSyncTime = 0;
 unsigned long lastPollTime = 0;
+unsigned long lastWifiReconnectTime = 0;
 
 // Feeder state
 // LEDC servo control (no ESP32Servo library needed — avoid timer conflicts)
@@ -940,7 +959,7 @@ void sendHistoryToFirestore() {
   // WiFi/Firebase down: buffer the reading for later flush. (Previously we
   // returned early here and the reading was LOST — the whole point of the
   // store-and-forward buffer is to survive exactly this case.)
-  if (!ensureFirebaseReady()) {
+  if (WiFi.status() != WL_CONNECTED || !ensureFirebaseReady()) {
     if (bufferAppend(content.raw())) {
       Serial.printf("[BUF] Offline — buffered entry #%u\n",
                     (unsigned)countBufferedEntries());
@@ -1196,6 +1215,8 @@ void initFeeder();
 void processFeederCommands();
 void sendFeederStatus();
 void syncFeederSchedules();
+void loadCachedFeederSchedules();
+void saveCachedFeederSchedules();
 void checkScheduledFeed();
 void startFeed(String source, float grams = 20.0f);
 void processFeederTick();
@@ -1355,26 +1376,29 @@ void loop() {
     }
   }
 
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[WIFI] Reconnecting...");
-    WiFi.disconnect();
-    WiFi.begin(ssid.c_str(), pass.c_str());
-    delay(1000);
-    return;
+  // Never stop sensing/local automation just because Wi-Fi is down. The old
+  // early return prevented history buffering and scheduled feeding offline.
+  const bool networkAvailable = WiFi.status() == WL_CONNECTED;
+  if (!networkAvailable && now - lastWifiReconnectTime >= 10000UL) {
+    lastWifiReconnectTime = now;
+    Serial.println("[WIFI] Offline — local sensing/automation continues; reconnecting...");
+    WiFi.reconnect();
   }
 
   // ─── Feeder ───
-  if (now - lastFeederCmdCheckMs >= FEEDER_CMD_INTERVAL_MS) {
+  // Cloud commands/status/schedule refresh need network. Already-synced
+  // schedules continue to execute locally below while offline.
+  if (networkAvailable && now - lastFeederCmdCheckMs >= FEEDER_CMD_INTERVAL_MS) {
     lastFeederCmdCheckMs = now;
     processFeederCommands();
   }
 
-  if (now - lastFeederStatusMs >= FEEDER_STATUS_INTERVAL_MS) {
+  if (networkAvailable && now - lastFeederStatusMs >= FEEDER_STATUS_INTERVAL_MS) {
     lastFeederStatusMs = now;
     sendFeederStatus();
   }
 
-  if (now - lastFeederScheduleSyncMs >= FEEDER_SCHEDULE_SYNC_MS) {
+  if (networkAvailable && now - lastFeederScheduleSyncMs >= FEEDER_SCHEDULE_SYNC_MS) {
     lastFeederScheduleSyncMs = now;
     syncFeederSchedules();
   }
@@ -1430,7 +1454,7 @@ void loop() {
   // 5-sec + 10-min writes are never starved. Oldest entry goes first.
   if (now - lastFlushTime >= FLUSH_INTERVAL_MS) {
     lastFlushTime = now;
-    if (littlefsMounted && countBufferedEntries() > 0) {
+    if (networkAvailable && littlefsMounted && countBufferedEntries() > 0) {
       if (ensureFirebaseReady()) {
         if (flushOneBufferedEntry()) {
           Serial.printf("[BUF] Flushed — %u remaining\n",
@@ -1454,6 +1478,9 @@ void loop() {
 // ─── Initialize Feeder ───
 void initFeeder() {
   fetchTankId();
+  // Restore the last cloud-synced schedules so a reboot during an internet
+  // outage can still execute them using the ESP's local clock.
+  loadCachedFeederSchedules();
   ledcSetup(SERVO_LEDC_CHANNEL, SERVO_LEDC_FREQ, SERVO_LEDC_RESOLUTION);
   ledcAttachPin(FEEDER_SERVO_PIN, SERVO_LEDC_CHANNEL);
   _setServoAngle(0);
@@ -1579,6 +1606,35 @@ void sendFeederStatus() {
   }
 }
 
+void saveCachedFeederSchedules() {
+  prefs.begin("feedsched", false);
+  prefs.putInt("count", feederScheduleCount);
+  for (int i = 0; i < feederScheduleCount; i++) {
+    prefs.putInt(("h" + String(i)).c_str(), feederSchedules[i].hour24);
+    prefs.putInt(("m" + String(i)).c_str(), feederSchedules[i].minute);
+    prefs.putBool(("e" + String(i)).c_str(), feederSchedules[i].enabled);
+    prefs.putFloat(("g" + String(i)).c_str(), feederSchedules[i].grams);
+  }
+  prefs.end();
+}
+
+void loadCachedFeederSchedules() {
+  prefs.begin("feedsched", true);
+  feederScheduleCount = constrain(prefs.getInt("count", 0), 0, FEEDER_MAX_SCHEDULES);
+  for (int i = 0; i < feederScheduleCount; i++) {
+    feederSchedules[i].key = "cached_" + String(i);
+    feederSchedules[i].hour24 = prefs.getInt(("h" + String(i)).c_str(), 6);
+    feederSchedules[i].minute = prefs.getInt(("m" + String(i)).c_str(), 0);
+    feederSchedules[i].enabled = prefs.getBool(("e" + String(i)).c_str(), true);
+    feederSchedules[i].grams = prefs.getFloat(("g" + String(i)).c_str(), 20.0f);
+  }
+  prefs.end();
+  if (feederScheduleCount > 0) {
+    Serial.printf("[FEEDER] Restored %d cached schedule(s) for offline operation\n",
+                  feederScheduleCount);
+  }
+}
+
 // ─── Sync Schedules from Firestore ───
 // Reads all docs in tanks/{tankId}/feeder_schedules (max FEEDER_MAX_SCHEDULES).
 void syncFeederSchedules() {
@@ -1588,7 +1644,9 @@ void syncFeederSchedules() {
   String schedCol = "tanks/" + currentTankId + "/feeder_schedules";
   if (!Firebase.Firestore.listDocuments(&fbdo, FIREBASE_PROJECT_ID, "",
         schedCol.c_str(), FEEDER_MAX_SCHEDULES, "", "", "", false)) {
-    feederScheduleCount = 0;
+    // Keep the last valid in-memory/NVS schedule set on transient failures.
+    Serial.printf("[FEEDER] Schedule sync failed; retaining %d cached schedule(s)\n",
+                  feederScheduleCount);
     return;
   }
 
@@ -1655,6 +1713,7 @@ void syncFeederSchedules() {
     feederScheduleCount++;
   }
 
+  saveCachedFeederSchedules();
   Serial.printf("[FEEDER] Synced %d schedules from Firestore\n", feederScheduleCount);
 }
 

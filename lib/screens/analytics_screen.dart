@@ -835,7 +835,9 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                         thresholdMin: thresholds['min'],
                         thresholdMax: thresholds['max'],
                         decimalPlaces: dp,
-                        initialScrollToEnd: true,
+                        // Open at the oldest reading. Swipe left to move forward
+                        // chronologically until the newest reading at the end.
+                        initialScrollToEnd: false,
                       ),
               ),
               if (hasValid) ...[
@@ -1359,7 +1361,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                                 thresholdMin: thresholds['min'],
                                 thresholdMax: thresholds['max'],
                                 decimalPlaces: dp,
-                                initialScrollToEnd: true,
+                                // Expanded chart follows the same oldest → newest flow.
+                                initialScrollToEnd: false,
                               ),
                             )
                           else

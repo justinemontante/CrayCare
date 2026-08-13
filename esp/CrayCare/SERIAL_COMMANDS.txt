@@ -71,3 +71,7 @@ NOTES
   tanks/{tankId}/sensors/*.
 - Scheduled feeding is executed by the ESP32. Android background work sends
   reminders only and must not enqueue duplicate scheduled feed commands.
+- The last cloud-synced schedules are cached in NVS and continue during a Wi-Fi
+  outage. Ten-minute sensor history is buffered in LittleFS and uploaded after
+  reconnect. A cold boot without network still needs an external RTC for correct
+  wall-clock schedule time.
