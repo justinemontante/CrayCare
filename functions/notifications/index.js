@@ -252,11 +252,33 @@ function normalizeSensorReading(raw) {
   // Accept the present ESP payload during migration, but write only the final
   // thesis/app schema into tanks/{tankId}/... .
   const reading = {
+    // Live snapshot fields (5-sec latest) — legacy names kept for the
+    // dashboard + backward compatibility with old history entries.
     temperature: raw.temperature ?? null,
     ph_level: raw.ph_level ?? raw.phLevel ?? null,
     dissolved_oxygen: raw.dissolved_oxygen ?? raw.dissolvedOxygen ?? null,
     turbidity: raw.turbidity ?? null,
     water_level: raw.water_level ?? raw.waterLevelPercent ?? raw.waterLevel ?? null,
+
+    // 10-min window aggregates (min → max → avg per sensor). These match
+    // the ML training schema (temp_min/temp_max/temp_avg, pH_*, DO_*,
+    // turbidity_*, waterLevel_*) and the app analytics _historyKeyMap.
+    temp_min: raw.temp_min ?? null,
+    temp_max: raw.temp_max ?? null,
+    temp_avg: raw.temp_avg ?? null,
+    pH_min: raw.pH_min ?? null,
+    pH_max: raw.pH_max ?? null,
+    pH_avg: raw.pH_avg ?? null,
+    DO_min: raw.DO_min ?? null,
+    DO_max: raw.DO_max ?? null,
+    DO_avg: raw.DO_avg ?? null,
+    turbidity_min: raw.turbidity_min ?? null,
+    turbidity_max: raw.turbidity_max ?? null,
+    turbidity_avg: raw.turbidity_avg ?? null,
+    waterLevel_min: raw.waterLevel_min ?? null,
+    waterLevel_max: raw.waterLevel_max ?? null,
+    waterLevel_avg: raw.waterLevel_avg ?? null,
+
     // Offline-backfill support: keep the ORIGINAL capture time so buffered
     // readings land in the right date folder with their true timestamp.
     // Live 5-sec payloads have no captured_at_ms -> serverTimestamp() (same

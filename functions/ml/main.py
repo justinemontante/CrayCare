@@ -112,19 +112,31 @@ def _fetch_sensor_history(tank_id: str, hours: int = 24):
                 if not recorded_at:
                     continue
                 # The ML feature pipeline uses these aggregate-style field names.
-                # Each canonical history document is one snapshot, so min/max/avg are equal.
-                temp = data.get("temperature", 0.0)
-                ph = data.get("ph_level", 0.0)
-                do = data.get("dissolved_oxygen", 0.0)
-                turb = data.get("turbidity", 0.0)
-                water = data.get("water_level", 0.0)
+                # The ESP now writes 10-min window aggregates (min/max/avg), so
+                # volatility/trend features get a REAL signal. Fall back to the
+                # snapshot value for legacy entries where min/max/avg are absent.
+                temp = data.get("temp_avg", data.get("temperature", 0.0))
+                temp_min = data.get("temp_min", temp)
+                temp_max = data.get("temp_max", temp)
+                ph = data.get("pH_avg", data.get("ph_level", 0.0))
+                ph_min = data.get("pH_min", ph)
+                ph_max = data.get("pH_max", ph)
+                do = data.get("DO_avg", data.get("dissolved_oxygen", 0.0))
+                do_min = data.get("DO_min", do)
+                do_max = data.get("DO_max", do)
+                turb = data.get("turbidity_avg", data.get("turbidity", 0.0))
+                turb_min = data.get("turbidity_min", turb)
+                turb_max = data.get("turbidity_max", turb)
+                water = data.get("waterLevel_avg", data.get("water_level", 0.0))
+                water_min = data.get("waterLevel_min", water)
+                water_max = data.get("waterLevel_max", water)
                 rows.append({
                     "timestamp": recorded_at.timestamp(),
-                    "temp_avg": temp, "temp_min": temp, "temp_max": temp,
-                    "pH_avg": ph, "pH_min": ph, "pH_max": ph,
-                    "DO_avg": do, "DO_min": do, "DO_max": do,
-                    "turbidity_avg": turb, "turbidity_min": turb, "turbidity_max": turb,
-                    "waterLevel_avg": water, "waterLevel_min": water, "waterLevel_max": water,
+                    "temp_avg": temp, "temp_min": temp_min, "temp_max": temp_max,
+                    "pH_avg": ph, "pH_min": ph_min, "pH_max": ph_max,
+                    "DO_avg": do, "DO_min": do_min, "DO_max": do_max,
+                    "turbidity_avg": turb, "turbidity_min": turb_min, "turbidity_max": turb_max,
+                    "waterLevel_avg": water, "waterLevel_min": water_min, "waterLevel_max": water_max,
                 })
         except Exception as e:
             print(f"[WQC] Error fetching {tank_id}/{date_key}: {e}")

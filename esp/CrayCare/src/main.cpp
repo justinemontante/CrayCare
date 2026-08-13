@@ -202,13 +202,18 @@ bool flushOneBufferedEntry() {
 
   // Deterministic doc ID from the bucket time (dedup: re-uploading the same
   // bucket after a crash simply finds the existing doc and skips it).
+  // The buffered line is Firestore wire-format JSON, e.g.
+  //   {"fields":{"captured_at_ms":{"integerValue":"1755122400000"},...}}
+  // so dig into the nested integerValue for the epoch-ms.
   long long capMs = 0;
-  int idx = lines[0].indexOf("\"captured_at_ms\":");
+  int idx = lines[0].indexOf("\"captured_at_ms\"");
   if (idx >= 0) {
-    int st = idx + 16;
-    int en = lines[0].indexOf(',', st);
-    if (en < 0) en = lines[0].indexOf('}', st);
-    if (en > st) capMs = atoll(lines[0].substring(st, en).c_str());
+    int st = lines[0].indexOf("\"integerValue\":\"", idx);
+    if (st >= 0) {
+      st += 17;  // length of "\"integerValue\":\"" (17 chars)
+      int en = lines[0].indexOf('"', st);
+      if (en > st) capMs = atoll(lines[0].substring(st, en).c_str());
+    }
   }
   String docId = (capMs > 0)
       ? "offline_" + String((unsigned long)(capMs / 600000LL))
@@ -432,6 +437,39 @@ float lastValidTurbidityNTU = -1.0;
 bool turbiditySensorOK = false;
 uint8_t turbiditySkipCount = 0;
 float turbidityVoltage = 0.0;
+
+// ─── 10-min window aggregates (min/max/avg) ──────────────────────────
+// Accumulated from ACCEPTED readings between history saves, so brief
+// spikes inside a 10-min window are preserved in the history entry
+// (and the ML volatility feature gets a real signal). The ESP polls
+// every 0.5 s, so each window collects up to ~1200 samples.
+// Reset after every history write (or buffer append).
+float winTempSum = 0.0f; uint16_t winTempN = 0;
+float winTempMin = 0.0f; float winTempMax = 0.0f;
+float winTurbSum = 0.0f; uint16_t winTurbN = 0;
+float winTurbMin = 0.0f; float winTurbMax = 0.0f;
+float winDOSum = 0.0f; uint16_t winDON = 0;
+float winDOMin = 0.0f; float winDOMax = 0.0f;
+float winPHSum = 0.0f; uint16_t winPHN = 0;
+float winPHMin = 0.0f; float winPHMax = 0.0f;
+float winWaterSum = 0.0f; uint16_t winWaterN = 0;
+float winWaterMin = 0.0f; float winWaterMax = 0.0f;
+
+void resetWindowAggregates() {
+  winTempSum = 0.0f; winTempN = 0; winTempMin = 0.0f; winTempMax = 0.0f;
+  winTurbSum = 0.0f; winTurbN = 0; winTurbMin = 0.0f; winTurbMax = 0.0f;
+  winDOSum = 0.0f; winDON = 0; winDOMin = 0.0f; winDOMax = 0.0f;
+  winPHSum = 0.0f; winPHN = 0; winPHMin = 0.0f; winPHMax = 0.0f;
+  winWaterSum = 0.0f; winWaterN = 0; winWaterMin = 0.0f; winWaterMax = 0.0f;
+}
+
+// Accumulate one accepted reading into the 10-min window aggregates.
+#define ACCUM_WINDOW(sumV, nV, minV, maxV, val) \
+  do { \
+    (sumV) += (val); (nV)++; \
+    if ((nV) == 1) { (minV) = (val); (maxV) = (val); } \
+    else { if ((val) < (minV)) (minV) = (val); if ((val) > (maxV)) (maxV) = (val); } \
+  } while (0)
 
 float dissolvedOxygen = -1.0;
 float dissolvedOxygenVoltage = 0.0;
@@ -733,41 +771,96 @@ bool ensureFirebaseReady() {
 void buildFirestorePayload(FirebaseJson &json, bool includeTimestamp) {
   String hwId = getHardwareId();
   json.set("fields/hardwareId/stringValue", hwId);
-  json.set("fields/temperature/doubleValue", smoothedTemp);
 
-  if (turbiditySensorOK) {
-    json.set("fields/turbidity_air/booleanValue", false);
-    json.set("fields/turbidity/doubleValue", smoothedTurbidityNTU);
-  } else {
-    json.set("fields/turbidity_air/booleanValue", true);
-    json.set("fields/turbidity/doubleValue", 0.0);
+  if (!includeTimestamp) {
+    // ── 5-sec LIVE payload: current smoothed values (dashboard display). ──
+    json.set("fields/temperature/doubleValue", smoothedTemp);
+
+    if (turbiditySensorOK) {
+      json.set("fields/turbidity_air/booleanValue", false);
+      json.set("fields/turbidity/doubleValue", smoothedTurbidityNTU);
+    } else {
+      json.set("fields/turbidity_air/booleanValue", true);
+      json.set("fields/turbidity/doubleValue", 0.0);
+    }
+
+    if (ENABLE_DO_SENSOR) {
+      json.set("fields/dissolved_oxygen/doubleValue", dissolvedOxygen);
+    }
+
+    if (ENABLE_PH_SENSOR) {
+      json.set("fields/ph_level/doubleValue", phLevel);
+    }
+
+    if (ENABLE_WATER_LEVEL_SENSOR) {
+      json.set("fields/water_level/doubleValue", waterLevelCm);
+    }
+    return;
   }
 
+  // ── 10-min HISTORY payload: per-sensor window aggregates. ────────────
+  // Structure per sensor: MIN, MAX, AVG (in that order — avg NOT first).
+  // The window accumulators hold every ACCEPTED reading since the last
+  // history save (up to ~1200 samples at 0.5s poll), so brief spikes
+  // inside the window are preserved (e.g. temp_max catches a spike that
+  // the snapshot at save time would miss). Falls back to the smoothed
+  // value when no samples were accepted this window.
+
+  // Temperature
+  const float tMin = winTempN > 0 ? winTempMin : smoothedTemp;
+  const float tMax = winTempN > 0 ? winTempMax : smoothedTemp;
+  const float tAvg = winTempN > 0 ? winTempSum / (float)winTempN : smoothedTemp;
+  json.set("fields/temp_min/doubleValue", tMin);
+  json.set("fields/temp_max/doubleValue", tMax);
+  json.set("fields/temp_avg/doubleValue", tAvg);
+
+  // Turbidity
+  const float trMin = winTurbN > 0 ? winTurbMin : smoothedTurbidityNTU;
+  const float trMax = winTurbN > 0 ? winTurbMax : smoothedTurbidityNTU;
+  const float trAvg = winTurbN > 0 ? winTurbSum / (float)winTurbN : smoothedTurbidityNTU;
+  json.set("fields/turbidity_min/doubleValue", trMin);
+  json.set("fields/turbidity_max/doubleValue", trMax);
+  json.set("fields/turbidity_avg/doubleValue", trAvg);
+
   if (ENABLE_DO_SENSOR) {
-    json.set("fields/dissolved_oxygen/doubleValue", dissolvedOxygen);
+    const float dMin = winDON > 0 ? winDOMin : dissolvedOxygen;
+    const float dMax = winDON > 0 ? winDOMax : dissolvedOxygen;
+    const float dAvg = winDON > 0 ? winDOSum / (float)winDON : dissolvedOxygen;
+    json.set("fields/DO_min/doubleValue", dMin);
+    json.set("fields/DO_max/doubleValue", dMax);
+    json.set("fields/DO_avg/doubleValue", dAvg);
   }
 
   if (ENABLE_PH_SENSOR) {
-    json.set("fields/ph_level/doubleValue", phLevel);
+    const float pMin = winPHN > 0 ? winPHMin : phLevel;
+    const float pMax = winPHN > 0 ? winPHMax : phLevel;
+    const float pAvg = winPHN > 0 ? winPHSum / (float)winPHN : phLevel;
+    json.set("fields/pH_min/doubleValue", pMin);
+    json.set("fields/pH_max/doubleValue", pMax);
+    json.set("fields/pH_avg/doubleValue", pAvg);
   }
 
   if (ENABLE_WATER_LEVEL_SENSOR) {
-    json.set("fields/water_level/doubleValue", waterLevelCm);
+    const float wMin = winWaterN > 0 ? winWaterMin : waterLevelCm;
+    const float wMax = winWaterN > 0 ? winWaterMax : waterLevelCm;
+    const float wAvg = winWaterN > 0 ? winWaterSum / (float)winWaterN : waterLevelCm;
+    json.set("fields/waterLevel_min/doubleValue", wMin);
+    json.set("fields/waterLevel_max/doubleValue", wMax);
+    json.set("fields/waterLevel_avg/doubleValue", wAvg);
   }
 
   // History entries carry the ESP's capture time so the Cloud Function can
   // preserve the ORIGINAL timestamp when routing (critical for offline
   // backfill — buffered readings must land in the correct date folder with
   // their true capture time, not the upload time). NTP is synced in setup().
-  if (includeTimestamp) {
-    time_t nowT;
-    time(&nowT);
-    if (nowT > 1577836800) {  // > 2020-01-01 — guard against unsynced clock
-      long long ms = (long long)nowT * 1000LL;
-      json.set("fields/captured_at_ms/integerValue", String(ms));
-    }
+  time_t nowT;
+  time(&nowT);
+  if (nowT > 1577836800) {  // > 2020-01-01 — guard against unsynced clock
+    long long ms = (long long)nowT * 1000LL;
+    json.set("fields/captured_at_ms/integerValue", String(ms));
   }
 }
+
 
 // ─── Write latest sensor reading to Firestore ───────────────────────
 // Path: sensorIngestion/current  (fixed doc — patch, overwrites in place)
@@ -803,10 +896,21 @@ void sendLatestToFirestore() {
 // hardware_system/currentOwner, and saves into
 // tanks/{tankId}/sensor_readings_history/{YYYY-MM-DD}/entries/{autoId}.
 void sendHistoryToFirestore() {
-  if (!ensureFirebaseReady()) return;
-
+  // Build the payload FIRST (captures the 10-min window aggregates).
   FirebaseJson content;
   buildFirestorePayload(content, true);
+
+  // WiFi/Firebase down: buffer the reading for later flush. (Previously we
+  // returned early here and the reading was LOST — the whole point of the
+  // store-and-forward buffer is to survive exactly this case.)
+  if (!ensureFirebaseReady()) {
+    if (bufferAppend(content.raw())) {
+      Serial.printf("[BUF] Offline — buffered entry #%u\n",
+                    (unsigned)countBufferedEntries());
+    }
+    resetWindowAggregates();  // values already captured into content
+    return;
+  }
 
   // Fixed subcollection — always under sensorIngestion/current.
   const char* colPath = "sensorIngestion/current/history";
@@ -823,6 +927,7 @@ void sendHistoryToFirestore() {
       Serial.printf("[BUF] Buffered entry #%u\n", (unsigned)countBufferedEntries());
     }
   }
+  resetWindowAggregates();  // values captured -> start a fresh 10-min window
 }
 
 // ============================================================
@@ -897,6 +1002,7 @@ void readTemperatureSensor() {
     lastValidTemp = rawTemp;
     tempSensorOK = true;
     smoothedTemp = computeAverage(tempBuffer, tempCount);
+    ACCUM_WINDOW(winTempSum, winTempN, winTempMin, winTempMax, rawTemp);
   } else {
     tempSkipCount++;
 
@@ -942,6 +1048,7 @@ void readTurbiditySensor() {
     lastValidTurbidityNTU = tr.ntu;
     turbiditySensorOK = true;
     smoothedTurbidityNTU = computeAverage(turbidityBuffer, turbidityCount);
+    ACCUM_WINDOW(winTurbSum, winTurbN, winTurbMin, winTurbMax, tr.ntu);
   } else {
     turbiditySkipCount++;
 
@@ -963,6 +1070,7 @@ void readDissolvedOxygenSensor() {
   dissolvedOxygen = dissolvedOxygenVoltage * doVoltageScale + doVoltageOffset;
   dissolvedOxygen = constrain(dissolvedOxygen, 0.0f, 30.0f);
   doSensorOK = true;
+  ACCUM_WINDOW(winDOSum, winDON, winDOMin, winDOMax, dissolvedOxygen);
 }
 
 void readPHSensor() {
@@ -975,6 +1083,7 @@ void readPHSensor() {
   phLevel = phVoltageSlope * phVoltage + phVoltageIntercept;
   phLevel = constrain(phLevel, 0.0f, 14.0f);
   phSensorOK = true;
+  ACCUM_WINDOW(winPHSum, winPHN, winPHMin, winPHMax, phLevel);
 }
 
 void readWaterLevelSensor() {
@@ -989,6 +1098,7 @@ void readWaterLevelSensor() {
   waterLevelCm = waterLevelCmMin + ratio * (waterLevelCmMax - waterLevelCmMin);
   waterLevelCm = constrain(waterLevelCm, waterLevelCmMin, waterLevelCmMax);
   waterLevelSensorOK = true;
+  ACCUM_WINDOW(winWaterSum, winWaterN, winWaterMin, winWaterMax, waterLevelCm);
 }
 
 void readAllSensors() {

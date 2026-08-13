@@ -65,7 +65,13 @@ Tracks last-seen notification markers (reminders/confirmations) — `last_read_a
 `temperature`, `ph_level`, `dissolved_oxygen`, `turbidity`, `water_level`, `recorded_at` (server timestamp)
 
 ### `tanks/{tankId}/sensor_readings_history/{YYYY-MM-DD}/entries/{docId}` ✓
-Historical readings (same fields), partitioned by date. Written by CF.
+Historical readings, partitioned by date. Written by CF. Each entry is a **10-min window** with per-sensor **MIN/MAX/AVG** aggregates (structure order: min, max, avg):
+- `temp_min`, `temp_max`, `temp_avg`
+- `turbidity_min`, `turbidity_max`, `turbidity_avg`
+- `pH_min`, `pH_max`, `pH_avg` (kapag naka-enable)
+- `DO_min`, `DO_max`, `DO_avg` (kapag naka-enable)
+- `waterLevel_min`, `waterLevel_max`, `waterLevel_avg` (kapag naka-enable)
+- `recorded_at` (timestamp) — orihinal na capture time (may fallback sa server time)
 
 ### `tanks/{tankId}/sensors/{sensorName}` ✓ *(thresholds)*
 Sensor names: `temperature` | `ph_level` | `dissolved_oxygen` | `turbidity` | `water_level`

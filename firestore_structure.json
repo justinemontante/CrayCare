@@ -70,13 +70,13 @@
         ]
       },
       "sensor_readings_history/{YYYY-MM-DD}/entries/{docId}": {
-        "_description": "Historical readings partitioned by Manila date. Written by Cloud Functions.",
+        "_description": "Historical readings partitioned by Manila date. Written by Cloud Functions. Each entry is a 10-min window with per-sensor MIN/MAX/AVG aggregates (structure order: min, max, avg).",
         "fields": [
-          "temperature",
-          "ph_level",
-          "dissolved_oxygen",
-          "turbidity",
-          "water_level",
+          "temp_min, temp_max, temp_avg",
+          "turbidity_min, turbidity_max, turbidity_avg",
+          "pH_min, pH_max, pH_avg (when ENABLE_PH_SENSOR)",
+          "DO_min, DO_max, DO_avg (when ENABLE_DO_SENSOR)",
+          "waterLevel_min, waterLevel_max, waterLevel_avg (when ENABLE_WATER_LEVEL_SENSOR)",
           "recorded_at (Timestamp)"
         ]
       },
