@@ -359,9 +359,9 @@ unsigned long lastActuatorSyncMs = 0;
 // Actuator pins are defined with the ACTUATOR STATE block above.
 
 // Set these to 1 after the actual sensor modules are connected and calibrated.
-#define ENABLE_DO_SENSOR 0
-#define ENABLE_PH_SENSOR 0
-#define ENABLE_WATER_LEVEL_SENSOR 0
+#define ENABLE_DO_SENSOR 1
+#define ENABLE_PH_SENSOR 1
+#define ENABLE_WATER_LEVEL_SENSOR 1
 
 // ============================================================
 //  CALIBRATED TURBIDITY THRESHOLDS
