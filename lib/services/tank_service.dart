@@ -111,10 +111,16 @@ class TankService extends ChangeNotifier {
   int get initialCount => _initialCount;
   int get mortality => _mortality;
   int get totalHarvested => _totalHarvested;
-  int get liveCount => _initialCount - _mortality;
-  int get inTankCount => (_initialCount - _mortality - _totalHarvested).clamp(0, _initialCount);
-  double get survivalRate =>
-      _initialCount == 0 ? 0 : (liveCount / _initialCount * 100);
+  /// Biological survivors include animals already harvested; only confirmed
+  /// mortality reduces survival. `inTankCount` additionally removes harvests.
+  int get liveCount =>
+      (_initialCount - _mortality).clamp(0, _initialCount).toInt();
+  int get inTankCount => (_initialCount - _mortality - _totalHarvested)
+      .clamp(0, _initialCount)
+      .toInt();
+  double get survivalRate => _initialCount == 0
+      ? 0.0
+      : (liveCount / _initialCount * 100).clamp(0.0, 100.0).toDouble();
   DateTime get stockingDate => _stockingDate;
 
   int get daysInCulture {
@@ -124,7 +130,11 @@ class TankService extends ChangeNotifier {
     }
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    return today.difference(DateTime(_stockingDate.year, _stockingDate.month, _stockingDate.day)).inDays;
+    return today
+        .difference(DateTime(_stockingDate.year, _stockingDate.month, _stockingDate.day))
+        .inDays
+        .clamp(0, 1000000)
+        .toInt();
   }
 
   int get daysSinceLastSampling {
@@ -133,7 +143,11 @@ class TankService extends ChangeNotifier {
     final today = DateTime(now.year, now.month, now.day);
     if (_samplingHistory.isEmpty) return daysInCulture;
     final last = _samplingHistory.last.date;
-    return today.difference(DateTime(last.year, last.month, last.day)).inDays;
+    return today
+        .difference(DateTime(last.year, last.month, last.day))
+        .inDays
+        .clamp(0, 1000000)
+        .toInt();
   }
 
   bool get hasSamplingThisWeek {
@@ -471,6 +485,8 @@ class TankService extends ChangeNotifier {
     _sampleCount = batch.sampleCount;
     _totalSampleWeight = batch.initialTotalWeight;
     _totalSampleLength = batch.initialTotalLength;
+    _mortality = batch.totalMortality;
+    _totalHarvested = batch.harvestCount;
     _isInitialized = true;
     _setupComplete = true;
   }
@@ -601,11 +617,20 @@ class TankService extends ChangeNotifier {
         .orderBy('harvest_date')
         .snapshots()
         .listen((snap) {
-      _harvestRecords = snap.docs
-          .map((doc) => CrayfishHarvestRecord.fromJson(
-              doc.id, Map<String, dynamic>.from(doc.data())))
-          .toList()
+      _harvestRecords = snap.docs.map((doc) {
+        final data = Map<String, dynamic>.from(doc.data());
+        // Older records were path-scoped but omitted batch_id, causing the
+        // filtered harvest list/dashboard weight to appear empty.
+        data['batch_id'] ??= batchId;
+        return CrayfishHarvestRecord.fromJson(doc.id, data);
+      }).toList()
         ..sort((a, b) => a.date.compareTo(b.date));
+      // The record collection is the source of truth; rebuilding the aggregate
+      // keeps another device's dashboard consistent without relying on cache.
+      _totalHarvested = _harvestRecords.fold<int>(
+        0,
+        (sum, record) => sum + record.harvestedCount,
+      );
       notifyListeners();
     }, onError: (e) {
       debugPrint('[TankService] _harvestsSub error: $e');
@@ -693,7 +718,10 @@ class TankService extends ChangeNotifier {
     }
     if (initial <= 0) throw ArgumentError('Initial population must be greater than 0');
     if (sampleCount <= 0) throw ArgumentError('Sample count must be greater than 0');
-    if (totalWeight < 0 || totalLength < 0) throw ArgumentError('Weight and length must be non-negative');
+    if (sampleCount > initial) throw ArgumentError('Sample count cannot exceed initial population');
+    if (totalWeight <= 0 || totalLength <= 0) {
+      throw ArgumentError('Sample weight and length must be greater than zero');
+    }
 
     // Mark currently active batch as superseded — await the inner set() so
     // the write completes before we overwrite local state below.
@@ -777,8 +805,13 @@ class TankService extends ChangeNotifier {
 
   Future<void> addSamplingEntry(int count, double weight, double length) async {
     if (count <= 0) throw ArgumentError('Sample count must be greater than 0');
-    if (weight < 0 || length < 0) throw ArgumentError('Weight and length must be non-negative');
-    if (_selectedBatchId == null) throw ArgumentError('No batch selected');
+    if (count > inTankCount) throw ArgumentError('Sample count exceeds in-tank population');
+    if (weight <= 0 || length <= 0) {
+      throw ArgumentError('Sample weight and length must be greater than zero');
+    }
+    if (_selectedBatchId == null || _selectedBatchId!.isEmpty) {
+      throw ArgumentError('No batch selected');
+    }
 
     _setupComplete = true;
     final now = DateTime.now();
@@ -789,7 +822,6 @@ class TankService extends ChangeNotifier {
       date: now, abw: abw, avgLength: avgLength, sampleSize: count,
       totalWeight: weight, totalLength: length, biomass: inTankCount * abw, liveCount: inTankCount,
     );
-    _samplingHistory.add(entry);
     try {
       await _samplingRef(_selectedBatchId!).add({
         'sampling_date': entry.date.millisecondsSinceEpoch,
@@ -804,7 +836,7 @@ class TankService extends ChangeNotifier {
         'created_at': FieldValue.serverTimestamp(),
       });
       _addActivity('Recorded sampling: ${abw.toStringAsFixed(2)}g ABW, ${avgLength.toStringAsFixed(2)}cm ABL', 'sampling', sampleSize: count, abw: abw, avgLength: avgLength);
-      _saveConfig();
+      await _saveConfig();
     } catch (e) {
       debugPrint('[TankService] Error saving sampling entry: $e');
       rethrow;
@@ -816,7 +848,10 @@ class TankService extends ChangeNotifier {
     if (_lastSamplingDocId == null || _samplingHistory.isEmpty) return;
     if (_selectedBatchId == null) return;
     if (count <= 0) throw ArgumentError('Sample count must be greater than 0');
-    if (weight < 0 || length < 0) throw ArgumentError('Weight and length must be non-negative');
+    if (count > inTankCount) throw ArgumentError('Sample count exceeds in-tank population');
+    if (weight <= 0 || length <= 0) {
+      throw ArgumentError('Sample weight and length must be greater than zero');
+    }
 
     final abw = weight / count;
     final avgLength = length / count;
@@ -848,20 +883,55 @@ class TankService extends ChangeNotifier {
 
   Future<void> addMortality(int val, {DateTime? date}) async {
     if (val <= 0) throw ArgumentError('Mortality count must be greater than 0');
-    if (_selectedBatchId == null) throw ArgumentError('No batch selected');
+    if (val > inTankCount) {
+      throw ArgumentError('Mortality count exceeds in-tank population ($inTankCount)');
+    }
+    final batchId = _selectedBatchId;
+    if (batchId == null || batchId.isEmpty) throw ArgumentError('No batch selected');
 
-    _mortality += val;
     _setupComplete = true;
     final mEntry = MortalityEntry(date: date ?? DateTime.now(), count: val);
-    _mortalityHistory.add(mEntry);
+    final batchRef = _batchesRef.doc(batchId);
+    final recordRef = _mortalityRef(batchId).doc();
+    int committedMortality = _mortality + val;
     try {
-      await _mortalityRef(_selectedBatchId!).add({
-        'mortality_date': mEntry.date.millisecondsSinceEpoch,
-        'mortality_count': mEntry.count,
-        'created_at': FieldValue.serverTimestamp(),
+      await _fs.runTransaction((transaction) async {
+        final batchSnap = await transaction.get(batchRef);
+        if (!batchSnap.exists || batchSnap.data() == null) {
+          throw StateError('Selected batch does not exist');
+        }
+        final data = batchSnap.data()!;
+        final initial = (data['initial_count'] as num?)?.toInt() ?? _initialCount;
+        final batchMortality =
+            (data['total_mortality'] as num?)?.toInt() ?? 0;
+        // Legacy active batches did not always update this aggregate. Prefer
+        // the subscribed record total whenever it is higher.
+        final existingMortality =
+            batchMortality > _mortality ? batchMortality : _mortality;
+        final existingHarvest =
+            (data['harvest_count'] as num?)?.toInt() ?? _totalHarvested;
+        final available =
+            (initial - existingMortality - existingHarvest).clamp(0, initial);
+        if (val > available) {
+          throw StateError('Mortality count exceeds current in-tank population ($available)');
+        }
+        committedMortality = existingMortality + val;
+        transaction.set(recordRef, {
+          'mortality_date': mEntry.date.millisecondsSinceEpoch,
+          'mortality_count': mEntry.count,
+          'created_at': FieldValue.serverTimestamp(),
+        });
+        transaction.set(batchRef, {
+          'total_mortality': committedMortality,
+          'current_count':
+              (initial - committedMortality - existingHarvest).clamp(0, initial),
+        }, SetOptions(merge: true));
+        transaction.set(_tankRef, {
+          'lifetime_mortality': committedMortality,
+        }, SetOptions(merge: true));
       });
+      _mortality = committedMortality;
       _addActivity('Recorded mortality of $val crayfish (Total: $_mortality)', 'mortality', customDate: date);
-      _saveConfig();
     } catch (e) {
       debugPrint('[TankService] Error saving mortality entry: $e');
       rethrow;
@@ -877,24 +947,56 @@ class TankService extends ChangeNotifier {
     final last = _mortalityHistory.last;
     if (last.id.isEmpty) return;
 
-    final diff = newCount - last.count;
-    _mortality = (_mortality + diff).clamp(0, _initialCount);
-    _mortalityHistory.last = MortalityEntry(
-      id: last.id,
-      date: last.date,
-      count: newCount,
-    );
+    final batchId = _selectedBatchId!;
+    final recordRef = _mortalityRef(batchId).doc(last.id);
+    final batchRef = _batchesRef.doc(batchId);
+    int committedMortality = _mortality - last.count + newCount;
 
     try {
-      await _mortalityRef(_selectedBatchId!).doc(last.id).update({
-        'mortality_count': newCount,
-        'created_at': FieldValue.serverTimestamp(),
+      await _fs.runTransaction((transaction) async {
+        final recordSnap = await transaction.get(recordRef);
+        final batchSnap = await transaction.get(batchRef);
+        if (!recordSnap.exists || recordSnap.data() == null ||
+            !batchSnap.exists || batchSnap.data() == null) {
+          throw StateError('Mortality record or batch no longer exists');
+        }
+        final actualOld =
+            (recordSnap.data()!['mortality_count'] as num?)?.toInt() ?? last.count;
+        final data = batchSnap.data()!;
+        final initial = (data['initial_count'] as num?)?.toInt() ?? _initialCount;
+        final batchMortality =
+            (data['total_mortality'] as num?)?.toInt() ?? 0;
+        // Legacy active batches did not always update this aggregate. Prefer
+        // the subscribed record total whenever it is higher.
+        final existingMortality =
+            batchMortality > _mortality ? batchMortality : _mortality;
+        final existingHarvest =
+            (data['harvest_count'] as num?)?.toInt() ?? _totalHarvested;
+        committedMortality = existingMortality - actualOld + newCount;
+        final maxMortality = initial - existingHarvest;
+        if (committedMortality < 0 || committedMortality > maxMortality) {
+          throw StateError('Updated mortality exceeds available population ($maxMortality)');
+        }
+        transaction.update(recordRef, {
+          'mortality_count': newCount,
+          'created_at': FieldValue.serverTimestamp(),
+        });
+        transaction.set(batchRef, {
+          'total_mortality': committedMortality,
+          'current_count':
+              (initial - committedMortality - existingHarvest).clamp(0, initial),
+        }, SetOptions(merge: true));
+        transaction.set(_tankRef, {
+          'lifetime_mortality': committedMortality,
+        }, SetOptions(merge: true));
       });
-      await _batchesRef.doc(_selectedBatchId!).set({
-        'total_mortality': _mortality,
-      }, SetOptions(merge: true));
+      _mortality = committedMortality;
+      _mortalityHistory.last = MortalityEntry(
+        id: last.id,
+        date: last.date,
+        count: newCount,
+      );
       _addActivity('Updated last mortality record to $newCount (Total: $_mortality)', 'mortality');
-      _saveConfig();
     } catch (e) {
       debugPrint('[TankService] Error updating mortality entry: $e');
       rethrow;
@@ -909,42 +1011,67 @@ class TankService extends ChangeNotifier {
     DateTime? date,
   }) async {
     if (harvestedCount <= 0) throw ArgumentError('Harvested count must be greater than 0');
-    if (totalWeightKg < 0) throw ArgumentError('Total weight must be non-negative');
+    if (totalWeightKg <= 0) throw ArgumentError('Total harvest weight must be greater than zero');
+    final resolvedBatchId = batchId ?? _selectedBatchId ?? '';
+    if (resolvedBatchId.isEmpty) throw ArgumentError('No batch selected');
+    if (harvestedCount > inTankCount) {
+      throw ArgumentError('Harvest count exceeds in-tank population ($inTankCount)');
+    }
 
     final now = date ?? DateTime.now();
-    final abwGrams = harvestedCount > 0 ? (totalWeightKg * 1000) / harvestedCount : 0.0;
-    _totalHarvested += harvestedCount;
-    final sr = _initialCount > 0 ? (liveCount / _initialCount * 100) : 0.0;
-    final resolvedBatchId = batchId ?? _selectedBatchId ?? '';
+    final abwGrams = (totalWeightKg * 1000) / harvestedCount;
+    final batchRef = _batchesRef.doc(resolvedBatchId);
+    final recordRef = _harvestRef(resolvedBatchId).doc();
+    int committedTotal = _totalHarvested + harvestedCount;
 
     try {
-      await _harvestRef(resolvedBatchId).add({
-        'harvest_date': now.millisecondsSinceEpoch,
-        'harvest_count': harvestedCount,
-        'total_weight_kg': totalWeightKg,
-        'abw_grams': abwGrams,
-        'survival_rate': sr,
-        'created_at': FieldValue.serverTimestamp(),
-      });
-
-      final batchRef = _batchesRef.doc(resolvedBatchId);
-      final batchSnap = await batchRef.get();
-      if (batchSnap.exists && batchSnap.data() != null) {
+      await _fs.runTransaction((transaction) async {
+        final batchSnap = await transaction.get(batchRef);
+        if (!batchSnap.exists || batchSnap.data() == null) {
+          throw StateError('Selected batch does not exist');
+        }
         final existing = batchSnap.data()!;
-        final totalH = ((existing['harvest_count'] as num?)?.toInt() ?? 0) + harvestedCount;
-        final existingWeight = (existing['harvest_weight_grams'] as num?)?.toDouble() ?? 0;
-        await batchRef.set({
+        final initial = (existing['initial_count'] as num?)?.toInt() ?? _initialCount;
+        final batchDeaths =
+            (existing['total_mortality'] as num?)?.toInt() ?? 0;
+        final deaths = batchDeaths > _mortality ? batchDeaths : _mortality;
+        final existingHarvest = (existing['harvest_count'] as num?)?.toInt() ?? 0;
+        final available = (initial - deaths - existingHarvest).clamp(0, initial);
+        if (harvestedCount > available) {
+          throw StateError('Harvest count exceeds current available population ($available)');
+        }
+        committedTotal = existingHarvest + harvestedCount;
+        final existingWeight =
+            (existing['harvest_weight_grams'] as num?)?.toDouble() ?? 0.0;
+        final survival = initial > 0
+            ? ((initial - deaths) / initial * 100).clamp(0.0, 100.0)
+            : 0.0;
+
+        transaction.set(recordRef, {
+          'batch_id': resolvedBatchId,
           'harvest_date': now.millisecondsSinceEpoch,
-          'harvest_count': totalH,
+          'harvest_count': harvestedCount,
+          'total_weight_kg': totalWeightKg,
+          'abw_grams': abwGrams,
+          'survival_rate': survival,
+          'created_at': FieldValue.serverTimestamp(),
+        });
+        transaction.set(batchRef, {
+          'harvest_date': now.millisecondsSinceEpoch,
+          'harvest_count': committedTotal,
+          'current_count': (initial - deaths - committedTotal).clamp(0, initial),
           'harvest_weight_grams': existingWeight + (totalWeightKg * 1000),
         }, SetOptions(merge: true));
-      }
+        transaction.set(_tankRef, {
+          'lifetime_harvested': committedTotal,
+        }, SetOptions(merge: true));
+      });
 
+      _totalHarvested = committedTotal;
       _addActivity(
         'Harvested $harvestedCount crayfish, ${totalWeightKg.toStringAsFixed(2)}kg total (ABW: ${abwGrams.toStringAsFixed(1)}g)',
         'harvest',
       );
-      _saveConfig();
     } catch (e) {
       debugPrint('[TankService] Error saving harvest record: $e');
       rethrow;
@@ -959,60 +1086,87 @@ class TankService extends ChangeNotifier {
     required double totalWeightKg,
   }) async {
     if (harvestedCount <= 0) throw ArgumentError('Harvested count must be greater than 0');
-    if (totalWeightKg < 0) throw ArgumentError('Total weight must be non-negative');
+    if (totalWeightKg <= 0) throw ArgumentError('Total harvest weight must be greater than zero');
     if (_harvestRecords.isEmpty) return;
     final last = _harvestRecords.last;
     if (last.id.isEmpty) return;
 
-    final abwGrams = harvestedCount > 0 ? (totalWeightKg * 1000) / harvestedCount : 0.0;
-    final sr = _initialCount > 0 ? (liveCount / _initialCount * 100) : 0.0;
-
-    // Adjust running totals by the difference between old and new values.
-    final oldCount = last.harvestedCount;
-    final oldWeight = last.totalWeightKg;
-    _totalHarvested = (_totalHarvested - oldCount + harvestedCount).clamp(0, _initialCount);
-
-    _harvestRecords.last = CrayfishHarvestRecord(
-      id: last.id,
-      batchId: last.batchId,
-      date: last.date,
-      harvestedCount: harvestedCount,
-      totalWeightKg: totalWeightKg,
-      abwGrams: abwGrams,
-      survivalRate: sr,
-    );
-
-    final resolvedBatchId = last.batchId.isNotEmpty ? last.batchId : (_selectedBatchId ?? '');
-    if (resolvedBatchId.isEmpty) return;
+    final resolvedBatchId =
+        last.batchId.isNotEmpty ? last.batchId : (_selectedBatchId ?? '');
+    if (resolvedBatchId.isEmpty) throw ArgumentError('No batch selected');
+    final abwGrams = (totalWeightKg * 1000) / harvestedCount;
+    final recordRef = _harvestRef(resolvedBatchId).doc(last.id);
+    final batchRef = _batchesRef.doc(resolvedBatchId);
+    int committedTotal = _totalHarvested;
+    double committedSurvival = survivalRate;
 
     try {
-      await _harvestRef(resolvedBatchId).doc(last.id).update({
-        'harvest_count': harvestedCount,
-        'total_weight_kg': totalWeightKg,
-        'abw_grams': abwGrams,
-        'survival_rate': sr,
-        'created_at': FieldValue.serverTimestamp(),
+      await _fs.runTransaction((transaction) async {
+        final recordSnap = await transaction.get(recordRef);
+        final batchSnap = await transaction.get(batchRef);
+        if (!recordSnap.exists || recordSnap.data() == null ||
+            !batchSnap.exists || batchSnap.data() == null) {
+          throw StateError('Harvest record or batch no longer exists');
+        }
+        final recordData = recordSnap.data()!;
+        final batchData = batchSnap.data()!;
+        final actualOldCount =
+            (recordData['harvest_count'] as num?)?.toInt() ?? last.harvestedCount;
+        final actualOldWeight =
+            (recordData['total_weight_kg'] as num?)?.toDouble() ?? last.totalWeightKg;
+        final initial = (batchData['initial_count'] as num?)?.toInt() ?? _initialCount;
+        final batchDeaths =
+            (batchData['total_mortality'] as num?)?.toInt() ?? 0;
+        final deaths = batchDeaths > _mortality ? batchDeaths : _mortality;
+        final existingHarvest =
+            (batchData['harvest_count'] as num?)?.toInt() ?? _totalHarvested;
+        committedTotal = existingHarvest - actualOldCount + harvestedCount;
+        final maxSurvivors = (initial - deaths).clamp(0, initial);
+        if (committedTotal < 0 || committedTotal > maxSurvivors) {
+          throw StateError('Updated harvest exceeds available population ($maxSurvivors)');
+        }
+        final previousWeight =
+            (batchData['harvest_weight_grams'] as num?)?.toDouble() ?? 0.0;
+        final newWeight = previousWeight - (actualOldWeight * 1000) +
+            (totalWeightKg * 1000);
+        committedSurvival = initial > 0
+            ? ((initial - deaths) / initial * 100)
+                .clamp(0.0, 100.0)
+                .toDouble()
+            : 0.0;
+
+        transaction.update(recordRef, {
+          'batch_id': resolvedBatchId,
+          'harvest_count': harvestedCount,
+          'total_weight_kg': totalWeightKg,
+          'abw_grams': abwGrams,
+          'survival_rate': committedSurvival,
+          'created_at': FieldValue.serverTimestamp(),
+        });
+        transaction.set(batchRef, {
+          'harvest_count': committedTotal,
+          'current_count': (initial - deaths - committedTotal).clamp(0, initial),
+          'harvest_weight_grams': newWeight.clamp(0.0, double.infinity),
+        }, SetOptions(merge: true));
+        transaction.set(_tankRef, {
+          'lifetime_harvested': committedTotal,
+        }, SetOptions(merge: true));
       });
 
-      final batchRef = _batchesRef.doc(resolvedBatchId);
-      final batchSnap = await batchRef.get();
-      if (batchSnap.exists && batchSnap.data() != null) {
-        final existing = batchSnap.data()!;
-        final prevTotalH = ((existing['harvest_count'] as num?)?.toInt() ?? 0);
-        final prevWeight = (existing['harvest_weight_grams'] as num?)?.toDouble() ?? 0;
-        final newTotalH = prevTotalH - oldCount + harvestedCount;
-        final newWeight = prevWeight - (oldWeight * 1000) + (totalWeightKg * 1000);
-        await batchRef.set({
-          'harvest_count': newTotalH < 0 ? 0 : newTotalH,
-          'harvest_weight_grams': newWeight < 0 ? 0 : newWeight,
-        }, SetOptions(merge: true));
-      }
-
+      _totalHarvested = committedTotal;
+      _harvestRecords.last = CrayfishHarvestRecord(
+        id: last.id,
+        batchId: resolvedBatchId,
+        date: last.date,
+        harvestedCount: harvestedCount,
+        totalWeightKg: totalWeightKg,
+        abwGrams: abwGrams,
+        survivalRate: committedSurvival,
+      );
       _addActivity(
         'Updated last harvest to $harvestedCount crayfish, ${totalWeightKg.toStringAsFixed(2)}kg total',
         'harvest',
       );
-      _saveConfig();
     } catch (e) {
       debugPrint('[TankService] Error updating harvest record: $e');
       rethrow;

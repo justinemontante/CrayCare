@@ -129,7 +129,16 @@ There is no public WQC numeric score. At least six complete 10-minute records ar
 
 ## 4. PRODUCTION / BATCHES ✓
 ### `tanks/{tankId}/batches/{batchId}` ✓
-`batchId`, `tankId`, `status` (`active`|`harvested`|`superseded`), `stockingDate` (ms), `harvestDate` (ms|null), `initialCount`, `currentCount`, `harvestCount`, `totalMortality`, `harvestWeightGrams`, `initialAbw`, `initialAbl`, `finalAbw`, `finalAbl`, `daysInCulture`, `sampleCount`, `initialTotalWeight`, `initialTotalLength`, `created_at`
+Canonical stored fields are snake_case (see the exact list in the appendix below). Derived calculations used consistently by TankService and the dashboard:
+- `ABW (g) = total sample weight (g) / sample size`
+- `ABL (cm) = total sample length (cm) / sample size`
+- `biological survivors = initial_count - total_mortality`
+- `in-tank count = initial_count - total_mortality - harvest_count`
+- `survival rate (%) = biological survivors / initial_count × 100` (harvested animals are survivors, not deaths)
+- `estimated biomass (kg) = in-tank count × latest ABW (g) / 1000`
+- `harvest ABW (g) = total_weight_kg × 1000 / harvest_count`
+
+Mortality and harvest record creation plus aggregate updates use atomic Firestore batches/transactions. Values are clamped/validated so mortality + harvest cannot exceed the initial population.
 
 ### `tanks/{tankId}/batches/{batchId}/sampling_records/{recordId}` ✓
 `tankId`, `batchId`, `date` (ms), `abw`, `avgLength`, `sampleSize`, `totalWeight`, `totalLength`, `biomass`, `liveCount`, `isBaseline`, `timestamp`

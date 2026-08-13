@@ -825,8 +825,11 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   Widget _buildTankStatusCard() {
     final tank = TankService.instance;
-    final batch = tank.activeOrLatestBatch;
-    final hasActive = tank.activeBatches.isNotEmpty;
+    // Dashboard must describe one coherent batch. Prefer the batch selected in
+    // TankService (including an archive); otherwise show the active/latest one.
+    // Previously it displayed the active batch header with archived sampling data.
+    final batch = tank.selectedBatch ?? tank.activeOrLatestBatch;
+    final hasActive = batch?.status == 'active';
     final hasBatch = batch != null;
 
     String popStr, survivalStr, aliveStr, mortalityStr;
@@ -835,15 +838,22 @@ class _DashboardScreenState extends State<DashboardScreen>
       final effectiveMortality = isSelected ? tank.mortality : batch.totalMortality;
       final effectiveInitial = batch.initialCount;
       popStr = effectiveInitial.toString();
-      final surv = effectiveInitial > 0 ? ((effectiveInitial - effectiveMortality) / effectiveInitial * 100) : 0.0;
+      final surv = effectiveInitial > 0
+          ? ((effectiveInitial - effectiveMortality) / effectiveInitial * 100)
+              .clamp(0.0, 100.0)
+          : 0.0;
       survivalStr = '${surv.toStringAsFixed(1)}%';
       aliveStr = isSelected
           ? tank.inTankCount.toString()
-          : (effectiveInitial - effectiveMortality).toString();
+          : (effectiveInitial - effectiveMortality - batch.harvestCount)
+              .clamp(0, effectiveInitial)
+              .toString();
       mortalityStr = effectiveMortality.toString();
-    } else if (hasBatch) {
+    } else if (batch != null) {
       final surv = batch.initialCount > 0
-          ? ((batch.initialCount - batch.totalMortality) / batch.initialCount * 100)
+          ? ((batch.initialCount - batch.totalMortality) /
+                  batch.initialCount * 100)
+              .clamp(0.0, 100.0)
           : 0.0;
       popStr = '${batch.initialCount}';
       survivalStr = '${surv.toStringAsFixed(1)}%';
@@ -931,13 +941,6 @@ class _DashboardScreenState extends State<DashboardScreen>
         );
   }
 
-  static const _stageRules = [
-    (label: 'Early Juvenile', min: 1.0, max: 5.0),
-    (label: 'Advanced Juvenile', min: 5.0, max: 15.0),
-    (label: 'Pre-Adult', min: 15.0, max: 50.0),
-    (label: 'Market Size', min: 50.0, max: 100.0),
-  ];
-
   Widget _buildCrayfishGraySection(TankService tank, bool hasActive, [CrayfishBatch? batch]) {
     final isArchived = batch != null && !hasActive;
     final isSelected = batch != null && tank.selectedBatchId == batch.batchId;
@@ -967,17 +970,21 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     if (abw <= 0) {
       stageLabel = '--';
+    } else if (hasActive && isSelected) {
+      // Use the same ABW+ABL classification as the production/tank screens.
+      stageLabel = tank.currentGrowthStage.label;
     } else {
-      int activeIndex = 0;
-      for (int i = 0; i < _stageRules.length; i++) {
-        final rule = _stageRules[i];
-        if (i == _stageRules.length - 1) {
-          if (abw >= rule.min) activeIndex = i;
-        } else {
-          if (abw >= rule.min && abw < rule.max) activeIndex = i;
-        }
+      // Archived batches retain final measurements; apply the same conservative
+      // rule (both weight and length must pass a stage boundary).
+      if (abw < 5 || abl < 4) {
+        stageLabel = 'Early Juvenile';
+      } else if (abw < 15 || abl < 6) {
+        stageLabel = 'Advanced Juvenile';
+      } else if (abw < 50 || abl < 10) {
+        stageLabel = 'Pre-Adult';
+      } else {
+        stageLabel = 'Market Size';
       }
-      stageLabel = _stageRules[activeIndex].label;
     }
 
     final biomassKg = hasActive && isSelected && abw > 0 ? tank.inTankCount * abw / 1000 : 0.0;
@@ -1010,7 +1017,11 @@ class _DashboardScreenState extends State<DashboardScreen>
           ),
           _buildGrayDetailRow(Icons.hourglass_bottom, 'Days in Culture', daysStr == '--' ? '--' : '${daysStr}d'),
           const SizedBox(height: 8),
-          _buildGrayDetailRow(Icons.calendar_today, 'Stocking Date', hasActive ? _formatTankDate(tank.stockingDate) : '--'),
+          _buildGrayDetailRow(
+            Icons.calendar_today,
+            'Stocking Date',
+            batch != null ? _formatTankDate(batch.stockingDate) : '--',
+          ),
           if (showSampling) ...[
             const SizedBox(height: 8),
             _buildGrayDetailRow(Icons.history, 'Last Sampling', lastSamplingStr),
