@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../theme/app_colors.dart';
 import '../services/settings_service.dart';
 import '../services/sensor_service.dart';
@@ -209,15 +210,13 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     }
 
     records.sort((a, b) {
-      final at = _toInt(a['timestamp']) ?? 0;
-      final bt = _toInt(b['timestamp']) ?? 0;
+      final at = _recordTime(a);
+      final bt = _recordTime(b);
       return at.compareTo(bt);
     });
 
-    // Pre-parse timestamps once — used by 24h (raw plot) and bucketed ranges
-    final parsedTs = List<DateTime>.generate(records.length, (i) {
-      return _parseTimestamp(records[i]['timestamp']);
-    });
+    // Canonical history uses `recorded_at`; aliases remain for legacy records.
+    final parsedTs = records.map(_recordTime).toList();
 
     // 24h, 7d, 30d, custom: use bucketed aggregation
     List<DateTime> labelTimes;
@@ -334,10 +333,20 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
   }
 
-  DateTime _parseTimestamp(dynamic ts) {
-    if (ts is! num) return DateTime(2000);
-    final ms = ts.toInt() < 100000000000 ? ts.toInt() * 1000 : ts.toInt();
-    return DateTime.fromMillisecondsSinceEpoch(ms);
+  DateTime _recordTime(Map<String, dynamic> record) {
+    final raw = record['recorded_at'] ??
+        record['timestamp'] ??
+        record['captured_at_ms'] ??
+        record['created_at'];
+    if (raw is Timestamp) return raw.toDate();
+    if (raw is DateTime) return raw;
+    if (raw is num) {
+      final n = raw.toInt();
+      final ms = n < 100000000000 ? n * 1000 : n;
+      return DateTime.fromMillisecondsSinceEpoch(ms);
+    }
+    if (raw is String) return DateTime.tryParse(raw) ?? DateTime(2000);
+    return DateTime(2000);
   }
 
   double? _toDouble(dynamic v) {

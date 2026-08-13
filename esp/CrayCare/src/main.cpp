@@ -14,14 +14,12 @@
  *    1.40V = 500 NTU (dirty water)
  *    NTU = (turbidityVClear - voltage) * 500 / (turbidityVClear - turbidityVDirty)
  *
- * Active sensors now:
- *  1. Temperature       : DS18B20
- *  2. Turbidity         : DFRobot SEN0189
- *
- * Placeholder sensors added:
- *  3. Dissolved Oxygen  : analog placeholder
- *  4. pH Level          : analog placeholder
- *  5. Water Level       : analog placeholder
+ * Production sensors:
+ *  1. Temperature       : DS18B20 (GPIO 4)
+ *  2. Turbidity         : DFRobot SEN0189 (GPIO 34)
+ *  3. Dissolved Oxygen  : DFRobot SEN0237 analog (GPIO 36)
+ *  4. pH Level          : DFRobot SEN0161 analog (GPIO 35)
+ *  5. Water Level       : HC-SR04 TRIG 32 / ECHO 33
  *
  * Arduino IDE libraries needed:
  *  1. Firebase ESP Client by Mobizt
@@ -76,8 +74,8 @@ String pass;
 // ============================================================
 // Firebase credentials (FIREBASE_API_KEY, FIREBASE_DATABASE_URL,
 // FIREBASE_PROJECT_ID) are defined in secrets.h (included above).
-// All data paths route to tanks/{currentTankId}/... — no intermediate
-// sensorIngestion collection exists anymore.
+// Sensor snapshots are staged under sensorIngestion and routed by Cloud
+// Functions. Device control/config paths use tanks/{currentTankId}/... directly.
 // Hardware ID derived from MAC address on first use (see getHardwareId())
 String hardwareId = "";
 String currentTankId = "";
@@ -266,6 +264,7 @@ unsigned long feederLastFeedEpoch = 0;
 bool feederIsRunning = false;
 String feederFeedSource = "";          // "manual" or "scheduled"
 int feederFeedCount = 0;              // total feeds dispensed since boot
+float feederRequestedGrams = 20.0f;   // calibrated estimate; 20 g per servo cycle
 
 // Firestore integerValue is textual. Avoid 32-bit unsigned-long overflow
 // when sending epoch milliseconds from the ESP32.
@@ -297,6 +296,7 @@ struct FeedSchedule {
   int hour24;
   int minute;
   bool enabled;
+  float grams;
 };
 
 int feederScheduleCount = 0;
@@ -348,13 +348,15 @@ unsigned long lastActuatorSyncMs = 0;
 // ============================================================
 #define TEMP_PIN 4
 #define TURBIDITY_PIN 34
-#define DO_PIN 35
-#define PH_PIN 32
-#define WATER_LEVEL_PIN 33
+#define DO_PIN 36
+#define PH_PIN 35
+#define WATER_LEVEL_TRIG_PIN 32
+#define WATER_LEVEL_ECHO_PIN 33
 
 // Feeder
 #define FEEDER_SERVO_PIN 13
-#define FEEDER_HOPPER_SENSOR_PIN 36   // optional: load cell / level sensor
+// No hopper input is assigned: GPIO36 is the production DO analog input.
+// Hopper percentage remains an estimated value until a dedicated load cell is added.
 
 // Actuator pins are defined with the ACTUATOR STATE block above.
 
@@ -391,11 +393,11 @@ float doVoltageScale = 4.0;
 float doVoltageOffset = 0.0;
 float phVoltageSlope = -5.70;
 float phVoltageIntercept = 21.34;
-float waterLevelVoltageMin = 0.0;
-float waterLevelVoltageMax = 3.3;
-// Physical water depth represented by the calibrated voltage range.
+// HC-SR04 mounting calibration (centimetres). The sensor is mounted above
+// the tank bottom; depth = sensorHeight - measured air gap.
+float waterSensorHeightCm = 65.0;
 float waterLevelCmMin = 0.0;
-float waterLevelCmMax = 30.0;
+float waterLevelCmMax = 23.0;
 
 // ============================================================
 //  SAMPLING / FILTERING SETTINGS
@@ -480,7 +482,7 @@ float phVoltage = 0.0;
 bool phSensorOK = false;
 
 float waterLevelCm = -1.0;
-float waterLevelVoltage = 0.0;
+float waterDistanceCm = -1.0;
 bool waterLevelSensorOK = false;
 
 struct TurbidityResult {
@@ -501,6 +503,41 @@ float readAnalogVoltage(uint8_t pin) {
 
   float avg = (float)sum / SAMPLE_COUNT;
   return avg * (3.3f / 4095.0f);
+}
+
+float saturationDOmgL(float tempC) {
+  // Freshwater oxygen saturation approximation near sea level.
+  const float t = constrain(tempC, 0.0f, 40.0f);
+  return 14.652f - 0.41022f * t + 0.007991f * t * t -
+         0.000077774f * t * t * t;
+}
+
+void saveSensorCalibrations() {
+  prefs.begin("sensorcal", false);
+  prefs.putFloat("phSlope", phVoltageSlope);
+  prefs.putFloat("phIntercept", phVoltageIntercept);
+  prefs.putFloat("doScale", doVoltageScale);
+  prefs.putFloat("doOffset", doVoltageOffset);
+  prefs.putFloat("tankHeight", waterSensorHeightCm);
+  prefs.putFloat("tankDepth", waterLevelCmMax);
+  prefs.putFloat("turbClear", turbidityVClear);
+  prefs.putFloat("turbDirty", turbidityVDirty);
+  prefs.putFloat("turbAir", turbidityVAirMax);
+  prefs.end();
+}
+
+void loadSensorCalibrations() {
+  prefs.begin("sensorcal", true);
+  phVoltageSlope = prefs.getFloat("phSlope", phVoltageSlope);
+  phVoltageIntercept = prefs.getFloat("phIntercept", phVoltageIntercept);
+  doVoltageScale = prefs.getFloat("doScale", doVoltageScale);
+  doVoltageOffset = prefs.getFloat("doOffset", doVoltageOffset);
+  waterSensorHeightCm = prefs.getFloat("tankHeight", waterSensorHeightCm);
+  waterLevelCmMax = prefs.getFloat("tankDepth", waterLevelCmMax);
+  turbidityVClear = prefs.getFloat("turbClear", turbidityVClear);
+  turbidityVDirty = prefs.getFloat("turbDirty", turbidityVDirty);
+  turbidityVAirMax = prefs.getFloat("turbAir", turbidityVAirMax);
+  prefs.end();
 }
 
 float computeAverage(float buffer[], uint8_t count) {
@@ -723,7 +760,7 @@ void syncConfigFromFirebase() {
   changed |= syncTankRange("water_level",       waterLevelCriticalLow, waterLevelCriticalHigh,  0.0,  300.0);
 
   if (changed) {
-    Serial.printf("[CONFIG] Tank %s | Temp %.1f-%.1f | Turb %.0f-%.0f | DO %.1f-%.1f | pH %.1f-%.1f | Water %.1f-%.1f%%\n",
+    Serial.printf("[CONFIG] Tank %s | Temp %.1f-%.1f | Turb %.0f-%.0f | DO %.1f-%.1f | pH %.1f-%.1f | Water %.1f-%.1fcm\n",
                   currentTankId.c_str(), tempCriticalLow, tempCriticalHigh,
                   turbNtuMin, turbNtuMax, doCriticalLow, doCriticalHigh,
                   phCriticalLow, phCriticalHigh, waterLevelCriticalLow, waterLevelCriticalHigh);
@@ -774,7 +811,7 @@ void buildFirestorePayload(FirebaseJson &json, bool includeTimestamp) {
 
   if (!includeTimestamp) {
     // ── 5-sec LIVE payload: current smoothed values (dashboard display). ──
-    json.set("fields/temperature/doubleValue", smoothedTemp);
+    json.set("fields/temperature/doubleValue", tempSensorOK ? smoothedTemp : -1.0f);
 
     if (turbiditySensorOK) {
       json.set("fields/turbidity_air/booleanValue", false);
@@ -1067,8 +1104,18 @@ void readDissolvedOxygenSensor() {
   }
 
   dissolvedOxygenVoltage = readAnalogVoltage(DO_PIN);
+  if (dissolvedOxygenVoltage < 0.05f || dissolvedOxygenVoltage > 3.25f) {
+    dissolvedOxygen = -1.0f;
+    doSensorOK = false;
+    Serial.printf("[DO] Invalid/disconnected voltage: %.3fV\n", dissolvedOxygenVoltage);
+    return;
+  }
   dissolvedOxygen = dissolvedOxygenVoltage * doVoltageScale + doVoltageOffset;
-  dissolvedOxygen = constrain(dissolvedOxygen, 0.0f, 30.0f);
+  if (!isfinite(dissolvedOxygen) || dissolvedOxygen < 0.0f || dissolvedOxygen > 20.0f) {
+    dissolvedOxygen = -1.0f;
+    doSensorOK = false;
+    return;
+  }
   doSensorOK = true;
   ACCUM_WINDOW(winDOSum, winDON, winDOMin, winDOMax, dissolvedOxygen);
 }
@@ -1080,8 +1127,18 @@ void readPHSensor() {
   }
 
   phVoltage = readAnalogVoltage(PH_PIN);
+  if (phVoltage < 0.05f || phVoltage > 3.25f) {
+    phLevel = -1.0f;
+    phSensorOK = false;
+    Serial.printf("[PH] Invalid/disconnected voltage: %.3fV\n", phVoltage);
+    return;
+  }
   phLevel = phVoltageSlope * phVoltage + phVoltageIntercept;
-  phLevel = constrain(phLevel, 0.0f, 14.0f);
+  if (!isfinite(phLevel) || phLevel < 0.0f || phLevel > 14.0f) {
+    phLevel = -1.0f;
+    phSensorOK = false;
+    return;
+  }
   phSensorOK = true;
   ACCUM_WINDOW(winPHSum, winPHN, winPHMin, winPHMax, phLevel);
 }
@@ -1089,14 +1146,39 @@ void readPHSensor() {
 void readWaterLevelSensor() {
   if (!ENABLE_WATER_LEVEL_SENSOR) {
     waterLevelCm = -1.0;
+    waterLevelSensorOK = false;
     return;
   }
 
-  waterLevelVoltage = readAnalogVoltage(WATER_LEVEL_PIN);
-  const float ratio = (waterLevelVoltage - waterLevelVoltageMin) /
-      (waterLevelVoltageMax - waterLevelVoltageMin);
-  waterLevelCm = waterLevelCmMin + ratio * (waterLevelCmMax - waterLevelCmMin);
-  waterLevelCm = constrain(waterLevelCm, waterLevelCmMin, waterLevelCmMax);
+  digitalWrite(WATER_LEVEL_TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(WATER_LEVEL_TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(WATER_LEVEL_TRIG_PIN, LOW);
+
+  // Timeout prevents a missing/disconnected echo from blocking the control loop.
+  const unsigned long durationUs = pulseIn(WATER_LEVEL_ECHO_PIN, HIGH, 30000UL);
+  if (durationUs == 0) {
+    waterDistanceCm = -1.0;
+    waterLevelCm = -1.0;
+    waterLevelSensorOK = false;
+    Serial.println("[WATER] HC-SR04 timeout/disconnected");
+    return;
+  }
+
+  waterDistanceCm = durationUs * 0.0343f / 2.0f;
+  const float depth = waterSensorHeightCm - waterDistanceCm;
+  // Reject impossible geometry instead of constraining a bad echo into a
+  // believable value that could start the pump.
+  if (depth < waterLevelCmMin - 2.0f || depth > waterLevelCmMax + 2.0f) {
+    waterLevelCm = -1.0;
+    waterLevelSensorOK = false;
+    Serial.printf("[WATER] Invalid echo: distance=%.1fcm depth=%.1fcm\n",
+                  waterDistanceCm, depth);
+    return;
+  }
+
+  waterLevelCm = constrain(depth, waterLevelCmMin, waterLevelCmMax);
   waterLevelSensorOK = true;
   ACCUM_WINDOW(winWaterSum, winWaterN, winWaterMin, winWaterMax, waterLevelCm);
 }
@@ -1115,7 +1197,7 @@ void processFeederCommands();
 void sendFeederStatus();
 void syncFeederSchedules();
 void checkScheduledFeed();
-void startFeed(String source);
+void startFeed(String source, float grams = 20.0f);
 void processFeederTick();
 void pushFeederLog(String action, String type);
 
@@ -1137,8 +1219,12 @@ void setup() {
 
   analogReadResolution(12);
   analogSetAttenuation(ADC_11db);
+  pinMode(WATER_LEVEL_TRIG_PIN, OUTPUT);
+  digitalWrite(WATER_LEVEL_TRIG_PIN, LOW);
+  pinMode(WATER_LEVEL_ECHO_PIN, INPUT);
 
   sensors.begin();
+  loadSensorCalibrations();
 
   primeTemperatureBuffer();
   primeTurbidityBuffer();
@@ -1183,6 +1269,74 @@ void loop() {
     }
     if (cmd == "FEED") {
       startFeed("manual");
+    }
+    if (cmd.startsWith("tankheight ")) {
+      const float v = cmd.substring(11).toFloat();
+      if (v > 5.0f && v < 400.0f) {
+        waterSensorHeightCm = v;
+        saveSensorCalibrations();
+        Serial.printf("[CAL] HC-SR04 height = %.1f cm\n", v);
+      }
+    }
+    if (cmd.startsWith("tankdepth ")) {
+      const float v = cmd.substring(10).toFloat();
+      if (v > 1.0f && v < waterSensorHeightCm) {
+        waterLevelCmMax = v;
+        saveSensorCalibrations();
+        Serial.printf("[CAL] Tank max depth = %.1f cm\n", v);
+      }
+    }
+    if (cmd == "tankcal") {
+      Serial.printf("[CAL] sensorHeight=%.1fcm maxDepth=%.1fcm lastDistance=%.1fcm\n",
+                    waterSensorHeightCm, waterLevelCmMax, waterDistanceCm);
+    }
+    if (cmd == "phcal7" || cmd == "phcal4") {
+      const float v = readAnalogVoltage(PH_PIN);
+      prefs.begin("sensorcal", false);
+      prefs.putFloat(cmd == "phcal7" ? "phV7" : "phV4", v);
+      const float v7 = prefs.getFloat("phV7", -1.0f);
+      const float v4 = prefs.getFloat("phV4", -1.0f);
+      prefs.end();
+      if (v7 > 0.0f && v4 > 0.0f && fabs(v7 - v4) > 0.05f) {
+        phVoltageSlope = 3.0f / (v7 - v4);
+        phVoltageIntercept = 7.0f - phVoltageSlope * v7;
+        saveSensorCalibrations();
+        Serial.printf("[CAL] pH two-point saved: slope=%.4f intercept=%.4f\n",
+                      phVoltageSlope, phVoltageIntercept);
+      } else {
+        Serial.printf("[CAL] Saved %s voltage %.3fV; calibrate the other buffer next.\n",
+                      cmd.c_str(), v);
+      }
+    }
+    if (cmd == "doread") {
+      Serial.printf("[CAL] DO raw=%.3fV current=%.2fmg/L temp=%.1fC\n",
+                    dissolvedOxygenVoltage, dissolvedOxygen, smoothedTemp);
+    }
+    if (cmd == "doclear") {
+      const float v = readAnalogVoltage(DO_PIN);
+      if (v > 0.05f) {
+        doVoltageScale = saturationDOmgL(smoothedTemp) / v;
+        doVoltageOffset = 0.0f;
+        saveSensorCalibrations();
+        Serial.printf("[CAL] DO air calibration saved: scale=%.4f\n", doVoltageScale);
+      }
+    }
+    if (cmd.startsWith("turbclear ")) {
+      turbidityVClear = cmd.substring(10).toFloat();
+      saveSensorCalibrations();
+    }
+    if (cmd.startsWith("turbdirty ")) {
+      turbidityVDirty = cmd.substring(10).toFloat();
+      saveSensorCalibrations();
+    }
+    if (cmd.startsWith("turbair ")) {
+      turbidityVAirMax = cmd.substring(8).toFloat();
+      saveSensorCalibrations();
+    }
+    if (cmd == "raw") {
+      Serial.printf("[RAW] pH=%.3fV DO=%.3fV Turb=%.3fV HC-SR04=%.1fcm Water=%.1fcm\n",
+                    phVoltage, dissolvedOxygenVoltage, turbidityVoltage,
+                    waterDistanceCm, waterLevelCm);
     }
     // Relay test commands (local only — cloud mode re-asserts on next sync)
     if (cmd == "n1on")  { setActuatorRelay(0, true);  reportActuatorState(0, true); }
@@ -1337,6 +1491,7 @@ void processFeederCommands() {
     String docId;
     String action;
     String mode;
+    float grams;
   };
   CmdEntry entries[20];
   int entryCount = 0;
@@ -1353,12 +1508,16 @@ void processFeederCommands() {
     String base = String("documents/[") + i + "]/fields/";
     CmdEntry& e = entries[entryCount];
     e.docId = docId;
+    e.grams = 20.0f;
 
     if (response.get(d, base + "command_type/stringValue")) e.action = d.stringValue;
     // Legacy fallback: try old action field if new not present
     if (e.action == "" && response.get(d, base + "action/stringValue")) e.action = d.stringValue;
     if (response.get(d, base + "trigger_type/stringValue")) e.mode = d.stringValue;
     if (e.mode == "" && response.get(d, base + "mode/stringValue")) e.mode = d.stringValue;
+    if (response.get(d, base + "grams/doubleValue")) e.grams = d.doubleValue;
+    else if (response.get(d, base + "grams/integerValue")) e.grams = d.stringValue.toFloat();
+    e.grams = constrain(e.grams, 1.0f, 200.0f);
 
     if (e.action != "") entryCount++;
   }
@@ -1370,7 +1529,7 @@ void processFeederCommands() {
                   e.action.c_str(), e.mode.c_str(), e.docId.c_str());
 
     if (e.action == "feed_now") {
-      startFeed("manual");
+      startFeed(e.mode == "scheduled" ? "scheduled" : "manual", e.grams);
     } else if (e.action == "set_mode" && e.mode != "") {
       feederAutoMode = (e.mode == "auto");
       Serial.printf("[FEEDER] Mode -> %s\n", feederAutoMode ? "AUTO" : "MANUAL");
@@ -1407,7 +1566,8 @@ void sendFeederStatus() {
   } else {
     json.set("fields/last_dispensed_at/nullValue", "NULL_VALUE");
   }
-  json.set("fields/last_dispensed_grams/doubleValue", (feederIsRunning || feederLastFeedEpoch > 0) ? "20.0" : "0.0");
+  json.set("fields/last_dispensed_grams/doubleValue",
+           (feederIsRunning || feederLastFeedEpoch > 0) ? String(feederRequestedGrams, 1) : "0.0");
 
   String statusDoc = "tanks/" + currentTankId + "/feeder/status";
   if (!Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "",
@@ -1487,11 +1647,28 @@ void syncFeederSchedules() {
     s.minute  = minute;
     s.enabled = true;
     if (response.get(d, base + "is_active/booleanValue")) s.enabled = d.boolValue;
+    s.grams = 20.0f;
+    if (response.get(d, base + "grams/doubleValue")) s.grams = d.doubleValue;
+    else if (response.get(d, base + "grams/integerValue")) s.grams = d.stringValue.toFloat();
+    s.grams = constrain(s.grams, 1.0f, 200.0f);
 
     feederScheduleCount++;
   }
 
   Serial.printf("[FEEDER] Synced %d schedules from Firestore\n", feederScheduleCount);
+}
+
+bool canFeedSafely(String &reason) {
+  if (!tempSensorOK || !doSensorOK || !phSensorOK || !turbiditySensorOK) {
+    reason = "required water-quality sensor unavailable";
+    return false;
+  }
+  if (smoothedTemp < tempCriticalLow || smoothedTemp > tempCriticalHigh) reason = "temperature outside range";
+  else if (dissolvedOxygen < doCriticalLow) reason = "dissolved oxygen too low";
+  else if (phLevel < phCriticalLow || phLevel > phCriticalHigh) reason = "pH outside range";
+  else if (smoothedTurbidityNTU > turbNtuMax) reason = "turbidity too high";
+  else return true;
+  return false;
 }
 
 // ─── Check if it's time for a scheduled feed ───
@@ -1513,19 +1690,29 @@ void checkScheduledFeed() {
       // Check we haven't already fired this minute
       unsigned long nowEpoch = (unsigned long)now;
       if (nowEpoch - feederLastFeedEpoch >= 60) {
-        Serial.printf("[FEEDER] Scheduled feed at %02d:%02d\n", s.hour24, s.minute);
-        startFeed("scheduled");
+        Serial.printf("[FEEDER] Scheduled feed at %02d:%02d (%.1fg)\n",
+                      s.hour24, s.minute, s.grams);
+        startFeed("scheduled", s.grams);
       }
     }
   }
 }
 
 // ─── Start Feed — kicks off non-blocking state machine ───
-void startFeed(String source) {
+void startFeed(String source, float grams) {
   if (feederRunState != FEEDER_IDLE) {
     Serial.println("[FEEDER] Already running, skipping");
     return;
   }
+  String blockedReason;
+  if (!canFeedSafely(blockedReason)) {
+    Serial.printf("[FEEDER] BLOCKED: %s\n", blockedReason.c_str());
+    pushFeederLog("Feed blocked: " + blockedReason, "error");
+    return;
+  }
+
+  feederRequestedGrams = constrain(grams, 1.0f, 200.0f);
+  feederMaxCycles = constrain((int)ceil(feederRequestedGrams / 20.0f), 1, 10);
 
   time_t now;
   time(&now);

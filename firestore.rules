@@ -44,10 +44,23 @@ service cloud.firestore {
         min >= 0.0 && min <= 95.0 && max >= 5.0 && max <= 100.0;
       return validNumbers && (tempOk || phOk || doOk || turbOk || waterOk);
     }
-    // ESP32 currently authenticates with Firebase anonymous sign-in. This is
-    // a practical thesis/demo guard; use a dedicated device identity or server
-    // ingestion endpoint for a fully hardened production deployment.
-    function isEspSession() { return isSignedIn(); }
+    // The production ESP authenticates anonymously; normal owner/admin accounts
+    // use non-anonymous providers. This prevents every signed-in app user from
+    // inheriting device privileges. A custom device claim or HTTPS ingestion
+    // endpoint is still recommended before a public production rollout.
+    function isEspSession() {
+      return isSignedIn() &&
+        request.auth.token.firebase.sign_in_provider == 'anonymous';
+    }
+    function isAssignedEsp(tankId) {
+      return isEspSession() &&
+        get(/databases/$(database)/documents/hardware_system/currentOwner).data.tank_id == tankId;
+    }
+    function ownerChangesOnlyControlMode(tankId) {
+      return isTankOwner(tankId) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['control_mode']) &&
+        request.resource.data.control_mode in ['on', 'off', 'auto'];
+    }
 
     match /users/{uid} {
       allow get: if isSignedIn() && (request.auth.uid == uid || isAdmin());
@@ -81,7 +94,7 @@ service cloud.firestore {
 
     // Single ESP assignment. Only admins may link/reassign hardware.
     match /hardware_system/{doc} {
-      allow read: if isSignedIn();
+      allow read: if isAdmin() || isEspSession();
       allow write, delete: if isAdmin();
     }
 
@@ -93,13 +106,12 @@ service cloud.firestore {
 
       match /sensor_readings/{doc} {
         allow read: if isTankOwner(tankId) || isAdmin();
-        // Canonical readings are normally written by Admin SDK Cloud Functions.
-        // Authenticated ESP is retained for the thesis/demo fallback.
-        allow create, update: if isEspSession();
+        // Canonical readings are written only by Admin SDK routing functions.
+        allow create, update, delete: if false;
       }
       match /sensor_readings_history/{dateStr}/entries/{entryId} {
         allow read: if isTankOwner(tankId) || isAdmin();
-        allow create, update: if isEspSession();
+        allow create, update, delete: if false;
       }
 
       // The ESP must read the current assigned tank's thresholds. Thresholds
@@ -107,41 +119,44 @@ service cloud.firestore {
       // Owners are restricted to SAFE values (see isSafeThreshold) so they
       // cannot disable alerts by setting absurd thresholds.
       match /sensors/{sensorName} {
-        allow read: if isTankOwner(tankId) || isAdmin() || isEspSession();
+        allow read: if isTankOwner(tankId) || isAdmin() || isAssignedEsp(tankId);
         allow create: if isAdmin() || (isTankOwner(tankId) && isSafeThreshold(sensorName));
         allow update: if isAdmin() || (isTankOwner(tankId) && isSafeThreshold(sensorName));
         allow delete: if isAdmin();
       }
       match /actuators/{actuatorId} {
-        // Owners/admins control the mode. The anonymous ESP32 reads it and
-        // reports back the ACTUAL relay state (current_state + last_changed).
-        allow read: if isTankOwner(tankId) || isAdmin() || isEspSession();
-        allow write: if isTankOwner(tankId) || isAdmin();
-        allow update: if isEspSession() && request.resource.data.diff(resource.data)
-            .affectedKeys().hasOnly(['current_state', 'last_changed']);
+        allow read: if isTankOwner(tankId) || isAdmin() || isAssignedEsp(tankId);
+        // Tank creation seeds complete documents; subsequent owner changes are
+        // restricted to control_mode. Only the assigned ESP reports reality.
+        allow create: if isTankOwner(tankId) || isAdmin();
+        allow update: if isAdmin() || ownerChangesOnlyControlMode(tankId) ||
+          (isAssignedEsp(tankId) && request.resource.data.diff(resource.data)
+            .affectedKeys().hasOnly(['current_state', 'last_changed']));
+        allow delete: if isAdmin();
       }
       match /actuator_logs/{logId} {
         allow read: if isTankOwner(tankId) || isAdmin();
-        // ESP32 creates log entries when it physically changes a relay.
-        allow create: if isTankOwner(tankId) || isAdmin() || isEspSession();
+        allow create: if isTankOwner(tankId) || isAdmin() || isAssignedEsp(tankId);
         allow update, delete: if isAdmin();
       }
       match /feeder/{doc} {
-        allow read: if isTankOwner(tankId) || isAdmin();
-        allow write: if isEspSession() || isTankOwner(tankId) || isAdmin();
+        allow read: if isTankOwner(tankId) || isAdmin() || isAssignedEsp(tankId);
+        allow create: if isTankOwner(tankId) || isAdmin() || isAssignedEsp(tankId);
+        allow update: if isAdmin() || isAssignedEsp(tankId);
+        allow delete: if isAdmin();
       }
       match /feeder_schedules/{scheduleId} {
-        allow read: if isTankOwner(tankId) || isAdmin() || isEspSession();
+        allow read: if isTankOwner(tankId) || isAdmin() || isAssignedEsp(tankId);
         allow write: if isTankOwner(tankId) || isAdmin();
       }
       match /pending_commands/{commandId} {
         allow create: if isTankOwner(tankId) || isAdmin();
-        allow read, delete: if isEspSession() || isTankOwner(tankId) || isAdmin();
+        allow read, delete: if isTankOwner(tankId) || isAdmin() || isAssignedEsp(tankId);
         allow update: if false;
       }
       match /feeder_logs/{logId} {
         allow read: if isTankOwner(tankId) || isAdmin();
-        allow create: if isEspSession() || isTankOwner(tankId) || isAdmin();
+        allow create: if isTankOwner(tankId) || isAdmin() || isAssignedEsp(tankId);
         allow update, delete: if isTankOwner(tankId) || isAdmin();
       }
       match /feeder_dispatched/{dateKey} {

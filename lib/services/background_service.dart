@@ -30,7 +30,10 @@ void callbackDispatcher() {
         options: DefaultFirebaseOptions.currentPlatform,
       );
       if (task == _feedTaskName) {
-        await BackgroundHelper.checkAndDispatchFeeding();
+        // The ESP32 is the single source of truth for executing stored feeding
+        // schedules (including while the phone is offline). Do not enqueue a
+        // second feed command here: that used to race the ESP-local scheduler
+        // and could physically dispense twice. Background work is reminders only.
         await BackgroundHelper.showPendingNotifications();
         await BackgroundHelper.checkSamplingReminders();
       }

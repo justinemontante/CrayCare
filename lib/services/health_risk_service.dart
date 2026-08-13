@@ -12,7 +12,6 @@ class HealthRiskResult {
   final String insight;
   final String action;
   final String source;
-  final double riskScore;
   final String driverLabel;
   final double? driverValue;
   final String driverUnit;
@@ -31,7 +30,6 @@ class HealthRiskResult {
     required this.insight,
     required this.action,
     required this.source,
-    required this.riskScore,
     required this.driverLabel,
     required this.driverValue,
     required this.driverUnit,
@@ -52,7 +50,6 @@ class HealthRiskResult {
       insight: data['insight'] as String? ?? '',
       action: data['action'] as String? ?? '',
       source: data['source'] as String? ?? '',
-      riskScore: (data['risk_score'] as num?)?.toDouble() ?? 0,
       driverLabel: data['driver_label'] as String? ?? (data['driver'] as String? ?? 'N/A'),
       driverValue: (data['driver_value'] as num?)?.toDouble(),
       driverUnit: data['driver_unit'] as String? ?? '',

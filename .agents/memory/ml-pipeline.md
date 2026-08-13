@@ -1,60 +1,40 @@
 ---
 name: ML pipeline architecture (current schema)
-description: XGBoost classifier flow, Firestore paths, output schema, model file, and Cloud Function trigger
+description: Hourly XGBoost WQC flow, Firestore paths, output schema, and minimum data
 ---
 
-## Rule
-The ML pipeline is event-driven — do not add polling or cron triggers.
+## Canonical flow
 
-**Why:** ESP32 writes `sensorIngestion/current` → Cloud Function
-(`functions/notifications/index.js`) routes it to
-`tanks/{tankId}/sensor_readings/latest` → this triggers the Python Cloud Function
-(`functions/ml/main.py`) via Firestore onWrite. Adding a cron would duplicate predictions.
+The ML pipeline is scheduled once per hour in Asia/Manila.
 
-## Flow (current schema)
 ```
-ESP32 (anonymous)
-  → writes sensorIngestion/current (every ~5s) + history (every ~10 min)
-      → CF routes to tanks/{tankId}/sensor_readings/latest
-          → CF (functions/ml/main.py, _predict_wqc) triggers on that doc
-              → fetches last 24h from tanks/{tankId}/sensor_readings_history/{date}/entries
-                (needs ≥5 readings, single-field where on recorded_at)
-              → loads wqc_model.joblib, calls features.predict_wqc()
-              → writes result to tanks/{tankId}/health_risk/current
-                  → Flutter HealthRiskService (real-time snapshot listener)
-                      → dashboard card + AI insights sheet
+ESP32
+  → sensorIngestion/current every ~5s
+  → sensorIngestion/current/history every ~10min
+      → Node Cloud Functions route to the assigned tank
+          → tanks/{tankId}/sensor_readings/latest
+          → tanks/{tankId}/sensor_readings_history/{date}/entries/{id}
+              → Python run_hourly_wqc reads the last 24h
+              → requires at least 6 complete 10-minute records
+              → XGBoost WQC (or rule fallback if artifact cannot load)
+              → tanks/{tankId}/ml_predictions/current
+                  → MlService + HealthRiskService snapshot listeners
 ```
 
-## Firestore output schema (tanks/{tankId}/health_risk/current)
-```
-level       String   "Low" | "Moderate" | "High" | "Critical" | "Insufficient"
-confidence  int      0–100
-driver      String   sensor name e.g. "pH", "DO", "temperature"
-problem     String   short human-readable problem description
-insight     String   detailed analysis with regulatory citations
-action      String   recommended corrective action
-source      String   "ml" | "insufficient_data" | "rule_based"
-timestamp   String   ISO 8601
-tank_id     String   stamped by Cloud Function
-```
+## Output contract
 
-> NO `score` field — was removed. See wqc-rename.md.
+- `level`: Low | Moderate | High | Critical | Insufficient
+- `confidence`: 0–100
+- `driver`, `driver_label`, `driver_value`, `driver_unit`, `driver_min`, `driver_max`
+- `problem`, `insight`, `action`, `source`, `analysis_mode`
+- `samples_analyzed`, `required_samples`, `timestamp`, `tank_id`, optional `uid`
+- No public numeric risk score.
 
-## Model details
-- File: `functions/ml/wqc_model.joblib`
-- Algorithm: XGBoost classifier
-- Features: 45 engineered features from 5 sensors
-- Training rows: 11,664 (90 days × 10-min intervals, 8 fault types)
-- Trained with: `python functions/ml/train_model.py`
-- Verified with: `python functions/ml/predict.py`
+Incomplete records are skipped; missing sensors must never be converted to zero.
 
-## Insufficient data fallback
-If fewer than 5 readings exist in the last 24h, main.py returns:
-```
-{ level: "Insufficient", confidence: 0, driver: "N/A", source: "insufficient_data", ... }
-```
+## Model
 
-## How to apply
-- To retrain: run `generate_dataset.py` then `train_model.py` then `predict.py` to verify
-- Never hardcode the model filename in new code — always use the `wqc_model.joblib` path constant
-- Reference: `docs/FIRESTORE_STRUCTURE_ACTUAL.md` (updated 2026-08-01)
+- `functions/ml/wqc_model.joblib`
+- XGBoost multiclass classifier
+- 45 engineered features from five sensors
+- Synthetic development dataset; not field validation

@@ -281,12 +281,11 @@ class DatabaseService {
 
     final tankRef = _db.collection('tanks').doc(tankId);
 
+    // The app requests a mode only. `current_state` and `last_changed` describe
+    // the physical relay and are written exclusively by the ESP after it has
+    // applied the request (especially important for AUTO, which may resolve OFF).
     await tankRef.collection('actuators').doc(actuatorId).set({
       'control_mode': mode,
-      'current_state': mode == 'off' ? 'off' : 'on',
-      // Integer epoch-ms — consistent with the ESP32 firmware which writes
-      // last_changed as an integer, so the field never mixes Timestamp/int.
-      'last_changed': DateTime.now().millisecondsSinceEpoch,
     }, SetOptions(merge: true));
 
     await tankRef.collection('actuator_logs').add({

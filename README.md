@@ -14,11 +14,12 @@ IoT-based smart aquaculture monitoring system for crayfish farming.
 ## Architecture
 
 ```
-ESP32 (anonymous auth)
-  → writes sensorIngestion/current (+ history)
-      → Cloud Function routes to tanks/{tankId}/sensor_readings/latest
-          → Flutter app reads (real-time) + ML function predicts
-              → tanks/{tankId}/health_risk/current → dashboard + alerts
+ESP32 (anonymous device session)
+  → writes sensorIngestion/current (+ 10-minute history)
+      → Cloud Function routes to tanks/{tankId}/sensor_readings/latest + history
+          → Flutter app reads live/analytics data
+          → hourly Python WQC function analyzes ≥6 complete history windows
+              → tanks/{tankId}/ml_predictions/current → dashboard + AI insights
 ```
 
 Single hardware package assigned to one farmer via `hardware_system/currentOwner`

@@ -527,9 +527,14 @@ class SensorService extends ChangeNotifier {
       }
     }
 
-    cachedRecords.sort(
-      (a, b) => (_toInt(a['timestamp']) ?? 0).compareTo(_toInt(b['timestamp']) ?? 0),
-    );
+    // Canonical history documents use `recorded_at` (Firestore Timestamp).
+    // Keep legacy timestamp aliases readable while sorting all records by the
+    // actual capture time rather than treating missing numeric timestamps as 0.
+    cachedRecords.sort((a, b) {
+      final at = _extractTimestamp(a) ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bt = _extractTimestamp(b) ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return at.compareTo(bt);
+    });
     return cachedRecords;
   }
 

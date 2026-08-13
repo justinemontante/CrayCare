@@ -34,6 +34,10 @@ OTHER PERIPHERALS
 │   13   │       │ Servo (Feeder)       │ PWM control              │
 └────────┴───────┴──────────────────────┴──────────────────────────┘
 
+NOTE: No hopper sensor pin is assigned. Hopper percentage in the app is an
+estimated value until a dedicated load cell/ADC is added. GPIO36 is reserved
+exclusively for the dissolved-oxygen analog input.
+
 ============================================
   VOLTAGE DIVIDER CONFIGURATION
 ============================================
@@ -61,6 +65,10 @@ Tank configuration:
   - Sensor mounted at: 65cm above tank bottom
   - Tank water depth:  23cm max
   - Water depth = 65cm − measured_distance
+
+⚠️ HC-SR04 ECHO is normally 5V. Never connect ECHO directly to ESP32 GPIO33.
+   Use a 5V→3.3V level shifter or resistor divider (for example 1kΩ from ECHO
+   to GPIO33 and 2kΩ from GPIO33 to GND). TRIG may connect to GPIO32.
 
 LCD display: "W:XXcm" (actual water depth)
 

@@ -1,7 +1,8 @@
 firebase-functions>=0.5,<1
 firebase-admin>=6,<7
-xgboost>=3,<4
-pandas>=3,<4
+# Pin the model serializer/runtime pair; wqc_model.joblib was regenerated with 3.4.0.
+xgboost==3.4.0
+pandas>=2.2,<4
 numpy>=2,<3
-scikit-learn>=1.9,<2
+scikit-learn>=1.6,<2
 joblib>=1.5,<2

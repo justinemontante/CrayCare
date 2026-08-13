@@ -309,9 +309,11 @@ exports.onSensorIngestionWrite = functions.region("asia-southeast1").firestore
       functions.logger.warn("[Ingestion] No hardware owner/tank assigned; latest reading not routed.");
       return null;
     }
+    // A latest reading is a complete snapshot. Replace rather than merge so a
+    // sensor omitted/disabled by firmware cannot leave an old value looking fresh.
     await firestoreDb.collection("tanks").doc(owner.tankId)
       .collection("sensor_readings").doc("latest")
-      .set(normalizeSensorReading(change.after.data()), { merge: true });
+      .set(normalizeSensorReading(change.after.data()));
     functions.logger.log(`[Ingestion] Latest routed -> tanks/${owner.tankId}/sensor_readings/latest`);
     return null;
   });

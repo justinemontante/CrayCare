@@ -115,19 +115,26 @@ def _fetch_sensor_history(tank_id: str, hours: int = 24):
                 # The ESP now writes 10-min window aggregates (min/max/avg), so
                 # volatility/trend features get a REAL signal. Fall back to the
                 # snapshot value for legacy entries where min/max/avg are absent.
-                temp = data.get("temp_avg", data.get("temperature", 0.0))
+                # Never convert a missing sensor into numeric zero: zero is a
+                # real, often critical, measurement (especially for DO). A WQC
+                # sample is usable only when all five required sensors exist.
+                temp = data.get("temp_avg", data.get("temperature"))
+                ph = data.get("pH_avg", data.get("ph_level"))
+                do = data.get("DO_avg", data.get("dissolved_oxygen"))
+                turb = data.get("turbidity_avg", data.get("turbidity"))
+                water = data.get("waterLevel_avg", data.get("water_level"))
+                base_values = (temp, ph, do, turb, water)
+                if any(v is None or not isinstance(v, (int, float)) or v < 0 for v in base_values):
+                    print(f"[WQC] Skipping incomplete/invalid history doc {doc.id}")
+                    continue
                 temp_min = data.get("temp_min", temp)
                 temp_max = data.get("temp_max", temp)
-                ph = data.get("pH_avg", data.get("ph_level", 0.0))
                 ph_min = data.get("pH_min", ph)
                 ph_max = data.get("pH_max", ph)
-                do = data.get("DO_avg", data.get("dissolved_oxygen", 0.0))
                 do_min = data.get("DO_min", do)
                 do_max = data.get("DO_max", do)
-                turb = data.get("turbidity_avg", data.get("turbidity", 0.0))
                 turb_min = data.get("turbidity_min", turb)
                 turb_max = data.get("turbidity_max", turb)
-                water = data.get("waterLevel_avg", data.get("water_level", 0.0))
                 water_min = data.get("waterLevel_min", water)
                 water_max = data.get("waterLevel_max", water)
                 rows.append({
@@ -160,7 +167,6 @@ def _analyze_tank(tank_id: str) -> None:
         result = {
             "level": "Insufficient",
             "confidence": 0,
-            "risk_score": 0,
             "driver": "N/A",
             "driver_label": "Collecting sensor history",
             "problem": "Not enough data collected yet",

@@ -116,12 +116,14 @@ ESP32 + app lumilikha. `action`, `type`, `time`, `date`, `timestamp`
 Flutter creates; ESP32 reads + deletes after processing.
 `command_type` (`feed_now`), `trigger_type` (`manual`|`auto`), `grams`, `issued_by`, `status` (`pending`|`done`), `issued_at`
 
-### `tanks/{tankId}/feeder_dispatched/{YYYY-MM-DD}` ✓
-Flutter-only. Tracks kung anong schedules ang na-fire na ngayong araw. `scheduleIds` (array), `dispatched_at`
+### `tanks/{tankId}/feeder_dispatched/{YYYY-M-D}` ✓
+Legacy/idempotency marker used by manual app dispatch flows. Each schedule document ID is stored as a dynamic boolean field (`{scheduleId}: true`). Stored schedules themselves are executed by the ESP32; Android background work is reminders-only.
 
-### `tanks/{tankId}/health_risk/current` ✓
-**Written by ML Cloud Function** (Admin SDK). App reads (snapshot listener).
-`uid`, `tank_id`, `level` (`Low`|`Moderate`|`High`|`Critical`|`Insufficient`), `confidence`, `driver`, `problem`, `insight`, `action`, `source` (`ml`|`insufficient_data`|`rule_based`), `timestamp`
+### `tanks/{tankId}/ml_predictions/current` ✓
+**Written hourly by the Python WQC Cloud Function** (Admin SDK). The app reads it with snapshot listeners.
+`uid`, `tank_id`, `level` (`Low`|`Moderate`|`High`|`Critical`|`Insufficient`), `confidence`, `driver`, `driver_label`, `driver_value`, `driver_unit`, `driver_min`, `driver_max`, `problem`, `insight`, `action`, `source` (standards/citation text), `analysis_mode`, `samples_analyzed`, `required_samples`, `timestamp` (ISO-8601 string).
+
+There is no public WQC numeric score. At least six complete 10-minute records are required; incomplete sensor records are skipped rather than converted to zero.
 
 ---
 
@@ -175,7 +177,7 @@ ESP32 creates every 10min. CF → `tanks/{tankId}/sensor_readings_history/{date}
 | `sensorReadingsHistory/{uid}` | Pinalitan ng nested history |
 | `feederSchedules`, `feederLogs`, `feederCommands`, `feederStatus`, `feederDispatched` | Flat versions — nasa `tanks/{id}/...` na |
 | `deviceModes`, `deviceLogs` | Pinalitan ng `actuators/` + `actuator_logs/` |
-| `healthRisk/{tankId}` | Pinalitan ng `tanks/{id}/health_risk/current` |
+| `healthRisk/{tankId}`, `tanks/{id}/health_risk/current` | Pinalitan ng `tanks/{id}/ml_predictions/current` |
 | `batches`, `sampling_records`, `mortality_records`, `harvest_records` (flat) | Pinalitan ng nested batch structure |
 | `notifPrefs`, `notifMarkers`, `migration`, `sensorConfig`, `system_config` | Legacy / unused |
 | `deviceLogs` | Flat logs — pinalitan ng `actuator_logs` |

@@ -334,7 +334,10 @@ class FeederService extends ChangeNotifier {
       final parts = time.split(':');
       final h = int.tryParse(parts[0]) ?? 6;
       final m = int.tryParse(parts[1]) ?? 0;
-      final timeValue = (ampm == 'PM' && h != 12 ? h + 12 : h) * 60 + m;
+      final hour24 = ampm == 'PM'
+          ? (h == 12 ? 12 : h + 12)
+          : (h == 12 ? 0 : h);
+      final timeValue = hour24 * 60 + m;
       // tanks/{tank_id}/feeder_schedules/{autoId}
       await tankDoc.collection('feeder_schedules').add({
         'time': time,

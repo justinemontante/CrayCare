@@ -323,7 +323,7 @@ def predict_wqc(df, bundle, recs):
     action = rec.get("critical_action" if level == "Critical" else "action", rec["action"])
     from datetime import datetime, timezone
     return {
-        "level": level, "confidence": confidence, "risk_score": score,
+        "level": level, "confidence": confidence,
         "driver": driver, "driver_label": details["label"],
         "driver_value": details["value"], "driver_unit": details["unit"],
         "driver_min": details["min"], "driver_max": details["max"],
