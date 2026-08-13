@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_colors.dart';
 import '../widgets/gradient_button.dart';
 import 'signup_screen.dart';
+import 'verify_screen.dart';
 import 'main_shell.dart';
 import '../services/auth_service.dart';
 
@@ -105,12 +106,27 @@ class _LoginScreenState extends State<LoginScreen> {
       );
     } catch (e) {
       final msg = e.toString().replaceAll('Exception: ', '');
-      setState(() {
-        _loginError = msg.contains('disabled')
-            ? msg
-            : 'Incorrect email or password.';
-        _autovalidateMode = AutovalidateMode.onUserInteraction;
-      });
+      final lower = msg.toLowerCase();
+      if (msg.contains('disabled')) {
+        setState(() {
+          _loginError = msg;
+          _autovalidateMode = AutovalidateMode.onUserInteraction;
+        });
+      } else if (lower.contains('verify')) {
+        // User exists but hasn't verified their email yet — send them to
+        // the VerifyScreen instead of showing a misleading error.
+        setState(() => _loginError = null);
+        if (!mounted) return;
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const VerifyScreen()),
+        );
+      } else {
+        setState(() {
+          _loginError = 'Incorrect email or password.';
+          _autovalidateMode = AutovalidateMode.onUserInteraction;
+        });
+      }
     } finally {
       if (mounted) setState(() => _isEmailLoading = false);
     }
