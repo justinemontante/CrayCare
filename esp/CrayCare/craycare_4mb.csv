@@ -1,0 +1,13 @@
+# CrayCare ESP32 partition table — 4 MB flash
+#  - Single large app slot (3 MB) for the Firebase-ESP-Client firmware
+#  - spiffs/littlefs data partition (~0.875 MB) for offline sensor buffering
+#    (store-and-forward: ESP keeps sampling during WiFi outages and flushes
+#    the backlog to Firestore when connectivity returns — zero data loss).
+# Type/SubType names follow ESP-IDF conventions. LittleFS.begin() in the
+# Arduino core mounts the partition labelled "spiffs" by default.
+#
+# Name,   Type, SubType, Offset,  Size,    Flags
+nvs,      data, nvs,     0x9000,  0x5000,
+otadata,  data, ota,     0xe000,  0x2000,
+app0,     app,  ota_0,   0x10000, 0x300000,
+spiffs,   data, spiffs,  0x310000,0xE0000,

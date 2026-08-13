@@ -299,8 +299,11 @@ class _DashboardScreenState extends State<DashboardScreen>
     final ss = SensorService.instance;
     final hasAnyData = SensorService.sensorKeys.any((k) => ss.hasSensorData(k));
     final error = ss.lastError;
+    final syncing = ss.bufferedEntries > 0;
 
-    if (hasAnyData && error == null) return const SizedBox.shrink();
+    // Show the banner while the ESP is flushing its offline backlog even if
+    // live data is already flowing again (store-and-forward in progress).
+    if (hasAnyData && error == null && !syncing) return const SizedBox.shrink();
 
     final String message;
     final tankService = TankService.instance;
@@ -315,6 +318,9 @@ class _DashboardScreenState extends State<DashboardScreen>
       message = error;
     } else if (!ss.initialDataLoaded) {
       message = 'Connecting to sensors...';
+    } else if (syncing) {
+      final n = ss.bufferedEntries;
+      message = 'Syncing $n offline reading${n == 1 ? '' : 's'} captured during the outage…';
     } else {
       message = 'ESP32 Offline — No live sensor updates';
     }
@@ -336,7 +342,9 @@ class _DashboardScreenState extends State<DashboardScreen>
       child: Row(
         children: [
           Icon(
-            error != null ? Icons.error_outline : Icons.wifi_off_rounded,
+            error != null
+                ? Icons.error_outline
+                : (syncing ? Icons.sync_rounded : Icons.wifi_off_rounded),
             size: 16,
             color: error != null
                 ? const Color(0xFFD84315)

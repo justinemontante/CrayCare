@@ -52,6 +52,8 @@
 
 #include <Preferences.h>
 #include <time.h>
+#include <stdlib.h>    // atoll()
+#include <LittleFS.h>  // offline store-and-forward buffer (data partition)
 #include "addons/TokenHelper.h"
 #include "addons/RTDBHelper.h"
 #include "secrets.h"   // Firebase credentials — gitignored (see secrets.h.example)
@@ -83,6 +85,7 @@ String currentTankId = "";
 #define FIREBASE_SEND_INTERVAL_MS 5000
 #define HISTORY_SEND_INTERVAL_MS 600000  // 10 minutes; matches the documented schema
 #define CONFIG_SYNC_INTERVAL_MS 10000
+#define FLUSH_INTERVAL_MS 1000           // flush backlog at 1 entry/sec (max)
 #define SENSOR_POLL_MS 500
 
 // Feeder timing
@@ -119,6 +122,117 @@ FirebaseConfig config;
 bool firebaseReady = false;
 unsigned long lastFirebaseSendTime = 0;
 unsigned long lastHistorySendTime = 0;
+unsigned long lastFlushTime = 0;
+
+// ─── Offline buffer (LittleFS store-and-forward) ─────────────────────
+// History entries that fail to upload (WiFi outage / Firebase unreachable)
+// are appended here as Firestore wire-format JSON lines. When connectivity
+// returns, loop() flushes them oldest-first at 1 entry/sec, deleting each
+// line only after Firestore confirms the write (or finds a duplicate doc).
+#define BUFFER_PATH "/buf/history.jsonl"
+bool littlefsMounted = false;
+
+size_t countBufferedEntries();  // forward decl (used by initOfflineBuffer)
+
+void initOfflineBuffer() {
+  if (!LittleFS.begin(true)) {           // formatOnFail on the spiffs partition
+    Serial.println("[BUF] LittleFS mount FAILED — offline buffering disabled");
+    littlefsMounted = false;
+    return;
+  }
+  littlefsMounted = true;
+  Serial.printf("[BUF] LittleFS ready, buffered: %u\n", (unsigned)countBufferedEntries());
+}
+
+size_t countBufferedEntries() {
+  if (!littlefsMounted) return 0;
+  File f = LittleFS.open(BUFFER_PATH, "r");
+  if (!f) return 0;
+  size_t n = 0;
+  while (f.available()) {
+    String line = f.readStringUntil('\n');
+    line.trim();
+    if (line.length() > 10) n++;
+  }
+  f.close();
+  return n;
+}
+
+bool bufferAppend(const String& jsonLine) {
+  if (!littlefsMounted || jsonLine.length() < 10) return false;
+  File f = LittleFS.open(BUFFER_PATH, FILE_APPEND);
+  if (!f) return false;
+  f.println(jsonLine);
+  f.close();
+  return true;
+}
+
+// Drop the first line (index 0) and rewrite the remaining lines.
+bool bufferDropFirst(const String* lines, size_t n) {
+  if (!littlefsMounted) return false;
+  File f = LittleFS.open(BUFFER_PATH, "w");
+  if (!f) return false;
+  for (size_t i = 1; i < n; i++) f.println(lines[i]);
+  f.close();
+  return true;
+}
+
+// Read all buffered lines into a fixed array (bounded).
+size_t bufferReadAll(String* lines, size_t maxLines) {
+  if (!littlefsMounted) return 0;
+  File f = LittleFS.open(BUFFER_PATH, "r");
+  if (!f) return 0;
+  size_t n = 0;
+  while (f.available() && n < maxLines) {
+    String line = f.readStringUntil('\n');
+    line.trim();
+    if (line.length() > 10) lines[n++] = line;
+  }
+  f.close();
+  return n;
+}
+
+// Upload the oldest buffered entry. Returns:
+//   true  -> entry uploaded (or dropped as duplicate) -> remove from buffer
+//   false -> still no connectivity -> keep in buffer and retry later
+bool flushOneBufferedEntry() {
+  String lines[32];
+  size_t n = bufferReadAll(lines, 32);
+  if (n == 0) return true;
+
+  // Deterministic doc ID from the bucket time (dedup: re-uploading the same
+  // bucket after a crash simply finds the existing doc and skips it).
+  long long capMs = 0;
+  int idx = lines[0].indexOf("\"captured_at_ms\":");
+  if (idx >= 0) {
+    int st = idx + 16;
+    int en = lines[0].indexOf(',', st);
+    if (en < 0) en = lines[0].indexOf('}', st);
+    if (en > st) capMs = atoll(lines[0].substring(st, en).c_str());
+  }
+  String docId = (capMs > 0)
+      ? "offline_" + String((unsigned long)(capMs / 600000LL))
+      : "offline_" + String((long)millis());
+  String docPath = String("sensorIngestion/current/history/") + docId;
+
+  // Skip if already uploaded (crash between create and buffer-delete).
+  if (Firebase.Firestore.getDocument(&fbdo, FIREBASE_PROJECT_ID, "(default)",
+                                     docPath.c_str())) {
+    Serial.println("[BUF] Duplicate found — dropping buffered entry");
+    return bufferDropFirst(lines, n);
+  }
+
+  // 7-arg form (collection, docId, content, mask) avoids the ambiguous
+  // 6-arg overload (documentPath+content vs collectionId+documentId).
+  if (Firebase.Firestore.createDocument(&fbdo, FIREBASE_PROJECT_ID, "(default)",
+                                        "sensorIngestion/current/history",
+                                        docId.c_str(), lines[0].c_str(), "")) {
+    Serial.printf("[BUF] Flushed entry -> %s\n", docPath.c_str());
+    return bufferDropFirst(lines, n);
+  }
+  Serial.printf("[BUF] Flush failed (%s) — will retry\n", fbdo.errorReason().c_str());
+  return false;
+}
 unsigned long lastConfigSyncTime = 0;
 unsigned long lastPollTime = 0;
 
@@ -641,9 +755,18 @@ void buildFirestorePayload(FirebaseJson &json, bool includeTimestamp) {
     json.set("fields/water_level/doubleValue", waterLevelCm);
   }
 
-  // Final tank documents receive recorded_at from the Cloud Function using
-  // Firestore serverTimestamp(), avoiding invalid ESP clock/32-bit epochs.
-  (void)includeTimestamp;
+  // History entries carry the ESP's capture time so the Cloud Function can
+  // preserve the ORIGINAL timestamp when routing (critical for offline
+  // backfill — buffered readings must land in the correct date folder with
+  // their true capture time, not the upload time). NTP is synced in setup().
+  if (includeTimestamp) {
+    time_t nowT;
+    time(&nowT);
+    if (nowT > 1577836800) {  // > 2020-01-01 — guard against unsynced clock
+      long long ms = (long long)nowT * 1000LL;
+      json.set("fields/captured_at_ms/integerValue", String(ms));
+    }
+  }
 }
 
 // ─── Write latest sensor reading to Firestore ───────────────────────
@@ -657,6 +780,11 @@ void sendLatestToFirestore() {
 
   FirebaseJson content;
   buildFirestorePayload(content, false);
+
+  // Advertise the pending offline backlog so the app can show
+  // "Syncing N offline readings…" while the ESP flushes LittleFS.
+  content.set("fields/buffered_entries/integerValue",
+              String((unsigned long)countBufferedEntries()));
 
   // Fixed path — no hardwareId needed. There is only one hardware package.
   const char* docPath = "sensorIngestion/current";
@@ -688,6 +816,12 @@ void sendHistoryToFirestore() {
     Serial.println("[FIRESTORE] History saved");
   } else {
     Serial.printf("[FIRESTORE HISTORY ERROR] %s\n", fbdo.errorReason().c_str());
+    // WiFi is up but Firebase failed (or is unreachable): keep the reading.
+    // Store-and-forward — it will be flushed automatically once connectivity
+    // returns. Power loss during the outage is safe: LittleFS is persistent.
+    if (bufferAppend(content.raw())) {
+      Serial.printf("[BUF] Buffered entry #%u\n", (unsigned)countBufferedEntries());
+    }
   }
 }
 
@@ -902,6 +1036,7 @@ void setup() {
   connectWiFi();
   initTime();
   connectFirebase();
+  initOfflineBuffer();  // LittleFS store-and-forward (mounted before loop)
   getHardwareId();  // resolve MAC-based ID after WiFi is up
   fetchTankId();
   syncConfigFromFirebase();
@@ -1024,6 +1159,22 @@ void loop() {
   if (now - lastHistorySendTime >= HISTORY_SEND_INTERVAL_MS) {
     lastHistorySendTime = now;
     sendHistoryToFirestore();
+  }
+
+  // ─── Offline buffer flush (store-and-forward) ───
+  // Runs whenever Firebase is reachable; 1 entry/sec max so the live
+  // 5-sec + 10-min writes are never starved. Oldest entry goes first.
+  if (now - lastFlushTime >= FLUSH_INTERVAL_MS) {
+    lastFlushTime = now;
+    if (littlefsMounted && countBufferedEntries() > 0) {
+      if (ensureFirebaseReady()) {
+        if (flushOneBufferedEntry()) {
+          Serial.printf("[BUF] Flushed — %u remaining\n",
+                        (unsigned)countBufferedEntries());
+        }
+        // flushOneBufferedEntry()==false -> still offline, keep for retry.
+      }
+    }
   }
 }
 

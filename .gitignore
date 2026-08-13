@@ -54,6 +54,10 @@ esp/.piolib/
 esp/.piolibdeps/
 esp/.clang_complete
 esp/.gcc_flags
+esp/**/.pio/
+esp/**/.pioenvs/
+esp/**/.piolib/
+esp/**/.piolibdeps/
 
 # Node modules
 node_modules/

@@ -243,6 +243,11 @@ async function getCurrentHardwareOwner() {
   return { uid: data.uid, tankId: data.tank_id };
 }
 
+// Epoch-ms threshold for a "trusted" ESP capture time (2020-01-01). The ESP
+// only sends captured_at_ms after its NTP clock is synced (guarded in
+// firmware), so anything below this is treated as unsynced -> server time.
+const TRUSTED_EPOCH_MS = 1577836800000;
+
 function normalizeSensorReading(raw) {
   // Accept the present ESP payload during migration, but write only the final
   // thesis/app schema into tanks/{tankId}/... .
@@ -252,8 +257,23 @@ function normalizeSensorReading(raw) {
     dissolved_oxygen: raw.dissolved_oxygen ?? raw.dissolvedOxygen ?? null,
     turbidity: raw.turbidity ?? null,
     water_level: raw.water_level ?? raw.waterLevelPercent ?? raw.waterLevel ?? null,
-    recorded_at: admin.firestore.FieldValue.serverTimestamp(),
+    // Offline-backfill support: keep the ORIGINAL capture time so buffered
+    // readings land in the right date folder with their true timestamp.
+    // Live 5-sec payloads have no captured_at_ms -> serverTimestamp() (same
+    // behaviour as before).
+    recorded_at: (() => {
+      const capMs = Number(raw.captured_at_ms);
+      if (Number.isFinite(capMs) && capMs > TRUSTED_EPOCH_MS) {
+        return new Date(capMs);
+      }
+      return admin.firestore.FieldValue.serverTimestamp();
+    })(),
   };
+  // Pass the pending-backlog count through to the app (for the "Syncing N
+  // offline readings…" indicator). Only include it when present.
+  if (typeof raw.buffered_entries === "number" && Number.isFinite(raw.buffered_entries)) {
+    reading.buffered_entries = raw.buffered_entries;
+  }
   return Object.fromEntries(Object.entries(reading).filter(([, value]) => value !== null));
 }
 
@@ -283,7 +303,12 @@ exports.onSensorIngestionHistoryCreate = functions.region("asia-southeast1").fir
       functions.logger.warn("[Ingestion] No hardware owner/tank assigned; history reading not routed.");
       return null;
     }
-    const manilaTime = new Date(Date.now() + MANILA_OFFSET_MS);
+    // Date partition = the reading's ORIGINAL capture time (Manila), so
+    // offline-buffered backfill lands in the correct day folder.
+    const capMs = Number(snap.data().captured_at_ms);
+    const recorded =
+      Number.isFinite(capMs) && capMs > TRUSTED_EPOCH_MS ? new Date(capMs) : new Date();
+    const manilaTime = new Date(recorded.getTime() + MANILA_OFFSET_MS);
     const dateKey = [manilaTime.getUTCFullYear(), String(manilaTime.getUTCMonth() + 1).padStart(2, "0"), String(manilaTime.getUTCDate()).padStart(2, "0")].join("-");
     await firestoreDb.collection("tanks").doc(owner.tankId)
       .collection("sensor_readings_history").doc(dateKey)

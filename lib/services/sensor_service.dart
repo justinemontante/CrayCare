@@ -58,6 +58,7 @@ class SensorService extends ChangeNotifier {
 
   DateTime _lastUpdated = DateTime.fromMillisecondsSinceEpoch(0);
   String? _lastError;
+  int _bufferedEntries = 0;
 
   bool get initialDataLoaded => _initialDataLoaded;
   bool get hasLiveData => _hasLiveData;
@@ -65,6 +66,9 @@ class SensorService extends ChangeNotifier {
       _hasLiveData && DateTime.now().difference(_lastUpdated) <= _staleTimeout;
   DateTime get lastUpdated => _lastUpdated;
   String? get lastError => _lastError;
+  /// Pending offline readings the ESP32 is flushing (from buffered_entries
+  /// advertised in the 5-sec latest payload). >0 => show "Syncing N…".
+  int get bufferedEntries => _bufferedEntries;
 
   String get overallStatus {
     String status = 'NORMAL';
@@ -260,6 +264,11 @@ class SensorService extends ChangeNotifier {
     _lastUpdated = readingTime;
     _hasLiveData = true;
 
+    // ESP32 advertises how many offline readings are still queued in its
+    // LittleFS buffer (store-and-forward backlog) via buffered_entries.
+    _bufferedEntries =
+        (data['buffered_entries'] as num?)?.toInt() ?? 0;
+
     // New schema field names (tanks/{tank_id}/sensor_readings/latest):
     // temperature, ph_level, dissolved_oxygen, turbidity, water_level.
     // Legacy camelCase keys kept as a fallback during migration.
@@ -297,6 +306,9 @@ class SensorService extends ChangeNotifier {
       _lastUpdated = lastSeen;
     }
     _hasLiveData = false;
+    // While stale we can't trust the backlog count — the offline banner is
+    // the accurate signal. Reset so "Syncing N…" never masks "Offline".
+    _bufferedEntries = 0;
     _staleTimer?.cancel();
     notifyListeners();
     debugPrint('[SensorService] Data stale - ESP32 offline (last seen: $_lastUpdated)');
