@@ -1587,6 +1587,7 @@ void sendFeederStatus() {
   json.set("fields/feedSource/stringValue", feederFeedSource);
   json.set("fields/feedCount/integerValue", String(feederFeedCount));
   json.set("fields/hopperLevel/doubleValue", String(feederHopperLevel));
+  json.set("fields/feederError/stringValue", "");
   json.set("fields/lastSeen/integerValue", nowMs);
   if (feederLastFeedEpoch > 0) {
     json.set("fields/last_dispensed_at/integerValue", epochMillisString((time_t)feederLastFeedEpoch));
@@ -1599,7 +1600,7 @@ void sendFeederStatus() {
   String statusDoc = "tanks/" + currentTankId + "/feeder/status";
   if (!Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "",
         statusDoc.c_str(), json.raw(),
-        "status,isRunning,feedSource,feedCount,hopperLevel,lastSeen,last_dispensed_at,last_dispensed_grams")) {
+        "status,isRunning,feedSource,feedCount,hopperLevel,feederError,lastSeen,last_dispensed_at,last_dispensed_grams")) {
     if (fbdo.httpConnected()) {
       Serial.printf("[FEEDER STATUS ERROR] %s\n", fbdo.errorReason().c_str());
     }

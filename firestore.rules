@@ -5,9 +5,27 @@ service cloud.firestore {
     function myProfile() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
-    function isAdmin() { return isSignedIn() && myProfile().role == 'admin'; }
+    function isAdmin() {
+      return isSignedIn() &&
+        myProfile().role == 'admin' &&
+        myProfile().get('status', 'active') == 'active';
+    }
     function isTankOwner(tankId) {
-      return isSignedIn() && myProfile().tank_id == tankId;
+      return isSignedIn() &&
+        myProfile().tank_id == tankId &&
+        myProfile().get('status', 'active') == 'active';
+    }
+    // Legacy profiles may be missing role/status. Permit a one-time safe
+    // backfill to owner/active, but never let a disabled account reactivate
+    // itself or let an owner promote itself to admin.
+    function canBackfillLegacyProfile(uid) {
+      return isSignedIn() && request.auth.uid == uid &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['full_name', 'email', 'role', 'status']) &&
+        request.resource.data.role == resource.data.get('role', 'owner') &&
+        request.resource.data.role == 'owner' &&
+        request.resource.data.status == resource.data.get('status', 'active') &&
+        request.resource.data.status == 'active';
     }
     // One-time self-provisioning for legacy owner profiles that do not yet
     // have a usable tank_id (missing OR empty string). A user can claim only
@@ -77,11 +95,12 @@ service cloud.firestore {
 
       // Users may update presentation/token fields only. Role, status, and
       // tank_id are protected because they control authorization.
-      allow update: if isAdmin() || canClaimInitialTank(uid) || (
-        isSignedIn() && request.auth.uid == uid &&
-        request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['full_name', 'email', 'photo_url', 'photoUrl', 'fcmTokens', 'fcmToken'])
-      );
+      allow update: if isAdmin() || canClaimInitialTank(uid) ||
+        canBackfillLegacyProfile(uid) || (
+          isSignedIn() && request.auth.uid == uid &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['full_name', 'email', 'photo_url', 'photoUrl', 'fcmTokens', 'fcmToken'])
+        );
       allow delete: if isAdmin();
 
       match /notification_settings/{doc} {
@@ -188,7 +207,11 @@ service cloud.firestore {
     match /notifications/{docId} {
       allow read: if isSignedIn() && resource.data.uid == request.auth.uid;
       allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
-      allow update, delete: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow update: if isSignedIn() &&
+        resource.data.uid == request.auth.uid &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['is_read']);
+      allow delete: if isSignedIn() && resource.data.uid == request.auth.uid;
     }
 
     // ESP staging paths. Cloud Functions route these into the assigned tank.

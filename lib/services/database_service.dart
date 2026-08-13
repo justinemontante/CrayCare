@@ -68,8 +68,10 @@ class DatabaseService {
         'role': effectiveRole,
       };
       if (photoUrl != null) {
+        // Store one canonical copy only. Duplicating a base64 image under both
+        // photo_url and photoUrl could exceed Firestore's 1 MiB document limit.
         data['photo_url'] = photoUrl;
-        data['photoUrl'] = photoUrl; // legacy key read by main_shell.dart
+        data['photoUrl'] = FieldValue.delete();
       }
       if (status != null) data['status'] = status;
       if (isNewUser) {
@@ -166,7 +168,11 @@ class DatabaseService {
     final existing = await ref.get();
     if (existing.exists) return;
 
-    await ref.set({
+    // Provision parent + all required subdocuments atomically. Previously the
+    // parent was written first; if the later seed batch failed, retries saw an
+    // existing parent and permanently skipped missing sensors/actuators.
+    final batch = _db.batch();
+    batch.set(ref, {
       'owner_uid': ownerUid ?? tankId,
       'current_batch_id': '',
       'lifetime_mortality': 0,
@@ -183,7 +189,6 @@ class DatabaseService {
       'turbidity': {'min': 0.0, 'max': 25.0},
       'water_level': {'min': 15.0, 'max': 20.0},
     };
-    final batch = _db.batch();
     for (final entry in defaults.entries) {
       final sensorRef = ref.collection('sensors').doc(entry.key);
       batch.set(sensorRef, {

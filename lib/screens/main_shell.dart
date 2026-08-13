@@ -88,7 +88,8 @@ class _MainShellState extends State<MainShell> {
       if (!doc.exists || !mounted) return;
       final data = doc.data()!;
       setState(() {
-        if (data['photoUrl'] != null) _setPhoto(data['photoUrl'] as String);
+        final photo = data['photo_url'] ?? data['photoUrl'];
+        if (photo is String) _setPhoto(photo);
         _isAdmin = data['role'] == 'admin';
         _roleLoaded = true;
         if (_isAdmin && _currentIndex > 0) _currentIndex = 0;

@@ -1069,7 +1069,9 @@ class _AdminScreenState extends State<AdminScreen> {
     final isDisabled = status == 'disabled';
     final isDeviceOwner = _currentOwnerUid == uid;
     final isAdmin = role == 'admin';
-    final photoImage = _photoImageProvider(user['photoUrl'] as String?);
+    final photoImage = _photoImageProvider(
+      (user['photo_url'] ?? user['photoUrl']) as String?,
+    );
 
     final initials = name.split(' ').map((w) => w.isNotEmpty ? w[0] : '').take(2).join();
 

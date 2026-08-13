@@ -26,7 +26,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   int _currentPage = 0;
   String _profileName = 'Loading...';
   String _profileEmail = 'Loading...';
-  String? _photoUrl; // URL ng profile picture galing RTDB
+  String? _photoUrl; // Canonical users/{uid}.photo_url from Firestore
   bool _isAdmin = false;
 
   final _nameCtrl = TextEditingController();
@@ -55,7 +55,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final profile = await DatabaseService.instance.getUserProfile(user.uid);
       if (profile != null && mounted) {
         setState(() {
-          _profileName = (profile['displayName'] as String?) ?? user.displayName ?? 'CrayCare User';
+          _profileName = (profile['full_name'] as String?) ??
+              (profile['displayName'] as String?) ??
+              user.displayName ??
+              'CrayCare User';
           _profileEmail = (profile['email'] as String?) ?? user.email ?? 'No email linked';
           _isAdmin = profile['role'] == 'admin';
         });
@@ -68,7 +71,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (widget.initialPhotoUrl != null) {
         setState(() => _photoUrl = widget.initialPhotoUrl);
       } else {
-        _loadPhotoFromRTDB(user.uid);
+        _loadPhotoFromFirestore(user.uid);
       }
       final notifPrefs = await DatabaseService.instance.getNotificationPrefs(user.uid);
       if (notifPrefs != null && mounted) {
@@ -84,10 +87,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<void> _loadPhotoFromRTDB(String uid) async {
+  Future<void> _loadPhotoFromFirestore(String uid) async {
     final data = await DatabaseService.instance.getUserProfile(uid);
-    if (data != null && data['photoUrl'] != null && mounted) {
-      setState(() => _photoUrl = data['photoUrl'] as String);
+    final photo = data?['photo_url'] ?? data?['photoUrl'];
+    if (photo is String && mounted) {
+      setState(() => _photoUrl = photo);
     }
   }
 
@@ -210,7 +214,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // Pumili ng picture at i-convert sa base64
       final url = await StorageService.instance.pickAndConvertToBase64();
       if (url != null && mounted) {
-        // I-save ang URL sa RTDB
+        // Save the compact data URL to the canonical Firestore profile field.
         final user = FirebaseAuth.instance.currentUser!;
         await DatabaseService.instance.saveUserProfile(
           uid: user.uid,

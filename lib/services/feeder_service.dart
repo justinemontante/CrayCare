@@ -35,7 +35,15 @@ class FeederService extends ChangeNotifier {
     if (uid == null) return null;
     final profileDoc =
         await FirebaseFirestore.instance.collection('users').doc(uid).get();
-    _tankId = profileDoc.data()?['tank_id'] as String?;
+    final profile = profileDoc.data();
+    if (profile?['role'] == 'admin') return null;
+    var tankId = profile?['tank_id'] as String?;
+    if (tankId == null || tankId.isEmpty) {
+      tankId = uid;
+      // Same safe legacy claim used by SensorService/TankService.
+      await profileDoc.reference.set({'tank_id': uid}, SetOptions(merge: true));
+    }
+    _tankId = tankId;
     return _tankId;
   }
 
@@ -146,7 +154,7 @@ class FeederService extends ChangeNotifier {
           .collection('feeder')
           .doc('status')
           .snapshots()
-          .listen((snapshot) async {
+          .listen((snapshot) {
         _lastError = null;
         if (!snapshot.exists || snapshot.data() == null) return;
         try {
@@ -155,11 +163,10 @@ class FeederService extends ChangeNotifier {
           _feedSource = (data['feedSource'] as String?) ?? '';
           _feedCount = (data['feedCount'] as num?)?.toInt() ?? _feedCount;
           _hopperLevel = (data['hopperLevel'] as num?)?.toDouble() ?? 100;
+          // Device status is ESP-owned. The app only displays feederError;
+          // firmware clears it on its next heartbeat. Owner-side writes here
+          // were denied by the security rules and caused noisy permission errors.
           _feederError = (data['feederError'] as String?) ?? '';
-          if (_feederError.isNotEmpty && !_isRunning) {
-            await tankDoc.collection('feeder').doc('status').update({'feederError': ''});
-            _feederError = '';
-          }
           final seen = data['lastSeen'];
           if (seen is int && seen > 0) {
             _lastSeen = DateTime.fromMillisecondsSinceEpoch(seen);

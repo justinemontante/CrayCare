@@ -6,7 +6,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz;
-import 'sensor_service.dart';
 import 'actuator_log_service.dart';
 import '../models/notification_item.dart';
 import '../models/control_types.dart';
@@ -291,7 +290,6 @@ class NotificationService extends ChangeNotifier {
   static final Set<String> _preArmed = {};
 
   final List<NotificationItem> _notifications = [];
-  final Map<String, String> _previousZones = {};
 
   bool _initialized = false;
 
@@ -306,15 +304,11 @@ class NotificationService extends ChangeNotifier {
   bool _notifSampling = true;
 
   final Set<String> _feedingReminderSent = {};
-  final Set<String> _pendingTimers = {};
-  final Set<String> _osScheduled = {};
-  String _lastSamplingReminderDate = '';
 
   String? _userRole;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _profileFirestoreSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _notifSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _prefsSub;
-  Timer? _reminderTimer;
   Timer? _slowTimer;
 
   bool unreadStatus(String id) {
@@ -339,22 +333,6 @@ class NotificationService extends ChangeNotifier {
       FlutterLocalNotificationsPlugin();
   StreamSubscription? _tokenSub;
 
-  static const _sensorLabels = {
-    'temp': 'Water Temperature',
-    'ph': 'pH Level',
-    'do': 'Dissolved Oxygen',
-    'turb': 'Turbidity',
-    'waterlevel': 'Water Level',
-  };
-
-  static const _sensorUnits = {
-    'temp': '\u00B0C',
-    'ph': '',
-    'do': 'mg/L',
-    'turb': 'NTU',
-    'waterlevel': 'cm',
-  };
-
   List<NotificationItem> get notifications =>
       List.unmodifiable(_notifications.where((n) => n.notif_type != 'device_auto'));
 
@@ -375,11 +353,10 @@ class NotificationService extends ChangeNotifier {
   void init() {
     if (_initialized) return;
     _initialized = true;
-    SensorService.instance.addListener(_onSensorUpdate);
+    // Sensor alert documents are created by the server-side onSensorUpdate
+    // function. Do not create a second client-side copy for the same transition.
     ActuatorLogService.instance.init();
-    _initPreviousStates();
     tz.initializeTimeZones();
-    FeedState.schedules.addListener(_onSchedulesChanged);
 
     if (FirebaseAuth.instance.currentUser != null) {
       _listenFirebase();
@@ -392,7 +369,6 @@ class NotificationService extends ChangeNotifier {
       _notifications.clear();
       _cancelSubscriptions();
       _cancelAutoControlSubs();
-      _reminderTimer?.cancel();
       _slowTimer?.cancel();
       _userRole = null;
       if (user != null) {
@@ -535,8 +511,6 @@ class NotificationService extends ChangeNotifier {
 
       debugPrint('[NotificationService] FCM initialized');
 
-      _pendingTimers.clear();
-      _checkFeedingReminders();
     } catch (e) {
       debugPrint('[NotificationService] FCM init error: $e');
     }
@@ -635,19 +609,9 @@ class NotificationService extends ChangeNotifier {
     _notifSub?.cancel();
     _prefsSub?.cancel();
     _profileFirestoreSub?.cancel();
-    _reminderTimer?.cancel();
     _slowTimer?.cancel();
     _cancelAutoControlSubs();
-    FeedState.schedules.removeListener(_onSchedulesChanged);
-    SensorService.instance.removeListener(_onSensorUpdate);
     super.dispose();
-  }
-
-  void _initPreviousStates() {
-    for (final key in SensorService.sensorKeys) {
-      final zone = SensorService.instance.getZone(key);
-      _previousZones[key] = zone;
-    }
   }
 
   void _loadUserPrefs() {
@@ -694,211 +658,11 @@ class NotificationService extends ChangeNotifier {
   }
 
   void _startReminderTimer() {
-    _preScheduleOSReminders();
-    _checkFeedingReminders();
-    _reminderTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      _checkFeedingReminders();
-    });
+    // Feeding and sampling reminders are server-owned Cloud Functions. Running
+    // parallel client timers created duplicate database entries and OS banners.
     _slowTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       _confirmFeedingComplete();
-      _checkSamplingReminders();
     });
-  }
-
-  void _onSchedulesChanged() {
-    _preScheduleOSReminders();
-    _checkFeedingReminders();
-  }
-
-  void _checkFeedingReminders() {
-    if (_userRole == 'admin') return;
-    if (!_notifFeeding) return;
-    final mNow = _manilaNow();
-    final todayKey = '${mNow.month}/${mNow.day}';
-    final realNow = DateTime.now().toUtc();
-
-    for (final s in FeedState.schedules.value) {
-      if (!s.enabled) continue;
-      int h = int.parse(s.time.split(':')[0]);
-      final m = int.parse(s.time.split(':')[1]);
-      if (s.ampm == 'PM' && h != 12) h += 12;
-      if (s.ampm == 'AM' && h == 12) h = 0;
-
-      final key = '${todayKey}_${s.time}_${s.ampm}';
-      if (_feedingReminderSent.contains(key)) continue;
-      if (h * 60 + m <= 0) continue;
-
-      // Schedule's real absolute instant: build the wall-clock moment in the
-      // "fake UTC = Manila" domain, then undo the offset to get true UTC.
-      final scheduleWall = DateTime.utc(mNow.year, mNow.month, mNow.day, h, m);
-      final scheduleInstant = scheduleWall.subtract(_manilaOffset);
-      final targetInstant = scheduleInstant.subtract(const Duration(minutes: 5));
-      final diff = targetInstant.difference(realNow);
-      final schedDiff = scheduleInstant.difference(realNow);
-
-      if (schedDiff > Duration.zero && schedDiff <= const Duration(minutes: 5)) {
-        if (!_pendingTimers.contains(key)) {
-          _pendingTimers.add(key);
-          final targetLocal = targetInstant.toLocal();
-          if (diff > Duration.zero) {
-            Future.delayed(diff, () => _fireReminder(key, s, scheduledAt: targetLocal));
-          } else {
-            _fireReminder(key, s, scheduledAt: targetLocal);
-          }
-          _scheduleOSReminder(key, s, targetLocal);
-        }
-      }
-    }
-  }
-
-  void _preScheduleOSReminders() {
-    if (_userRole == 'admin') return;
-    final mNow = _manilaNow();
-    final todayKey = '${mNow.month}/${mNow.day}';
-
-    for (final s in FeedState.schedules.value) {
-      if (!s.enabled) continue;
-      int h = int.parse(s.time.split(':')[0]);
-      final m = int.parse(s.time.split(':')[1]);
-      if (s.ampm == 'PM' && h != 12) h += 12;
-      if (s.ampm == 'AM' && h == 12) h = 0;
-
-      final key = '${todayKey}_${s.time}_${s.ampm}';
-      if (_osScheduled.contains(key)) continue;
-
-      final scheduleWall = DateTime.utc(mNow.year, mNow.month, mNow.day, h, m);
-      final scheduleInstant = scheduleWall.subtract(_manilaOffset);
-      final target = scheduleInstant.subtract(const Duration(minutes: 5)).toLocal();
-      if (target.isBefore(DateTime.now())) continue;
-
-      _scheduleOSReminder(key, s, target);
-    }
-  }
-
-  void _scheduleOSReminder(String key, ScheduleItem s, DateTime target) {
-    if (_osScheduled.contains(key)) return;
-    if (target.isBefore(DateTime.now())) return;
-    _osScheduled.add(key);
-    try {
-      final loc = tz.local;
-      final tzTarget = tz.TZDateTime.from(target, loc);
-      String channelId = 'craycare_alerts_silent';
-      if (_notifSound && _notifVibration) {
-        channelId = 'craycare_alerts_sound_vibrate';
-      } else if (_notifSound) {
-        channelId = 'craycare_alerts_sound_only';
-      } else if (_notifVibration) {
-        channelId = 'craycare_alerts_vibrate_only';
-      }
-      _localNotifications.zonedSchedule(
-        key.hashCode,
-        'Feeding Reminder',
-        'Your feeding schedule at ${s.time} ${s.ampm} will be dispensed in 5 minutes.',
-        tzTarget,
-        NotificationDetails(
-          android: AndroidNotificationDetails(
-            channelId,
-            'CrayCare Alerts',
-            importance: _notifSound || _notifVibration ? Importance.high : Importance.low,
-            priority: Priority.high,
-            playSound: _notifSound,
-            enableVibration: _notifVibration,
-            vibrationPattern: !_notifVibration ? Int64List(0) : null,
-            sound: !_notifSound ? null : RawResourceAndroidNotificationSound('default'),
-          ),
-        ),
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
-      );
-      debugPrint('[NotificationService] OS scheduled reminder for ${s.time} ${s.ampm} at $target (id=${key.hashCode})');
-    } catch (e) {
-      debugPrint('[NotificationService] OS schedule error: $e');
-    }
-  }
-
-  Future<void> _fireReminder(String key, ScheduleItem s, {bool showSystemNotif = true, DateTime? scheduledAt}) async {
-    if (_feedingReminderSent.contains(key)) return;
-    _feedingReminderSent.add(key);
-    _localNotifications.cancel(key.hashCode);
-
-    final msg = 'Your feeding schedule at ${s.time} ${s.ampm} will be dispensed in 5 minutes.';
-
-    debugPrint('[NotificationService] Firing reminder for ${s.time} ${s.ampm}');
-
-    final now = DateTime.now();
-    int h = int.parse(s.time.split(':')[0]);
-    final m = int.parse(s.time.split(':')[1]);
-    if (s.ampm == 'PM' && h != 12) h += 12;
-    if (s.ampm == 'AM' && h == 12) h = 0;
-    final hhmm = '${h.toString().padLeft(2, '0')}${m.toString().padLeft(2, '0')}';
-    // Must match the Cloud Function's marker key, which is built from its
-    // Manila-offset date — not the device's local date.
-    final mNow = _manilaNow();
-    final y = mNow.year.toString();
-    final mo = mNow.month.toString().padLeft(2, '0');
-    final d = mNow.day.toString().padLeft(2, '0');
-    final reminderKey = 'reminder_$y-$mo-${d}_$hhmm';
-
-    final scheduleLabel = '${s.time} ${s.ampm}';
-    final alreadyAdded = _notifications.any(
-      (n) => n.notif_type == 'reminder' && n.body.contains(scheduleLabel),
-    );
-
-    if (!alreadyAdded) {
-      _addNotification(
-        type: 'reminder',
-        title: 'Feeding Reminder',
-        message: msg,
-        timestamp: scheduledAt ?? now,
-      );
-    }
-
-    if (NotificationService._preArmed.contains('${s.time}_${s.ampm}')) {
-      debugPrint('[NotificationService] Pre-arm active — OS alarm will fire at exact time, skipping system notification');
-      await _saveMarker(reminderKey, now.millisecondsSinceEpoch);
-      return;
-    }
-
-    final markerExists = await _readMarker(reminderKey) != null;
-
-    if (markerExists) {
-      debugPrint('[NotificationService] Marker exists — worker already handled. Skipping local notif to avoid duplicate.');
-      return;
-    }
-
-    await _saveMarker(reminderKey, now.millisecondsSinceEpoch);
-
-    if (!showSystemNotif) return;
-
-    try {
-      String channelId = 'craycare_alerts_silent';
-      if (_notifSound && _notifVibration) {
-        channelId = 'craycare_alerts_sound_vibrate';
-      } else if (_notifSound) {
-        channelId = 'craycare_alerts_sound_only';
-      } else if (_notifVibration) {
-        channelId = 'craycare_alerts_vibrate_only';
-      }
-      _localNotifications.show(
-        DateTime.now().millisecondsSinceEpoch ~/ 1000,
-        'Feeding Reminder',
-        msg,
-        NotificationDetails(
-          android: AndroidNotificationDetails(
-            channelId,
-            'CrayCare Alerts',
-            importance: _notifSound || _notifVibration ? Importance.high : Importance.low,
-            priority: Priority.high,
-            playSound: _notifSound,
-            enableVibration: _notifVibration,
-            vibrationPattern: !_notifVibration ? Int64List(0) : null,
-            sound: !_notifSound ? null : RawResourceAndroidNotificationSound('default'),
-          ),
-        ),
-      );
-    } catch (e) {
-      debugPrint('[NotificationService] Local notification error: $e');
-    }
   }
 
   Future<void> _confirmFeedingComplete() async {
@@ -916,153 +680,6 @@ class NotificationService extends ChangeNotifier {
       if (_feedingReminderSent.contains(confirmKey)) continue;
       _feedingReminderSent.add(confirmKey);
     }
-  }
-
-  Future<void> _checkTypeSampling({
-    required String uid,
-    required String type,     // 'crayfish'
-    required String label,    // 'Crayfish'
-  }) async {
-    final now = DateTime.now();
-    DateTime? effectiveLastDate;
-
-    final fs = FirebaseFirestore.instance;
-
-    Map<String, dynamic>? tank;
-    String tankId = uid;
-
-    // Read latest sampling record from the currently selected batch:
-    // tanks/{tankId}/batches/{batchId}/sampling_records/{recordId}
-    try {
-      final profileSnap = await fs.collection('users').doc(uid).get();
-      tankId = profileSnap.data()?['tank_id'] as String? ?? uid;
-      final tankSnap = await fs.collection('tanks').doc(tankId).get();
-      if (tankSnap.exists) tank = tankSnap.data();
-
-      final currentBatchId = tank?['current_batch_id'] as String?;
-      if (currentBatchId != null && currentBatchId.isNotEmpty) {
-        final sampleSnap = await fs
-            .collection('tanks')
-            .doc(tankId)
-            .collection('batches')
-            .doc(currentBatchId)
-            .collection('sampling_records')
-            .orderBy('sampling_date', descending: true)
-            .limit(1)
-            .get();
-        if (sampleSnap.docs.isNotEmpty) {
-          final data = sampleSnap.docs.first.data();
-          final ts = data['sampling_date'] as int?;
-          if (ts != null) {
-            effectiveLastDate = DateTime.fromMillisecondsSinceEpoch(ts);
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint('[NotificationService] Failed to read sampling from Firestore: $e');
-    }
-
-    // Fallback to the tank's last_sample_date / stocking_date.
-    if (effectiveLastDate == null) {
-      try {
-        tank ??= (await fs.collection('tanks').doc(tankId).get()).data();
-        final initialPopulation = tank?['initial_population'] as int?;
-        if (tank != null && (initialPopulation ?? 0) > 0) {
-          final ts = tank['last_sample_date'] ?? tank['stocking_date'];
-          if (ts is int) {
-            effectiveLastDate = DateTime.fromMillisecondsSinceEpoch(ts);
-          }
-        }
-      } catch (e) {
-        debugPrint('[NotificationService] Failed to read tank from Firestore: $e');
-      }
-    }
-
-    if (effectiveLastDate == null) return;
-
-    final effectiveDate = DateTime(effectiveLastDate.year, effectiveLastDate.month, effectiveLastDate.day);
-    final daysSince = now.difference(effectiveDate).inDays;
-    if (daysSince < 7) return;
-
-    final currentSampleTs = effectiveLastDate.millisecondsSinceEpoch;
-    final markerKey = 'sampling_reminder_$type';
-    final markerData = await _readMarker(markerKey);
-    if (markerData != null) {
-      final lastSampleTs = markerData['sampleTs'] as int? ?? 0;
-      final lastReminderTs = markerData['reminderTs'] as int? ?? 0;
-      if (lastSampleTs == currentSampleTs && lastReminderTs > 0) {
-        final lastReminder = DateTime.fromMillisecondsSinceEpoch(lastReminderTs);
-        if (now.difference(lastReminder).inDays < 7) return;
-      }
-    }
-
-    final message = 'It\'s been $daysSince days since last $label sampling. Time to record growth data!';
-
-    _addNotification(
-      type: 'reminder',
-      title: '$label Sampling Reminder',
-      message: message,
-      timestamp: now,
-    );
-
-    await _saveMarker(markerKey, {
-      'reminderTs': now.millisecondsSinceEpoch,
-      'sampleTs': currentSampleTs,
-    });
-
-    try {
-      String channelId = 'craycare_alerts_silent';
-      if (_notifSound && _notifVibration) {
-        channelId = 'craycare_alerts_sound_vibrate';
-      } else if (_notifSound) {
-        channelId = 'craycare_alerts_sound_only';
-      } else if (_notifVibration) {
-        channelId = 'craycare_alerts_vibrate_only';
-      }
-      await _localNotifications.show(
-        DateTime.now().millisecondsSinceEpoch ~/ 1000,
-        '$label Sampling Reminder',
-        message,
-        NotificationDetails(
-          android: AndroidNotificationDetails(
-            channelId,
-            'CrayCare Alerts',
-            importance: _notifSound || _notifVibration
-                ? Importance.high
-                : Importance.low,
-            priority: Priority.high,
-            playSound: _notifSound,
-            enableVibration: _notifVibration,
-            vibrationPattern: !_notifVibration ? Int64List(0) : null,
-            sound: !_notifSound
-                ? null
-                : const RawResourceAndroidNotificationSound('default'),
-          ),
-        ),
-      );
-    } catch (e) {
-      debugPrint('[NotificationService] Local $type sampling notification error: $e');
-    }
-  }
-
-  void _checkSamplingReminders() {
-    if (_userRole == 'admin') return;
-    if (!_notifSampling) return;
-    final now = DateTime.now();
-    final todayKey = '${now.month}/${now.day}';
-    if (_lastSamplingReminderDate == todayKey) return;
-
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-    if (uid.isEmpty) return;
-
-    _lastSamplingReminderDate = todayKey;
-
-    // Check crayfish sampling
-    _checkTypeSampling(
-      uid: uid,
-      type: 'crayfish',
-      label: 'Crayfish',
-    );
   }
 
   void _cancelSubscriptions() {
@@ -1126,57 +743,6 @@ class NotificationService extends ChangeNotifier {
       _notifications.sort((a, b) => b.created_at.compareTo(a.created_at));
       notifyListeners();
     });
-  }
-
-  void _onSensorUpdate() {
-    if (_userRole == 'admin') return;
-    final hasData = SensorService.sensorKeys.any(
-      (k) => SensorService.instance.getZone(k) != 'UNKNOWN',
-    );
-    if (!hasData) return;
-
-    final now = DateTime.now();
-
-    for (final key in SensorService.sensorKeys) {
-      final zone = SensorService.instance.getZone(key);
-      final prevZone = _previousZones[key];
-      final value = SensorService.instance.getLatestValue(key);
-      final label = _sensorLabels[key] ?? key;
-      final unit = _sensorUnits[key] ?? '';
-
-      if (prevZone != null && zone != prevZone && prevZone != 'UNKNOWN') {
-        if (zone == 'CRITICAL' && _notifCritical) {
-          _addNotification(
-            type: 'critical',
-            title: 'Critical: $label',
-            message: unit.isNotEmpty
-                ? '$label dropped to ${value.toStringAsFixed(1)} $unit.'
-                : '$label is at ${value.toStringAsFixed(1)}.',
-            timestamp: now,
-          );
-        } else if (zone == 'WARNING' && _notifWarning && prevZone != 'CRITICAL') {
-          _addNotification(
-            type: 'warning',
-            title: 'Warning: $label',
-            message: unit.isNotEmpty
-                ? '$label approaching threshold (${value.toStringAsFixed(1)} $unit).'
-                : '$label approaching threshold (${value.toStringAsFixed(1)}).',
-            timestamp: now,
-          );
-        } else if (zone == 'OPTIMAL' && prevZone != 'OPTIMAL' && _notifCritical) {
-          _addNotification(
-            type: 'operational',
-            title: '$label Normalized',
-            message: unit.isNotEmpty
-                ? '$label returned to optimal range (${value.toStringAsFixed(1)} $unit).'
-                : '$label returned to optimal range (${value.toStringAsFixed(1)}).',
-            timestamp: now,
-          );
-        }
-      }
-
-      _previousZones[key] = zone;
-    }
   }
 
   void _addNotification({

@@ -329,9 +329,11 @@ class TankService extends ChangeNotifier {
   Future<void> _ensureTankExists() async {
     if (_tankOwnerUid.isEmpty) return;
     try {
-      final doc = await _tankRef.get();
-      if (!doc.exists) {
-        await _tankRef.set({
+      final writeBatch = _fs.batch();
+      var hasWrites = false;
+      final tankDoc = await _tankRef.get();
+      if (!tankDoc.exists) {
+        writeBatch.set(_tankRef, {
           'owner_uid': _currentUserUid.isNotEmpty ? _currentUserUid : _tankOwnerUid,
           'current_batch_id': '',
           'lifetime_mortality': 0,
@@ -339,7 +341,48 @@ class TankService extends ChangeNotifier {
           'is_initialized': false,
           'created_at': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
+        hasWrites = true;
       }
+
+      const sensorDefaults = {
+        'temperature': {'min': 24.0, 'max': 30.0},
+        'ph_level': {'min': 7.0, 'max': 8.5},
+        'dissolved_oxygen': {'min': 5.0, 'max': 9.0},
+        'turbidity': {'min': 0.0, 'max': 25.0},
+        'water_level': {'min': 15.0, 'max': 20.0},
+      };
+      for (final entry in sensorDefaults.entries) {
+        final ref = _tankRef.collection('sensors').doc(entry.key);
+        if (!(await ref.get()).exists) {
+          writeBatch.set(ref, {
+            'min_value': entry.value['min'],
+            'max_value': entry.value['max'],
+            'updated_at': FieldValue.serverTimestamp(),
+          });
+          hasWrites = true;
+        }
+      }
+      for (final actuatorId in ['pump', 'aerator1', 'aerator2']) {
+        final ref = _tankRef.collection('actuators').doc(actuatorId);
+        if (!(await ref.get()).exists) {
+          writeBatch.set(ref, {
+            'control_mode': 'off',
+            'current_state': 'off',
+            'last_changed': 0,
+          });
+          hasWrites = true;
+        }
+      }
+      final feederRef = _tankRef.collection('feeder').doc('status');
+      if (!(await feederRef.get()).exists) {
+        writeBatch.set(feederRef, {
+          'status': 'idle',
+          'last_dispensed_at': null,
+          'last_dispensed_grams': 0.0,
+        });
+        hasWrites = true;
+      }
+      if (hasWrites) await writeBatch.commit();
     } catch (e) {
       // A denied read/write here should not kill the whole init chain;
       // the tank page will surface the real error on its first write.
