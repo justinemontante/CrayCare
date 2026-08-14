@@ -69,8 +69,8 @@ NOTES
 - Local relay test state can be replaced by the next Firestore control sync.
 - Sensor thresholds are configured in the Flutter app and synchronized from
   tanks/{tankId}/sensors/*.
-- Scheduled feeding is executed by the ESP32. Android background work sends
-  reminders only and must not enqueue duplicate scheduled feed commands.
+- Scheduled feeding is executed by the ESP32. Cloud Functions send reminders;
+  the mobile app does not enqueue duplicate scheduled feed commands.
 - The last cloud-synced schedules are cached in NVS and continue during a Wi-Fi
   outage. Ten-minute sensor history is buffered in LittleFS and uploaded after
   reconnect. A cold boot without network still needs an external RTC for correct

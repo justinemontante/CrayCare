@@ -124,12 +124,12 @@ service cloud.firestore {
       allow delete: if isAdmin();
 
       match /sensor_readings/{doc} {
-        allow read: if isTankOwner(tankId) || isAdmin();
+        allow read: if isTankOwner(tankId);
         // Canonical readings are written only by Admin SDK routing functions.
         allow create, update, delete: if false;
       }
       match /sensor_readings_history/{dateStr}/entries/{entryId} {
-        allow read: if isTankOwner(tankId) || isAdmin();
+        allow read: if isTankOwner(tankId);
         allow create, update, delete: if false;
       }
 
@@ -138,69 +138,71 @@ service cloud.firestore {
       // Owners are restricted to SAFE values (see isSafeThreshold) so they
       // cannot disable alerts by setting absurd thresholds.
       match /sensors/{sensorName} {
-        allow read: if isTankOwner(tankId) || isAdmin() || isAssignedEsp(tankId);
+        allow read: if isTankOwner(tankId) || isAssignedEsp(tankId);
+        // Admin may create missing seed docs during hardware assignment, but
+        // cannot read or modify an owner's operational thresholds afterward.
         allow create: if isAdmin() || (isTankOwner(tankId) && isSafeThreshold(sensorName));
-        allow update: if isAdmin() || (isTankOwner(tankId) && isSafeThreshold(sensorName));
-        allow delete: if isAdmin();
+        allow update: if isTankOwner(tankId) && isSafeThreshold(sensorName);
+        allow delete: if false;
       }
       match /actuators/{actuatorId} {
-        allow read: if isTankOwner(tankId) || isAdmin() || isAssignedEsp(tankId);
-        // Tank creation seeds complete documents; subsequent owner changes are
-        // restricted to control_mode. Only the assigned ESP reports reality.
+        allow read: if isTankOwner(tankId) || isAssignedEsp(tankId);
+        // Admin may seed a missing device doc only. Owner requests a mode;
+        // assigned ESP reports the actual physical state.
         allow create: if isTankOwner(tankId) || isAdmin();
-        allow update: if isAdmin() || ownerChangesOnlyControlMode(tankId) ||
+        allow update: if ownerChangesOnlyControlMode(tankId) ||
           (isAssignedEsp(tankId) && request.resource.data.diff(resource.data)
             .affectedKeys().hasOnly(['current_state', 'last_changed']));
-        allow delete: if isAdmin();
+        allow delete: if false;
       }
       match /actuator_logs/{logId} {
-        allow read: if isTankOwner(tankId) || isAdmin();
-        allow create: if isTankOwner(tankId) || isAdmin() || isAssignedEsp(tankId);
-        allow update, delete: if isAdmin();
+        allow read: if isTankOwner(tankId);
+        allow create: if isTankOwner(tankId) || isAssignedEsp(tankId);
+        allow update, delete: if false;
       }
       match /feeder/{doc} {
-        allow read: if isTankOwner(tankId) || isAdmin() || isAssignedEsp(tankId);
+        allow read: if isTankOwner(tankId) || isAssignedEsp(tankId);
         allow create: if isTankOwner(tankId) || isAdmin() || isAssignedEsp(tankId);
-        allow update: if isAdmin() || isAssignedEsp(tankId);
-        allow delete: if isAdmin();
+        allow update: if isAssignedEsp(tankId);
+        allow delete: if false;
       }
       match /feeder_schedules/{scheduleId} {
-        allow read: if isTankOwner(tankId) || isAdmin() || isAssignedEsp(tankId);
-        allow write: if isTankOwner(tankId) || isAdmin();
+        allow read: if isTankOwner(tankId) || isAssignedEsp(tankId);
+        allow write: if isTankOwner(tankId);
       }
       match /pending_commands/{commandId} {
-        allow create: if isTankOwner(tankId) || isAdmin();
-        allow read, delete: if isTankOwner(tankId) || isAdmin() || isAssignedEsp(tankId);
+        allow create: if isTankOwner(tankId);
+        allow read, delete: if isTankOwner(tankId) || isAssignedEsp(tankId);
         allow update: if false;
       }
       match /feeder_logs/{logId} {
-        allow read: if isTankOwner(tankId) || isAdmin();
-        allow create: if isTankOwner(tankId) || isAdmin() || isAssignedEsp(tankId);
-        allow update, delete: if isTankOwner(tankId) || isAdmin();
+        allow read: if isTankOwner(tankId);
+        allow create: if isTankOwner(tankId) || isAssignedEsp(tankId);
+        allow update, delete: if isTankOwner(tankId);
       }
       match /feeder_dispatched/{dateKey} {
-        allow read, write: if isTankOwner(tankId) || isAdmin();
+        allow read, write: if isTankOwner(tankId);
       }
 
       // ML output for this tank.
       match /ml_predictions/{docId} {
-        allow read: if isTankOwner(tankId) || isAdmin();
+        allow read: if isTankOwner(tankId);
         // Written by the Admin SDK ML function; never directly by an app/ESP.
         allow create, update, delete: if false;
       }
 
-      // Production records now live under their owning tank and batch.
+      // Production records are private to the active tank owner.
       match /batches/{batchId} {
-        allow read, write: if isTankOwner(tankId) || isAdmin();
+        allow read, write: if isTankOwner(tankId);
 
         match /sampling_records/{docId} {
-          allow read, write: if isTankOwner(tankId) || isAdmin();
+          allow read, write: if isTankOwner(tankId);
         }
         match /mortality_records/{docId} {
-          allow read, write: if isTankOwner(tankId) || isAdmin();
+          allow read, write: if isTankOwner(tankId);
         }
         match /harvest_records/{docId} {
-          allow read, write: if isTankOwner(tankId) || isAdmin();
+          allow read, write: if isTankOwner(tankId);
         }
       }
     }

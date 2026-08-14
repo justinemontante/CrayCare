@@ -141,21 +141,21 @@ Canonical stored fields are snake_case (see the exact list in the appendix below
 Mortality and harvest record creation plus aggregate updates use atomic Firestore batches/transactions. Values are clamped/validated so mortality + harvest cannot exceed the initial population.
 
 ### `tanks/{tankId}/batches/{batchId}/sampling_records/{recordId}` ✓
-`tankId`, `batchId`, `date` (ms), `abw`, `avgLength`, `sampleSize`, `totalWeight`, `totalLength`, `biomass`, `liveCount`, `isBaseline`, `timestamp`
+`sampling_date`, `avg_body_weight`, `avg_body_length`, `sample_size`, `total_weight`, `total_length`, `biomass`, `live_count`, `is_baseline`, `created_at`
 
 ### `tanks/{tankId}/batches/{batchId}/mortality_records/{recordId}` ✓
-`tankId`, `batchId`, `date` (ms), `count`, `timestamp`
+`mortality_date`, `mortality_count`, `created_at`
 
 ### `tanks/{tankId}/batches/{batchId}/harvest_records/{recordId}` ✓
-`tankId`, `batchId`, `date` (ms), `harvestedCount`, `totalWeightKg`, `abwGrams`, `survivalRate`, `timestamp`
+`batch_id`, `harvest_date`, `harvest_count`, `total_weight_kg`, `abw_grams`, `survival_rate`, `created_at`
 
 ---
 
 ## 5. NOTIFICATIONS ✓
 ### `notifications/{notifId}` ✓
-Root collection, scoped by `uid` field (hindi path).
-`uid`, `title`, `message` (code uses `message`, hindi `body`), `type` (`sensor`|`alert`|`feeder`|`system`), `is_read`, `readBy` (map uid→bool), `timestamp` / `created_at`
-> Composite index: `uid` + `created_at DESC` ✓ (nasa indexes)
+Root collection scoped by the `uid` field.
+`uid`, `notif_type`, `title`, `body`, `is_read`, `created_at`
+> Cloud Functions are the canonical sensor/feeding/sampling notification writers. The owner may update `is_read` only. Composite index: `uid + created_at DESC`.
 
 ---
 
@@ -170,11 +170,8 @@ ESP32 creates every 10min. CF → `tanks/{tankId}/sensor_readings_history/{date}
 ---
 
 ## 7. MISC ✓
-### `mlPredictions/{docId}` ✓
-`tankId`, `batchId`, `prediction`, `confidence`, `model_version`, `created_at`
-
-### `system/authorizedOperators` ⚠️ *(ginagamit ng functions/notifications/index.js)*
-`system/doc/authorizedOperators` — lumalabas sa Cloud Function (auth check), pero **wala sa rules o structure doc** — para sa isang function feature.
+### `system/authorizedOperators` *(optional server-side allowlist)*
+Read by the Admin SDK notification function. Supported shapes are `{ UID: "uid1,uid2" }` or `{ uid: true }`. When absent, the function falls back to all non-admin users. It is not client-readable.
 
 ---
 
@@ -186,7 +183,7 @@ ESP32 creates every 10min. CF → `tanks/{tankId}/sensor_readings_history/{date}
 | `sensorReadingsHistory/{uid}` | Pinalitan ng nested history |
 | `feederSchedules`, `feederLogs`, `feederCommands`, `feederStatus`, `feederDispatched` | Flat versions — nasa `tanks/{id}/...` na |
 | `deviceModes`, `deviceLogs` | Pinalitan ng `actuators/` + `actuator_logs/` |
-| `healthRisk/{tankId}`, `tanks/{id}/health_risk/current` | Pinalitan ng `tanks/{id}/ml_predictions/current` |
+| `healthRisk/{tankId}`, `tanks/{id}/health_risk/current`, root `mlPredictions` | Pinalitan ng `tanks/{id}/ml_predictions/current` |
 | `batches`, `sampling_records`, `mortality_records`, `harvest_records` (flat) | Pinalitan ng nested batch structure |
 | `notifPrefs`, `notifMarkers`, `migration`, `sensorConfig`, `system_config` | Legacy / unused |
 | `deviceLogs` | Flat logs — pinalitan ng `actuator_logs` |
@@ -194,20 +191,18 @@ ESP32 creates every 10min. CF → `tanks/{tankId}/sensor_readings_history/{date}
 ---
 
 ## 🔐 Security rules summary (updated)
-- **users** — self/admin lang
-- **hardware_system** — read: any signed-in; write: admin
-- **tanks/{tankId}** — owner/admin read/write; **ESP32 (anonymous)** pinapayagan:
-  - READ: `sensors`, `feeder_schedules`, `actuators`
-  - WRITE: `sensor_readings`, `sensor_readings_history`, `feeder/*`, `pending_commands` (read/delete), **`actuator_logs` (create)**, **`actuators` (update: `current_state`+`last_changed` only)**
-- **notifications** — owner lang (uid match)
-- **sensorIngestion** — ESP write, admin read/delete
-- **health_risk, mlPredictions** — Admin SDK lang sumusulat
+- **users** — self; active Admin manages account status and hardware assignment
+- **hardware_system** — read: active Admin or ESP; write: active Admin
+- **tank operational data** — active Owner only
+- **ESP32** — assigned-tank reads for thresholds/schedules/modes; writes physical status/logs; staging writes through `sensorIngestion`
+- **Admin** — may read/create tank root metadata and create missing seed docs for assignment, but cannot read owner sensor history, ML results, controls, logs, or production records
+- **canonical sensor readings + ML output** — Admin SDK writes only
+- **notifications** — matching owner reads/deletes; owner may update `is_read` only
 
-## 📋 Indexes (nasa `firestore.indexes.json` na)
+## 📋 Indexes (`firestore.indexes.json`)
 - `actuator_logs`: `actuator_type + timestamp DESC`, `actuator_type + logged_at DESC` ✅
 - `notifications`: `uid + created_at DESC` ✅
-- `sampling_records` / `mortality_records`: `tankId + batchId`, `tankId + date`, etc. ✅
-- Legacy flat indexes (batches/uid, sampling/uid, etc.) — para sa lumang schema, safe i-clean
+- Other active ordered queries use Firestore automatic single-field indexes.
 
 
 ## Canonical production hierarchy
@@ -226,5 +221,6 @@ tanks/{tank_id}/batches/{batch_id}
     mortality_date, mortality_count, created_at
 
   harvest_records/{record_id}
-    harvest_date, harvested_count, total_weight_kg, abw_grams, survival_rate, created_at
+    batch_id, harvest_date, harvest_count, total_weight_kg, abw_grams,
+    survival_rate, created_at
 ```

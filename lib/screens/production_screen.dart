@@ -524,10 +524,13 @@ class ProductionScreenState extends State<ProductionScreen> {
   }
 
   void _showEditModal() {
-    if (TankService.instance.samplingHistory.isNotEmpty) {
+    final tank = TankService.instance;
+    if (tank.samplingHistory.isNotEmpty ||
+        tank.mortalityHistory.isNotEmpty ||
+        tank.harvestRecords.isNotEmpty) {
       showBeautifulSnackbar(
         context,
-        'Initial setup data can no longer be modified because sampling records already exist.',
+        'Initialization can no longer be modified because operational records already exist.',
         false,
       );
       return;
@@ -718,8 +721,11 @@ class ProductionScreenState extends State<ProductionScreen> {
                                       sampleCount,
                                       totalWeight,
                                       totalLength,
-                                      DateTime.now(),
+                                      isEdit
+                                          ? TankService.instance.stockingDate
+                                          : DateTime.now(),
                                       batchName: batchNameCtrl.text.trim(),
+                                      editExisting: isEdit,
                                     );
                                   } catch (e) {
                                     setLocalState(() => isSaving = false);

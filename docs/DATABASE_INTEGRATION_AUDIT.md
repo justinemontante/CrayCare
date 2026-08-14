@@ -47,7 +47,7 @@ Firestore rules were loaded successfully by the Firestore Emulator and exercised
 - Active owner can read/write its own tank data.
 - Owner cannot read another owner's tank.
 - Disabled owner immediately loses tank access.
-- Active admin can manage tanks; disabled admin is denied.
+- Active Admin can manage accounts/hardware and provision missing tank metadata; Admin is denied owner operational data and controls.
 - Owner can change actuator `control_mode` only.
 - Assigned anonymous ESP can report actuator physical state for its assigned tank only.
 - ESP cannot access another tank's thresholds/actuators.

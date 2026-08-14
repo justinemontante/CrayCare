@@ -8,27 +8,29 @@ const keyPaths = [
   path.join(__dirname, '..', 'serviceAccountKey.json'),
 ];
 let serviceAccount;
-for (const kp of keyPaths) {
-  if (fs.existsSync(kp)) { serviceAccount = require(kp); break; }
+for (const keyPath of keyPaths) {
+  if (fs.existsSync(keyPath)) { serviceAccount = require(keyPath); break; }
 }
-if (!serviceAccount) { console.error('No SA'); process.exit(1); }
+if (!serviceAccount) { console.error('No service account found.'); process.exit(1); }
 
-admin.initializeApp({ credential: admin.cert(serviceAccount) });
+admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
 const db = getFirestore();
 
-const TANK_OWNER_UID = process.env.TANK_OWNER_UID || 'test-owner';
-
 async function check() {
-  const snap = await db.collection('healthRisk').doc(TANK_OWNER_UID).get();
-  if (snap.exists) {
-    const data = snap.data();
-    console.log(`✅ healthRisk/${TANK_OWNER_UID} EXISTS:\n`);
-    console.log(JSON.stringify(data, null, 2));
+  const assignment = await db.collection('hardware_system').doc('currentOwner').get();
+  const tankId = assignment.exists ? assignment.data().tank_id : null;
+  if (!tankId) throw new Error('No hardware owner/tank is currently assigned.');
+
+  const pathText = `tanks/${tankId}/ml_predictions/current`;
+  const snapshot = await db.collection('tanks').doc(tankId)
+    .collection('ml_predictions').doc('current').get();
+  if (snapshot.exists) {
+    console.log(`✅ ${pathText} EXISTS:\n`);
+    console.log(JSON.stringify(snapshot.data(), null, 2));
   } else {
-    console.log(`❌ healthRisk/${TANK_OWNER_UID} does NOT exist yet`);
-    console.log('   The ML function may not have triggered yet.');
-    console.log('   Try writing to sensorReadings/{ownerUid} again.');
+    console.log(`❌ ${pathText} does not exist yet.`);
+    console.log('The hourly WQC scheduler needs at least six complete 10-minute history records.');
   }
-  process.exit(0);
 }
-check().catch(e => { console.error(e); process.exit(1); });
+
+check().catch(error => { console.error(error); process.exit(1); });

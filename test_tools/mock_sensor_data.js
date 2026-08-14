@@ -51,15 +51,13 @@ const LATEST_KEYS = [
 
 let OPTIMAL_MODE = false; // --optimal flag
 let CRITICAL_MODE = false; // --critical flag
-const TANK_OWNER_UID = process.env.TANK_OWNER_UID || 'test-owner';
-
 // Config thresholds (pre_adult default — matched sa writeDefaultConfig)
 const CONFIG_RANGES = {
   temperature:     { min: 24, max: 30 },
   phLevel:         { min: 7.0, max: 8.5 },
-  dissolvedOxygen: { min: 4.5, max: 999 },
-  turbidity:       { min: 0,   max: 35 },
-  waterLevel:      { min: 5, max: 10 },
+  dissolvedOxygen: { min: 5.0, max: 9.0 },
+  turbidity:       { min: 0,   max: 25 },
+  waterLevel:      { min: 15, max: 20 },
 };
 
 const RANGES = {
@@ -85,16 +83,16 @@ const IDEAL = {
   temperature:     26.0,  // 🟢 optimal (24-30)
   dissolvedOxygen: 6.0,   // 🟢 optimal (>5.0)
   phLevel:         7.8,   // 🟢 optimal
-  turbidity:       33.0,  // 🟡 warning (31.5-35)
-  waterLevel:      7.5,   // 🟢 optimal (5-10)
+  turbidity:       24.0,  // 🟡 warning near the 25 NTU maximum
+  waterLevel:      18.0,  // 🟢 optimal (15-20 cm)
 };
 
 const OPTIMAL_IDEAL = {
   temperature:     27.0,  // 🟢 optimal mid
   dissolvedOxygen: 6.5,   // 🟢 optimal mid
   phLevel:         7.5,   // 🟢 optimal mid
-  turbidity:       15.0,  // 🟢 optimal mid (0-35)
-  waterLevel:      7.5,   // 🟢 optimal mid (5-10)
+  turbidity:       12.0,  // 🟢 optimal
+  waterLevel:      18.0,  // 🟢 optimal mid (15-20 cm)
 };
 
 // Max na paggalaw per second (sapat para may pagbabago, hindi drastic)
@@ -168,7 +166,7 @@ function _updateTemperature() {
 // ─── Critical Phase Cycles (per sensor) ──────────────────────
 // Each sensor cycles through phases: optimal → warning → critical → recovery
 // Config thresholds for reference:
-//   temp: 24-30,  pH: 7.0-8.5,  DO: 4.5+,  turb: 0-35,  water: 5-10
+//   temp: 24-30, pH: 7.0-8.5, DO: 5-9, turbidity: 0-25, water: 15-20 cm
 
 const CRIT_PHASES = {
   phLevel: [
@@ -198,21 +196,21 @@ const CRIT_PHASES = {
     { label: 'Recovery (26)',       target: 26.0, speed: 0.70, ticks: 5 },
   ],
   turbidity: [
-    { label: 'Optimal (15)',        target: 15.0, speed: 3.0,  ticks: 3 },
-    { label: 'Warning (36)',        target: 36.0, speed: 5.0,  ticks: 5 },
-    { label: 'Critical high (50)',  target: 50.0, speed: 4.0,  ticks: 5 },
-    { label: 'Recovery (20)',       target: 20.0, speed: 5.0,  ticks: 6 },
-    { label: 'Critical low (5)',    target: 5.0,  speed: 3.0,  ticks: 5 },
-    { label: 'Recovery (18)',       target: 18.0, speed: 3.0,  ticks: 4 },
+    { label: 'Optimal (12)',        target: 12.0, speed: 3.0, ticks: 3 },
+    { label: 'Warning high (24)',   target: 24.0, speed: 4.0, ticks: 5 },
+    { label: 'Critical high (40)',  target: 40.0, speed: 4.0, ticks: 5 },
+    { label: 'Recovery (15)',       target: 15.0, speed: 5.0, ticks: 6 },
+    { label: 'Stable clear (8)',    target: 8.0,  speed: 2.0, ticks: 5 },
+    { label: 'Recovery (12)',       target: 12.0, speed: 2.0, ticks: 4 },
   ],
   waterLevel: [
-    { label: 'Optimal (7.5)',       target: 7.5,  speed: 0.20, ticks: 3 },
-    { label: 'Warning low (4.8)',   target: 4.8,  speed: 0.40, ticks: 5 },
-    { label: 'Critical low (3.5)',  target: 3.5,  speed: 0.30, ticks: 5 },
-    { label: 'Recovery (7.0)',      target: 7.0,  speed: 0.40, ticks: 6 },
-    { label: 'Warning high (10.5)', target: 10.5, speed: 0.40, ticks: 5 },
-    { label: 'Critical high (12)',  target: 12.0, speed: 0.30, ticks: 5 },
-    { label: 'Recovery (7.5)',      target: 7.5,  speed: 0.40, ticks: 6 },
+    { label: 'Optimal (18)',        target: 18.0, speed: 0.40, ticks: 3 },
+    { label: 'Warning low (15.2)',  target: 15.2, speed: 0.50, ticks: 5 },
+    { label: 'Critical low (12)',   target: 12.0, speed: 0.60, ticks: 5 },
+    { label: 'Recovery (18)',       target: 18.0, speed: 0.70, ticks: 6 },
+    { label: 'Warning high (19.8)', target: 19.8, speed: 0.40, ticks: 5 },
+    { label: 'Critical high (23)',  target: 23.0, speed: 0.60, ticks: 5 },
+    { label: 'Recovery (18)',       target: 18.0, speed: 0.70, ticks: 6 },
   ],
 };
 
@@ -317,13 +315,17 @@ async function writeLatest() {
   try {
     const data = generateReading();
 
-    await firestore.collection('sensorReadings').doc(TANK_OWNER_UID).set({
+    // Mirror the production ESP staging payload; Cloud Functions route this
+    // fixed document to the tank in hardware_system/currentOwner.
+    await firestore.collection('sensorIngestion').doc('current').set({
+      hardwareId: 'MOCK_TEST_TOOL',
       temperature: data.temperature,
-      phLevel: data.phLevel,
-      dissolvedOxygen: data.dissolvedOxygen,
+      ph_level: data.phLevel,
+      dissolved_oxygen: data.dissolvedOxygen,
       turbidity: data.turbidity,
-      waterLevel: data.waterLevel,
-      timestamp: FieldValue.serverTimestamp(),
+      turbidity_air: false,
+      water_level: data.waterLevel,
+      buffered_entries: 0,
     });
 
     const ts = new Date().toLocaleTimeString();
@@ -343,9 +345,10 @@ async function appendHistory() {
     const now = new Date();
     const dateStr = now.toISOString().slice(0, 10);
     const reading = generateAggregatedReading();
-    reading.timestamp = Math.floor(Date.now() / 1000);
+    reading.captured_at_ms = Date.now();
 
-    await firestore.collection('sensorReadings').doc('history').collection(dateStr).add(reading);
+    await firestore.collection('sensorIngestion').doc('current')
+      .collection('history').add(reading);
 
     historyCount++;
     if (historyCount % 6 === 0) {
@@ -372,9 +375,10 @@ async function backfillHistory({ hours, label }) {
     const date = new Date(ts);
     const dateStr = date.toISOString().slice(0, 10);
     const reading = generateAggregatedReading();
-    reading.timestamp = Math.floor(ts / 1000);
+    reading.captured_at_ms = ts;
 
-    await firestore.collection('sensorReadings').doc('history').collection(dateStr).add(reading);
+    await firestore.collection('sensorIngestion').doc('current')
+      .collection('history').add(reading);
 
     written++;
     if (written % 100 === 0) process.stdout.write('.');
@@ -384,16 +388,26 @@ async function backfillHistory({ hours, label }) {
 
 // ─── 8. Write sensor config (Firestore only) ──────────────────
 async function writeDefaultConfig() {
-  await firestore.collection('config').doc('default').set({
-    ranges: {
-      temp: { min: 24, max: 30 },
-      ph: { min: 7.0, max: 8.5 },
-      do: { min: 4.5, max: 999 },
-      turb: { min: 0, max: 35 },
-      waterlevel: { min: 5, max: 10 },
-    },
-  }, { merge: true });
-  console.log('📋 Default sensor thresholds written to Firestore config/default.');
+  const assignment = await firestore.collection('hardware_system').doc('currentOwner').get();
+  const tankId = assignment.exists ? assignment.data().tank_id : null;
+  if (!tankId) throw new Error('No hardware_system/currentOwner.tank_id assigned');
+  const defaults = {
+    temperature: { min: 24, max: 30 },
+    ph_level: { min: 7.0, max: 8.5 },
+    dissolved_oxygen: { min: 5.0, max: 9.0 },
+    turbidity: { min: 0, max: 25 },
+    water_level: { min: 15, max: 20 },
+  };
+  const batch = firestore.batch();
+  for (const [sensor, range] of Object.entries(defaults)) {
+    batch.set(firestore.collection('tanks').doc(tankId).collection('sensors').doc(sensor), {
+      min_value: range.min,
+      max_value: range.max,
+      updated_at: FieldValue.serverTimestamp(),
+    }, { merge: true });
+  }
+  await batch.commit();
+  console.log(`📋 Default sensor thresholds written to tanks/${tankId}/sensors.`);
 }
 
 // ─── 9a. Status check helper ────────────────────────────────────
@@ -449,9 +463,9 @@ async function main() {
       : '🌡️  Temperature cycles: stable → slow rise → fast rise → fall → ...';
     console.log('\n🚀 Starting real-time simulation…');
     console.log(`   ${modeLabel}`);
-    console.log('   Every 5s  → Firestore sensorReadings/{ownerUid}');
-    console.log('   Every 10m → Firestore sensorReadings/history (min/max/avg)');
-    console.log(`   Owner UID: ${TANK_OWNER_UID}`);
+    console.log('   Every 5s  → sensorIngestion/current');
+    console.log('   Every 10m → sensorIngestion/current/history (min/max/avg)');
+    console.log('   Cloud Functions route data using hardware_system/currentOwner.');
     console.log('   Press Ctrl+C to stop.\n');
 
     await writeLatest();

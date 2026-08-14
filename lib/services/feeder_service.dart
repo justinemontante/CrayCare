@@ -462,10 +462,26 @@ class FeederService extends ChangeNotifier {
       if (s.ampm == 'PM' && h != 12) h += 12;
       if (s.ampm == 'AM' && h == 12) h = 0;
       final scheduleDt = DateTime(now.year, now.month, now.day, h, m);
+      final months = [
+        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      ];
+      final expectedDate = '${months[now.month - 1]} ${now.day}, ${now.year}';
+      final expectedTime = '${s.time} ${s.ampm}';
+      final alreadyConfirmed = _logs.any((log) {
+        final action = log.action.toLowerCase();
+        return log.type == 'auto' &&
+            (action.contains('dispensed feed (scheduled)') ||
+                action.contains('auto feed dispensed')) &&
+            log.time == expectedTime &&
+            log.date == expectedDate;
+      });
+      if (alreadyConfirmed) continue;
+
       if (now.difference(scheduleDt).inMinutes >= 5) {
         _missedLogged.add(key);
         final reason = isOnline
-            ? 'Feeder did not respond'
+            ? 'No confirmed feeder log received'
             : 'ESP was offline';
         await _addLogEntry(
           action: 'Feed skipped - $reason',

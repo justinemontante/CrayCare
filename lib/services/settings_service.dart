@@ -204,29 +204,9 @@ class SettingsService extends ChangeNotifier {
     if (!_ranges.containsKey(sensorKey)) return;
     _ranges[sensorKey] = {'min': min, 'max': max};
     notifyListeners();
+    // Persist local state once. SensorThresholdSettings performs the canonical
+    // long-name Firestore batch write and surfaces any permission/network error.
     await _saveRanges();
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
-      final tankId = await _resolveTankId(user.uid);
-      final longKey = _longKeyFor[sensorKey];
-      if (tankId == null || longKey == null) return;
-
-      // tanks/{tank_id}/sensors/{longKey} — the ESP32 firmware reads
-      // thresholds directly from here (per-tank, not a global default).
-      await FirebaseFirestore.instance
-          .collection('tanks')
-          .doc(tankId)
-          .collection('sensors')
-          .doc(longKey)
-          .set({
-        'min_value': min,
-        'max_value': max,
-        'updated_at': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-    } catch (e) {
-      debugPrint('[SettingsService] Firestore updateRange failed: $e');
-    }
   }
 
   Future<void> resetToDefaults() async {

@@ -755,7 +755,15 @@ class TankService extends ChangeNotifier {
     }
   }
 
-  Future<void> initializeGrowOut(int initial, int sampleCount, double totalWeight, double totalLength, DateTime date, {String? batchName}) async {
+  Future<void> initializeGrowOut(
+    int initial,
+    int sampleCount,
+    double totalWeight,
+    double totalLength,
+    DateTime date, {
+    String? batchName,
+    bool editExisting = false,
+  }) async {
     if (_tankOwnerUid.isEmpty) {
       throw Exception('User not authenticated. Please sign in and try again.');
     }
@@ -766,22 +774,70 @@ class TankService extends ChangeNotifier {
       throw ArgumentError('Sample weight and length must be greater than zero');
     }
 
-    // Mark currently active batch as superseded — await the inner set() so
-    // the write completes before we overwrite local state below.
-    final existingActive = _batches.where((b) => b.status == 'active').firstOrNull;
-    if (existingActive != null) {
-      try {
-        await _batchesRef.doc(existingActive.batchId).set({
-          'batch_status': 'superseded',
-          'days_in_culture': DateTime.now().difference(existingActive.stockingDate).inDays,
-          'final_abw': _samplingHistory.isNotEmpty ? _samplingHistory.last.abw : existingActive.initialAbw,
-          'final_abl': _samplingHistory.isNotEmpty ? _samplingHistory.last.avgLength : existingActive.initialAbl,
-          'total_mortality': _mortality,
-        }, SetOptions(merge: true));
-      } catch (e) {
-        debugPrint('[TankService] could not mark previous batch as superseded: $e');
-      }
+    final requestedName = batchName?.trim() ?? '';
+    if (requestedName.contains('/') || requestedName.length > 100) {
+      throw ArgumentError('Batch name cannot contain "/" and must be 100 characters or fewer');
     }
+    final dateStr =
+        '${date.year}${date.month.toString().padLeft(2, '0')}${date.day.toString().padLeft(2, '0')}';
+    final seq = (_batches.length + 1).toString().padLeft(3, '0');
+    final fallbackBid = 'CR-$dateStr-$seq';
+
+    if (editExisting) {
+      final currentId = _selectedBatchId;
+      final current = selectedBatch;
+      if (currentId == null || current == null || current.status != 'active') {
+        throw StateError('Only the current active batch can be edited');
+      }
+      if (requestedName.isNotEmpty && requestedName != currentId) {
+        throw ArgumentError('The batch name cannot be changed after initialization');
+      }
+      if (_samplingHistory.isNotEmpty ||
+          _mortalityHistory.isNotEmpty ||
+          _harvestRecords.isNotEmpty) {
+        throw StateError('Initialization cannot be edited after operational records exist');
+      }
+
+      _initialCount = initial;
+      _stockingDate = date;
+      _lastSampleDate = date;
+      _sampleCount = sampleCount;
+      _totalSampleWeight = totalWeight;
+      _totalSampleLength = totalLength;
+      _initialWeight = totalWeight / sampleCount;
+      _initialLength = totalLength / sampleCount;
+      await _batchesRef.doc(currentId).set({
+        'initial_count': initial,
+        'current_count': initial,
+        'stocking_date': date.millisecondsSinceEpoch,
+        'sample_count': sampleCount,
+        'initial_total_weight': totalWeight,
+        'initial_total_length': totalLength,
+        'initial_abw': _initialWeight,
+        'initial_abl': _initialLength,
+      }, SetOptions(merge: true));
+      await _saveConfig();
+      notifyListeners();
+      return;
+    }
+
+    final bid = requestedName.isNotEmpty ? requestedName : fallbackBid;
+    if ((await _batchesRef.doc(bid).get()).exists) {
+      throw StateError('A batch named "$bid" already exists');
+    }
+
+    // Superseding the previous active batch, creating the new batch, and
+    // switching the tank pointer are committed atomically below.
+    final existingActive =
+        _batches.where((b) => b.status == 'active').firstOrNull;
+    final previousFinalAbw = _samplingHistory.isNotEmpty
+        ? _samplingHistory.last.abw
+        : existingActive?.initialAbw ?? 0.0;
+    final previousFinalAbl = _samplingHistory.isNotEmpty
+        ? _samplingHistory.last.avgLength
+        : existingActive?.initialAbl ?? 0.0;
+    final previousMortality = _mortality;
+    final previousHarvested = _totalHarvested;
 
     _initialCount = initial;
     _stockingDate = date;
@@ -800,18 +856,24 @@ class TankService extends ChangeNotifier {
     _activities.clear();
     _isArchiveView = false;
 
-    final dateStr = "${date.year}${date.month.toString().padLeft(2, '0')}${date.day.toString().padLeft(2, '0')}";
-    final seq = (_batches.length + 1).toString().padLeft(3, '0');
-    final fallbackBid = 'CR-$dateStr-$seq';
-    final bid = (batchName != null && batchName.trim().isNotEmpty) ? batchName.trim() : fallbackBid;
     _selectedBatchId = bid;
 
-    // Persist the batch FIRST. If this write fails, we rethrow so the UI
-    // shows an error and never claims success while Firebase has nothing.
-    // The tank config is updated only after the batch exists, keeping the
-    // "is_initialized" flag consistent with an actual batch on disk.
     try {
-      await _batchesRef.doc(bid).set({
+      final writes = _fs.batch();
+      if (existingActive != null) {
+        writes.set(_batchesRef.doc(existingActive.batchId), {
+          'batch_status': 'superseded',
+          'days_in_culture': DateTime.now()
+              .difference(existingActive.stockingDate)
+              .inDays
+              .clamp(0, 1000000),
+          'final_abw': previousFinalAbw,
+          'final_abl': previousFinalAbl,
+          'total_mortality': previousMortality,
+          'harvest_count': previousHarvested,
+        }, SetOptions(merge: true));
+      }
+      writes.set(_batchesRef.doc(bid), {
         'batch_id': bid,
         'batch_status': 'active',
         'stocking_date': _stockingDate.millisecondsSinceEpoch,
@@ -830,16 +892,28 @@ class TankService extends ChangeNotifier {
         'initial_total_weight': _totalSampleWeight,
         'initial_total_length': _totalSampleLength,
         'created_at': FieldValue.serverTimestamp(),
+      });
+      writes.set(_tankRef, {
+        'owner_uid': _currentUserUid.isNotEmpty
+            ? _currentUserUid
+            : _tankOwnerUid,
+        'initial_population': _initialCount,
+        'stocking_date': _stockingDate.millisecondsSinceEpoch,
+        'last_sample_date': _lastSampleDate.millisecondsSinceEpoch,
+        'lifetime_mortality': 0,
+        'lifetime_harvested': 0,
+        'sample_count': _sampleCount,
+        'initial_total_sample_weight': _totalSampleWeight,
+        'initial_total_sample_length': _totalSampleLength,
+        'current_batch_id': bid,
+        'is_initialized': true,
       }, SetOptions(merge: true));
+      await writes.commit();
     } catch (e) {
-      // NEVER swallow this — the user must know the batch wasn't persisted,
-      // otherwise the app looks "saved" while Firebase has nothing.
-      debugPrint('[TankService] Batch push error: $e');
+      debugPrint('[TankService] Atomic batch initialization failed: $e');
+      await refresh();
       rethrow;
     }
-
-    // Only mark the tank as initialized once the batch is confirmed on disk.
-    await _saveConfig();
     _addActivity('Initialized new grow-out batch with $initial population', 'init', customDate: date);
 
     _resubscribeToBatch();

@@ -1440,7 +1440,11 @@ class _DashboardScreenState extends State<DashboardScreen>
     final scheduleTimeStr = '${s.time} ${s.ampm}';
     final todayStr = _logDateString();
     for (final log in FeedState.feederLogs.value) {
-      if (log.action == 'Auto feed dispensed' &&
+      final action = log.action.toLowerCase();
+      final isConfirmedSchedule = log.type == 'auto' &&
+          (action.contains('dispensed feed (scheduled)') ||
+              action.contains('auto feed dispensed'));
+      if (isConfirmedSchedule &&
           log.time == scheduleTimeStr &&
           log.date == todayStr) {
         return 'completed';

@@ -251,7 +251,8 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
                 );
                 return;
               }
-              SettingsService.instance.updateRange(sensorKey, min, max);
+              await SettingsService.instance.updateRange(sensorKey, min, max);
+              if (!ctx.mounted) return;
               Navigator.pop(ctx);
               setState(() {});
               await _saveConfigToFirebase(changedKey: sensorKey);

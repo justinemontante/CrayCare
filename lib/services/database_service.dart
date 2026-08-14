@@ -250,9 +250,18 @@ class DatabaseService {
     final tankId = profile?['tank_id'] as String? ?? user.uid;
     final tankRef = _db.collection('tanks').doc(tankId);
 
+    const sensorDocFor = {
+      'temp': 'temperature',
+      'ph': 'ph_level',
+      'do': 'dissolved_oxygen',
+      'turb': 'turbidity',
+      'waterlevel': 'water_level',
+    };
     final batch = _db.batch();
     for (final entry in currentRanges.entries) {
-      final sensorRef = tankRef.collection('sensors').doc(entry.key);
+      final sensorDoc = sensorDocFor[entry.key];
+      if (sensorDoc == null) continue;
+      final sensorRef = tankRef.collection('sensors').doc(sensorDoc);
       batch.set(sensorRef, {
         'min_value': entry.value['min'],
         'max_value': entry.value['max'],

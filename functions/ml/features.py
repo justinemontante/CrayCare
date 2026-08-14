@@ -68,7 +68,7 @@ CLASS_NAMES = ["Low", "Moderate", "High", "Critical"]
 
 # ── Feature engineering ──────────────────────────────────────────────────────────
 def build_features(df):
-    """Build 43 engineered features from raw sensor DataFrame.
+    """Build 45 engineered features from raw sensor DataFrame.
 
     Expects columns: {sensor}_avg, {sensor}_min, {sensor}_max
     for each sensor in SENSORS (["temp","pH","DO","turbidity","waterLevel"]).

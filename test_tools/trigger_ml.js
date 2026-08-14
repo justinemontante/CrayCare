@@ -1,5 +1,5 @@
 const admin = require('firebase-admin');
-const { getFirestore, FieldValue } = require('firebase-admin/firestore');
+const { getFirestore, Timestamp } = require('firebase-admin/firestore');
 const path = require('path');
 const fs = require('fs');
 
@@ -8,27 +8,48 @@ const keyPaths = [
   path.join(__dirname, '..', 'serviceAccountKey.json'),
 ];
 let serviceAccount;
-for (const kp of keyPaths) {
-  if (fs.existsSync(kp)) { serviceAccount = require(kp); break; }
+for (const keyPath of keyPaths) {
+  if (fs.existsSync(keyPath)) { serviceAccount = require(keyPath); break; }
 }
-if (!serviceAccount) { console.error('No service account found'); process.exit(1); }
+if (!serviceAccount) { console.error('No service account found.'); process.exit(1); }
 
-admin.initializeApp({ credential: admin.cert(serviceAccount) });
+admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
 const db = getFirestore();
 
-const TANK_OWNER_UID = process.env.TANK_OWNER_UID || 'test-owner';
-
-async function trigger() {
-  await db.collection('sensorReadings').doc(TANK_OWNER_UID).set({
-    temperature: 26.5,
-    phLevel: 7.8,
-    dissolvedOxygen: 6.0,
-    turbidity: 15.0,
-    waterLevel: 7.5,
-    timestamp: FieldValue.serverTimestamp(),
-  });
-  console.log(`✅ sensorReadings/${TANK_OWNER_UID} written — ML Cloud Function should trigger now.`);
-  console.log('   Check logs: firebase functions:log --only on_sensor_update');
-  process.exit(0);
+function manilaDateKey(milliseconds) {
+  const manila = new Date(milliseconds + 8 * 60 * 60 * 1000);
+  return [
+    manila.getUTCFullYear(),
+    String(manila.getUTCMonth() + 1).padStart(2, '0'),
+    String(manila.getUTCDate()).padStart(2, '0'),
+  ].join('-');
 }
-trigger().catch(e => { console.error(e); process.exit(1); });
+
+async function seedHistory() {
+  const assignment = await db.collection('hardware_system').doc('currentOwner').get();
+  const tankId = assignment.exists ? assignment.data().tank_id : null;
+  if (!tankId) throw new Error('No hardware owner/tank is currently assigned.');
+
+  const batch = db.batch();
+  const now = Date.now();
+  for (let i = 5; i >= 0; i--) {
+    const captured = now - i * 10 * 60 * 1000;
+    const dateKey = manilaDateKey(captured);
+    const ref = db.collection('tanks').doc(tankId)
+      .collection('sensor_readings_history').doc(dateKey)
+      .collection('entries').doc(`ml_test_${captured}`);
+    batch.set(ref, {
+      temp_min: 25.8, temp_max: 26.4, temp_avg: 26.1,
+      pH_min: 7.3, pH_max: 7.6, pH_avg: 7.45,
+      DO_min: 5.8, DO_max: 6.4, DO_avg: 6.1,
+      turbidity_min: 10, turbidity_max: 15, turbidity_avg: 12.5,
+      waterLevel_min: 17.5, waterLevel_max: 18.5, waterLevel_avg: 18.0,
+      recorded_at: Timestamp.fromMillis(captured),
+    });
+  }
+  await batch.commit();
+  console.log(`✅ Seeded six complete 10-minute records for tank ${tankId}.`);
+  console.log('The production WQC function is hourly; wait for the next scheduler run, then run check_health_risk.js.');
+}
+
+seedHistory().catch(error => { console.error(error); process.exit(1); });

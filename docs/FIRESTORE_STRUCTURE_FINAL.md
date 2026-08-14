@@ -16,7 +16,6 @@ users
 hardware_system
 notifications
 sensorIngestion       # internal ESP-to-Cloud-Function staging path
-mlPredictions         # optional ML output
 ```
 
 ## Users
@@ -86,8 +85,11 @@ tanks/{tank_id}
     recorded_at: Timestamp
 
   sensor_readings_history/{YYYY-MM-DD}/entries/{reading_id}
-    temperature, ph_level, dissolved_oxygen, turbidity, water_level
-    turbidity_air: boolean
+    temp_min, temp_max, temp_avg
+    pH_min, pH_max, pH_avg
+    DO_min, DO_max, DO_avg
+    turbidity_min, turbidity_max, turbidity_avg
+    waterLevel_min, waterLevel_max, waterLevel_avg
     recorded_at: Timestamp
 
   sensors/{temperature|ph_level|dissolved_oxygen|turbidity|water_level}
@@ -98,14 +100,18 @@ tanks/{tank_id}
   actuators/{pump|aerator1|aerator2}
     control_mode: "on" | "off" | "auto"
     current_state: "on" | "off"
-    last_changed: Timestamp
+    last_changed: epoch milliseconds
 
   actuator_logs/{log_id}
     actuator_type: string
     action: string
     log_level: string
     message: string
-    logged_at: Timestamp
+    type: string
+    time: string
+    date: string
+    timestamp: epoch milliseconds
+    logged_at: epoch milliseconds
 
   feeder/status
     status: "idle" | "dispensing"
@@ -122,22 +128,27 @@ tanks/{tank_id}
     time: string
     ampm: string
     timeValue: number
-    portion_grams: number
+    grams: number | null
+    portion_grams: number | null
+    enabled: boolean
     is_active: boolean
+    isDone: boolean
     created_at: Timestamp
 
   pending_commands/{command_id}
-    command_type: "feed_now" | "cancel" | "test"
+    command_type: "feed_now"
     trigger_type: "manual" | "scheduled"
-    grams: number
+    grams: number | null
     issued_by: string
     issued_at: Timestamp
 
   feeder_logs/{log_id}
     action: string
     type: string
-    trigger_type: string
-    logged_at: Timestamp
+    time: string
+    date: string
+    timestamp: epoch milliseconds
+    logged_at: Timestamp | epoch milliseconds
 ```
 
 ## Production hierarchy
@@ -181,12 +192,22 @@ tanks/{tank_id}/batches/{batch_id}
     created_at: Timestamp
 
   harvest_records/{harvest_id}
+    batch_id: string
     harvest_date: epoch milliseconds
-    harvested_count: number
+    harvest_count: number
     total_weight_kg: number
     abw_grams: number
     survival_rate: number
     created_at: Timestamp
+
+  ml_predictions/current
+    level: "Low" | "Moderate" | "High" | "Critical" | "Insufficient"
+    confidence: number
+    driver, driver_label, driver_value, driver_unit
+    driver_min, driver_max
+    problem, insight, action, source, analysis_mode
+    samples_analyzed, required_samples
+    timestamp: ISO-8601 string
 ```
 
 ## ESP ingestion flow

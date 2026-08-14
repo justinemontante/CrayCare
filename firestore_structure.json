@@ -185,11 +185,19 @@
           "level (Low|Moderate|High|Critical|Insufficient)",
           "confidence (0-100)",
           "driver",
+          "driver_label",
+          "driver_value",
+          "driver_unit",
+          "driver_min",
+          "driver_max",
           "problem",
           "insight",
           "action",
-          "source (ml|insufficient_data|rule_based)",
-          "timestamp"
+          "source (standards/citation text)",
+          "analysis_mode",
+          "samples_analyzed",
+          "required_samples",
+          "timestamp (ISO-8601 string)"
         ]
       }
     }
@@ -197,77 +205,70 @@
   "tanks/{tankId}/batches/{batchId}": {
     "_description": "Nested crayfish batch doc under its owning tank. Replaces the legacy flat batches collection.",
     "fields": [
-      "batchId",
-      "tankId",
-      "status (active|harvested|superseded)",
-      "stockingDate (int)",
-      "harvestDate (int|null)",
-      "initialCount",
-      "currentCount",
-      "harvestCount",
-      "totalMortality",
-      "harvestWeightGrams",
-      "initialAbw",
-      "initialAbl",
-      "finalAbw",
-      "finalAbl",
-      "daysInCulture",
-      "sampleCount",
-      "initialTotalWeight",
-      "initialTotalLength",
+      "batch_id",
+      "batch_status (active|harvested|superseded)",
+      "stocking_date (int epoch-ms)",
+      "harvest_date (int epoch-ms|null)",
+      "initial_count",
+      "current_count",
+      "harvest_count",
+      "total_mortality",
+      "harvest_weight_grams",
+      "initial_abw",
+      "initial_abl",
+      "final_abw",
+      "final_abl",
+      "days_in_culture",
+      "sample_count",
+      "initial_total_weight",
+      "initial_total_length",
       "created_at (Timestamp)"
     ]
   },
   "tanks/{tankId}/batches/{batchId}/sampling_records/{recordId}": {
     "_description": "Sampling records nested under their batch.",
     "fields": [
-      "tankId",
-      "batchId",
-      "date (int)",
-      "abw",
-      "avgLength",
-      "sampleSize",
-      "totalWeight",
-      "totalLength",
+      "sampling_date (int epoch-ms)",
+      "avg_body_weight",
+      "avg_body_length",
+      "sample_size",
+      "total_weight",
+      "total_length",
       "biomass",
-      "liveCount",
-      "isBaseline",
-      "timestamp (Timestamp)"
+      "live_count",
+      "is_baseline",
+      "created_at (Timestamp)"
     ]
   },
   "tanks/{tankId}/batches/{batchId}/mortality_records/{recordId}": {
     "_description": "Mortality records nested under their batch.",
     "fields": [
-      "tankId",
-      "batchId",
-      "date (int)",
-      "count",
-      "timestamp (Timestamp)"
+      "mortality_date (int epoch-ms)",
+      "mortality_count",
+      "created_at (Timestamp)"
     ]
   },
   "tanks/{tankId}/batches/{batchId}/harvest_records/{recordId}": {
     "_description": "Harvest records nested under their batch.",
     "fields": [
-      "tankId",
-      "batchId",
-      "date (int)",
-      "harvestedCount",
-      "totalWeightKg",
-      "abwGrams",
-      "survivalRate",
-      "timestamp (Timestamp)"
+      "batch_id",
+      "harvest_date (int epoch-ms)",
+      "harvest_count",
+      "total_weight_kg",
+      "abw_grams",
+      "survival_rate",
+      "created_at (Timestamp)"
     ]
   },
   "notifications/{notifId}": {
     "_description": "Root notification collection scoped by uid field. Readable if uid matches auth uid.",
     "fields": [
       "uid",
+      "notif_type",
       "title",
-      "message (code uses 'message', not 'body')",
-      "type (sensor|alert|feeder|system)",
+      "body",
       "is_read (bool)",
-      "readBy (map uid->bool)",
-      "timestamp / created_at (Timestamp)"
+      "created_at (Timestamp)"
     ]
   },
   "sensorIngestion/current": {
