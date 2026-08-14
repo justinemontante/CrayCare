@@ -837,43 +837,4 @@ class NotificationService extends ChangeNotifier {
     final now = DateTime.now();
     return dt.day == now.day && dt.month == now.month && dt.year == now.year;
   }
-
-  String get _uid => FirebaseAuth.instance.currentUser?.uid ?? '';
-
-  Future<void> _saveMarker(String key, dynamic value) async {
-    if (_uid.isEmpty) return;
-    try {
-      // Markers now live under the user doc: users/{uid}/notif_markers/{key}
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(_uid)
-          .collection('notif_markers')
-          .doc(key)
-          .set({'markerKey': key, 'value': value, 'updatedAt': FieldValue.serverTimestamp()});
-    } catch (e) {
-      debugPrint('[NotificationService] Failed to save marker: $e');
-    }
-  }
-
-  Future<Map<String, dynamic>?> _readMarker(String key) async {
-    if (_uid.isEmpty) return null;
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(_uid)
-          .collection('notif_markers')
-          .doc(key)
-          .get();
-      if (doc.exists && doc.data() != null) {
-        final data = doc.data()!;
-        final val = data['value'];
-        if (val is Map<String, dynamic>) return val;
-        if (val is Map) return val.map((k, v) => MapEntry(k.toString(), v));
-        return {'value': val};
-      }
-    } catch (e) {
-      debugPrint('[NotificationService] Failed to read marker: $e');
-    }
-    return null;
-  }
 }
