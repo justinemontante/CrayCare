@@ -672,7 +672,7 @@ class TankService extends ChangeNotifier {
       // keeps another device's dashboard consistent without relying on cache.
       _totalHarvested = _harvestRecords.fold<int>(
         0,
-        (sum, record) => sum + record.harvestedCount,
+        (total, record) => total + record.harvestedCount,
       );
       notifyListeners();
     }, onError: (e) {

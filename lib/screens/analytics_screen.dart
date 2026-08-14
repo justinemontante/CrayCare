@@ -356,13 +356,6 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     return null;
   }
 
-  int? _toInt(dynamic v) {
-    if (v is int) return v;
-    if (v is double) return v.toInt();
-    if (v is num) return v.toInt();
-    return null;
-  }
-
   List<double> _getData(String key, String range) {
     return _data['$key-$range'] ?? [];
   }

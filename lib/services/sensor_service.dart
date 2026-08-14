@@ -357,12 +357,6 @@ class SensorService extends ChangeNotifier {
     return -1;
   }
 
-  int? _toInt(dynamic v) {
-    if (v is int) return v;
-    if (v is double) return v.toInt();
-    return null;
-  }
-
   bool hasSensorData(String key) => _latest.containsKey(key);
 
   bool hasFreshData(String key) =>

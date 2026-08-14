@@ -319,16 +319,6 @@ class NotificationService extends ChangeNotifier {
     return _notifications[idx].isUnreadBy(uid);
   }
 
-  // Feeding schedules are configured in — and the Cloud Function
-  // (functions/notifications/index.js) dispatches/confirms them in — fixed
-  // Asia/Manila wall-clock time (MANILA_OFFSET_MS there). Using
-  // DateTime.now() directly would compare schedule times against the
-  // DEVICE's local clock instead, causing wrong-time or duplicate
-  // reminders for anyone outside that timezone. This mirrors the same
-  // fixed +8h approach so both sides agree.
-  static const _manilaOffset = Duration(hours: 8);
-  DateTime _manilaNow() => DateTime.now().toUtc().add(_manilaOffset);
-
   final FlutterLocalNotificationsPlugin _localNotifications =
       FlutterLocalNotificationsPlugin();
   StreamSubscription? _tokenSub;
