@@ -1591,7 +1591,7 @@ class GrowthStagePanel extends StatelessWidget {
     _StageRange(abwMin: 1, abwMax: 5, ablMin: 2, ablMax: 4),
     _StageRange(abwMin: 5, abwMax: 15, ablMin: 4, ablMax: 6),
     _StageRange(abwMin: 15, abwMax: 50, ablMin: 6, ablMax: 10),
-    _StageRange(abwMin: 50, abwMax: 100, ablMin: 10, ablMax: 12),
+    _StageRange(abwMin: 50, abwMax: 120, ablMin: 10, ablMax: 14),
   ];
 
   static const List<String> _labels = [
