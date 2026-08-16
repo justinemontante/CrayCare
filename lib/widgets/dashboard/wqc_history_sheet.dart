@@ -85,19 +85,72 @@ class _WqcHistorySheet extends StatelessWidget {
                     ),
                   ),
                   TextButton.icon(
-                    onPressed: history.isEmpty ? null : () async {
-                      final ok = await ReportExportService.instance
-                          .copyToClipboard(
-                              ReportExportService.instance.buildWqcCsv());
-                      if (!context.mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                        content: Text(ok
-                            ? 'WQC report copied — paste it into Excel or Google Sheets.'
-                            : 'Could not copy to clipboard.'),
-                      ));
+                    onPressed: history.isEmpty
+                        ? null
+                        : () async {
+                            final ok = await ReportExportService.instance
+                                .copyToClipboard(
+                                    ReportExportService.instance.buildWqcCsv());
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                              content: Text(ok
+                                  ? 'WQC report copied — paste it into Excel or Google Sheets.'
+                                  : 'Could not copy to clipboard.'),
+                            ));
+                          },
+                    icon: const Icon(Icons.content_copy, size: 18),
+                    label: const Text('Copy CSV'),
+                  ),
+                  const SizedBox(width: 4),
+                  PopupMenuButton<String>(
+                    tooltip: 'Export WQC report',
+                    icon: const Icon(Icons.ios_share,
+                        size: 20, color: AppColors.primary),
+                    onSelected: (value) async {
+                      final svc = ReportExportService.instance;
+                      try {
+                        if (value == 'csv') {
+                          await svc.shareWqcCsv();
+                        } else {
+                          await svc.shareWqcPdf();
+                        }
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text(value == 'csv'
+                              ? 'CSV report ready — choose where to save or share it.'
+                              : 'PDF report ready — choose where to save or share it.'),
+                        ));
+                      } catch (e) {
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text('Export failed: $e'),
+                        ));
+                      }
                     },
-                    icon: const Icon(Icons.download, size: 18),
-                    label: const Text('Export CSV'),
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(
+                        value: 'csv',
+                        child: Row(
+                          children: [
+                            Icon(Icons.table_chart_outlined,
+                                size: 18, color: AppColors.primary),
+                            SizedBox(width: 10),
+                            Text('Export CSV (Excel)'),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'pdf',
+                        child: Row(
+                          children: [
+                            Icon(Icons.picture_as_pdf_outlined,
+                                size: 18, color: AppColors.primary),
+                            SizedBox(width: 10),
+                            Text('Export PDF'),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),

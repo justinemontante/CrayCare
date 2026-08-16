@@ -153,22 +153,55 @@ class _TrendsTabState extends State<TrendsTab> {
                 children: [
                   _buildToggle(),
                   const SizedBox(width: 4),
-                  IconButton(
-                    tooltip: 'Export growth report (CSV)',
-                    visualDensity: VisualDensity.compact,
-                    onPressed: () async {
-                      final svc = ReportExportService.instance;
-                      final ok =
-                          await svc.copyToClipboard(svc.buildGrowthCsv());
-                      if (!context.mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                        content: Text(ok
-                            ? 'Growth report copied — paste it into Excel or Google Sheets.'
-                            : 'Could not copy to clipboard.'),
-                      ));
-                    },
-                    icon: const Icon(Icons.download,
+                  PopupMenuButton<String>(
+                    tooltip: 'Export growth report',
+                    icon: const Icon(Icons.ios_share,
                         size: 20, color: AppColors.primary),
+                    onSelected: (value) async {
+                      final svc = ReportExportService.instance;
+                      try {
+                        if (value == 'csv') {
+                          await svc.shareGrowthCsv();
+                        } else {
+                          await svc.shareGrowthPdf();
+                        }
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text(value == 'csv'
+                              ? 'CSV report ready — choose where to save or share it.'
+                              : 'PDF report ready — choose where to save or share it.'),
+                        ));
+                      } catch (e) {
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text('Export failed: $e'),
+                        ));
+                      }
+                    },
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(
+                        value: 'csv',
+                        child: Row(
+                          children: [
+                            Icon(Icons.table_chart_outlined,
+                                size: 18, color: AppColors.primary),
+                            SizedBox(width: 10),
+                            Text('Export CSV (Excel)'),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'pdf',
+                        child: Row(
+                          children: [
+                            Icon(Icons.picture_as_pdf_outlined,
+                                size: 18, color: AppColors.primary),
+                            SizedBox(width: 10),
+                            Text('Export PDF'),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
