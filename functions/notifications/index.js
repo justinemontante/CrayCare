@@ -259,6 +259,11 @@ function normalizeSensorReading(raw) {
     dissolved_oxygen: raw.dissolved_oxygen ?? raw.dissolvedOxygen ?? null,
     turbidity: raw.turbidity ?? null,
     water_level: raw.water_level ?? raw.waterLevelPercent ?? raw.waterLevel ?? null,
+    // Turbidity sensor out-of-water flag: the ESP sets this when the probe
+    // reads "air" (true). The Flutter app uses it to block feeding and to
+    // disable the feeder control. Previously dropped here, so the safety
+    // interlock silently never fired.
+    turbidity_air: raw.turbidity_air ?? raw.turbidityAir ?? null,
 
     // 10-min window aggregates (min → max → avg per sensor). These match
     // the ML training schema (temp_min/temp_max/temp_avg, pH_*, DO_*,
