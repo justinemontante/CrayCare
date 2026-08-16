@@ -176,7 +176,7 @@ class _WqcHistorySheet extends StatelessWidget {
                       controller: scrollController,
                       padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
                       itemCount: history.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      separatorBuilder: (_, _) => const SizedBox(height: 8),
                       itemBuilder: (context, index) {
                         final item = history[index];
                         final color = _levelColor(item.level);

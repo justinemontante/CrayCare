@@ -165,14 +165,14 @@ class _TrendsTabState extends State<TrendsTab> {
                         } else {
                           await svc.shareGrowthPdf();
                         }
-                        if (!context.mounted) return;
+                        if (!mounted) return;
                         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                           content: Text(value == 'csv'
                               ? 'CSV report ready — choose where to save or share it.'
                               : 'PDF report ready — choose where to save or share it.'),
                         ));
                       } catch (e) {
-                        if (!context.mounted) return;
+                        if (!mounted) return;
                         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                           content: Text('Export failed: $e'),
                         ));

@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
@@ -28,7 +27,7 @@ class ReportExportService {
   }
 
   static String _row(List<Object?> cells) =>
-      cells.map(_cell).join(',') + '\n';
+      '${cells.map(_cell).join(',')}\n';
 
   static String _fmtDate(DateTime dt) =>
       '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
@@ -72,7 +71,7 @@ class ReportExportService {
     final buf = StringBuffer();
 
     buf.writeln('CrayCare Grow-Out Report');
-    buf.writeln('Generated,' + _fmtDateTime(DateTime.now()));
+    buf.writeln('Generated,${_fmtDateTime(DateTime.now())}');
     buf.writeln();
     buf.writeln(_row(['Summary']));
     buf.writeln(_row(['Batch ID', t.selectedBatchId ?? '-']));
@@ -139,7 +138,7 @@ class ReportExportService {
     final buf = StringBuffer();
 
     buf.writeln('CrayCare Water Quality Classification Report');
-    buf.writeln('Generated,' + _fmtDateTime(DateTime.now()));
+    buf.writeln('Generated,${_fmtDateTime(DateTime.now())}');
     buf.writeln();
 
     final history = hr.history;
