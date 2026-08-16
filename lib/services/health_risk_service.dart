@@ -104,13 +104,21 @@ class HealthRiskService extends ChangeNotifier {
   HealthRiskResult? _result;
   bool _loading = true;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _sub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _historySub;
+  List<HealthRiskResult> _history = [];
 
   HealthRiskResult? get result => _result;
   bool get loading => _loading;
   bool get hasData => _result != null && _result!.hasData;
 
+  /// Hourly assessment history (newest first), including the current one.
+  /// The ML function writes one doc per assessment into the same
+  /// ml_predictions collection, keyed by a sortable UTC timestamp.
+  List<HealthRiskResult> get history => List.unmodifiable(_history);
+
   void init() {
     _sub?.cancel();
+    _historySub?.cancel();
     _loading = true;
     notifyListeners();
 
@@ -120,10 +128,12 @@ class HealthRiskService extends ChangeNotifier {
 
     FirebaseAuth.instance.authStateChanges().listen((user) {
       _sub?.cancel();
+      _historySub?.cancel();
       if (user != null) {
         _startListening();
       } else {
         _result = null;
+        _history = [];
         _loading = true;
         notifyListeners();
       }
@@ -140,9 +150,11 @@ class HealthRiskService extends ChangeNotifier {
 
   void _startListening() async {
     _sub?.cancel();
+    _historySub?.cancel();
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) {
       _result = null;
+      _history = [];
       _loading = false;
       notifyListeners();
       return;
@@ -171,6 +183,29 @@ class HealthRiskService extends ChangeNotifier {
         _loading = false;
         notifyListeners();
       });
+
+      // Hourly assessment history (newest first). The ML function writes one
+      // doc per assessment into the same ml_predictions collection, keyed by
+      // a sortable UTC timestamp.
+      _historySub = FirebaseFirestore.instance
+          .collection('tanks')
+          .doc(tankId)
+          .collection('ml_predictions')
+          .orderBy('ts_epoch', descending: true)
+          .limit(30)
+          .snapshots()
+          .listen((snap) {
+        final list = <HealthRiskResult>[];
+        for (final doc in snap.docs) {
+          final data = doc.data();
+          if (data.isEmpty) continue;
+          list.add(HealthRiskResult.fromMap(data));
+        }
+        _history = list;
+        notifyListeners();
+      }, onError: (e) {
+        debugPrint('[HealthRiskService] history stream error: $e');
+      });
     } catch (e) {
       debugPrint('[HealthRiskService] Listener setup error: $e');
       _loading = false;
@@ -181,6 +216,7 @@ class HealthRiskService extends ChangeNotifier {
   @override
   void dispose() {
     _sub?.cancel();
+    _historySub?.cancel();
     super.dispose();
   }
 }

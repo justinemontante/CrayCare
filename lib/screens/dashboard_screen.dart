@@ -544,19 +544,39 @@ class _DashboardScreenState extends State<DashboardScreen>
     return AppColors.darkWith(0.4);
   }
 
-  /// Rising is beneficial for DO and water level.
-  bool _risingIsGood(String key) => key == 'do' || key == 'waterlevel';
+  /// Rising is beneficial for DO (more oxygen) and for water level while it is
+  /// still BELOW the safe maximum (filling toward normal). Once water level is
+  /// at/above max, rising means approaching overflow, so it is no longer good.
+  bool _risingIsGood(String key, double value) {
+    if (key == 'do') return true;
+    if (key == 'waterlevel') {
+      final ranges = SettingsService.instance.currentRanges;
+      final max = ranges[key]?['max'] ?? 999.0;
+      return value < max;
+    }
+    return false;
+  }
 
-  /// Falling is beneficial for turbidity.
-  bool _fallingIsGood(String key) => key == 'turb';
+  /// Falling is beneficial for turbidity (clearer water) and for water level
+  /// while it is still ABOVE the safe minimum (draining back from overflow).
+  /// Below min, falling means the tank is getting too shallow.
+  bool _fallingIsGood(String key, double value) {
+    if (key == 'turb') return true;
+    if (key == 'waterlevel') {
+      final ranges = SettingsService.instance.currentRanges;
+      final min = ranges[key]?['min'] ?? 0.0;
+      return value > min;
+    }
+    return false;
+  }
 
   Color _getTrendColor(String key, double value, String trend, double rate, String status) {
     // Sensors with a clear preferred direction — collapse the 3 identical branches into one.
-    if (_risingIsGood(key) || _fallingIsGood(key)) {
-      final bool goodDir = _risingIsGood(key)
+    if (_risingIsGood(key, value) || _fallingIsGood(key, value)) {
+      final bool goodDir = _risingIsGood(key, value)
           ? (trend == 'rising' || trend == 'rising_fast')
           : (trend == 'falling' || trend == 'falling_fast');
-      final bool badDir = _risingIsGood(key)
+      final bool badDir = _risingIsGood(key, value)
           ? (trend == 'falling' || trend == 'falling_fast')
           : (trend == 'rising' || trend == 'rising_fast');
       if (goodDir) return AppColors.success;
@@ -1461,10 +1481,11 @@ class _DashboardScreenState extends State<DashboardScreen>
     return 'upcoming';
   }
 
-  Widget _buildModalTrendIndicator(String trend, double rate, String status, {String? sensorKey}) {
+  Widget _buildModalTrendIndicator(String trend, double rate, String status, {String? sensorKey, double? value}) {
     // Delegate direction semantics to the class-level helpers (single source of truth).
-    final risingIsGood = sensorKey != null && _risingIsGood(sensorKey);
-    final fallingIsGood = sensorKey != null && _fallingIsGood(sensorKey);
+    final v = value ?? 0.0;
+    final risingIsGood = sensorKey != null && _risingIsGood(sensorKey, v);
+    final fallingIsGood = sensorKey != null && _fallingIsGood(sensorKey, v);
     final isBadStatus = status == 'CRITICAL' || status == 'WARNING';
 
     Color goodColor() => AppColors.success;
@@ -1747,7 +1768,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                           ),
                           if (hasData) ...[
                             const SizedBox(height: 6),
-                            _buildModalTrendIndicator(ss.getTrend(sensorKey), ss.getTrendRate(sensorKey), status, sensorKey: sensorKey),
+                            _buildModalTrendIndicator(ss.getTrend(sensorKey), ss.getTrendRate(sensorKey), status, sensorKey: sensorKey, value: value),
                           ]
                         ],
                       ),

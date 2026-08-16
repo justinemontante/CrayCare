@@ -186,8 +186,19 @@ def _analyze_tank(tank_id: str) -> None:
         if owner_uid:
             result["uid"] = owner_uid
 
+    # Numeric epoch (seconds) so the app can order assessment history
+    # reliably; the ISO timestamp string stays for human display.
+    result["ts_epoch"] = int(datetime.now(timezone.utc).timestamp())
+
     (db.collection("tanks").document(tank_id)
        .collection("ml_predictions").document("current").set(result))
+
+    # Keep a running history (one doc per hourly assessment) so the app can
+    # show WQC trends over time and export them as a report. The doc id is the
+    # UTC timestamp in a lexicographically-sortable form.
+    hist_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    (db.collection("tanks").document(tank_id)
+       .collection("ml_predictions").document(hist_id).set(result))
     print(f"[WQC] Tank {tank_id}: {result['level']} (confidence={result['confidence']}%, driver={result['driver']})")
 
 

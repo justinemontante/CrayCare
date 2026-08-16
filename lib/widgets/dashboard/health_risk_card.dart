@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../services/health_risk_service.dart';
 import '../../theme/app_colors.dart';
+import 'wqc_history_sheet.dart';
 
 class HealthRiskCard extends StatelessWidget {
   const HealthRiskCard({super.key});
@@ -219,6 +220,22 @@ class HealthRiskCard extends StatelessWidget {
                     ),
                   ),
                 ],
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: () => showWqcHistorySheet(context),
+                    icon: const Icon(Icons.history, size: 16),
+                    label: const Text('View assessment history'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.primary,
+                      textStyle: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),

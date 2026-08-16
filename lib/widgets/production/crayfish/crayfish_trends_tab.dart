@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../../../theme/app_colors.dart';
 import '../../../services/tank_service.dart';
+import '../../../services/report_export_service.dart';
 import 'crayfish_sampling_tab.dart';
 
 class TrendsTab extends StatefulWidget {
@@ -58,6 +59,31 @@ class _TrendsTabState extends State<TrendsTab> {
 
   Widget _buildEmptyState() {
     return const SizedBox.shrink();
+  }
+
+  /// Wraps a chart in a horizontal scroll view when there are too many
+  /// points to fit on screen. With few points it fills the available width
+  /// exactly (no scroll); with many weeks/days it becomes swipeable so every
+  /// data point stays readable instead of being crushed together.
+  Widget _scrollableChart({
+    required int pointCount,
+    required double height,
+    required Widget child,
+  }) {
+    const double minPointSpacing = 36.0; // enough for dots/labels to breathe
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final available = constraints.maxWidth;
+        final desired = pointCount <= 1
+            ? available
+            : (pointCount - 1) * minPointSpacing + 24.0;
+        final width = desired > available ? desired : available;
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(width: width, height: height, child: child),
+        );
+      },
+    );
   }
 
   Widget _buildChartContainer() {
@@ -122,7 +148,30 @@ class _TrendsTabState extends State<TrendsTab> {
                   ),
                 ],
               ),
-              _buildToggle(),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildToggle(),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    tooltip: 'Export growth report (CSV)',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () async {
+                      final svc = ReportExportService.instance;
+                      final ok =
+                          await svc.copyToClipboard(svc.buildGrowthCsv());
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text(ok
+                            ? 'Growth report copied — paste it into Excel or Google Sheets.'
+                            : 'Could not copy to clipboard.'),
+                      ));
+                    },
+                    icon: const Icon(Icons.download,
+                        size: 20, color: AppColors.primary),
+                  ),
+                ],
+              ),
             ],
           ),
           const SizedBox(height: 24),
@@ -139,7 +188,11 @@ class _TrendsTabState extends State<TrendsTab> {
                       ),
                     ),
                   )
-                : _buildLineChart(data, lineColor, unit, labels),
+                : _scrollableChart(
+                    pointCount: data.length,
+                    height: 200,
+                    child: _buildLineChart(data, lineColor, unit, labels),
+                  ),
           ),
           const SizedBox(height: 12),
           _buildGrowthFooter(data, unit),
@@ -467,7 +520,11 @@ class _TrendsTabState extends State<TrendsTab> {
                           ),
                         ),
                       )
-                    : _buildBiomassLineChart(data, unit, labels),
+                    : _scrollableChart(
+                        pointCount: data.length,
+                        height: 180,
+                        child: _buildBiomassLineChart(data, unit, labels),
+                      ),
           ),
           if (hasData) ...[
             const SizedBox(height: 12),
@@ -774,7 +831,11 @@ class _TrendsTabState extends State<TrendsTab> {
                       ),
                     ),
                   )
-                : _buildMortalityLineChart(dailyEntries),
+                : _scrollableChart(
+                    pointCount: dailyEntries.length,
+                    height: 180,
+                    child: _buildMortalityLineChart(dailyEntries),
+                  ),
           ),
           const SizedBox(height: 12),
           _buildMortalityFooter(service, entries, totalMort),
@@ -894,6 +955,9 @@ class _TrendsTabState extends State<TrendsTab> {
           bottomTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
+              interval: entries.length > 10
+                  ? (entries.length / 5).ceilToDouble()
+                  : 1.0,
               getTitlesWidget: (value, meta) {
                 final i = value.toInt();
                 if (i >= 0 && i < labels.length) {
