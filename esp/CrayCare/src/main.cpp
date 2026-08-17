@@ -1504,7 +1504,7 @@ void processFeederCommands() {
   if (!ensureFirebaseReady()) return;
   if (currentTankId.length() == 0) return;   // no tank assigned -> nothing to do
 
-  String cmdCol = "tanks/" + currentTankId + "/pending_commands";
+  String cmdCol = "tanks/" + currentTankId + "/feeder_commands";
   if (!Firebase.Firestore.listDocuments(&fbdo, FIREBASE_PROJECT_ID, "",
         cmdCol.c_str(), 20, "", "", "", false)) {
     return;
@@ -1562,7 +1562,7 @@ void processFeederCommands() {
       Serial.printf("[FEEDER] Mode -> %s\n", feederAutoMode ? "AUTO" : "MANUAL");
     }
 
-    String docPath = "tanks/" + currentTankId + "/pending_commands/" + e.docId;
+    String docPath = "tanks/" + currentTankId + "/feeder_commands/" + e.docId;
     if (!Firebase.Firestore.deleteDocument(&fbdo, FIREBASE_PROJECT_ID, "",
                                            docPath.c_str())) {
       Serial.printf("[FEEDER] Delete cmd failed: %s\n", fbdo.errorReason().c_str());

@@ -157,7 +157,7 @@
           "timestamp (int)"
         ]
       },
-      "pending_commands/{commandId}": {
+      "feeder_commands/{commandId}": {
         "_description": "Manual feed commands pending ESP32 execution. Flutter creates; ESP32 reads + deletes processed commands.",
         "fields": [
           "command_type (feed_now)",

@@ -31,7 +31,7 @@ Device control paths are scoped to the assigned tank:
 - `tanks/{tankId}/actuators/*`
 - `tanks/{tankId}/feeder/status`
 - `tanks/{tankId}/feeder_schedules/*`
-- `tanks/{tankId}/pending_commands/*`
+- `tanks/{tankId}/feeder_commands/*`
 - `tanks/{tankId}/feeder_logs/*`
 - `tanks/{tankId}/actuator_logs/*`
 

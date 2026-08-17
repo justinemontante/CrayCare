@@ -133,7 +133,7 @@ tanks/{tank_id}
     isDone: boolean
     created_at: Timestamp
 
-  pending_commands/{command_id}
+  feeder_commands/{command_id}
     command_type: "feed_now"
     trigger_type: "manual" | "scheduled"
     grams: number | null

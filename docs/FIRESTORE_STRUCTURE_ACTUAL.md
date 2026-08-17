@@ -110,7 +110,7 @@ Flutter writes; ESP32 reads. `time` (`6:00`), `ampm` (`AM`/`PM`), `timeValue` (m
 ### `tanks/{tankId}/feeder_logs/{logId}` ✓
 ESP32 + app lumilikha. `action`, `type`, `time`, `date`, `timestamp`
 
-### `tanks/{tankId}/pending_commands/{commandId}` ✓
+### `tanks/{tankId}/feeder_commands/{commandId}` ✓
 Flutter creates; ESP32 reads + deletes after processing.
 `command_type` (`feed_now`), `trigger_type` (`manual`|`auto`), `grams`, `issued_by`, `status` (`pending`|`done`), `issued_at`
 

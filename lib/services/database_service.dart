@@ -14,7 +14,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 ///   ├── actuators/{pump|aerator1|aerator2}
 ///   ├── feeder/status
 ///   ├── feeder_schedules/{scheduleId}
-///   └── pending_commands/{commandId}
+///   └── feeder_commands/{commandId}
 /// notifications/{notifId}
 ///
 /// NOTE: FCM device tokens are stored on users/{uid}.fcmTokens (arrayUnion).

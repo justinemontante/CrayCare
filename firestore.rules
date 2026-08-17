@@ -170,7 +170,7 @@ service cloud.firestore {
         allow read: if isTankOwner(tankId) || isAssignedEsp(tankId);
         allow write: if isTankOwner(tankId);
       }
-      match /pending_commands/{commandId} {
+      match /feeder_commands/{commandId} {
         allow create: if isTankOwner(tankId);
         allow read, delete: if isTankOwner(tankId) || isAssignedEsp(tankId);
         allow update: if false;

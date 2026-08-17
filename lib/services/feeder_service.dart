@@ -26,7 +26,7 @@ class FeederService extends ChangeNotifier {
   bool _initialized = false;
 
   /// Resolved tank_id for the signed-in user. Feeder data now lives under
-  /// tanks/{tank_id}/feeder, feeder_schedules, feeder_logs, pending_commands.
+  /// tanks/{tank_id}/feeder, feeder_schedules, feeder_logs, feeder_commands.
   String? _tankId;
 
   Future<String?> _resolveTankId() async {
@@ -266,7 +266,7 @@ class FeederService extends ChangeNotifier {
     if (tankDoc == null) return;
     final uid = FirebaseAuth.instance.currentUser?.uid;
     try {
-      // New structure: tanks/{tank_id}/pending_commands/{autoId}
+      // New structure: tanks/{tank_id}/feeder_commands/{autoId}
       // ESP32 listens here, executes, then deletes the command.
       final cmd = <String, dynamic>{
         'command_type': 'feed_now',
@@ -282,7 +282,7 @@ class FeederService extends ChangeNotifier {
       if (grams != null) {
         cmd['grams'] = grams;
       }
-      await tankDoc.collection('pending_commands').add(cmd);
+      await tankDoc.collection('feeder_commands').add(cmd);
       // NOTE: do NOT write a feeder_logs entry here.
       // The ESP32 writes the confirmed log after the servo physically completes,
       // which is the reliable source of truth. Writing here too causes duplicates.
