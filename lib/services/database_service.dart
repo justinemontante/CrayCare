@@ -302,7 +302,7 @@ class DatabaseService {
       'actuator_type': actuatorId,
       'action': 'Switched ${mode.toUpperCase()} — $actuatorName ($modeLabel)',
       'type': mode,
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
+      'logged_at': DateTime.now().millisecondsSinceEpoch,
     });
   }
 

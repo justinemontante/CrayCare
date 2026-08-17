@@ -104,7 +104,7 @@ tanks/{tank_id}
     actuator_type: string
     action: string
     type: string
-    timestamp: epoch milliseconds
+    logged_at: epoch milliseconds
 
   feeder/status
     status: "idle" | "dispensing"
@@ -139,7 +139,7 @@ tanks/{tank_id}
     type: string
     time: string
     date: string
-    timestamp: epoch milliseconds
+    logged_at: epoch milliseconds
 ```
 
 ## Production hierarchy

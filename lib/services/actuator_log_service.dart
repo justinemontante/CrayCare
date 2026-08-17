@@ -76,15 +76,15 @@ class ActuatorLogService extends ChangeNotifier {
       _logs[actuatorId] = [];
       final sub = tankLogsRef
           .where('actuator_type', isEqualTo: actuatorId)
-          .orderBy('timestamp', descending: true)
+          .orderBy('logged_at', descending: true)
           .limit(50)
           .snapshots()
           .listen((snapshot) {
         final list = snapshot.docs.map((doc) {
           final map = doc.data();
-          // time/date are derived from timestamp (no longer stored) so the
+          // time/date are derived from logged_at (no longer stored) so the
           // display matches the single source of truth for "when".
-          final ts = map['timestamp'] as int? ?? 0;
+          final ts = map['logged_at'] as int? ?? 0;
           final dt = ts > 0 ? DateTime.fromMillisecondsSinceEpoch(ts) : null;
           return LogEntry(
             map['action'] as String? ?? '',
@@ -110,7 +110,7 @@ class ActuatorLogService extends ChangeNotifier {
             _seenKeys.add(key);
             if (!action.contains('(AUTO)')) continue;
 
-            final tsRaw = data['timestamp'] as num? ?? 0;
+            final tsRaw = data['logged_at'] as num? ?? 0;
             final tsMs = tsRaw < 100000000000 ? tsRaw * 1000 : tsRaw;
             final ts = DateTime.fromMillisecondsSinceEpoch(tsMs.toInt());
             final label = actuatorLabels[actuatorId] ?? actuatorId;

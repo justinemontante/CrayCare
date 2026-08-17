@@ -92,9 +92,9 @@ Device IDs: **`pump`** · **`aerator1`** · **`aerator2`**
 | actuator_type | string (`pump`\|`aerator1`\|`aerator2`) |
 | action | string — e.g. `Switched ON — Aerator 1 (AUTO) — ...` |
 | type | string (`on`\|`off`\|`auto`) |
-| timestamp | int epoch-ms |
+| logged_at | int epoch-ms |
 
-> **ESP32 lumilikha** kapag may relay transition. App nagbabasa. May composite index na (`actuator_type + timestamp DESC`).
+> **ESP32 lumilikha** kapag may relay transition. App nagbabasa. May composite index na (`actuator_type + logged_at DESC`).
 
 ### `tanks/{tankId}/feeder/status` ✓
 ESP32 writes: `status` (`idle`|`dispensing`), `isRunning`, `feedSource`, `feedCount`, `hopperLevel`, `lastSeen`, `last_dispensed_at`, `last_dispensed_grams`
@@ -103,7 +103,7 @@ ESP32 writes: `status` (`idle`|`dispensing`), `isRunning`, `feedSource`, `feedCo
 Flutter writes; ESP32 reads. `time` (`6:00`), `ampm` (`AM`/`PM`), `timeValue` (minutes since midnight — ginagamit sa sorting), `grams`, `portion_grams`, `feed_time`, `is_active`, `isDone`, `created_at`
 
 ### `tanks/{tankId}/feeder_logs/{logId}` ✓
-ESP32 + app lumilikha. `action`, `type`, `time`, `date`, `timestamp`
+ESP32 + app lumilikha. `action`, `type`, `time`, `date`, `logged_at`
 
 ### `tanks/{tankId}/feeder_commands/{commandId}` ✓
 Flutter creates; ESP32 reads + deletes after processing.
@@ -193,7 +193,7 @@ Read by the Admin SDK notification function. Supported shapes are `{ UID: "uid1,
 - **notifications** — matching owner reads/deletes; owner may update `is_read` only
 
 ## 📋 Indexes (`firestore.indexes.json`)
-- `actuator_logs`: `actuator_type + timestamp DESC` ✅
+- `actuator_logs`: `actuator_type + logged_at DESC` ✅
 - `notifications`: `uid + created_at DESC` ✅
 - Other active ordered queries use Firestore automatic single-field indexes.
 

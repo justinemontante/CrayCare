@@ -232,7 +232,7 @@ class FeederService extends ChangeNotifier {
     try {
       _logsSub = tankDoc
           .collection('feeder_logs')
-          .orderBy('timestamp', descending: true)
+          .orderBy('logged_at', descending: true)
           .limit(50)
           .snapshots()
           .listen((snapshot) {
@@ -245,7 +245,7 @@ class FeederService extends ChangeNotifier {
               data['type'] as String? ?? 'auto',
               data['time'] as String? ?? '',
               data['date'] as String? ?? '',
-              timestamp: data['timestamp'] as int? ?? 0,
+              timestamp: data['logged_at'] as int? ?? 0,
             ));
           }
           FeedState.feederLogs.value = List.from(_logs);
@@ -319,7 +319,7 @@ class FeederService extends ChangeNotifier {
         'type': type,
         'time': timeStr,
         'date': dateStr,
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
+        'logged_at': DateTime.now().millisecondsSinceEpoch,
         'trigger_type': type == 'auto' ? 'scheduled' : 'manual',
       });
     } catch (e) {
