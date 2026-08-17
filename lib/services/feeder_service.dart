@@ -11,6 +11,23 @@ class FeederService extends ChangeNotifier {
   static final FeederService instance = FeederService._();
   FeederService._();
 
+  static const _months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  /// Formats an epoch-ms timestamp as "3:45 PM" (matches the old pre-formatted
+  /// string the ESP32 used to send).
+  static String _formatTime(DateTime dt) {
+    final h = dt.hour > 12 ? dt.hour - 12 : (dt.hour == 0 ? 12 : dt.hour);
+    final ampm = dt.hour >= 12 ? 'PM' : 'AM';
+    return '$h:${dt.minute.toString().padLeft(2, '0')} $ampm';
+  }
+
+  /// Formats an epoch-ms timestamp as "Aug 17, 2026".
+  static String _formatDate(DateTime dt) =>
+      '${_months[dt.month - 1]} ${dt.day}, ${dt.year}';
+
   // The feeder schedule times (and the Cloud Function that dispatches/confirms
   // them) are always expressed in Asia/Manila wall-clock time, regardless of
   // where the viewing device is physically located (e.g. someone
@@ -240,12 +257,18 @@ class FeederService extends ChangeNotifier {
           _logs.clear();
           for (final doc in snapshot.docs) {
             final data = doc.data();
+            // time/date are derived from logged_at (no longer stored) so the
+            // display matches the single source of truth for "when".
+            final ts = data['logged_at'] as int? ?? 0;
+            final dt = ts > 0
+                ? DateTime.fromMillisecondsSinceEpoch(ts).toLocal()
+                : null;
             _logs.add(LogEntry(
               data['action'] as String? ?? '',
               data['type'] as String? ?? 'auto',
-              data['time'] as String? ?? '',
-              data['date'] as String? ?? '',
-              timestamp: data['logged_at'] as int? ?? 0,
+              dt == null ? '' : _formatTime(dt),
+              dt == null ? '' : _formatDate(dt),
+              timestamp: ts,
             ));
           }
           FeedState.feederLogs.value = List.from(_logs);
@@ -303,22 +326,11 @@ class FeederService extends ChangeNotifier {
   Future<void> _addLogEntry({required String action, required String type}) async {
     final tankDoc = _tankDoc();
     if (tankDoc == null) return;
-    final now = DateTime.now();
-    final months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-    ];
-    final dateStr = '${months[now.month - 1]} ${now.day}, ${now.year}';
-    final h = now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour);
-    final ampm = now.hour >= 12 ? 'PM' : 'AM';
-    final timeStr = '$h:${now.minute.toString().padLeft(2, '0')} $ampm';
     try {
       // tanks/{tank_id}/feeder_logs/{autoId}
       await tankDoc.collection('feeder_logs').add({
         'action': action,
         'type': type,
-        'time': timeStr,
-        'date': dateStr,
         'logged_at': DateTime.now().millisecondsSinceEpoch,
         'trigger_type': type == 'auto' ? 'scheduled' : 'manual',
       });

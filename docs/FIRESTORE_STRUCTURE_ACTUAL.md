@@ -103,7 +103,7 @@ ESP32 writes: `status` (`idle`|`dispensing`), `isRunning`, `feedSource`, `feedCo
 Flutter writes; ESP32 reads. `time` (`6:00`), `ampm` (`AM`/`PM`), `timeValue` (minutes since midnight — ginagamit sa sorting), `grams`, `portion_grams`, `feed_time`, `is_active`, `isDone`, `created_at`
 
 ### `tanks/{tankId}/feeder_logs/{logId}` ✓
-ESP32 + app lumilikha. `action`, `type`, `time`, `date`, `logged_at`
+ESP32 + app lumilikha. `action`, `type`, `trigger_type`, `logged_at` (time/date derived sa app)
 
 ### `tanks/{tankId}/feeder_commands/{commandId}` ✓
 Flutter creates; ESP32 reads + deletes after processing.

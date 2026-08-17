@@ -147,8 +147,7 @@
         "fields": [
           "action",
           "type (auto|manual)",
-          "time",
-          "date",
+          "trigger_type (scheduled|manual)",
           "logged_at (timestamp)"
         ]
       },

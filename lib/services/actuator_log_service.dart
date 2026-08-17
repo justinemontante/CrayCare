@@ -85,7 +85,9 @@ class ActuatorLogService extends ChangeNotifier {
           // time/date are derived from logged_at (no longer stored) so the
           // display matches the single source of truth for "when".
           final ts = map['logged_at'] as int? ?? 0;
-          final dt = ts > 0 ? DateTime.fromMillisecondsSinceEpoch(ts) : null;
+          final dt = ts > 0
+              ? DateTime.fromMillisecondsSinceEpoch(ts).toLocal()
+              : null;
           return LogEntry(
             map['action'] as String? ?? '',
             map['type'] as String? ?? '',

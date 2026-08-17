@@ -1868,29 +1868,11 @@ void pushFeederLog(String action, String type) {
 
   time_t now;
   time(&now);
-  struct tm* timeinfo = localtime(&now);
-
-  // Format time string
-  int h12 = timeinfo->tm_hour % 12;
-  if (h12 == 0) h12 = 12;
-  String ampm = timeinfo->tm_hour >= 12 ? "PM" : "AM";
-  char timeBuf[10];
-  sprintf(timeBuf, "%d:%02d %s", h12, timeinfo->tm_min, ampm.c_str());
-
-  // Format date string
-  const char* months[] = {"Jan","Feb","Mar","Apr","May","Jun",
-                           "Jul","Aug","Sep","Oct","Nov","Dec"};
-  char dateBuf[20];
-  sprintf(dateBuf, "%s %d, %d",
-          months[timeinfo->tm_mon], timeinfo->tm_mday, 1900 + timeinfo->tm_year);
-
   const String epochMs = epochMillisString(now);
 
   FirebaseJson json;
   json.set("fields/action/stringValue",    action);
   json.set("fields/type/stringValue",      type);
-  json.set("fields/time/stringValue",      String(timeBuf));
-  json.set("fields/date/stringValue",      String(dateBuf));
   json.set("fields/logged_at/integerValue", String(epochMs));
 
   String logCollection = "tanks/" + currentTankId + "/feeder_logs";

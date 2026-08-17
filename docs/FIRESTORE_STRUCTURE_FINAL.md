@@ -137,8 +137,7 @@ tanks/{tank_id}
   feeder_logs/{log_id}
     action: string
     type: string
-    time: string
-    date: string
+    trigger_type: string
     logged_at: timestamp
 ```
 
