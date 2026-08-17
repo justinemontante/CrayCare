@@ -709,10 +709,6 @@ class FeederTab extends StatelessWidget {
               onChanged: (val) => onToggleSchedule(index, val),
             ),
           ),
-          GestureDetector(
-            onTap: () => _showScheduleInfo(ctx, s),
-            child: Icon(Icons.info_outline, size: 14, color: AppColors.primaryWith(0.7)),
-          ),
           const SizedBox(width: 6),
           GestureDetector(
             onTap: () => _showScheduleModal(ctx, index: index, existing: s),
@@ -733,107 +729,6 @@ class FeederTab extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-
-  void _showScheduleInfo(BuildContext ctx, ScheduleItem s) {
-    showModalBottomSheet(
-      context: ctx,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (sheetCtx) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 36, height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Container(
-                      width: 42, height: 42,
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(Icons.schedule, size: 20, color: AppColors.primary),
-                    ),
-                    const SizedBox(width: 12),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Schedule Info',
-                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.dark),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '${s.time} ${s.ampm}',
-                          style: TextStyle(fontSize: 11, color: AppColors.darkWith(0.45)),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                if (s.grams != null) ...[  
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                    margin: const EdgeInsets.only(bottom: 16),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.06),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(Icons.scale_outlined, size: 14, color: AppColors.primary),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Amount: ${s.grams!.toStringAsFixed(1)}g',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.primary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-                SizedBox(
-                  width: double.infinity,
-                  child: TextButton(
-                    onPressed: () => Navigator.pop(sheetCtx),
-                    style: TextButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 9),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    ),
-                    child: const Text('Close', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
     );
   }
 
