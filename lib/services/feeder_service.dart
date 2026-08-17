@@ -484,8 +484,9 @@ class FeederService extends ChangeNotifier {
           : '${s.time}_${s.ampm}';
       if (_missedLogged.contains(key)) continue;
 
-      final h = int.tryParse(s.time.split(':').first) ?? 6;
-      final m = int.tryParse(s.time.split(':').skip(1).firstOrNull ?? '') ?? 0;
+      final parts = s.time.split(':');
+      final h = int.tryParse(parts.isNotEmpty ? parts[0] : '') ?? 6;
+      final m = int.tryParse(parts.length > 1 ? parts[1] : '') ?? 0;
       var hour24 = h;
       if (s.ampm == 'PM' && h != 12) hour24 = h + 12;
       if (s.ampm == 'AM' && h == 12) hour24 = 0;
