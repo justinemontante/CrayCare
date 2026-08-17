@@ -82,12 +82,16 @@ class ActuatorLogService extends ChangeNotifier {
           .listen((snapshot) {
         final list = snapshot.docs.map((doc) {
           final map = doc.data();
+          // time/date are derived from timestamp (no longer stored) so the
+          // display matches the single source of truth for "when".
+          final ts = map['timestamp'] as int? ?? 0;
+          final dt = ts > 0 ? DateTime.fromMillisecondsSinceEpoch(ts) : null;
           return LogEntry(
             map['action'] as String? ?? '',
             map['type'] as String? ?? '',
-            map['time'] as String? ?? '',
-            map['date'] as String? ?? '',
-            timestamp: map['timestamp'] as int? ?? 0,
+            dt == null ? '' : _formatTime(dt),
+            dt == null ? '' : _formatDate(dt),
+            timestamp: ts,
           );
         }).toList()
           ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
@@ -127,6 +131,23 @@ class ActuatorLogService extends ChangeNotifier {
       _warmup = false;
     });
   }
+
+  static const _months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  /// Formats an epoch-ms timestamp as "3:45 PM" (matches the old ESP32
+  /// pre-formatted string).
+  static String _formatTime(DateTime dt) {
+    final h = dt.hour > 12 ? dt.hour - 12 : (dt.hour == 0 ? 12 : dt.hour);
+    final ampm = dt.hour >= 12 ? 'PM' : 'AM';
+    return '$h:${dt.minute.toString().padLeft(2, '0')} $ampm';
+  }
+
+  /// Formats an epoch-ms timestamp as "Aug 17, 2026".
+  static String _formatDate(DateTime dt) =>
+      '${_months[dt.month - 1]} ${dt.day}, ${dt.year}';
 
   List<LogEntry> getLogs(String actuatorId) => _logs[actuatorId] ?? [];
 

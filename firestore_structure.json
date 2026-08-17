@@ -112,8 +112,6 @@
           "actuator_type (pump|aerator1|aerator2)",
           "action (e.g. 'Switched ON \u2014 Aerator 1 (AUTO) \u2014 ...')",
           "type (on|off|auto)",
-          "time (string e.g. '6:30 PM')",
-          "date (string e.g. 'Aug 1, 2026')",
           "timestamp (int epoch-ms)",
           "logged_at (int epoch-ms)"
         ]

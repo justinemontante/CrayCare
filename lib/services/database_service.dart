@@ -282,8 +282,6 @@ class DatabaseService {
     required String mode,     // 'on' | 'off' | 'auto'
     required String actuatorName,
     required String modeLabel,
-    required String time,
-    required String date,
   }) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -304,8 +302,6 @@ class DatabaseService {
       'actuator_type': actuatorId,
       'action': 'Switched ${mode.toUpperCase()} — $actuatorName ($modeLabel)',
       'type': mode,
-      'time': time,
-      'date': date,
       'timestamp': DateTime.now().millisecondsSinceEpoch,
       // Integer epoch-ms (not serverTimestamp) so both app- and ESP-written
       // docs keep logged_at as the same type for consistent ordering.

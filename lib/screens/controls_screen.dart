@@ -441,12 +441,6 @@ class ControlsScreenState extends State<ControlsScreen> {
 
   void _setActuatorMode(String actuatorId, String mode) {
     setState(() => _actuatorModes[actuatorId] = mode);
-    final now = DateTime.now();
-    final h = now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour);
-    final ampm = now.hour >= 12 ? 'PM' : 'AM';
-    final time = '$h:${now.minute.toString().padLeft(2, '0')} $ampm';
-    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    final dateStr = '${months[now.month - 1]} ${now.day}, ${now.year}';
     final modeNames = {
       'on': 'Switched ON',
       'auto': 'Set to AUTO',
@@ -462,8 +456,6 @@ class ControlsScreenState extends State<ControlsScreen> {
       mode: mode,
       actuatorName: actuatorNames[actuatorId] ?? actuatorId,
       modeLabel: modeNames[mode] ?? mode,
-      time: time,
-      date: dateStr,
     ).catchError((e) {
       debugPrint('[Controls] ERROR saving $actuatorId: $e');
       if (mounted) {

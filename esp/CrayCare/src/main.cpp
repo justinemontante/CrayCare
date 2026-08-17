@@ -2022,7 +2022,7 @@ void reportActuatorState(int idx, bool forced) {
 
 // ─── Push an actuator log entry (auto-ID doc) ───
 // Field names match Flutter ActuatorLogService:
-//   actuator_type, action, type, time, date, timestamp(ms)
+//   actuator_type, action, type, timestamp(ms), logged_at
 // Put "(AUTO)" in `action` so the app surfaces it as an auto-control event.
 void pushActuatorLog(int idx, String action, String type) {
   if (!ensureFirebaseReady()) return;
@@ -2030,28 +2030,12 @@ void pushActuatorLog(int idx, String action, String type) {
 
   time_t now;
   time(&now);
-  struct tm* timeinfo = localtime(&now);
-
-  int h12 = timeinfo->tm_hour % 12;
-  if (h12 == 0) h12 = 12;
-  String ampm = timeinfo->tm_hour >= 12 ? "PM" : "AM";
-  char timeBuf[10];
-  sprintf(timeBuf, "%d:%02d %s", h12, timeinfo->tm_min, ampm.c_str());
-
-  const char* months[] = {"Jan","Feb","Mar","Apr","May","Jun",
-                           "Jul","Aug","Sep","Oct","Nov","Dec"};
-  char dateBuf[20];
-  sprintf(dateBuf, "%s %d, %d",
-          months[timeinfo->tm_mon], timeinfo->tm_mday, 1900 + timeinfo->tm_year);
-
   const String epochMs = epochMillisString(now);
 
   FirebaseJson json;
   json.set("fields/actuator_type/stringValue", actuators[idx].deviceId);
   json.set("fields/action/stringValue",        action);
   json.set("fields/type/stringValue",          type);
-  json.set("fields/time/stringValue",          String(timeBuf));
-  json.set("fields/date/stringValue",          String(dateBuf));
   json.set("fields/timestamp/integerValue",    epochMs);
   // Also stamped as integer epoch-ms so both the Controls screen
   // (orders by timestamp) and the legacy actuatorLogsStream

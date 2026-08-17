@@ -104,8 +104,6 @@ tanks/{tank_id}
     actuator_type: string
     action: string
     type: string
-    time: string
-    date: string
     timestamp: epoch milliseconds
     logged_at: epoch milliseconds
 
