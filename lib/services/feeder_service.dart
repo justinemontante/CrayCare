@@ -72,7 +72,6 @@ class FeederService extends ChangeNotifier {
   StreamSubscription? _logsSub;
 
   bool _isRunning = false;
-  String _feedSource = '';
   int _feedCount = 0;
   double _hopperLevel = 100;
   DateTime _lastSeen = DateTime.fromMillisecondsSinceEpoch(0);
@@ -88,7 +87,6 @@ class FeederService extends ChangeNotifier {
   final Set<String> _missedLogged = {};
 
   bool get isRunning => _isRunning;
-  String get feedSource => _feedSource;
   int get feedCount => _feedCount;
   double get hopperLevel => _hopperLevel;
   DateTime get lastSeen => _lastSeen;
@@ -177,7 +175,6 @@ class FeederService extends ChangeNotifier {
         try {
           final data = snapshot.data()!;
           _isRunning = data['status'] == 'dispensing';
-          _feedSource = (data['feedSource'] as String?) ?? '';
           _feedCount = (data['feedCount'] as num?)?.toInt() ?? _feedCount;
           _hopperLevel = (data['hopperLevel'] as num?)?.toDouble() ?? 100;
           // Device status is ESP-owned. The app only displays feederError;

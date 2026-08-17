@@ -119,7 +119,6 @@
         "_description": "Current feeder status written by ESP32; read by owner/admin.",
         "fields": [
           "status (idle|dispensing)",
-          "feedSource",
           "feedCount",
           "hopperLevel",
           "feederError",

@@ -29,6 +29,11 @@ class ControlsScreenState extends State<ControlsScreen> {
   }
   int _activeTab = 0;
   _FeedState _feedState = _FeedState.hidden;
+
+  /// True while the current dispense was initiated by the owner tapping
+  /// "Feed Now" (manual). Scheduled feeds started by the ESP32 leave this
+  /// false, so the overlay can tell the two apart without a status field.
+  bool _manualFeedInitiated = false;
   bool _wasRunning = false;
   int _lastFeedCount = 0;
   int _feedCountAtStart = 0;
@@ -179,7 +184,12 @@ class ControlsScreenState extends State<ControlsScreen> {
           _feedState = _FeedState.failed;
           _feedTimer?.cancel();
           _feedTimer = Timer(const Duration(seconds: 3), () {
-            if (mounted) setState(() => _feedState = _FeedState.hidden);
+            if (mounted) {
+              setState(() {
+                _feedState = _FeedState.hidden;
+                _manualFeedInitiated = false;
+              });
+            }
           });
           if (mounted) setState(() {});
         });
@@ -191,7 +201,12 @@ class ControlsScreenState extends State<ControlsScreen> {
           _feedState = _FeedState.failed;
           _feedTimer?.cancel();
           _feedTimer = Timer(const Duration(seconds: 3), () {
-            if (mounted) setState(() => _feedState = _FeedState.hidden);
+            if (mounted) {
+              setState(() {
+                _feedState = _FeedState.hidden;
+                _manualFeedInitiated = false;
+              });
+            }
           });
         }
       }
@@ -205,11 +220,17 @@ class ControlsScreenState extends State<ControlsScreen> {
         _feedState = _FeedState.done;
         _feedTimer?.cancel();
         _feedTimer = Timer(const Duration(milliseconds: 1500), () {
-          if (mounted) setState(() => _feedState = _FeedState.hidden);
+          if (mounted) {
+            setState(() {
+              _feedState = _FeedState.hidden;
+              _manualFeedInitiated = false;
+            });
+          }
         });
       }
       _lastFeedCount = svc.feedCount;
-      if (svc.feedSource == 'scheduled') _markNearestScheduleFed();
+      // A feed the owner did not initiate is a scheduled (ESP-local) feed.
+      if (!_manualFeedInitiated) _markNearestScheduleFed();
     }
 
     if (mounted) setState(() {});
@@ -270,6 +291,7 @@ class ControlsScreenState extends State<ControlsScreen> {
       });
       return;
     }
+    _manualFeedInitiated = true;
     _feedCountAtStart = svc.feedCount;
     _dispenseTimer?.cancel();
     _dispenseTimer = Timer(const Duration(seconds: 60), () {
@@ -523,7 +545,7 @@ class ControlsScreenState extends State<ControlsScreen> {
     final isFailed = _feedState == _FeedState.failed;
     final isDone = _feedState == _FeedState.done;
     final isDispensing = _feedState == _FeedState.dispensing;
-    final isScheduled = FeederService.instance.feedSource == 'scheduled';
+    final isScheduled = !_manualFeedInitiated;
 
     final (String title, String subtitle, IconData icon, Color iconColor) = switch ((isFailed, isDone, isDispensing, isScheduled)) {
       (true,  _,     _,      _)     => ('Feed Failed!',          'Feed did not dispense. Check feeder.',        Icons.error_outline_rounded, AppColors.critical),
