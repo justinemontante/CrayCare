@@ -120,7 +120,6 @@
         "fields": [
           "status (idle|dispensing)",
           "feedCount",
-          "hopperLevel",
           "feederError",
           "lastSeen",
           "last_dispensed_at",

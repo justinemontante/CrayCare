@@ -73,7 +73,6 @@ class FeederService extends ChangeNotifier {
 
   bool _isRunning = false;
   int _feedCount = 0;
-  double _hopperLevel = 100;
   DateTime _lastSeen = DateTime.fromMillisecondsSinceEpoch(0);
   String? _lastError;
   String _feederError = '';
@@ -88,7 +87,6 @@ class FeederService extends ChangeNotifier {
 
   bool get isRunning => _isRunning;
   int get feedCount => _feedCount;
-  double get hopperLevel => _hopperLevel;
   DateTime get lastSeen => _lastSeen;
   String? get lastError => _lastError;
   String get feederError => _feederError;
@@ -176,7 +174,6 @@ class FeederService extends ChangeNotifier {
           final data = snapshot.data()!;
           _isRunning = data['status'] == 'dispensing';
           _feedCount = (data['feedCount'] as num?)?.toInt() ?? _feedCount;
-          _hopperLevel = (data['hopperLevel'] as num?)?.toDouble() ?? 100;
           // Device status is ESP-owned. The app only displays feederError;
           // firmware clears it on its next heartbeat. Owner-side writes here
           // were denied by the security rules and caused noisy permission errors.

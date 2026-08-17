@@ -278,7 +278,6 @@ void _setServoAngle(int angle) {
 }
 
 bool feederAutoMode = true;
-int feederHopperLevel = 100;          // percentage 0-100
 unsigned long feederLastFeedEpoch = 0;
 bool feederIsRunning = false;
 String feederFeedSource = "";          // "manual" or "scheduled"
@@ -376,7 +375,6 @@ unsigned long lastActuatorSyncMs = 0;
 // Feeder
 #define FEEDER_SERVO_PIN 13
 // No hopper input is assigned: GPIO36 is the production DO analog input.
-// Hopper percentage remains an estimated value until a dedicated load cell is added.
 
 // Actuator pins are defined with the ACTUATOR STATE block above.
 
@@ -1577,7 +1575,6 @@ void sendFeederStatus() {
   // Match FeederService's canonical status fields and keep the heartbeat fresh.
   json.set("fields/status/stringValue", feederIsRunning ? "dispensing" : "idle");
   json.set("fields/feedCount/integerValue", String(feederFeedCount));
-  json.set("fields/hopperLevel/doubleValue", String(feederHopperLevel));
   json.set("fields/feederError/stringValue", "");
   json.set("fields/lastSeen/integerValue", nowMs);
   if (feederLastFeedEpoch > 0) {
@@ -1591,7 +1588,7 @@ void sendFeederStatus() {
   String statusDoc = "tanks/" + currentTankId + "/feeder/status";
   if (!Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "",
         statusDoc.c_str(), json.raw(),
-        "status,feedCount,hopperLevel,feederError,lastSeen,last_dispensed_at,last_dispensed_grams")) {
+        "status,feedCount,feederError,lastSeen,last_dispensed_at,last_dispensed_grams")) {
     if (fbdo.httpConnected()) {
       Serial.printf("[FEEDER STATUS ERROR] %s\n", fbdo.errorReason().c_str());
     }
@@ -1844,9 +1841,7 @@ void processFeederTick() {
 
       _setServoAngle(0);
 
-      // Update hopper level and feed count
-      feederHopperLevel -= 9;
-      if (feederHopperLevel < 0) feederHopperLevel = 0;
+      // Update feed count
       feederFeedCount++;
 
       feederIsRunning = false;
