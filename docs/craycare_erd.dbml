@@ -1,0 +1,338 @@
+// ============================================================
+//  CrayCare — Relational Database Schema (DBML for dbdiagram.io)
+//  Converted from the production Firestore structure.
+//  Paste this whole file into https://dbdiagram.io (Import > DBML)
+// ============================================================
+
+Project CrayCare {
+  database_type: 'PostgreSQL'
+  Note: '''
+    CrayCare — Water Quality Monitoring & Crayfish Grow-Out Management
+    This relational view mirrors the production Firestore data model.
+    Key mapping: Firestore subcollections -> SQL tables with foreign keys.
+  '''
+}
+
+// ──────────────────────────────────────────────────────────────
+//  USERS & ACCESS
+// ──────────────────────────────────────────────────────────────
+
+Table users {
+  uid varchar [pk, note: 'Firebase Auth UID']
+  full_name varchar
+  email varchar [unique]
+  role varchar [note: 'owner | admin']
+  status varchar [note: 'active | disabled']
+  tank_id varchar [ref: > tanks.tank_id, note: 'owned tank (null for admin)']
+  photo_url text
+  created_at timestamp
+
+  Indexes {
+    email [unique]
+    role
+  }
+}
+
+Table notification_settings {
+  uid varchar [pk, ref: - users.uid, note: 'one row per user']
+  sound boolean [default: true]
+  vibration boolean [default: true]
+  critical boolean [default: true]
+  warning boolean [default: true]
+  feeding boolean [default: true]
+  sampling boolean [default: true]
+  updated_at timestamp
+}
+
+Table hardware_assignments {
+  id varchar [pk, note: 'single row = current ESP32 assignment']
+  owner_uid varchar [ref: > users.uid]
+  tank_id varchar [ref: > tanks.tank_id]
+  assigned_by varchar [ref: > users.uid, note: 'admin who assigned']
+  assigned_at timestamp
+}
+
+// ──────────────────────────────────────────────────────────────
+//  TANKS (core entity)
+// ──────────────────────────────────────────────────────────────
+
+Table tanks {
+  tank_id varchar [pk, note: '== owner uid by default (1 user = 1 tank)']
+  owner_uid varchar [ref: > users.uid]
+  current_batch_id varchar [ref: > batches.batch_id, note: 'nullable']
+  stocking_date timestamp
+  last_sample_date timestamp
+  sample_count int
+  initial_population int
+  initial_total_sample_weight decimal(10,2)
+  initial_total_sample_length decimal(10,2)
+  is_initialized boolean [default: false]
+  created_at timestamp
+}
+
+// ──────────────────────────────────────────────────────────────
+//  SENSORS (thresholds + readings)
+// ──────────────────────────────────────────────────────────────
+
+Table sensor_thresholds {
+  id varchar [pk]
+  tank_id varchar [ref: > tanks.tank_id]
+  sensor_name varchar [note: 'temperature | ph_level | dissolved_oxygen | turbidity | water_level']
+  min_value decimal(10,2)
+  max_value decimal(10,2)
+  updated_at timestamp
+
+  Indexes {
+    (tank_id, sensor_name) [unique]
+  }
+}
+
+Table sensor_readings {
+  id varchar [pk]
+  tank_id varchar [ref: > tanks.tank_id]
+  // 5-second raw snapshot (written by ESP32 for the live dashboard)
+  temperature decimal(6,2)
+  ph_level decimal(5,2)
+  dissolved_oxygen decimal(5,2)
+  turbidity decimal(8,2)
+  water_level decimal(6,2)
+  recorded_at timestamp
+
+  Indexes {
+    (tank_id, recorded_at)
+  }
+}
+
+Table sensor_readings_history {
+  id varchar [pk]
+  tank_id varchar [ref: > tanks.tank_id]
+  // 10-minute window aggregates (min / max / avg per sensor) — used for charts and ML
+  temp_min decimal(6,2)
+  temp_max decimal(6,2)
+  temp_avg decimal(6,2)
+  pH_min decimal(5,2)
+  pH_max decimal(5,2)
+  pH_avg decimal(5,2)
+  DO_min decimal(5,2)
+  DO_max decimal(5,2)
+  DO_avg decimal(5,2)
+  turbidity_min decimal(8,2)
+  turbidity_max decimal(8,2)
+  turbidity_avg decimal(8,2)
+  waterLevel_min decimal(6,2)
+  waterLevel_max decimal(6,2)
+  waterLevel_avg decimal(6,2)
+  recorded_at timestamp
+
+  Indexes {
+    (tank_id, recorded_at)
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+//  ACTUATORS (pump + aerators)
+// ──────────────────────────────────────────────────────────────
+
+Table actuators {
+  id varchar [pk]
+  tank_id varchar [ref: > tanks.tank_id]
+  device_id varchar [note: 'pump | aerator1 | aerator2']
+  control_mode varchar [note: 'on | off | auto (requested by owner)']
+  current_state varchar [note: 'on | off (actual relay state from ESP32)']
+  last_changed timestamp
+
+  Indexes {
+    (tank_id, device_id) [unique]
+  }
+}
+
+Table actuator_logs {
+  id varchar [pk]
+  tank_id varchar [ref: > tanks.tank_id]
+  actuator_type varchar [note: 'pump | aerator1 | aerator2']
+  action varchar
+  type varchar [note: 'on | off | auto']
+  logged_at timestamp
+
+  Indexes {
+    (actuator_type, logged_at)
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+//  FEEDER
+// ──────────────────────────────────────────────────────────────
+
+Table feeder_status {
+  tank_id varchar [pk, ref: - tanks.tank_id]
+  status varchar [note: 'idle | dispensing']
+  is_running boolean [default: false]
+  feed_source varchar
+  feed_count int
+  hopper_level decimal(5,2)
+  feeder_error varchar
+  last_seen timestamp
+  last_dispensed_at timestamp
+  last_dispensed_grams decimal(8,2)
+}
+
+Table feeder_schedules {
+  id varchar [pk]
+  tank_id varchar [ref: > tanks.tank_id]
+  time varchar [note: 'HH:MM']
+  ampm varchar [note: 'AM | PM']
+  time_value int [note: 'minutes since midnight']
+  grams decimal(8,2)
+  days varchar [note: 'day-of-week mask "1111111" (Sunday first, 1=active)']
+  enabled boolean [default: true]
+  is_done boolean [default: false]
+  created_at timestamp
+
+  Indexes {
+    (tank_id, time_value)
+  }
+}
+
+Table feeder_logs {
+  id varchar [pk]
+  tank_id varchar [ref: > tanks.tank_id]
+  action varchar
+  type varchar [note: 'auto | manual']
+  trigger_type varchar [note: 'scheduled | manual']
+  logged_at timestamp
+
+  Indexes {
+    (tank_id, logged_at)
+  }
+}
+
+Table feeder_commands {
+  id varchar [pk]
+  tank_id varchar [ref: > tanks.tank_id]
+  command_type varchar [note: 'feed_now (manual feeding command)']
+  grams decimal(8,2) [note: 'optional; 20.0 default when absent']
+  issued_by varchar [ref: > users.uid]
+  issued_at timestamp
+
+  Note: 'One-shot manual feeding queue. App enqueues, ESP32 polls every 5s, executes, then deletes (deletion = completion). Scheduled feeding is separate (feeder_schedules).'
+}
+
+// ──────────────────────────────────────────────────────────────
+//  MACHINE LEARNING (WQC)
+// ──────────────────────────────────────────────────────────────
+
+Table ml_predictions {
+  id varchar [pk, note: 'sortable UTC timestamp doc id']
+  tank_id varchar [ref: > tanks.tank_id]
+  level varchar [note: 'Low | Moderate | High | Critical | Insufficient']
+  confidence int
+  driver varchar [note: 'DO | pH | temp | turbidity | waterLevel | overall']
+  driver_label varchar
+  driver_value decimal(10,2)
+  driver_unit varchar
+  driver_min decimal(10,2)
+  driver_max decimal(10,2)
+  problem varchar
+  insight text
+  action text
+  source varchar
+  analysis_mode varchar
+  samples_analyzed int
+  required_samples int [default: 6]
+  ts_epoch bigint
+  timestamp timestamp
+
+  Indexes {
+    (tank_id, ts_epoch)
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+//  GROW-OUT / PRODUCTION
+// ──────────────────────────────────────────────────────────────
+
+Table batches {
+  batch_id varchar [pk]
+  tank_id varchar [ref: > tanks.tank_id]
+  batch_status varchar [note: 'active | harvested | superseded']
+  stocking_date timestamp
+  harvest_date timestamp
+  initial_count int
+  current_count int
+  harvest_count int [default: 0]
+  total_mortality int [default: 0]
+  harvest_weight_grams decimal(10,2)
+  initial_abw decimal(8,2)
+  initial_abl decimal(8,2)
+  final_abw decimal(8,2)
+  final_abl decimal(8,2)
+  days_in_culture int [default: 0]
+  sample_count int
+  initial_total_weight decimal(10,2)
+  initial_total_length decimal(10,2)
+  created_at timestamp
+
+  Indexes {
+    (tank_id, batch_status)
+  }
+}
+
+Table sampling_records {
+  id varchar [pk]
+  batch_id varchar [ref: > batches.batch_id]
+  sampling_date timestamp
+  avg_body_weight decimal(8,2)
+  avg_body_length decimal(8,2)
+  sample_size int
+  total_weight decimal(10,2)
+  total_length decimal(10,2)
+  biomass decimal(12,2)
+  live_count int
+  is_baseline boolean [default: false]
+  created_at timestamp
+
+  Indexes {
+    (batch_id, sampling_date)
+  }
+}
+
+Table mortality_records {
+  id varchar [pk]
+  batch_id varchar [ref: > batches.batch_id]
+  mortality_date timestamp
+  mortality_count int
+  created_at timestamp
+
+  Indexes {
+    (batch_id, mortality_date)
+  }
+}
+
+Table harvest_records {
+  id varchar [pk]
+  batch_id varchar [ref: > batches.batch_id]
+  harvest_date timestamp
+  harvest_count int
+  total_weight_kg decimal(10,3)
+  abw_grams decimal(8,2)
+  survival_rate decimal(5,2)
+  created_at timestamp
+}
+
+// ──────────────────────────────────────────────────────────────
+//  NOTIFICATIONS
+// ──────────────────────────────────────────────────────────────
+
+Table notifications {
+  id varchar [pk]
+  uid varchar [ref: > users.uid]
+  notif_type varchar [note: 'critical | warning | reminder | device_auto | general']
+  title varchar
+  body text
+  is_read boolean [default: false]
+  created_at timestamp
+
+  Indexes {
+    (uid, created_at)
+  }
+}
