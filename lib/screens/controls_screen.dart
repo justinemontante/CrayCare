@@ -35,8 +35,8 @@ class ControlsScreenState extends State<ControlsScreen> {
   /// false, so the overlay can tell the two apart without a status field.
   bool _manualFeedInitiated = false;
   bool _wasRunning = false;
-  int _lastFeedCount = 0;
-  int _feedCountAtStart = 0;
+  int _lastDispenseCount = 0;
+  int _dispenseCountAtStart = 0;
   Timer? _feedTimer;
   Timer? _dispenseTimer;
   final TextEditingController _timeCtl = TextEditingController();
@@ -48,8 +48,8 @@ class ControlsScreenState extends State<ControlsScreen> {
     super.initState();
     final svc = FeederService.instance;
     _wasRunning = svc.isRunning;
-    _lastFeedCount = svc.feedCount;
-    _feedCountAtStart = svc.feedCount;
+    _lastDispenseCount = svc.dispenseCount;
+    _dispenseCountAtStart = svc.dispenseCount;
     _lastDateKey = _todayKey();
     svc.addListener(_onFeederUpdate);
     SensorService.instance.addListener(_onSensorDataUpdate);
@@ -175,7 +175,7 @@ class ControlsScreenState extends State<ControlsScreen> {
     // Detect start: isRunning false → true
     if (_wasRunning != isRunning) {
       if (isRunning) {
-        _feedCountAtStart = svc.feedCount;
+        _dispenseCountAtStart = svc.dispenseCount;
         _feedState = _FeedState.dispensing;
         _dispenseTimer?.cancel();
         _dispenseTimer = Timer(const Duration(seconds: 60), () {
@@ -196,7 +196,7 @@ class ControlsScreenState extends State<ControlsScreen> {
       } else {
         _dispenseTimer?.cancel();
         // isRunning went true → false: check if feed actually dispensed
-        if (_feedState == _FeedState.dispensing && svc.feedCount == _feedCountAtStart) {
+        if (_feedState == _FeedState.dispensing && svc.dispenseCount == _dispenseCountAtStart) {
           unawaited(FeederService.instance.logFeedFailure());
           _feedState = _FeedState.failed;
           _feedTimer?.cancel();
@@ -213,8 +213,8 @@ class ControlsScreenState extends State<ControlsScreen> {
       _wasRunning = isRunning;
     }
 
-    // Detect completion: feedCount incremented
-    if (svc.feedCount != _lastFeedCount) {
+    // Detect completion: dispenseCount incremented
+    if (svc.dispenseCount != _lastDispenseCount) {
       if (_feedState == _FeedState.dispensing) {
         _dispenseTimer?.cancel();
         _feedState = _FeedState.done;
@@ -228,7 +228,7 @@ class ControlsScreenState extends State<ControlsScreen> {
           }
         });
       }
-      _lastFeedCount = svc.feedCount;
+      _lastDispenseCount = svc.dispenseCount;
       // A feed the owner did not initiate is a scheduled (ESP-local) feed.
       if (!_manualFeedInitiated) _markNearestScheduleFed();
     }
@@ -292,7 +292,7 @@ class ControlsScreenState extends State<ControlsScreen> {
       return;
     }
     _manualFeedInitiated = true;
-    _feedCountAtStart = svc.feedCount;
+    _dispenseCountAtStart = svc.dispenseCount;
     _dispenseTimer?.cancel();
     _dispenseTimer = Timer(const Duration(seconds: 60), () {
       if (!mounted) return;

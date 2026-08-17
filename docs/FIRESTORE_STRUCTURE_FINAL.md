@@ -108,7 +108,7 @@ tanks/{tank_id}
 
   feeder/status
     status: "idle" | "dispensing"
-    feedCount: number
+    dispenseCount: number
     lastSeen: epoch milliseconds
     last_dispensed_at: epoch milliseconds | null
     last_dispensed_grams: number

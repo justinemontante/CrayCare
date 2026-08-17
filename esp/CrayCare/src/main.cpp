@@ -281,7 +281,7 @@ bool feederAutoMode = true;
 unsigned long feederLastFeedEpoch = 0;
 bool feederIsRunning = false;
 String feederFeedSource = "";          // "manual" or "scheduled"
-int feederFeedCount = 0;              // total feeds dispensed since boot
+int feederDispenseCount = 0;              // total feeds dispensed since boot
 float feederRequestedGrams = 20.0f;   // calibrated estimate; 20 g per servo cycle
 
 // Firestore integerValue is textual. Avoid 32-bit unsigned-long overflow
@@ -1574,7 +1574,7 @@ void sendFeederStatus() {
   FirebaseJson json;
   // Match FeederService's canonical status fields and keep the heartbeat fresh.
   json.set("fields/status/stringValue", feederIsRunning ? "dispensing" : "idle");
-  json.set("fields/feedCount/integerValue", String(feederFeedCount));
+  json.set("fields/dispenseCount/integerValue", String(feederDispenseCount));
   json.set("fields/lastSeen/integerValue", nowMs);
   if (feederLastFeedEpoch > 0) {
     json.set("fields/last_dispensed_at/integerValue", epochMillisString((time_t)feederLastFeedEpoch));
@@ -1587,7 +1587,7 @@ void sendFeederStatus() {
   String statusDoc = "tanks/" + currentTankId + "/feeder/status";
   if (!Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "",
         statusDoc.c_str(), json.raw(),
-        "status,feedCount,lastSeen,last_dispensed_at,last_dispensed_grams")) {
+        "status,dispenseCount,lastSeen,last_dispensed_at,last_dispensed_grams")) {
     if (fbdo.httpConnected()) {
       Serial.printf("[FEEDER STATUS ERROR] %s\n", fbdo.errorReason().c_str());
     }
@@ -1841,7 +1841,7 @@ void processFeederTick() {
       _setServoAngle(0);
 
       // Update feed count
-      feederFeedCount++;
+      feederDispenseCount++;
 
       feederIsRunning = false;
       feederRunState = FEEDER_IDLE;

@@ -166,7 +166,7 @@ Table actuator_logs {
 Table feeder_status {
   tank_id varchar [pk, ref: - tanks.tank_id]
   status varchar [note: 'idle | dispensing']
-  feed_count int
+  dispense_count int [note: 'completed feeds; app uses it to verify dispense success']
   last_seen timestamp
   last_dispensed_at timestamp
   last_dispensed_grams decimal(8,2)

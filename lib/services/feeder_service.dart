@@ -72,7 +72,7 @@ class FeederService extends ChangeNotifier {
   StreamSubscription? _logsSub;
 
   bool _isRunning = false;
-  int _feedCount = 0;
+  int _dispenseCount = 0;
   DateTime _lastSeen = DateTime.fromMillisecondsSinceEpoch(0);
   String? _lastError;
 
@@ -85,7 +85,7 @@ class FeederService extends ChangeNotifier {
   final Set<String> _missedLogged = {};
 
   bool get isRunning => _isRunning;
-  int get feedCount => _feedCount;
+  int get dispenseCount => _dispenseCount;
   DateTime get lastSeen => _lastSeen;
   String? get lastError => _lastError;
 
@@ -171,7 +171,7 @@ class FeederService extends ChangeNotifier {
         try {
           final data = snapshot.data()!;
           _isRunning = data['status'] == 'dispensing';
-          _feedCount = (data['feedCount'] as num?)?.toInt() ?? _feedCount;
+          _dispenseCount = (data['dispenseCount'] as num?)?.toInt() ?? _dispenseCount;
           final seen = data['lastSeen'];
           if (seen is int && seen > 0) {
             _lastSeen = DateTime.fromMillisecondsSinceEpoch(seen);
