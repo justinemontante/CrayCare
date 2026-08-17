@@ -477,8 +477,8 @@ class FeederService extends ChangeNotifier {
     for (int i = 0; i < _schedules.length; i++) {
       final s = _schedules[i];
       if (!s.enabled || s.isDone) continue;
-      // Skip schedules that are not active on today's weekday (Monday-first).
-      final dayIdx = now.weekday - 1; // 1=Mon..7=Sun -> 0..6
+      // Skip schedules that are not active on today's weekday (Sunday-first).
+      final dayIdx = now.weekday % 7; // 7=Sun->0, 1=Mon->1, ... 6=Sat->6
       if (s.days.length > dayIdx && s.days[dayIdx] != '1') continue;
       final key = i < _scheduleKeys.length
           ? _scheduleKeys[i]

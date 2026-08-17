@@ -121,7 +121,7 @@ tanks/{tank_id}
     ampm: string
     timeValue: number
     grams: number | null
-    days: string          // "1111111" Monday-first mask
+    days: string          // "1111111" Sunday-first mask
     enabled: boolean
     isDone: boolean
     created_at: Timestamp

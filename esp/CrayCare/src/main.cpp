@@ -316,7 +316,7 @@ struct FeedSchedule {
   int minute;
   bool enabled;
   float grams;
-  String days;   // day-of-week mask "1111111" (Monday first, '1'=active)
+  String days;   // day-of-week mask "1111111" (Sunday first, '1'=active)
 };
 
 int feederScheduleCount = 0;
@@ -1739,8 +1739,8 @@ void checkScheduledFeed() {
   time(&now);
   struct tm* timeinfo = localtime(&now);
   int currentMin = timeinfo->tm_hour * 60 + timeinfo->tm_min;
-  // tm_wday: 0=Sunday..6=Saturday → convert to Monday-first index 0..6.
-  int dayIdx = (timeinfo->tm_wday + 6) % 7;
+  // tm_wday is already Sunday-first: 0=Sunday..6=Saturday.
+  int dayIdx = timeinfo->tm_wday;
 
   for (int i = 0; i < feederScheduleCount; i++) {
     FeedSchedule& s = feederSchedules[i];

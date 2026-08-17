@@ -135,7 +135,7 @@
           "ampm (AM|PM)",
           "timeValue (int minutes since midnight)",
           "grams (double, optional)",
-          "days (string mask \"1111111\" Monday-first)",
+          "days (string mask \"1111111\" Sunday-first)",
           "enabled (bool)",
           "isDone (bool)",
           "created_at (Timestamp)"

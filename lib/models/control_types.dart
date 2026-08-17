@@ -7,8 +7,8 @@ class ScheduleItem {
   final bool isDone;
   final double? grams;
 
-  /// Day-of-week mask, Monday first: "1111111" = every day,
-  /// "1010100" = Mon/Wed/Fri only. Each char is '1' (on) or '0' (off).
+  /// Day-of-week mask, Sunday first: "1111111" = every day,
+  /// "1010100" = Sun/Tue/Thu only. Each char is '1' (on) or '0' (off).
   final String days;
 
   ScheduleItem(

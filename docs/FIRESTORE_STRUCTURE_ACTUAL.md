@@ -100,7 +100,7 @@ Device IDs: **`pump`** · **`aerator1`** · **`aerator2`**
 ESP32 writes: `status` (`idle`|`dispensing`), `isRunning`, `feedSource`, `feedCount`, `hopperLevel`, `lastSeen`, `last_dispensed_at`, `last_dispensed_grams`
 
 ### `tanks/{tankId}/feeder_schedules/{scheduleId}` ✓
-Flutter writes; ESP32 reads. `time` (`6:00`), `ampm` (`AM`/`PM`), `timeValue` (minutes since midnight — ginagamit sa sorting), `grams`, `days` (day-of-week mask "1111111", Monday-first), `enabled`, `isDone`, `created_at`
+Flutter writes; ESP32 reads. `time` (`6:00`), `ampm` (`AM`/`PM`), `timeValue` (minutes since midnight — ginagamit sa sorting), `grams`, `days` (day-of-week mask "1111111", Sunday-first), `enabled`, `isDone`, `created_at`
 
 ### `tanks/{tankId}/feeder_logs/{logId}` ✓
 ESP32 + app lumilikha. `action`, `type`, `trigger_type`, `logged_at` (time/date derived sa app)

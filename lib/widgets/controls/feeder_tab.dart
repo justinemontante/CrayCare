@@ -479,9 +479,9 @@ class FeederTab extends StatelessWidget {
   String _formatDays(String days) {
     if (days.length < 7) return 'Every day';
     if (days == '1111111') return 'Every day';
-    if (days == '1111100') return 'Weekdays';
-    if (days == '0000011') return 'Weekends';
-    final labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    if (days == '0111110') return 'Weekdays';
+    if (days == '1000001') return 'Weekends';
+    final labels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     final parts = <String>[];
     for (var i = 0; i < 7; i++) {
       if (days[i] == '1') parts.add(labels[i]);
@@ -493,7 +493,7 @@ class FeederTab extends StatelessWidget {
   String _scheduleStatus(ScheduleItem s) {
     if (s.isDone) return 'completed';
     // Not active today → show as "off today" (not due).
-    final dayIdx = DateTime.now().weekday - 1; // 1=Mon..7=Sun -> 0..6
+    final dayIdx = DateTime.now().weekday % 7; // 7=Sun->0, 1=Mon->1, ... 6=Sat->6
     final activeToday = s.days.length <= dayIdx || s.days[dayIdx] == '1';
     if (!activeToday) return 'off_today';
     final key = '${s.time}_${s.ampm}';
@@ -1067,7 +1067,7 @@ class FeederTab extends StatelessWidget {
     final gramsCtl = TextEditingController(
       text: existing?.grams != null ? existing!.grams!.toStringAsFixed(1) : '',
     );
-    // Day-of-week mask, Monday first: index 0..6. Default = every day.
+    // Day-of-week mask, Sunday first: index 0..6. Default = every day.
     final selectedDays = <int>{
       for (var i = 0; i < 7; i++)
         if (existing == null ||
@@ -1241,7 +1241,7 @@ class FeederTab extends StatelessWidget {
                             ),
                           ),
                           child: Text(
-                            const ['M', 'T', 'W', 'T', 'F', 'S', 'S'][i],
+                            const ['S', 'M', 'T', 'W', 'T', 'F', 'S'][i],
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w800,
