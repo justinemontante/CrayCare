@@ -161,10 +161,9 @@
         "_description": "Manual feed commands pending ESP32 execution. Flutter creates; ESP32 reads + deletes processed commands.",
         "fields": [
           "command_type (feed_now)",
-          "trigger_type (manual|auto)",
-          "grams (double)",
+          "grams (double, optional \u2014 default 20.0)",
           "issued_by (uid)",
-          "status (pending|done)",
+          "status (pending \u2014 doc deleted after execution)",
           "issued_at (Timestamp)"
         ]
       },

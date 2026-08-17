@@ -1517,7 +1517,6 @@ void processFeederCommands() {
   struct CmdEntry {
     String docId;
     String action;
-    String mode;
     float grams;
   };
   CmdEntry entries[20];
@@ -1538,10 +1537,6 @@ void processFeederCommands() {
     e.grams = 20.0f;
 
     if (response.get(d, base + "command_type/stringValue")) e.action = d.stringValue;
-    // Legacy fallback: try old action field if new not present
-    if (e.action == "" && response.get(d, base + "action/stringValue")) e.action = d.stringValue;
-    if (response.get(d, base + "trigger_type/stringValue")) e.mode = d.stringValue;
-    if (e.mode == "" && response.get(d, base + "mode/stringValue")) e.mode = d.stringValue;
     if (response.get(d, base + "grams/doubleValue")) e.grams = d.doubleValue;
     else if (response.get(d, base + "grams/integerValue")) e.grams = d.stringValue.toFloat();
     e.grams = constrain(e.grams, 1.0f, 200.0f);
@@ -1552,14 +1547,11 @@ void processFeederCommands() {
   // Process then delete (separate loop avoids fbdo buffer conflict)
   for (int i = 0; i < entryCount; i++) {
     CmdEntry& e = entries[i];
-    Serial.printf("[FEEDER CMD] %s (mode=%s) id=%s\n",
-                  e.action.c_str(), e.mode.c_str(), e.docId.c_str());
+    Serial.printf("[FEEDER CMD] %s id=%s\n",
+                  e.action.c_str(), e.docId.c_str());
 
     if (e.action == "feed_now") {
-      startFeed(e.mode == "scheduled" ? "scheduled" : "manual", e.grams);
-    } else if (e.action == "set_mode" && e.mode != "") {
-      feederAutoMode = (e.mode == "auto");
-      Serial.printf("[FEEDER] Mode -> %s\n", feederAutoMode ? "AUTO" : "MANUAL");
+      startFeed("manual", e.grams);
     }
 
     String docPath = "tanks/" + currentTankId + "/feeder_commands/" + e.docId;

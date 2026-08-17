@@ -270,14 +270,9 @@ class FeederService extends ChangeNotifier {
       // ESP32 listens here, executes, then deletes the command.
       final cmd = <String, dynamic>{
         'command_type': 'feed_now',
-        'trigger_type': source == 'scheduled' ? 'scheduled' : 'manual',
         'status': 'pending',
         'issued_by': uid,
         'issued_at': FieldValue.serverTimestamp(),
-        // legacy fields kept for firmware compatibility during rollout
-        'action': 'feed_now',
-        'timestamp': FieldValue.serverTimestamp(),
-        'source': 'flutter-app',
       };
       if (grams != null) {
         cmd['grams'] = grams;

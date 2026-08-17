@@ -112,7 +112,7 @@ ESP32 + app lumilikha. `action`, `type`, `time`, `date`, `timestamp`
 
 ### `tanks/{tankId}/feeder_commands/{commandId}` ✓
 Flutter creates; ESP32 reads + deletes after processing.
-`command_type` (`feed_now`), `trigger_type` (`manual`|`auto`), `grams`, `issued_by`, `status` (`pending`|`done`), `issued_at`
+`command_type` (`feed_now`), `grams`, `issued_by`, `status` (`pending` — doc deleted after execution), `issued_at`
 
 ### `tanks/{tankId}/feeder_dispatched/{YYYY-M-D}` ✓
 Legacy/idempotency marker used by manual app dispatch flows. Each schedule document ID is stored as a dynamic boolean field (`{scheduleId}: true`). Stored schedules themselves are executed by the ESP32; Android background work is reminders-only.
