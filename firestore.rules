@@ -168,7 +168,14 @@ service cloud.firestore {
       }
       match /feeder_schedules/{scheduleId} {
         allow read: if isTankOwner(tankId) || isAssignedEsp(tankId);
-        allow write: if isTankOwner(tankId);
+        // Owners fully own schedule CRUD. The ESP may only flip `isDone` to
+        // true after a scheduled feed physically completes (the Flutter app
+        // resets it at the next Manila day rollover).
+        allow create, delete: if isTankOwner(tankId);
+        allow update: if isTankOwner(tankId) ||
+          (isAssignedEsp(tankId) &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isDone']) &&
+            request.resource.data.isDone == true);
       }
       match /feeder_commands/{commandId} {
         allow create: if isTankOwner(tankId);

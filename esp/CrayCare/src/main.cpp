@@ -89,7 +89,7 @@ String currentTankId = "";
 // Feeder timing
 #define FEEDER_CMD_INTERVAL_MS 300
 #define FEEDER_STATUS_INTERVAL_MS 5000
-#define FEEDER_SCHEDULE_SYNC_MS 30000
+#define FEEDER_SCHEDULE_SYNC_MS 10000
 #define FEEDER_SCHEDULE_CHECK_MS 1000
 #define FEEDER_SERVO_PULSE_WIDTH 2000   // microseconds for full rotation
 #define FEEDER_MAX_SCHEDULES 20
@@ -281,6 +281,7 @@ bool feederAutoMode = true;
 unsigned long feederLastFeedEpoch = 0;
 bool feederIsRunning = false;
 String feederFeedSource = "";          // "manual" or "scheduled"
+String feederLastScheduleKey = "";     // doc id of the schedule that triggered the latest scheduled feed
 int feederDispenseCount = 0;              // total feeds dispensed since boot
 float feederRequestedGrams = 20.0f;   // calibrated estimate; 20 g per servo cycle
 
@@ -1222,6 +1223,7 @@ void checkScheduledFeed();
 void startFeed(String source, float grams = 20.0f);
 void processFeederTick();
 void pushFeederLog(String action, String type);
+void markScheduledFeedDone();
 
 // ─── Actuator forward declarations ───
 void initActuators();
@@ -1771,6 +1773,9 @@ void checkScheduledFeed() {
       if (nowEpoch - feederLastFeedEpoch >= 60) {
         Serial.printf("[FEEDER] Scheduled feed at %02d:%02d (%.1fg)\n",
                       s.hour24, s.minute, s.grams);
+        // Remember which schedule fired so DONE can mark isDone=true after the
+        // servo physically completes (the schedule key is the Firestore doc id).
+        feederLastScheduleKey = s.key;
         startFeed("scheduled", s.grams);
       }
     }
@@ -1876,14 +1881,45 @@ void processFeederTick() {
           : "Dispensed feed (Manual)",
         feederAutoMode ? "auto" : "manual"
       );
+      // Let the app mark this schedule as completed for today. The nightly
+      // reset (FeederService on a new Manila day) flips it back to false.
+      if (feederFeedSource == "scheduled" && feederLastScheduleKey.length() > 0
+          && !feederLastScheduleKey.startsWith("cached_")) {
+        markScheduledFeedDone();
+      }
 
       feederFeedSource = "";
+      feederLastScheduleKey = "";
       Serial.println("[FEEDER] Feed complete");
       break;
 
     default:
       feederRunState = FEEDER_IDLE;
       break;
+  }
+}
+
+// ─── Mark the schedule that just fired as done for today ───
+// Updates only isDone on the originating schedule doc. Flutter resets it to
+// false when the Manila day rolls over; the ESP never needs to clear it.
+void markScheduledFeedDone() {
+  if (!ensureFirebaseReady()) return;
+  if (currentTankId.length() == 0 || feederLastScheduleKey.length() == 0) return;
+
+  FirebaseJson json;
+  json.set("fields/isDone/booleanValue", "true");
+
+  String docPath = "tanks/" + currentTankId
+                 + "/feeder_schedules/" + feederLastScheduleKey;
+  if (!Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "",
+        docPath.c_str(), json.raw(), "isDone")) {
+    if (fbdo.httpConnected()) {
+      Serial.printf("[FEEDER] markScheduleDone ERROR: %s\n",
+                    fbdo.errorReason().c_str());
+    }
+  } else {
+    Serial.printf("[FEEDER] Schedule %s marked done\n",
+                  feederLastScheduleKey.c_str());
   }
 }
 

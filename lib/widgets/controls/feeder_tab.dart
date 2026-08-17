@@ -1251,11 +1251,17 @@ class FeederTab extends StatelessWidget {
                               final h12 = h % 12 == 0 ? 12 : h % 12;
                               final timeStr =
                                   '$h12:${m.toString().padLeft(2, '0')}';
-                              // Check duplicate
-                              final duplicate = schedules.any((s) =>
-                                  s.time == timeStr &&
-                                  s.ampm == ampm &&
-                                  (isEdit ? schedules.indexOf(s) != index : true));
+                              // Check duplicate: same time AND same day mask.
+                              // This allows two schedules at the same time as
+                              // long as they run on different weekdays (e.g.
+                              // 6:00 AM weekdays vs 6:00 AM weekends).
+                              final duplicate = schedules.asMap().entries.any((e) {
+                                if (isEdit && e.key == index) return false;
+                                final s = e.value;
+                                return s.time == timeStr &&
+                                    s.ampm == ampm &&
+                                    s.days == daysMask;
+                              });
                               if (duplicate) {
                                 ScaffoldMessenger.of(ctx).showSnackBar(
                                   SnackBar(
