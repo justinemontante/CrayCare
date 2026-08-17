@@ -1216,6 +1216,8 @@ void sendFeederStatus();
 void syncFeederSchedules();
 void loadCachedFeederSchedules();
 void saveCachedFeederSchedules();
+void loadFeederState();
+void saveFeederState();
 void checkScheduledFeed();
 void startFeed(String source, float grams = 20.0f);
 void processFeederTick();
@@ -1480,6 +1482,9 @@ void initFeeder() {
   // Restore the last cloud-synced schedules so a reboot during an internet
   // outage can still execute them using the ESP's local clock.
   loadCachedFeederSchedules();
+  // Restore the lifetime dispense count so the app's status display doesn't
+  // reset to 0 after an ESP reboot.
+  loadFeederState();
   ledcSetup(SERVO_LEDC_CHANNEL, SERVO_LEDC_FREQ, SERVO_LEDC_RESOLUTION);
   ledcAttachPin(FEEDER_SERVO_PIN, SERVO_LEDC_CHANNEL);
   _setServoAngle(0);
@@ -1487,13 +1492,11 @@ void initFeeder() {
   feederRunState = FEEDER_IDLE;
   feederCurrentCycle = 0;
 
-  // Quick servo test on boot
-  Serial.println("[FEEDER] Testing servo...");
-  _setServoAngle(90);
-  delay(800);
-  _setServoAngle(0);
-  delay(500);
-  Serial.println("[FEEDER] Servo initialized OK");
+  // Park the servo closed. Do NOT perform a full sweep at boot: a 90° sweep
+  // drops a fraction of feed every time the ESP resets (which also happens on
+  // Wi-Fi drops / power flickers). If a physical hardware self-test is
+  // needed, add a serial command gated behind a build flag instead.
+  Serial.println("[FEEDER] Servo initialized at closed position (0°)");
 }
 
 // ─── Process Commands from Firestore ───
@@ -1622,6 +1625,23 @@ void loadCachedFeederSchedules() {
   if (feederScheduleCount > 0) {
     Serial.printf("[FEEDER] Restored %d cached schedule(s) for offline operation\n",
                   feederScheduleCount);
+  }
+}
+
+// Persist the lifetime dispense count separately from schedule cache so the
+// "feeds completed" count the app reads from feeder/status survives reboots.
+void saveFeederState() {
+  prefs.begin("feederstate", false);
+  prefs.putInt("dispenseCount", feederDispenseCount);
+  prefs.end();
+}
+
+void loadFeederState() {
+  prefs.begin("feederstate", true);
+  feederDispenseCount = prefs.getInt("dispenseCount", 0);
+  prefs.end();
+  if (feederDispenseCount > 0) {
+    Serial.printf("[FEEDER] Restored dispense count: %d\n", feederDispenseCount);
   }
 }
 
@@ -1840,8 +1860,10 @@ void processFeederTick() {
 
       _setServoAngle(0);
 
-      // Update feed count
+      // Update feed count and persist it so a reboot doesn't reset the total
+      // the app displays as "feeds completed".
       feederDispenseCount++;
+      saveFeederState();
 
       feederIsRunning = false;
       feederRunState = FEEDER_IDLE;
