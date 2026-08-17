@@ -97,7 +97,7 @@ Device IDs: **`pump`** · **`aerator1`** · **`aerator2`**
 > **ESP32 lumilikha** kapag may relay transition. App nagbabasa. May composite index na (`actuator_type + logged_at DESC`).
 
 ### `tanks/{tankId}/feeder/status` ✓
-ESP32 writes: `status` (`idle`|`dispensing`), `isRunning`, `feedSource`, `feedCount`, `hopperLevel`, `lastSeen`, `last_dispensed_at`, `last_dispensed_grams`
+ESP32 writes: `status` (`idle`|`dispensing`), `feedSource`, `feedCount`, `hopperLevel`, `lastSeen`, `last_dispensed_at`, `last_dispensed_grams`
 
 ### `tanks/{tankId}/feeder_schedules/{scheduleId}` ✓
 Flutter writes; ESP32 reads. `time` (`6:00`), `ampm` (`AM`/`PM`), `timeValue` (minutes since midnight — ginagamit sa sorting), `grams`, `days` (day-of-week mask "1111111", Sunday-first), `enabled`, `isDone`, `created_at`

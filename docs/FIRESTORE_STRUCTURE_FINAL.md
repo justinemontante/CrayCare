@@ -108,7 +108,6 @@ tanks/{tank_id}
 
   feeder/status
     status: "idle" | "dispensing"
-    isRunning: boolean
     feedSource: string
     feedCount: number
     hopperLevel: number
