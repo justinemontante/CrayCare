@@ -959,8 +959,10 @@ class _AdminScreenState extends State<AdminScreen> {
 
   Widget _buildStatsBar() {
     final totalUsers = _users.length;
-    final activeUsers = _users.where((u) => (u['status'] ?? 'active') == 'active').length;
-    final disabledUsers = totalUsers - activeUsers;
+    final ownerUsers = _users.where((u) => (u['role'] as String? ?? 'owner') == 'owner').length;
+    final adminUsers = totalUsers - ownerUsers;
+    final disabledUsers =
+        _users.where((u) => (u['status'] ?? 'active') == 'disabled').length;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
@@ -969,21 +971,30 @@ class _AdminScreenState extends State<AdminScreen> {
           Expanded(
             child: _buildStatCard(
               value: '$totalUsers',
-              label: 'Total Users',
+              label: 'Total',
               icon: Icons.groups_rounded,
               color: AppColors.primary,
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
           Expanded(
             child: _buildStatCard(
-              value: '$activeUsers',
-              label: 'Active',
-              icon: Icons.how_to_reg_rounded,
+              value: '$ownerUsers',
+              label: 'Owners',
+              icon: Icons.person_rounded,
               color: AppColors.success,
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _buildStatCard(
+              value: '$adminUsers',
+              label: 'Admins',
+              icon: Icons.admin_panel_settings_rounded,
+              color: AppColors.dark,
+            ),
+          ),
+          const SizedBox(width: 8),
           Expanded(
             child: _buildStatCard(
               value: '$disabledUsers',
