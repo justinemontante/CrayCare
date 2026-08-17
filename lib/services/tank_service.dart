@@ -336,8 +336,6 @@ class TankService extends ChangeNotifier {
         writeBatch.set(_tankRef, {
           'owner_uid': _currentUserUid.isNotEmpty ? _currentUserUid : _tankOwnerUid,
           'current_batch_id': '',
-          'lifetime_mortality': 0,
-          'lifetime_harvested': 0,
           'is_initialized': false,
           'created_at': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
@@ -404,8 +402,10 @@ class TankService extends ChangeNotifier {
       }
       final data = doc.data() ?? <String, dynamic>{};
       _initialCount = (data['initial_population'] as int?) ?? 0;
-      _mortality = (data['lifetime_mortality'] as int?) ?? 0;
-      _totalHarvested = (data['lifetime_harvested'] as int?) ?? 0;
+      // Mortality/harvest totals are derived from the batch + record
+      // listeners (SUM over records), not stored on the tank doc.
+      _mortality = 0;
+      _totalHarvested = 0;
       _stockingDate = DateTime.fromMillisecondsSinceEpoch(
         (data['stocking_date'] as int?) ?? DateTime.now().millisecondsSinceEpoch,
       );
@@ -741,11 +741,9 @@ class TankService extends ChangeNotifier {
         'initial_population': _initialCount,
         'stocking_date': _stockingDate.millisecondsSinceEpoch,
         'last_sample_date': _lastSampleDate.millisecondsSinceEpoch,
-        'lifetime_mortality': _mortality,
         'sample_count': _sampleCount,
         'initial_total_sample_weight': _totalSampleWeight,
         'initial_total_sample_length': _totalSampleLength,
-        'lifetime_harvested': _totalHarvested,
         'current_batch_id': _selectedBatchId ?? '',
         'is_initialized': _isInitialized,
       }, SetOptions(merge: true));
@@ -900,8 +898,6 @@ class TankService extends ChangeNotifier {
         'initial_population': _initialCount,
         'stocking_date': _stockingDate.millisecondsSinceEpoch,
         'last_sample_date': _lastSampleDate.millisecondsSinceEpoch,
-        'lifetime_mortality': 0,
-        'lifetime_harvested': 0,
         'sample_count': _sampleCount,
         'initial_total_sample_weight': _totalSampleWeight,
         'initial_total_sample_length': _totalSampleLength,
@@ -1043,9 +1039,6 @@ class TankService extends ChangeNotifier {
           'current_count':
               (initial - committedMortality - existingHarvest).clamp(0, initial),
         }, SetOptions(merge: true));
-        transaction.set(_tankRef, {
-          'lifetime_mortality': committedMortality,
-        }, SetOptions(merge: true));
       });
       _mortality = committedMortality;
       _addActivity('Recorded mortality of $val crayfish (Total: $_mortality)', 'mortality', customDate: date);
@@ -1102,9 +1095,6 @@ class TankService extends ChangeNotifier {
           'total_mortality': committedMortality,
           'current_count':
               (initial - committedMortality - existingHarvest).clamp(0, initial),
-        }, SetOptions(merge: true));
-        transaction.set(_tankRef, {
-          'lifetime_mortality': committedMortality,
         }, SetOptions(merge: true));
       });
       _mortality = committedMortality;
@@ -1178,9 +1168,6 @@ class TankService extends ChangeNotifier {
           'harvest_count': committedTotal,
           'current_count': (initial - deaths - committedTotal).clamp(0, initial),
           'harvest_weight_grams': existingWeight + (totalWeightKg * 1000),
-        }, SetOptions(merge: true));
-        transaction.set(_tankRef, {
-          'lifetime_harvested': committedTotal,
         }, SetOptions(merge: true));
       });
 
@@ -1264,9 +1251,6 @@ class TankService extends ChangeNotifier {
           'harvest_count': committedTotal,
           'current_count': (initial - deaths - committedTotal).clamp(0, initial),
           'harvest_weight_grams': newWeight.clamp(0.0, double.infinity),
-        }, SetOptions(merge: true));
-        transaction.set(_tankRef, {
-          'lifetime_harvested': committedTotal,
         }, SetOptions(merge: true));
       });
 

@@ -175,8 +175,6 @@ class DatabaseService {
     batch.set(ref, {
       'owner_uid': ownerUid ?? tankId,
       'current_batch_id': '',
-      'lifetime_mortality': 0,
-      'lifetime_harvested': 0,
       'is_initialized': false,
       'created_at': FieldValue.serverTimestamp(),
     });

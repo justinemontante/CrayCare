@@ -67,8 +67,6 @@ tanks/{tank_id}
   initial_population: number
   stocking_date: epoch milliseconds
   last_sample_date: epoch milliseconds
-  lifetime_mortality: number
-  lifetime_harvested: number
   sample_count: number
   initial_total_sample_weight: number
   initial_total_sample_length: number

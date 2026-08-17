@@ -47,8 +47,6 @@ Tracks last-seen notification markers (reminders/confirmations) — `last_read_a
 |---|---|
 | owner_uid | string |
 | current_batch_id | string |
-| lifetime_mortality | int |
-| lifetime_harvested | int |
 | stocking_date | int (epoch ms) |
 | last_sample_date | int (epoch ms) |
 | sample_count | int |

@@ -17,10 +17,10 @@
     "fields": [
       "sound (bool)",
       "vibration (bool)",
-      "critical (bool) — critical sensor alerts",
-      "warning (bool) — sensor warnings (approaching threshold)",
-      "feeding (bool) — feeding reminders",
-      "sampling (bool) — weekly sampling reminders",
+      "critical (bool) \u2014 critical sensor alerts",
+      "warning (bool) \u2014 sensor warnings (approaching threshold)",
+      "feeding (bool) \u2014 feeding reminders",
+      "sampling (bool) \u2014 weekly sampling reminders",
       "updated_at (Timestamp)"
     ]
   },
@@ -41,13 +41,11 @@
   },
   "tanks": {
     "_id": "tank_id (== owner's uid by default)",
-    "_description": "One tank per user. Core of the whole system — all sensor, actuator, feeder, health-risk and production data live here as subcollections.",
+    "_description": "One tank per user. Core of the whole system \u2014 all sensor, actuator, feeder, health-risk and production data live here as subcollections.",
     "fields": [
       "owner_uid (string)",
       "userId (string, alias)",
       "current_batch_id / currentBatchId (string|null)",
-      "lifetime_mortality / lifetimeMortality (int)",
-      "lifetime_harvested / lifetimeHarvested (int)",
       "stocking_date / stockingDate (int epoch-ms)",
       "last_sample_date / lastSampleDate (int epoch-ms)",
       "sample_count / sampleCount (int)",
@@ -104,7 +102,7 @@
         ],
         "fields": [
           "control_mode (on|off|auto)",
-          "current_state (on|off) — ACTUAL relay state, written by ESP32",
+          "current_state (on|off) \u2014 ACTUAL relay state, written by ESP32",
           "last_changed (Timestamp from app / int epoch-ms from ESP)"
         ]
       },
@@ -112,7 +110,7 @@
         "_description": "Device activity log. ESP32 creates a doc on every physical relay change; app reads for the Controls screen runtime labels and auto-control events.",
         "fields": [
           "actuator_type (pump|aerator1|aerator2)",
-          "action (e.g. 'Switched ON — Aerator 1 (AUTO) — ...')",
+          "action (e.g. 'Switched ON \u2014 Aerator 1 (AUTO) \u2014 ...')",
           "log_level (info|warning|error)",
           "message (string)",
           "type (on|off|auto)",
