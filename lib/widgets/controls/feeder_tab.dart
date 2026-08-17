@@ -14,7 +14,6 @@ class FeederTab extends StatelessWidget {
   final void Function(int index, bool enabled) onToggleSchedule;
   final List<LogEntry> feederLogs;
   final Set<String> fedToday;
-  final String feederError;
 
   final bool isOnline;
   final bool isRunning;
@@ -32,7 +31,6 @@ class FeederTab extends StatelessWidget {
     required this.onToggleSchedule,
     required this.feederLogs,
     this.fedToday = const {},
-    this.feederError = '',
     this.isOnline = true,
     this.isRunning = false,
     this.canFeed = true,
@@ -162,7 +160,6 @@ class FeederTab extends StatelessWidget {
                 ),
               ],
             ),
-            if (feederError.isNotEmpty) _buildErrorBanner(),
             if (schedules.isNotEmpty) _buildCountdown(),
             const SizedBox(height: 16),
             Row(
@@ -332,36 +329,6 @@ class FeederTab extends StatelessWidget {
                   ),
                 ),
                 ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildErrorBanner() {
-    return Padding(
-      padding: const EdgeInsets.only(top: 12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: AppColors.critical.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppColors.critical.withValues(alpha: 0.3)),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.error_outline, size: 14, color: AppColors.critical),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                feederError,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.critical,
-                ),
-              ),
             ),
           ],
         ),

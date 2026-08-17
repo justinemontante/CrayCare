@@ -61,7 +61,7 @@ Firestore rules were loaded successfully by the Firestore Emulator and exercised
 
 1. Disabled owners/admins are now enforced by Firestore rules, not only the login UI.
 2. Legacy profile role/status backfill is permitted only as `owner` + `active`; self-promotion/reactivation is blocked.
-3. Feeder status is device-owned. Flutter no longer attempts a denied `feederError` write; ESP clears it in its heartbeat.
+3. Feeder status is device-owned. Flutter only reads status/feedCount/lastSeen/last_dispensed_*; the ESP32 writes them on its heartbeat.
 4. Sensor alerts, feeding reminders, and sampling reminders have one canonical server-side writer. Retired client/background reminder paths were removed to prevent duplicate Firestore notifications and duplicate OS banners.
 5. Old Android WorkManager feeding/reminder work is cancelled on app upgrade.
 6. User/tank/sensor/actuator/feeder provisioning is atomic, and TankService repairs missing seed subdocuments without overwriting existing configuration.

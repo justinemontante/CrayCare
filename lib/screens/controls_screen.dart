@@ -517,7 +517,6 @@ class ControlsScreenState extends State<ControlsScreen> {
                           unawaited(FeederService.instance.toggleSchedule(index, enabled)),
                       feederLogs: FeederService.instance.logs,
                       fedToday: _fedToday,
-                      feederError: FeederService.instance.feederError,
                       isOnline: FeederService.instance.isOnline,
                       isRunning: FeederService.instance.isRunning,
                       canFeed: _canFeed,
