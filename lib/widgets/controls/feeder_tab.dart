@@ -1251,6 +1251,11 @@ class FeederTab extends StatelessWidget {
                               final h12 = h % 12 == 0 ? 12 : h % 12;
                               final timeStr =
                                   '$h12:${m.toString().padLeft(2, '0')}';
+                              final grams = double.tryParse(gramsCtl.text);
+                              final daysMask = String.fromCharCodes(
+                                List.generate(7, (i) =>
+                                    selectedDays.contains(i) ? 49 : 48),
+                              );
                               // Check duplicate: same time AND same day mask.
                               // This allows two schedules at the same time as
                               // long as they run on different weekdays (e.g.
@@ -1273,11 +1278,6 @@ class FeederTab extends StatelessWidget {
                                 );
                                 return;
                               }
-                              final grams = double.tryParse(gramsCtl.text);
-                              final daysMask = String.fromCharCodes(
-                                List.generate(7, (i) =>
-                                    selectedDays.contains(i) ? 49 : 48),
-                              );
                               if (isEdit) {
                                 onEditSchedule(
                                   index!,
