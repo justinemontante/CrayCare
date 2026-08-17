@@ -303,8 +303,6 @@ class DatabaseService {
     await tankRef.collection('actuator_logs').add({
       'actuator_type': actuatorId,
       'action': 'Switched ${mode.toUpperCase()} — $actuatorName ($modeLabel)',
-      'log_level': 'info',
-      'message': '$actuatorName set to $modeLabel',
       'type': mode,
       'time': time,
       'date': date,

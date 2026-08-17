@@ -83,8 +83,8 @@ class ActuatorLogService extends ChangeNotifier {
         final list = snapshot.docs.map((doc) {
           final map = doc.data();
           return LogEntry(
-            map['action'] as String? ?? map['message'] as String? ?? '',
-            map['type'] as String? ?? map['log_level'] as String? ?? '',
+            map['action'] as String? ?? '',
+            map['type'] as String? ?? '',
             map['time'] as String? ?? '',
             map['date'] as String? ?? '',
             timestamp: map['timestamp'] as int? ?? 0,

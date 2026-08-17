@@ -103,8 +103,6 @@ tanks/{tank_id}
   actuator_logs/{log_id}
     actuator_type: string
     action: string
-    log_level: string
-    message: string
     type: string
     time: string
     date: string

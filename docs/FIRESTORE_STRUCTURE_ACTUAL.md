@@ -91,8 +91,6 @@ Device IDs: **`pump`** · **`aerator1`** · **`aerator2`**
 |---|---|
 | actuator_type | string (`pump`\|`aerator1`\|`aerator2`) |
 | action | string — e.g. `Switched ON — Aerator 1 (AUTO) — ...` |
-| log_level | string (`info`) |
-| message | string |
 | type | string (`on`\|`off`\|`auto`) |
 | time | string (`6:30 PM`) |
 | date | string (`Aug 1, 2026`) |

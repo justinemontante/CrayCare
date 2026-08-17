@@ -1229,7 +1229,7 @@ void applyActuatorDevice(int idx);
 bool actuatorAutoTarget(int idx);
 void setActuatorRelay(int idx, bool on);
 void reportActuatorState(int idx, bool forced);
-void pushActuatorLog(int idx, String action, String type, String level);
+void pushActuatorLog(int idx, String action, String type);
 
 // ============================================================
 //  SETUP
@@ -2022,9 +2022,9 @@ void reportActuatorState(int idx, bool forced) {
 
 // ─── Push an actuator log entry (auto-ID doc) ───
 // Field names match Flutter ActuatorLogService:
-//   actuator_type, action, log_level, message, type, time, date, timestamp(ms)
+//   actuator_type, action, type, time, date, timestamp(ms)
 // Put "(AUTO)" in `action` so the app surfaces it as an auto-control event.
-void pushActuatorLog(int idx, String action, String type, String level) {
+void pushActuatorLog(int idx, String action, String type) {
   if (!ensureFirebaseReady()) return;
   if (currentTankId.length() == 0) return;
 
@@ -2049,8 +2049,6 @@ void pushActuatorLog(int idx, String action, String type, String level) {
   FirebaseJson json;
   json.set("fields/actuator_type/stringValue", actuators[idx].deviceId);
   json.set("fields/action/stringValue",        action);
-  json.set("fields/log_level/stringValue",     level);
-  json.set("fields/message/stringValue",       action);
   json.set("fields/type/stringValue",          type);
   json.set("fields/time/stringValue",          String(timeBuf));
   json.set("fields/date/stringValue",          String(dateBuf));
@@ -2098,7 +2096,7 @@ void applyActuatorDevice(int idx) {
     //  - "(AUTO)"           -> ActuatorLogService auto-control event
     String action = String("Switched ") + (target ? "ON" : "OFF") + " — " + a.label;
     if (a.controlMode == "auto") action += String(" (AUTO) — ") + reason;
-    pushActuatorLog(idx, action, type, "info");
+    pushActuatorLog(idx, action, type);
   }
   reportActuatorState(idx, false);
 }
