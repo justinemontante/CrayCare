@@ -458,6 +458,7 @@ class FeederTab extends StatelessWidget {
   }
 
   String _scheduleStatus(ScheduleItem s) {
+    if (!s.enabled) return 'disabled';
     if (s.isDone) return 'completed';
     // Not active today → show as "off today" (not due).
     final dayIdx = DateTime.now().weekday % 7; // 7=Sun->0, 1=Mon->1, ... 6=Sat->6
@@ -468,7 +469,9 @@ class FeederTab extends StatelessWidget {
     final scheduleTimeStr = '${s.time} ${s.ampm}';
     final todayStr = _logDateString();
     for (final log in feederLogs) {
-      if (log.action == 'Auto feed dispensed' &&
+      final a = log.action.toLowerCase();
+      if ((a.contains('dispensed feed (scheduled)') ||
+              a.contains('auto feed dispensed')) &&
           log.time == scheduleTimeStr &&
           log.date == todayStr) {
         return 'completed';
@@ -586,6 +589,13 @@ class FeederTab extends StatelessWidget {
         statusLabel = 'Off today';
         statusIcon = Icons.event_busy;
         break;
+      case 'disabled':
+        bgColor = AppColors.darkWith(0.05);
+        borderColor = AppColors.darkWith(0.12);
+        dotColor = AppColors.darkWith(0.4);
+        statusLabel = 'Paused';
+        statusIcon = Icons.pause_circle_outline;
+        break;
       default:
         bgColor = Colors.white;
         borderColor = AppColors.darkWith(0.08);
@@ -620,7 +630,9 @@ class FeederTab extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w700,
-                            color: AppColors.dark,
+                            color: status == 'disabled'
+                                ? AppColors.darkWith(0.4)
+                                : AppColors.dark,
                             decoration: status == 'completed'
                                 ? TextDecoration.lineThrough
                                 : null,
