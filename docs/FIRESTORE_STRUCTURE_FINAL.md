@@ -137,7 +137,6 @@ tanks/{tank_id}
     command_type: "feed_now"
     grams: number | null
     issued_by: string
-    status: "pending"   // doc deleted after ESP32 execution
     issued_at: Timestamp
 
   feeder_logs/{log_id}

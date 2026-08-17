@@ -270,7 +270,6 @@ class FeederService extends ChangeNotifier {
       // ESP32 listens here, executes, then deletes the command.
       final cmd = <String, dynamic>{
         'command_type': 'feed_now',
-        'status': 'pending',
         'issued_by': uid,
         'issued_at': FieldValue.serverTimestamp(),
       };

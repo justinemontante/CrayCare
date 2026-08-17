@@ -163,7 +163,6 @@
           "command_type (feed_now)",
           "grams (double, optional \u2014 default 20.0)",
           "issued_by (uid)",
-          "status (pending \u2014 doc deleted after execution)",
           "issued_at (Timestamp)"
         ]
       },
