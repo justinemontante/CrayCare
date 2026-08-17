@@ -1,4 +1,8 @@
-const functions = require("firebase-functions");
+// firebase-functions v7 removed the v1 API from the package root. This file
+// still uses the v1 style (functions.region(...).firestore/pubsub), so import
+// it from the v1 subpath explicitly. v1 remains supported through the 2026
+// Node 20 deprecation window and is the smallest safe change.
+const functions = require("firebase-functions/v1");
 const admin = require("firebase-admin");
 admin.initializeApp();
 
