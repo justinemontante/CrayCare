@@ -563,6 +563,17 @@ exports.processFeeding = functions.region("asia-southeast1").pubsub
         if (data.enabled === false || data.is_active === false) continue;
         const timeValue = typeof data.timeValue === "number" ? data.timeValue : null;
         if (timeValue === null) continue;
+
+        // Honor the same Sunday-first day-of-week mask ("1111111") the app
+        // writes: index 0 = Sunday, 6 = Saturday. Without this filter the
+        // 5-minute reminder fires even on days the schedule is disabled.
+        let activeToday = true;
+        if (typeof data.days === "string" && data.days.length >= 7) {
+          const manilaDayIdx = manila.getUTCDay(); // 0=Sun..6=Sat
+          activeToday = data.days.charAt(manilaDayIdx) === "1";
+        }
+        if (!activeToday) continue;
+
         const markerKey = `feed_${dateKey}_${schedule.id}`;
         const marker = await readMarker(owner.uid, markerKey);
         if (marker) continue;

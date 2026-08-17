@@ -5,6 +5,13 @@ import '../../models/control_types.dart';
 import '../../utils/snackbar_helper.dart';
 
 class FeederTab extends StatelessWidget {
+  // Feeder schedules are anchored to Asia/Manila wall-clock time to match the
+  // ESP32's NTP-synced clock and the Cloud Function's MANILA_OFFSET_MS. Using
+  // DateTime.now() here compares against the device timezone, which can cause
+  // false "skipped"/"completed" states when the phone is abroad.
+  static const _manilaOffset = Duration(hours: 8);
+  static DateTime _manilaNow() => DateTime.now().toUtc().add(_manilaOffset);
+
   final List<ScheduleItem> schedules;
   final TextEditingController timeCtl;
   final VoidCallback onFeedNow;
@@ -340,7 +347,7 @@ class FeederTab extends StatelessWidget {
     return StreamBuilder<int>(
       stream: Stream.periodic(const Duration(seconds: 1), (i) => i),
       builder: (context, _) {
-        final now = DateTime.now();
+        final now = _manilaNow();
         final nowMin = now.hour * 60 + now.minute;
 
         ScheduleItem? next;
@@ -433,7 +440,7 @@ class FeederTab extends StatelessWidget {
   }
 
   String _logDateString() {
-    final now = DateTime.now();
+    final now = _manilaNow();
     const months = [
       'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
@@ -461,7 +468,8 @@ class FeederTab extends StatelessWidget {
     if (!s.enabled) return 'disabled';
     if (s.isDone) return 'completed';
     // Not active today → show as "off today" (not due).
-    final dayIdx = DateTime.now().weekday % 7; // 7=Sun->0, 1=Mon->1, ... 6=Sat->6
+    final now = _manilaNow();
+    final dayIdx = now.weekday % 7; // 7=Sun->0, 1=Mon->1, ... 6=Sat->6
     final activeToday = s.days.length <= dayIdx || s.days[dayIdx] == '1';
     if (!activeToday) return 'off_today';
     final key = '${s.time}_${s.ampm}';
@@ -477,7 +485,6 @@ class FeederTab extends StatelessWidget {
         return 'completed';
       }
     }
-    final now = DateTime.now();
     int h = int.tryParse(s.time.split(':')[0]) ?? 6;
     final m = int.tryParse(s.time.split(':')[1]) ?? 0;
     if (s.ampm == 'PM' && h != 12) h += 12;

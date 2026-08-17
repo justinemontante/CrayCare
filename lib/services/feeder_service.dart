@@ -247,10 +247,15 @@ class FeederService extends ChangeNotifier {
           for (final doc in snapshot.docs) {
             final data = doc.data();
             // time/date are derived from logged_at (no longer stored) so the
-            // display matches the single source of truth for "when".
+            // display matches the single source of truth for "when". Schedules
+            // and ESP NTP are anchored to Asia/Manila wall-clock time, so the
+            // log timestamps must be rendered in Manila too — otherwise a
+            // device in a different timezone fails to match its log against
+            // the schedule (false "Feed skipped" detection).
             final ts = data['logged_at'] as int? ?? 0;
             final dt = ts > 0
-                ? DateTime.fromMillisecondsSinceEpoch(ts).toLocal()
+                ? DateTime.fromMillisecondsSinceEpoch(ts, isUtc: true)
+                    .add(_manilaOffset)
                 : null;
             _logs.add(LogEntry(
               data['action'] as String? ?? '',
@@ -273,7 +278,7 @@ class FeederService extends ChangeNotifier {
     }
   }
 
-  Future<void> feedNow({String source = 'manual', String? scheduleKey, double? grams}) async {
+  Future<void> feedNow({double? grams}) async {
     final tankDoc = _tankDoc();
     if (tankDoc == null) return;
     final uid = FirebaseAuth.instance.currentUser?.uid;
@@ -292,13 +297,9 @@ class FeederService extends ChangeNotifier {
       // NOTE: do NOT write a feeder_logs entry here.
       // The ESP32 writes the confirmed log after the servo physically completes,
       // which is the reliable source of truth. Writing here too causes duplicates.
-      if (source == 'scheduled' && scheduleKey != null) {
-        final mNow = _manilaNow();
-        await tankDoc
-            .collection('feeder_dispatched')
-            .doc('${mNow.year}-${mNow.month}-${mNow.day}')
-            .set({scheduleKey: true}, SetOptions(merge: true));
-      }
+      // Scheduled dispatch is owned by the ESP32 (it compares its synced
+      // schedules against its own NTP-synced clock); the app does not enqueue
+      // feed commands on a schedule.
     } catch (e) {
       debugPrint('[FeederService] feedNow error: $e');
     }
@@ -317,11 +318,21 @@ class FeederService extends ChangeNotifier {
     if (tankDoc == null) return;
     try {
       // tanks/{tank_id}/feeder_logs/{autoId}
+      //
+      // trigger_type maps the log category to how the feed was initiated.
+      //  - auto/missed → scheduled (clock-driven)
+      //  - error/manual → manual (user-initiated or failure on a manual feed)
+      final triggerType = (type == 'auto' || type == 'missed')
+          ? 'scheduled'
+          : 'manual';
+      // Store a true Unix epoch (UTC milliseconds) so it matches what the
+      // ESP32 writes and can be rendered/ordered correctly anywhere. The
+      // Manila wall-clock conversion is applied only when formatting.
       await tankDoc.collection('feeder_logs').add({
         'action': action,
         'type': type,
-        'logged_at': DateTime.now().millisecondsSinceEpoch,
-        'trigger_type': type == 'auto' ? 'scheduled' : 'manual',
+        'logged_at': DateTime.now().toUtc().millisecondsSinceEpoch,
+        'trigger_type': triggerType,
       });
     } catch (e) {
       debugPrint('[FeederService] addLogEntry error: $e');
@@ -499,10 +510,22 @@ class FeederService extends ChangeNotifier {
         final reason = isOnline
             ? 'No confirmed feeder log received'
             : 'ESP was offline';
-        await _addLogEntry(
-          action: 'Feed skipped - $reason',
-          type: 'missed',
-        );
+        // Use a deterministic document ID so an app restart or multiple
+        // devices cannot write duplicate "Feed skipped" logs for the same
+        // schedule on the same Manila day.
+        final missedDocId = 'missed_${todayKey}_$key'
+            .replaceAll('/', '_')
+            .replaceAll(RegExp(r'[^\w.\-]'), '_');
+        await tankDoc.collection('feeder_logs').doc(missedDocId).set({
+          'action': 'Feed skipped - $reason',
+          'type': 'missed',
+          // Store the real current UTC instant. `now` is only a Manila
+          // wall-clock view used for schedule comparison/date keys.
+          'logged_at': DateTime.now().toUtc().millisecondsSinceEpoch,
+          'trigger_type': 'scheduled',
+          'schedule_key': key,
+          'schedule_time': expectedTime,
+        }, SetOptions(merge: true));
         debugPrint('[FeederService] Missed schedule: $key ($reason)');
       }
     }

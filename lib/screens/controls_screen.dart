@@ -23,6 +23,12 @@ class ControlsScreen extends StatefulWidget {
 enum _FeedState { hidden, dispensing, done, failed }
 
 class ControlsScreenState extends State<ControlsScreen> {
+  // Feeder schedules and the ESP clock are anchored to Asia/Manila. The
+  // nearest-schedule match below must compare against Manila wall-clock time,
+  // not the device's local timezone.
+  static const _manilaOffset = Duration(hours: 8);
+  DateTime _manilaNow() => DateTime.now().toUtc().add(_manilaOffset);
+
   void switchToTab(int index) {
     if (index < 0 || index > 1) return;
     setState(() => _activeTab = index);
@@ -155,7 +161,7 @@ class ControlsScreenState extends State<ControlsScreen> {
   }
 
   String _todayKey() {
-    final now = DateTime.now();
+    final now = _manilaNow();
     return '${now.year}-${now.month}-${now.day}';
   }
 
@@ -237,7 +243,7 @@ class ControlsScreenState extends State<ControlsScreen> {
   }
 
   void _markNearestScheduleFed() {
-    final now = DateTime.now();
+    final now = _manilaNow();
     final svc = FeederService.instance;
     for (final s in svc.schedules) {
       int h = int.tryParse(s.time.split(':')[0]) ?? 6;
