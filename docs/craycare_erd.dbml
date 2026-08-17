@@ -166,7 +166,6 @@ Table actuator_logs {
 Table feeder_status {
   tank_id varchar [pk, ref: - tanks.tank_id]
   status varchar [note: 'idle | dispensing']
-  is_running boolean [default: false]
   feed_source varchar
   feed_count int
   hopper_level decimal(5,2)

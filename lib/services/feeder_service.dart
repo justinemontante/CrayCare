@@ -176,7 +176,7 @@ class FeederService extends ChangeNotifier {
         if (!snapshot.exists || snapshot.data() == null) return;
         try {
           final data = snapshot.data()!;
-          _isRunning = data['isRunning'] == true || data['status'] == 'dispensing';
+          _isRunning = data['status'] == 'dispensing';
           _feedSource = (data['feedSource'] as String?) ?? '';
           _feedCount = (data['feedCount'] as num?)?.toInt() ?? _feedCount;
           _hopperLevel = (data['hopperLevel'] as num?)?.toDouble() ?? 100;

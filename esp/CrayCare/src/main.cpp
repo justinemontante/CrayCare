@@ -1576,7 +1576,6 @@ void sendFeederStatus() {
   FirebaseJson json;
   // Match FeederService's canonical status fields and keep the heartbeat fresh.
   json.set("fields/status/stringValue", feederIsRunning ? "dispensing" : "idle");
-  json.set("fields/isRunning/booleanValue", feederIsRunning);
   json.set("fields/feedSource/stringValue", feederFeedSource);
   json.set("fields/feedCount/integerValue", String(feederFeedCount));
   json.set("fields/hopperLevel/doubleValue", String(feederHopperLevel));
@@ -1593,7 +1592,7 @@ void sendFeederStatus() {
   String statusDoc = "tanks/" + currentTankId + "/feeder/status";
   if (!Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "",
         statusDoc.c_str(), json.raw(),
-        "status,isRunning,feedSource,feedCount,hopperLevel,feederError,lastSeen,last_dispensed_at,last_dispensed_grams")) {
+        "status,feedSource,feedCount,hopperLevel,feederError,lastSeen,last_dispensed_at,last_dispensed_grams")) {
     if (fbdo.httpConnected()) {
       Serial.printf("[FEEDER STATUS ERROR] %s\n", fbdo.errorReason().c_str());
     }
