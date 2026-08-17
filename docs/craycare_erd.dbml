@@ -311,7 +311,6 @@ Table harvest_records {
   harvest_count int
   total_weight_kg decimal(10,3)
   abw_grams decimal(8,2)
-  survival_rate decimal(5,2)
   created_at timestamp
 }
 
