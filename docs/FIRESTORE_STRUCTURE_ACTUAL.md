@@ -93,9 +93,8 @@ Device IDs: **`pump`** · **`aerator1`** · **`aerator2`**
 | action | string — e.g. `Switched ON — Aerator 1 (AUTO) — ...` |
 | type | string (`on`\|`off`\|`auto`) |
 | timestamp | int epoch-ms |
-| logged_at | int epoch-ms |
 
-> **ESP32 lumilikha** kapag may relay transition. App nagbabasa. May composite index na (by `timestamp` at `logged_at`).
+> **ESP32 lumilikha** kapag may relay transition. App nagbabasa. May composite index na (`actuator_type + timestamp DESC`).
 
 ### `tanks/{tankId}/feeder/status` ✓
 ESP32 writes: `status` (`idle`|`dispensing`), `isRunning`, `feedSource`, `feedCount`, `hopperLevel`, `lastSeen`, `last_dispensed_at`, `last_dispensed_grams`
@@ -194,7 +193,7 @@ Read by the Admin SDK notification function. Supported shapes are `{ UID: "uid1,
 - **notifications** — matching owner reads/deletes; owner may update `is_read` only
 
 ## 📋 Indexes (`firestore.indexes.json`)
-- `actuator_logs`: `actuator_type + timestamp DESC`, `actuator_type + logged_at DESC` ✅
+- `actuator_logs`: `actuator_type + timestamp DESC` ✅
 - `notifications`: `uid + created_at DESC` ✅
 - Other active ordered queries use Firestore automatic single-field indexes.
 

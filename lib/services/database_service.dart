@@ -303,9 +303,6 @@ class DatabaseService {
       'action': 'Switched ${mode.toUpperCase()} — $actuatorName ($modeLabel)',
       'type': mode,
       'timestamp': DateTime.now().millisecondsSinceEpoch,
-      // Integer epoch-ms (not serverTimestamp) so both app- and ESP-written
-      // docs keep logged_at as the same type for consistent ordering.
-      'logged_at': DateTime.now().millisecondsSinceEpoch,
     });
   }
 

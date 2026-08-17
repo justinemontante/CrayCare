@@ -2022,7 +2022,7 @@ void reportActuatorState(int idx, bool forced) {
 
 // ─── Push an actuator log entry (auto-ID doc) ───
 // Field names match Flutter ActuatorLogService:
-//   actuator_type, action, type, timestamp(ms), logged_at
+//   actuator_type, action, type, timestamp(ms)
 // Put "(AUTO)" in `action` so the app surfaces it as an auto-control event.
 void pushActuatorLog(int idx, String action, String type) {
   if (!ensureFirebaseReady()) return;
@@ -2037,10 +2037,6 @@ void pushActuatorLog(int idx, String action, String type) {
   json.set("fields/action/stringValue",        action);
   json.set("fields/type/stringValue",          type);
   json.set("fields/timestamp/integerValue",    epochMs);
-  // Also stamped as integer epoch-ms so both the Controls screen
-  // (orders by timestamp) and the legacy actuatorLogsStream
-  // (orders by logged_at) sort correctly.
-  json.set("fields/logged_at/integerValue",    epochMs);
 
   String col = String("tanks/") + currentTankId + "/actuator_logs";
   if (Firebase.Firestore.createDocument(&fbdo, FIREBASE_PROJECT_ID, "",

@@ -321,7 +321,6 @@ class FeederService extends ChangeNotifier {
         'date': dateStr,
         'timestamp': DateTime.now().millisecondsSinceEpoch,
         'trigger_type': type == 'auto' ? 'scheduled' : 'manual',
-        'logged_at': FieldValue.serverTimestamp(),
       });
     } catch (e) {
       debugPrint('[FeederService] addLogEntry error: $e');
