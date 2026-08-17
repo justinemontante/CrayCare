@@ -132,7 +132,15 @@ class NextSamplingPanel extends StatelessWidget {
     final service = TankService.instance;
     final daysSince = service.daysSinceLastSampling;
     final daysRemaining = daysSince >= 7 ? 0 : 7 - daysSince;
-    final nextWeekNum = service.samplingHistory.where((e) => !e.isBaseline).length;
+    // Current culture day (date-based; setup day = Day 0, next calendar day
+    // = Day 1 even if stocking was late at night).
+    final currentDay = service.daysInCulture;
+    // Week number shown is the NEXT weekly sampling to be recorded. The
+    // initial baseline at stocking doesn't count as Week 1. So before the
+    // first weekly sample this reads "Week 1", after it "Week 2", etc.
+    final completedWeekly =
+        service.samplingHistory.where((e) => !e.isBaseline).length;
+    final nextWeekNum = completedWeekly + 1;
 
     return Container(
       width: double.infinity,
@@ -218,6 +226,17 @@ class NextSamplingPanel extends StatelessWidget {
                       fontSize: 12,
                       fontWeight: FontWeight.w800,
                       color: AppColors.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    daysRemaining == 0
+                        ? 'Day $currentDay'
+                        : 'Day $currentDay · $daysRemaining days to go',
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.darkWith(0.5),
                     ),
                   ),
                 ],

@@ -16,6 +16,15 @@ class ReportExportService {
   static final ReportExportService instance = ReportExportService._();
   ReportExportService._();
 
+  // Brand palette — matches the app:
+  //   "Cray" dark teal  = #0B3C49
+  //   "Care" accent     = #1FA5A5
+  // Tables/headers use the "Care" accent (not green), section titles use the
+  // dark "Cray" teal so the report matches the in-app identity.
+  static const PdfColor _careColor = PdfColor.fromInt(0xFF1FA5A5);
+  static const PdfColor _careColorDark = PdfColor.fromInt(0xFF167A7A);
+  static const PdfColor _crayColor = PdfColor.fromInt(0xFF0B3C49);
+
   // ── CSV helpers ────────────────────────────────────────────────────────
   static String _cell(Object? value) {
     if (value == null) return '';
@@ -191,7 +200,7 @@ class ReportExportService {
             fontWeight: pw.FontWeight.bold,
             color: PdfColors.white,
           ),
-          headerDecoration: const pw.BoxDecoration(color: PdfColors.teal800),
+          headerDecoration: const pw.BoxDecoration(color: _careColorDark),
           cellStyle: const pw.TextStyle(fontSize: 9),
           cellAlignment: pw.Alignment.centerLeft,
           headerAlignment: pw.Alignment.centerLeft,
@@ -235,7 +244,7 @@ class ReportExportService {
         style: pw.TextStyle(
           fontSize: 20,
           fontWeight: pw.FontWeight.bold,
-          color: PdfColors.teal900,
+          color: _crayColor,
         ),
       ),
       footer: (context) => pw.Align(
@@ -255,7 +264,7 @@ class ReportExportService {
             style: pw.TextStyle(
                 fontSize: 13,
                 fontWeight: pw.FontWeight.bold,
-                color: PdfColors.teal900)),
+                color: _crayColor)),
         pw.SizedBox(height: 8),
         kwTable([
           ['Batch ID', _pdfSafe(t.selectedBatchId ?? '-')],
@@ -274,7 +283,7 @@ class ReportExportService {
             style: pw.TextStyle(
                 fontSize: 13,
                 fontWeight: pw.FontWeight.bold,
-                color: PdfColors.teal900)),
+                color: _crayColor)),
         pw.SizedBox(height: 8),
         if (samplingRows.isEmpty)
           pw.Text('No sampling records yet.',
@@ -284,7 +293,7 @@ class ReportExportService {
             headers: ['Date', 'ABW (g)', 'ABL (cm)', 'Sample', 'Total W (g)', 'Biomass (g)'],
             headerStyle: pw.TextStyle(
                 fontWeight: pw.FontWeight.bold, color: PdfColors.white),
-            headerDecoration: const pw.BoxDecoration(color: PdfColors.teal700),
+            headerDecoration: const pw.BoxDecoration(color: _careColor),
             cellStyle: const pw.TextStyle(fontSize: 9),
             border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
             data: samplingRows,
@@ -294,7 +303,7 @@ class ReportExportService {
             style: pw.TextStyle(
                 fontSize: 13,
                 fontWeight: pw.FontWeight.bold,
-                color: PdfColors.teal900)),
+                color: _crayColor)),
         pw.SizedBox(height: 8),
         if (mortalityRows.isEmpty)
           pw.Text('No mortality records.',
@@ -304,7 +313,7 @@ class ReportExportService {
             headers: ['Date', 'Count'],
             headerStyle: pw.TextStyle(
                 fontWeight: pw.FontWeight.bold, color: PdfColors.white),
-            headerDecoration: const pw.BoxDecoration(color: PdfColors.teal700),
+            headerDecoration: const pw.BoxDecoration(color: _careColor),
             cellStyle: const pw.TextStyle(fontSize: 9),
             border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
             data: mortalityRows,
@@ -314,7 +323,7 @@ class ReportExportService {
             style: pw.TextStyle(
                 fontSize: 13,
                 fontWeight: pw.FontWeight.bold,
-                color: PdfColors.teal900)),
+                color: _crayColor)),
         pw.SizedBox(height: 8),
         if (harvestRows.isEmpty)
           pw.Text('No harvest records.',
@@ -324,7 +333,7 @@ class ReportExportService {
             headers: ['Date', 'Count', 'Total W (kg)', 'ABW (g)'],
             headerStyle: pw.TextStyle(
                 fontWeight: pw.FontWeight.bold, color: PdfColors.white),
-            headerDecoration: const pw.BoxDecoration(color: PdfColors.teal700),
+            headerDecoration: const pw.BoxDecoration(color: _careColor),
             cellStyle: const pw.TextStyle(fontSize: 9),
             border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
             data: harvestRows,
@@ -360,7 +369,7 @@ class ReportExportService {
         style: pw.TextStyle(
           fontSize: 18,
           fontWeight: pw.FontWeight.bold,
-          color: PdfColors.teal900,
+          color: _crayColor,
         ),
       ),
       footer: (context) => pw.Align(
@@ -381,13 +390,13 @@ class ReportExportService {
               style: pw.TextStyle(
                   fontSize: 13,
                   fontWeight: pw.FontWeight.bold,
-                  color: PdfColors.teal900)),
+                  color: _crayColor)),
           pw.SizedBox(height: 8),
           pw.TableHelper.fromTextArray(
             headers: ['Timestamp', 'Level', 'Conf %', 'Driver', 'Problem', 'Action'],
             headerStyle: pw.TextStyle(
                 fontWeight: pw.FontWeight.bold, color: PdfColors.white),
-            headerDecoration: const pw.BoxDecoration(color: PdfColors.teal700),
+            headerDecoration: const pw.BoxDecoration(color: _careColor),
             cellStyle: const pw.TextStyle(fontSize: 8),
             border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
             data: rows,
@@ -397,13 +406,13 @@ class ReportExportService {
               style: pw.TextStyle(
                   fontSize: 13,
                   fontWeight: pw.FontWeight.bold,
-                  color: PdfColors.teal900)),
+                  color: _crayColor)),
           pw.SizedBox(height: 8),
           pw.TableHelper.fromTextArray(
             headers: ['Field', 'Value'],
             headerStyle: pw.TextStyle(
                 fontWeight: pw.FontWeight.bold, color: PdfColors.white),
-            headerDecoration: const pw.BoxDecoration(color: PdfColors.teal800),
+            headerDecoration: const pw.BoxDecoration(color: _careColorDark),
             cellStyle: const pw.TextStyle(fontSize: 9),
             cellAlignment: pw.Alignment.centerLeft,
             headerAlignment: pw.Alignment.centerLeft,

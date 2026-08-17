@@ -141,8 +141,19 @@ class TankService extends ChangeNotifier {
     if (_isArchiveView) return 0;
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    if (_samplingHistory.isEmpty) return daysInCulture;
-    final last = _samplingHistory.last.date;
+    // Use the last NON-baseline sampling entry as the anchor for the weekly
+    // cadence. The baseline (initial) measurement taken at stocking is NOT a
+    // weekly sampling — it's the day-of-setup reference. This makes the first
+    // weekly sampling fall 7 calendar days after stocking, regardless of how
+    // many hours were left in the setup day (e.g. setup at 11 PM).
+    final weekly = _samplingHistory.where((e) => !e.isBaseline).toList();
+    if (weekly.isEmpty) {
+      final anchor = DateTime(
+        _stockingDate.year, _stockingDate.month, _stockingDate.day,
+      );
+      return today.difference(anchor).inDays.clamp(0, 1000000).toInt();
+    }
+    final last = weekly.last.date;
     return today
         .difference(DateTime(last.year, last.month, last.day))
         .inDays
@@ -904,6 +915,25 @@ class TankService extends ChangeNotifier {
         'current_batch_id': bid,
         'is_initialized': true,
       }, SetOptions(merge: true));
+      // Persist the initial measurement as a SEPARATE baseline sampling
+      // record. It is excluded from the weekly cadence calculation and from
+      // the "Week N" counter so the first weekly sampling is always Day 7
+      // after stocking.
+      if (_sampleCount > 0 && _totalSampleWeight > 0 && _totalSampleLength > 0) {
+        final baselineDoc = _samplingRef(bid).doc('baseline');
+        writes.set(baselineDoc, {
+          'sampling_date': _stockingDate.millisecondsSinceEpoch,
+          'avg_body_weight': _initialWeight,
+          'avg_body_length': _initialLength,
+          'sample_size': _sampleCount,
+          'total_weight': _totalSampleWeight,
+          'total_length': _totalSampleLength,
+          'biomass': _initialCount * _initialWeight,
+          'live_count': _initialCount,
+          'is_baseline': true,
+          'created_at': FieldValue.serverTimestamp(),
+        });
+      }
       await writes.commit();
     } catch (e) {
       debugPrint('[TankService] Atomic batch initialization failed: $e');
