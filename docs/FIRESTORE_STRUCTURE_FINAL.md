@@ -182,7 +182,6 @@ tanks/{tank_id}/batches/{batch_id}
     harvest_count: number
     total_weight_kg: number
     abw_grams: number
-    survival_rate: number
     created_at: Timestamp
 
   ml_predictions/current

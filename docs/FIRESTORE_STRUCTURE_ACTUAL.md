@@ -140,7 +140,7 @@ Mortality and harvest record creation plus aggregate updates use atomic Firestor
 `mortality_date`, `mortality_count`, `created_at`
 
 ### `tanks/{tankId}/batches/{batchId}/harvest_records/{recordId}` ✓
-`batch_id`, `harvest_date`, `harvest_count`, `total_weight_kg`, `abw_grams`, `survival_rate`, `created_at`
+`batch_id`, `harvest_date`, `harvest_count`, `total_weight_kg`, `abw_grams`, `created_at`
 
 ---
 
@@ -215,5 +215,5 @@ tanks/{tank_id}/batches/{batch_id}
 
   harvest_records/{record_id}
     batch_id, harvest_date, harvest_count, total_weight_kg, abw_grams,
-    survival_rate, created_at
+    created_at
 ```

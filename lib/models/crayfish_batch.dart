@@ -5,7 +5,6 @@ class CrayfishHarvestRecord {
   final int harvestedCount;
   final double totalWeightKg;
   final double abwGrams;
-  final double survivalRate;
 
   CrayfishHarvestRecord({
     required this.id,
@@ -14,7 +13,6 @@ class CrayfishHarvestRecord {
     required this.harvestedCount,
     required this.totalWeightKg,
     required this.abwGrams,
-    required this.survivalRate,
   });
 
   Map<String, dynamic> toJson() => {
@@ -23,7 +21,6 @@ class CrayfishHarvestRecord {
     'harvest_count': harvestedCount,
     'total_weight_kg': totalWeightKg,
     'abw_grams': abwGrams,
-    'survival_rate': survivalRate,
   };
 
   factory CrayfishHarvestRecord.fromJson(String id, Map<String, dynamic> json) => CrayfishHarvestRecord(
@@ -33,7 +30,6 @@ class CrayfishHarvestRecord {
     harvestedCount: (json['harvest_count'] as num?)?.toInt() ?? 0,
     totalWeightKg: (json['total_weight_kg'] as num?)?.toDouble() ?? 0,
     abwGrams: (json['abw_grams'] as num?)?.toDouble() ?? 0,
-    survivalRate: (json['survival_rate'] as num?)?.toDouble() ?? 0,
   );
 }
 

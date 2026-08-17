@@ -1150,17 +1150,12 @@ class TankService extends ChangeNotifier {
         committedTotal = existingHarvest + harvestedCount;
         final existingWeight =
             (existing['harvest_weight_grams'] as num?)?.toDouble() ?? 0.0;
-        final survival = initial > 0
-            ? ((initial - deaths) / initial * 100).clamp(0.0, 100.0)
-            : 0.0;
-
         transaction.set(recordRef, {
           'batch_id': resolvedBatchId,
           'harvest_date': now.millisecondsSinceEpoch,
           'harvest_count': harvestedCount,
           'total_weight_kg': totalWeightKg,
           'abw_grams': abwGrams,
-          'survival_rate': survival,
           'created_at': FieldValue.serverTimestamp(),
         });
         transaction.set(batchRef, {
@@ -1202,7 +1197,6 @@ class TankService extends ChangeNotifier {
     final recordRef = _harvestRef(resolvedBatchId).doc(last.id);
     final batchRef = _batchesRef.doc(resolvedBatchId);
     int committedTotal = _totalHarvested;
-    double committedSurvival = survivalRate;
 
     try {
       await _fs.runTransaction((transaction) async {
@@ -1233,18 +1227,12 @@ class TankService extends ChangeNotifier {
             (batchData['harvest_weight_grams'] as num?)?.toDouble() ?? 0.0;
         final newWeight = previousWeight - (actualOldWeight * 1000) +
             (totalWeightKg * 1000);
-        committedSurvival = initial > 0
-            ? ((initial - deaths) / initial * 100)
-                .clamp(0.0, 100.0)
-                .toDouble()
-            : 0.0;
 
         transaction.update(recordRef, {
           'batch_id': resolvedBatchId,
           'harvest_count': harvestedCount,
           'total_weight_kg': totalWeightKg,
           'abw_grams': abwGrams,
-          'survival_rate': committedSurvival,
           'created_at': FieldValue.serverTimestamp(),
         });
         transaction.set(batchRef, {
@@ -1262,7 +1250,6 @@ class TankService extends ChangeNotifier {
         harvestedCount: harvestedCount,
         totalWeightKg: totalWeightKg,
         abwGrams: abwGrams,
-        survivalRate: committedSurvival,
       );
       _addActivity(
         'Updated last harvest to $harvestedCount crayfish, ${totalWeightKg.toStringAsFixed(2)}kg total',

@@ -242,7 +242,6 @@
       "harvest_count",
       "total_weight_kg",
       "abw_grams",
-      "survival_rate",
       "created_at (Timestamp)"
     ]
   },

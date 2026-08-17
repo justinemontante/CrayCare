@@ -117,13 +117,12 @@ class ReportExportService {
     if (harvests.isNotEmpty) {
       buf.writeln(_row([
         'Harvest Records', 'Date', 'Harvested Count',
-        'Total Weight (kg)', 'ABW (g)', 'Survival Rate (%)',
+        'Total Weight (kg)', 'ABW (g)',
       ]));
       for (final h in harvests) {
         buf.writeln(_row([
           '', _fmtDate(h.date), h.harvestedCount,
           h.totalWeightKg.toStringAsFixed(3), h.abwGrams.toStringAsFixed(2),
-          h.survivalRate.toStringAsFixed(2),
         ]));
       }
       buf.writeln();
@@ -225,7 +224,6 @@ class ReportExportService {
               '${h.harvestedCount}',
               h.totalWeightKg.toStringAsFixed(3),
               h.abwGrams.toStringAsFixed(2),
-              h.survivalRate.toStringAsFixed(2),
             ])
         .toList();
 
@@ -323,7 +321,7 @@ class ReportExportService {
               style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey600))
         else
           pw.TableHelper.fromTextArray(
-            headers: ['Date', 'Count', 'Total W (kg)', 'ABW (g)', 'Survival (%)'],
+            headers: ['Date', 'Count', 'Total W (kg)', 'ABW (g)'],
             headerStyle: pw.TextStyle(
                 fontWeight: pw.FontWeight.bold, color: PdfColors.white),
             headerDecoration: const pw.BoxDecoration(color: PdfColors.teal700),
