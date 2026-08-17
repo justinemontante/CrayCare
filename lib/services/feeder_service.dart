@@ -224,9 +224,10 @@ class FeederService extends ChangeNotifier {
             _schedules.add(ScheduleItem(
               data['time'] as String? ?? '6:00',
               data['ampm'] as String? ?? 'AM',
-              enabled: data['enabled'] as bool? ?? data['is_active'] as bool? ?? true,
+              enabled: data['enabled'] as bool? ?? true,
               isDone: data['isDone'] as bool? ?? false,
-              grams: (data['grams'] as num?)?.toDouble() ?? (data['portion_grams'] as num?)?.toDouble(),
+              grams: (data['grams'] as num?)?.toDouble(),
+              days: data['days'] as String? ?? '1111111',
             ));
           }
           FeedState.schedules.value = List.from(_schedules);
@@ -339,7 +340,7 @@ class FeederService extends ChangeNotifier {
     }
   }
 
-  Future<void> addSchedule(String time, String ampm, {double? grams}) async {
+  Future<void> addSchedule(String time, String ampm, {double? grams, String days = '1111111'}) async {
     final tankDoc = _tankDoc();
     if (tankDoc == null) return;
     try {
@@ -355,12 +356,10 @@ class FeederService extends ChangeNotifier {
         'time': time,
         'ampm': ampm,
         'enabled': true,
-        'is_active': true,
         'isDone': false,
         'grams': grams,
-        'portion_grams': grams,
-        'feed_time': time,
         'timeValue': timeValue,
+        'days': days,
         'created_at': FieldValue.serverTimestamp(),
       });
       final gramsStr = grams != null ? ' (${grams.toStringAsFixed(1)}g)' : '';
@@ -403,6 +402,7 @@ class FeederService extends ChangeNotifier {
     bool? enabled,
     double? grams,
     bool clearGrams = false,
+    String days = '1111111',
   }) async {
     if (index < 0 || index >= _scheduleKeys.length) return;
     final tankDoc = _tankDoc();
@@ -415,13 +415,11 @@ class FeederService extends ChangeNotifier {
       await tankDoc.collection('feeder_schedules').doc(_scheduleKeys[index]).update({
         'time': time,
         'ampm': ampm,
-        'feed_time': time,
         'timeValue': timeValue,
         'enabled': enabled ?? true,
-        'is_active': enabled ?? true,
         'isDone': false,
         'grams': grams,
-        'portion_grams': grams,
+        'days': days,
       });
       final gramsStr = grams != null ? ' (${grams.toStringAsFixed(1)}g)' : '';
       await _addLogEntry(
@@ -457,6 +455,9 @@ class FeederService extends ChangeNotifier {
     for (int i = 0; i < _schedules.length; i++) {
       final s = _schedules[i];
       if (!s.enabled || s.isDone) continue;
+      // Skip schedules that are not active on today's weekday (Monday-first).
+      final dayIdx = now.weekday - 1; // 1=Mon..7=Sun -> 0..6
+      if (s.days.length > dayIdx && s.days[dayIdx] != '1') continue;
       final key = i < _scheduleKeys.length
           ? _scheduleKeys[i]
           : '${s.time}_${s.ampm}';

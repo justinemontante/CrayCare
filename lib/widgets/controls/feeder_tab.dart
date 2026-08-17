@@ -8,7 +8,7 @@ class FeederTab extends StatelessWidget {
   final List<ScheduleItem> schedules;
   final TextEditingController timeCtl;
   final VoidCallback onFeedNow;
-  final void Function(double? grams) onAddSchedule;
+  final void Function(double? grams, String days) onAddSchedule;
   final void Function(int index) onDeleteSchedule;
   final void Function(int index, ScheduleItem item) onEditSchedule;
   final List<LogEntry> feederLogs;
@@ -472,8 +472,28 @@ class FeederTab extends StatelessWidget {
     return '${months[now.month - 1]} ${now.day}, ${now.year}';
   }
 
+  /// Converts a day mask ("1111111") into a readable label like
+  /// "Every day", "Weekdays", or "Mon, Wed, Fri".
+  String _formatDays(String days) {
+    if (days.length < 7) return 'Every day';
+    if (days == '1111111') return 'Every day';
+    if (days == '1111100') return 'Weekdays';
+    if (days == '0000011') return 'Weekends';
+    final labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final parts = <String>[];
+    for (var i = 0; i < 7; i++) {
+      if (days[i] == '1') parts.add(labels[i]);
+    }
+    if (parts.isEmpty) return 'No days';
+    return parts.join(', ');
+  }
+
   String _scheduleStatus(ScheduleItem s) {
     if (s.isDone) return 'completed';
+    // Not active today → show as "off today" (not due).
+    final dayIdx = DateTime.now().weekday - 1; // 1=Mon..7=Sun -> 0..6
+    final activeToday = s.days.length <= dayIdx || s.days[dayIdx] == '1';
+    if (!activeToday) return 'off_today';
     final key = '${s.time}_${s.ampm}';
     if (fedToday.contains(key)) return 'completed';
     final scheduleTimeStr = '${s.time} ${s.ampm}';
@@ -590,6 +610,13 @@ class FeederTab extends StatelessWidget {
         statusLabel = 'Skipped';
         statusIcon = Icons.skip_next;
         break;
+      case 'off_today':
+        bgColor = AppColors.darkWith(0.03);
+        borderColor = AppColors.darkWith(0.1);
+        dotColor = AppColors.darkWith(0.35);
+        statusLabel = 'Off today';
+        statusIcon = Icons.event_busy;
+        break;
       default:
         bgColor = Colors.white;
         borderColor = AppColors.darkWith(0.08);
@@ -642,6 +669,15 @@ class FeederTab extends StatelessWidget {
                             ),
                           ),
                         ],
+                        const SizedBox(height: 2),
+                        Text(
+                          _formatDays(s.days),
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.darkWith(0.45),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -1021,6 +1057,14 @@ class FeederTab extends StatelessWidget {
     final gramsCtl = TextEditingController(
       text: existing?.grams != null ? existing!.grams!.toStringAsFixed(1) : '',
     );
+    // Day-of-week mask, Monday first: index 0..6. Default = every day.
+    final selectedDays = <int>{
+      for (var i = 0; i < 7; i++)
+        if (existing == null ||
+            existing.days.length <= i ||
+            existing.days[i] == '1')
+          i,
+    };
 
     showModalBottomSheet(
       context: ctx,
@@ -1149,6 +1193,55 @@ class FeederTab extends StatelessWidget {
                       ),
                     ),
                   ),
+                  const SizedBox(height: 12),
+                  // Days of the week selector (alarm-clock style)
+                  Text(
+                    'Repeat on',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.darkWith(0.6),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: List.generate(7, (i) {
+                      final on = selectedDays.contains(i);
+                      return GestureDetector(
+                        onTap: () => setSheetState(() {
+                          if (on) {
+                            selectedDays.remove(i);
+                          } else {
+                            selectedDays.add(i);
+                          }
+                        }),
+                        child: Container(
+                          width: 36,
+                          height: 36,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: on ? AppColors.primary : Colors.transparent,
+                            border: Border.all(
+                              color: on
+                                  ? AppColors.primary
+                                  : AppColors.darkWith(0.2),
+                              width: 1.5,
+                            ),
+                          ),
+                          child: Text(
+                            const ['M', 'T', 'W', 'T', 'F', 'S', 'S'][i],
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              color: on ? Colors.white : AppColors.darkWith(0.5),
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
+                  ),
                   const SizedBox(height: 20),
                   SizedBox(
                     width: double.infinity,
@@ -1179,14 +1272,19 @@ class FeederTab extends StatelessWidget {
                                 return;
                               }
                               final grams = double.tryParse(gramsCtl.text);
+                              final daysMask = String.fromCharCodes(
+                                List.generate(7, (i) =>
+                                    selectedDays.contains(i) ? 49 : 48),
+                              );
                               if (isEdit) {
                                 onEditSchedule(
                                   index!,
-                                  ScheduleItem(timeStr, ampm, grams: grams),
+                                  ScheduleItem(timeStr, ampm,
+                                      grams: grams, days: daysMask),
                                 );
                               } else {
                                 timeCtl.text = '$timeStr:$ampm';
-                                onAddSchedule(grams);
+                                onAddSchedule(grams, daysMask);
                               }
                               Navigator.pop(sheetCtx);
                             },

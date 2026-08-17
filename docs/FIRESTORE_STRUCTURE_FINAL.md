@@ -117,14 +117,12 @@ tanks/{tank_id}
     last_dispensed_grams: number
 
   feeder_schedules/{schedule_id}
-    feed_time: string
     time: string
     ampm: string
     timeValue: number
     grams: number | null
-    portion_grams: number | null
+    days: string          // "1111111" Monday-first mask
     enabled: boolean
-    is_active: boolean
     isDone: boolean
     created_at: Timestamp
 

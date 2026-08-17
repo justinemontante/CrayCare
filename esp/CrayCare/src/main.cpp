@@ -316,6 +316,7 @@ struct FeedSchedule {
   int minute;
   bool enabled;
   float grams;
+  String days;   // day-of-week mask "1111111" (Monday first, '1'=active)
 };
 
 int feederScheduleCount = 0;
@@ -1607,6 +1608,7 @@ void saveCachedFeederSchedules() {
     prefs.putInt(("m" + String(i)).c_str(), feederSchedules[i].minute);
     prefs.putBool(("e" + String(i)).c_str(), feederSchedules[i].enabled);
     prefs.putFloat(("g" + String(i)).c_str(), feederSchedules[i].grams);
+    prefs.putString(("d" + String(i)).c_str(), feederSchedules[i].days);
   }
   prefs.end();
 }
@@ -1620,6 +1622,7 @@ void loadCachedFeederSchedules() {
     feederSchedules[i].minute = prefs.getInt(("m" + String(i)).c_str(), 0);
     feederSchedules[i].enabled = prefs.getBool(("e" + String(i)).c_str(), true);
     feederSchedules[i].grams = prefs.getFloat(("g" + String(i)).c_str(), 20.0f);
+    feederSchedules[i].days = prefs.getString(("d" + String(i)).c_str(), "1111111");
   }
   prefs.end();
   if (feederScheduleCount > 0) {
@@ -1697,11 +1700,16 @@ void syncFeederSchedules() {
     s.hour24  = hour;
     s.minute  = minute;
     s.enabled = true;
+    if (response.get(d, base + "enabled/booleanValue")) s.enabled = d.boolValue;
+    // Legacy fallback for schedules written by older app builds.
     if (response.get(d, base + "is_active/booleanValue")) s.enabled = d.boolValue;
     s.grams = 20.0f;
     if (response.get(d, base + "grams/doubleValue")) s.grams = d.doubleValue;
     else if (response.get(d, base + "grams/integerValue")) s.grams = d.stringValue.toFloat();
     s.grams = constrain(s.grams, 1.0f, 200.0f);
+
+    s.days = "1111111";
+    if (response.get(d, base + "days/stringValue")) s.days = d.stringValue;
 
     feederScheduleCount++;
   }
@@ -1731,10 +1739,15 @@ void checkScheduledFeed() {
   time(&now);
   struct tm* timeinfo = localtime(&now);
   int currentMin = timeinfo->tm_hour * 60 + timeinfo->tm_min;
+  // tm_wday: 0=Sunday..6=Saturday → convert to Monday-first index 0..6.
+  int dayIdx = (timeinfo->tm_wday + 6) % 7;
 
   for (int i = 0; i < feederScheduleCount; i++) {
     FeedSchedule& s = feederSchedules[i];
     if (!s.enabled) continue;
+
+    // Skip if this schedule is not active on today's weekday.
+    if (s.days.length() >= 7 && s.days.charAt(dayIdx) != '1') continue;
 
     int schedMin = s.hour24 * 60 + s.minute;
     // Fire within the same minute (tolerate 0-59s)

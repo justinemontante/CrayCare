@@ -6,7 +6,19 @@ class ScheduleItem {
   final bool enabled;
   final bool isDone;
   final double? grams;
-  ScheduleItem(this.time, this.ampm, {this.enabled = true, this.isDone = false, this.grams});
+
+  /// Day-of-week mask, Monday first: "1111111" = every day,
+  /// "1010100" = Mon/Wed/Fri only. Each char is '1' (on) or '0' (off).
+  final String days;
+
+  ScheduleItem(
+    this.time,
+    this.ampm, {
+    this.enabled = true,
+    this.isDone = false,
+    this.grams,
+    this.days = '1111111',
+  });
 }
 
 class LogEntry {

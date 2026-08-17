@@ -413,14 +413,14 @@ class ControlsScreenState extends State<ControlsScreen> {
     return '$h12:$m $ampm';
   }
 
-  Future<void> _addSchedule({double? grams}) async {
+  Future<void> _addSchedule({double? grams, String days = '1111111'}) async {
     if (_timeCtl.text.isEmpty) return;
     final formatted = _formatTimeInput(_timeCtl.text);
     final isPM = formatted.contains('PM');
     final hStr = formatted.split(':')[0];
     final hour = int.tryParse(hStr) ?? 6;
     final timeStr = '$hour:${formatted.split(':')[1].split(' ')[0]}';
-    await FeederService.instance.addSchedule(timeStr, isPM ? 'PM' : 'AM', grams: grams);
+    await FeederService.instance.addSchedule(timeStr, isPM ? 'PM' : 'AM', grams: grams, days: days);
     _timeCtl.clear();
   }
 
@@ -436,6 +436,7 @@ class ControlsScreenState extends State<ControlsScreen> {
       enabled: item.enabled,
       grams: item.grams,
       clearGrams: item.grams == null,
+      days: item.days,
     );
   }
 
@@ -487,7 +488,7 @@ class ControlsScreenState extends State<ControlsScreen> {
                       schedules: FeederService.instance.schedules,
                       timeCtl: _timeCtl,
                       onFeedNow: _showFeedNowDialog,
-                      onAddSchedule: (grams) => unawaited(_addSchedule(grams: grams)),
+                      onAddSchedule: (grams, days) => unawaited(_addSchedule(grams: grams, days: days)),
                       onDeleteSchedule: (index) => unawaited(_deleteSchedule(index)),
                       onEditSchedule: (index, item) => unawaited(_editSchedule(index, item)),
                       feederLogs: FeederService.instance.logs,

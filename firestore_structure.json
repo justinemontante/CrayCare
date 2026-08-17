@@ -134,10 +134,9 @@
           "time (HH:MM)",
           "ampm (AM|PM)",
           "timeValue (int minutes since midnight)",
-          "grams (double)",
-          "portion_grams (double)",
-          "feed_time (string)",
-          "is_active (bool)",
+          "grams (double, optional)",
+          "days (string mask \"1111111\" Monday-first)",
+          "enabled (bool)",
           "isDone (bool)",
           "created_at (Timestamp)"
         ]
