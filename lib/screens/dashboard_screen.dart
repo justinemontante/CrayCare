@@ -971,10 +971,18 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     if (hasActive && batch != null) {
       final history = tank.samplingHistory;
-      abw = history.isNotEmpty ? history.last.abw : tank.initialWeight;
-      abl = history.isNotEmpty ? history.last.avgLength : tank.initialLength;
+      // Baseline (initial) measurement is recorded at stocking but is NOT a
+      // weekly sampling. Prefer the latest weekly entry for the displayed
+      // ABW/ABL/Last Sampling so the dashboard doesn't look frozen on Day 0
+      // after setup; fall back to baseline values before any weekly sample.
+      final weekly = history.where((e) => !e.isBaseline).toList();
+      final latest = weekly.isNotEmpty ? weekly.last : null;
+      abw = latest != null ? latest.abw : tank.initialWeight;
+      abl = latest != null ? latest.avgLength : tank.initialLength;
       daysStr = tank.daysInCulture.toString();
-      lastSamplingStr = history.isNotEmpty ? _formatTankDate(history.last.date) : '--';
+      lastSamplingStr = latest != null
+          ? _formatTankDate(latest.date)
+          : (history.isNotEmpty ? 'Baseline (${_formatTankDate(history.first.date)})' : '--');
       showSampling = true;
     } else if (isArchived) {
       abw = batch.finalAbw;
@@ -1086,9 +1094,13 @@ class _DashboardScreenState extends State<DashboardScreen>
     final daysLeft = tank.daysUntilNextSampling;
     final isReady = daysLeft == 0;
 
+    // The next sampling date is always 7 calendar days from the last WEEKLY
+    // sampling (or from the stocking date if none yet). The baseline record
+    // written at setup must NOT shift the anchor by 7 days.
+    final weekly = tank.samplingHistory.where((e) => !e.isBaseline).toList();
     String nextDateStr;
-    if (tank.samplingHistory.isNotEmpty) {
-      final lastSampling = tank.samplingHistory.last.date;
+    if (weekly.isNotEmpty) {
+      final lastSampling = weekly.last.date;
       final nextDate = lastSampling.add(const Duration(days: 7));
       nextDateStr = _formatTankDate(nextDate);
     } else {
@@ -1113,11 +1125,11 @@ class _DashboardScreenState extends State<DashboardScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Text('Ready!', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.success)),
+                    Text('Ready!', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.primary)),
                     const SizedBox(height: 2),
                     FadeTransition(
                       opacity: _pulseAnimation,
-                      child: Text('Tap to record', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: AppColors.success)),
+                      child: Text('Tap to record', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: AppColors.primary)),
                     ),
                   ],
                 ),
