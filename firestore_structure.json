@@ -112,7 +112,7 @@
           "actuator_type (pump|aerator1|aerator2)",
           "action (e.g. 'Switched ON \u2014 Aerator 1 (AUTO) \u2014 ...')",
           "type (on|off|auto)",
-          "logged_at (int epoch-ms)"
+          "logged_at (timestamp)"
         ]
       },
       "feeder/status": {
@@ -149,7 +149,7 @@
           "type (auto|manual)",
           "time",
           "date",
-          "logged_at (int)"
+          "logged_at (timestamp)"
         ]
       },
       "feeder_commands/{commandId}": {

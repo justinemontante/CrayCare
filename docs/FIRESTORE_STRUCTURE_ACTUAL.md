@@ -92,7 +92,7 @@ Device IDs: **`pump`** · **`aerator1`** · **`aerator2`**
 | actuator_type | string (`pump`\|`aerator1`\|`aerator2`) |
 | action | string — e.g. `Switched ON — Aerator 1 (AUTO) — ...` |
 | type | string (`on`\|`off`\|`auto`) |
-| logged_at | int epoch-ms |
+| logged_at | timestamp |
 
 > **ESP32 lumilikha** kapag may relay transition. App nagbabasa. May composite index na (`actuator_type + logged_at DESC`).
 
