@@ -396,6 +396,28 @@ class FeederService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Quick ON/OFF toggle for a schedule (alarm-clock style). Toggles the
+  /// `enabled` flag without opening the edit modal.
+  Future<void> toggleSchedule(int index, bool enabled) async {
+    if (index < 0 || index >= _scheduleKeys.length) return;
+    final tankDoc = _tankDoc();
+    if (tankDoc == null) return;
+    final timeStr = getScheduleTime(index);
+    try {
+      await tankDoc
+          .collection('feeder_schedules')
+          .doc(_scheduleKeys[index])
+          .update({'enabled': enabled, 'isDone': false});
+      await _addLogEntry(
+        action: enabled ? 'Schedule enabled: $timeStr' : 'Schedule disabled: $timeStr',
+        type: 'auto',
+      );
+    } catch (e) {
+      debugPrint('[FeederService] toggleSchedule error: $e');
+    }
+    notifyListeners();
+  }
+
   Future<void> editSchedule(int index, {
     required String time,
     required String ampm,

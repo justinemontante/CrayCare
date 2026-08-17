@@ -491,6 +491,8 @@ class ControlsScreenState extends State<ControlsScreen> {
                       onAddSchedule: (grams, days) => unawaited(_addSchedule(grams: grams, days: days)),
                       onDeleteSchedule: (index) => unawaited(_deleteSchedule(index)),
                       onEditSchedule: (index, item) => unawaited(_editSchedule(index, item)),
+                      onToggleSchedule: (index, enabled) =>
+                          unawaited(FeederService.instance.toggleSchedule(index, enabled)),
                       feederLogs: FeederService.instance.logs,
                       fedToday: _fedToday,
                       feederError: FeederService.instance.feederError,

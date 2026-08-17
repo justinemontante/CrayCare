@@ -11,6 +11,7 @@ class FeederTab extends StatelessWidget {
   final void Function(double? grams, String days) onAddSchedule;
   final void Function(int index) onDeleteSchedule;
   final void Function(int index, ScheduleItem item) onEditSchedule;
+  final void Function(int index, bool enabled) onToggleSchedule;
   final List<LogEntry> feederLogs;
   final Set<String> fedToday;
   final String feederError;
@@ -28,6 +29,7 @@ class FeederTab extends StatelessWidget {
     required this.onAddSchedule,
     required this.onDeleteSchedule,
     required this.onEditSchedule,
+    required this.onToggleSchedule,
     required this.feederLogs,
     this.fedToday = const {},
     this.feederError = '',
@@ -713,6 +715,14 @@ class FeederTab extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 6),
+          Transform.scale(
+            scale: 0.7,
+            child: Switch(
+              value: s.enabled,
+              activeTrackColor: AppColors.primary,
+              onChanged: (val) => onToggleSchedule(index, val),
+            ),
+          ),
           GestureDetector(
             onTap: () => _showScheduleInfo(ctx, s),
             child: Icon(Icons.info_outline, size: 14, color: AppColors.primaryWith(0.7)),
