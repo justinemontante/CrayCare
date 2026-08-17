@@ -160,6 +160,13 @@ tanks/{tank_id}/batches/{batch_id}
   created_at: Timestamp
 
   sampling_records/{sampling_id}
+    # One document with reserved id "baseline" is written at grow-out
+    # initialization (is_baseline=true). It records the Day 0 initial
+    # measurement and is EXCLUDED from the weekly sampling cadence.
+    # Weekly samples use auto-ids and have is_baseline=false; the first
+    # weekly sample is due 7 calendar days after stocking_date, then every
+    # 7 days after the previous weekly record. Days in Culture is
+    # date-based, not a 24-hour rolling counter.
     sampling_date: epoch milliseconds
     avg_body_weight: number
     avg_body_length: number
