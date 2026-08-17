@@ -484,11 +484,12 @@ class FeederService extends ChangeNotifier {
           : '${s.time}_${s.ampm}';
       if (_missedLogged.contains(key)) continue;
 
-      int h = int.parse(s.time.split(':')[0]);
-      final m = int.parse(s.time.split(':')[1]);
-      if (s.ampm == 'PM' && h != 12) h += 12;
-      if (s.ampm == 'AM' && h == 12) h = 0;
-      final scheduleDt = DateTime(now.year, now.month, now.day, h, m);
+      final h = int.tryParse(s.time.split(':').first) ?? 6;
+      final m = int.tryParse(s.time.split(':').skip(1).firstOrNull ?? '') ?? 0;
+      var hour24 = h;
+      if (s.ampm == 'PM' && h != 12) hour24 = h + 12;
+      if (s.ampm == 'AM' && h == 12) hour24 = 0;
+      final scheduleDt = DateTime(now.year, now.month, now.day, hour24, m);
       final months = [
         'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
         'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
