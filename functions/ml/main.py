@@ -106,13 +106,6 @@ def _fetch_sensor_history(tank_id: str, hours: int = 24):
                 recorded_at = data.get("recorded_at")
                 if not recorded_at:
                     continue
-                # The ML feature pipeline uses these aggregate-style field names.
-                # The ESP now writes 10-min window aggregates (min/max/avg), so
-                # volatility/trend features get a REAL signal. Fall back to the
-                # snapshot value for legacy entries where min/max/avg are absent.
-                # Never convert a missing sensor into numeric zero: zero is a
-                # real, often critical, measurement (especially for DO). A WQC
-                # sample is usable only when all five required sensors exist.
                 temp = data.get("temp_avg", data.get("temperature"))
                 ph = data.get("pH_avg", data.get("ph_level"))
                 do = data.get("DO_avg", data.get("dissolved_oxygen"))
@@ -175,19 +168,14 @@ def _analyze_tank(tank_id: str) -> None:
         if owner_uid:
             result["uid"] = owner_uid
 
-    # Numeric epoch (seconds) so the app can order assessment history
-    # reliably; the ISO timestamp string stays for human display.
     result["ts_epoch"] = int(datetime.now(timezone.utc).timestamp())
 
-    (db.collection("tanks").document(tank_id)
-       .collection("ml_predictions").document("current").set(result))
+    assessments = (db.collection("tanks").document(tank_id)
+                   .collection("machine_learning_assessments"))
+    assessments.document("current").set(result)
 
-    # Keep a running history (one doc per hourly assessment) so the app can
-    # show WQC trends over time and export them as a report. The doc id is the
-    # UTC timestamp in a lexicographically-sortable form.
     hist_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-    (db.collection("tanks").document(tank_id)
-       .collection("ml_predictions").document(hist_id).set(result))
+    assessments.document(hist_id).set(result)
     print(f"[WQC] Tank {tank_id}: {result['level']} (confidence={result['confidence']}%, driver={result['driver']})")
 
 
@@ -206,4 +194,3 @@ def run_hourly_wqc(event) -> None:
         print("[WQC] No hardware owner/tank assigned; hourly analysis skipped.")
         return
     _analyze_tank(tank_id)
-
