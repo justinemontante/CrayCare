@@ -1,10 +1,8 @@
 name: Patch admin stat cards
 
 on:
-  push:
+  pull_request:
     branches: [main]
-    paths:
-      - '.github/workflows/patch-admin-stat-cards.yml'
 
 permissions:
   contents: write
@@ -15,16 +13,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.head_ref }}
           fetch-depth: 0
       - name: Update Admin stat cards
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import re
 
           path = Path('lib/screens/admin_screen.dart')
           text = path.read_text()
-
           start = text.index('  Widget _buildStatsBar() {')
           end = text.index('  Widget _buildUserCard(', start)
 
@@ -158,9 +155,7 @@ jobs:
   }
 
 '''
-
-          text = text[:start] + replacement + text[end:]
-          path.write_text(text)
+          path.write_text(text[:start] + replacement + text[end:])
           PY
       - name: Commit patch
         run: |
@@ -169,4 +164,4 @@ jobs:
           git add lib/screens/admin_screen.dart
           git diff --cached --quiet && exit 0
           git commit -m "Match admin stat cards to tank overview style"
-          git push origin main
+          git push origin HEAD:${{ github.head_ref }}
