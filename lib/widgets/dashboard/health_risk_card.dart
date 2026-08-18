@@ -14,7 +14,16 @@ class HealthRiskCard extends StatelessWidget {
       builder: (context, _) {
         final hr = HealthRiskService.instance;
         final result = hr.result;
-        final hasData = result != null && result.hasData;
+        final hasData = result?.hasData ?? false;
+        final level = result?.level ?? 'Insufficient';
+        final confidence = result?.confidence ?? 0;
+        final driver = result?.driver ?? 'N/A';
+        final driverLabel = result?.driverLabel ?? '';
+        final problem = result?.problem ?? '';
+        final insight = result?.insight ?? '';
+        final action = result?.action ?? '';
+        final riskColor = result?.color ?? AppColors.mutedText;
+        final lightColor = result?.lightColor ?? const Color(0xFFF8FAFC);
 
         return Container(
           margin: const EdgeInsets.symmetric(horizontal: 14),
@@ -24,7 +33,7 @@ class HealthRiskCard extends StatelessWidget {
             boxShadow: [
               BoxShadow(
                 color: hasData
-                    ? result.color.withValues(alpha: 0.15)
+                    ? riskColor.withValues(alpha: 0.15)
                     : Colors.black.withValues(alpha: 0.05),
                 blurRadius: 12,
                 offset: const Offset(0, 3),
@@ -39,8 +48,8 @@ class HealthRiskCard extends StatelessWidget {
                 end: Alignment.bottomRight,
                 colors: hasData
                     ? [
-                        result.lightColor,
-                        result.lightColor.withValues(alpha: 0.5),
+                        lightColor,
+                        lightColor.withValues(alpha: 0.5),
                         Colors.white,
                       ]
                     : const [
@@ -59,16 +68,16 @@ class HealthRiskCard extends StatelessWidget {
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
                         color: hasData
-                            ? result.color.withValues(alpha: 0.15)
+                            ? riskColor.withValues(alpha: 0.15)
                             : AppColors.darkWith(0.06),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Icon(
                         hasData
-                            ? _iconForLevel(result.level)
+                            ? _iconForLevel(level)
                             : Icons.health_and_safety_outlined,
                         size: 20,
-                        color: hasData ? result.color : AppColors.mutedText,
+                        color: hasData ? riskColor : AppColors.mutedText,
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -102,11 +111,11 @@ class HealthRiskCard extends StatelessWidget {
                           vertical: 4,
                         ),
                         decoration: BoxDecoration(
-                          color: result.color,
+                          color: riskColor,
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
-                          result.level,
+                          level,
                           style: const TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w700,
@@ -143,16 +152,16 @@ class HealthRiskCard extends StatelessWidget {
                       Expanded(
                         child: _summaryTile(
                           label: 'Risk Level',
-                          value: result.level,
-                          color: result.color,
-                          icon: _iconForLevel(result.level),
+                          value: level,
+                          color: riskColor,
+                          icon: _iconForLevel(level),
                         ),
                       ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: _summaryTile(
                           label: 'Confidence',
-                          value: '${result.confidence}%',
+                          value: '$confidence%',
                           color: AppColors.primary,
                           icon: Icons.analytics_outlined,
                         ),
@@ -174,35 +183,33 @@ class HealthRiskCard extends StatelessWidget {
                         _detailRow(
                           icon: Icons.monitor_heart_outlined,
                           label: 'Primary concern',
-                          text: result.driverLabel.isNotEmpty
-                              ? result.driverLabel
-                              : result.driver,
-                          color: result.color,
+                          text: driverLabel.isNotEmpty ? driverLabel : driver,
+                          color: riskColor,
                         ),
-                        if (result.problem.trim().isNotEmpty) ...[
+                        if (problem.trim().isNotEmpty) ...[
                           const SizedBox(height: 10),
                           _detailRow(
                             icon: Icons.warning_amber_rounded,
                             label: 'Problem',
-                            text: result.problem,
+                            text: problem,
                             color: AppColors.warning,
                           ),
                         ],
-                        if (result.insight.trim().isNotEmpty) ...[
+                        if (insight.trim().isNotEmpty) ...[
                           const SizedBox(height: 10),
                           _detailRow(
                             icon: Icons.lightbulb_outline_rounded,
                             label: 'Insight',
-                            text: result.insight,
+                            text: insight,
                             color: AppColors.primary,
                           ),
                         ],
-                        if (result.action.trim().isNotEmpty) ...[
+                        if (action.trim().isNotEmpty) ...[
                           const SizedBox(height: 10),
                           _detailRow(
                             icon: Icons.task_alt_rounded,
                             label: 'Recommended action',
-                            text: result.action,
+                            text: action,
                             color: AppColors.success,
                           ),
                         ],
