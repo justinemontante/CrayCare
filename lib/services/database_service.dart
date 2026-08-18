@@ -312,10 +312,26 @@ class DatabaseService {
   // Reassigning is instant; the previous owner's tank data is preserved.
 
   /// Returns the UID of the currently assigned hardware owner, or null.
+  /// Legacy/currentOwner documents that only have tank_id are resolved back
+  /// to the matching owner profile so the Admin UI does not show unassigned.
   Future<String?> getCurrentOwnerUid() async {
     final doc = await _db.collection('hardware_system').doc('currentOwner').get();
     if (!doc.exists || doc.data() == null) return null;
-    return doc.data()!['uid'] as String?;
+
+    final data = doc.data()!;
+    final uid = data['uid'] as String?;
+    if (uid != null && uid.isNotEmpty) return uid;
+
+    final tankId = data['tank_id'] as String?;
+    if (tankId == null || tankId.isEmpty) return null;
+
+    final users = await _db
+        .collection('users')
+        .where('tank_id', isEqualTo: tankId)
+        .limit(1)
+        .get();
+    if (users.docs.isEmpty) return null;
+    return users.docs.first.id;
   }
 
   /// Returns the tank_id currently receiving hardware data, or null.
@@ -326,8 +342,24 @@ class DatabaseService {
   }
 
   /// Real-time stream of the hardware assignment doc.
+  /// If a legacy assignment contains tank_id but no uid, suppress that
+  /// intermediate snapshot so the Admin screen keeps the owner resolved by
+  /// getCurrentOwnerUid() instead of immediately replacing it with null.
+  /// A real unassign (both uid and tank_id null) still passes through.
   Stream<DocumentSnapshot<Map<String, dynamic>>> streamCurrentOwner() =>
-      _db.collection('hardware_system').doc('currentOwner').snapshots();
+      _db
+          .collection('hardware_system')
+          .doc('currentOwner')
+          .snapshots()
+          .where((doc) {
+        final data = doc.data();
+        if (data == null) return true;
+        final uid = data['uid'] as String?;
+        final tankId = data['tank_id'] as String?;
+        final hasUid = uid != null && uid.isNotEmpty;
+        final hasTank = tankId != null && tankId.isNotEmpty;
+        return hasUid || !hasTank;
+      });
 
   /// Assigns the hardware to [ownerUid]. Fetches the user's tank_id first,
   /// then writes BOTH uid and tank_id to hardware_system/currentOwner.
