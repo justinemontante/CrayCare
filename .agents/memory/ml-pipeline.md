@@ -26,11 +26,11 @@ ESP32
 - `level`: Low | Moderate | High | Critical | Insufficient
 - `confidence`: 0–100
 - `driver`, `driver_label`, `driver_value`, `driver_unit`, `driver_min`, `driver_max`
-- `problem`, `insight`, `action`, `source`, `analysis_mode`
-- `samples_analyzed`, `required_samples`, `timestamp`, `tank_id`, optional `uid`
+- `problem`, `insight`, `action`
+- `ts_epoch`, `timestamp`, `tank_id`, optional `uid`
 - No public numeric risk score.
 
-Incomplete records are skipped; missing sensors must never be converted to zero.
+The pipeline still requires at least six complete 10-minute records internally before producing a full assessment. Incomplete records are skipped; missing sensors must never be converted to zero.
 
 ## Model
 
