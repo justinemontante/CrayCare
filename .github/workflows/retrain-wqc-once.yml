@@ -1,0 +1,58 @@
+name: Retrain WQC Model Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/retrain-wqc-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install ML dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r functions/ml/requirements.txt
+
+      - name: Regenerate synthetic training dataset
+        run: python functions/ml/generate_dataset.py
+
+      - name: Retrain WQC classifier
+        run: python functions/ml/train_model.py
+
+      - name: Verify regenerated model bundle
+        run: |
+          python - <<'PY'
+          import joblib, hashlib
+          path = 'functions/ml/wqc_model.joblib'
+          bundle = joblib.load(path)
+          assert bundle.get('type') == 'classifier'
+          assert len(bundle.get('features', [])) == 45
+          assert bundle.get('class_names') == ['Low', 'Moderate', 'High', 'Critical']
+          print('SHA256:', hashlib.sha256(open(path,'rb').read()).hexdigest())
+          print('Verified classifier bundle with 45 features and 4 classes.')
+          PY
+
+      - name: Commit refreshed model and remove one-time workflow
+        run: |
+          git config user.name "Justine Montante"
+          git config user.email "justinemontante04@gmail.com"
+          git add functions/ml/wqc_model.joblib
+          git checkout -- functions/ml/sensor_dataset.csv || true
+          git rm .github/workflows/retrain-wqc-once.yml
+          git commit -m "Regenerate WQC model for current assessment pipeline"
+          git push origin main
