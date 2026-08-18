@@ -1,9 +1,13 @@
 """Post-ML interpretation for CrayCare water-quality assessments.
 
-The ML model owns the overall Low/Moderate/High/Critical classification.
+The ML model produces the overall Low/Moderate/High/Critical classification.
 This module explains that classification using the most recent one-hour sensor
 window. It identifies a primary concern, secondary concerns, and conditions
 that have returned to range but were abnormal during the recent window.
+
+A small safety floor is applied after ML classification: an independently
+critical current sensor condition can never be displayed below Critical, and a
+currently abnormal condition can never be displayed as Low.
 """
 
 from features import (
@@ -49,8 +53,6 @@ def _sensor_state(sensor, row):
         return value, "NTU", 0.0, TURB_GOOD_MAX, bad, critical, severity
     value = float(row["waterLevel_avg"]); lo = float(row["waterLevel_min"]); hi = float(row["waterLevel_max"])
     bad = lo < WATER_MIN_CM or hi > WATER_MAX_CM
-    # No independent biological critical boundary is defined for water depth;
-    # treat a very large departure (> one operating-range width) as critical.
     width = max(WATER_MAX_CM - WATER_MIN_CM, 1.0)
     deviation = max(max(0.0, WATER_MIN_CM - lo), max(0.0, hi - WATER_MAX_CM))
     critical = deviation >= width
@@ -89,7 +91,6 @@ def enrich_assessment(result, df, recs):
         recent_ratio = bad_count / max(len(recent), 1)
         recovering = (not latest_bad) and bad_count > 0
 
-        # Require either a present deviation or meaningful recent persistence.
         if not latest_bad and recent_ratio < 0.5:
             continue
 
@@ -132,6 +133,12 @@ def enrich_assessment(result, df, recs):
         result["concerns"] = []
         result["secondary_concerns"] = []
         return result
+
+    # Safety floor: never understate an immediate critical/current abnormality.
+    if any(c["status"] == "critical" for c in concerns):
+        result["level"] = "Critical"
+    elif result.get("level") == "Low" and any(c["status"] == "active" for c in concerns):
+        result["level"] = "Moderate"
 
     primary = concerns[0]
     result["driver"] = primary["sensor"]
