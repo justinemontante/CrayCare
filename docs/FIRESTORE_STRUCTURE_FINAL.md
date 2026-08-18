@@ -78,7 +78,7 @@ tanks/{tank_id}
     ph_level: number
     dissolved_oxygen: number
     turbidity: number
-    water_level: number  # centimetres
+    water_level: number
     turbidity_air: boolean
     recorded_at: Timestamp
 
@@ -118,7 +118,7 @@ tanks/{tank_id}
     ampm: string
     timeValue: number
     grams: number | null
-    days: string          // "1111111" Sunday-first mask
+    days: string
     enabled: boolean
     isDone: boolean
     created_at: Timestamp
@@ -160,13 +160,6 @@ tanks/{tank_id}/batches/{batch_id}
   created_at: Timestamp
 
   sampling_records/{sampling_id}
-    # One document with reserved id "baseline" is written at grow-out
-    # initialization (is_baseline=true). It records the Day 0 initial
-    # measurement and is EXCLUDED from the weekly sampling cadence.
-    # Weekly samples use auto-ids and have is_baseline=false; the first
-    # weekly sample is due 7 calendar days after stocking_date, then every
-    # 7 days after the previous weekly record. Days in Culture is
-    # date-based, not a 24-hour rolling counter.
     sampling_date: epoch milliseconds
     avg_body_weight: number
     avg_body_length: number
@@ -191,7 +184,7 @@ tanks/{tank_id}/batches/{batch_id}
     abw_grams: number
     created_at: Timestamp
 
-  ml_predictions/current
+  machine_learning_assessments/current
     level: "Low" | "Moderate" | "High" | "Critical" | "Insufficient"
     confidence: number
     driver, driver_label, driver_value, driver_unit
