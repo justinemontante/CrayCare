@@ -2,37 +2,31 @@
   "overall": {
     "problem": "All monitored water parameters are within their current operating ranges.",
     "action": "Maintain the current feeding, aeration, and water-management routine. Continue monitoring sensor trends.",
-    "critical_action": "Verify the latest readings and sensor operation before taking corrective action.",
-    "source": "CrayCare water-quality monitoring protocol"
+    "critical_action": "Verify the latest readings and sensor operation before taking corrective action."
   },
   "DO": {
     "problem": "Low dissolved oxygen",
     "action": "Increase aeration (paddle wheels or air stones). Reduce feeding by 50% until DO recovers — decomposing feed depletes oxygen further. Target ≥5.0 mg/L per DENR DAO 2016-08 Class C and DA-BFAR freshwater aquaculture standards.",
-    "critical_action": "CRITICAL — Hypoxia risk: Activate emergency aeration immediately. Halt all feeding — organic load worsens depletion. Perform 30–50% water exchange with oxygenated source water. DENR DAO 2016-08 Class C mandates ≥5 mg/L; values below 2 mg/L cause acute crayfish mortality (Holdich 2002; Boyd & Tucker 1998).",
-    "source": "DENR DAO 2016-08 (Class C: ≥5 mg/L); DA-BFAR Freshwater Aquaculture Standards; Boyd & Tucker (1998) Pond Aquaculture Water Quality Management; Holdich (2002) Biology of Freshwater Crayfish"
+    "critical_action": "CRITICAL — Hypoxia risk: Activate emergency aeration immediately. Halt all feeding — organic load worsens depletion. Perform 30–50% water exchange with oxygenated source water. DENR DAO 2016-08 Class C mandates ≥5 mg/L; values below 2 mg/L cause acute crayfish mortality (Holdich 2002; Boyd & Tucker 1998)."
   },
   "pH": {
     "problem": "pH outside safe range",
     "action": "If low (acidic): add agricultural lime (CaCO₃) or sodium bicarbonate in small doses — max 10 kg/ha·day — to raise pH gradually; avoid rapid shifts. If high (alkaline): perform 20–30% partial water exchange; check for algae bloom. DENR DAO 2016-08 Class C: 6.5–8.5; DA-BFAR freshwater: 6.5–9.0; FAO crayfish optimal: 7.0–8.0.",
-    "critical_action": "CRITICAL — pH shock risk: Perform immediate 30–40% water exchange. Do NOT add large chemical doses — rapid swings cause as much harm as the deviation. pH below 5.5 or above 9.5 causes acute crayfish injury within hours. DENR DAO 2016-08 Class C: 6.5–8.5. Test and treat source water before adding (Holdich 2002; Boyd & Tucker 1998; FAO TP-458).",
-    "source": "DENR DAO 2016-08 (Class C: 6.5–8.5); DA-BFAR (6.5–9.0); FAO Fisheries Technical Paper 458 (Schmittou et al., 2001); Holdich (2002) Biology of Freshwater Crayfish; Boyd & Tucker (1998)"
+    "critical_action": "CRITICAL — pH shock risk: Perform immediate 30–40% water exchange. Do NOT add large chemical doses — rapid swings cause as much harm as the deviation. pH below 5.5 or above 9.5 causes acute crayfish injury within hours. DENR DAO 2016-08 Class C: 6.5–8.5. Test and treat source water before adding (Holdich 2002; Boyd & Tucker 1998; FAO TP-458)."
   },
   "temp": {
     "problem": "Water temperature out of safe range",
     "action": "High temp: add 50–70% shade netting, increase water exchange with cooler source water, boost aeration (warm water holds less oxygen), reduce feeding. Low temp: cover tanks to retain heat, increase feeding frequency with smaller portions — cold water slows metabolism. DA-BFAR: 20–30°C; FAO/Holdich crayfish optimal: 24–28°C.",
-    "critical_action": "CRITICAL — Thermal stress: Restore temperature immediately. High: maximum water exchange + shade + emergency aeration. Low: insulate + supplemental heating. DA-BFAR: 20–30°C. Below 15°C crayfish enter torpor; above 35°C causes rapid mortality. Monitor DO closely — thermal stress and hypoxia often co-occur (Holdich 2002; Boyd & Tucker 1998; FAO TP-458).",
-    "source": "DA-BFAR Philippine Freshwater Aquaculture Standards (20–30°C); FAO Fisheries Technical Paper 458; Holdich (2002) Biology of Freshwater Crayfish; Boyd & Tucker (1998)"
+    "critical_action": "CRITICAL — Thermal stress: Restore temperature immediately. High: maximum water exchange + shade + emergency aeration. Low: insulate + supplemental heating. DA-BFAR: 20–30°C. Below 15°C crayfish enter torpor; above 35°C causes rapid mortality. Monitor DO closely — thermal stress and hypoxia often co-occur (Holdich 2002; Boyd & Tucker 1998; FAO TP-458)."
   },
   "turbidity": {
     "problem": "High turbidity (suspended solids / waste buildup)",
     "action": "Reduce daily feed by 30% and remove uneaten feed within 2 hours. Perform a 20–30% partial water change. Check biofilter and aeration performance. DENR DAO 2016-08 Class C limit is 50 NTU; FAO recommends <25 NTU for productive aquaculture ponds (FAO TP-458).",
-    "critical_action": "CRITICAL — Severe turbidity: Perform 40–60% emergency water exchange immediately. Suspend all feeding for 24–48 hours. Clean filters and check aeration system. High turbidity blocks surface oxygen exchange, increases biological oxygen demand, and causes gill irritation. DENR DAO 2016-08 Class C: ≤50 NTU; values above 100 NTU indicate severe organic overload (Boyd & Tucker 1998; FAO TP-458).",
-    "source": "DENR DAO 2016-08 (Class C: ≤50 NTU); FAO Fisheries Technical Paper 458 — optimal pond turbidity <25 NTU; Boyd & Tucker (1998) Pond Aquaculture Water Quality Management"
+    "critical_action": "CRITICAL — Severe turbidity: Perform 40–60% emergency water exchange immediately. Suspend all feeding for 24–48 hours. Clean filters and check aeration system. High turbidity blocks surface oxygen exchange, increases biological oxygen demand, and causes gill irritation. DENR DAO 2016-08 Class C: ≤50 NTU; values above 100 NTU indicate severe organic overload (Boyd & Tucker 1998; FAO TP-458)."
   },
   "waterLevel": {
     "problem": "Abnormal water level",
     "action": "Low: top up with clean, conditioned source water — low level concentrates waste, amplifies stocking stress, and increases territorial aggression in crayfish. High: open drain valves gradually to bring level into range — overflow risk introduces pathogens. Maintain stable depth per FAO/Boyd guidelines.",
-    "critical_action": "CRITICAL — Water level emergency: Act immediately. Extremely low level risks gill exposure and mass mortality; extremely high risks overflow and complete stock loss. Restore normal operating level as fast as safely possible. Check pump and inlet before adding water. FAO TP-458 and Boyd & Tucker (1998) both identify stable water depth as a fundamental crayfish welfare requirement.",
-    "source": "FAO Fisheries Technical Paper 458 (Schmittou et al., 2001); Boyd & Tucker (1998) Pond Aquaculture Water Quality Management; DA-BFAR Tank Management Guidelines"
+    "critical_action": "CRITICAL — Water level emergency: Act immediately. Extremely low level risks gill exposure and mass mortality; extremely high risks overflow and complete stock loss. Restore normal operating level as fast as safely possible. Check pump and inlet before adding water. FAO TP-458 and Boyd & Tucker (1998) both identify stable water depth as a fundamental crayfish welfare requirement."
   }
 }
