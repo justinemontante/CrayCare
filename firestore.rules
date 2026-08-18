@@ -15,9 +15,6 @@ service cloud.firestore {
         myProfile().tank_id == tankId &&
         myProfile().get('status', 'active') == 'active';
     }
-    // Legacy profiles may be missing role/status. Permit a one-time safe
-    // backfill to owner/active, but never let a disabled account reactivate
-    // itself or let an owner promote itself to admin.
     function canBackfillLegacyProfile(uid) {
       return isSignedIn() && request.auth.uid == uid &&
         request.resource.data.diff(resource.data).affectedKeys()
@@ -27,9 +24,6 @@ service cloud.firestore {
         request.resource.data.status == resource.data.get('status', 'active') &&
         request.resource.data.status == 'active';
     }
-    // One-time self-provisioning for legacy owner profiles that do not yet
-    // have a usable tank_id (missing OR empty string). A user can claim only
-    // a tank matching their own UID, and only the tank_id key may change.
     function canClaimInitialTank(uid) {
       return isSignedIn() && request.auth.uid == uid &&
         (resource.data.get('tank_id', null) == null || resource.data.tank_id == '') &&
@@ -40,32 +34,17 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == tankId &&
         request.resource.data.owner_uid == request.auth.uid;
     }
-    // Safety guard: owners may only set sensor thresholds inside a safe,
-    // physically sensible window per sensor. Absurd values (e.g. temp max
-    // 45°C, DO min 0, pH 0-14) would silently disable alerts and endanger
-    // the crayfish. Admins are trusted and may write any value.
-    // NOTE: Rules language is expression-only (no if statements) — this is
-    // written with let-bindings and boolean logic.
     function isSafeThreshold(sensorName) {
       let min = request.resource.data.min_value;
       let max = request.resource.data.max_value;
       let validNumbers = (min is number) && (max is number) && (min < max);
-      let tempOk = sensorName == 'temperature' &&
-        min >= 10.0 && min <= 32.0 && max >= 15.0 && max <= 38.0;
-      let phOk = sensorName == 'ph_level' &&
-        min >= 4.0 && min <= 7.5 && max >= 6.5 && max <= 10.0;
-      let doOk = sensorName == 'dissolved_oxygen' &&
-        min >= 1.0 && min <= 8.0 && max >= 3.0 && max <= 15.0;
-      let turbOk = sensorName == 'turbidity' &&
-        min >= 0.0 && min <= 100.0 && max >= 5.0 && max <= 1000.0;
-      let waterOk = sensorName == 'water_level' &&
-        min >= 0.0 && min <= 95.0 && max >= 5.0 && max <= 100.0;
+      let tempOk = sensorName == 'temperature' && min >= 10.0 && min <= 32.0 && max >= 15.0 && max <= 38.0;
+      let phOk = sensorName == 'ph_level' && min >= 4.0 && min <= 7.5 && max >= 6.5 && max <= 10.0;
+      let doOk = sensorName == 'dissolved_oxygen' && min >= 1.0 && min <= 8.0 && max >= 3.0 && max <= 15.0;
+      let turbOk = sensorName == 'turbidity' && min >= 0.0 && min <= 100.0 && max >= 5.0 && max <= 1000.0;
+      let waterOk = sensorName == 'water_level' && min >= 0.0 && min <= 95.0 && max >= 5.0 && max <= 100.0;
       return validNumbers && (tempOk || phOk || doOk || turbOk || waterOk);
     }
-    // The production ESP authenticates anonymously; normal owner/admin accounts
-    // use non-anonymous providers. This prevents every signed-in app user from
-    // inheriting device privileges. A custom device claim or HTTPS ingestion
-    // endpoint is still recommended before a public production rollout.
     function isEspSession() {
       return isSignedIn() &&
         request.auth.token.firebase.sign_in_provider == 'anonymous';
@@ -83,18 +62,12 @@ service cloud.firestore {
     match /users/{uid} {
       allow get: if isSignedIn() && (request.auth.uid == uid || isAdmin());
       allow list: if isAdmin();
-
-      // New self-registration can create an owner profile only. Admin-created
-      // profiles are handled by the admin branch below.
       allow create: if isAdmin() || (
         isSignedIn() && request.auth.uid == uid &&
         request.resource.data.role == 'owner' &&
         request.resource.data.status == 'active' &&
         request.resource.data.tank_id == request.auth.uid
       );
-
-      // Users may update presentation/token fields only. Role, status, and
-      // tank_id are protected because they control authorization.
       allow update: if isAdmin() || canClaimInitialTank(uid) ||
         canBackfillLegacyProfile(uid) || (
           isSignedIn() && request.auth.uid == uid &&
@@ -111,7 +84,6 @@ service cloud.firestore {
       }
     }
 
-    // Single ESP assignment. Only admins may link/reassign hardware.
     match /hardware_system/{doc} {
       allow read: if isAdmin() || isEspSession();
       allow write, delete: if isAdmin();
@@ -125,30 +97,20 @@ service cloud.firestore {
 
       match /sensor_readings/{doc} {
         allow read: if isTankOwner(tankId);
-        // Canonical readings are written only by Admin SDK routing functions.
         allow create, update, delete: if false;
       }
       match /sensor_readings_history/{dateStr}/entries/{entryId} {
         allow read: if isTankOwner(tankId);
         allow create, update, delete: if false;
       }
-
-      // The ESP must read the current assigned tank's thresholds. Thresholds
-      // contain no private personal data; writes remain owner/admin only.
-      // Owners are restricted to SAFE values (see isSafeThreshold) so they
-      // cannot disable alerts by setting absurd thresholds.
       match /sensors/{sensorName} {
         allow read: if isTankOwner(tankId) || isAssignedEsp(tankId);
-        // Admin may create missing seed docs during hardware assignment, but
-        // cannot read or modify an owner's operational thresholds afterward.
         allow create: if isAdmin() || (isTankOwner(tankId) && isSafeThreshold(sensorName));
         allow update: if isTankOwner(tankId) && isSafeThreshold(sensorName);
         allow delete: if false;
       }
       match /actuators/{actuatorId} {
         allow read: if isTankOwner(tankId) || isAssignedEsp(tankId);
-        // Admin may seed a missing device doc only. Owner requests a mode;
-        // assigned ESP reports the actual physical state.
         allow create: if isTankOwner(tankId) || isAdmin();
         allow update: if ownerChangesOnlyControlMode(tankId) ||
           (isAssignedEsp(tankId) && request.resource.data.diff(resource.data)
@@ -168,9 +130,6 @@ service cloud.firestore {
       }
       match /feeder_schedules/{scheduleId} {
         allow read: if isTankOwner(tankId) || isAssignedEsp(tankId);
-        // Owners fully own schedule CRUD. The ESP may only flip `isDone` to
-        // true after a scheduled feed physically completes (the Flutter app
-        // resets it at the next Manila day rollover).
         allow create, delete: if isTankOwner(tankId);
         allow update: if isTankOwner(tankId) ||
           (isAssignedEsp(tankId) &&
@@ -191,17 +150,13 @@ service cloud.firestore {
         allow read, write: if isTankOwner(tankId);
       }
 
-      // ML output for this tank.
-      match /ml_predictions/{docId} {
+      match /machine_learning_assessments/{docId} {
         allow read: if isTankOwner(tankId);
-        // Written by the Admin SDK ML function; never directly by an app/ESP.
         allow create, update, delete: if false;
       }
 
-      // Production records are private to the active tank owner.
       match /batches/{batchId} {
         allow read, write: if isTankOwner(tankId);
-
         match /sampling_records/{docId} {
           allow read, write: if isTankOwner(tankId);
         }
@@ -213,6 +168,7 @@ service cloud.firestore {
         }
       }
     }
+
     match /notifications/{docId} {
       allow read: if isSignedIn() && resource.data.uid == request.auth.uid;
       allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
@@ -223,7 +179,6 @@ service cloud.firestore {
       allow delete: if isSignedIn() && resource.data.uid == request.auth.uid;
     }
 
-    // ESP staging paths. Cloud Functions route these into the assigned tank.
     match /sensorIngestion/current {
       allow create, update: if isEspSession();
       allow read, delete: if isAdmin();
