@@ -12,6 +12,7 @@ class HealthRiskCard extends StatelessWidget {
       listenable: HealthRiskService.instance,
       builder: (context, _) {
         final hr = HealthRiskService.instance;
+        final result = hr.result;
 
         return Container(
           margin: const EdgeInsets.fromLTRB(14, 0, 14, 0),
@@ -21,7 +22,7 @@ class HealthRiskCard extends StatelessWidget {
             boxShadow: [
               BoxShadow(
                 color: hr.hasData
-                    ? hr.result!.color.withValues(alpha: 0.15)
+                    ? result!.color.withValues(alpha: 0.15)
                     : Colors.black.withValues(alpha: 0.05),
                 blurRadius: 12,
                 offset: const Offset(0, 3),
@@ -36,13 +37,13 @@ class HealthRiskCard extends StatelessWidget {
                 end: Alignment.bottomRight,
                 colors: hr.hasData
                     ? [
-                        hr.result!.lightColor,
-                        hr.result!.lightColor.withValues(alpha: 0.5),
+                        result!.lightColor,
+                        result.lightColor.withValues(alpha: 0.5),
                         Colors.white,
                       ]
-                    : [
-                        const Color(0xFFF8FAFC),
-                        const Color(0xFFF1F5F9),
+                    : const [
+                        Color(0xFFF8FAFC),
+                        Color(0xFFF1F5F9),
                         Colors.white,
                       ],
               ),
@@ -56,32 +57,56 @@ class HealthRiskCard extends StatelessWidget {
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
                         color: hr.hasData
-                            ? hr.result!.color.withValues(alpha: 0.15)
+                            ? result!.color.withValues(alpha: 0.15)
                             : AppColors.darkWith(0.06),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Icon(
                         hr.hasData
-                            ? _iconForLevel(hr.result!.level)
+                            ? _iconForLevel(result!.level)
                             : Icons.health_and_safety_outlined,
                         size: 20,
                         color: hr.hasData
-                            ? hr.result!.color
+                            ? result!.color
                             : AppColors.mutedText,
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    const Spacer(),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Health Risk Assessment',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.darkText,
+                            ),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'ML-based overall water-quality assessment',
+                            style: TextStyle(
+                              fontSize: 9.5,
+                              color: AppColors.subtitleText,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                     if (hr.hasData)
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 4),
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
-                          color: hr.result!.color,
+                          color: result!.color,
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
-                          hr.result!.level,
+                          result.level,
                           style: const TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w700,
@@ -94,7 +119,7 @@ class HealthRiskCard extends StatelessWidget {
                 const SizedBox(height: 14),
                 if (hr.loading)
                   const SizedBox(
-                    height: 40,
+                    height: 48,
                     child: Center(
                       child: SizedBox(
                         width: 20,
@@ -105,7 +130,7 @@ class HealthRiskCard extends StatelessWidget {
                   )
                 else if (!hr.hasData)
                   const Text(
-                    'Insufficient data.\nHealth Risk Score will appear once enough sensor readings are collected.',
+                    'Insufficient data.\nThe assessment will appear once enough sensor history is available.',
                     style: TextStyle(
                       fontSize: 12,
                       color: AppColors.mutedText,
@@ -114,108 +139,73 @@ class HealthRiskCard extends StatelessWidget {
                   )
                 else ...[
                   Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Text(
-                        '${hr.result!.confidence}',
-                        style: TextStyle(
-                          fontSize: 40,
-                          fontWeight: FontWeight.w800,
-                          color: hr.result!.color,
-                          height: 1,
+                      Expanded(
+                        child: _summaryTile(
+                          label: 'Risk Level',
+                          value: result!.level,
+                          color: result.color,
+                          icon: _iconForLevel(result.level),
                         ),
                       ),
-                      const SizedBox(width: 4),
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 6),
-                        child: Text(
-                          '/ 100',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: hr.result!.color.withValues(alpha: 0.5),
-                          ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _summaryTile(
+                          label: 'Confidence',
+                          value: '${result.confidence}%',
+                          color: AppColors.primary,
+                          icon: Icons.analytics_outlined,
                         ),
-                      ),
-                      const Spacer(),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            '${hr.result!.confidence}% confidence',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w500,
-                              color: hr.result!.color.withValues(alpha: 0.6),
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            'Driver: ${hr.result!.driver}',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w500,
-                              color: AppColors.mutedText,
-                            ),
-                          ),
-                        ],
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 10),
                   Container(
+                    width: double.infinity,
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.7),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                        color: AppColors.darkWith(0.06),
-                      ),
+                      color: Colors.white.withValues(alpha: 0.72),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.darkWith(0.06)),
                     ),
-                    child: Row(
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(
-                          Icons.lightbulb_outline,
-                          size: 16,
-                          color: AppColors.warning,
+                        _detailRow(
+                          icon: Icons.monitor_heart_outlined,
+                          label: 'Primary concern',
+                          text: result.driverLabel.isNotEmpty
+                              ? result.driverLabel
+                              : result.driver,
+                          color: result.color,
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                hr.result!.problem,
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.darkText,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                hr.result!.action,
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w400,
-                                  color: AppColors.subtitleText,
-                                  height: 1.4,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'Source: ${hr.result!.source}',
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w400,
-                                  color: AppColors.mutedText,
-                                  fontStyle: FontStyle.italic,
-                                ),
-                              ),
-                            ],
+                        if (result.problem.trim().isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          _detailRow(
+                            icon: Icons.warning_amber_rounded,
+                            label: 'Problem',
+                            text: result.problem,
+                            color: AppColors.warning,
                           ),
-                        ),
+                        ],
+                        if (result.insight.trim().isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          _detailRow(
+                            icon: Icons.lightbulb_outline_rounded,
+                            label: 'Insight',
+                            text: result.insight,
+                            color: AppColors.primary,
+                          ),
+                        ],
+                        if (result.action.trim().isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          _detailRow(
+                            icon: Icons.task_alt_rounded,
+                            label: 'Recommended action',
+                            text: result.action,
+                            color: AppColors.success,
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -241,6 +231,100 @@ class HealthRiskCard extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+
+  Widget _summaryTile({
+    required String label,
+    required String value,
+    required Color color,
+    required IconData icon,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(11),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.14)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, size: 17, color: color),
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: color,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 9.5,
+                    color: AppColors.subtitleText,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _detailRow({
+    required IconData icon,
+    required String label,
+    required String text,
+    required Color color,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.darkText,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                text,
+                style: const TextStyle(
+                  fontSize: 10,
+                  color: AppColors.subtitleText,
+                  height: 1.4,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
