@@ -231,10 +231,6 @@ Table ml_predictions {
   problem varchar
   insight text
   action text
-  source varchar
-  analysis_mode varchar
-  samples_analyzed int
-  required_samples int [default: 6]
   ts_epoch bigint
   timestamp timestamp
 
