@@ -47,27 +47,22 @@ def _load_model():
             "DO": {
                 "problem": "Low dissolved oxygen",
                 "action": "Increase aeration immediately",
-                "source": "Research-based",
             },
             "turbidity": {
                 "problem": "High turbidity",
                 "action": "Partial water change",
-                "source": "Research-based",
             },
             "pH": {
                 "problem": "pH imbalance",
                 "action": "Adjust pH to 7.0-8.5",
-                "source": "Research-based",
             },
             "temp": {
                 "problem": "Temperature stress",
                 "action": "Add shade or cooling",
-                "source": "Research-based",
             },
             "waterLevel": {
                 "problem": "Abnormal water level",
                 "action": "Adjust water level",
-                "source": "General practice",
             },
         }
     return _bundle, _recs
@@ -172,16 +167,10 @@ def _analyze_tank(tank_id: str) -> None:
             "problem": "Not enough data collected yet",
             "insight": "A minimum of six 10-minute history readings is required.",
             "action": "Continue collecting data. The first assessment will be available after about one hour.",
-            "source": "System",
-            "samples_analyzed": len(df),
-            "required_samples": 6,
-            "analysis_mode": "Waiting for one-hour history",
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     else:
         result = _predict_wqc(df)
-        result["samples_analyzed"] = len(df)
-        result["required_samples"] = 6
         result["tank_id"] = tank_id
         if owner_uid:
             result["uid"] = owner_uid
