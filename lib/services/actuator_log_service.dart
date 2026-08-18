@@ -35,6 +35,7 @@ class ActuatorLogService extends ChangeNotifier {
   bool _warmup = true;
   final Set<String> _seenKeys = {};
   StreamSubscription<User?>? _authSub;
+  String? _listeningUid;
 
   final StreamController<AutoActuatorEvent> _autoControlController =
       StreamController<AutoActuatorEvent>.broadcast();
@@ -42,36 +43,64 @@ class ActuatorLogService extends ChangeNotifier {
 
   void init() {
     if (_initialized) return;
+    _initialized = true;
 
-    if (FirebaseAuth.instance.currentUser == null) {
-      // Auth hasn't resolved the persisted session yet. Don't burn the
-      // _initialized flag - instead wait for the first auth state change
-      // and start the real listeners once a user is actually available.
-      _authSub ??= FirebaseAuth.instance.authStateChanges().listen((user) {
-        if (user != null && !_initialized) {
-          _startListening();
-        }
-      });
+    _authSub = FirebaseAuth.instance.authStateChanges().listen((user) {
+      unawaited(_restartListening(user));
+    });
+
+    final current = FirebaseAuth.instance.currentUser;
+    if (current != null) {
+      unawaited(_restartListening(current));
+    }
+  }
+
+  Future<void> _restartListening(User? user) async {
+    final uid = user?.uid;
+    if (uid != null && uid == _listeningUid && _subs.isNotEmpty) return;
+
+    for (final sub in _subs) {
+      await sub.cancel();
+    }
+    _subs.clear();
+    _logs.clear();
+    _seenKeys.clear();
+    _warmup = true;
+    _listeningUid = uid;
+
+    if (uid == null) {
+      notifyListeners();
       return;
     }
 
-    _startListening();
+    try {
+      final profileDoc =
+          await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      final profile = profileDoc.data();
+      // Admins do not own operational tank data and Firestore rules deny these
+      // reads, so do not create noisy listeners for an admin account.
+      if (profile?['role'] == 'admin') {
+        notifyListeners();
+        return;
+      }
+      final tankId = profile?['tank_id'] as String? ?? uid;
+      await _startTankListeners(uid, tankId);
+    } catch (e) {
+      debugPrint('[ActuatorLogService] Listener setup error: $e');
+      notifyListeners();
+    }
   }
 
-  void _startListening() async {
-    if (_initialized) return;
-    _initialized = true;
-    _authSub?.cancel();
-    _authSub = null;
+  Future<void> _startTankListeners(String uid, String tankId) async {
+    // Abort if auth changed while the profile lookup was in flight.
+    if (_listeningUid != uid || FirebaseAuth.instance.currentUser?.uid != uid) {
+      return;
+    }
 
-    // Legacy deviceLogs migrated to tanks/{tank_id}/actuator_logs, filtered by the
-    // 'actuator_type' field instead of 'actuatorId'.
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
-    final profileDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
-    final tankId = profileDoc.data()?['tank_id'] as String? ?? uid;
-    final tankLogsRef =
-        FirebaseFirestore.instance.collection('tanks').doc(tankId).collection('actuator_logs');
+    final tankLogsRef = FirebaseFirestore.instance
+        .collection('tanks')
+        .doc(tankId)
+        .collection('actuator_logs');
 
     for (final actuatorId in actuatorIds) {
       _logs[actuatorId] = [];
@@ -81,6 +110,9 @@ class ActuatorLogService extends ChangeNotifier {
           .limit(50)
           .snapshots()
           .listen((snapshot) {
+        // Ignore a late event from a subscription whose account was replaced.
+        if (_listeningUid != uid) return;
+
         final list = snapshot.docs.map((doc) {
           final map = doc.data();
           // Accept the canonical epoch-ms value plus legacy/admin-written
@@ -124,12 +156,16 @@ class ActuatorLogService extends ChangeNotifier {
             ));
           }
         }
+      }, onError: (e) {
+        if (_listeningUid == uid) {
+          debugPrint('[ActuatorLogService] $actuatorId stream error: $e');
+        }
       });
       _subs.add(sub);
     }
 
     Future.delayed(const Duration(seconds: 3), () {
-      _warmup = false;
+      if (_listeningUid == uid) _warmup = false;
     });
   }
 
@@ -152,8 +188,7 @@ class ActuatorLogService extends ChangeNotifier {
 
   List<LogEntry> getLogs(String actuatorId) => _logs[actuatorId] ?? [];
 
-  Map<String, List<LogEntry>> get allLogs =>
-      Map.unmodifiable(_logs);
+  Map<String, List<LogEntry>> get allLogs => Map.unmodifiable(_logs);
 
   @override
   void dispose() {
