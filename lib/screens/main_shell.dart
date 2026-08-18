@@ -14,6 +14,7 @@ import 'notifications_screen.dart';
 import 'settings_screen.dart';
 import 'admin_screen.dart';
 
+
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
 
@@ -120,133 +121,83 @@ class _MainShellState extends State<MainShell> {
 
     return Scaffold(
       key: _scaffoldKey,
-      body: DecoratedBox(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          image: DecorationImage(
-            image: AssetImage('assets/images/dashboard_background.png'),
-            fit: BoxFit.cover,
-            alignment: Alignment.topCenter,
-          ),
-        ),
-        child: Column(
-          children: [
-            _buildHeader(photoImage),
-            _buildOfflineBanner(),
-            Expanded(
-              child: _isAdmin
-                  ? const AdminScreen()
-                  : IndexedStack(
-                      index: _currentIndex,
-                      children: [
-                        DashboardScreen(
-                          onViewGraph: _goToAnalytics,
-                          onNavigate: (i) => setState(() => _currentIndex = i),
-                          onTankTab: (tab) {
-                            setState(() => _currentIndex = 2);
-                            _productionKey.currentState?.switchToTab(tab);
-                          },
-                          onControlTab: (tab) {
-                            setState(() => _currentIndex = 3);
-                            _controlsKey.currentState?.switchToTab(tab);
-                          },
+      body: Stack(
+        children: [
+          Column(
+            children: [
+              _buildHeader(photoImage),
+              _buildOfflineBanner(),
+              Expanded(
+                  child: _isAdmin
+                      ? const AdminScreen()
+                      : IndexedStack(
+                          index: _currentIndex,
+                          children: [
+                            DashboardScreen(
+                              onViewGraph: _goToAnalytics,
+                              onNavigate: (i) => setState(() => _currentIndex = i),
+                              onTankTab: (tab) {
+                                setState(() => _currentIndex = 2);
+                                _productionKey.currentState?.switchToTab(tab);
+                              },
+                              onControlTab: (tab) {
+                                setState(() => _currentIndex = 3);
+                                _controlsKey.currentState?.switchToTab(tab);
+                              },
+                            ),
+                            AnalyticsScreen(key: _analyticsKey),
+                            ProductionScreen(key: _productionKey),
+                            ControlsScreen(key: _controlsKey),
+                            const NotificationsScreen(),
+                          ],
                         ),
-                        AnalyticsScreen(key: _analyticsKey),
-                        ProductionScreen(key: _productionKey),
-                        ControlsScreen(key: _controlsKey),
-                        const NotificationsScreen(),
-                      ],
-                    ),
-            ),
-            if (!_isAdmin) _buildBottomNav(),
-          ],
-        ),
+              ),
+              if (!_isAdmin) _buildBottomNav(),
+            ],
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildHeader(ImageProvider<Object>? photoImage) {
     return Container(
-      height: 92,
-      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
       decoration: const BoxDecoration(
-        color: Color(0xFFF4FFFF),
-        image: DecorationImage(
-          image: AssetImage('assets/images/dashboard_background.png'),
-          fit: BoxFit.cover,
-          alignment: Alignment.topCenter,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft, end: Alignment.bottomRight,
+          colors: [Color(0xFFF8FFFF), Color(0xFFF2FDFD), Color(0xFFE8FAFA), Color(0xFFDAF4F5)],
         ),
+        border: Border(bottom: BorderSide(color: Color(0x0f000000), width: 1)),
       ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Image.asset('assets/images/logo.png', width: 42, height: 42),
-                const SizedBox(width: 6),
-                const Text(
-                  'Cray',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.dark,
-                    letterSpacing: -0.3,
-                  ),
-                ),
-                const Text(
-                  'Care',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.primary,
-                    letterSpacing: -0.3,
-                  ),
-                ),
-              ],
-            ),
-            GestureDetector(
-              onTap: () async {
-                final result = await Navigator.push<String>(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => SettingsScreen(initialPhotoUrl: _photoUrl),
-                  ),
-                );
-                if (result != null && mounted) {
-                  setState(() => _setPhoto(result));
-                }
-              },
-              child: Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: photoImage == null ? AppColors.primary : null,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.78),
-                    width: 1.5,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.primary.withValues(alpha: 0.13),
-                      blurRadius: 9,
-                      offset: const Offset(0, 3),
-                    ),
-                  ],
-                  image: photoImage != null
-                      ? DecorationImage(image: photoImage, fit: BoxFit.cover)
-                      : null,
-                ),
-                child: photoImage == null
-                    ? const Icon(Icons.person, color: Colors.white, size: 20)
-                    : null,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Image.asset('assets/images/logo.png', width: 42, height: 42),
+              const SizedBox(width: 6),
+              const Text('Cray', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.dark, letterSpacing: -0.3)),
+              const Text('Care', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.primary, letterSpacing: -0.3)),
+            ],
+          ),
+          GestureDetector(
+            onTap: () async {
+              final result = await Navigator.push<String>(context, MaterialPageRoute(builder: (_) => SettingsScreen(initialPhotoUrl: _photoUrl)));
+              if (result != null && mounted) setState(() => _setPhoto(result));
+            },
+            child: Container(
+              width: 42, height: 42,
+              decoration: BoxDecoration(
+                color: photoImage == null ? AppColors.primary : null,
+                shape: BoxShape.circle,
+                image: photoImage != null ? DecorationImage(image: photoImage, fit: BoxFit.cover) : null,
               ),
+              child: photoImage == null ? const Icon(Icons.person, color: Colors.white, size: 20) : null,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -326,15 +277,12 @@ class _MainShellState extends State<MainShell> {
           Stack(
             clipBehavior: Clip.none,
             children: [
-              Icon(
-                item.icon,
-                size: 22,
+              Icon(item.icon, size: 22,
                 color: isActive ? AppColors.primary : AppColors.darkWith(0.3),
               ),
               if (unread > 0)
                 Positioned(
-                  top: -2,
-                  right: -4,
+                  top: -2, right: -4,
                   child: Container(
                     padding: EdgeInsets.all(unread > 9 ? 2 : 4),
                     decoration: const BoxDecoration(
@@ -360,11 +308,9 @@ class _MainShellState extends State<MainShell> {
           const SizedBox(height: 2),
           FittedBox(
             fit: BoxFit.scaleDown,
-            child: Text(
-              item.label,
+            child: Text(item.label,
               style: TextStyle(
-                fontSize: 9,
-                fontWeight: FontWeight.w600,
+                fontSize: 9, fontWeight: FontWeight.w600,
                 color: isActive ? AppColors.primary : AppColors.darkWith(0.4),
               ),
             ),
@@ -372,8 +318,7 @@ class _MainShellState extends State<MainShell> {
           if (isActive)
             Container(
               margin: const EdgeInsets.only(top: 2),
-              width: 20,
-              height: 3,
+              width: 20, height: 3,
               decoration: const BoxDecoration(
                 color: AppColors.primary,
                 borderRadius: BorderRadius.all(Radius.circular(3)),
