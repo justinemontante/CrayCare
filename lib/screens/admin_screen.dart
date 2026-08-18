@@ -959,51 +959,68 @@ class _AdminScreenState extends State<AdminScreen> {
 
   Widget _buildStatsBar() {
     final totalUsers = _users.length;
-    final ownerUsers = _users.where((u) => (u['role'] as String? ?? 'owner') == 'owner').length;
-    final adminUsers = totalUsers - ownerUsers;
-    final disabledUsers =
-        _users.where((u) => (u['status'] ?? 'active') == 'disabled').length;
+    final ownerUsers = _users
+        .where((u) => (u['role'] as String? ?? 'owner') == 'owner')
+        .length;
+    final adminUsers = _users
+        .where((u) => (u['role'] as String? ?? 'owner') == 'admin')
+        .length;
+    final disabledUsers = _users
+        .where((u) => (u['status'] ?? 'active') == 'disabled')
+        .length;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: _buildStatCard(
-              value: '$totalUsers',
-              label: 'Total',
-              icon: Icons.groups_rounded,
-              color: AppColors.primary,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _buildStatCard(
-              value: '$ownerUsers',
-              label: 'Owners',
-              icon: Icons.person_rounded,
-              color: AppColors.success,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _buildStatCard(
-              value: '$adminUsers',
-              label: 'Admins',
-              icon: Icons.admin_panel_settings_rounded,
-              color: AppColors.dark,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _buildStatCard(
-              value: '$disabledUsers',
-              label: 'Disabled',
-              icon: Icons.person_off_rounded,
-              color: AppColors.critical,
-            ),
-          ),
-        ],
+      padding: const EdgeInsets.fromLTRB(14, 4, 14, 10),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final cardWidth = (constraints.maxWidth - 10) / 2;
+          return Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              SizedBox(
+                width: cardWidth,
+                child: _buildStatCard(
+                  value: '$totalUsers',
+                  label: 'Total Users',
+                  icon: Icons.groups_rounded,
+                  iconColor: AppColors.primary,
+                  iconBackground: AppColors.primary.withValues(alpha: 0.10),
+                ),
+              ),
+              SizedBox(
+                width: cardWidth,
+                child: _buildStatCard(
+                  value: '$ownerUsers',
+                  label: 'Owners',
+                  icon: Icons.person_rounded,
+                  iconColor: AppColors.success,
+                  iconBackground: AppColors.success.withValues(alpha: 0.10),
+                ),
+              ),
+              SizedBox(
+                width: cardWidth,
+                child: _buildStatCard(
+                  value: '$adminUsers',
+                  label: 'Admins',
+                  icon: Icons.verified_user_rounded,
+                  iconColor: AppColors.dark,
+                  iconBackground: AppColors.dark.withValues(alpha: 0.07),
+                ),
+              ),
+              SizedBox(
+                width: cardWidth,
+                child: _buildStatCard(
+                  value: '$disabledUsers',
+                  label: 'Disabled',
+                  icon: Icons.person_off_rounded,
+                  iconColor: AppColors.critical,
+                  iconBackground: AppColors.critical.withValues(alpha: 0.09),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1012,59 +1029,57 @@ class _AdminScreenState extends State<AdminScreen> {
     required String value,
     required String label,
     required IconData icon,
-    required Color color,
+    required Color iconColor,
+    required Color iconBackground,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withValues(alpha: 0.18)),
+        border: Border.all(color: AppColors.darkWith(0.08)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Container(
-                width: 30,
-                height: 30,
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(9),
-                ),
-                child: Icon(icon, size: 15, color: color),
-              ),
-              Expanded(
-                child: Text(
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: iconBackground,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, size: 20, color: iconColor),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
                   value,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 20,
+                  style: const TextStyle(
+                    fontSize: 21,
                     fontWeight: FontWeight.w800,
-                    color: color,
-                    height: 1.0,
+                    color: AppColors.darkText,
+                    height: 1,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w600,
-              color: AppColors.darkWith(0.5),
+                const SizedBox(height: 5),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.darkWith(0.48),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
             ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
