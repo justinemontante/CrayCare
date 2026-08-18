@@ -38,12 +38,10 @@ class SensorService extends ChangeNotifier {
   ];
 
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _subscription;
-
-  /// Resolved tank_id for the signed-in user (from users/{uid}.tank_id).
-  /// Sensor data now lives at tanks/{tank_id}/sensor_readings/latest.
   String? _tankId;
 
   final Map<String, List<double>> _history = {};
+  final Map<String, List<DateTime>> _historyTimes = {};
   final Map<String, double> _latest = {};
   bool? _turbidityAir;
 
@@ -54,6 +52,8 @@ class SensorService extends ChangeNotifier {
   Timer? _staleTimer;
   Timer? _periodicCheckTimer;
   static const _staleTimeout = Duration(seconds: 10);
+  static const _trendWindow = Duration(seconds: 60);
+  static const _minTrendSpan = Duration(seconds: 15);
   bool _hasLiveData = false;
 
   DateTime _lastUpdated = DateTime.fromMillisecondsSinceEpoch(0);
@@ -66,8 +66,6 @@ class SensorService extends ChangeNotifier {
       _hasLiveData && DateTime.now().difference(_lastUpdated) <= _staleTimeout;
   DateTime get lastUpdated => _lastUpdated;
   String? get lastError => _lastError;
-  /// Pending offline readings the ESP32 is flushing (from buffered_entries
-  /// advertised in the 5-sec latest payload). >0 => show "Syncing N…".
   int get bufferedEntries => _bufferedEntries;
 
   String get overallStatus {
@@ -88,7 +86,7 @@ class SensorService extends ChangeNotifier {
     if (range == null) return 'UNKNOWN';
     final min = range['min'] ?? 0.0;
     final max = range['max'] ?? 999.0;
-    
+
     if (value < min || value > max) {
       return 'CRITICAL';
     }
@@ -96,7 +94,7 @@ class SensorService extends ChangeNotifier {
     final isMaxBound = max < 999.0;
     final rangeSpan = isMaxBound ? (max - min) : min;
     final warningThreshold = rangeSpan * 0.10;
-    
+
     final checkLower = min > 0.0;
     final checkUpper = isMaxBound;
 
@@ -108,33 +106,84 @@ class SensorService extends ChangeNotifier {
     return 'OPTIMAL';
   }
 
-  /// Average per-reading change over the last 5 live readings.
-  /// Returns 0.0 when there is insufficient history (< 3 points).
+  /// Returns the least-squares slope of recent live readings in physical
+  /// units per minute. A 60-second time window is used instead of a fixed
+  /// number of readings, so jitter in ESP/Firebase update timing does not
+  /// change the meaning of the rate. Regression uses every point in the
+  /// window and is therefore less sensitive to one noisy first/last sample.
+  ///
+  /// Returns 0.0 until at least 4 samples covering 15 seconds are available.
   double getTrendRate(String key) {
-    final history = _history[key];
-    if (history == null || history.length < 3) return 0.0;
-    final recent = history.length >= 5 ? history.sublist(history.length - 5) : history;
-    return (recent.last - recent.first) / (recent.length - 1);
+    final values = _history[key];
+    final times = _historyTimes[key];
+    if (values == null || times == null || values.length < 4 || times.length != values.length) {
+      return 0.0;
+    }
+
+    final newest = times.last;
+    final cutoff = newest.subtract(_trendWindow);
+    var start = 0;
+    while (start < times.length - 1 && times[start].isBefore(cutoff)) {
+      start++;
+    }
+
+    final recentValues = values.sublist(start);
+    final recentTimes = times.sublist(start);
+    if (recentValues.length < 4) return 0.0;
+
+    final span = recentTimes.last.difference(recentTimes.first);
+    if (span < _minTrendSpan) return 0.0;
+
+    final origin = recentTimes.first;
+    final xs = recentTimes
+        .map((t) => t.difference(origin).inMilliseconds / 60000.0)
+        .toList();
+    final meanX = xs.reduce((a, b) => a + b) / xs.length;
+    final meanY = recentValues.reduce((a, b) => a + b) / recentValues.length;
+
+    var numerator = 0.0;
+    var denominator = 0.0;
+    for (var i = 0; i < xs.length; i++) {
+      final dx = xs[i] - meanX;
+      numerator += dx * (recentValues[i] - meanY);
+      denominator += dx * dx;
+    }
+    if (denominator <= 0) return 0.0;
+    return numerator / denominator;
   }
 
-  /// Classifies the current trend as one of:
-  /// 'stable' | 'rising' | 'rising_fast' | 'falling' | 'falling_fast'
-  ///
-  /// Thresholds are per-reading deltas that make physical sense for each
-  /// sensor's typical live range (readings arrive every few seconds).
+  /// Classifies the one-minute regression slope as:
+  /// stable | rising | rising_fast | falling | falling_fast.
+  /// Thresholds are expressed in physical units per minute.
   String getTrend(String key) {
-    final rate = getTrendRate(key); // single computation, reused below
-    if (rate == 0.0) return 'stable';
+    final rate = getTrendRate(key);
 
     double stableThreshold;
     double fastThreshold;
     switch (key) {
-      case 'temp':       stableThreshold = 0.02; fastThreshold = 0.15; break;
-      case 'ph':         stableThreshold = 0.01; fastThreshold = 0.08; break;
-      case 'do':         stableThreshold = 0.03; fastThreshold = 0.20; break;
-      case 'turb':       stableThreshold = 0.50; fastThreshold = 2.00; break;
-      case 'waterlevel': stableThreshold = 0.50; fastThreshold = 1.50; break;
-      default:           stableThreshold = 0.05; fastThreshold = 0.30;
+      case 'temp':
+        stableThreshold = 0.10; // °C/min
+        fastThreshold = 0.50;
+        break;
+      case 'ph':
+        stableThreshold = 0.03; // pH/min
+        fastThreshold = 0.15;
+        break;
+      case 'do':
+        stableThreshold = 0.10; // mg/L/min
+        fastThreshold = 0.50;
+        break;
+      case 'turb':
+        stableThreshold = 1.00; // NTU/min
+        fastThreshold = 5.00;
+        break;
+      case 'waterlevel':
+        stableThreshold = 0.50; // cm/min
+        fastThreshold = 2.00;
+        break;
+      default:
+        stableThreshold = 0.10;
+        fastThreshold = 0.50;
     }
 
     if (rate.abs() < stableThreshold) return 'stable';
@@ -155,13 +204,10 @@ class SensorService extends ChangeNotifier {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
 
-    // Resolve tank_id from the user's profile — sensor data lives under
-    // tanks/{tank_id}/sensor_readings/latest, not tied directly to uid.
     try {
       final profileDoc =
           await FirebaseFirestore.instance.collection('users').doc(uid).get();
       final profileData = profileDoc.data();
-      // Admins do NOT own a tank — never assign one to them.
       if (profileData?['role'] == 'admin') {
         _tankId = null;
         _lastError = 'Admin accounts have no tank.';
@@ -169,23 +215,18 @@ class SensorService extends ChangeNotifier {
         return;
       }
       var tankId = profileData?['tank_id'] as String?;
-      // CrayCare is 1 user = 1 tank with tank_id == uid. If the profile has
-      // no usable tank_id (missing OR empty string — e.g. legacy accounts
-      // created before tank provisioning), fall back to the UID and persist
-      // the link so every other service sees it too. This prevents a wrong
-      // "No tank assigned" message when the tank doc actually exists.
       if (tankId == null || tankId.isEmpty) {
         tankId = uid;
         try {
           await profileDoc.reference
               .set({'tank_id': uid}, SetOptions(merge: true));
-        } catch (e, stack) { debugPrint('[Sensor] hardware init error: $e\n$stack'); }
+        } catch (e, stack) {
+          debugPrint('[Sensor] hardware init error: $e\n$stack');
+        }
       }
       _tankId = tankId;
     } catch (e) {
       debugPrint('[SensorService] Failed to resolve tank_id: $e');
-      // If the profile read failed, still fall back to uid so the dashboard
-      // keeps listening to the expected tank path instead of erroring out.
       _tankId = uid;
     }
     final tankId = _tankId;
@@ -209,7 +250,6 @@ class SensorService extends ChangeNotifier {
       },
       onError: (error) {
         final msg = error.toString();
-        // Surface a friendlier message for Firestore permission errors.
         if (msg.contains('permission-denied') || msg.contains('PERMISSION_DENIED')) {
           _lastError = 'Sensor access not configured. Waiting for hardware assignment...';
         } else {
@@ -264,14 +304,8 @@ class SensorService extends ChangeNotifier {
     _lastUpdated = readingTime;
     _hasLiveData = true;
 
-    // ESP32 advertises how many offline readings are still queued in its
-    // LittleFS buffer (store-and-forward backlog) via buffered_entries.
-    _bufferedEntries =
-        (data['buffered_entries'] as num?)?.toInt() ?? 0;
+    _bufferedEntries = (data['buffered_entries'] as num?)?.toInt() ?? 0;
 
-    // New schema field names (tanks/{tank_id}/sensor_readings/latest):
-    // temperature, ph_level, dissolved_oxygen, turbidity, water_level.
-    // Legacy camelCase keys kept as a fallback during migration.
     final tempRaw = _toDouble(data['temperature']);
     final turbRaw = _toDouble(data['turbidity']);
     final doRaw = _toDouble(data['dissolved_oxygen'] ?? data['dissolvedOxygen']);
@@ -280,15 +314,15 @@ class SensorService extends ChangeNotifier {
     final turbAirRaw = data['turbidity_air'] ?? data['turbidityAir'];
     _turbidityAir = turbAirRaw is bool ? turbAirRaw : (turbAirRaw == true);
 
-    _updateSensor('temp', tempRaw);
+    _updateSensor('temp', tempRaw, readingTime);
     if (_turbidityAir != true) {
-      _updateSensor('turb', turbRaw);
+      _updateSensor('turb', turbRaw, readingTime);
     } else {
       _latest.remove('turb');
     }
-    _updateSensor('do', doRaw);
-    _updateSensor('ph', phRaw);
-    _updateSensor('waterlevel', wlRaw);
+    _updateSensor('do', doRaw, readingTime);
+    _updateSensor('ph', phRaw, readingTime);
+    _updateSensor('waterlevel', wlRaw, readingTime);
 
     _staleTimer?.cancel();
     final remaining = _staleTimeout - age;
@@ -306,30 +340,43 @@ class SensorService extends ChangeNotifier {
       _lastUpdated = lastSeen;
     }
     _hasLiveData = false;
-    // While stale we can't trust the backlog count — the offline banner is
-    // the accurate signal. Reset so "Syncing N…" never masks "Offline".
     _bufferedEntries = 0;
     _staleTimer?.cancel();
     notifyListeners();
     debugPrint('[SensorService] Data stale - ESP32 offline (last seen: $_lastUpdated)');
   }
 
-  void _updateSensor(String key, double? value) {
+  void _updateSensor(String key, double? value, DateTime readingTime) {
     if (value == null || value < 0) {
       _latest.remove(key);
       return;
     }
     if (value == 0 && key != 'turb' && !_latest.containsKey(key)) return;
-
     if (!_isValidReading(key, value)) return;
 
     _latest[key] = value;
+    _history.putIfAbsent(key, () => []);
+    _historyTimes.putIfAbsent(key, () => []);
 
-    if (_history[key] == null) _history[key] = [];
+    final times = _historyTimes[key]!;
+    final values = _history[key]!;
 
-    _history[key]!.add(value);
-    if (_history[key]!.length > 60) {
-      _history[key]!.removeAt(0);
+    // Ignore duplicate/out-of-order snapshots for trend calculation. The
+    // latest value is still displayed, but regression must remain chronological.
+    if (times.isNotEmpty && !readingTime.isAfter(times.last)) return;
+
+    values.add(value);
+    times.add(readingTime);
+
+    // Keep a small safety margin beyond the 60-second analysis window.
+    final cutoff = readingTime.subtract(const Duration(seconds: 90));
+    while (times.length > 1 && times.first.isBefore(cutoff)) {
+      times.removeAt(0);
+      values.removeAt(0);
+    }
+    while (values.length > 60) {
+      values.removeAt(0);
+      times.removeAt(0);
     }
   }
 
@@ -369,12 +416,6 @@ class SensorService extends ChangeNotifier {
 
   final Map<String, List<Map<String, dynamic>>> _dayCache = {};
   final Map<String, DateTime> _dayCachedAt = {};
-
-  // The ESP32 writes a new history entry roughly every 10 minutes
-  // (HISTORY_INTERVAL in the firmware). Today's subcollection is still
-  // being appended to, so we only trust its cache for a short window -
-  // long enough to avoid re-fetching on every rapid filter switch, short
-  // enough that a newly-saved reading shows up quickly.
   static const _todayCacheTtl = Duration(seconds: 60);
 
   static String _dateStrFor(DateTime d) =>
@@ -393,10 +434,6 @@ class SensorService extends ChangeNotifier {
         return null;
       }
     }
-
-    // Past/closed days never change once written, so they can be
-    // cached indefinitely (until the app restarts or the cache is
-    // explicitly cleared).
     return cached;
   }
 
@@ -414,8 +451,6 @@ class SensorService extends ChangeNotifier {
     required DateTime start,
     required DateTime end,
   }) async {
-    // History now lives under the tank, not the uid directly:
-    // tanks/{tank_id}/sensor_readings_history/{dateStr}/{autoId}
     var tankId = _tankId;
     if (tankId == null) {
       final uid = FirebaseAuth.instance.currentUser?.uid;
@@ -448,8 +483,6 @@ class SensorService extends ChangeNotifier {
     }
 
     if (uncachedDays.isNotEmpty) {
-      // Pass 1: Try reading from local Firestore disk cache (lightning fast, 0ms latency)
-      // Path: tanks/{tank_id}/sensor_readings_history/{dateStr}
       final remainingUncached = <String>[];
       final cacheFutures = uncachedDays.map((dateStr) async {
         if (tankId == null) {
@@ -473,7 +506,9 @@ class SensorService extends ChangeNotifier {
             cacheDay(dateStr, docs);
             return docs;
           }
-        } catch (e, stack) { debugPrint('[Sensor] history load error: $e\n$stack'); }
+        } catch (e, stack) {
+          debugPrint('[Sensor] history load error: $e\n$stack');
+        }
         remainingUncached.add(dateStr);
         return <Map<String, dynamic>>[];
       });
@@ -481,10 +516,9 @@ class SensorService extends ChangeNotifier {
       final cacheResults = await Future.wait(cacheFutures);
       cachedRecords.addAll(cacheResults.expand((r) => r));
 
-      // Pass 2: If online, fetch remaining missing days from server in parallel chunks.
-      // Path is scoped to this tank — tanks/{tank_id}/sensor_readings_history/{dateStr}.
-      // No extra ownerUid filter needed; the path itself is the ownership scope.
-      if (remainingUncached.isNotEmpty && ConnectivityService.instance.isOnline && tankId != null) {
+      if (remainingUncached.isNotEmpty &&
+          ConnectivityService.instance.isOnline &&
+          tankId != null) {
         const chunkSize = 6;
         for (var i = 0; i < remainingUncached.length; i += chunkSize) {
           final chunk = remainingUncached.sublist(
@@ -521,9 +555,6 @@ class SensorService extends ChangeNotifier {
       }
     }
 
-    // Canonical history documents use `recorded_at` (Firestore Timestamp).
-    // Keep legacy timestamp aliases readable while sorting all records by the
-    // actual capture time rather than treating missing numeric timestamps as 0.
     cachedRecords.sort((a, b) {
       final at = _extractTimestamp(a) ?? DateTime.fromMillisecondsSinceEpoch(0);
       final bt = _extractTimestamp(b) ?? DateTime.fromMillisecondsSinceEpoch(0);
@@ -536,6 +567,7 @@ class SensorService extends ChangeNotifier {
   void dispose() {
     _subscription?.cancel();
     _staleTimer?.cancel();
+    _periodicCheckTimer?.cancel();
     super.dispose();
   }
 }
