@@ -17,11 +17,10 @@ class AdminScreen extends StatefulWidget {
 
 class _AdminScreenState extends State<AdminScreen> {
   List<Map<String, dynamic>> _users = [];
-  // UID of the owner currently assigned to the hardware (hardware_system/currentOwner)
   String? _currentOwnerUid;
   bool _loading = true;
   String? _error;
-  int _userFilterTab = 0; // 0 = All, 1 = Owners, 2 = Admins
+  int _userFilterTab = 0;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _usersSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _ownerSub;
 
@@ -39,25 +38,15 @@ class _AdminScreenState extends State<AdminScreen> {
     super.dispose();
   }
 
-  // Real-time listeners so the admin screen reflects Firebase changes
-  // instantly (e.g. another device links/unlinks hardware, a user is
-  // created/disabled, or the console changes something) without needing
-  // to leave and reopen the screen.
   void _listenRealtime() {
     _usersSub?.cancel();
-    _usersSub = FirebaseFirestore.instance
-        .collection('users')
-        .snapshots()
-        .listen((snap) {
-      final users = snap.docs
-          .map((d) {
-            final data = Map<String, dynamic>.from(d.data());
-            data['uid'] = d.id;
-            return data;
-          })
-          .toList()
-        ..sort((a, b) => (a['email'] as String? ?? '')
-            .compareTo(b['email'] as String? ?? ''));
+    _usersSub = FirebaseFirestore.instance.collection('users').snapshots().listen((snap) {
+      final users = snap.docs.map((d) {
+        final data = Map<String, dynamic>.from(d.data());
+        data['uid'] = d.id;
+        return data;
+      }).toList()
+        ..sort((a, b) => (a['email'] as String? ?? '').compareTo(b['email'] as String? ?? ''));
       if (!mounted) return;
       setState(() {
         _users = users;
@@ -87,13 +76,8 @@ class _AdminScreenState extends State<AdminScreen> {
 
   String _getFormattedDate() {
     final now = DateTime.now();
-    const weekdays = [
-      'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday',
-    ];
-    const months = [
-      'January', 'February', 'March', 'April', 'May', 'June', 'July',
-      'August', 'September', 'October', 'November', 'December',
-    ];
+    const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
     return '${weekdays[now.weekday % 7]}, ${months[now.month - 1]} ${now.day}, ${now.year}';
   }
 
@@ -110,17 +94,14 @@ class _AdminScreenState extends State<AdminScreen> {
       _error = null;
     });
     try {
-      // Load users first — this must succeed.
       final users = await DatabaseService.instance.getAllUsers();
-      users.sort((a, b) => (a['email'] as String? ?? '')
-          .compareTo(b['email'] as String? ?? ''));
-
-      // Load current hardware owner — non-fatal if the document doesn't exist yet.
+      users.sort((a, b) => (a['email'] as String? ?? '').compareTo(b['email'] as String? ?? ''));
       String? currentOwner;
       try {
         currentOwner = await DatabaseService.instance.getCurrentOwnerUid();
-      } catch (e, stack) { debugPrint('[Admin] action error: $e\n$stack'); }
-
+      } catch (e, stack) {
+        debugPrint('[Admin] action error: $e\n$stack');
+      }
       if (!mounted) return;
       setState(() {
         _users = users;
@@ -159,11 +140,9 @@ class _AdminScreenState extends State<AdminScreen> {
                 child: Icon(icon, size: 22, color: iconColor ?? AppColors.primary),
               ),
             if (icon != null) const SizedBox(height: 16),
-            Text(title,
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.darkText)),
+            Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.darkText)),
             const SizedBox(height: 8),
-            Text(message,
-                style: const TextStyle(fontSize: 12, color: AppColors.subtitleText, height: 1.5)),
+            Text(message, style: const TextStyle(fontSize: 12, color: AppColors.subtitleText, height: 1.5)),
           ],
         ),
         actions: [
@@ -190,9 +169,6 @@ class _AdminScreenState extends State<AdminScreen> {
     );
   }
 
-  // A regular SnackBar is anchored to this screen's own Scaffold, which
-  // sits BELOW modal bottom sheets in the overlay stack — so it renders
-  // hidden behind the modal instead of on top of it. Inserting into the
   void _openUserSheet(Map<String, dynamic> user) {
     final uid = user['uid'] as String;
     final name = _displayName(user);
@@ -200,7 +176,6 @@ class _AdminScreenState extends State<AdminScreen> {
     final role = (user['role'] as String?) ?? 'owner';
     final status = (user['status'] as String?) ?? 'active';
     final isAdmin = role == 'admin';
-
     final initials = name.split(' ').map((w) => w.isNotEmpty ? w[0] : '').take(2).join();
     final avatarColor = isAdmin ? AppColors.dark : AppColors.primary;
 
@@ -208,19 +183,13 @@ class _AdminScreenState extends State<AdminScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (ctx) {
-        // Sheet is closed after every action; feedback is shown via the
-        // app-wide snackbar, so no mutable sheet state is needed.
         final currentStatus = status;
         final bool isLinked = _currentOwnerUid == uid;
-
         return StatefulBuilder(
           builder: (ctx, _) {
             final bool isDisabled = currentStatus == 'disabled';
-
             return SafeArea(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
@@ -231,81 +200,48 @@ class _AdminScreenState extends State<AdminScreen> {
                       child: Container(
                         width: 40,
                         height: 4,
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade300,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
+                        decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(4)),
                       ),
                     ),
                     const SizedBox(height: 20),
-
-                    // User avatar + name
                     Container(
                       width: 56,
                       height: 56,
                       decoration: BoxDecoration(
                         color: avatarColor.withValues(alpha: isDisabled ? 0.06 : 0.1),
                         shape: BoxShape.circle,
-                        border: Border.all(
-                          color: avatarColor.withValues(alpha: isDisabled ? 0.08 : 0.15),
-                          width: 2,
-                        ),
+                        border: Border.all(color: avatarColor.withValues(alpha: isDisabled ? 0.08 : 0.15), width: 2),
                       ),
                       child: Center(
                         child: Text(
                           initials.toUpperCase(),
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                            color: isDisabled ? AppColors.mutedText : avatarColor,
-                          ),
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: isDisabled ? AppColors.mutedText : avatarColor),
                         ),
                       ),
                     ),
                     const SizedBox(height: 12),
-                    Text(name,
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w800,
-                          color: isDisabled ? AppColors.mutedText : AppColors.darkText,
-                        )),
+                    Text(name, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: isDisabled ? AppColors.mutedText : AppColors.darkText)),
                     if (email.isNotEmpty) ...[
                       const SizedBox(height: 2),
-                      Text(email,
-                          style: const TextStyle(fontSize: 12, color: AppColors.subtitleText),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis),
+                      Text(email, style: const TextStyle(fontSize: 12, color: AppColors.subtitleText), maxLines: 1, overflow: TextOverflow.ellipsis),
                     ],
                     const SizedBox(height: 4),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        _buildMiniBadge(
-                          label: role.toUpperCase(),
-                          color: isAdmin ? AppColors.dark : AppColors.primary,
-                        ),
+                        _buildMiniBadge(label: role.toUpperCase(), color: isAdmin ? AppColors.dark : AppColors.primary),
                         const SizedBox(width: 8),
-                        _buildMiniBadge(
-                          label: isDisabled ? 'DISABLED' : 'ACTIVE',
-                          color: isDisabled ? AppColors.critical : AppColors.success,
-                        ),
+                        _buildMiniBadge(label: isDisabled ? 'DISABLED' : 'ACTIVE', color: isDisabled ? AppColors.critical : AppColors.success),
                         if (isLinked) ...[
                           const SizedBox(width: 8),
                           _buildMiniBadge(label: 'HARDWARE', color: AppColors.primary),
                         ],
                       ],
                     ),
-
                     const SizedBox(height: 20),
                     Container(height: 1, color: AppColors.darkWith(0.06)),
                     const SizedBox(height: 16),
-
-                    // Status section
-                    _buildSectionHeader(
-                      Icons.circle,
-                      'Account Status',
-                      iconColor: isDisabled ? AppColors.critical : AppColors.success,
-                    ),
+                    _buildSectionHeader(Icons.circle, 'Account Status', iconColor: isDisabled ? AppColors.critical : AppColors.success),
                     const SizedBox(height: 10),
                     GestureDetector(
                       onTap: () async {
@@ -313,19 +249,13 @@ class _AdminScreenState extends State<AdminScreen> {
                         if (uid == selfUid) {
                           final messenger = ScaffoldMessenger.of(ctx);
                           if (ctx.mounted) Navigator.pop(ctx);
-                          showBeautifulSnackbarWithMessenger(
-                            messenger,
-                            'You can\'t disable your own admin account.',
-                            false,
-                          );
+                          showBeautifulSnackbarWithMessenger(messenger, 'You can\'t disable your own admin account.', false);
                           return;
                         }
                         final newStatus = isDisabled ? 'active' : 'disabled';
                         final confirmed = await _confirm(
                           title: isDisabled ? 'Enable account?' : 'Disable account?',
-                          message: isDisabled
-                              ? '$name will be able to sign in again.'
-                              : '$name will be signed out and blocked from signing back in.',
+                          message: isDisabled ? '$name will be able to sign in again.' : '$name will be signed out and blocked from signing back in.',
                           icon: isDisabled ? Icons.lock_open_rounded : Icons.lock_rounded,
                           iconColor: isDisabled ? AppColors.success : AppColors.critical,
                         );
@@ -336,9 +266,7 @@ class _AdminScreenState extends State<AdminScreen> {
                         if (ctx.mounted) Navigator.pop(ctx);
                         showBeautifulSnackbarWithMessenger(
                           messenger,
-                          newStatus == 'disabled'
-                              ? '${_displayName(user)} account disabled.'
-                              : '${_displayName(user)} account enabled.',
+                          newStatus == 'disabled' ? '${_displayName(user)} account disabled.' : '${_displayName(user)} account enabled.',
                           true,
                         );
                       },
@@ -347,9 +275,7 @@ class _AdminScreenState extends State<AdminScreen> {
                         decoration: BoxDecoration(
                           color: (isDisabled ? AppColors.critical : AppColors.success).withValues(alpha: 0.06),
                           borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: (isDisabled ? AppColors.critical : AppColors.success).withValues(alpha: 0.15),
-                          ),
+                          border: Border.all(color: (isDisabled ? AppColors.critical : AppColors.success).withValues(alpha: 0.15)),
                         ),
                         child: Row(
                           children: [
@@ -360,61 +286,31 @@ class _AdminScreenState extends State<AdminScreen> {
                                 color: (isDisabled ? AppColors.critical : AppColors.success).withValues(alpha: 0.12),
                                 borderRadius: BorderRadius.circular(10),
                               ),
-                              child: Icon(
-                                isDisabled ? Icons.lock_rounded : Icons.lock_open_rounded,
-                                size: 18,
-                                color: isDisabled ? AppColors.critical : AppColors.success,
-                              ),
+                              child: Icon(isDisabled ? Icons.lock_rounded : Icons.lock_open_rounded, size: 18, color: isDisabled ? AppColors.critical : AppColors.success),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(
-                                    isDisabled ? 'Account Disabled' : 'Account Active',
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w700,
-                                      color: isDisabled ? AppColors.critical : AppColors.success,
-                                    ),
-                                  ),
+                                  Text(isDisabled ? 'Account Disabled' : 'Account Active', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: isDisabled ? AppColors.critical : AppColors.success)),
                                   const SizedBox(height: 1),
-                                  Text(
-                                    isDisabled
-                                        ? 'Tap to re-enable this account'
-                                        : 'Tap to disable this account',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: AppColors.darkWith(0.45),
-                                    ),
-                                  ),
+                                  Text(isDisabled ? 'Tap to re-enable this account' : 'Tap to disable this account', style: TextStyle(fontSize: 11, color: AppColors.darkWith(0.45))),
                                 ],
                               ),
                             ),
-                            Icon(
-                              isDisabled ? Icons.toggle_on_rounded : Icons.toggle_off_rounded,
-                              size: 32,
-                              color: isDisabled ? AppColors.critical : AppColors.success,
-                            ),
+                            Icon(isDisabled ? Icons.toggle_on_rounded : Icons.toggle_off_rounded, size: 32, color: isDisabled ? AppColors.critical : AppColors.success),
                           ],
                         ),
                       ),
                     ),
-
                     const SizedBox(height: 16),
-
-                    // Hardware Assignment section (owners only)
                     if (!isAdmin) ...[
                       _buildSectionHeader(Icons.developer_board_rounded, 'Hardware'),
                       const SizedBox(height: 10),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        decoration: BoxDecoration(
-                          color: AppColors.darkWith(0.03),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: AppColors.darkWith(0.08)),
-                        ),
+                        decoration: BoxDecoration(color: AppColors.darkWith(0.03), borderRadius: BorderRadius.circular(14), border: Border.all(color: AppColors.darkWith(0.08))),
                         child: isLinked
                             ? Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -424,28 +320,17 @@ class _AdminScreenState extends State<AdminScreen> {
                                       Container(
                                         width: 36,
                                         height: 36,
-                                        decoration: BoxDecoration(
-                                          color: AppColors.success.withValues(alpha: 0.1),
-                                          borderRadius: BorderRadius.circular(10),
-                                        ),
-                                        child: const Icon(Icons.check_circle_rounded,
-                                            size: 18, color: AppColors.success),
+                                        decoration: BoxDecoration(color: AppColors.success.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
+                                        child: const Icon(Icons.check_circle_rounded, size: 18, color: AppColors.success),
                                       ),
                                       const SizedBox(width: 12),
                                       Expanded(
                                         child: Column(
                                           crossAxisAlignment: CrossAxisAlignment.start,
                                           children: [
-                                            const Text('Hardware linked',
-                                                style: TextStyle(
-                                                    fontSize: 11,
-                                                    fontWeight: FontWeight.w600,
-                                                    color: AppColors.success)),
+                                            const Text('Hardware linked', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.success)),
                                             const SizedBox(height: 2),
-                                            Text('Data routes to ${_displayName(user)}\'s account',
-                                                style: const TextStyle(
-                                                    fontSize: 11,
-                                                    color: AppColors.subtitleText)),
+                                            Text('Data routes to ${_displayName(user)}\'s account', style: const TextStyle(fontSize: 11, color: AppColors.subtitleText)),
                                           ],
                                         ),
                                       ),
@@ -458,8 +343,7 @@ class _AdminScreenState extends State<AdminScreen> {
                                       onTap: () async {
                                         final confirmed = await _confirm(
                                           title: 'Unassign Hardware?',
-                                          message:
-                                              '${_displayName(user)} will lose access to the hardware. Sensor data, auto feeder, and all device features will stop routing to their account.',
+                                          message: '${_displayName(user)} will lose access to the hardware. Sensor data, auto feeder, and all device features will stop routing to their account.',
                                           icon: Icons.link_off_rounded,
                                           iconColor: AppColors.critical,
                                         );
@@ -470,37 +354,24 @@ class _AdminScreenState extends State<AdminScreen> {
                                         } catch (e) {
                                           if (!mounted) return;
                                           if (ctx.mounted) Navigator.pop(ctx);
-                                          showBeautifulSnackbarWithMessenger(
-                                            messenger,
-                                            'Failed to unassign hardware: ${e.toString().replaceFirst('Exception: ', '')}',
-                                            false,
-                                          );
+                                          showBeautifulSnackbarWithMessenger(messenger, 'Failed to unassign hardware: ${e.toString().replaceFirst('Exception: ', '')}', false);
                                           return;
                                         }
                                         if (!mounted) return;
                                         if (ctx.mounted) Navigator.pop(ctx);
-                                        showBeautifulSnackbarWithMessenger(
-                                          messenger,
-                                          'Hardware unassigned.',
-                                          true,
-                                        );
+                                        showBeautifulSnackbarWithMessenger(messenger, 'Hardware unassigned.', true);
                                       },
-                                      child: _buildActionChip(
-                                          'Unassign', Icons.link_off_rounded, AppColors.critical),
+                                      child: _buildActionChip('Unassign', Icons.link_off_rounded, AppColors.critical),
                                     ),
                                   ),
                                 ],
                               )
                             : GestureDetector(
                                 onTap: () async {
-                                  // Check if hardware is already linked to a different owner.
                                   final currentOwner = _currentOwnerUid;
                                   final isReassign = currentOwner != null && currentOwner != uid;
                                   final otherName = isReassign
-                                      ? _displayName(_users.firstWhere(
-                                          (u) => u['uid'] == currentOwner,
-                                          orElse: () => <String, dynamic>{'fullName': 'another user'},
-                                        ))
+                                      ? _displayName(_users.firstWhere((u) => u['uid'] == currentOwner, orElse: () => <String, dynamic>{'fullName': 'another user'}))
                                       : null;
                                   if (!ctx.mounted) return;
                                   final confirmed = await _confirm(
@@ -518,49 +389,31 @@ class _AdminScreenState extends State<AdminScreen> {
                                   } catch (e) {
                                     if (!mounted) return;
                                     if (ctx.mounted) Navigator.pop(ctx);
-                                    showBeautifulSnackbarWithMessenger(
-                                      messenger,
-                                      'Failed to link hardware: ${e.toString().replaceFirst('Exception: ', '')}',
-                                      false,
-                                    );
+                                    showBeautifulSnackbarWithMessenger(messenger, 'Failed to link hardware: ${e.toString().replaceFirst('Exception: ', '')}', false);
                                     return;
                                   }
                                   if (!mounted) return;
                                   if (ctx.mounted) Navigator.pop(ctx);
-                                  showBeautifulSnackbarWithMessenger(
-                                    messenger,
-                                    'Hardware linked to ${_displayName(user)}.',
-                                    true,
-                                  );
+                                  showBeautifulSnackbarWithMessenger(messenger, 'Hardware linked to ${_displayName(user)}.', true);
                                 },
                                 child: Row(
                                   children: [
                                     Container(
                                       width: 36,
                                       height: 36,
-                                      decoration: BoxDecoration(
-                                        color: AppColors.darkWith(0.05),
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      child: Icon(Icons.add_rounded,
-                                          size: 18, color: AppColors.darkWith(0.4)),
+                                      decoration: BoxDecoration(color: AppColors.darkWith(0.05), borderRadius: BorderRadius.circular(10)),
+                                      child: Icon(Icons.add_rounded, size: 18, color: AppColors.darkWith(0.4)),
                                     ),
                                     const SizedBox(width: 12),
                                     const Expanded(
-                                      child: Text('Link hardware to this account',
-                                          style: TextStyle(
-                                              fontSize: 12,
-                                              color: AppColors.subtitleText,
-                                              fontWeight: FontWeight.w500)),
+                                      child: Text('Link hardware to this account', style: TextStyle(fontSize: 12, color: AppColors.subtitleText, fontWeight: FontWeight.w500)),
                                     ),
-                                    Icon(Icons.chevron_right_rounded,
-                                        size: 18, color: AppColors.darkWith(0.25)),
+                                    Icon(Icons.chevron_right_rounded, size: 18, color: AppColors.darkWith(0.25)),
                                   ],
                                 ),
                               ),
                       ),
                     ],
-
                     const SizedBox(height: 8),
                   ],
                 ),
@@ -575,18 +428,13 @@ class _AdminScreenState extends State<AdminScreen> {
   Widget _buildActionChip(String label, IconData icon, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 9),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.07),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withValues(alpha: 0.2)),
-      ),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.07), borderRadius: BorderRadius.circular(10), border: Border.all(color: color.withValues(alpha: 0.2))),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(icon, size: 14, color: color),
           const SizedBox(width: 6),
-          Text(label,
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color)),
+          Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color)),
         ],
       ),
     );
@@ -595,19 +443,8 @@ class _AdminScreenState extends State<AdminScreen> {
   Widget _buildMiniBadge({required String label, required Color color}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 9,
-          fontWeight: FontWeight.w800,
-          color: color,
-          letterSpacing: 0.3,
-        ),
-      ),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(6)),
+      child: Text(label, style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: color, letterSpacing: 0.3)),
     );
   }
 
@@ -617,14 +454,7 @@ class _AdminScreenState extends State<AdminScreen> {
       children: [
         Icon(icon, size: 16, color: c),
         const SizedBox(width: 8),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-            color: labelColor ?? AppColors.darkWith(0.6),
-          ),
-        ),
+        Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: labelColor ?? AppColors.darkWith(0.6))),
       ],
     );
   }
@@ -636,37 +466,26 @@ class _AdminScreenState extends State<AdminScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Sticky header — never scrolls ─────────────────────────
           _buildGreeting(),
           if (!_loading && _error == null) ...[
             _buildStatsBar(),
             _buildHardwareSection(),
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 4),
-              child: SectionLabel(
-                label: 'Users',
-                showLiveData: false,
-                icon: Icons.people_alt_rounded,
-              ),
+              child: SectionLabel(label: 'Users', showLiveData: false, icon: Icons.people_alt_rounded),
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
               child: _buildUserFilterTabBar(),
             ),
           ],
-          // ── Scrollable user list ───────────────────────────────────
           Expanded(
             child: _loading
-                ? const Center(
-                    child: CircularProgressIndicator(color: AppColors.primary),
-                  )
+                ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
                 : _error != null
                     ? Padding(
                         padding: const EdgeInsets.all(24),
-                        child: Text(
-                          _error!,
-                          style: const TextStyle(color: AppColors.critical),
-                        ),
+                        child: Text(_error!, style: const TextStyle(color: AppColors.critical)),
                       )
                     : RefreshIndicator(
                         onRefresh: _load,
@@ -692,7 +511,6 @@ class _AdminScreenState extends State<AdminScreen> {
     } else {
       list = List.from(_users);
     }
-    // Always pin the logged-in user's card to the top.
     list.sort((a, b) {
       final aIsSelf = a['uid'] == selfUid ? 0 : 1;
       final bIsSelf = b['uid'] == selfUid ? 0 : 1;
@@ -709,10 +527,7 @@ class _AdminScreenState extends State<AdminScreen> {
     ];
     return Container(
       padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: AppColors.dark.withValues(alpha: 0.02),
-        borderRadius: BorderRadius.circular(14),
-      ),
+      decoration: BoxDecoration(color: AppColors.dark.withValues(alpha: 0.02), borderRadius: BorderRadius.circular(14)),
       child: Row(
         children: List.generate(tabs.length, (i) {
           final isActive = _userFilterTab == i;
@@ -725,32 +540,15 @@ class _AdminScreenState extends State<AdminScreen> {
                   color: isActive ? Colors.white : Colors.transparent,
                   borderRadius: BorderRadius.circular(10),
                   boxShadow: isActive
-                      ? [
-                          BoxShadow(
-                            color: AppColors.dark.withValues(alpha: 0.04),
-                            blurRadius: 6,
-                            offset: const Offset(0, 1),
-                          ),
-                        ]
+                      ? [BoxShadow(color: AppColors.dark.withValues(alpha: 0.04), blurRadius: 6, offset: const Offset(0, 1))]
                       : null,
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(
-                      tabs[i].$1,
-                      size: 13,
-                      color: isActive ? AppColors.primary : AppColors.dark.withValues(alpha: 0.45),
-                    ),
+                    Icon(tabs[i].$1, size: 13, color: isActive ? AppColors.primary : AppColors.dark.withValues(alpha: 0.45)),
                     const SizedBox(width: 6),
-                    Text(
-                      tabs[i].$2,
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: isActive ? AppColors.primary : AppColors.dark.withValues(alpha: 0.45),
-                      ),
-                    ),
+                    Text(tabs[i].$2, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: isActive ? AppColors.primary : AppColors.dark.withValues(alpha: 0.45))),
                   ],
                 ),
               ),
@@ -767,13 +565,7 @@ class _AdminScreenState extends State<AdminScreen> {
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.darkWith(0.08),
-            blurRadius: 12,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        boxShadow: [BoxShadow(color: AppColors.darkWith(0.08), blurRadius: 12, offset: const Offset(0, 2))],
       ),
       child: Container(
         padding: const EdgeInsets.fromLTRB(12, 14, 20, 14),
@@ -781,55 +573,25 @@ class _AdminScreenState extends State<AdminScreen> {
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [
-              Color(0xFFF8FFFF),
-              Color(0xFFF2FDFD),
-              Color(0xFFE8FAFA),
-              Color(0xFFDAF4F5),
-            ],
+            colors: [Color(0xFFF8FFFF), Color(0xFFF2FDFD), Color(0xFFE8FAFA), Color(0xFFDAF4F5)],
           ),
         ),
         child: Row(
           children: [
-            Container(
-              width: 3,
-              height: 40,
-              decoration: BoxDecoration(
-                color: AppColors.primary,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
+            Container(width: 3, height: 40, decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(2))),
             const SizedBox(width: 16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    '${_getGreetingTime()}, Admin!',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.darkText,
-                    ),
-                  ),
+                  Text('${_getGreetingTime()}, Admin!', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.darkText)),
                   const SizedBox(height: 1),
-                  Text(
-                    _getFormattedDate(),
-                    style: const TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w400,
-                      color: AppColors.mutedText,
-                    ),
-                  ),
+                  Text(_getFormattedDate(), style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w400, color: AppColors.mutedText)),
                   const SizedBox(height: 1),
                   Text(
                     "Here's what's happening across all accounts today.",
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w500,
-                      color: AppColors.subtitleText,
-                    ),
+                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: AppColors.subtitleText),
                     maxLines: 2,
                   ),
                 ],
@@ -844,12 +606,8 @@ class _AdminScreenState extends State<AdminScreen> {
 
   Widget _buildHardwareSection() {
     final owner = _currentOwnerUid != null
-        ? _users.cast<Map<String, dynamic>?>().firstWhere(
-            (u) => u?['uid'] == _currentOwnerUid,
-            orElse: () => null,
-          )
+        ? _users.cast<Map<String, dynamic>?>().firstWhere((u) => u?['uid'] == _currentOwnerUid, orElse: () => null)
         : null;
-
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 0, 14, 4),
       child: Column(
@@ -866,11 +624,7 @@ class _AdminScreenState extends State<AdminScreen> {
             decoration: BoxDecoration(
               color: owner != null ? AppColors.success.withValues(alpha: 0.04) : Colors.white,
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: owner != null
-                    ? AppColors.success.withValues(alpha: 0.25)
-                    : AppColors.darkWith(0.08),
-              ),
+              border: Border.all(color: owner != null ? AppColors.success.withValues(alpha: 0.25) : AppColors.darkWith(0.08)),
             ),
             child: owner != null
                 ? Row(
@@ -878,53 +632,24 @@ class _AdminScreenState extends State<AdminScreen> {
                       Container(
                         width: 36,
                         height: 36,
-                        decoration: BoxDecoration(
-                          color: AppColors.success.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(Icons.check_circle_rounded,
-                            size: 20, color: AppColors.success),
+                        decoration: BoxDecoration(color: AppColors.success.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(10)),
+                        child: const Icon(Icons.check_circle_rounded, size: 20, color: AppColors.success),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              _displayName(owner),
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.darkText,
-                              ),
-                            ),
+                            Text(_displayName(owner), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.darkText)),
                             const SizedBox(height: 2),
-                            Text(
-                              owner['email'] as String? ?? '',
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: AppColors.subtitleText,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
+                            Text(owner['email'] as String? ?? '', style: const TextStyle(fontSize: 11, color: AppColors.subtitleText), maxLines: 1, overflow: TextOverflow.ellipsis),
                           ],
                         ),
                       ),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: AppColors.success.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Text(
-                          'Linked',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.success,
-                          ),
-                        ),
+                        decoration: BoxDecoration(color: AppColors.success.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
+                        child: const Text('Linked', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.success)),
                       ),
                     ],
                   )
@@ -933,22 +658,11 @@ class _AdminScreenState extends State<AdminScreen> {
                       Container(
                         width: 36,
                         height: 36,
-                        decoration: BoxDecoration(
-                          color: AppColors.darkWith(0.05),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Icon(Icons.link_off_rounded,
-                            size: 18, color: AppColors.darkWith(0.3)),
+                        decoration: BoxDecoration(color: AppColors.darkWith(0.05), borderRadius: BorderRadius.circular(10)),
+                        child: Icon(Icons.link_off_rounded, size: 18, color: AppColors.darkWith(0.3)),
                       ),
                       const SizedBox(width: 12),
-                      const Text(
-                        'No hardware assigned',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.mutedText,
-                        ),
-                      ),
+                      const Text('No hardware assigned', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.mutedText)),
                     ],
                   ),
           ),
@@ -959,24 +673,18 @@ class _AdminScreenState extends State<AdminScreen> {
 
   Widget _buildStatsBar() {
     final totalUsers = _users.length;
-    final ownerUsers = _users
-        .where((u) => (u['role'] as String? ?? 'owner') == 'owner')
-        .length;
-    final adminUsers = _users
-        .where((u) => (u['role'] as String? ?? 'owner') == 'admin')
-        .length;
-    final disabledUsers = _users
-        .where((u) => (u['status'] ?? 'active') == 'disabled')
-        .length;
+    final ownerUsers = _users.where((u) => (u['role'] as String? ?? 'owner') == 'owner').length;
+    final adminUsers = _users.where((u) => (u['role'] as String? ?? 'owner') == 'admin').length;
+    final disabledUsers = _users.where((u) => (u['status'] ?? 'active') == 'disabled').length;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 4, 14, 10),
+      padding: const EdgeInsets.fromLTRB(14, 3, 14, 8),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final cardWidth = (constraints.maxWidth - 10) / 2;
+          final cardWidth = (constraints.maxWidth - 8) / 2;
           return Wrap(
-            spacing: 10,
-            runSpacing: 10,
+            spacing: 8,
+            runSpacing: 8,
             children: [
               SizedBox(
                 width: cardWidth,
@@ -1033,24 +741,21 @@ class _AdminScreenState extends State<AdminScreen> {
     required Color iconBackground,
   }) {
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(11),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: AppColors.darkWith(0.08)),
       ),
       child: Row(
         children: [
           Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: iconBackground,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, size: 20, color: iconColor),
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(color: iconBackground, borderRadius: BorderRadius.circular(10)),
+            child: Icon(icon, size: 17, color: iconColor),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1058,23 +763,14 @@ class _AdminScreenState extends State<AdminScreen> {
               children: [
                 Text(
                   value,
-                  style: const TextStyle(
-                    fontSize: 21,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.darkText,
-                    height: 1,
-                  ),
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.darkText, height: 1),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(height: 5),
+                const SizedBox(height: 3),
                 Text(
                   label,
-                  style: TextStyle(
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.darkWith(0.48),
-                  ),
+                  style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.48)),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -1095,19 +791,9 @@ class _AdminScreenState extends State<AdminScreen> {
     final isDisabled = status == 'disabled';
     final isDeviceOwner = _currentOwnerUid == uid;
     final isAdmin = role == 'admin';
-    final photoImage = _photoImageProvider(
-      (user['photo_url'] ?? user['photoUrl']) as String?,
-    );
-
+    final photoImage = _photoImageProvider((user['photo_url'] ?? user['photoUrl']) as String?);
     final initials = name.split(' ').map((w) => w.isNotEmpty ? w[0] : '').take(2).join();
-
-    // Accent color mirrors notification type-color logic
-    final Color accentColor = isDisabled
-        ? AppColors.critical
-        : isAdmin
-            ? AppColors.dark
-            : AppColors.primary;
-
+    final Color accentColor = isDisabled ? AppColors.critical : isAdmin ? AppColors.dark : AppColors.primary;
     final bool highlighted = isDeviceOwner || isDisabled;
 
     return GestureDetector(
@@ -1119,37 +805,22 @@ class _AdminScreenState extends State<AdminScreen> {
         decoration: BoxDecoration(
           color: highlighted ? accentColor.withValues(alpha: 0.04) : Colors.white,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: highlighted
-                ? accentColor.withValues(alpha: 0.25)
-                : AppColors.darkWith(0.08),
-            width: highlighted ? 1.5 : 1.0,
-          ),
+          border: Border.all(color: highlighted ? accentColor.withValues(alpha: 0.25) : AppColors.darkWith(0.08), width: highlighted ? 1.5 : 1.0),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Avatar — same 28×28 / radius-8 as notification icon container
             Container(
               width: 28,
               height: 28,
               decoration: BoxDecoration(
                 color: accentColor.withValues(alpha: isDisabled ? 0.07 : 0.12),
                 borderRadius: BorderRadius.circular(8),
-                image: photoImage != null
-                    ? DecorationImage(image: photoImage, fit: BoxFit.cover)
-                    : null,
+                image: photoImage != null ? DecorationImage(image: photoImage, fit: BoxFit.cover) : null,
               ),
               child: photoImage == null
                   ? Center(
-                      child: Text(
-                        initials.toUpperCase(),
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w800,
-                          color: isDisabled ? AppColors.mutedText : accentColor,
-                        ),
-                      ),
+                      child: Text(initials.toUpperCase(), style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: isDisabled ? AppColors.mutedText : accentColor)),
                     )
                   : null,
             ),
@@ -1161,81 +832,30 @@ class _AdminScreenState extends State<AdminScreen> {
                   Row(
                     children: [
                       Expanded(
-                        child: Text(
-                          name,
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: isDisabled ? AppColors.mutedText : AppColors.dark,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                        child: Text(name, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: isDisabled ? AppColors.mutedText : AppColors.dark), maxLines: 1, overflow: TextOverflow.ellipsis),
                       ),
-                      // Hardware-assigned dot — mirrors unread dot in notif card
                       if (isDeviceOwner)
                         Container(
                           width: 7,
                           height: 7,
                           margin: const EdgeInsets.only(left: 4),
-                          decoration: const BoxDecoration(
-                            color: AppColors.primary,
-                            shape: BoxShape.circle,
-                          ),
+                          decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
                         ),
                     ],
                   ),
                   if (email.isNotEmpty) ...[
                     const SizedBox(height: 2),
-                    Text(
-                      email,
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: AppColors.darkWith(0.6),
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                    Text(email, style: TextStyle(fontSize: 10, color: AppColors.darkWith(0.6)), maxLines: 1, overflow: TextOverflow.ellipsis),
                   ],
                   const SizedBox(height: 4),
-                  // Meta row — role · status · hardware tag
                   Row(
                     children: [
-                      Text(
-                        isAdmin ? 'Admin' : 'Owner',
-                        style: TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w700,
-                          color: isDisabled ? AppColors.mutedText : accentColor,
-                        ),
-                      ),
-                      Text(
-                        ' · ',
-                        style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.3)),
-                      ),
-                      Text(
-                        isDisabled ? 'Disabled' : 'Active',
-                        style: TextStyle(
-                          fontSize: 9,
-                          color: isDisabled
-                              ? AppColors.critical
-                              : AppColors.darkWith(0.4),
-                        ),
-                      ),
+                      Text(isAdmin ? 'Admin' : 'Owner', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: isDisabled ? AppColors.mutedText : accentColor)),
+                      Text(' · ', style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.3))),
+                      Text(isDisabled ? 'Disabled' : 'Active', style: TextStyle(fontSize: 9, color: isDisabled ? AppColors.critical : AppColors.darkWith(0.4))),
                       if (isDeviceOwner) ...[
-                        Text(
-                          ' · ',
-                          style: TextStyle(
-                              fontSize: 9, color: AppColors.darkWith(0.3)),
-                        ),
-                        Text(
-                          'Hardware assigned',
-                          style: TextStyle(
-                            fontSize: 9,
-                            color: AppColors.primary,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
+                        Text(' · ', style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.3))),
+                        Text('Hardware assigned', style: TextStyle(fontSize: 9, color: AppColors.primary, fontWeight: FontWeight.w600)),
                       ],
                     ],
                   ),
@@ -1245,11 +865,7 @@ class _AdminScreenState extends State<AdminScreen> {
             const SizedBox(width: 4),
             Padding(
               padding: const EdgeInsets.only(top: 2),
-              child: Icon(
-                Icons.chevron_right_rounded,
-                size: 18,
-                color: AppColors.darkWith(0.2),
-              ),
+              child: Icon(Icons.chevron_right_rounded, size: 18, color: AppColors.darkWith(0.2)),
             ),
           ],
         ),
