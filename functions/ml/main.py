@@ -44,40 +44,24 @@ def _load_model():
             _recs = json.load(f)
     except Exception:
         _recs = {
-            "DO": {
-                "problem": "Low dissolved oxygen",
-                "action": "Increase aeration immediately",
-            },
-            "turbidity": {
-                "problem": "High turbidity",
-                "action": "Partial water change",
-            },
-            "pH": {
-                "problem": "pH imbalance",
-                "action": "Adjust pH to 7.0-8.5",
-            },
-            "temp": {
-                "problem": "Temperature stress",
-                "action": "Add shade or cooling",
-            },
-            "waterLevel": {
-                "problem": "Abnormal water level",
-                "action": "Adjust water level",
-            },
+            "overall": {"problem": "Water-quality assessment", "action": "Continue monitoring."},
+            "DO": {"problem": "Low dissolved oxygen", "action": "Increase aeration immediately"},
+            "turbidity": {"problem": "High turbidity", "action": "Partial water change"},
+            "pH": {"problem": "pH imbalance", "action": "Adjust pH to 7.0-8.5"},
+            "temp": {"problem": "Temperature stress", "action": "Add shade or cooling"},
+            "waterLevel": {"problem": "Abnormal water level", "action": "Adjust water level"},
         }
     return _bundle, _recs
 
 
 def _predict_wqc(df):
-    """Run Water Quality Classification (ML or rule-based) on a sensor DataFrame.
-
-    Thin wrapper around the shared features.predict_wqc() — kept here so
-    on_sensor_update() doesn't need to know about model/recs loading.
-    """
+    """Run WQC classification, then explain it using the recent sensor window."""
     from features import predict_wqc
+    from assessment_interpreter import enrich_assessment
 
     bundle, recs = _load_model()
-    return predict_wqc(df, bundle, recs)
+    result = predict_wqc(df, bundle, recs)
+    return enrich_assessment(result, df, recs)
 
 
 def _fetch_sensor_history(tank_id: str, hours: int = 24):
@@ -89,7 +73,6 @@ def _fetch_sensor_history(tank_id: str, hours: int = 24):
     now_utc = datetime.now(timezone.utc)
     rows = []
 
-    # History is partitioned by Manila date: tanks/{tankId}/sensor_readings_history/{date}/entries.
     manila_now = now_utc + timedelta(hours=8)
     manila_cutoff = cutoff + timedelta(hours=8)
     current_day = manila_cutoff.date()
@@ -115,23 +98,13 @@ def _fetch_sensor_history(tank_id: str, hours: int = 24):
                 if any(v is None or not isinstance(v, (int, float)) or v < 0 for v in base_values):
                     print(f"[WQC] Skipping incomplete/invalid history doc {doc.id}")
                     continue
-                temp_min = data.get("temp_min", temp)
-                temp_max = data.get("temp_max", temp)
-                ph_min = data.get("pH_min", ph)
-                ph_max = data.get("pH_max", ph)
-                do_min = data.get("DO_min", do)
-                do_max = data.get("DO_max", do)
-                turb_min = data.get("turbidity_min", turb)
-                turb_max = data.get("turbidity_max", turb)
-                water_min = data.get("waterLevel_min", water)
-                water_max = data.get("waterLevel_max", water)
                 rows.append({
                     "timestamp": recorded_at.timestamp(),
-                    "temp_avg": temp, "temp_min": temp_min, "temp_max": temp_max,
-                    "pH_avg": ph, "pH_min": ph_min, "pH_max": ph_max,
-                    "DO_avg": do, "DO_min": do_min, "DO_max": do_max,
-                    "turbidity_avg": turb, "turbidity_min": turb_min, "turbidity_max": turb_max,
-                    "waterLevel_avg": water, "waterLevel_min": water_min, "waterLevel_max": water_max,
+                    "temp_avg": temp, "temp_min": data.get("temp_min", temp), "temp_max": data.get("temp_max", temp),
+                    "pH_avg": ph, "pH_min": data.get("pH_min", ph), "pH_max": data.get("pH_max", ph),
+                    "DO_avg": do, "DO_min": data.get("DO_min", do), "DO_max": data.get("DO_max", do),
+                    "turbidity_avg": turb, "turbidity_min": data.get("turbidity_min", turb), "turbidity_max": data.get("turbidity_max", turb),
+                    "waterLevel_avg": water, "waterLevel_min": data.get("waterLevel_min", water), "waterLevel_max": data.get("waterLevel_max", water),
                 })
         except Exception as e:
             print(f"[WQC] Error fetching {tank_id}/{date_key}: {e}")
@@ -144,7 +117,7 @@ from firebase_functions import scheduler_fn
 
 
 def _analyze_tank(tank_id: str) -> None:
-    """Run one complete 1-hour water-quality assessment for a tank."""
+    """Run one complete one-hour water-quality assessment for a tank."""
     db = _get_db()
     tank = db.collection("tanks").document(tank_id).get()
     owner_uid = (tank.to_dict() or {}).get("owner_uid", "") if tank.exists else ""
@@ -160,6 +133,8 @@ def _analyze_tank(tank_id: str) -> None:
             "problem": "Not enough data collected yet",
             "insight": "A minimum of six 10-minute history readings is required.",
             "action": "Continue collecting data. The first assessment will be available after about one hour.",
+            "concerns": [],
+            "secondary_concerns": [],
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     else:
