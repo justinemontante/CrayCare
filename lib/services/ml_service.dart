@@ -17,22 +17,14 @@ class MlService extends ChangeNotifier {
   Map<String, dynamic>? get latestPrediction => _latestPrediction;
   bool get loading => _loading;
   String? get error => _error;
-
   bool get hasData => _latestPrediction != null;
 
   bool get hasFreshData {
     if (_latestPrediction == null) return false;
-
     final parsed = parsePredictionTimestamp(_latestPrediction!['timestamp']);
     if (parsed == null) return false;
-
-    final now = DateTime.now().toUtc();
-    final age = now.difference(parsed);
-
-    // Reject predictions from clocks that are materially ahead of this device.
-    // A small tolerance avoids false negatives from normal clock skew.
+    final age = DateTime.now().toUtc().difference(parsed);
     if (age < const Duration(seconds: -30)) return false;
-
     return age < const Duration(minutes: 2);
   }
 
@@ -62,7 +54,7 @@ class MlService extends ChangeNotifier {
     }
   }
 
-  void _startListening() async {
+  Future<void> _startListening() async {
     _sub?.cancel();
     _loading = true;
     _error = null;
@@ -78,11 +70,18 @@ class MlService extends ChangeNotifier {
 
     try {
       final profile = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      if (profile.data()?['role'] == 'admin') {
+        _latestPrediction = null;
+        _loading = false;
+        _error = null;
+        notifyListeners();
+        return;
+      }
       final tankId = profile.data()?['tank_id'] as String? ?? uid;
       _sub = FirebaseFirestore.instance
           .collection('tanks')
           .doc(tankId)
-          .collection('ml_predictions')
+          .collection('machine_learning_assessments')
           .doc('current')
           .snapshots()
           .listen(_onPredictionUpdate, onError: (e) {
@@ -105,16 +104,10 @@ class MlService extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    try {
-      _latestPrediction = snapshot.data()!;
-      _error = null;
-      _loading = false;
-      notifyListeners();
-    } catch (e) {
-      _error = 'Failed to parse ML prediction: $e';
-      _loading = false;
-      notifyListeners();
-    }
+    _latestPrediction = snapshot.data()!;
+    _error = null;
+    _loading = false;
+    notifyListeners();
   }
 
   @override
