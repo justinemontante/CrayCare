@@ -6,7 +6,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../theme/app_colors.dart';
 import '../services/notification_service.dart';
 import '../services/connectivity_service.dart';
-import '../utils/craycare_background_image.dart';
 import 'dashboard_screen.dart';
 import 'analytics_screen.dart';
 import 'controls_screen.dart';
@@ -122,10 +121,10 @@ class _MainShellState extends State<MainShell> {
     return Scaffold(
       key: _scaffoldKey,
       body: DecoratedBox(
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           color: Colors.white,
           image: DecorationImage(
-            image: crayCareBackgroundImage,
+            image: AssetImage('assets/images/dashboard_background.png'),
             fit: BoxFit.cover,
             alignment: Alignment.topCenter,
           ),
@@ -170,10 +169,10 @@ class _MainShellState extends State<MainShell> {
     return Container(
       height: 92,
       width: double.infinity,
-      decoration: BoxDecoration(
-        color: const Color(0xFFF4FFFF),
+      decoration: const BoxDecoration(
+        color: Color(0xFFF4FFFF),
         image: DecorationImage(
-          image: crayCareHeaderBackgroundImage,
+          image: AssetImage('assets/images/dashboard_background.png'),
           fit: BoxFit.cover,
           alignment: Alignment.topCenter,
         ),
