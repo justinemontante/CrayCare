@@ -12,6 +12,7 @@ class SettingsService extends ChangeNotifier {
 
   bool _initialized = false;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _sensorsSub;
+  StreamSubscription<User?>? _authSub;
   late Map<String, Map<String, double>> _ranges;
 
   Map<String, Map<String, double>> get currentRanges => _ranges;
@@ -68,12 +69,19 @@ class SettingsService extends ChangeNotifier {
     await _syncFromFirebase();
     _initialized = true;
     _listenRealtime();
-    FirebaseAuth.instance.authStateChanges().listen((user) {
-      if (user != null) {
-        _tankId = null;
-        _syncFromFirebase();
-        _listenRealtime();
-      }
+
+    // Resolve the new user's tank before starting its threshold listener.
+    // Previously _listenRealtime() ran immediately after kicking off the
+    // async sync, while _tankId was still null, so it returned without ever
+    // subscribing after a login/account switch.
+    _authSub?.cancel();
+    _authSub = FirebaseAuth.instance.authStateChanges().listen((user) async {
+      await _sensorsSub?.cancel();
+      _sensorsSub = null;
+      _tankId = null;
+      if (user == null) return;
+      await _syncFromFirebase();
+      _listenRealtime();
     });
   }
 
@@ -248,6 +256,7 @@ class SettingsService extends ChangeNotifier {
   @override
   void dispose() {
     _sensorsSub?.cancel();
+    _authSub?.cancel();
     super.dispose();
   }
 }
