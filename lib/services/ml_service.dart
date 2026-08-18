@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'connectivity_service.dart';
+import '../utils/timestamp_parser.dart';
 
 class MlService extends ChangeNotifier {
   static final MlService instance = MlService._();
@@ -22,14 +23,14 @@ class MlService extends ChangeNotifier {
   bool get hasFreshData {
     if (_latestPrediction == null) return false;
     final ts = _latestPrediction!['timestamp'];
-    // The Cloud Function (main.py / features.py) writes this as an ISO 8601
-    // UTC string (datetime.isoformat()), not a numeric epoch — parse it the
-    // same way HealthRiskService does, or this always evaluates to false.
-    if (ts is! String) return false;
-    final parsed = DateTime.tryParse(ts);
+    // Current predictions use ISO 8601, while older/admin-written documents
+    // can contain Firestore Timestamp or epoch-millisecond values.
+    final parsed = parseFirestoreDateTime(ts);
     if (parsed == null) return false;
     final age = DateTime.now().toUtc().difference(parsed.toUtc());
-    return age < const Duration(minutes: 2);
+    // A future timestamp (bad device/admin clock) must not remain "fresh"
+    // until wall time catches up with it.
+    return !age.isNegative && age < const Duration(minutes: 2);
   }
 
   void init() {

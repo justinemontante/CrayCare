@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'connectivity_service.dart';
+import '../utils/timestamp_parser.dart';
 
 class HealthRiskResult {
   final String level;
@@ -58,9 +59,7 @@ class HealthRiskResult {
       analysisMode: data['analysis_mode'] as String? ?? 'Water-quality assessment',
       samplesAnalyzed: (data['samples_analyzed'] as num?)?.toInt() ?? 0,
       requiredSamples: (data['required_samples'] as num?)?.toInt() ?? 6,
-      timestamp: data['timestamp'] != null
-          ? DateTime.tryParse(data['timestamp'] as String) ?? DateTime.now()
-          : DateTime.now(),
+      timestamp: parseFirestoreDateTime(data['timestamp']) ?? DateTime.now(),
     );
   }
 
@@ -192,11 +191,16 @@ class HealthRiskService extends ChangeNotifier {
           .doc(tankId)
           .collection('ml_predictions')
           .orderBy('ts_epoch', descending: true)
-          .limit(30)
+          // Fetch one extra because `current` is part of the collection but is
+          // removed below; consumers still receive up to 30 history entries.
+          .limit(31)
           .snapshots()
           .listen((snap) {
         final list = <HealthRiskResult>[];
         for (final doc in snap.docs) {
+          // `current` mirrors the newest timestamped history document. Keeping
+          // it in this query duplicates an assessment in charts and exports.
+          if (doc.id == 'current') continue;
           final data = doc.data();
           if (data.isEmpty) continue;
           list.add(HealthRiskResult.fromMap(data));
