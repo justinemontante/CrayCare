@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'connectivity_service.dart';
+import '../utils/prediction_timestamp.dart';
 
 class MlService extends ChangeNotifier {
   static final MlService instance = MlService._();
@@ -21,14 +22,17 @@ class MlService extends ChangeNotifier {
 
   bool get hasFreshData {
     if (_latestPrediction == null) return false;
-    final ts = _latestPrediction!['timestamp'];
-    // The Cloud Function (main.py / features.py) writes this as an ISO 8601
-    // UTC string (datetime.isoformat()), not a numeric epoch — parse it the
-    // same way HealthRiskService does, or this always evaluates to false.
-    if (ts is! String) return false;
-    final parsed = DateTime.tryParse(ts);
+
+    final parsed = parsePredictionTimestamp(_latestPrediction!['timestamp']);
     if (parsed == null) return false;
-    final age = DateTime.now().toUtc().difference(parsed.toUtc());
+
+    final now = DateTime.now().toUtc();
+    final age = now.difference(parsed);
+
+    // Reject predictions from clocks that are materially ahead of this device.
+    // A small tolerance avoids false negatives from normal clock skew.
+    if (age < const Duration(seconds: -30)) return false;
+
     return age < const Duration(minutes: 2);
   }
 
