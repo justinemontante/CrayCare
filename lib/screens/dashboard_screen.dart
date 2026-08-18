@@ -398,7 +398,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                     sensorKey: 'temp',
                     title: 'Temperature',
                     unit: '\u00B0C',
-                    ideal: '25 \u2013 30\u00B0C',
+                    ideal: _getIdealText('temp'),
                     iconPath: 'assets/images/temperature.png',
                   ),
                 ),
@@ -425,7 +425,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                     sensorKey: 'ph',
                     title: 'pH Level',
                     unit: 'pH',
-                    ideal: '7.0 \u2013 8.5',
+                    ideal: _getIdealText('ph'),
                     iconPath: 'assets/images/pH.png',
                   ),
                 ),
@@ -456,7 +456,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                     sensorKey: 'do',
                     title: 'Dissolved O\u2082',
                     unit: 'mg/L',
-                    ideal: '>5.0 mg/L',
+                    ideal: _getIdealText('do'),
                     iconPath: 'assets/images/DO.png',
                   ),
                 ),
@@ -483,7 +483,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                     sensorKey: 'turb',
                     title: 'Turbidity',
                     unit: 'NTU',
-                    ideal: '0 \u2013 25 NTU',
+                    ideal: _getIdealText('turb'),
                     iconPath: 'assets/images/Turbidity.png',
                   ),
                 ),
@@ -676,7 +676,7 @@ class _DashboardScreenState extends State<DashboardScreen>
           sensorKey: 'waterlevel',
           title: 'Water Level',
           unit: 'cm',
-          ideal: '130 \u2013 180 cm',
+          ideal: _getIdealText('waterlevel'),
           iconPath: 'assets/images/waterLevel.png',
         ),
       ),
@@ -845,9 +845,6 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   Widget _buildTankStatusCard() {
     final tank = TankService.instance;
-    // Dashboard must describe one coherent batch. Prefer the batch selected in
-    // TankService (including an archive); otherwise show the active/latest one.
-    // Previously it displayed the active batch header with archived sampling data.
     final batch = tank.selectedBatch ?? tank.activeOrLatestBatch;
     final hasActive = batch?.status == 'active';
     final hasBatch = batch != null;
@@ -898,67 +895,67 @@ class _DashboardScreenState extends State<DashboardScreen>
         ],
       ),
       child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-                child: Row(
-                  children: [
-                    Icon(Icons.inventory_2_outlined, size: 18, color: AppColors.primary),
-                    const SizedBox(width: 10),
-                    const Text(
-                      'Crayfish Information',
-                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.dark),
-                    ),
-                    const Spacer(),
-                    GestureDetector(
-                      onTap: () {
-                        if (batch != null) {
-                          tank.selectBatch(batch.batchId);
-                        }
-                        widget.onTankTab?.call(0);
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: AppColors.primary.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              hasActive ? 'Manage' : (hasBatch ? 'View' : 'Initialize'),
-                              style: const TextStyle(
-                                fontSize: 9,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.primary,
-                              ),
-                            ),
-                            const SizedBox(width: 2),
-                            const Icon(Icons.chevron_right, size: 10, color: AppColors.primary),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+            child: Row(
+              children: [
+                Icon(Icons.inventory_2_outlined, size: 18, color: AppColors.primary),
+                const SizedBox(width: 10),
+                const Text(
+                  'Crayfish Information',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.dark),
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  children: [
-                    Expanded(child: _buildStatColumn('assets/images/InitialPopulationNo.png', popStr, 'Initial Population')),
-                    Expanded(child: _buildStatColumn('assets/images/SurvivalRate.png', survivalStr, 'Survival Rate')),
-                    Expanded(child: _buildStatColumn('assets/images/AliveNo.png', aliveStr, 'In Tank')),
-                    Expanded(child: _buildStatColumn('assets/images/mortalityNo.png', mortalityStr, 'Mortality', valueColor: AppColors.critical)),
-                  ],
+                const Spacer(),
+                GestureDetector(
+                  onTap: () {
+                    if (batch != null) {
+                      tank.selectBatch(batch.batchId);
+                    }
+                    widget.onTankTab?.call(0);
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          hasActive ? 'Manage' : (hasBatch ? 'View' : 'Initialize'),
+                          style: const TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                        const SizedBox(width: 2),
+                        const Icon(Icons.chevron_right, size: 10, color: AppColors.primary),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
-              _buildCrayfishGraySection(tank, hasActive, batch),
-            ],
+              ],
+            ),
           ),
-        );
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Expanded(child: _buildStatColumn('assets/images/InitialPopulationNo.png', popStr, 'Initial Population')),
+                Expanded(child: _buildStatColumn('assets/images/SurvivalRate.png', survivalStr, 'Survival Rate')),
+                Expanded(child: _buildStatColumn('assets/images/AliveNo.png', aliveStr, 'In Tank')),
+                Expanded(child: _buildStatColumn('assets/images/mortalityNo.png', mortalityStr, 'Mortality', valueColor: AppColors.critical)),
+              ],
+            ),
+          ),
+          _buildCrayfishGraySection(tank, hasActive, batch),
+        ],
+      ),
+    );
   }
 
   Widget _buildCrayfishGraySection(TankService tank, bool hasActive, [CrayfishBatch? batch]) {
@@ -971,10 +968,6 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     if (hasActive && batch != null) {
       final history = tank.samplingHistory;
-      // Baseline (initial) measurement is recorded at stocking but is NOT a
-      // weekly sampling. Prefer the latest weekly entry for the displayed
-      // ABW/ABL/Last Sampling so the dashboard doesn't look frozen on Day 0
-      // after setup; fall back to baseline values before any weekly sample.
       final weekly = history.where((e) => !e.isBaseline).toList();
       final latest = weekly.isNotEmpty ? weekly.last : null;
       abw = latest != null ? latest.abw : tank.initialWeight;
@@ -999,11 +992,8 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (abw <= 0) {
       stageLabel = '--';
     } else if (hasActive && isSelected) {
-      // Use the same ABW+ABL classification as the production/tank screens.
       stageLabel = tank.currentGrowthStage.label;
     } else {
-      // Archived batches retain final measurements; apply the same conservative
-      // rule (both weight and length must pass a stage boundary).
       if (abw < 5 || abl < 4) {
         stageLabel = 'Early Juvenile';
       } else if (abw < 15 || abl < 6) {
@@ -1093,10 +1083,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
     final daysLeft = tank.daysUntilNextSampling;
     final isReady = daysLeft == 0;
-
-    // The next sampling date is always 7 calendar days from the last WEEKLY
-    // sampling (or from the stocking date if none yet). The baseline record
-    // written at setup must NOT shift the anchor by 7 days.
     final weekly = tank.samplingHistory.where((e) => !e.isBaseline).toList();
     String nextDateStr;
     if (weekly.isNotEmpty) {
@@ -1494,7 +1480,6 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Widget _buildModalTrendIndicator(String trend, double rate, String status, {String? sensorKey, double? value}) {
-    // Delegate direction semantics to the class-level helpers (single source of truth).
     final v = value ?? 0.0;
     final risingIsGood = sensorKey != null && _risingIsGood(sensorKey, v);
     final fallingIsGood = sensorKey != null && _fallingIsGood(sensorKey, v);
@@ -1535,7 +1520,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         label = status == 'OPTIMAL' ? 'Stable' : '';
         break;
     }
-    
+
     return Row(
       mainAxisSize: MainAxisSize.min,
       mainAxisAlignment: MainAxisAlignment.center,
@@ -1573,7 +1558,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     final isMaxBound = rMax < 999.0;
     final rangeSpan = isMaxBound ? (rMax - rMin) : rMin;
     final warningThreshold = rangeSpan * 0.10;
-    
+
     final checkLower = rMin > 0.0;
     final checkUpper = isMaxBound;
 
@@ -1655,264 +1640,267 @@ class _DashboardScreenState extends State<DashboardScreen>
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'Details',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.dark,
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Details',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.dark,
+                            ),
                           ),
+                          GestureDetector(
+                            onTap: () {
+                              Navigator.pop(ctx);
+                              widget.onViewGraph?.call(sensorKey);
+                            },
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  'View Live Graph',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
+                                SizedBox(width: 3),
+                                Icon(
+                                  Icons.chevron_right,
+                                  size: 11,
+                                  color: AppColors.primary,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: AppColors.primaryWith(0.1),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            padding: const EdgeInsets.all(7),
+                            child: Image.asset(iconPath),
+                          ),
+                          const SizedBox(width: 10),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                title,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.dark,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: statusColor.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Text(
+                                  status,
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
+                                    color: statusColor,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFf7f7f7),
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                        GestureDetector(
-                          onTap: () {
-                            Navigator.pop(ctx);
-                            widget.onViewGraph?.call(sensorKey);
-                          },
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.baseline,
+                              textBaseline: TextBaseline.alphabetic,
+                              children: [
+                                Text(
+                                  formattedValue,
+                                  style: const TextStyle(
+                                    fontSize: 32,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppColors.dark,
+                                    height: 1,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  unit,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.darkWith(0.4),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (hasData) ...[
+                              const SizedBox(height: 6),
+                              _buildModalTrendIndicator(
+                                ss.getTrend(sensorKey),
+                                ss.getTrendRate(sensorKey),
+                                status,
+                                sensorKey: sensorKey,
+                                value: value,
+                              ),
+                            ]
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.primaryWith(0.06),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Text(
-                                'View Live Graph',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppColors.primary,
-                                ),
-                              ),
-                              const SizedBox(width: 3),
-                              const Icon(
-                                Icons.chevron_right,
-                                size: 11,
-                                color: AppColors.primary,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Container(
-                          width: 36,
-                          height: 36,
-                          decoration: BoxDecoration(
-                            color: AppColors.primaryWith(0.1),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          padding: const EdgeInsets.all(7),
-                          child: Image.asset(iconPath),
-                        ),
-                        const SizedBox(width: 10),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              title,
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.dark,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: statusColor.withValues(alpha: 0.15),
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: Text(
-                                status,
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w700,
-                                  color: statusColor,
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFf7f7f7),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.baseline,
-                            textBaseline: TextBaseline.alphabetic,
-                            children: [
-                              Text(
-                                formattedValue,
-                                style: const TextStyle(
-                                  fontSize: 32,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppColors.dark,
-                                  height: 1,
-                                ),
+                              Icon(
+                                Icons.access_time,
+                                size: 10,
+                                color: AppColors.primaryWith(0.6),
                               ),
                               const SizedBox(width: 4),
                               Text(
-                                unit,
+                                hasData
+                                    ? _formatTimestamp(
+                                        SensorService.instance.lastUpdated,
+                                      )
+                                    : 'Captured: --',
                                 style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.darkWith(0.4),
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w500,
+                                  color: AppColors.darkWith(0.5),
                                 ),
                               ),
                             ],
                           ),
-                          if (hasData) ...[
-                            const SizedBox(height: 6),
-                            _buildModalTrendIndicator(ss.getTrend(sensorKey), ss.getTrendRate(sensorKey), status, sensorKey: sensorKey, value: value),
-                          ]
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Center(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 3,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.primaryWith(0.06),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.access_time,
-                              size: 10,
-                              color: AppColors.primaryWith(0.6),
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              hasData
-                                  ? _formatTimestamp(
-                                      SensorService.instance.lastUpdated,
-                                    )
-                                  : 'Captured: --',
-                              style: TextStyle(
-                                fontSize: 9,
-                                fontWeight: FontWeight.w500,
-                                color: AppColors.darkWith(0.5),
-                              ),
-                            ),
-                          ],
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 6),
-                    if (hasData) ...[
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 6),
+                      ...legends.map(
+                        (l) => Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFf9f9f9),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  width: 8,
+                                  height: 8,
+                                  margin: const EdgeInsets.only(top: 2),
+                                  decoration: BoxDecoration(
+                                    color: l.color,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        l.label,
+                                        style: const TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w700,
+                                          color: AppColors.dark,
+                                        ),
+                                      ),
+                                      Text(
+                                        l.range,
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          color: const Color(
+                                            0xFF0B3C49,
+                                          ).withValues(alpha: 0.75),
+                                        ),
+                                      ),
+                                      Text(
+                                        l.desc,
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          color: const Color(
+                                            0xFF0B3C49,
+                                          ).withValues(alpha: 0.65),
+                                          height: 1.3,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      SizedBox(
+                        width: double.infinity,
+                        child: TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          style: TextButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 9),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          child: const Text(
+                            'Close',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
                     ],
-                    ...legends.map(
-                      (l) => Padding(
-                        padding: const EdgeInsets.only(bottom: 4),
-                        child: Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFf9f9f9),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                width: 8,
-                                height: 8,
-                                margin: const EdgeInsets.only(top: 2),
-                                decoration: BoxDecoration(
-                                  color: l.color,
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      l.label,
-                                      style: const TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w700,
-                                        color: AppColors.dark,
-                                      ),
-                                    ),
-                                    Text(
-                                      l.range,
-                                      style: TextStyle(
-                                        fontSize: 9,
-                                        color: const Color(
-                                          0xFF0B3C49,
-                                        ).withValues(alpha: 0.75),
-                                      ),
-                                    ),
-                                    Text(
-                                      l.desc,
-                                      style: TextStyle(
-                                        fontSize: 9,
-                                        color: const Color(
-                                          0xFF0B3C49,
-                                        ).withValues(alpha: 0.65),
-                                        height: 1.3,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    SizedBox(
-                      width: double.infinity,
-                      child: TextButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        style: TextButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 9),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                        child: const Text(
-                          'Close',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
-            ),
-          );
-        },
+            );
+          },
         );
       },
     );
@@ -2226,5 +2214,3 @@ class _AnimatedDaysLeftState extends State<_AnimatedDaysLeft>
     );
   }
 }
-
-
