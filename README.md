@@ -19,7 +19,7 @@ ESP32 (anonymous device session)
       → Cloud Function routes to tanks/{tankId}/sensor_readings/latest + history
           → Flutter app reads live/analytics data
           → hourly Python WQC function analyzes ≥6 complete history windows
-              → tanks/{tankId}/ml_predictions/current → dashboard + AI insights
+              → tanks/{tankId}/machine_learning_assessments/current → dashboard + AI insights
 ```
 
 Single hardware package assigned to one farmer via `hardware_system/currentOwner`
