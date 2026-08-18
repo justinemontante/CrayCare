@@ -161,40 +161,103 @@ class _MainShellState extends State<MainShell> {
   }
 
   Widget _buildHeader(ImageProvider<Object>? photoImage) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft, end: Alignment.bottomRight,
-          colors: [Color(0xFFF8FFFF), Color(0xFFF2FDFD), Color(0xFFE8FAFA), Color(0xFFDAF4F5)],
-        ),
-        border: Border(bottom: BorderSide(color: Color(0x0f000000), width: 1)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return SizedBox(
+      height: 82,
+      width: double.infinity,
+      child: Stack(
+        fit: StackFit.expand,
         children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Image.asset('assets/images/logo.png', width: 42, height: 42),
-              const SizedBox(width: 6),
-              const Text('Cray', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.dark, letterSpacing: -0.3)),
-              const Text('Care', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.primary, letterSpacing: -0.3)),
-            ],
-          ),
-          GestureDetector(
-            onTap: () async {
-              final result = await Navigator.push<String>(context, MaterialPageRoute(builder: (_) => SettingsScreen(initialPhotoUrl: _photoUrl)));
-              if (result != null && mounted) setState(() => _setPhoto(result));
-            },
-            child: Container(
-              width: 42, height: 42,
-              decoration: BoxDecoration(
-                color: photoImage == null ? AppColors.primary : null,
-                shape: BoxShape.circle,
-                image: photoImage != null ? DecorationImage(image: photoImage, fit: BoxFit.cover) : null,
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFFF5FFFF),
+                  Color(0xFFE9FBFB),
+                  Color(0xFFD8F5F6),
+                  Color(0xFFC9F0F1),
+                ],
+                stops: [0.0, 0.36, 0.70, 1.0],
               ),
-              child: photoImage == null ? const Icon(Icons.person, color: Colors.white, size: 20) : null,
+            ),
+          ),
+          Positioned.fill(
+            child: IgnorePointer(
+              child: CustomPaint(
+                painter: _HeaderWavePainter(),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 18),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Image.asset('assets/images/logo.png', width: 42, height: 42),
+                    const SizedBox(width: 6),
+                    const Text(
+                      'Cray',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.dark,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                    const Text(
+                      'Care',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.primary,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                  ],
+                ),
+                GestureDetector(
+                  onTap: () async {
+                    final result = await Navigator.push<String>(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => SettingsScreen(initialPhotoUrl: _photoUrl),
+                      ),
+                    );
+                    if (result != null && mounted) {
+                      setState(() => _setPhoto(result));
+                    }
+                  },
+                  child: Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: photoImage == null ? AppColors.primary : null,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.72),
+                        width: 1.5,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.primary.withValues(alpha: 0.13),
+                          blurRadius: 9,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                      image: photoImage != null
+                          ? DecorationImage(image: photoImage, fit: BoxFit.cover)
+                          : null,
+                    ),
+                    child: photoImage == null
+                        ? const Icon(Icons.person, color: Colors.white, size: 20)
+                        : null,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -328,6 +391,94 @@ class _MainShellState extends State<MainShell> {
       ),
     );
   }
+}
+
+class _HeaderWavePainter extends CustomPainter {
+  const _HeaderWavePainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final backWave = Path()
+      ..moveTo(0, size.height * 0.58)
+      ..cubicTo(
+        size.width * 0.18,
+        size.height * 0.48,
+        size.width * 0.30,
+        size.height * 0.78,
+        size.width * 0.50,
+        size.height * 0.66,
+      )
+      ..cubicTo(
+        size.width * 0.70,
+        size.height * 0.54,
+        size.width * 0.82,
+        size.height * 0.46,
+        size.width,
+        size.height * 0.58,
+      )
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, size.height)
+      ..close();
+
+    canvas.drawPath(
+      backWave,
+      Paint()..color = const Color(0xFFFFFFFF).withValues(alpha: 0.28),
+    );
+
+    final midWave = Path()
+      ..moveTo(0, size.height * 0.72)
+      ..cubicTo(
+        size.width * 0.22,
+        size.height * 0.60,
+        size.width * 0.34,
+        size.height * 0.90,
+        size.width * 0.56,
+        size.height * 0.73,
+      )
+      ..cubicTo(
+        size.width * 0.74,
+        size.height * 0.60,
+        size.width * 0.88,
+        size.height * 0.72,
+        size.width,
+        size.height * 0.66,
+      )
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, size.height)
+      ..close();
+
+    canvas.drawPath(
+      midWave,
+      Paint()..color = const Color(0xFFEAFBFB).withValues(alpha: 0.78),
+    );
+
+    final whiteWave = Path()
+      ..moveTo(0, size.height * 0.82)
+      ..cubicTo(
+        size.width * 0.18,
+        size.height * 0.74,
+        size.width * 0.35,
+        size.height * 1.02,
+        size.width * 0.56,
+        size.height * 0.84,
+      )
+      ..cubicTo(
+        size.width * 0.75,
+        size.height * 0.68,
+        size.width * 0.88,
+        size.height * 0.90,
+        size.width,
+        size.height * 0.78,
+      )
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, size.height)
+      ..close();
+
+    canvas.drawPath(whiteWave, Paint()..color = Colors.white);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _NavItem {
