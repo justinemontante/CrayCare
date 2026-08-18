@@ -21,9 +21,9 @@ async function check() {
   const tankId = assignment.exists ? assignment.data().tank_id : null;
   if (!tankId) throw new Error('No hardware owner/tank is currently assigned.');
 
-  const pathText = `tanks/${tankId}/ml_predictions/current`;
+  const pathText = `tanks/${tankId}/machine_learning_assessments/current`;
   const snapshot = await db.collection('tanks').doc(tankId)
-    .collection('ml_predictions').doc('current').get();
+    .collection('machine_learning_assessments').doc('current').get();
   if (snapshot.exists) {
     console.log(`✅ ${pathText} EXISTS:\n`);
     console.log(JSON.stringify(snapshot.data(), null, 2));
