@@ -16,14 +16,14 @@ class ReportExportService {
   static final ReportExportService instance = ReportExportService._();
   ReportExportService._();
 
-  // Brand palette — matches the app:
-  //   "Cray" dark teal  = #0B3C49
-  //   "Care" accent     = #1FA5A5
-  // Tables/headers use the "Care" accent (not green), section titles use the
-  // dark "Cray" teal so the report matches the in-app identity.
-  static const PdfColor _careColor = PdfColor.fromInt(0xFF1FA5A5);
-  static const PdfColor _careColorDark = PdfColor.fromInt(0xFF167A7A);
-  static const PdfColor _crayColor = PdfColor.fromInt(0xFF0B3C49);
+  // Report palette:
+  //   Table headers / accents = blue (#2563EB, darker #1D4ED8)
+  //   Section titles / text    = deep navy (#0F172A)
+  // Green is intentionally not used so the report matches the requested
+  // blue-themed export instead of the in-app sensor-status colors.
+  static const PdfColor _careColor = PdfColor.fromInt(0xFF2563EB);
+  static const PdfColor _careColorDark = PdfColor.fromInt(0xFF1D4ED8);
+  static const PdfColor _crayColor = PdfColor.fromInt(0xFF0F172A);
 
   // ── CSV helpers ────────────────────────────────────────────────────────
   static String _cell(Object? value) {
