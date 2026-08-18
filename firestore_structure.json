@@ -179,10 +179,7 @@
           "problem",
           "insight",
           "action",
-          "source (standards/citation text)",
-          "analysis_mode",
-          "samples_analyzed",
-          "required_samples",
+          "ts_epoch (epoch seconds)",
           "timestamp (ISO-8601 string)"
         ]
       }
