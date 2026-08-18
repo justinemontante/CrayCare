@@ -114,9 +114,9 @@ Legacy/idempotency marker used by manual app dispatch flows. Each schedule docum
 
 ### `tanks/{tankId}/ml_predictions/current` ✓
 **Written hourly by the Python WQC Cloud Function** (Admin SDK). The app reads it with snapshot listeners.
-`uid`, `tank_id`, `level` (`Low`|`Moderate`|`High`|`Critical`|`Insufficient`), `confidence`, `driver`, `driver_label`, `driver_value`, `driver_unit`, `driver_min`, `driver_max`, `problem`, `insight`, `action`, `source` (standards/citation text), `analysis_mode`, `samples_analyzed`, `required_samples`, `timestamp` (ISO-8601 string).
+`uid`, `tank_id`, `level` (`Low`|`Moderate`|`High`|`Critical`|`Insufficient`), `confidence`, `driver`, `driver_label`, `driver_value`, `driver_unit`, `driver_min`, `driver_max`, `problem`, `insight`, `action`, `ts_epoch`, `timestamp` (ISO-8601 string).
 
-There is no public WQC numeric score. At least six complete 10-minute records are required; incomplete sensor records are skipped rather than converted to zero.
+There is no public WQC numeric score. At least six complete 10-minute records are still required internally before an assessment can be produced; incomplete sensor records are skipped rather than converted to zero.
 
 ---
 
