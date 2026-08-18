@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../theme/app_colors.dart';
 import '../services/notification_service.dart';
 import '../services/connectivity_service.dart';
+import '../utils/craycare_background_image.dart';
 import 'dashboard_screen.dart';
 import 'analytics_screen.dart';
 import 'controls_screen.dart';
@@ -13,7 +14,6 @@ import 'production_screen.dart';
 import 'notifications_screen.dart';
 import 'settings_screen.dart';
 import 'admin_screen.dart';
-
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -121,146 +121,133 @@ class _MainShellState extends State<MainShell> {
 
     return Scaffold(
       key: _scaffoldKey,
-      body: Stack(
-        children: [
-          Column(
-            children: [
-              _buildHeader(photoImage),
-              _buildOfflineBanner(),
-              Expanded(
-                  child: _isAdmin
-                      ? const AdminScreen()
-                      : IndexedStack(
-                          index: _currentIndex,
-                          children: [
-                            DashboardScreen(
-                              onViewGraph: _goToAnalytics,
-                              onNavigate: (i) => setState(() => _currentIndex = i),
-                              onTankTab: (tab) {
-                                setState(() => _currentIndex = 2);
-                                _productionKey.currentState?.switchToTab(tab);
-                              },
-                              onControlTab: (tab) {
-                                setState(() => _currentIndex = 3);
-                                _controlsKey.currentState?.switchToTab(tab);
-                              },
-                            ),
-                            AnalyticsScreen(key: _analyticsKey),
-                            ProductionScreen(key: _productionKey),
-                            ControlsScreen(key: _controlsKey),
-                            const NotificationsScreen(),
-                          ],
-                        ),
-              ),
-              if (!_isAdmin) _buildBottomNav(),
-            ],
+      body: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          image: DecorationImage(
+            image: crayCareBackgroundImage,
+            fit: BoxFit.cover,
+            alignment: Alignment.topCenter,
           ),
-        ],
+        ),
+        child: Column(
+          children: [
+            _buildHeader(photoImage),
+            _buildOfflineBanner(),
+            Expanded(
+              child: _isAdmin
+                  ? const AdminScreen()
+                  : IndexedStack(
+                      index: _currentIndex,
+                      children: [
+                        DashboardScreen(
+                          onViewGraph: _goToAnalytics,
+                          onNavigate: (i) => setState(() => _currentIndex = i),
+                          onTankTab: (tab) {
+                            setState(() => _currentIndex = 2);
+                            _productionKey.currentState?.switchToTab(tab);
+                          },
+                          onControlTab: (tab) {
+                            setState(() => _currentIndex = 3);
+                            _controlsKey.currentState?.switchToTab(tab);
+                          },
+                        ),
+                        AnalyticsScreen(key: _analyticsKey),
+                        ProductionScreen(key: _productionKey),
+                        ControlsScreen(key: _controlsKey),
+                        const NotificationsScreen(),
+                      ],
+                    ),
+            ),
+            if (!_isAdmin) _buildBottomNav(),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildHeader(ImageProvider<Object>? photoImage) {
-    return SizedBox(
-      height: 82,
+    return Container(
+      height: 92,
       width: double.infinity,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          const DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Color(0xFFF5FFFF),
-                  Color(0xFFE9FBFB),
-                  Color(0xFFD8F5F6),
-                  Color(0xFFC9F0F1),
-                ],
-                stops: [0.0, 0.36, 0.70, 1.0],
-              ),
-            ),
-          ),
-          Positioned.fill(
-            child: IgnorePointer(
-              child: CustomPaint(
-                painter: _HeaderWavePainter(),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 18),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      decoration: BoxDecoration(
+        color: const Color(0xFFF4FFFF),
+        image: DecorationImage(
+          image: crayCareHeaderBackgroundImage,
+          fit: BoxFit.cover,
+          alignment: Alignment.topCenter,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Image.asset('assets/images/logo.png', width: 42, height: 42),
-                    const SizedBox(width: 6),
-                    const Text(
-                      'Cray',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.dark,
-                        letterSpacing: -0.3,
-                      ),
-                    ),
-                    const Text(
-                      'Care',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.primary,
-                        letterSpacing: -0.3,
-                      ),
-                    ),
-                  ],
+                Image.asset('assets/images/logo.png', width: 42, height: 42),
+                const SizedBox(width: 6),
+                const Text(
+                  'Cray',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.dark,
+                    letterSpacing: -0.3,
+                  ),
                 ),
-                GestureDetector(
-                  onTap: () async {
-                    final result = await Navigator.push<String>(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => SettingsScreen(initialPhotoUrl: _photoUrl),
-                      ),
-                    );
-                    if (result != null && mounted) {
-                      setState(() => _setPhoto(result));
-                    }
-                  },
-                  child: Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: photoImage == null ? AppColors.primary : null,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.72),
-                        width: 1.5,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.primary.withValues(alpha: 0.13),
-                          blurRadius: 9,
-                          offset: const Offset(0, 3),
-                        ),
-                      ],
-                      image: photoImage != null
-                          ? DecorationImage(image: photoImage, fit: BoxFit.cover)
-                          : null,
-                    ),
-                    child: photoImage == null
-                        ? const Icon(Icons.person, color: Colors.white, size: 20)
-                        : null,
+                const Text(
+                  'Care',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.primary,
+                    letterSpacing: -0.3,
                   ),
                 ),
               ],
             ),
-          ),
-        ],
+            GestureDetector(
+              onTap: () async {
+                final result = await Navigator.push<String>(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => SettingsScreen(initialPhotoUrl: _photoUrl),
+                  ),
+                );
+                if (result != null && mounted) {
+                  setState(() => _setPhoto(result));
+                }
+              },
+              child: Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: photoImage == null ? AppColors.primary : null,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.78),
+                    width: 1.5,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.primary.withValues(alpha: 0.13),
+                      blurRadius: 9,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                  image: photoImage != null
+                      ? DecorationImage(image: photoImage, fit: BoxFit.cover)
+                      : null,
+                ),
+                child: photoImage == null
+                    ? const Icon(Icons.person, color: Colors.white, size: 20)
+                    : null,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -340,12 +327,15 @@ class _MainShellState extends State<MainShell> {
           Stack(
             clipBehavior: Clip.none,
             children: [
-              Icon(item.icon, size: 22,
+              Icon(
+                item.icon,
+                size: 22,
                 color: isActive ? AppColors.primary : AppColors.darkWith(0.3),
               ),
               if (unread > 0)
                 Positioned(
-                  top: -2, right: -4,
+                  top: -2,
+                  right: -4,
                   child: Container(
                     padding: EdgeInsets.all(unread > 9 ? 2 : 4),
                     decoration: const BoxDecoration(
@@ -371,9 +361,11 @@ class _MainShellState extends State<MainShell> {
           const SizedBox(height: 2),
           FittedBox(
             fit: BoxFit.scaleDown,
-            child: Text(item.label,
+            child: Text(
+              item.label,
               style: TextStyle(
-                fontSize: 9, fontWeight: FontWeight.w600,
+                fontSize: 9,
+                fontWeight: FontWeight.w600,
                 color: isActive ? AppColors.primary : AppColors.darkWith(0.4),
               ),
             ),
@@ -381,7 +373,8 @@ class _MainShellState extends State<MainShell> {
           if (isActive)
             Container(
               margin: const EdgeInsets.only(top: 2),
-              width: 20, height: 3,
+              width: 20,
+              height: 3,
               decoration: const BoxDecoration(
                 color: AppColors.primary,
                 borderRadius: BorderRadius.all(Radius.circular(3)),
@@ -391,94 +384,6 @@ class _MainShellState extends State<MainShell> {
       ),
     );
   }
-}
-
-class _HeaderWavePainter extends CustomPainter {
-  const _HeaderWavePainter();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final backWave = Path()
-      ..moveTo(0, size.height * 0.58)
-      ..cubicTo(
-        size.width * 0.18,
-        size.height * 0.48,
-        size.width * 0.30,
-        size.height * 0.78,
-        size.width * 0.50,
-        size.height * 0.66,
-      )
-      ..cubicTo(
-        size.width * 0.70,
-        size.height * 0.54,
-        size.width * 0.82,
-        size.height * 0.46,
-        size.width,
-        size.height * 0.58,
-      )
-      ..lineTo(size.width, size.height)
-      ..lineTo(0, size.height)
-      ..close();
-
-    canvas.drawPath(
-      backWave,
-      Paint()..color = const Color(0xFFFFFFFF).withValues(alpha: 0.28),
-    );
-
-    final midWave = Path()
-      ..moveTo(0, size.height * 0.72)
-      ..cubicTo(
-        size.width * 0.22,
-        size.height * 0.60,
-        size.width * 0.34,
-        size.height * 0.90,
-        size.width * 0.56,
-        size.height * 0.73,
-      )
-      ..cubicTo(
-        size.width * 0.74,
-        size.height * 0.60,
-        size.width * 0.88,
-        size.height * 0.72,
-        size.width,
-        size.height * 0.66,
-      )
-      ..lineTo(size.width, size.height)
-      ..lineTo(0, size.height)
-      ..close();
-
-    canvas.drawPath(
-      midWave,
-      Paint()..color = const Color(0xFFEAFBFB).withValues(alpha: 0.78),
-    );
-
-    final whiteWave = Path()
-      ..moveTo(0, size.height * 0.82)
-      ..cubicTo(
-        size.width * 0.18,
-        size.height * 0.74,
-        size.width * 0.35,
-        size.height * 1.02,
-        size.width * 0.56,
-        size.height * 0.84,
-      )
-      ..cubicTo(
-        size.width * 0.75,
-        size.height * 0.68,
-        size.width * 0.88,
-        size.height * 0.90,
-        size.width,
-        size.height * 0.78,
-      )
-      ..lineTo(size.width, size.height)
-      ..lineTo(0, size.height)
-      ..close();
-
-    canvas.drawPath(whiteWave, Paint()..color = Colors.white);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _NavItem {
