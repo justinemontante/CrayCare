@@ -196,8 +196,8 @@ tanks/{tank_id}/batches/{batch_id}
     confidence: number
     driver, driver_label, driver_value, driver_unit
     driver_min, driver_max
-    problem, insight, action, source, analysis_mode
-    samples_analyzed, required_samples
+    problem, insight, action
+    ts_epoch: epoch seconds
     timestamp: ISO-8601 string
 ```
 
