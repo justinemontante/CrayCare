@@ -158,7 +158,7 @@ class ReportExportService {
 
     buf.writeln(_row([
       'Timestamp', 'Level', 'Confidence (%)', 'Driver', 'Driver Value',
-      'Unit', 'Problem', 'Action', 'Samples Analyzed', 'Analysis Mode',
+      'Unit', 'Problem', 'Action',
     ]));
     for (final h in history) {
       buf.writeln(_row([
@@ -170,8 +170,6 @@ class ReportExportService {
         h.driverUnit,
         h.problem,
         h.action,
-        h.samplesAnalyzed,
-        h.analysisMode,
       ]));
     }
     buf.writeln();
@@ -183,8 +181,6 @@ class ReportExportService {
     buf.writeln(_row(['Primary Driver', latest.driverLabel]));
     buf.writeln(_row(['Insight', latest.insight]));
     buf.writeln(_row(['Recommended Action', latest.action]));
-    buf.writeln(_row(['Source', latest.source]));
-    buf.writeln(_row(['Analysis Mode', latest.analysisMode]));
 
     return buf.toString();
   }
@@ -423,8 +419,6 @@ class ReportExportService {
               ['Primary Driver', _pdfSafe(history.first.driverLabel)],
               ['Insight', _pdfSafe(history.first.insight)],
               ['Recommended Action', _pdfSafe(history.first.action)],
-              ['Source', _pdfSafe(history.first.source)],
-              ['Analysis Mode', _pdfSafe(history.first.analysisMode)],
             ],
           ),
         ],
