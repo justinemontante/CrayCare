@@ -35,9 +35,6 @@ class _MovableAiLogoState extends State<MovableAiLogo>
   }
 
   Widget _buildAIInsightsSheet(BuildContext ctx) {
-    // Fixed (not just max-constrained) height so the Expanded list below
-    // actually has something bounded to expand into. A loose maxHeight-only
-    // constraint here was the cause of the broken/squished layout.
     final sheetHeight = MediaQuery.of(context).size.height * 0.85;
 
     return SafeArea(
@@ -67,7 +64,6 @@ class _MovableAiLogoState extends State<MovableAiLogo>
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Drag handle
                 Center(
                   child: Container(
                     width: 40,
@@ -143,9 +139,8 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                       ? _buildStateMessage(
                           icon: Icons.cloud_off_rounded,
                           loading: false,
-                          message: hr.result != null
-                              ? 'CrayAI is building your tank profile. ${hr.result!.samplesAnalyzed} / ${hr.result!.requiredSamples} readings collected. About 1 hour of sensor history is needed for the first assessment.'
-                              : 'CrayAI is building your tank profile. It needs at least 6 history readings (about 1 hour) before the first assessment.',
+                          message:
+                              'CrayAI is building your tank profile. About 1 hour of sensor history is needed for the first assessment.',
                         )
                       : ListView(
                           padding: const EdgeInsets.only(bottom: 24),
@@ -174,8 +169,6 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                               icon: Icons.lightbulb_outline,
                               color: AppColors.warningDark,
                             ),
-                            const SizedBox(height: 12),
-                            _buildSourceCard(hr.result!),
                           ],
                         ),
                 ),
@@ -338,13 +331,20 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                   Expanded(
                     child: Text(
                       '${result.driverLabel}: ${result.driverValue!.toStringAsFixed(1)} ${result.driverUnit}',
-                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.dark),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.dark,
+                      ),
                     ),
                   ),
                   if (result.driverMin != null || result.driverMax != null)
                     Text(
                       'Ideal: ${result.driverMin?.toStringAsFixed(1) ?? '—'} – ${result.driverMax?.toStringAsFixed(1) ?? '—'} ${result.driverUnit}',
-                      style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.5)),
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: AppColors.darkWith(0.5),
+                      ),
                     ),
                 ],
               ),
@@ -352,7 +352,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
           ],
           const SizedBox(height: 10),
           Text(
-            '${result.analysisMode} • Updated ${_relativeTime(result.timestamp)}',
+            'Updated ${_relativeTime(result.timestamp)}',
             style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.45)),
           ),
         ],
@@ -473,41 +473,6 @@ class _MovableAiLogoState extends State<MovableAiLogo>
     );
   }
 
-  Widget _buildSourceCard(HealthRiskResult result) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.darkWith(0.03),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.auto_awesome_rounded, size: 14, color: AppColors.primary),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'Source: ${result.source}',
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w500,
-                color: AppColors.mutedText,
-                fontStyle: FontStyle.italic,
-              ),
-            ),
-          ),
-          Text(
-            'WQC v1',
-            style: TextStyle(
-              fontSize: 9,
-              fontWeight: FontWeight.w700,
-              color: AppColors.primary.withValues(alpha: 0.6),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   IconData _iconForLevel(String level) {
     switch (level) {
       case 'Low':
@@ -543,7 +508,6 @@ class _MovableAiLogoState extends State<MovableAiLogo>
           _isInitialized = true;
         }
 
-        // Extra space around the logo so the pulse glow isn't clipped.
         const glowPad = 14.0;
 
         return Stack(
@@ -567,8 +531,6 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                   child: AnimatedBuilder(
                     animation: _pulseController,
                     builder: (context, child) {
-                      // 0 -> 1 -> 0 breathing motion driven by the (now
-                      // actually used) pulse controller.
                       final t = _pulseController.value;
                       final glowScale = 1.0 + (t * 0.22);
                       final glowOpacity = 0.28 * (1 - t);
@@ -576,7 +538,6 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                       return Stack(
                         alignment: Alignment.center,
                         children: [
-                          // Soft pulse ring behind the logo.
                           Transform.scale(
                             scale: glowScale,
                             child: Container(
@@ -590,8 +551,6 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                               ),
                             ),
                           ),
-                          // Main button: border ring + white inner
-                          // disc so the logo art stays legible on any screen.
                           child!,
                         ],
                       );
