@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/control_types.dart';
+import '../utils/prediction_timestamp.dart';
 
 class AutoActuatorEvent {
   final String actuatorId;
@@ -82,12 +83,11 @@ class ActuatorLogService extends ChangeNotifier {
           .listen((snapshot) {
         final list = snapshot.docs.map((doc) {
           final map = doc.data();
-          // time/date are derived from logged_at (no longer stored) so the
-          // display matches the single source of truth for "when".
-          final ts = map['logged_at'] as int? ?? 0;
-          final dt = ts > 0
-              ? DateTime.fromMillisecondsSinceEpoch(ts).toLocal()
-              : null;
+          // Accept the canonical epoch-ms value plus legacy/admin-written
+          // Timestamp, DateTime, ISO string, or epoch-second representations.
+          final parsed = parsePredictionTimestamp(map['logged_at']);
+          final dt = parsed?.toLocal();
+          final ts = parsed?.millisecondsSinceEpoch ?? 0;
           return LogEntry(
             map['action'] as String? ?? '',
             map['type'] as String? ?? '',
@@ -112,16 +112,15 @@ class ActuatorLogService extends ChangeNotifier {
             _seenKeys.add(key);
             if (!action.contains('(AUTO)')) continue;
 
-            final tsRaw = data['logged_at'] as num? ?? 0;
-            final tsMs = tsRaw < 100000000000 ? tsRaw * 1000 : tsRaw;
-            final ts = DateTime.fromMillisecondsSinceEpoch(tsMs.toInt());
+            final ts = parsePredictionTimestamp(data['logged_at']);
+            if (ts == null) continue;
             final label = actuatorLabels[actuatorId] ?? actuatorId;
 
             _autoControlController.add(AutoActuatorEvent(
               actuatorId: actuatorId,
               actuatorLabel: label,
               action: action,
-              timestamp: ts,
+              timestamp: ts.toLocal(),
             ));
           }
         }
