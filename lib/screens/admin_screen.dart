@@ -1,12 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
-
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-
-import '../services/database_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../theme/app_colors.dart';
+import '../services/database_service.dart';
+import '../widgets/section_label.dart';
 import '../utils/snackbar_helper.dart';
 
 class AdminScreen extends StatefulWidget {
@@ -17,16 +16,14 @@ class AdminScreen extends StatefulWidget {
 }
 
 class _AdminScreenState extends State<AdminScreen> {
-  final TextEditingController _search = TextEditingController();
-  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _usersSub;
-  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _ownerSub;
-
   List<Map<String, dynamic>> _users = [];
-  String? _ownerUid;
-  String _query = '';
-  int _filter = 0; // 0 all, 1 owners, 2 admins
+  // UID of the owner currently assigned to the hardware (hardware_system/currentOwner)
+  String? _currentOwnerUid;
   bool _loading = true;
   String? _error;
+  int _userFilterTab = 0; // 0 = All, 1 = Owners, 2 = Admins
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _usersSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _ownerSub;
 
   @override
   void initState() {
@@ -37,434 +34,858 @@ class _AdminScreenState extends State<AdminScreen> {
 
   @override
   void dispose() {
-    _search.dispose();
     _usersSub?.cancel();
     _ownerSub?.cancel();
     super.dispose();
   }
 
+  // Real-time listeners so the admin screen reflects Firebase changes
+  // instantly (e.g. another device links/unlinks hardware, a user is
+  // created/disabled, or the console changes something) without needing
+  // to leave and reopen the screen.
   void _listenRealtime() {
     _usersSub?.cancel();
-    _usersSub = FirebaseFirestore.instance.collection('users').snapshots().listen(
-      (snapshot) {
-        final users = snapshot.docs.map((doc) {
-          final data = Map<String, dynamic>.from(doc.data());
-          data['uid'] = doc.id;
-          return data;
-        }).toList();
-        if (!mounted) return;
-        setState(() {
-          _users = users;
-          _loading = false;
-          _error = null;
-        });
-      },
-      onError: (error) {
-        debugPrint('[AdminScreen] users stream error: $error');
-        if (!mounted) return;
-        setState(() {
-          _loading = false;
-          _error = 'Unable to load users.';
-        });
-      },
-    );
-
-    _ownerSub?.cancel();
-    _ownerSub = DatabaseService.instance.streamCurrentOwner().listen(
-      (doc) {
-        if (!mounted) return;
-        setState(() => _ownerUid = doc.data()?['uid'] as String?);
-      },
-      onError: (error) =>
-          debugPrint('[AdminScreen] owner stream error: $error'),
-    );
-  }
-
-  Future<void> _load() async {
-    if (mounted) {
-      setState(() {
-        _loading = true;
-        _error = null;
-      });
-    }
-    try {
-      final users = await DatabaseService.instance.getAllUsers();
-      final ownerUid = await DatabaseService.instance.getCurrentOwnerUid();
+    _usersSub = FirebaseFirestore.instance
+        .collection('users')
+        .snapshots()
+        .listen((snap) {
+      final users = snap.docs
+          .map((d) {
+            final data = Map<String, dynamic>.from(d.data());
+            data['uid'] = d.id;
+            return data;
+          })
+          .toList()
+        ..sort((a, b) => (a['email'] as String? ?? '')
+            .compareTo(b['email'] as String? ?? ''));
       if (!mounted) return;
       setState(() {
         _users = users;
-        _ownerUid = ownerUid;
-        _loading = false;
+        _error = null;
       });
-    } catch (error) {
-      debugPrint('[AdminScreen] load error: $error');
+    }, onError: (e) {
+      debugPrint('[AdminScreen] users stream error: $e');
+    });
+
+    _ownerSub?.cancel();
+    _ownerSub = DatabaseService.instance.streamCurrentOwner().listen((doc) {
+      final data = doc.data();
+      final uid = data?['uid'] as String?;
       if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _error = 'Unable to load admin data.';
-      });
-    }
+      setState(() => _currentOwnerUid = uid);
+    }, onError: (e) {
+      debugPrint('[AdminScreen] owner stream error: $e');
+    });
+  }
+
+  String _getGreetingTime() {
+    final hour = DateTime.now().hour;
+    if (hour < 12) return 'Good Morning';
+    if (hour < 18) return 'Good Afternoon';
+    return 'Good Evening';
+  }
+
+  String _getFormattedDate() {
+    final now = DateTime.now();
+    const weekdays = [
+      'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday',
+    ];
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June', 'July',
+      'August', 'September', 'October', 'November', 'December',
+    ];
+    return '${weekdays[now.weekday % 7]}, ${months[now.month - 1]} ${now.day}, ${now.year}';
   }
 
   String _displayName(Map<String, dynamic> user) {
-    return (user['full_name'] as String?) ??
-        (user['fullName'] as String?) ??
+    return (user['fullName'] as String?) ??
         (user['displayName'] as String?) ??
         (user['email'] as String?) ??
         'User';
   }
 
-  List<Map<String, dynamic>> get _visibleUsers {
-    final selfUid = FirebaseAuth.instance.currentUser?.uid;
-    final query = _query.trim().toLowerCase();
-    final visible = _users.where((user) {
-      final role = (user['role'] as String? ?? 'owner').toLowerCase();
-      if (_filter == 1 && role != 'owner') return false;
-      if (_filter == 2 && role != 'admin') return false;
-      if (query.isEmpty) return true;
-      final name = _displayName(user).toLowerCase();
-      final email = (user['email'] as String? ?? '').toLowerCase();
-      return name.contains(query) || email.contains(query);
-    }).toList();
-
-    visible.sort((a, b) {
-      final aSelf = a['uid'] == selfUid ? 0 : 1;
-      final bSelf = b['uid'] == selfUid ? 0 : 1;
-      if (aSelf != bSelf) return aSelf.compareTo(bSelf);
-      return _displayName(a)
-          .toLowerCase()
-          .compareTo(_displayName(b).toLowerCase());
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
     });
-    return visible;
-  }
+    try {
+      // Load users first — this must succeed.
+      final users = await DatabaseService.instance.getAllUsers();
+      users.sort((a, b) => (a['email'] as String? ?? '')
+          .compareTo(b['email'] as String? ?? ''));
 
-  Map<String, dynamic>? get _hardwareOwner {
-    for (final user in _users) {
-      if (user['uid'] == _ownerUid) return user;
+      // Load current hardware owner — non-fatal if the document doesn't exist yet.
+      String? currentOwner;
+      try {
+        currentOwner = await DatabaseService.instance.getCurrentOwnerUid();
+      } catch (e, stack) { debugPrint('[Admin] action error: $e\n$stack'); }
+
+      if (!mounted) return;
+      setState(() {
+        _users = users;
+        _currentOwnerUid = currentOwner;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Failed to load admin data: $e';
+        _loading = false;
+      });
     }
-    return null;
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return ColoredBox(
-      color: const Color(0xFFF7FAFA),
-      child: RefreshIndicator(
-        color: AppColors.primary,
-        onRefresh: _load,
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(14, 14, 14, 32),
+  Future<bool?> _confirm({required String title, required String message, IconData? icon, Color? iconColor}) {
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        title: null,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildHeader(),
-            const SizedBox(height: 12),
-            if (_loading)
-              const Padding(
-                padding: EdgeInsets.only(top: 80),
-                child: Center(
-                  child: CircularProgressIndicator(color: AppColors.primary),
+            if (icon != null)
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: (iconColor ?? AppColors.primary).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-              )
-            else if (_error != null)
-              _buildErrorState()
-            else ...[
-              _buildStats(),
-              const SizedBox(height: 12),
-              _buildHardwareCard(),
-              const SizedBox(height: 18),
-              _buildUsersHeader(),
-              const SizedBox(height: 10),
-              _buildSearchBox(),
-              const SizedBox(height: 9),
-              _buildFilters(),
-              const SizedBox(height: 10),
-              if (_visibleUsers.isEmpty)
-                _buildEmptyState()
-              else
-                ..._visibleUsers.map(
-                  (user) => Padding(
-                    padding: const EdgeInsets.only(bottom: 9),
-                    child: _buildUserCard(user),
-                  ),
-                ),
-            ],
+                child: Icon(icon, size: 22, color: iconColor ?? AppColors.primary),
+              ),
+            if (icon != null) const SizedBox(height: 16),
+            Text(title,
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.darkText)),
+            const SizedBox(height: 8),
+            Text(message,
+                style: const TextStyle(fontSize: 12, color: AppColors.subtitleText, height: 1.5)),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildHeader() {
-    return Container(
-      padding: const EdgeInsets.all(17),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Colors.white, Color(0xFFF0FBFB), Color(0xFFE4F7F7)],
-        ),
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: AppColors.primary.withValues(alpha: 0.12)),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.dark.withValues(alpha: 0.05),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(15),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
-            child: const Icon(
-              Icons.admin_panel_settings_rounded,
-              color: AppColors.primary,
-              size: 25,
-            ),
+            child: const Text('Cancel', style: TextStyle(color: AppColors.mutedText, fontWeight: FontWeight.w600, fontSize: 13)),
           ),
-          const SizedBox(width: 13),
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Admin Center',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.darkText,
-                  ),
-                ),
-                SizedBox(height: 4),
-                Text(
-                  'Accounts, roles and hardware access',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: AppColors.subtitleText,
-                  ),
-                ),
-              ],
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
+            child: const Text('Confirm', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
           ),
-          _buildBadge('LIVE', AppColors.success, dot: true),
         ],
       ),
     );
   }
 
-  Widget _buildStats() {
-    final owners = _users
-        .where((user) => (user['role'] as String? ?? 'owner') == 'owner')
-        .length;
-    final admins = _users
-        .where((user) => (user['role'] as String? ?? 'owner') == 'admin')
-        .length;
-    final disabled = _users
-        .where((user) =>
-            (user['status'] as String? ?? 'active') == 'disabled')
-        .length;
+  // A regular SnackBar is anchored to this screen's own Scaffold, which
+  // sits BELOW modal bottom sheets in the overlay stack — so it renders
+  // hidden behind the modal instead of on top of it. Inserting into the
+  void _openUserSheet(Map<String, dynamic> user) {
+    final uid = user['uid'] as String;
+    final name = _displayName(user);
+    final email = user['email'] as String? ?? '';
+    final role = (user['role'] as String?) ?? 'owner';
+    final status = (user['status'] as String?) ?? 'active';
+    final isAdmin = role == 'admin';
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final width = (constraints.maxWidth - 10) / 2;
-        return Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-            SizedBox(
-              width: width,
-              child: _buildStatCard(
-                'Total users',
-                '${_users.length}',
-                Icons.groups_rounded,
-                AppColors.primary,
+    final initials = name.split(' ').map((w) => w.isNotEmpty ? w[0] : '').take(2).join();
+    final avatarColor = isAdmin ? AppColors.dark : AppColors.primary;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        // Sheet is closed after every action; feedback is shown via the
+        // app-wide snackbar, so no mutable sheet state is needed.
+        final currentStatus = status;
+        final bool isLinked = _currentOwnerUid == uid;
+
+        return StatefulBuilder(
+          builder: (ctx, _) {
+            final bool isDisabled = currentStatus == 'disabled';
+
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade300,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // User avatar + name
+                    Container(
+                      width: 56,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        color: avatarColor.withValues(alpha: isDisabled ? 0.06 : 0.1),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: avatarColor.withValues(alpha: isDisabled ? 0.08 : 0.15),
+                          width: 2,
+                        ),
+                      ),
+                      child: Center(
+                        child: Text(
+                          initials.toUpperCase(),
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            color: isDisabled ? AppColors.mutedText : avatarColor,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(name,
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          color: isDisabled ? AppColors.mutedText : AppColors.darkText,
+                        )),
+                    if (email.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(email,
+                          style: const TextStyle(fontSize: 12, color: AppColors.subtitleText),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis),
+                    ],
+                    const SizedBox(height: 4),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _buildMiniBadge(
+                          label: role.toUpperCase(),
+                          color: isAdmin ? AppColors.dark : AppColors.primary,
+                        ),
+                        const SizedBox(width: 8),
+                        _buildMiniBadge(
+                          label: isDisabled ? 'DISABLED' : 'ACTIVE',
+                          color: isDisabled ? AppColors.critical : AppColors.success,
+                        ),
+                        if (isLinked) ...[
+                          const SizedBox(width: 8),
+                          _buildMiniBadge(label: 'HARDWARE', color: AppColors.primary),
+                        ],
+                      ],
+                    ),
+
+                    const SizedBox(height: 20),
+                    Container(height: 1, color: AppColors.darkWith(0.06)),
+                    const SizedBox(height: 16),
+
+                    // Status section
+                    _buildSectionHeader(
+                      Icons.circle,
+                      'Account Status',
+                      iconColor: isDisabled ? AppColors.critical : AppColors.success,
+                    ),
+                    const SizedBox(height: 10),
+                    GestureDetector(
+                      onTap: () async {
+                        final selfUid = FirebaseAuth.instance.currentUser?.uid;
+                        if (uid == selfUid) {
+                          final messenger = ScaffoldMessenger.of(ctx);
+                          if (ctx.mounted) Navigator.pop(ctx);
+                          showBeautifulSnackbarWithMessenger(
+                            messenger,
+                            'You can\'t disable your own admin account.',
+                            false,
+                          );
+                          return;
+                        }
+                        final newStatus = isDisabled ? 'active' : 'disabled';
+                        final confirmed = await _confirm(
+                          title: isDisabled ? 'Enable account?' : 'Disable account?',
+                          message: isDisabled
+                              ? '$name will be able to sign in again.'
+                              : '$name will be signed out and blocked from signing back in.',
+                          icon: isDisabled ? Icons.lock_open_rounded : Icons.lock_rounded,
+                          iconColor: isDisabled ? AppColors.success : AppColors.critical,
+                        );
+                        if (confirmed != true || !ctx.mounted) return;
+                        final messenger = ScaffoldMessenger.of(ctx);
+                        await DatabaseService.instance.setUserStatus(uid, newStatus);
+                        if (!mounted) return;
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        showBeautifulSnackbarWithMessenger(
+                          messenger,
+                          newStatus == 'disabled'
+                              ? '${_displayName(user)} account disabled.'
+                              : '${_displayName(user)} account enabled.',
+                          true,
+                        );
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: (isDisabled ? AppColors.critical : AppColors.success).withValues(alpha: 0.06),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: (isDisabled ? AppColors.critical : AppColors.success).withValues(alpha: 0.15),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 36,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                color: (isDisabled ? AppColors.critical : AppColors.success).withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Icon(
+                                isDisabled ? Icons.lock_rounded : Icons.lock_open_rounded,
+                                size: 18,
+                                color: isDisabled ? AppColors.critical : AppColors.success,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    isDisabled ? 'Account Disabled' : 'Account Active',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                      color: isDisabled ? AppColors.critical : AppColors.success,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 1),
+                                  Text(
+                                    isDisabled
+                                        ? 'Tap to re-enable this account'
+                                        : 'Tap to disable this account',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: AppColors.darkWith(0.45),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Icon(
+                              isDisabled ? Icons.toggle_on_rounded : Icons.toggle_off_rounded,
+                              size: 32,
+                              color: isDisabled ? AppColors.critical : AppColors.success,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // Hardware Assignment section (owners only)
+                    if (!isAdmin) ...[
+                      _buildSectionHeader(Icons.developer_board_rounded, 'Hardware'),
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: AppColors.darkWith(0.03),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: AppColors.darkWith(0.08)),
+                        ),
+                        child: isLinked
+                            ? Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Container(
+                                        width: 36,
+                                        height: 36,
+                                        decoration: BoxDecoration(
+                                          color: AppColors.success.withValues(alpha: 0.1),
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        child: const Icon(Icons.check_circle_rounded,
+                                            size: 18, color: AppColors.success),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            const Text('Hardware linked',
+                                                style: TextStyle(
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: AppColors.success)),
+                                            const SizedBox(height: 2),
+                                            Text('Data routes to ${_displayName(user)}\'s account',
+                                                style: const TextStyle(
+                                                    fontSize: 11,
+                                                    color: AppColors.subtitleText)),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 10),
+                                  SizedBox(
+                                    width: double.infinity,
+                                    child: GestureDetector(
+                                      onTap: () async {
+                                        final confirmed = await _confirm(
+                                          title: 'Unassign Hardware?',
+                                          message:
+                                              '${_displayName(user)} will lose access to the hardware. Sensor data, auto feeder, and all device features will stop routing to their account.',
+                                          icon: Icons.link_off_rounded,
+                                          iconColor: AppColors.critical,
+                                        );
+                                        if (confirmed != true || !ctx.mounted) return;
+                                        final messenger = ScaffoldMessenger.of(ctx);
+                                        try {
+                                          await DatabaseService.instance.removeCurrentOwner();
+                                        } catch (e) {
+                                          if (!mounted) return;
+                                          if (ctx.mounted) Navigator.pop(ctx);
+                                          showBeautifulSnackbarWithMessenger(
+                                            messenger,
+                                            'Failed to unassign hardware: ${e.toString().replaceFirst('Exception: ', '')}',
+                                            false,
+                                          );
+                                          return;
+                                        }
+                                        if (!mounted) return;
+                                        if (ctx.mounted) Navigator.pop(ctx);
+                                        showBeautifulSnackbarWithMessenger(
+                                          messenger,
+                                          'Hardware unassigned.',
+                                          true,
+                                        );
+                                      },
+                                      child: _buildActionChip(
+                                          'Unassign', Icons.link_off_rounded, AppColors.critical),
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : GestureDetector(
+                                onTap: () async {
+                                  // Check if hardware is already linked to a different owner.
+                                  final currentOwner = _currentOwnerUid;
+                                  final isReassign = currentOwner != null && currentOwner != uid;
+                                  final otherName = isReassign
+                                      ? _displayName(_users.firstWhere(
+                                          (u) => u['uid'] == currentOwner,
+                                          orElse: () => <String, dynamic>{'fullName': 'another user'},
+                                        ))
+                                      : null;
+                                  if (!ctx.mounted) return;
+                                  final confirmed = await _confirm(
+                                    title: isReassign ? 'Reassign Hardware?' : 'Link Hardware?',
+                                    message: isReassign
+                                        ? 'This hardware is currently linked to $otherName. It will be unlinked from them and linked to ${_displayName(user)} instead.'
+                                        : 'The hardware will be linked to ${_displayName(user)}\'s account. Sensor data and all device features will route to them.',
+                                    icon: Icons.developer_board_rounded,
+                                    iconColor: isReassign ? AppColors.warning : AppColors.primary,
+                                  );
+                                  if (confirmed != true || !ctx.mounted) return;
+                                  final messenger = ScaffoldMessenger.of(ctx);
+                                  try {
+                                    await DatabaseService.instance.setCurrentOwner(uid);
+                                  } catch (e) {
+                                    if (!mounted) return;
+                                    if (ctx.mounted) Navigator.pop(ctx);
+                                    showBeautifulSnackbarWithMessenger(
+                                      messenger,
+                                      'Failed to link hardware: ${e.toString().replaceFirst('Exception: ', '')}',
+                                      false,
+                                    );
+                                    return;
+                                  }
+                                  if (!mounted) return;
+                                  if (ctx.mounted) Navigator.pop(ctx);
+                                  showBeautifulSnackbarWithMessenger(
+                                    messenger,
+                                    'Hardware linked to ${_displayName(user)}.',
+                                    true,
+                                  );
+                                },
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 36,
+                                      height: 36,
+                                      decoration: BoxDecoration(
+                                        color: AppColors.darkWith(0.05),
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Icon(Icons.add_rounded,
+                                          size: 18, color: AppColors.darkWith(0.4)),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    const Expanded(
+                                      child: Text('Link hardware to this account',
+                                          style: TextStyle(
+                                              fontSize: 12,
+                                              color: AppColors.subtitleText,
+                                              fontWeight: FontWeight.w500)),
+                                    ),
+                                    Icon(Icons.chevron_right_rounded,
+                                        size: 18, color: AppColors.darkWith(0.25)),
+                                  ],
+                                ),
+                              ),
+                      ),
+                    ],
+
+                    const SizedBox(height: 8),
+                  ],
+                ),
               ),
-            ),
-            SizedBox(
-              width: width,
-              child: _buildStatCard(
-                'Owners',
-                '$owners',
-                Icons.person_rounded,
-                AppColors.success,
-              ),
-            ),
-            SizedBox(
-              width: width,
-              child: _buildStatCard(
-                'Admins',
-                '$admins',
-                Icons.admin_panel_settings_rounded,
-                AppColors.dark,
-              ),
-            ),
-            SizedBox(
-              width: width,
-              child: _buildStatCard(
-                'Disabled',
-                '$disabled',
-                Icons.person_off_rounded,
-                AppColors.critical,
-              ),
-            ),
-          ],
+            );
+          },
         );
       },
     );
   }
 
-  Widget _buildStatCard(
-    String label,
-    String value,
-    IconData icon,
-    Color color,
-  ) {
+  Widget _buildActionChip(String label, IconData icon, Color color) {
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(vertical: 9),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(17),
-        border: Border.all(color: AppColors.darkWith(0.07)),
+        color: color.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
       child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Container(
-            width: 39,
-            height: 39,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: color, size: 19),
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Text(label,
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMiniBadge({required String label, required Color color}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w800,
+          color: color,
+          letterSpacing: 0.3,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(IconData icon, String label, {Color? iconColor, Color? labelColor}) {
+    final c = iconColor ?? AppColors.darkWith(0.4);
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: c),
+        const SizedBox(width: 8),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: labelColor ?? AppColors.darkWith(0.6),
           ),
-          const SizedBox(width: 11),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: 21,
-                    fontWeight: FontWeight.w800,
-                    color: color,
-                    height: 1,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.darkWith(0.48),
-                  ),
-                ),
-              ],
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.white,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Sticky header — never scrolls ─────────────────────────
+          _buildGreeting(),
+          if (!_loading && _error == null) ...[
+            _buildStatsBar(),
+            _buildHardwareSection(),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 4),
+              child: SectionLabel(
+                label: 'Users',
+                showLiveData: false,
+                icon: Icons.people_alt_rounded,
+              ),
             ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
+              child: _buildUserFilterTabBar(),
+            ),
+          ],
+          // ── Scrollable user list ───────────────────────────────────
+          Expanded(
+            child: _loading
+                ? const Center(
+                    child: CircularProgressIndicator(color: AppColors.primary),
+                  )
+                : _error != null
+                    ? Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Text(
+                          _error!,
+                          style: const TextStyle(color: AppColors.critical),
+                        ),
+                      )
+                    : RefreshIndicator(
+                        onRefresh: _load,
+                        color: AppColors.primary,
+                        child: ListView(
+                          padding: const EdgeInsets.fromLTRB(14, 4, 14, 32),
+                          children: _filteredUsers().map(_buildUserCard).toList(),
+                        ),
+                      ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildHardwareCard() {
-    final owner = _hardwareOwner;
-    final statusColor = owner == null ? AppColors.warning : AppColors.success;
+  List<Map<String, dynamic>> _filteredUsers() {
+    final selfUid = FirebaseAuth.instance.currentUser?.uid;
+    List<Map<String, dynamic>> list;
+    if (_userFilterTab == 1) {
+      list = _users.where((u) => (u['role'] as String? ?? 'owner') == 'owner').toList();
+    } else if (_userFilterTab == 2) {
+      list = _users.where((u) => (u['role'] as String? ?? 'owner') == 'admin').toList();
+    } else {
+      list = List.from(_users);
+    }
+    // Always pin the logged-in user's card to the top.
+    list.sort((a, b) {
+      final aIsSelf = a['uid'] == selfUid ? 0 : 1;
+      final bIsSelf = b['uid'] == selfUid ? 0 : 1;
+      return aIsSelf.compareTo(bIsSelf);
+    });
+    return list;
+  }
 
+  Widget _buildUserFilterTabBar() {
+    final tabs = [
+      (Icons.people_alt_rounded, 'All'),
+      (Icons.person_outline_rounded, 'Owners'),
+      (Icons.admin_panel_settings_outlined, 'Admins'),
+    ];
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: statusColor.withValues(alpha: 0.22)),
+        color: AppColors.dark.withValues(alpha: 0.02),
+        borderRadius: BorderRadius.circular(14),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 38,
-                height: 38,
+      child: Row(
+        children: List.generate(tabs.length, (i) {
+          final isActive = _userFilterTab == i;
+          return Expanded(
+            child: GestureDetector(
+              onTap: () => setState(() => _userFilterTab = i),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 10),
                 decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.09),
-                  borderRadius: BorderRadius.circular(12),
+                  color: isActive ? Colors.white : Colors.transparent,
+                  borderRadius: BorderRadius.circular(10),
+                  boxShadow: isActive
+                      ? [
+                          BoxShadow(
+                            color: AppColors.dark.withValues(alpha: 0.04),
+                            blurRadius: 6,
+                            offset: const Offset(0, 1),
+                          ),
+                        ]
+                      : null,
                 ),
-                child: const Icon(
-                  Icons.developer_board_rounded,
-                  color: AppColors.primary,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 11),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(
-                      'Hardware Assignment',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.darkText,
-                      ),
+                    Icon(
+                      tabs[i].$1,
+                      size: 13,
+                      color: isActive ? AppColors.primary : AppColors.dark.withValues(alpha: 0.45),
                     ),
-                    SizedBox(height: 2),
+                    const SizedBox(width: 6),
                     Text(
-                      'Owner currently receiving device data',
+                      tabs[i].$2,
                       style: TextStyle(
-                        fontSize: 10.5,
-                        color: AppColors.subtitleText,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: isActive ? AppColors.primary : AppColors.dark.withValues(alpha: 0.45),
                       ),
                     ),
                   ],
                 ),
               ),
-              _buildBadge(
-                owner == null ? 'UNASSIGNED' : 'CONNECTED',
-                statusColor,
-              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
+  Widget _buildGreeting() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.darkWith(0.08),
+            blurRadius: 12,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 14, 20, 14),
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFFF8FFFF),
+              Color(0xFFF2FDFD),
+              Color(0xFFE8FAFA),
+              Color(0xFFDAF4F5),
             ],
           ),
-          const SizedBox(height: 13),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: statusColor.withValues(alpha: 0.045),
-              borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 3,
+              height: 40,
+              decoration: BoxDecoration(
+                color: AppColors.primary,
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
-            child: owner == null
-                ? const Row(
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '${_getGreetingTime()}, Admin!',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.darkText,
+                    ),
+                  ),
+                  const SizedBox(height: 1),
+                  Text(
+                    _getFormattedDate(),
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w400,
+                      color: AppColors.mutedText,
+                    ),
+                  ),
+                  const SizedBox(height: 1),
+                  Text(
+                    "Here's what's happening across all accounts today.",
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.subtitleText,
+                    ),
+                    maxLines: 2,
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.admin_panel_settings_rounded, color: AppColors.primary, size: 26),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHardwareSection() {
+    final owner = _currentOwnerUid != null
+        ? _users.cast<Map<String, dynamic>?>().firstWhere(
+            (u) => u?['uid'] == _currentOwnerUid,
+            orElse: () => null,
+          )
+        : null;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 0, 14, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: _buildSectionHeader(Icons.developer_board_rounded, 'Hardware Linked To', iconColor: AppColors.primary, labelColor: AppColors.primary),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: owner != null ? AppColors.success.withValues(alpha: 0.04) : Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: owner != null
+                    ? AppColors.success.withValues(alpha: 0.25)
+                    : AppColors.darkWith(0.08),
+              ),
+            ),
+            child: owner != null
+                ? Row(
                     children: [
-                      Icon(
-                        Icons.link_off_rounded,
-                        size: 20,
-                        color: AppColors.warning,
-                      ),
-                      SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          'No hardware owner. Tap an owner below to assign the device.',
-                          style: TextStyle(
-                            fontSize: 11,
-                            height: 1.4,
-                            color: AppColors.subtitleText,
-                          ),
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: AppColors.success.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
                         ),
+                        child: const Icon(Icons.check_circle_rounded,
+                            size: 20, color: AppColors.success),
                       ),
-                    ],
-                  )
-                : Row(
-                    children: [
-                      _buildAvatar(owner, 42),
-                      const SizedBox(width: 11),
+                      const SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -480,20 +901,53 @@ class _AdminScreenState extends State<AdminScreen> {
                             const SizedBox(height: 2),
                             Text(
                               owner['email'] as String? ?? '',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
-                                fontSize: 10.5,
+                                fontSize: 11,
                                 color: AppColors.subtitleText,
                               ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ],
                         ),
                       ),
-                      const Icon(
-                        Icons.check_circle_rounded,
-                        size: 20,
-                        color: AppColors.success,
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppColors.success.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Text(
+                          'Linked',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.success,
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: AppColors.darkWith(0.05),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(Icons.link_off_rounded,
+                            size: 18, color: AppColors.darkWith(0.3)),
+                      ),
+                      const SizedBox(width: 12),
+                      const Text(
+                        'No hardware assigned',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.mutedText,
+                        ),
                       ),
                     ],
                   ),
@@ -503,658 +957,301 @@ class _AdminScreenState extends State<AdminScreen> {
     );
   }
 
-  Widget _buildUsersHeader() {
-    return Row(
-      children: [
-        const Expanded(
-          child: Text(
-            'User Management',
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w800,
-              color: AppColors.darkText,
-            ),
-          ),
-        ),
-        Text(
-          '${_visibleUsers.length} shown',
-          style: TextStyle(
-            fontSize: 10.5,
-            fontWeight: FontWeight.w600,
-            color: AppColors.darkWith(0.4),
-          ),
-        ),
-      ],
-    );
-  }
+  Widget _buildStatsBar() {
+    final totalUsers = _users.length;
+    final ownerUsers = _users.where((u) => (u['role'] as String? ?? 'owner') == 'owner').length;
+    final adminUsers = totalUsers - ownerUsers;
+    final disabledUsers =
+        _users.where((u) => (u['status'] ?? 'active') == 'disabled').length;
 
-  Widget _buildSearchBox() {
-    return TextField(
-      controller: _search,
-      onChanged: (value) => setState(() => _query = value),
-      decoration: InputDecoration(
-        hintText: 'Search name or email',
-        prefixIcon: Icon(
-          Icons.search_rounded,
-          size: 20,
-          color: AppColors.darkWith(0.4),
-        ),
-        suffixIcon: _query.isEmpty
-            ? null
-            : IconButton(
-                onPressed: () {
-                  _search.clear();
-                  setState(() => _query = '');
-                },
-                icon: const Icon(Icons.close_rounded, size: 18),
-              ),
-        filled: true,
-        fillColor: Colors.white,
-        isDense: true,
-        contentPadding: const EdgeInsets.symmetric(vertical: 13),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: AppColors.darkWith(0.07)),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(
-            color: AppColors.primary.withValues(alpha: 0.55),
-            width: 1.3,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFilters() {
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: AppColors.darkWith(0.035),
-        borderRadius: BorderRadius.circular(13),
-      ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
       child: Row(
         children: [
-          _buildFilterButton(0, 'All', Icons.people_alt_rounded),
-          _buildFilterButton(1, 'Owners', Icons.person_outline_rounded),
-          _buildFilterButton(2, 'Admins', Icons.admin_panel_settings_outlined),
+          Expanded(
+            child: _buildStatCard(
+              value: '$totalUsers',
+              label: 'Total',
+              icon: Icons.groups_rounded,
+              color: AppColors.primary,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _buildStatCard(
+              value: '$ownerUsers',
+              label: 'Owners',
+              icon: Icons.person_rounded,
+              color: AppColors.success,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _buildStatCard(
+              value: '$adminUsers',
+              label: 'Admins',
+              icon: Icons.admin_panel_settings_rounded,
+              color: AppColors.dark,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _buildStatCard(
+              value: '$disabledUsers',
+              label: 'Disabled',
+              icon: Icons.person_off_rounded,
+              color: AppColors.critical,
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildFilterButton(int value, String label, IconData icon) {
-    final active = _filter == value;
-    return Expanded(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(10),
-        onTap: () => setState(() => _filter = value),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          padding: const EdgeInsets.symmetric(vertical: 9),
-          decoration: BoxDecoration(
-            color: active ? Colors.white : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Row(
+  Widget _buildStatCard({
+    required String value,
+    required String label,
+    required IconData icon,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
             mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Icon(
-                icon,
-                size: 15,
-                color: active
-                    ? AppColors.primary
-                    : AppColors.darkWith(0.4),
+              Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Icon(icon, size: 15, color: color),
               ),
-              const SizedBox(width: 5),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w700,
-                  color: active
-                      ? AppColors.primary
-                      : AppColors.darkWith(0.4),
+              Expanded(
+                child: Text(
+                  value,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: color,
+                    height: 1.0,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
           ),
-        ),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: AppColors.darkWith(0.5),
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildUserCard(Map<String, dynamic> user) {
     final uid = user['uid'] as String;
-    final role = (user['role'] as String? ?? 'owner').toLowerCase();
-    final disabled =
-        (user['status'] as String? ?? 'active') == 'disabled';
-    final linked = uid == _ownerUid;
-    final self = uid == FirebaseAuth.instance.currentUser?.uid;
-
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(17),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(17),
-        onTap: () => _openUserSheet(user),
-        child: Container(
-          padding: const EdgeInsets.all(13),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(17),
-            border: Border.all(
-              color: linked
-                  ? AppColors.primary.withValues(alpha: 0.28)
-                  : AppColors.darkWith(0.07),
-            ),
-          ),
-          child: Row(
-            children: [
-              _buildAvatar(user, 46, muted: disabled),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            _displayName(user),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                              color: disabled
-                                  ? AppColors.mutedText
-                                  : AppColors.darkText,
-                            ),
-                          ),
-                        ),
-                        if (self) ...[
-                          const SizedBox(width: 6),
-                          _buildBadge('YOU', AppColors.primary),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      user['email'] as String? ?? '',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 10.5,
-                        color: AppColors.darkWith(0.48),
-                      ),
-                    ),
-                    const SizedBox(height: 7),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 5,
-                      children: [
-                        _buildBadge(
-                          role == 'admin' ? 'ADMIN' : 'OWNER',
-                          role == 'admin' ? AppColors.dark : AppColors.primary,
-                        ),
-                        _buildBadge(
-                          disabled ? 'DISABLED' : 'ACTIVE',
-                          disabled ? AppColors.critical : AppColors.success,
-                        ),
-                        if (linked)
-                          _buildBadge('HARDWARE', AppColors.primary),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              Icon(
-                Icons.chevron_right_rounded,
-                size: 22,
-                color: AppColors.darkWith(0.22),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _openUserSheet(Map<String, dynamic> user) {
-    final uid = user['uid'] as String;
-    final role = (user['role'] as String? ?? 'owner').toLowerCase();
-    final disabled =
-        (user['status'] as String? ?? 'active') == 'disabled';
-    final linked = uid == _ownerUid;
-    final self = uid == FirebaseAuth.instance.currentUser?.uid;
-
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) => SafeArea(
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(18, 10, 18, 24),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
-          ),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.black12,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                ),
-                const SizedBox(height: 18),
-                _buildAvatar(user, 62, muted: disabled),
-                const SizedBox(height: 10),
-                Text(
-                  _displayName(user),
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.darkText,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  user['email'] as String? ?? '',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 11.5,
-                    color: AppColors.subtitleText,
-                  ),
-                ),
-                const SizedBox(height: 18),
-                _buildActionTile(
-                  icon: disabled
-                      ? Icons.lock_open_rounded
-                      : Icons.lock_rounded,
-                  title: disabled ? 'Enable account' : 'Disable account',
-                  subtitle: self
-                      ? 'Your own admin account cannot be disabled'
-                      : disabled
-                          ? 'Allow this user to sign in again'
-                          : 'Block this user from signing in',
-                  color: disabled ? AppColors.success : AppColors.critical,
-                  enabled: !self,
-                  onTap: () async {
-                    final confirmed = await _confirm(
-                      disabled ? 'Enable account?' : 'Disable account?',
-                      disabled
-                          ? '${_displayName(user)} will be able to sign in again.'
-                          : '${_displayName(user)} will be blocked from signing in.',
-                    );
-                    if (!confirmed) return;
-                    try {
-                      await DatabaseService.instance.setUserStatus(
-                        uid,
-                        disabled ? 'active' : 'disabled',
-                      );
-                      if (!mounted) return;
-                      if (sheetContext.mounted) Navigator.pop(sheetContext);
-                      showBeautifulSnackbar(
-                        context,
-                        disabled ? 'Account enabled.' : 'Account disabled.',
-                        true,
-                      );
-                    } catch (error) {
-                      if (!mounted) return;
-                      showBeautifulSnackbar(
-                        context,
-                        'Failed to update account.',
-                        false,
-                      );
-                    }
-                  },
-                ),
-                const SizedBox(height: 8),
-                _buildActionTile(
-                  icon: Icons.swap_horiz_rounded,
-                  title: role == 'admin'
-                      ? 'Change role to Owner'
-                      : 'Change role to Admin',
-                  subtitle: self
-                      ? 'You cannot change your own role'
-                      : 'Update account access level',
-                  color: AppColors.primary,
-                  enabled: !self,
-                  onTap: () async {
-                    final nextRole = role == 'admin' ? 'owner' : 'admin';
-                    final confirmed = await _confirm(
-                      'Change account role?',
-                      'Change ${_displayName(user)} to ${nextRole.toUpperCase()}?',
-                    );
-                    if (!confirmed) return;
-                    try {
-                      if (linked && nextRole == 'admin') {
-                        await DatabaseService.instance.removeCurrentOwner();
-                      }
-                      await DatabaseService.instance.setUserRole(uid, nextRole);
-                      if (!mounted) return;
-                      if (sheetContext.mounted) Navigator.pop(sheetContext);
-                      showBeautifulSnackbar(
-                        context,
-                        'Role updated to ${nextRole.toUpperCase()}.',
-                        true,
-                      );
-                    } catch (error) {
-                      if (!mounted) return;
-                      showBeautifulSnackbar(
-                        context,
-                        'Failed to update role.',
-                        false,
-                      );
-                    }
-                  },
-                ),
-                if (role != 'admin') ...[
-                  const SizedBox(height: 8),
-                  _buildActionTile(
-                    icon: linked ? Icons.link_off_rounded : Icons.link_rounded,
-                    title: linked ? 'Unlink hardware' : 'Assign hardware',
-                    subtitle: linked
-                        ? 'Stop routing device data to this owner'
-                        : 'Route sensor data and device access to this owner',
-                    color:
-                        linked ? AppColors.critical : AppColors.primary,
-                    enabled: !disabled,
-                    onTap: () async {
-                      final confirmed = await _confirm(
-                        linked ? 'Unlink hardware?' : 'Assign hardware?',
-                        linked
-                            ? 'Remove hardware assignment from ${_displayName(user)}?'
-                            : 'Assign hardware to ${_displayName(user)}?',
-                      );
-                      if (!confirmed) return;
-                      try {
-                        if (linked) {
-                          await DatabaseService.instance.removeCurrentOwner();
-                        } else {
-                          await DatabaseService.instance.setCurrentOwner(uid);
-                        }
-                        if (!mounted) return;
-                        if (sheetContext.mounted) Navigator.pop(sheetContext);
-                        showBeautifulSnackbar(
-                          context,
-                          linked ? 'Hardware unlinked.' : 'Hardware assigned.',
-                          true,
-                        );
-                      } catch (error) {
-                        if (!mounted) return;
-                        showBeautifulSnackbar(
-                          context,
-                          'Failed to update hardware assignment.',
-                          false,
-                        );
-                      }
-                    },
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildActionTile({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required Color color,
-    required VoidCallback onTap,
-    bool enabled = true,
-  }) {
-    return Opacity(
-      opacity: enabled ? 1 : 0.45,
-      child: Material(
-        color: color.withValues(alpha: 0.045),
-        borderRadius: BorderRadius.circular(14),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(14),
-          onTap: enabled ? onTap : null,
-          child: Padding(
-            padding: const EdgeInsets.all(13),
-            child: Row(
-              children: [
-                Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.11),
-                    borderRadius: BorderRadius.circular(11),
-                  ),
-                  child: Icon(icon, color: color, size: 19),
-                ),
-                const SizedBox(width: 11),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: const TextStyle(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.darkText,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        subtitle,
-                        style: const TextStyle(
-                          fontSize: 10.5,
-                          height: 1.35,
-                          color: AppColors.subtitleText,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Icon(
-                  Icons.chevron_right_rounded,
-                  size: 20,
-                  color: AppColors.darkWith(0.22),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<bool> _confirm(String title, String message) async {
-    return (await showDialog<bool>(
-          context: context,
-          builder: (dialogContext) => AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
-            ),
-            title: Text(
-              title,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            content: Text(
-              message,
-              style: const TextStyle(
-                fontSize: 12,
-                height: 1.5,
-                color: AppColors.subtitleText,
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext, false),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                ),
-                onPressed: () => Navigator.pop(dialogContext, true),
-                child: const Text('Confirm'),
-              ),
-            ],
-          ),
-        )) ==
-        true;
-  }
-
-  Widget _buildAvatar(
-    Map<String, dynamic> user,
-    double size, {
-    bool muted = false,
-  }) {
-    final role = (user['role'] as String? ?? 'owner').toLowerCase();
-    final color = role == 'admin' ? AppColors.dark : AppColors.primary;
-    final image = _photoProvider(
+    final email = user['email'] as String? ?? '';
+    final name = _displayName(user);
+    final role = (user['role'] as String?) ?? 'owner';
+    final status = (user['status'] as String?) ?? 'active';
+    final isDisabled = status == 'disabled';
+    final isDeviceOwner = _currentOwnerUid == uid;
+    final isAdmin = role == 'admin';
+    final photoImage = _photoImageProvider(
       (user['photo_url'] ?? user['photoUrl']) as String?,
     );
-    final initials = _displayName(user)
-        .trim()
-        .split(RegExp(r'\s+'))
-        .where((part) => part.isNotEmpty)
-        .take(2)
-        .map((part) => part[0])
-        .join()
-        .toUpperCase();
 
-    return Container(
-      width: size,
-      height: size,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: muted ? 0.05 : 0.1),
-        borderRadius: BorderRadius.circular(size * 0.3),
-        image: image == null
-            ? null
-            : DecorationImage(image: image, fit: BoxFit.cover),
-      ),
-      child: image == null
-          ? Text(
-              initials.isEmpty ? '?' : initials,
-              style: TextStyle(
-                fontSize: size * 0.27,
-                fontWeight: FontWeight.w800,
-                color: muted ? AppColors.mutedText : color,
+    final initials = name.split(' ').map((w) => w.isNotEmpty ? w[0] : '').take(2).join();
+
+    // Accent color mirrors notification type-color logic
+    final Color accentColor = isDisabled
+        ? AppColors.critical
+        : isAdmin
+            ? AppColors.dark
+            : AppColors.primary;
+
+    final bool highlighted = isDeviceOwner || isDisabled;
+
+    return GestureDetector(
+      onTap: () => _openUserSheet(user),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        margin: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.fromLTRB(10, 10, 6, 10),
+        decoration: BoxDecoration(
+          color: highlighted ? accentColor.withValues(alpha: 0.04) : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: highlighted
+                ? accentColor.withValues(alpha: 0.25)
+                : AppColors.darkWith(0.08),
+            width: highlighted ? 1.5 : 1.0,
+          ),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Avatar — same 28×28 / radius-8 as notification icon container
+            Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: accentColor.withValues(alpha: isDisabled ? 0.07 : 0.12),
+                borderRadius: BorderRadius.circular(8),
+                image: photoImage != null
+                    ? DecorationImage(image: photoImage, fit: BoxFit.cover)
+                    : null,
               ),
-            )
-          : null,
+              child: photoImage == null
+                  ? Center(
+                      child: Text(
+                        initials.toUpperCase(),
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: isDisabled ? AppColors.mutedText : accentColor,
+                        ),
+                      ),
+                    )
+                  : null,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          name,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: isDisabled ? AppColors.mutedText : AppColors.dark,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      // Hardware-assigned dot — mirrors unread dot in notif card
+                      if (isDeviceOwner)
+                        Container(
+                          width: 7,
+                          height: 7,
+                          margin: const EdgeInsets.only(left: 4),
+                          decoration: const BoxDecoration(
+                            color: AppColors.primary,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                    ],
+                  ),
+                  if (email.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      email,
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: AppColors.darkWith(0.6),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                  const SizedBox(height: 4),
+                  // Meta row — role · status · hardware tag
+                  Row(
+                    children: [
+                      Text(
+                        isAdmin ? 'Admin' : 'Owner',
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                          color: isDisabled ? AppColors.mutedText : accentColor,
+                        ),
+                      ),
+                      Text(
+                        ' · ',
+                        style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.3)),
+                      ),
+                      Text(
+                        isDisabled ? 'Disabled' : 'Active',
+                        style: TextStyle(
+                          fontSize: 9,
+                          color: isDisabled
+                              ? AppColors.critical
+                              : AppColors.darkWith(0.4),
+                        ),
+                      ),
+                      if (isDeviceOwner) ...[
+                        Text(
+                          ' · ',
+                          style: TextStyle(
+                              fontSize: 9, color: AppColors.darkWith(0.3)),
+                        ),
+                        Text(
+                          'Hardware assigned',
+                          style: TextStyle(
+                            fontSize: 9,
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 4),
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Icon(
+                Icons.chevron_right_rounded,
+                size: 18,
+                color: AppColors.darkWith(0.2),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
-  ImageProvider<Object>? _photoProvider(String? value) {
-    if (value == null || value.isEmpty) return null;
-    final uri = Uri.tryParse(value);
+  ImageProvider<Object>? _photoImageProvider(String? photoUrl) {
+    if (photoUrl == null || photoUrl.isEmpty) return null;
+    final uri = Uri.tryParse(photoUrl);
     if (uri != null && (uri.scheme == 'http' || uri.scheme == 'https')) {
-      return NetworkImage(value);
+      return NetworkImage(photoUrl);
     }
     try {
-      return MemoryImage(base64Decode(value.split(',').last));
+      return MemoryImage(base64Decode(photoUrl.split(',').last));
     } on FormatException {
       return null;
     }
-  }
-
-  Widget _buildBadge(String label, Color color, {bool dot = false}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.09),
-        borderRadius: BorderRadius.circular(7),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (dot) ...[
-            Icon(Icons.circle, size: 6, color: color),
-            const SizedBox(width: 4),
-          ],
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 8.5,
-              fontWeight: FontWeight.w800,
-              color: color,
-              letterSpacing: 0.2,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildEmptyState() {
-    return const Padding(
-      padding: EdgeInsets.symmetric(vertical: 48),
-      child: Column(
-        children: [
-          Icon(
-            Icons.person_search_rounded,
-            size: 34,
-            color: AppColors.primary,
-          ),
-          SizedBox(height: 10),
-          Text(
-            'No users found',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-              color: AppColors.darkText,
-            ),
-          ),
-          SizedBox(height: 3),
-          Text(
-            'Try another search or filter.',
-            style: TextStyle(
-              fontSize: 11,
-              color: AppColors.subtitleText,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildErrorState() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 48),
-      child: Column(
-        children: [
-          const Icon(
-            Icons.cloud_off_rounded,
-            size: 34,
-            color: AppColors.critical,
-          ),
-          const SizedBox(height: 10),
-          Text(
-            _error!,
-            style: const TextStyle(
-              fontSize: 12,
-              color: AppColors.subtitleText,
-            ),
-          ),
-          const SizedBox(height: 12),
-          FilledButton(
-            onPressed: _load,
-            child: const Text('Retry'),
-          ),
-        ],
-      ),
-    );
   }
 }
