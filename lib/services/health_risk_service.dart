@@ -100,7 +100,7 @@ class HealthRiskService extends ChangeNotifier {
 
   /// Hourly assessment history (newest first), including the current one.
   /// The ML function writes one doc per assessment into the same
-  /// ml_predictions collection, keyed by a sortable UTC timestamp.
+  /// machine_learning_assessments collection, keyed by a sortable UTC timestamp.
   List<HealthRiskResult> get history => List.unmodifiable(_history);
 
   void init() {
@@ -150,16 +150,14 @@ class HealthRiskService extends ChangeNotifier {
     try {
       final profile = await FirebaseFirestore.instance.collection('users').doc(uid).get();
       final tankId = profile.data()?['tank_id'] as String? ?? uid;
-      _sub = FirebaseFirestore.instance
+      final assessments = FirebaseFirestore.instance
           .collection('tanks')
           .doc(tankId)
-          .collection('ml_predictions')
-          .doc('current')
-          .snapshots()
-          .listen((snap) {
+          .collection('machine_learning_assessments');
+
+      _sub = assessments.doc('current').snapshots().listen((snap) {
         if (snap.exists && snap.data() != null) {
-          final data = snap.data()!;
-          _result = HealthRiskResult.fromMap(data);
+          _result = HealthRiskResult.fromMap(snap.data()!);
         } else {
           _result = null;
         }
@@ -171,13 +169,7 @@ class HealthRiskService extends ChangeNotifier {
         notifyListeners();
       });
 
-      // Fetch one extra document because the mirrored `current` document may
-      // also be returned by this query. It is filtered below so history keeps
-      // up to 30 real, timestamped assessments without duplicate chart rows.
-      _historySub = FirebaseFirestore.instance
-          .collection('tanks')
-          .doc(tankId)
-          .collection('ml_predictions')
+      _historySub = assessments
           .orderBy('ts_epoch', descending: true)
           .limit(31)
           .snapshots()
