@@ -372,6 +372,14 @@ class DatabaseService {
     if (profile == null) {
       throw Exception('User $ownerUid does not exist.');
     }
+    final role = profile['role']?.toString().trim().toLowerCase();
+    final status = profile['status']?.toString().trim().toLowerCase();
+    if (role == 'admin') {
+      throw Exception('Hardware can only be assigned to an owner account.');
+    }
+    if (status == 'disabled') {
+      throw Exception('Enable this owner account before assigning hardware.');
+    }
     var tankId = profile['tank_id'] as String?;
 
     // Edge case: user has no tank yet (e.g. legacy account) — provision one.

@@ -33,131 +33,245 @@ class NotifSettings extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: const Color(0xFFf7f7f7),
+    return ColoredBox(
+      color: const Color(0xFFF7FAFA),
       child: SingleChildScrollView(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 28),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildMenuSection('General Settings', [
-              _buildToggle(
-                'Notification Sound',
-                'Play sound for incoming alerts',
-                notifSound,
-                onNotifSoundChanged,
+            _buildIntroCard(),
+            const SizedBox(height: 24),
+            _buildSectionLabel(Icons.settings_outlined, 'GENERAL'),
+            const SizedBox(height: 10),
+            _buildToggleGroup([
+              _NotifItem(
+                label: 'Notification Sound',
+                subtitle: 'Play a sound for incoming alerts',
+                icon: Icons.volume_up_rounded,
+                color: AppColors.primary,
+                value: notifSound,
+                onChanged: onNotifSoundChanged,
               ),
-              _buildToggle(
-                'Vibration',
-                'Vibrate on important updates',
-                notifVibration,
-                onNotifVibrationChanged,
-              ),
-            ]),
-            const SizedBox(height: 12),
-            _buildMenuSection('Alerts & Reminders', [
-              _buildToggle(
-                'Critical Alerts',
-                'Critical alerts for water parameters',
-                notifCritical,
-                onNotifCriticalChanged,
-              ),
-              _buildToggle(
-                'Warning Alerts',
-                'Warnings when parameters approach thresholds',
-                notifWarning,
-                onNotifWarningChanged,
-              ),
-              _buildToggle(
-                'Feeding Reminders',
-                'Confirmations for daily feeding',
-                notifFeeding,
-                onNotifFeedingChanged,
-              ),
-              _buildToggle(
-                'Sampling Schedule',
-                'Weekly growth tracking reminders',
-                notifSampling,
-                onNotifSamplingChanged,
+              _NotifItem(
+                label: 'Vibration',
+                subtitle: 'Vibrate for important updates',
+                icon: Icons.vibration_rounded,
+                color: AppColors.primary,
+                value: notifVibration,
+                onChanged: onNotifVibrationChanged,
               ),
             ]),
             const SizedBox(height: 24),
+            _buildSectionLabel(Icons.notifications_active_outlined, 'ALERTS & REMINDERS'),
+            const SizedBox(height: 10),
+            _buildToggleGroup([
+              _NotifItem(
+                label: 'Critical Alerts',
+                subtitle: 'Urgent changes in water parameters',
+                icon: Icons.error_outline_rounded,
+                color: AppColors.critical,
+                value: notifCritical,
+                onChanged: onNotifCriticalChanged,
+              ),
+              _NotifItem(
+                label: 'Warning Alerts',
+                subtitle: 'Parameters approaching unsafe levels',
+                icon: Icons.warning_amber_rounded,
+                color: AppColors.warning,
+                value: notifWarning,
+                onChanged: onNotifWarningChanged,
+              ),
+              _NotifItem(
+                label: 'Feeding Reminders',
+                subtitle: 'Daily feeding confirmations and reminders',
+                icon: Icons.set_meal_rounded,
+                color: AppColors.success,
+                value: notifFeeding,
+                onChanged: onNotifFeedingChanged,
+              ),
+              _NotifItem(
+                label: 'Sampling Schedule',
+                subtitle: 'Weekly growth tracking reminders',
+                icon: Icons.calendar_month_rounded,
+                color: AppColors.primary,
+                value: notifSampling,
+                onChanged: onNotifSamplingChanged,
+              ),
+            ]),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildMenuSection(String label, List<Widget> items) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-              color: AppColors.darkWith(0.4),
-              letterSpacing: 0.5,
+  Widget _buildIntroCard() {
+    final enabledCount = [
+      notifSound,
+      notifVibration,
+      notifCritical,
+      notifWarning,
+      notifFeeding,
+      notifSampling,
+    ].where((enabled) => enabled).length;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.10)),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.darkWith(0.055),
+            blurRadius: 16,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(15),
+            ),
+            child: const Icon(Icons.notifications_none_rounded, color: AppColors.primary, size: 25),
+          ),
+          const SizedBox(width: 13),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Stay informed',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppColors.dark),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  '$enabledCount of 6 notification options enabled',
+                  style: const TextStyle(fontSize: 10.5, color: AppColors.subtitleText),
+                ),
+              ],
             ),
           ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+            decoration: BoxDecoration(
+              color: AppColors.success.withValues(alpha: 0.09),
+              borderRadius: BorderRadius.circular(9),
+            ),
+            child: Text(
+              '$enabledCount/6 ON',
+              style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: AppColors.success),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionLabel(IconData icon, String label) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: AppColors.primary),
+        const SizedBox(width: 8),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+            color: AppColors.primary,
+            letterSpacing: 0.35,
+          ),
         ),
-        ...items,
+        const SizedBox(width: 12),
+        Expanded(child: Container(height: 1, color: AppColors.primary.withValues(alpha: 0.14))),
       ],
     );
   }
 
-  Widget _buildToggle(
-    String label,
-    String subtitle,
-    bool value,
-    ValueChanged<bool?> onChanged,
-  ) {
+  Widget _buildToggleGroup(List<_NotifItem> items) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 6),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.darkWith(0.04)),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.darkWith(0.05)),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.darkWith(0.045),
+            blurRadius: 14,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
+      child: Column(
+        children: List.generate(items.length, (index) {
+          return Column(
+            children: [
+              _buildToggleRow(items[index]),
+              if (index < items.length - 1)
+                Padding(
+                  padding: const EdgeInsets.only(left: 68, right: 16),
+                  child: Divider(height: 1, thickness: 1, color: AppColors.darkWith(0.06)),
+                ),
+            ],
+          );
+        }),
+      ),
+    );
+  }
+
+  Widget _buildToggleRow(_NotifItem item) {
+    return InkWell(
+      onTap: () => item.onChanged(!item.value),
+      borderRadius: BorderRadius.circular(18),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
         child: Row(
           children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: item.color.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(13),
+              ),
+              child: Icon(item.icon, size: 21, color: item.color),
+            ),
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    label,
+                    item.label,
                     style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w800,
                       color: AppColors.dark,
                     ),
                   ),
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 3),
                   Text(
-                    subtitle,
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w500,
-                      color: AppColors.darkWith(0.4),
-                    ),
+                    item.subtitle,
+                    style: const TextStyle(fontSize: 9.5, color: AppColors.subtitleText),
                   ),
                 ],
               ),
             ),
             Transform.scale(
-              scale: 0.8,
+              scale: 0.76,
               child: Switch(
-                value: value,
-                onChanged: onChanged,
+                value: item.value,
+                onChanged: item.onChanged,
                 activeThumbColor: AppColors.primary,
-                activeTrackColor: AppColors.primaryWith(0.2),
-                inactiveTrackColor: AppColors.darkWith(0.1),
+                activeTrackColor: AppColors.primaryWith(0.24),
+                inactiveThumbColor: Colors.white,
+                inactiveTrackColor: AppColors.darkWith(0.12),
               ),
             ),
           ],
@@ -165,4 +279,22 @@ class NotifSettings extends StatelessWidget {
       ),
     );
   }
+}
+
+class _NotifItem {
+  final String label;
+  final String subtitle;
+  final IconData icon;
+  final Color color;
+  final bool value;
+  final ValueChanged<bool?> onChanged;
+
+  const _NotifItem({
+    required this.label,
+    required this.subtitle,
+    required this.icon,
+    required this.color,
+    required this.value,
+    required this.onChanged,
+  });
 }

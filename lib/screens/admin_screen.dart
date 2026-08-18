@@ -88,6 +88,18 @@ class _AdminScreenState extends State<AdminScreen> {
         'User';
   }
 
+  String _normalizedRole(Map<String, dynamic> user) {
+    final role = user['role']?.toString().trim().toLowerCase();
+    // Older accounts used "user" before the owner role was standardized.
+    return role == 'admin' ? 'admin' : 'owner';
+  }
+
+  String _normalizedStatus(Map<String, dynamic> user) {
+    return user['status']?.toString().trim().toLowerCase() == 'disabled'
+        ? 'disabled'
+        : 'active';
+  }
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
@@ -366,7 +378,25 @@ class _AdminScreenState extends State<AdminScreen> {
                                   ),
                                 ],
                               )
-                            : GestureDetector(
+                            : isDisabled
+                                ? Row(
+                                    children: [
+                                      Container(
+                                        width: 36,
+                                        height: 36,
+                                        decoration: BoxDecoration(color: AppColors.critical.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(10)),
+                                        child: const Icon(Icons.lock_rounded, size: 18, color: AppColors.critical),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      const Expanded(
+                                        child: Text(
+                                          'Enable this account before assigning hardware',
+                                          style: TextStyle(fontSize: 12, color: AppColors.mutedText, fontWeight: FontWeight.w500),
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                : GestureDetector(
                                 onTap: () async {
                                   final currentOwner = _currentOwnerUid;
                                   final isReassign = currentOwner != null && currentOwner != uid;
@@ -505,9 +535,9 @@ class _AdminScreenState extends State<AdminScreen> {
     final selfUid = FirebaseAuth.instance.currentUser?.uid;
     List<Map<String, dynamic>> list;
     if (_userFilterTab == 1) {
-      list = _users.where((u) => (u['role'] as String? ?? 'owner') == 'owner').toList();
+      list = _users.where((u) => _normalizedRole(u) == 'owner').toList();
     } else if (_userFilterTab == 2) {
-      list = _users.where((u) => (u['role'] as String? ?? 'owner') == 'admin').toList();
+      list = _users.where((u) => _normalizedRole(u) == 'admin').toList();
     } else {
       list = List.from(_users);
     }
@@ -672,10 +702,10 @@ class _AdminScreenState extends State<AdminScreen> {
   }
 
   Widget _buildStatsBar() {
-    final totalUsers = _users.length;
-    final ownerUsers = _users.where((u) => (u['role'] as String? ?? 'owner') == 'owner').length;
-    final adminUsers = _users.where((u) => (u['role'] as String? ?? 'owner') == 'admin').length;
-    final disabledUsers = _users.where((u) => (u['status'] ?? 'active') == 'disabled').length;
+    final totalAccounts = _users.length;
+    final ownerAccounts = _users.where((u) => _normalizedRole(u) == 'owner').length;
+    final adminAccounts = _users.where((u) => _normalizedRole(u) == 'admin').length;
+    final disabledAccounts = _users.where((u) => _normalizedStatus(u) == 'disabled').length;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 3, 14, 8),
@@ -689,9 +719,9 @@ class _AdminScreenState extends State<AdminScreen> {
               SizedBox(
                 width: cardWidth,
                 child: _buildStatCard(
-                  value: '$totalUsers',
-                  label: 'Total Users',
-                  icon: Icons.groups_rounded,
+                  value: '$totalAccounts',
+                  label: 'Total Accounts',
+                  icon: Icons.account_circle_rounded,
                   iconColor: AppColors.primary,
                   iconBackground: AppColors.primary.withValues(alpha: 0.10),
                 ),
@@ -699,9 +729,9 @@ class _AdminScreenState extends State<AdminScreen> {
               SizedBox(
                 width: cardWidth,
                 child: _buildStatCard(
-                  value: '$ownerUsers',
+                  value: '$ownerAccounts',
                   label: 'Owners',
-                  icon: Icons.person_rounded,
+                  icon: Icons.home_work_rounded,
                   iconColor: AppColors.success,
                   iconBackground: AppColors.success.withValues(alpha: 0.10),
                 ),
@@ -709,9 +739,9 @@ class _AdminScreenState extends State<AdminScreen> {
               SizedBox(
                 width: cardWidth,
                 child: _buildStatCard(
-                  value: '$adminUsers',
+                  value: '$adminAccounts',
                   label: 'Admins',
-                  icon: Icons.verified_user_rounded,
+                  icon: Icons.admin_panel_settings_rounded,
                   iconColor: AppColors.dark,
                   iconBackground: AppColors.dark.withValues(alpha: 0.07),
                 ),
@@ -719,9 +749,9 @@ class _AdminScreenState extends State<AdminScreen> {
               SizedBox(
                 width: cardWidth,
                 child: _buildStatCard(
-                  value: '$disabledUsers',
+                  value: '$disabledAccounts',
                   label: 'Disabled',
-                  icon: Icons.person_off_rounded,
+                  icon: Icons.lock_rounded,
                   iconColor: AppColors.critical,
                   iconBackground: AppColors.critical.withValues(alpha: 0.09),
                 ),

@@ -330,6 +330,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF7FAFA),
       resizeToAvoidBottomInset: false,
       body: Column(
         children: [
@@ -445,22 +446,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
 
     return ClipRRect(
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: Align(
-              alignment: const Alignment(0.7, 0),
-              child: Transform.scale(
-                scale: 1.8,
-                child: Image.asset(
-                  'assets/images/crayfish_stage_image.png',
-                  fit: BoxFit.contain,
+      child: ColoredBox(
+        color: Colors.white,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: Align(
+                alignment: const Alignment(0.7, 0),
+                child: Transform.scale(
+                  scale: 1.8,
+                  child: Image.asset(
+                    'assets/images/crayfish_stage_image.png',
+                    fit: BoxFit.contain,
+                  ),
                 ),
               ),
             ),
-          ),
-          header,
-        ],
+            header,
+          ],
+        ),
       ),
     );
   }
