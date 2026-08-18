@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'connectivity_service.dart';
+import '../utils/prediction_timestamp.dart';
 
 class HealthRiskResult {
   final String level;
@@ -58,9 +59,7 @@ class HealthRiskResult {
       analysisMode: data['analysis_mode'] as String? ?? 'Water-quality assessment',
       samplesAnalyzed: (data['samples_analyzed'] as num?)?.toInt() ?? 0,
       requiredSamples: (data['required_samples'] as num?)?.toInt() ?? 6,
-      timestamp: data['timestamp'] != null
-          ? DateTime.tryParse(data['timestamp'] as String) ?? DateTime.now()
-          : DateTime.now(),
+      timestamp: parsePredictionTimestamp(data['timestamp']) ?? DateTime.now().toUtc(),
     );
   }
 
@@ -184,22 +183,24 @@ class HealthRiskService extends ChangeNotifier {
         notifyListeners();
       });
 
-      // Hourly assessment history (newest first). The ML function writes one
-      // doc per assessment into the same ml_predictions collection, keyed by
-      // a sortable UTC timestamp.
+      // Fetch one extra document because the mirrored `current` document may
+      // also be returned by this query. It is filtered below so history keeps
+      // up to 30 real, timestamped assessments without duplicate chart rows.
       _historySub = FirebaseFirestore.instance
           .collection('tanks')
           .doc(tankId)
           .collection('ml_predictions')
           .orderBy('ts_epoch', descending: true)
-          .limit(30)
+          .limit(31)
           .snapshots()
           .listen((snap) {
         final list = <HealthRiskResult>[];
         for (final doc in snap.docs) {
+          if (doc.id == 'current') continue;
           final data = doc.data();
           if (data.isEmpty) continue;
           list.add(HealthRiskResult.fromMap(data));
+          if (list.length == 30) break;
         }
         _history = list;
         notifyListeners();
