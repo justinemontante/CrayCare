@@ -61,16 +61,12 @@ class _TrendsTabState extends State<TrendsTab> {
     return const SizedBox.shrink();
   }
 
-  /// Wraps a chart in a horizontal scroll view when there are too many
-  /// points to fit on screen. With few points it fills the available width
-  /// exactly (no scroll); with many weeks/days it becomes swipeable so every
-  /// data point stays readable instead of being crushed together.
   Widget _scrollableChart({
     required int pointCount,
     required double height,
     required Widget child,
   }) {
-    const double minPointSpacing = 36.0; // enough for dots/labels to breathe
+    const double minPointSpacing = 48.0;
     return LayoutBuilder(
       builder: (context, constraints) {
         final available = constraints.maxWidth;
@@ -86,27 +82,38 @@ class _TrendsTabState extends State<TrendsTab> {
     );
   }
 
+  DateTime _dateOnly(DateTime date) => DateTime(date.year, date.month, date.day);
+
+  String _formatTrendDate(DateTime date) {
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return '${months[date.month - 1]} ${date.day}';
+  }
+
+  double? _weeklyRate(List<double> data, List<DateTime> dates) {
+    if (data.length < 2 || dates.length != data.length) return null;
+    final elapsedDays = _dateOnly(dates.last).difference(_dateOnly(dates.first)).inDays;
+    if (elapsedDays <= 0) return null;
+    return (data.last - data.first) / (elapsedDays / 7.0);
+  }
+
   Widget _buildChartContainer() {
     final service = TankService.instance;
-    final history = service.samplingHistory;
+    final samples = service.samplingHistory.where((e) => !e.isBaseline).toList()
+      ..sort((a, b) => a.date.compareTo(b.date));
 
-    final data = <double>[];
-    if (_activeMetric == 'ABW') {
-      data.add(service.initialWeight);
-      data.addAll(history.where((e) => !e.isBaseline).map((e) => e.abw));
-    } else {
-      data.add(service.initialLength);
-      data.addAll(history.where((e) => !e.isBaseline).map((e) => e.avgLength));
-    }
+    final data = <double>[
+      _activeMetric == 'ABW' ? service.initialWeight : service.initialLength,
+      ...samples.map((e) => _activeMetric == 'ABW' ? e.abw : e.avgLength),
+    ];
+    final dates = <DateTime>[service.stockingDate, ...samples.map((e) => e.date)];
 
     final unit = _activeMetric == 'ABW' ? 'g' : 'cm';
     final isAbw = _activeMetric == 'ABW';
     final lineColor = isAbw ? AppColors.primary : const Color(0xFFf59e0b);
-
-    final labels = List.generate(
-      data.length,
-      (i) => i == 0 ? 'Initial' : 'Week $i',
-    );
+    final labels = <String>['Initial', ...samples.map((e) => _formatTrendDate(e.date))];
 
     return Container(
       width: double.infinity,
@@ -228,7 +235,7 @@ class _TrendsTabState extends State<TrendsTab> {
                   ),
           ),
           const SizedBox(height: 12),
-          _buildGrowthFooter(data, unit),
+          _buildGrowthFooter(data, dates, unit),
         ],
       ),
     );
@@ -301,10 +308,7 @@ class _TrendsTabState extends State<TrendsTab> {
                     padding: const EdgeInsets.only(right: 4),
                     child: Text(
                       '${value.toStringAsFixed(1)} $unit',
-                      style: TextStyle(
-                        fontSize: 9,
-                        color: AppColors.darkWith(0.4),
-                      ),
+                      style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.4)),
                     ),
                   );
                 }
@@ -314,10 +318,7 @@ class _TrendsTabState extends State<TrendsTab> {
                     padding: const EdgeInsets.only(right: 4),
                     child: Text(
                       '${value.toStringAsFixed(1)} $unit',
-                      style: TextStyle(
-                        fontSize: 9,
-                        color: AppColors.darkWith(0.4),
-                      ),
+                      style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.4)),
                     ),
                   );
                 }
@@ -335,7 +336,7 @@ class _TrendsTabState extends State<TrendsTab> {
                 final i = spot.spotIndex;
                 return LineTooltipItem(
                   '${spot.y.toStringAsFixed(1)} $unit',
-                  TextStyle(
+                  const TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w700,
                     fontSize: 12,
@@ -383,7 +384,8 @@ class _TrendsTabState extends State<TrendsTab> {
     );
   }
 
-  Widget _buildGrowthFooter(List<double> data, String unit) {
+  Widget _buildGrowthFooter(
+      List<double> data, List<DateTime> dates, String unit) {
     if (data.length < 2) {
       return Row(
         children: [
@@ -402,88 +404,59 @@ class _TrendsTabState extends State<TrendsTab> {
       );
     }
 
-    final firstVal = data.first;
-    final lastVal = data.last;
-    final gain = lastVal - firstVal;
-    final weekly = gain / (data.length - 1);
+    final gain = data.last - data.first;
+    final weekly = _weeklyRate(data, dates);
+    final gainText = '${gain >= 0 ? "+" : ""}${gain.toStringAsFixed(2)} $unit';
 
-    return Row(
-      children: [
-        if (data.length == 2) ...[
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.centerLeft,
+      child: Row(
+        children: [
+          Text('Total gain: ',
+              style: TextStyle(fontSize: 10, color: AppColors.darkWith(0.45))),
           Text(
-            'Total gain: ',
-            style: TextStyle(
-              fontSize: 10,
-              color: AppColors.darkWith(0.45),
-            ),
-          ),
-          Text(
-            '+${gain.toStringAsFixed(2)} $unit',
+            gainText,
             style: TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.w700,
               color: gain >= 0 ? const Color(0xFF1FA5A5) : AppColors.critical,
             ),
           ),
-        ] else ...[
-          Text(
-            'Total gain: ',
-            style: TextStyle(
-              fontSize: 10,
-              color: AppColors.darkWith(0.45),
+          if (weekly != null) ...[
+            const SizedBox(width: 16),
+            Text('Avg weekly: ',
+                style: TextStyle(fontSize: 10, color: AppColors.darkWith(0.45))),
+            Text(
+              '${weekly >= 0 ? "+" : ""}${weekly.toStringAsFixed(2)} $unit/week',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                color: weekly >= 0 ? const Color(0xFF1FA5A5) : AppColors.critical,
+              ),
             ),
-          ),
-          Text(
-            '+${gain.toStringAsFixed(2)} $unit',
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              color: gain >= 0 ? const Color(0xFF1FA5A5) : AppColors.critical,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Text(
-            'Avg weekly: ',
-            style: TextStyle(
-              fontSize: 10,
-              color: AppColors.darkWith(0.45),
-            ),
-          ),
-          Text(
-            '+${weekly.toStringAsFixed(2)} $unit',
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              color: weekly >= 0
-                  ? const Color(0xFF1FA5A5)
-                  : AppColors.critical,
-            ),
-          ),
+          ],
         ],
-      ],
+      ),
     );
   }
 
   Widget _buildBiomassChartContainer() {
     final service = TankService.instance;
-    final history = service.samplingHistory;
+    final samples = service.samplingHistory.where((e) => !e.isBaseline).toList()
+      ..sort((a, b) => a.date.compareTo(b.date));
 
-    final data = <double>[];
     final initialBiomass = service.initialWeight > 0
         ? service.initialCount * service.initialWeight / 1000
         : 0.0;
-    data.add(initialBiomass);
-    data.addAll(
-      history.where((e) => !e.isBaseline).map((e) => e.biomass / 1000),
-    );
-
+    final data = <double>[
+      initialBiomass,
+      ...samples.map((e) => e.biomass / 1000),
+    ];
+    final dates = <DateTime>[service.stockingDate, ...samples.map((e) => e.date)];
     final hasData = data.any((v) => v > 0);
-    final unit = 'kg';
-
-    final labels = List.generate(
-      data.length,
-      (i) => i == 0 ? 'Initial' : 'Week $i',
-    );
+    const unit = 'kg';
+    final labels = <String>['Initial', ...samples.map((e) => _formatTrendDate(e.date))];
 
     return Container(
       width: double.infinity,
@@ -502,11 +475,11 @@ class _TrendsTabState extends State<TrendsTab> {
       ),
       child: Column(
         children: [
-          Row(
+          const Row(
             children: [
-              const Icon(Icons.monitor_weight_outlined, size: 16, color: AppColors.primary),
-              const SizedBox(width: 6),
-              const Expanded(
+              Icon(Icons.monitor_weight_outlined, size: 16, color: AppColors.primary),
+              SizedBox(width: 6),
+              Expanded(
                 child: Text(
                   'Estimated Biomass',
                   style: TextStyle(
@@ -522,11 +495,8 @@ class _TrendsTabState extends State<TrendsTab> {
           Align(
             alignment: Alignment.centerLeft,
             child: Text(
-              'Biomass = live count \u00D7 ABW',
-              style: TextStyle(
-                fontSize: 9,
-                color: AppColors.darkWith(0.4),
-              ),
+              'Biomass = live count × ABW',
+              style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.4)),
             ),
           ),
           const SizedBox(height: 20),
@@ -534,13 +504,8 @@ class _TrendsTabState extends State<TrendsTab> {
             height: 180,
             child: !hasData
                 ? Center(
-                    child: Text(
-                      'No biomass data',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: AppColors.darkWith(0.4),
-                      ),
-                    ),
+                    child: Text('No biomass data',
+                        style: TextStyle(fontSize: 12, color: AppColors.darkWith(0.4))),
                   )
                 : data.length == 1
                     ? Center(
@@ -561,7 +526,7 @@ class _TrendsTabState extends State<TrendsTab> {
           ),
           if (hasData) ...[
             const SizedBox(height: 12),
-            _buildBiomassFooter(data, unit),
+            _buildBiomassFooter(data, dates, unit),
           ],
         ],
       ),
@@ -575,7 +540,6 @@ class _TrendsTabState extends State<TrendsTab> {
         .entries
         .map((e) => FlSpot(e.key.toDouble(), e.value))
         .toList();
-
     final maxVal = data.reduce(max);
     final chartMaxY = maxVal > 0 ? (maxVal * 1.2).ceilToDouble() : 1.0;
 
@@ -589,18 +553,12 @@ class _TrendsTabState extends State<TrendsTab> {
           show: true,
           drawVerticalLine: false,
           horizontalInterval: chartMaxY / 4,
-          getDrawingHorizontalLine: (value) => FlLine(
-            color: AppColors.darkWith(0.04),
-            strokeWidth: 1,
-          ),
+          getDrawingHorizontalLine: (value) =>
+              FlLine(color: AppColors.darkWith(0.04), strokeWidth: 1),
         ),
         titlesData: FlTitlesData(
-          topTitles: const AxisTitles(
-            sideTitles: SideTitles(showTitles: false),
-          ),
-          rightTitles: const AxisTitles(
-            sideTitles: SideTitles(showTitles: false),
-          ),
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
           bottomTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
@@ -612,13 +570,8 @@ class _TrendsTabState extends State<TrendsTab> {
                 if (i >= 0 && i < labels.length) {
                   return Padding(
                     padding: const EdgeInsets.only(top: 6),
-                    child: Text(
-                      labels[i],
-                      style: TextStyle(
-                        fontSize: 9,
-                        color: AppColors.darkWith(0.4),
-                      ),
-                    ),
+                    child: Text(labels[i],
+                        style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.4))),
                   );
                 }
                 return const SizedBox.shrink();
@@ -633,26 +586,16 @@ class _TrendsTabState extends State<TrendsTab> {
                 if (value == meta.min || value == meta.max) {
                   return Padding(
                     padding: const EdgeInsets.only(right: 4),
-                    child: Text(
-                      '${value.toStringAsFixed(1)} $unit',
-                      style: TextStyle(
-                        fontSize: 9,
-                        color: AppColors.darkWith(0.4),
-                      ),
-                    ),
+                    child: Text('${value.toStringAsFixed(1)} $unit',
+                        style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.4))),
                   );
                 }
                 final mid = (meta.max + meta.min) / 2;
                 if ((value - mid).abs() < 0.5) {
                   return Padding(
                     padding: const EdgeInsets.only(right: 4),
-                    child: Text(
-                      '${value.toStringAsFixed(1)} $unit',
-                      style: TextStyle(
-                        fontSize: 9,
-                        color: AppColors.darkWith(0.4),
-                      ),
-                    ),
+                    child: Text('${value.toStringAsFixed(1)} $unit',
+                        style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.4))),
                   );
                 }
                 return const SizedBox.shrink();
@@ -664,29 +607,27 @@ class _TrendsTabState extends State<TrendsTab> {
         lineTouchData: LineTouchData(
           enabled: true,
           touchTooltipData: LineTouchTooltipData(
-            getTooltipItems: (touchedSpots) {
-              return touchedSpots.map((spot) {
-                final i = spot.spotIndex;
-                return LineTooltipItem(
-                  '${spot.y.toStringAsFixed(2)} $unit',
-                  TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12,
-                  ),
-                  children: [
-                    TextSpan(
-                      text: '\n${labels[i]}',
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.7),
-                        fontSize: 10,
-                        fontWeight: FontWeight.w500,
-                      ),
+            getTooltipItems: (touchedSpots) => touchedSpots.map((spot) {
+              final i = spot.spotIndex;
+              return LineTooltipItem(
+                '${spot.y.toStringAsFixed(2)} $unit',
+                const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12,
+                ),
+                children: [
+                  TextSpan(
+                    text: '\n${labels[i]}',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.7),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
                     ),
-                  ],
-                );
-              }).toList();
-            },
+                  ),
+                ],
+              );
+            }).toList(),
           ),
         ),
         lineBarsData: [
@@ -699,8 +640,7 @@ class _TrendsTabState extends State<TrendsTab> {
             isStrokeCapRound: true,
             dotData: FlDotData(
               show: true,
-              getDotPainter: (spot, percent, barData, index) =>
-                  FlDotCirclePainter(
+              getDotPainter: (spot, percent, barData, index) => FlDotCirclePainter(
                 radius: 4,
                 color: const Color(0xFF1FA5A5),
                 strokeWidth: 2,
@@ -717,7 +657,8 @@ class _TrendsTabState extends State<TrendsTab> {
     );
   }
 
-  Widget _buildBiomassFooter(List<double> data, String unit) {
+  Widget _buildBiomassFooter(
+      List<double> data, List<DateTime> dates, String unit) {
     if (data.length < 2) {
       return Row(
         children: [
@@ -738,71 +679,54 @@ class _TrendsTabState extends State<TrendsTab> {
       );
     }
 
-    final firstVal = data.first;
     final lastVal = data.last;
-    final gain = lastVal - firstVal;
-    final weekly = gain / (data.length - 1);
+    final gain = lastVal - data.first;
+    final weekly = _weeklyRate(data, dates);
 
     return FittedBox(
       fit: BoxFit.scaleDown,
       alignment: Alignment.centerLeft,
       child: Row(
-      children: [
-        Icon(Icons.trending_up_rounded,
-            size: 14, color: gain >= 0 ? const Color(0xFF1FA5A5) : AppColors.critical),
-        const SizedBox(width: 4),
-        Text(
-          'Total: ',
-          style: TextStyle(
-            fontSize: 10,
-            color: AppColors.darkWith(0.45),
-          ),
-        ),
-        Text(
-          '${lastVal.toStringAsFixed(2)} $unit',
-          style: const TextStyle(
-            fontSize: 10,
-            fontWeight: FontWeight.w700,
-            color: Color(0xFF1FA5A5),
-          ),
-        ),
-        const SizedBox(width: 16),
-        Text(
-          'Change: ',
-          style: TextStyle(
-            fontSize: 10,
-            color: AppColors.darkWith(0.45),
-          ),
-        ),
-        Text(
-          '${gain >= 0 ? "+" : ""}${gain.toStringAsFixed(2)} $unit',
-          style: TextStyle(
-            fontSize: 10,
-            fontWeight: FontWeight.w700,
-            color: gain >= 0 ? const Color(0xFF1FA5A5) : AppColors.critical,
-          ),
-        ),
-        if (data.length > 2) ...[
-          const SizedBox(width: 16),
+        children: [
+          Icon(Icons.trending_up_rounded,
+              size: 14,
+              color: gain >= 0 ? const Color(0xFF1FA5A5) : AppColors.critical),
+          const SizedBox(width: 4),
+          Text('Total: ',
+              style: TextStyle(fontSize: 10, color: AppColors.darkWith(0.45))),
           Text(
-            'Weekly: ',
-            style: TextStyle(
+            '${lastVal.toStringAsFixed(2)} $unit',
+            style: const TextStyle(
               fontSize: 10,
-              color: AppColors.darkWith(0.45),
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF1FA5A5),
             ),
           ),
+          const SizedBox(width: 16),
+          Text('Change: ',
+              style: TextStyle(fontSize: 10, color: AppColors.darkWith(0.45))),
           Text(
-            '${weekly >= 0 ? "+" : ""}${weekly.toStringAsFixed(2)} $unit',
+            '${gain >= 0 ? "+" : ""}${gain.toStringAsFixed(2)} $unit',
             style: TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.w700,
-              color: weekly >= 0
-                  ? const Color(0xFF1FA5A5)
-                  : AppColors.critical,
+              color: gain >= 0 ? const Color(0xFF1FA5A5) : AppColors.critical,
             ),
           ),
+          if (weekly != null) ...[
+            const SizedBox(width: 16),
+            Text('Weekly: ',
+                style: TextStyle(fontSize: 10, color: AppColors.darkWith(0.45))),
+            Text(
+              '${weekly >= 0 ? "+" : ""}${weekly.toStringAsFixed(2)} $unit/week',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                color: weekly >= 0 ? const Color(0xFF1FA5A5) : AppColors.critical,
+              ),
+            ),
+          ],
         ],
-      ],
       ),
     );
   }
@@ -812,7 +736,6 @@ class _TrendsTabState extends State<TrendsTab> {
     final entries = service.mortalityHistory;
     final totalMort = service.totalMortalityFromHistory;
 
-    // Group entries by date para iwas multiple bars sa same day
     final dailyMap = <DateTime, int>{};
     for (final e in entries) {
       final day = DateTime(e.date.year, e.date.month, e.date.day);
@@ -856,13 +779,8 @@ class _TrendsTabState extends State<TrendsTab> {
             height: 180,
             child: dailyEntries.isEmpty
                 ? Center(
-                    child: Text(
-                      'No mortality data',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: AppColors.darkWith(0.4),
-                      ),
-                    ),
+                    child: Text('No mortality data',
+                        style: TextStyle(fontSize: 12, color: AppColors.darkWith(0.4))),
                   )
                 : _scrollableChart(
                     pointCount: dailyEntries.length,
@@ -896,9 +814,7 @@ class _TrendsTabState extends State<TrendsTab> {
             ),
             const SizedBox(width: 4),
             Text(
-              totalMort > 0
-                  ? '$totalMort total mortality'
-                  : 'No mortality',
+              totalMort > 0 ? '$totalMort total mortality' : 'No mortality',
               style: TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.w600,
@@ -939,20 +855,11 @@ class _TrendsTabState extends State<TrendsTab> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            '$label: ',
-            style: TextStyle(
-              fontSize: 9,
-              color: AppColors.darkWith(0.5),
-            ),
-          ),
+          Text('$label: ',
+              style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.5))),
           Text(
             value,
-            style: TextStyle(
-              fontSize: 9,
-              fontWeight: FontWeight.w700,
-              color: color,
-            ),
+            style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: color),
           ),
         ],
       ),
@@ -964,9 +871,7 @@ class _TrendsTabState extends State<TrendsTab> {
 
     final maxVal = entries.map((e) => e.count.toDouble()).reduce(max);
     final effectiveMax = maxVal == 0 ? 1.0 : maxVal;
-
-    final labels = entries.map((e) => _formatMortDate(e.date)).toList();
-
+    final labels = entries.map((e) => _formatTrendDate(e.date)).toList();
     final rawStep = (effectiveMax / 4).ceilToDouble();
     final step = rawStep < 1 ? 1.0 : rawStep;
     final chartMaxY = step * 4;
@@ -979,12 +884,8 @@ class _TrendsTabState extends State<TrendsTab> {
         minY: 0,
         gridData: const FlGridData(show: false),
         titlesData: FlTitlesData(
-          topTitles: const AxisTitles(
-            sideTitles: SideTitles(showTitles: false),
-          ),
-          rightTitles: const AxisTitles(
-            sideTitles: SideTitles(showTitles: false),
-          ),
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
           bottomTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
@@ -996,13 +897,8 @@ class _TrendsTabState extends State<TrendsTab> {
                 if (i >= 0 && i < labels.length) {
                   return Padding(
                     padding: const EdgeInsets.only(top: 6),
-                    child: Text(
-                      labels[i],
-                      style: TextStyle(
-                        fontSize: 8,
-                        color: AppColors.darkWith(0.4),
-                      ),
-                    ),
+                    child: Text(labels[i],
+                        style: TextStyle(fontSize: 8, color: AppColors.darkWith(0.4))),
                   );
                 }
                 return const SizedBox.shrink();
@@ -1019,13 +915,8 @@ class _TrendsTabState extends State<TrendsTab> {
                 if (yLabels.contains(value)) {
                   return Padding(
                     padding: const EdgeInsets.only(right: 4),
-                    child: Text(
-                      '$v',
-                      style: TextStyle(
-                        fontSize: 9,
-                        color: AppColors.darkWith(0.4),
-                      ),
-                    ),
+                    child: Text('$v',
+                        style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.4))),
                   );
                 }
                 return const SizedBox.shrink();
@@ -1042,7 +933,7 @@ class _TrendsTabState extends State<TrendsTab> {
               final date = labels[group.x];
               return BarTooltipItem(
                 '${val.toInt()} ${val == 1 ? 'mortality' : 'mortalities'}',
-                TextStyle(
+                const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w700,
                   fontSize: 12,
@@ -1080,14 +971,6 @@ class _TrendsTabState extends State<TrendsTab> {
         }),
       ),
     );
-  }
-
-  String _formatMortDate(DateTime date) {
-    const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-    ];
-    return '${months[date.month - 1]} ${date.day}';
   }
 
   Widget _buildToggle() {
