@@ -12,15 +12,11 @@ class HealthRiskResult {
   final String problem;
   final String insight;
   final String action;
-  final String source;
   final String driverLabel;
   final double? driverValue;
   final String driverUnit;
   final double? driverMin;
   final double? driverMax;
-  final String analysisMode;
-  final int samplesAnalyzed;
-  final int requiredSamples;
   final DateTime timestamp;
 
   HealthRiskResult({
@@ -30,15 +26,11 @@ class HealthRiskResult {
     required this.problem,
     required this.insight,
     required this.action,
-    required this.source,
     required this.driverLabel,
     required this.driverValue,
     required this.driverUnit,
     required this.driverMin,
     required this.driverMax,
-    required this.analysisMode,
-    required this.samplesAnalyzed,
-    required this.requiredSamples,
     required this.timestamp,
   });
 
@@ -50,15 +42,11 @@ class HealthRiskResult {
       problem: data['problem'] as String? ?? '',
       insight: data['insight'] as String? ?? '',
       action: data['action'] as String? ?? '',
-      source: data['source'] as String? ?? '',
       driverLabel: data['driver_label'] as String? ?? (data['driver'] as String? ?? 'N/A'),
       driverValue: (data['driver_value'] as num?)?.toDouble(),
       driverUnit: data['driver_unit'] as String? ?? '',
       driverMin: (data['driver_min'] as num?)?.toDouble(),
       driverMax: (data['driver_max'] as num?)?.toDouble(),
-      analysisMode: data['analysis_mode'] as String? ?? 'Water-quality assessment',
-      samplesAnalyzed: (data['samples_analyzed'] as num?)?.toInt() ?? 0,
-      requiredSamples: (data['required_samples'] as num?)?.toInt() ?? 6,
       timestamp: parsePredictionTimestamp(data['timestamp']) ?? DateTime.now().toUtc(),
     );
   }
