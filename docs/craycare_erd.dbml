@@ -217,7 +217,7 @@ Table feeder_commands {
 //  MACHINE LEARNING (WQC)
 // ──────────────────────────────────────────────────────────────
 
-Table ml_predictions {
+Table machine_learning_assessments {
   id varchar [pk, note: 'sortable UTC timestamp doc id']
   tank_id varchar [ref: > tanks.tank_id]
   level varchar [note: 'Low | Moderate | High | Critical | Insufficient']
