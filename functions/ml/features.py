@@ -297,7 +297,6 @@ def predict_wqc(df, bundle, recs):
     feat, _ = build_features(df)
     hazard_series = compute_wqc_score(df)
     score = round(float(hazard_series.iloc[-1]), 1)
-    model_used = False
     if bundle is not None:
         model, features = bundle["model"], bundle["features"]
         latest = feat.iloc[[-1]].copy()
@@ -314,7 +313,6 @@ def predict_wqc(df, bundle, recs):
             cls = int(raw.argmax(axis=1)[0] if len(raw.shape) == 2 else raw[0])
             confidence = round(float(model.predict_proba(latest)[0][cls]) * 100)
             level = CLASS_NAMES[cls]
-        model_used = True
     else:
         _, level = classify(score)
         confidence = 85
@@ -330,8 +328,6 @@ def predict_wqc(df, bundle, recs):
         "driver_hazard": round(driver_hazard, 3),
         "problem": rec["problem"],
         "insight": generate_insight(driver, df.iloc[-1], level) if driver != "overall" else rec["problem"],
-        "action": action, "source": rec["source"],
-        "analysis_mode": "XGBoost trend-aware classification" if model_used else "Rule-based water-quality assessment",
+        "action": action,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
-
