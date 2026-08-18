@@ -17,8 +17,8 @@ ESP32
               → Python run_hourly_wqc reads the last 24h
               → requires at least 6 complete 10-minute records
               → XGBoost WQC (or rule fallback if artifact cannot load)
-              → tanks/{tankId}/ml_predictions/current
-                  → MlService + HealthRiskService snapshot listeners
+              → tanks/{tankId}/machine_learning_assessments/current
+                  → HealthRiskService snapshot listeners
 ```
 
 ## Output contract
