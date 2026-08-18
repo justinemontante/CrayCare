@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../../services/health_risk_service.dart';
 import '../../theme/app_colors.dart';
 import 'wqc_history_sheet.dart';
@@ -13,16 +14,17 @@ class HealthRiskCard extends StatelessWidget {
       builder: (context, _) {
         final hr = HealthRiskService.instance;
         final result = hr.result;
+        final hasData = result != null && result.hasData;
 
         return Container(
-          margin: const EdgeInsets.fromLTRB(14, 0, 14, 0),
+          margin: const EdgeInsets.symmetric(horizontal: 14),
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: hr.hasData
-                    ? result!.color.withValues(alpha: 0.15)
+                color: hasData
+                    ? result.color.withValues(alpha: 0.15)
                     : Colors.black.withValues(alpha: 0.05),
                 blurRadius: 12,
                 offset: const Offset(0, 3),
@@ -35,9 +37,9 @@ class HealthRiskCard extends StatelessWidget {
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: hr.hasData
+                colors: hasData
                     ? [
-                        result!.lightColor,
+                        result.lightColor,
                         result.lightColor.withValues(alpha: 0.5),
                         Colors.white,
                       ]
@@ -56,19 +58,17 @@ class HealthRiskCard extends StatelessWidget {
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: hr.hasData
-                            ? result!.color.withValues(alpha: 0.15)
+                        color: hasData
+                            ? result.color.withValues(alpha: 0.15)
                             : AppColors.darkWith(0.06),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Icon(
-                        hr.hasData
-                            ? _iconForLevel(result!.level)
+                        hasData
+                            ? _iconForLevel(result.level)
                             : Icons.health_and_safety_outlined,
                         size: 20,
-                        color: hr.hasData
-                            ? result!.color
-                            : AppColors.mutedText,
+                        color: hasData ? result.color : AppColors.mutedText,
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -95,14 +95,14 @@ class HealthRiskCard extends StatelessWidget {
                         ],
                       ),
                     ),
-                    if (hr.hasData)
+                    if (hasData)
                       Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 10,
                           vertical: 4,
                         ),
                         decoration: BoxDecoration(
-                          color: result!.color,
+                          color: result.color,
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
@@ -128,7 +128,7 @@ class HealthRiskCard extends StatelessWidget {
                       ),
                     ),
                   )
-                else if (!hr.hasData)
+                else if (!hasData)
                   const Text(
                     'Insufficient data.\nThe assessment will appear once enough sensor history is available.',
                     style: TextStyle(
@@ -143,7 +143,7 @@ class HealthRiskCard extends StatelessWidget {
                       Expanded(
                         child: _summaryTile(
                           label: 'Risk Level',
-                          value: result!.level,
+                          value: result.level,
                           color: result.color,
                           icon: _iconForLevel(result.level),
                         ),
