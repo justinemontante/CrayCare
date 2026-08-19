@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../theme/app_colors.dart';
@@ -41,6 +43,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _notifFeeding = true;
   bool _notifSampling = true;
   bool _notifWarning = true;
+  Timer? _notifSaveDebounce;
 
   @override
   void initState() {
@@ -97,6 +100,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   void dispose() {
+    final hasPendingNotifSave = _notifSaveDebounce?.isActive ?? false;
+    _notifSaveDebounce?.cancel();
+    if (hasPendingNotifSave) unawaited(_saveNotifPrefs());
     SettingsService.instance.removeListener(_onSettingsChange);
     _nameCtrl.dispose();
     _emailCtrl.dispose();
@@ -119,6 +125,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       feeding: _notifFeeding,
       sampling: _notifSampling,
       warning: _notifWarning,
+    );
+  }
+
+  void _scheduleNotifPrefsSave() {
+    _notifSaveDebounce?.cancel();
+    _notifSaveDebounce = Timer(
+      const Duration(milliseconds: 450),
+      () => unawaited(_saveNotifPrefs()),
     );
   }
 
@@ -384,28 +398,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   notifFeeding: _notifFeeding,
                   notifSampling: _notifSampling,
                   onNotifSoundChanged: (v) {
-                    setState(() => _notifSound = v ?? true);
-                    _saveNotifPrefs();
+                    _notifSound = v ?? true;
+                    _scheduleNotifPrefsSave();
                   },
                   onNotifVibrationChanged: (v) {
-                    setState(() => _notifVibration = v ?? true);
-                    _saveNotifPrefs();
+                    _notifVibration = v ?? true;
+                    _scheduleNotifPrefsSave();
                   },
                   onNotifCriticalChanged: (v) {
-                    setState(() => _notifCritical = v ?? true);
-                    _saveNotifPrefs();
+                    _notifCritical = v ?? true;
+                    _scheduleNotifPrefsSave();
                   },
                   onNotifWarningChanged: (v) {
-                    setState(() => _notifWarning = v ?? true);
-                    _saveNotifPrefs();
+                    _notifWarning = v ?? true;
+                    _scheduleNotifPrefsSave();
                   },
                   onNotifFeedingChanged: (v) {
-                    setState(() => _notifFeeding = v ?? true);
-                    _saveNotifPrefs();
+                    _notifFeeding = v ?? true;
+                    _scheduleNotifPrefsSave();
                   },
                   onNotifSamplingChanged: (v) {
-                    setState(() => _notifSampling = v ?? true);
-                    _saveNotifPrefs();
+                    _notifSampling = v ?? true;
+                    _scheduleNotifPrefsSave();
                   },
                 ),
                 SensorThresholdSettings(key: const ValueKey('sensor-thresholds')),

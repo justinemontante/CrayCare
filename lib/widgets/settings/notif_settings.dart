@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
 
-class NotifSettings extends StatelessWidget {
+class NotifSettings extends StatefulWidget {
   final bool notifSound;
   final bool notifVibration;
   final bool notifCritical;
@@ -32,6 +32,39 @@ class NotifSettings extends StatelessWidget {
   });
 
   @override
+  State<NotifSettings> createState() => _NotifSettingsState();
+}
+
+class _NotifSettingsState extends State<NotifSettings> {
+  late bool _notifSound;
+  late bool _notifVibration;
+  late bool _notifCritical;
+  late bool _notifWarning;
+  late bool _notifFeeding;
+  late bool _notifSampling;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncFromWidget();
+  }
+
+  @override
+  void didUpdateWidget(covariant NotifSettings oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _syncFromWidget();
+  }
+
+  void _syncFromWidget() {
+    _notifSound = widget.notifSound;
+    _notifVibration = widget.notifVibration;
+    _notifCritical = widget.notifCritical;
+    _notifWarning = widget.notifWarning;
+    _notifFeeding = widget.notifFeeding;
+    _notifSampling = widget.notifSampling;
+  }
+
+  @override
   Widget build(BuildContext context) {
     return ColoredBox(
       color: Colors.white,
@@ -50,16 +83,22 @@ class NotifSettings extends StatelessWidget {
                 subtitle: 'Play a sound for incoming alerts',
                 icon: Icons.volume_up_rounded,
                 color: AppColors.primary,
-                value: notifSound,
-                onChanged: onNotifSoundChanged,
+                value: _notifSound,
+                onChanged: (value) {
+                  setState(() => _notifSound = value ?? true);
+                  widget.onNotifSoundChanged(value);
+                },
               ),
               _NotifItem(
                 label: 'Vibration',
                 subtitle: 'Vibrate for important updates',
                 icon: Icons.vibration_rounded,
                 color: AppColors.primary,
-                value: notifVibration,
-                onChanged: onNotifVibrationChanged,
+                value: _notifVibration,
+                onChanged: (value) {
+                  setState(() => _notifVibration = value ?? true);
+                  widget.onNotifVibrationChanged(value);
+                },
               ),
             ]),
             const SizedBox(height: 24),
@@ -71,32 +110,44 @@ class NotifSettings extends StatelessWidget {
                 subtitle: 'Urgent changes in water parameters',
                 icon: Icons.error_outline_rounded,
                 color: AppColors.critical,
-                value: notifCritical,
-                onChanged: onNotifCriticalChanged,
+                value: _notifCritical,
+                onChanged: (value) {
+                  setState(() => _notifCritical = value ?? true);
+                  widget.onNotifCriticalChanged(value);
+                },
               ),
               _NotifItem(
                 label: 'Warning Alerts',
                 subtitle: 'Parameters approaching unsafe levels',
                 icon: Icons.warning_amber_rounded,
                 color: AppColors.warning,
-                value: notifWarning,
-                onChanged: onNotifWarningChanged,
+                value: _notifWarning,
+                onChanged: (value) {
+                  setState(() => _notifWarning = value ?? true);
+                  widget.onNotifWarningChanged(value);
+                },
               ),
               _NotifItem(
                 label: 'Feeding Reminders',
                 subtitle: 'Daily feeding confirmations and reminders',
                 icon: Icons.set_meal_rounded,
                 color: AppColors.success,
-                value: notifFeeding,
-                onChanged: onNotifFeedingChanged,
+                value: _notifFeeding,
+                onChanged: (value) {
+                  setState(() => _notifFeeding = value ?? true);
+                  widget.onNotifFeedingChanged(value);
+                },
               ),
               _NotifItem(
                 label: 'Sampling Schedule',
                 subtitle: 'Weekly growth tracking reminders',
                 icon: Icons.calendar_month_rounded,
                 color: AppColors.primary,
-                value: notifSampling,
-                onChanged: onNotifSamplingChanged,
+                value: _notifSampling,
+                onChanged: (value) {
+                  setState(() => _notifSampling = value ?? true);
+                  widget.onNotifSamplingChanged(value);
+                },
               ),
             ]),
           ],
@@ -107,12 +158,12 @@ class NotifSettings extends StatelessWidget {
 
   Widget _buildIntroCard() {
     final enabledCount = [
-      notifSound,
-      notifVibration,
-      notifCritical,
-      notifWarning,
-      notifFeeding,
-      notifSampling,
+      _notifSound,
+      _notifVibration,
+      _notifCritical,
+      _notifWarning,
+      _notifFeeding,
+      _notifSampling,
     ].where((enabled) => enabled).length;
 
     return Container(

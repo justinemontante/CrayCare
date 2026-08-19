@@ -431,14 +431,35 @@ class FeederService extends ChangeNotifier {
   /// Quick ON/OFF toggle for a schedule (alarm-clock style). Toggles the
   /// `enabled` flag without opening the edit modal.
   Future<void> toggleSchedule(int index, bool enabled) async {
-    if (index < 0 || index >= _scheduleKeys.length) return;
+    if (index < 0 ||
+        index >= _scheduleKeys.length ||
+        index >= _schedules.length) {
+      return;
+    }
     final tankDoc = _tankDoc();
     if (tankDoc == null) return;
+    final scheduleKey = _scheduleKeys[index];
+    final previous = _schedules[index];
     final timeStr = getScheduleTime(index);
+
+    // Update the switch immediately; Firestore persistence continues in the
+    // background. This avoids making the UI animation wait on the network and
+    // the audit-log write.
+    _schedules[index] = ScheduleItem(
+      previous.time,
+      previous.ampm,
+      enabled: enabled,
+      isDone: false,
+      grams: previous.grams,
+      days: previous.days,
+    );
+    FeedState.schedules.value = List.from(_schedules);
+    notifyListeners();
+
     try {
       await tankDoc
           .collection('feeder_schedules')
-          .doc(_scheduleKeys[index])
+          .doc(scheduleKey)
           .update({'enabled': enabled, 'isDone': false});
       await _addLogEntry(
         action: enabled
@@ -448,8 +469,17 @@ class FeederService extends ChangeNotifier {
       );
     } catch (e) {
       debugPrint('[FeederService] toggleSchedule error: $e');
+      // Roll back only if this same schedule has not received a newer toggle
+      // or been replaced by a realtime Firestore snapshot in the meantime.
+      if (index < _scheduleKeys.length &&
+          index < _schedules.length &&
+          _scheduleKeys[index] == scheduleKey &&
+          _schedules[index].enabled == enabled) {
+        _schedules[index] = previous;
+        FeedState.schedules.value = List.from(_schedules);
+        notifyListeners();
+      }
     }
-    notifyListeners();
   }
 
   Future<void> editSchedule(
