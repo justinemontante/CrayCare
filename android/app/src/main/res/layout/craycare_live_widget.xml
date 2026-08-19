@@ -15,6 +15,17 @@
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
+        <ImageView
+            android:id="@+id/widget_logo"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:contentDescription="CrayCare logo"
+            android:scaleType="centerInside" />
+
+        <TextView
+            android:layout_width="7dp"
+            android:layout_height="1dp" />
+
         <TextView
             android:layout_width="0dp"
             android:layout_height="wrap_content"
@@ -94,6 +105,16 @@
             android:layout_weight="1"
             android:gravity="center_vertical"
             android:orientation="horizontal">
+            <ImageView
+                android:id="@+id/widget_temp_icon"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:contentDescription="Temperature"
+                android:padding="2dp"
+                android:scaleType="centerInside" />
+            <TextView
+                android:layout_width="7dp"
+                android:layout_height="1dp" />
             <TextView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
@@ -127,6 +148,16 @@
             android:layout_weight="1"
             android:gravity="center_vertical"
             android:orientation="horizontal">
+            <ImageView
+                android:id="@+id/widget_ph_icon"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:contentDescription="pH"
+                android:padding="2dp"
+                android:scaleType="centerInside" />
+            <TextView
+                android:layout_width="7dp"
+                android:layout_height="1dp" />
             <TextView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
@@ -160,6 +191,16 @@
             android:layout_weight="1"
             android:gravity="center_vertical"
             android:orientation="horizontal">
+            <ImageView
+                android:id="@+id/widget_do_icon"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:contentDescription="Dissolved Oxygen"
+                android:padding="2dp"
+                android:scaleType="centerInside" />
+            <TextView
+                android:layout_width="7dp"
+                android:layout_height="1dp" />
             <TextView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
@@ -193,6 +234,16 @@
             android:layout_weight="1"
             android:gravity="center_vertical"
             android:orientation="horizontal">
+            <ImageView
+                android:id="@+id/widget_turb_icon"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:contentDescription="Turbidity"
+                android:padding="2dp"
+                android:scaleType="centerInside" />
+            <TextView
+                android:layout_width="7dp"
+                android:layout_height="1dp" />
             <TextView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
@@ -226,6 +277,16 @@
             android:layout_weight="1"
             android:gravity="center_vertical"
             android:orientation="horizontal">
+            <ImageView
+                android:id="@+id/widget_water_icon"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:contentDescription="Water Level"
+                android:padding="2dp"
+                android:scaleType="centerInside" />
+            <TextView
+                android:layout_width="7dp"
+                android:layout_height="1dp" />
             <TextView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
@@ -266,34 +327,79 @@
         android:layout_marginTop="7dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Next Feed: "
-            android:textColor="#71828A"
-            android:textSize="9sp" />
-        <TextView
-            android:id="@+id/widget_next_feed"
+
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="No schedule"
-            android:textColor="#168B82"
-            android:textSize="10sp"
-            android:textStyle="bold" />
-        <TextView
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+            <ImageView
+                android:id="@+id/widget_feed_icon"
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:contentDescription="Next feeding"
+                android:scaleType="centerInside" />
+            <TextView
+                android:layout_width="5dp"
+                android:layout_height="1dp" />
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Next Feed"
+                    android:textColor="#71828A"
+                    android:textSize="8sp" />
+                <TextView
+                    android:id="@+id/widget_next_feed"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:text="No schedule"
+                    android:textColor="#168B82"
+                    android:textSize="9sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Updated "
-            android:textColor="#71828A"
-            android:textSize="9sp" />
-        <TextView
-            android:id="@+id/widget_updated"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="--"
-            android:textColor="#40555E"
-            android:textSize="9sp"
-            android:textStyle="bold" />
+            android:layout_marginLeft="8dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+            <ImageView
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:contentDescription="Last sensor update"
+                android:src="@drawable/ic_widget_clock" />
+            <TextView
+                android:layout_width="5dp"
+                android:layout_height="1dp" />
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Updated"
+                    android:textColor="#71828A"
+                    android:textSize="8sp" />
+                <TextView
+                    android:id="@+id/widget_updated"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="--"
+                    android:textColor="#40555E"
+                    android:textSize="9sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </LinearLayout>
     </LinearLayout>
 </LinearLayout>

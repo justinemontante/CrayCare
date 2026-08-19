@@ -6,6 +6,8 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.widget.RemoteViews
 
@@ -53,6 +55,14 @@ class CrayCareWidgetProvider : AppWidgetProvider() {
             val views = RemoteViews(context.packageName, R.layout.craycare_live_widget)
             val signedIn = prefs.getBoolean("widget_signed_in", false)
             val online = prefs.getBoolean("widget_online", false)
+
+            setFlutterAsset(views, context, R.id.widget_logo, "assets/images/logo.png", 30)
+            setFlutterAsset(views, context, R.id.widget_temp_icon, "assets/images/temperature.png", 22)
+            setFlutterAsset(views, context, R.id.widget_ph_icon, "assets/images/pH.png", 22)
+            setFlutterAsset(views, context, R.id.widget_do_icon, "assets/images/DO.png", 22)
+            setFlutterAsset(views, context, R.id.widget_turb_icon, "assets/images/Turbidity.png", 22)
+            setFlutterAsset(views, context, R.id.widget_water_icon, "assets/images/waterLevel.png", 22)
+            setFlutterAsset(views, context, R.id.widget_feed_icon, "assets/images/FeedingImage.png", 18)
 
             views.setTextViewText(
                 R.id.widget_online,
@@ -121,6 +131,35 @@ class CrayCareWidgetProvider : AppWidgetProvider() {
             "WARNING", "MODERATE" -> Color.parseColor("#D48806")
             "CRITICAL", "POOR" -> Color.parseColor("#DC3545")
             else -> Color.parseColor("#7A8A94")
+        }
+
+        private fun setFlutterAsset(
+            views: RemoteViews,
+            context: Context,
+            viewId: Int,
+            assetPath: String,
+            sizeDp: Int,
+        ) {
+            loadFlutterAsset(context, assetPath, sizeDp)?.let { bitmap ->
+                views.setImageViewBitmap(viewId, bitmap)
+            }
+        }
+
+        private fun loadFlutterAsset(
+            context: Context,
+            assetPath: String,
+            sizeDp: Int,
+        ): Bitmap? = try {
+            val source = context.assets
+                .open("flutter_assets/$assetPath")
+                .use(BitmapFactory::decodeStream) ?: return null
+            val sizePx = (sizeDp * context.resources.displayMetrics.density).toInt()
+                .coerceAtLeast(1)
+            val scaled = Bitmap.createScaledBitmap(source, sizePx, sizePx, true)
+            if (scaled !== source) source.recycle()
+            scaled
+        } catch (_: Exception) {
+            null
         }
     }
 }
