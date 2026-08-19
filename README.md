@@ -8,7 +8,7 @@ IoT-based smart aquaculture monitoring system for crayfish farming.
 |---|---|
 | Mobile app | Flutter (Android/iOS/Web) |
 | Backend | Firebase (Auth, Firestore, Cloud Functions, FCM, Storage) |
-| ML | Python Cloud Function (Machine Learning-Based Water Quality Assessment using an XGBoost classifier) |
+| ML | Python Cloud Function (Machine Learning-Based Water Quality Assessment using XGBoost) |
 | Hardware | ESP32 (ESP-IDF/Arduino via PlatformIO) with temp, pH, DO, turbidity, water-level sensors + auto-feeder + pump + 2 aerators |
 
 ## Architecture
@@ -27,8 +27,8 @@ ESP32 (anonymous device session)
 The Water Quality Assessment combines pH, temperature, dissolved oxygen,
 turbidity, water level, and their recent trends to determine the overall water
 condition, identify emerging risks, and generate insights and recommendations.
-A classification model is used as part of the Water Quality Assessment to
-categorize overall water conditions into predefined classes. Immediate actuator
+A machine-learning model is used as part of the Water Quality Assessment to
+determine the overall water condition. Immediate actuator
 control remains threshold-based; the ML feature provides the broader trend-aware
 assessment and early warning.
 

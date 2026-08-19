@@ -73,8 +73,8 @@ class WaterQualityAssessmentTests(unittest.TestCase):
         return {
             "model": _FixedClassifier(predicted_class),
             "features": list(features.columns),
-            "type": "classifier",
-            "model_version": "test-classifier",
+            "type": "assessment",
+            "model_version": "test-assessment-model",
         }
 
     def test_public_class_names_are_condition_labels(self):

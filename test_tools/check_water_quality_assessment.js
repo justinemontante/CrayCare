@@ -29,7 +29,7 @@ async function check() {
     console.log(JSON.stringify(snapshot.data(), null, 2));
   } else {
     console.log(`❌ ${pathText} does not exist yet.`);
-    console.log('The hourly WQC scheduler needs at least six complete 10-minute history records.');
+    console.log('The hourly Water Quality Assessment scheduler needs at least six complete 10-minute history records.');
   }
 }
 

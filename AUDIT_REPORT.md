@@ -147,7 +147,7 @@ Examples:
 - pH is simply `-5.70 * voltage + 21.34`.
 - Water level is linear 0–3.3 V → 0–30 cm.
 
-**Impact:** A disconnected or miswired sensor can still look like a valid measurement and influence alerts, actuators, and ML classification.
+**Impact:** A disconnected or miswired sensor can still look like a valid measurement and influence alerts, actuators, and the Water Quality Assessment.
 
 ### H4. Feed quantity (`grams`) is accepted by the app but ignored by firmware
 
@@ -175,19 +175,19 @@ Firestore rules contain `ml_predictions` but no `health_risk` rule (`firestore.r
 
 ### H6. `risk_score` was supposedly removed but is still emitted and consumed
 
-Repository memory explicitly states the score was removed from all runtime layers (`.agents/memory/wqc-rename.md:3-22`). Actual code:
+Repository memory explicitly states the score was removed from all runtime layers (`.agents/memory/wqa-rename.md`). The legacy code at audit time still exposed it:
 
 - Emits `risk_score` (`functions/ml/features.py:325-335`)
 - Emits zero score for insufficient data (`functions/ml/main.py:160-174`)
 - Parses it in Flutter (`lib/services/health_risk_service.dart:55`)
 
-**Impact:** The declared WQC contract and actual API differ. Thesis terminology can regress from classification to a risk-index interpretation.
+**Impact:** The declared Water Quality Assessment contract and legacy API differed. Thesis terminology could regress to a risk-index interpretation.
 
 ### H7. ML missing-value fallback can turn an absent sensor into a severe hazard
 
 `functions/ml/main.py:117-140` defaults absent legacy sensor fields to `0.0`. For DO, a missing reading becomes 0 mg/L, which is a critical oxygen hazard. Missing pH/water values also become physically meaningful zeroes rather than missing data.
 
-**Impact:** Partial sensor history or disabled sensors can generate false High/Critical classifications.
+**Impact:** Partial sensor history or disabled sensors can generate false Poor/Critical assessments.
 
 **Required fix:** Validate all required fields. Mark assessment `Insufficient` when required sensors are missing/invalid, or use an explicitly trained missing-value strategy with sensor-availability features.
 
@@ -331,5 +331,5 @@ Example local model output was **Moderate, 100% confidence, pH driver** on the f
 - **Current cross-layer consistency:** Major identified mismatches repaired; deployment validation remains
 - **Safe for controlled development demo:** After hardware pin/wiring verification and sensor calibration
 - **Safe for production/unsupervised operation:** No
-- **ML claim maturity:** Prototype classifier validated on synthetic, formula-derived labels; not field-validated
+- **ML claim maturity:** Prototype Water Quality Assessment model validated on synthetic, formula-derived labels; not field-validated
 idated

@@ -1,11 +1,11 @@
 """Post-ML interpretation for CrayCare water-quality assessments.
 
-The ML model produces the overall Good/Moderate/Poor/Critical classification.
-This module explains that classification using the most recent one-hour sensor
+The ML model produces the overall Good/Moderate/Poor/Critical assessment.
+This module explains that assessment using the most recent one-hour sensor
 window. It identifies a primary concern, secondary concerns, and conditions
 that have returned to range but were abnormal during the recent window.
 
-A final immediate-safety override is applied after ML classification: an
+A final immediate-safety override is applied after ML assessment: an
 independently critical current sensor condition can never be displayed below
 Critical. The deterministic rolling-risk floor is applied in features.py.
 """

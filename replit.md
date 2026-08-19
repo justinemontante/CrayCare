@@ -1,130 +1,84 @@
 # CrayCare — Project Overview
 
-Flutter + Firebase aquaculture monitoring app for crayfish farming. Tracks water quality via ESP32 sensors, runs an XGBoost ML classification pipeline via Python Cloud Functions, and pushes results to a Flutter mobile UI.
-
----
+Flutter + Firebase smart-aquaculture app for crayfish farming. The system
+monitors water conditions from ESP32 sensors, controls actuators and feeding,
+and produces an hourly Machine Learning-Based Water Quality Assessment.
 
 ## Stack
 
-| Layer | Tech |
+| Layer | Technology |
 |---|---|
-| Mobile | Flutter (Dart), Android target |
-| Backend | Firebase (Firestore, Auth, Cloud Functions) |
-| ML | Python 3 + XGBoost, deployed as Cloud Function |
-| Hardware | ESP32 sensors (pH, DO, temperature, turbidity, water level) |
-| Repo | GitHub → `justinemontante/CrayCare`, branch `main` |
+| Mobile | Flutter (Android/iOS/Web) |
+| Backend | Firebase Auth, Firestore, Cloud Functions, FCM, Storage |
+| Assessment | Python 3.12 + XGBoost |
+| Hardware | ESP32 with pH, DO, temperature, turbidity, and water-level sensors |
+| Repository | `justinemontante/CrayCare`, branch `main` |
 
----
+## Canonical data flow
 
-## Architecture
-
+```text
+ESP32
+  → sensorIngestion/current and 10-minute history
+  → notification Cloud Functions route readings to the assigned tank
+  → tanks/{tankId}/sensor_readings/latest
+  → tanks/{tankId}/sensor_readings_history/{date}/entries/{id}
+  → hourly Python run_hourly_wqa
+  → Machine Learning-Based Water Quality Assessment
+  → tanks/{tankId}/machine_learning_assessments/current + timestamped history
+  → WaterQualityAssessmentService
+  → dashboard card, history, reports, and CrayAI insights
 ```
-ESP32 → writes sensorReadings/latest
-         └─ triggers Python Cloud Function (functions/ml/main.py)
-                └─ fetches last 24h from sensorReadings/history/{date}
-                └─ runs XGBoost classification
-                └─ writes to healthRisk/latest
-                       └─ Flutter HealthRiskService listens via real-time snapshot
-                              └─ updates UI (dashboard card + AI insights sheet)
-```
 
-No polling. Purely event-driven on new sensor records (every ~10 min).
+## Water Quality Assessment
 
----
+The assessment combines five sensor parameters and their recent temporal
+features to determine one of four public conditions:
 
-## ML Pipeline (functions/ml/)
+- Good
+- Moderate
+- Poor
+- Critical
+
+The model artifact is `functions/ml/wqa_model.joblib`. The internal numeric
+hazard score is used only for training targets and the deterministic safety
+floor; it is not written as a public assessment result.
+
+Important files:
 
 | File | Role |
 |---|---|
-| `generate_dataset.py` | Generates synthetic training data (12,960 rows × 90 days @ 10-min intervals, 8 fault types) |
-| `train_model.py` | Trains XGBoost classifier → saves `wqc_model.joblib` (92% accuracy) |
-| `features.py` | Feature engineering + `compute_wqc_score()` + `predict_wqc()` |
-| `main.py` | Cloud Function entry point — `_predict_wqc()`, reads Firestore, writes result |
-| `predict.py` | Local test runner for end-to-end verification |
-| `agency_standards.py` | Reference thresholds (DENR, DA-BFAR, FAO) |
-| `wqc_model.joblib` | Trained model artifact (committed to repo) |
+| `functions/ml/generate_dataset.py` | Generates the synthetic development dataset |
+| `functions/ml/train_model.py` | Trains and saves the WQA model artifact |
+| `functions/ml/features.py` | Builds 45 temporal features and the safety floor |
+| `functions/ml/assessment_interpreter.py` | Produces concerns, insights, and recommendations |
+| `functions/ml/main.py` | Exports the hourly `run_hourly_wqa` Cloud Function |
+| `functions/ml/predict.py` | Runs a local end-to-end assessment preview |
+| `functions/ml/test_assessment.py` | Assessment label and safety regression tests |
 
-**Model output written to `healthRisk/latest`:**
-```
-level       — "Low" | "Moderate" | "High" | "Critical"
-confidence  — integer 0–100
-driver      — sensor name (e.g. "pH", "DO")
-problem     — short description
-insight     — detailed analysis with citations
-action      — recommended corrective action
-source      — "ml" or "insufficient_data"
-timestamp   — ISO string
-```
+At least six complete 10-minute records are required. Missing sensor values are
+rejected rather than converted to physically meaningful zeroes.
 
-> ⚠️ NO `score` field — removed. The 0–100 score was internal only.
-> ⚠️ Model is called WQC (Water Quality Classification), NOT WQRI.
+## Flutter integration
 
----
+- Service/result: `lib/services/water_quality_assessment_service.dart`
+- Dashboard card: `lib/widgets/dashboard/water_quality_assessment_card.dart`
+- History/export sheet:
+  `lib/widgets/dashboard/water_quality_assessment_history_sheet.dart`
+- AI insight sheet: `lib/widgets/analytics/movable_ai_logo.dart`
 
-## Key Firestore Collections
+Legacy Firestore `Low` and `High` values are normalized to `Good` and `Poor`
+when read, so old assessment history remains usable.
 
-| Collection | Purpose | UID isolation |
-|---|---|---|
-| `users/{uid}` | User profiles | ✓ by path |
-| `users/{uid}/batches/{batchId}/...` | Tank batch data (new structure) | ✓ by path |
-| `batches/`, `sampling/`, `mortality/`, `activities/`, `harvests/` | Old flat structure (transitional) | ✓ by `uid` field |
-| `sensorReadings/latest` | Latest ESP32 reading | ✓ by `ownerUid` stamp |
-| `sensorReadings/history/{date}/{doc}` | Historical readings | ✓ by `ownerUid` stamp |
-| `healthRisk/latest` | ML classification result | ⚠️ no uid filter (single device) |
-| `config/{uid}` | Per-user sensor thresholds | ✓ by path |
-| `config/default` | Shared ESP32 defaults | ⚠️ mirrored from user write |
-| `feederSchedules`, `feederStatus`, `feederCommands` | Feeder control | ⚠️ no uid filter |
-| `notifPrefs/{uid}` | Notification preferences | ✓ by path |
-| `notifications/{docId}` | Per-user notifications | ✓ by `uid` field |
+## Naming rule
 
----
+Use **WQA — Water Quality Assessment** everywhere. Do not restore retired
+earlier module names.
 
-## Flutter Structure
+## Current limitations
 
-```
-lib/
-  main.dart
-  firebase_options.dart
-  models/          — CrayfishBatch, NotificationItem, SensorDefaults, ControlTypes
-  screens/         — dashboard, analytics, controls, production, settings, login, admin
-  services/        — auth, sensor, feeder, tank, health_risk, ml, notification, settings, database, ...
-  widgets/
-    analytics/     — movable_ai_logo.dart (AI insights sheet), analytics_charts.dart
-    dashboard/     — health_risk_card.dart
-    controls/      — feeder_tab.dart, devices_tab.dart
-    production/    — crayfish batch/sampling/harvest UI
-    settings/      — threshold settings, profile, notif prefs
-  theme/           — AppColors, AppTheme
-```
-
-### Key service: HealthRiskService (`lib/services/health_risk_service.dart`)
-- `HealthRiskResult` model — fields: `level`, `confidence`, `driver`, `problem`, `action`, `source`, `timestamp`
-- **No `score` field** (removed — it no longer comes from Firestore)
-- Listens to `healthRisk/latest` via real-time Firestore stream
-
-### Key widget: movable_ai_logo.dart
-- Floating AI logo on analytics screen → opens bottom sheet with AI insights
-- Replaced `_buildScoreCard()` (showed 0–100 number) with `_buildClassificationCard()` (shows level badge + confidence % + driver chip)
-
----
-
-## Firestore Rules Summary (`firestore.rules`)
-- `sensorReadings` — stamped with `ownerUid` by Cloud Function; ESP writes unauthenticated
-- `feederSchedules/Status/Commands` — any authenticated user (no uid filter — known limitation)
-- `healthRisk` — any authenticated user can read (no uid filter — single device assumption)
-- `config/deviceOwner` — admin-only write; identifies which uid owns the hardware
-
----
-
-## Known Limitations / Future Work
-- `feederSchedules`, `feederStatus`, `feederDispatched`, `deviceModes` have no per-uid isolation — multi-tenant risk
-- `healthRisk/latest` and `config/default` are global (single-device assumption)
-- Old flat collections (`/batches`, `/sampling`, etc.) still exist for migration — remove after migration script runs
-- `wqri_model.joblib` was deleted; `wqc_model.joblib` is the active model
-
----
-
-## User Preferences
-- Push to GitHub after every significant change
-- Keep WQRI terminology fully removed (use WQC everywhere)
-- No `score` field anywhere in the codebase
+- The assessment model is prototype-validated on synthetic, formula-labeled
+  data; it is not yet field-validated biological ground truth.
+- Sensor calibration and physical hardware verification remain required before
+  unsupervised production operation.
+- Node.js 20 notification functions must be migrated before runtime
+  decommissioning.

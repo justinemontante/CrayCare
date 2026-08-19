@@ -1,6 +1,6 @@
 """Local CLI test script for the Water Quality Assessment.
 
-Runs the current classification model and recommendations on the latest row of
+Runs the current assessment model and recommendations on the latest row of
 sensor_dataset.csv, then prints the complete Water Quality Assessment result.
 
 Uses the exact same features.assess_water_quality() that the deployed Cloud
@@ -23,7 +23,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 _DIR = os.path.dirname(os.path.abspath(__file__))
 
-bundle = joblib.load(os.path.join(_DIR, "wqc_model.joblib"))
+bundle = joblib.load(os.path.join(_DIR, "wqa_model.joblib"))
 
 with open(os.path.join(_DIR, "recommendations.json"), encoding="utf-8") as f:
     recs = json.load(f)

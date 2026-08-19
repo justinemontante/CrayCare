@@ -41,7 +41,7 @@ Reviewed the current Flutter/Dart application, Firestore integration and rules, 
 ## Remaining intentional limitations / deployment work
 
 1. **Anonymous ESP identity:** suitable for a controlled thesis/demo, but staging can be attempted by another anonymous client. Public production should use provisioned custom device credentials or a protected HTTPS ingestion API.
-2. **Synthetic ML training:** the Water Quality Assessment classification model is prototype-validated on formula-labeled synthetic data, not field-validated biological ground truth.
+2. **Synthetic ML training:** the Water Quality Assessment model is prototype-validated on formula-labeled synthetic data, not field-validated biological ground truth.
 3. **Estimated feeder grams:** 20 g per servo cycle is an estimate until physically calibrated or measured with a load cell.
 4. **Cold-boot offline time:** cached schedules work during an outage after time synchronization; reliable scheduling after a powered-off cold boot without internet requires an RTC such as DS3231.
 5. **Android distribution:** package ID remains `com.example.craycare` because it matches the registered Firebase Android app, and release builds currently use debug signing. A unique Firebase-registered package and release keystore are required for formal store distribution.

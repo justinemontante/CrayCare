@@ -7,7 +7,7 @@ _bundle = None
 _recs = None
 _db = None
 
-_MODEL_PATH = os.path.join(os.path.dirname(__file__), "wqc_model.joblib")
+_MODEL_PATH = os.path.join(os.path.dirname(__file__), "wqa_model.joblib")
 _RECS_PATH = os.path.join(os.path.dirname(__file__), "recommendations.json")
 
 
@@ -57,8 +57,8 @@ def _load_model():
 def _run_water_quality_assessment(df):
     """Run the Water Quality Assessment using the recent sensor window.
 
-    A classification model determines the overall class, while the assessment
-    layer adds trend analysis, insight, and recommendations.
+    The assessment model determines the overall condition, while the
+    interpretation layer adds trend analysis, insight, and recommendations.
     """
     from features import assess_water_quality
     from assessment_interpreter import enrich_assessment
@@ -163,11 +163,10 @@ def _analyze_tank(tank_id: str) -> None:
     timezone="Asia/Manila",
     region="asia-southeast1",
 )
-def run_hourly_wqc(event) -> None:
+def run_hourly_wqa(event) -> None:
     """Run the Water Quality Assessment for the assigned tank each hour.
 
-    The exported function name remains stable so existing Firebase schedules
-    continue to invoke the same deployment without duplication.
+    The exported function name uses WQA to match Water Quality Assessment.
     """
     db = _get_db()
     assignment = db.collection("hardware_system").document("currentOwner").get()

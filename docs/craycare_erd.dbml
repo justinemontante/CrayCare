@@ -237,7 +237,7 @@ Table machine_learning_assessments {
   ts_epoch bigint
   timestamp timestamp
 
-  Note: 'Water Quality Assessment results. A classification model categorizes the overall condition; the assessment layer also analyzes recent trends, identifies emerging risks, and provides insights and recommendations.'
+  Note: 'Water Quality Assessment results. The ML model determines the overall condition; the interpretation layer also analyzes recent trends, identifies emerging risks, and provides insights and recommendations.'
 
   Indexes {
     (tank_id, ts_epoch)

@@ -1,9 +1,9 @@
-"""CrayCare — Water Quality Assessment Classification Model
+"""CrayCare — Machine Learning-Based Water Quality Assessment Model
 ============================================================
 
-Trains the XGBoost classification model used by the Machine Learning-Based
+Trains the XGBoost model used by the Machine Learning-Based
 Water Quality Assessment on sensor_dataset.csv and saves the bundle to the
-legacy-compatible wqc_model.joblib artifact.
+wqa_model.joblib artifact.
 
 All thresholds used in label generation are aligned with:
   DENR DAO 2016-08 (Class C Inland Waters)
@@ -30,7 +30,7 @@ READ BEFORE QUOTING ACCURACY IN A DEFENSE:
 
 Usage:
   python train_model.py
-  -> wqc_model.joblib  (model bundle)
+  -> wqa_model.joblib  (assessment model bundle)
 """
 
 import os
@@ -72,7 +72,7 @@ df["assessment_score"] = assessment_score.round(1)
 df["assessment_class"] = assessment_score.apply(lambda value: classify(value)[0])
 
 print("=" * 65)
-print("CrayCare Water Quality Assessment — Classification Model Training")
+print("CrayCare — Machine Learning-Based Water Quality Assessment Training")
 print("=" * 65)
 print(f"Dataset: {len(df):,} rows × {len(df.columns)} columns")
 print(f"Date range: {df['timestamp'].min().date()} → {df['timestamp'].max().date()}\n")
@@ -188,7 +188,7 @@ pred_val = model.predict(Xval)
 if len(pred_val.shape) == 2 and pred_val.shape[1] > 1:
     pred_val = pred_val.argmax(axis=1)
 
-print("\n── Classification Report (holdout slice, last 10% of timeline) ──")
+print("\n── Assessment Performance (holdout slice, last 10% of timeline) ──")
 print(classification_report(
     yval, pred_val,
     labels=[0, 1, 2, 3],
@@ -230,7 +230,7 @@ print(classification_report(
 bundle = {
     "model":    model,
     "features": list(X.columns),
-    "type":     "classifier",
+    "type":     "assessment",
     "model_version": f"water-quality-assessment-xgboost-{xgboost_version}",
     "trained_at_utc": pd.Timestamp.now(tz="UTC").isoformat(),
     "dataset_rows": len(df),
@@ -251,9 +251,9 @@ bundle = {
         "analysis_window_minutes": 60,
     },
 }
-out_path = os.path.join(_DIR, "wqc_model.joblib")
+out_path = os.path.join(_DIR, "wqa_model.joblib")
 joblib.dump(bundle, out_path)
-print(f"\nSaved: wqc_model.joblib")
+print(f"\nSaved: wqa_model.joblib")
 print(f"  Features:      {len(X.columns)}")
 print(f"  Training rows: {len(Xtr_f):,}")
 print(f"  Agencies cited: {len(bundle['agencies'])}")

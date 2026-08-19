@@ -12,10 +12,10 @@ METHODOLOGY NOTE (for thesis/defense):
 The ML training label is derived from the deterministic
 `compute_water_quality_assessment_score()` formula —
 it is NOT independent, expert-labeled ground truth.
-The classification model used by the Water Quality Assessment approximates/generalises
+The ML model used by the Water Quality Assessment approximates/generalises
 this formula using richer temporal features (rolling trend, volatility,
 hours-in-bad-condition) than the formula itself uses.
-High classification accuracy primarily demonstrates that the model can closely reproduce a known
+High assessment accuracy primarily demonstrates that the model can closely reproduce a known
 deterministic function. Frame the ML component as "trend-aware early warning / smoothing over the
 rule-based system." See train_model.py Stage 1.5 for ablation numbers to cite in the defense.
 """
@@ -155,7 +155,7 @@ def build_features(df):
 def compute_water_quality_assessment_score(df):
     """Compute a 0–100 internal hazard score from raw sensor DataFrame.
 
-    Used internally to auto-generate classification labels for model training.
+    Used internally to auto-generate assessment labels for model training.
     NOT exposed in the final Water Quality Assessment output.
 
     Uses a rolling 6-tick (1-hour) window sum of instantaneous per-sensor
@@ -301,7 +301,7 @@ def _current_driver_details(last):
 def assess_water_quality(df, bundle, recs):
     """Produce a trend-aware, explainable Water Quality Assessment.
 
-    A classification model categorizes the overall condition as one part of
+    The ML model categorizes the overall condition as one part of
     the complete Water Quality Assessment.
     """
     import numpy as np
@@ -317,7 +317,7 @@ def assess_water_quality(df, bundle, recs):
         latest = feat.iloc[[-1]].copy()
         for missing in set(features) - set(latest.columns): latest[missing] = 0.0
         latest = latest[features]
-        if bundle.get("type", "classifier") == "regressor":
+        if bundle.get("type", "assessment") == "regressor":
             predicted = float(np.clip(model.predict(latest)[0], 0, 100))
             score = round(predicted, 1)
             model_class, model_level = classify(score)
@@ -343,7 +343,7 @@ def assess_water_quality(df, bundle, recs):
     action = rec.get("critical_action" if level == "Critical" else "action", rec["action"])
     from datetime import datetime, timezone
     source = (
-        bundle.get("model_version", "XGBoost classifier")
+        bundle.get("model_version", "XGBoost assessment model")
         if bundle is not None
         else "Rule-based fallback"
     )

@@ -49,7 +49,7 @@ async function seedHistory() {
   }
   await batch.commit();
   console.log(`✅ Seeded six complete 10-minute records for tank ${tankId}.`);
-  console.log('The production WQC function is hourly; wait for the next scheduler run, then run check_health_risk.js.');
+  console.log('The production Water Quality Assessment function is hourly; wait for the next scheduler run, then run check_water_quality_assessment.js.');
 }
 
 seedHistory().catch(error => { console.error(error); process.exit(1); });

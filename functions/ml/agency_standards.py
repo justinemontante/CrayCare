@@ -51,7 +51,7 @@ AGENCY_CITATIONS = {
 
 # ── Per-parameter thresholds and agency links ──────────────────────────────────
 # Each entry defines the boundary for Water Quality Assessment scoring and
-# classification-label generation.
+# Water Quality Assessment condition-label generation.
 # "direction": "lower_is_worse" | "higher_is_worse" | "range"
 #
 # Class mapping used in compute_water_quality_assessment_score() /

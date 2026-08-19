@@ -41,7 +41,7 @@ Three compounding issues, all fixed:
    `train_model.py` couldn't even run (`KeyError: wqri_class`).
 2. The deployed `wqri_model.joblib` was a renamed leftover file, never
    actually produced by the current `train_model.py` (mismatched
-   regressor vs. classifier).
+   regressor vs. assessment model).
 3. `generate_dataset.py` injected each fault type (aerator failure, heat
    spike, pH drop, overfeeding) only **once** across the 45-day synthetic
    run, so later `TimeSeriesSplit` CV folds tested on fault patterns the

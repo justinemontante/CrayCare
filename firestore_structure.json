@@ -41,7 +41,7 @@
   },
   "tanks": {
     "_id": "tank_id (== owner's uid by default)",
-    "_description": "One tank per user. Core of the whole system — all sensor, actuator, feeder, health-risk and production data live here as subcollections.",
+    "_description": "One tank per user. Core of the whole system — all sensor, actuator, feeder, Water Quality Assessment, and production data live here as subcollections.",
     "fields": [
       "owner_uid (string)",
       "userId (string, alias)",
