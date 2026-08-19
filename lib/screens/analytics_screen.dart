@@ -192,7 +192,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       historyStart = now.subtract(const Duration(days: 7));
       historyEnd = now;
     } else if (range == '30d') {
-      historyStart = now.subtract(const Duration(days: 30));
+      final today = DateTime(now.year, now.month, now.day);
+      historyStart = today.subtract(const Duration(days: 29));
       historyEnd = now;
     } else {
       historyStart = _customStartDate;
@@ -311,8 +312,9 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
         'Nov',
         'Dec',
       ];
+      final today = DateTime(now.year, now.month, now.day);
       labelTimes = List<DateTime>.generate(pts, (i) {
-        return now.subtract(Duration(days: (pts - 1 - i)));
+        return today.subtract(Duration(days: pts - 1 - i));
       });
       _labels[range] = labelTimes
           .map((d) => '${months[d.month - 1]} ${d.day}')
@@ -341,9 +343,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     for (final key in SensorService.sensorKeys) {
       final vals = valuesPerKey[key]!;
       _data['$key-$range'] = List<double>.generate(labelTimes.length, (i) {
-        final isDaily =
-            i < labelTimes.length - 1 &&
-            labelTimes[i + 1].difference(labelTimes[i]).inDays >= 1;
+        final isDaily = range == '30d' || range == 'custom';
 
         if (isDaily) {
           final dayStart = DateTime(
@@ -794,7 +794,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     final mx = !hasValid
         ? '--'
         : _calc(validData, (d) => d.reduce(max)).toStringAsFixed(dp);
-    final curLabel = labels.isNotEmpty ? labels.last : '';
+    const curLabel = 'Selected period';
     final unit = _unitFor(chartKey);
 
     int minIdx = -1, maxIdx = -1;
@@ -804,7 +804,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       minIdx = data.indexOf(minVal);
       maxIdx = data.indexOf(maxVal);
     }
-    final nowIdx = data.length - 1;
+    const nowIdx = -1;
     final minLabel = (minIdx >= 0 && minIdx < labels.length)
         ? labels[minIdx]
         : '';
@@ -1188,7 +1188,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
               minIdx = data.indexOf(minVal);
               maxIdx = data.indexOf(maxVal);
             }
-            final nowIdx = data.length - 1;
+            const nowIdx = -1;
             final minLabel = (minIdx >= 0 && minIdx < labels.length)
                 ? labels[minIdx]
                 : '';
@@ -1227,7 +1227,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
               criticalCount = 0;
               criticalItems = [];
             }
-            final curLabel = labels.isNotEmpty ? labels.last : '';
+            const curLabel = 'Selected period';
             double avg = 0.0;
             if (validData.isNotEmpty) {
               avg = validData.reduce((a, b) => a + b) / validData.length;
