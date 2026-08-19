@@ -34,7 +34,7 @@ class NotifSettings extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ColoredBox(
-      color: const Color(0xFFF7FAFA),
+      color: Colors.white,
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(14, 12, 14, 28),
         child: Column(

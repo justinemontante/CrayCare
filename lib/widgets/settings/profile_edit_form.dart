@@ -38,7 +38,7 @@ class ProfileEditForm extends StatelessWidget {
     final photoImage = _photoImageProvider(photoUrl);
 
     return Container(
-      color: const Color(0xFFf7f7f7),
+      color: Colors.white,
       padding: const EdgeInsets.all(12),
       child: Column(
         children: [

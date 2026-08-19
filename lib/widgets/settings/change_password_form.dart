@@ -82,7 +82,7 @@ class _ChangePasswordFormState extends State<ChangePasswordForm> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: const Color(0xFFf7f7f7),
+      color: Colors.white,
       padding: EdgeInsets.fromLTRB(
         12,
         12,

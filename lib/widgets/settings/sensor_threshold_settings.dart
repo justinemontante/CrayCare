@@ -359,7 +359,7 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: const Color(0xFFF9FAFB),
+      color: Colors.white,
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
