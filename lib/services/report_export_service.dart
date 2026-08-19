@@ -96,9 +96,10 @@ class ReportExportService {
 
     final samples = t.samplingHistory;
     if (samples.isNotEmpty) {
+      buf.writeln(_row(['Sampling Records']));
       buf.writeln(
         _row([
-          'Sampling Records',
+          'Week',
           'Date',
           'ABW (g)',
           'ABL (cm)',
@@ -109,10 +110,14 @@ class ReportExportService {
           'Live Count',
         ]),
       );
+      var weeklyNumber = 0;
       for (final s in samples) {
+        final weekLabel = s.isBaseline
+            ? 'Week 0 (Baseline)'
+            : 'Week ${++weeklyNumber}';
         buf.writeln(
           _row([
-            '',
+            weekLabel,
             _fmtDate(s.date),
             s.abw.toStringAsFixed(2),
             s.avgLength.toStringAsFixed(2),
@@ -129,18 +134,19 @@ class ReportExportService {
 
     final mortality = t.mortalityHistory;
     if (mortality.isNotEmpty) {
-      buf.writeln(_row(['Mortality Records', 'Date', 'Count']));
+      buf.writeln(_row(['Mortality Records']));
+      buf.writeln(_row(['Date', 'Count']));
       for (final m in mortality) {
-        buf.writeln(_row(['', _fmtDate(m.date), m.count]));
+        buf.writeln(_row([_fmtDate(m.date), m.count]));
       }
       buf.writeln();
     }
 
     final harvests = t.harvestRecords;
     if (harvests.isNotEmpty) {
+      buf.writeln(_row(['Harvest Records']));
       buf.writeln(
         _row([
-          'Harvest Records',
           'Date',
           'Harvested Count',
           'Total Weight (kg)',
@@ -150,7 +156,6 @@ class ReportExportService {
       for (final h in harvests) {
         buf.writeln(
           _row([
-            '',
             _fmtDate(h.date),
             h.harvestedCount,
             h.totalWeightKg.toStringAsFixed(3),
@@ -251,18 +256,22 @@ class ReportExportService {
     final mortality = t.mortalityHistory;
     final harvests = t.harvestRecords;
 
-    final samplingRows = samples
-        .map(
-          (s) => [
-            _fmtDate(s.date),
-            s.abw.toStringAsFixed(2),
-            s.avgLength.toStringAsFixed(2),
-            '${s.sampleSize}',
-            s.totalWeight.toStringAsFixed(2),
-            s.biomass.toStringAsFixed(2),
-          ],
-        )
-        .toList();
+    final samplingRows = <List<String>>[];
+    var weeklyNumber = 0;
+    for (final s in samples) {
+      final weekLabel = s.isBaseline
+          ? 'Week 0 (Baseline)'
+          : 'Week ${++weeklyNumber}';
+      samplingRows.add([
+        weekLabel,
+        _fmtDate(s.date),
+        s.abw.toStringAsFixed(2),
+        s.avgLength.toStringAsFixed(2),
+        '${s.sampleSize}',
+        s.totalWeight.toStringAsFixed(2),
+        s.biomass.toStringAsFixed(2),
+      ]);
+    }
 
     final mortalityRows = mortality
         .map((m) => [_fmtDate(m.date), '${m.count}'])
@@ -345,6 +354,7 @@ class ReportExportService {
           else
             pw.TableHelper.fromTextArray(
               headers: [
+                'Week',
                 'Date',
                 'ABW (g)',
                 'ABL (cm)',
@@ -357,7 +367,7 @@ class ReportExportService {
                 color: PdfColors.white,
               ),
               headerDecoration: const pw.BoxDecoration(color: _careColor),
-              cellStyle: const pw.TextStyle(fontSize: 9),
+              cellStyle: const pw.TextStyle(fontSize: 8),
               border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
               data: samplingRows,
             ),
