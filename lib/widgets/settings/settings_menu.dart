@@ -121,77 +121,72 @@ class SettingsMenu extends StatelessWidget {
         ],
       ),
       clipBehavior: Clip.antiAlias,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () => onGoTo(1),
-          child: Stack(
-            children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              child: Row(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        child: Row(
+          children: [
+            Container(
+              width: 54,
+              height: 54,
+              decoration: BoxDecoration(
+                color: photoImage == null ? AppColors.primary : null,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 3),
+                image: photoImage == null
+                    ? null
+                    : DecorationImage(image: photoImage, fit: BoxFit.cover),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.primary.withValues(alpha: 0.18),
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: photoImage == null
+                  ? const Icon(
+                      Icons.person_rounded,
+                      color: Colors.white,
+                      size: 29,
+                    )
+                  : null,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    width: 54,
-                    height: 54,
-                    decoration: BoxDecoration(
-                      color: photoImage == null ? AppColors.primary : null,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 3),
-                      image: photoImage == null
-                          ? null
-                          : DecorationImage(image: photoImage, fit: BoxFit.cover),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.primary.withValues(alpha: 0.18),
-                          blurRadius: 10,
-                          offset: const Offset(0, 3),
-                        ),
-                      ],
-                    ),
-                    child: photoImage == null
-                        ? const Icon(Icons.person_rounded, color: Colors.white, size: 29)
-                        : null,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          profileName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.dark,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        SizedBox(
-                          width: double.infinity,
-                          child: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            alignment: Alignment.centerLeft,
-                            child: Text(
-                              profileEmail,
-                              maxLines: 1,
-                              style: const TextStyle(fontSize: 11, color: AppColors.subtitleText),
-                            ),
-                          ),
-                        ),
-                      ],
+                  Text(
+                    profileName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.dark,
                     ),
                   ),
-                  const SizedBox(width: 6),
-                  const Icon(Icons.chevron_right_rounded, color: AppColors.primary, size: 21),
+                  const SizedBox(height: 4),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        profileEmail,
+                        maxLines: 1,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: AppColors.subtitleText,
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
-            ],
-          ),
+          ],
         ),
       ),
     );
