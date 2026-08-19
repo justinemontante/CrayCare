@@ -110,8 +110,12 @@ class HomeWidgetService {
     final next = nextEnabledFeeding(FeederService.instance.schedules, now);
     snapshot['widget_next_feed'] = next == null
         ? 'No schedule'
-        : _formatFeedTime(next.at);
-    snapshot['widget_updated'] = _formatClock(now);
+        : _formatFeedOccurrence(next.at, now);
+    final lastSensorUpdate = sensors.lastUpdated;
+    snapshot['widget_updated'] =
+        lastSensorUpdate.millisecondsSinceEpoch <= 0
+        ? '--'
+        : _formatClock(_toManila(lastSensorUpdate), includeSeconds: true);
     await _requestNativeUpdate(snapshot);
   }
 
@@ -121,7 +125,7 @@ class HomeWidgetService {
     String storageKey,
     String unit, {
     required int decimals,
-  }) async {
+  }) {
     final service = SensorService.instance;
     final hasData = service.hasSensorData(sensorKey);
     final value = hasData
@@ -157,20 +161,31 @@ class HomeWidgetService {
     return '${assessment.driverLabel} ${trend < 0 ? 'decreasing' : 'increasing'}';
   }
 
-  String _formatFeedTime(DateTime value) {
-    final hour = value.hour == 0
-        ? 12
-        : (value.hour > 12 ? value.hour - 12 : value.hour);
-    final minute = value.minute.toString().padLeft(2, '0');
-    return '$hour:$minute ${value.hour >= 12 ? 'PM' : 'AM'}';
+  String _formatFeedOccurrence(DateTime value, DateTime now) {
+    const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final valueDate = DateTime(value.year, value.month, value.day);
+    final today = DateTime(now.year, now.month, now.day);
+    final dayOffset = valueDate.difference(today).inDays;
+    final dayLabel = switch (dayOffset) {
+      0 => 'Today',
+      1 => 'Tomorrow',
+      _ => weekdays[value.weekday - 1],
+    };
+    return '$dayLabel, ${_formatClock(value)}';
   }
 
-  String _formatClock(DateTime value) {
+  DateTime _toManila(DateTime value) {
+    return value.toUtc().add(_manilaOffset);
+  }
+
+  String _formatClock(DateTime value, {bool includeSeconds = false}) {
     final hour = value.hour == 0
         ? 12
         : (value.hour > 12 ? value.hour - 12 : value.hour);
     final minute = value.minute.toString().padLeft(2, '0');
-    return '$hour:$minute ${value.hour >= 12 ? 'PM' : 'AM'}';
+    final second = value.second.toString().padLeft(2, '0');
+    final secondsText = includeSeconds ? ':$second' : '';
+    return '$hour:$minute$secondsText ${value.hour >= 12 ? 'PM' : 'AM'}';
   }
 
   Future<void> _requestNativeUpdate(Map<String, Object> snapshot) async {
