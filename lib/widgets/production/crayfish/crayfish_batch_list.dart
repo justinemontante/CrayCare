@@ -20,8 +20,8 @@ class CrayfishBatchList extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFFFCFCFC),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
-        boxShadow: [BoxShadow(color: AppColors.darkWith(0.12), blurRadius: 16, offset: const Offset(0, 4))],
+        border: Border.all(color: AppColors.darkWith(0.08)),
+        boxShadow: AppShadows.card,
       ),
       child: SingleChildScrollView(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -50,7 +50,7 @@ class CrayfishBatchList extends StatelessWidget {
             const Text('All Batches', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.dark)),
             Text(
               active.isNotEmpty ? '${active.length} active, $total total' : '$total archived',
-              style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.4)),
+              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.4)),
             ),
           ]),
         ),
@@ -95,7 +95,7 @@ class CrayfishBatchList extends StatelessWidget {
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Container(height: 1, color: AppColors.darkWith(0.06)),
         const SizedBox(height: 8),
-        Text('Archived Batches', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: AppColors.darkWith(0.4))),
+        Text('Archived Batches', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.darkWith(0.4))),
         const SizedBox(height: 4),
         ...batches.map((b) => _buildBatchCard(context, b, false)),
       ]),
@@ -155,11 +155,11 @@ class CrayfishBatchList extends StatelessWidget {
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(batch.batchId, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.dark)),
               if (isActive)
-                Text(_formatShortDate(batch.stockingDate), style: TextStyle(fontSize: 8, fontWeight: FontWeight.w500, color: AppColors.darkWith(0.4)))
+                Text(_formatShortDate(batch.stockingDate), style: TextStyle(fontSize: 9, fontWeight: FontWeight.w500, color: AppColors.darkWith(0.4)))
               else
                 Text(
                   '${_formatShortDate(batch.stockingDate)} \u2192 ${batch.harvestDate != null ? _formatShortDate(batch.harvestDate!) : 'N/A'} \u2022 ${batch.daysInCulture}d',
-                  style: TextStyle(fontSize: 8, fontWeight: FontWeight.w500, color: AppColors.darkWith(0.4)),
+                  style: TextStyle(fontSize: 9, fontWeight: FontWeight.w500, color: AppColors.darkWith(0.4)),
                 ),
             ])),
             Text('${duration}d', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: isSelected ? AppColors.primary : (isActive ? AppColors.dark : AppColors.darkWith(0.5)))),
@@ -201,7 +201,7 @@ class CrayfishBatchList extends StatelessWidget {
           const SizedBox(height: 6),
           Text('No batches yet', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.darkWith(0.35))),
           const SizedBox(height: 2),
-          Text('Initialize a grow-out to start', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w500, color: AppColors.darkWith(0.25))),
+          Text('Initialize a grow-out to start', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: AppColors.darkWith(0.25))),
           const SizedBox(height: 12),
           ElevatedButton.icon(
             onPressed: onNewBatch,

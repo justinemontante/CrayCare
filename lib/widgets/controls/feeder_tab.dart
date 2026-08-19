@@ -9,8 +9,7 @@ class FeederTab extends StatelessWidget {
   // ESP32's NTP-synced clock and the Cloud Function's MANILA_OFFSET_MS. Using
   // DateTime.now() here compares against the device timezone, which can cause
   // false "skipped"/"completed" states when the phone is abroad.
-  static const _manilaOffset = Duration(hours: 8);
-  static DateTime _manilaNow() => DateTime.now().toUtc().add(_manilaOffset);
+  static DateTime _manilaNow() => manilaWallClock();
 
   final List<ScheduleItem> schedules;
   final TextEditingController timeCtl;
@@ -61,13 +60,7 @@ class FeederTab extends StatelessWidget {
         color: const Color(0xFFFCFCFC),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.darkWith(0.12),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        boxShadow: AppShadows.card,
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -221,31 +214,18 @@ class FeederTab extends StatelessWidget {
             ),
             if (schedules.isNotEmpty) ...[
               const SizedBox(height: 12),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 320),
-                child: Scrollbar(
-                  child: SingleChildScrollView(
-                    primary: false,
-                    padding: const EdgeInsets.only(right: 4),
-                    child: Column(
-                      children: [
-                        _buildSchedulePeriod(
-                          ctx,
-                          'Morning',
-                          Icons.wb_sunny_outlined,
-                          morning,
-                        ),
-                        const SizedBox(height: 12),
-                        _buildSchedulePeriod(
-                          ctx,
-                          'Afternoon',
-                          Icons.wb_twilight_outlined,
-                          afternoon,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+              _buildSchedulePeriod(
+                ctx,
+                'Morning',
+                Icons.wb_sunny_outlined,
+                morning,
+              ),
+              const SizedBox(height: 12),
+              _buildSchedulePeriod(
+                ctx,
+                'Afternoon',
+                Icons.wb_twilight_outlined,
+                afternoon,
               ),
             ] else
               Padding(
@@ -538,6 +518,9 @@ class FeederTab extends StatelessWidget {
     IconData icon,
     List<ScheduleItem> items,
   ) {
+    const previewLimit = 2;
+    final previewItems = items.take(previewLimit).toList();
+
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
@@ -583,16 +566,134 @@ class FeederTab extends StatelessWidget {
               ),
             )
           else
-            ...items.map(
-              (s) => _buildScheduleItem(
-                ctx,
-                schedules.indexWhere(
-                  (x) => x.time == s.time && x.ampm == s.ampm,
+            ...previewItems.map(
+              (s) => _buildScheduleItem(ctx, schedules.indexOf(s), s),
+            ),
+          if (items.length > previewLimit) ...[
+            const SizedBox(height: 4),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton.icon(
+                onPressed: () => _showAllSchedules(ctx, label, icon, items),
+                icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 16),
+                label: Text('View all ${items.length} schedules'),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.primary,
+                  backgroundColor: AppColors.primary.withValues(alpha: 0.07),
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  textStyle: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(9),
+                  ),
                 ),
-                s,
               ),
             ),
+          ],
         ],
+      ),
+    );
+  }
+
+  void _showAllSchedules(
+    BuildContext ctx,
+    String label,
+    IconData icon,
+    List<ScheduleItem> items,
+  ) {
+    showModalBottomSheet<void>(
+      context: ctx,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) => FractionallySizedBox(
+        heightFactor: 0.76,
+        child: Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              children: [
+                const SizedBox(height: 10),
+                Container(
+                  width: 38,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.darkWith(0.15),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 16, 10, 12),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(11),
+                        ),
+                        child: Icon(icon, size: 19, color: AppColors.primary),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '$label Schedules',
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.dark,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${items.length} feeding schedule${items.length == 1 ? '' : 's'}',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: AppColors.darkWith(0.45),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(sheetCtx),
+                        icon: const Icon(Icons.close_rounded),
+                        color: AppColors.darkWith(0.55),
+                      ),
+                    ],
+                  ),
+                ),
+                Divider(height: 1, color: AppColors.darkWith(0.08)),
+                Expanded(
+                  child: Scrollbar(
+                    child: ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 20),
+                      itemCount: items.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 5),
+                      itemBuilder: (_, itemIndex) {
+                        final schedule = items[itemIndex];
+                        return _buildScheduleItem(
+                          sheetCtx,
+                          schedules.indexOf(schedule),
+                          schedule,
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -651,124 +752,163 @@ class FeederTab extends StatelessWidget {
     }
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Row(
-        children: [
-          Expanded(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              decoration: BoxDecoration(
-                color: bgColor,
-                border: Border.all(color: borderColor, width: 1.5),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Row(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: bgColor,
+          border: Border.all(color: borderColor),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          children: [
+            Icon(statusIcon, size: 12, color: dotColor),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(statusIcon, size: 12, color: dotColor),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '${s.time} ${s.ampm}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: status == 'disabled'
-                                ? AppColors.darkWith(0.4)
-                                : AppColors.dark,
-                            decoration: status == 'completed'
-                                ? TextDecoration.lineThrough
-                                : null,
-                            decorationColor: AppColors.darkWith(0.3),
-                          ),
-                        ),
-                        if (s.grams != null) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            '${s.grams!.toStringAsFixed(1)}g',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.primary,
-                            ),
-                          ),
-                        ],
-                        const SizedBox(height: 2),
-                        Text(
-                          _formatDays(s.days),
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w500,
-                            color: AppColors.darkWith(0.45),
-                          ),
-                        ),
-                      ],
+                  Text(
+                    '${s.time} ${s.ampm}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: status == 'disabled'
+                          ? AppColors.darkWith(0.4)
+                          : AppColors.dark,
+                      decoration: status == 'completed'
+                          ? TextDecoration.lineThrough
+                          : null,
+                      decorationColor: AppColors.darkWith(0.3),
                     ),
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: status == 'completed'
-                          ? AppColors.success.withValues(alpha: 0.15)
-                          : status == 'pending'
-                          ? AppColors.warning.withValues(alpha: 0.15)
-                          : status == 'skipped'
-                          ? AppColors.darkWith(0.1)
-                          : AppColors.darkWith(0.08),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      statusLabel.toUpperCase(),
+                  if (s.grams != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      '${s.grams!.toStringAsFixed(1)}g',
                       style: TextStyle(
-                        fontSize: 9,
-                        fontWeight: FontWeight.w700,
-                        color: status == 'completed'
-                            ? AppColors.success
-                            : status == 'pending'
-                            ? const Color(0xFFc97d08)
-                            : status == 'skipped'
-                            ? AppColors.darkWith(0.5)
-                            : AppColors.darkWith(0.5),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.primary,
                       ),
+                    ),
+                  ],
+                  const SizedBox(height: 2),
+                  Text(
+                    _formatDays(s.days),
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.darkWith(0.45),
                     ),
                   ),
                 ],
               ),
             ),
-          ),
-          const SizedBox(width: 6),
-          Transform.scale(
-            scale: 0.7,
-            child: Switch(
-              value: s.enabled,
-              activeTrackColor: AppColors.primary,
-              onChanged: (val) => onToggleSchedule(index, val),
+            const SizedBox(width: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: status == 'completed'
+                        ? AppColors.success.withValues(alpha: 0.15)
+                        : status == 'pending'
+                        ? AppColors.warning.withValues(alpha: 0.15)
+                        : status == 'skipped'
+                        ? AppColors.darkWith(0.1)
+                        : AppColors.darkWith(0.08),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    statusLabel.toUpperCase(),
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                      color: status == 'completed'
+                          ? AppColors.success
+                          : status == 'pending'
+                          ? const Color(0xFFc97d08)
+                          : AppColors.darkWith(0.5),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 38,
+                      height: 34,
+                      child: FittedBox(
+                        fit: BoxFit.contain,
+                        child: Switch(
+                          value: s.enabled,
+                          activeTrackColor: AppColors.primary,
+                          onChanged: (val) => onToggleSchedule(index, val),
+                        ),
+                      ),
+                    ),
+                    SizedBox(
+                      width: 38,
+                      height: 38,
+                      child: PopupMenuButton<String>(
+                        tooltip: 'Schedule actions',
+                        padding: EdgeInsets.zero,
+                        icon: Icon(
+                          Icons.more_vert_rounded,
+                          size: 20,
+                          color: AppColors.darkWith(0.55),
+                        ),
+                        onSelected: (action) {
+                          if (action == 'edit') {
+                            _showScheduleModal(ctx, index: index, existing: s);
+                          } else if (action == 'delete') {
+                            _confirmDelete(ctx, index);
+                          }
+                        },
+                        itemBuilder: (_) => const [
+                          PopupMenuItem(
+                            value: 'edit',
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.edit_outlined,
+                                  size: 18,
+                                  color: AppColors.primary,
+                                ),
+                                SizedBox(width: 10),
+                                Text('Edit schedule'),
+                              ],
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: 'delete',
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.delete_outline,
+                                  size: 18,
+                                  color: AppColors.critical,
+                                ),
+                                SizedBox(width: 10),
+                                Text('Delete schedule'),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-          ),
-          const SizedBox(width: 6),
-          GestureDetector(
-            onTap: () => _showScheduleModal(ctx, index: index, existing: s),
-            child: const Icon(
-              Icons.edit_outlined,
-              size: 14,
-              color: AppColors.primary,
-            ),
-          ),
-          const SizedBox(width: 6),
-          GestureDetector(
-            onTap: () => _confirmDelete(ctx, index),
-            child: const Icon(
-              Icons.delete_outline,
-              size: 14,
-              color: AppColors.critical,
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1232,24 +1372,29 @@ class FeederTab extends StatelessWidget {
                                   (i) => selectedDays.contains(i) ? 49 : 48,
                                 ),
                               );
-                              // Check duplicate: same time AND same day mask.
-                              // This allows two schedules at the same time as
-                              // long as they run on different weekdays (e.g.
-                              // 6:00 AM weekdays vs 6:00 AM weekends).
-                              final duplicate = schedules.asMap().entries.any((
-                                e,
-                              ) {
-                                if (isEdit && e.key == index) return false;
+                              final requested = ScheduleItem(
+                                timeStr,
+                                ampm,
+                                grams: grams,
+                                days: daysMask,
+                              );
+                              ScheduleItem? conflict;
+                              for (final e in schedules.asMap().entries) {
+                                if (isEdit && e.key == index) continue;
                                 final s = e.value;
-                                return s.time == timeStr &&
-                                    s.ampm == ampm &&
-                                    s.days == daysMask;
-                              });
-                              if (duplicate) {
+                                if (feederSchedulesConflict(requested, s)) {
+                                  conflict = s;
+                                  break;
+                                }
+                              }
+                              if (conflict != null) {
                                 ScaffoldMessenger.of(ctx).showSnackBar(
                                   SnackBar(
-                                    content: const Text(
-                                      'A schedule at this time already exists',
+                                    content: Text(
+                                      feederScheduleConflictMessage(
+                                        requested,
+                                        conflict,
+                                      ),
                                     ),
                                     behavior: SnackBarBehavior.floating,
                                     backgroundColor: AppColors.critical,

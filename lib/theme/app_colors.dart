@@ -48,3 +48,25 @@ class AppColors {
   static Color criticalWith(double opacity) => critical.withValues(alpha: opacity);
   static Color whiteWith(double opacity) => white.withValues(alpha: opacity);
 }
+
+/// Shared elevation levels for the main app surfaces. Most nested cards should
+/// use a border only; these shadows are reserved for primary section cards.
+class AppShadows {
+  AppShadows._();
+
+  static const List<BoxShadow> card = [
+    BoxShadow(
+      color: Color(0x0F0B3C49),
+      blurRadius: 10,
+      offset: Offset(0, 2),
+    ),
+  ];
+
+  static const List<BoxShadow> brandCard = [
+    BoxShadow(
+      color: Color(0x0F1FA5A5),
+      blurRadius: 10,
+      offset: Offset(0, 2),
+    ),
+  ];
+}

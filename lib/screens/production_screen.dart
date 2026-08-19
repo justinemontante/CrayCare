@@ -160,13 +160,7 @@ class ProductionScreenState extends State<ProductionScreen> {
           ],
         ),
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.primary.withValues(alpha: 0.1),
-            blurRadius: 15,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        boxShadow: AppShadows.brandCard,
       ),
       clipBehavior: Clip.antiAlias,
       child: Stack(

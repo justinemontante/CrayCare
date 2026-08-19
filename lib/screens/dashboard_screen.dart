@@ -29,8 +29,6 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen>
     with SingleTickerProviderStateMixin {
-  static const _manilaOffset = Duration(hours: 8);
-
   final ScrollController _quickActionsController = ScrollController();
   Timer? _countdownTimer;
   late AnimationController _pulseController;
@@ -75,7 +73,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     setState(() {});
   }
 
-  DateTime _manilaNow() => DateTime.now().toUtc().add(_manilaOffset);
+  DateTime _manilaNow() => manilaWallClock();
 
   // Returns the first name of the signed-in user.
   String _getFirstName() {
@@ -220,13 +218,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.darkWith(0.08)),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.darkWith(0.08),
-            blurRadius: 12,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        boxShadow: AppShadows.card,
       ),
       child: Stack(
         children: [
@@ -929,13 +921,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         color: const Color(0xFFFCFCFC),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: AppColors.darkWith(0.08)),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.darkWith(0.12),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        boxShadow: AppShadows.card,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1451,13 +1437,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         color: const Color(0xFFFCFCFC),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: AppColors.darkWith(0.08)),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.darkWith(0.12),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        boxShadow: AppShadows.card,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

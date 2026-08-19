@@ -48,7 +48,7 @@ class FeederService extends ChangeNotifier {
   // which hardcodes MANILA_OFFSET_MS). Mirror that same fixed +8h approach
   // here so both sides agree on "today" and "now".
   static const _manilaOffset = Duration(hours: 8);
-  DateTime _manilaNow() => DateTime.now().toUtc().add(_manilaOffset);
+  DateTime _manilaNow() => manilaWallClock();
 
   bool _initialized = false;
 
@@ -377,6 +377,8 @@ class FeederService extends ChangeNotifier {
   }) async {
     final tankDoc = _tankDoc();
     if (tankDoc == null) return;
+    final requested = ScheduleItem(time, ampm, grams: grams, days: days);
+    _throwIfScheduleConflicts(requested);
     try {
       final parts = time.split(':');
       final h = int.tryParse(parts[0]) ?? 6;
@@ -442,6 +444,19 @@ class FeederService extends ChangeNotifier {
     final previous = _schedules[index];
     final timeStr = getScheduleTime(index);
 
+    if (enabled) {
+      _throwIfScheduleConflicts(
+        ScheduleItem(
+          previous.time,
+          previous.ampm,
+          enabled: true,
+          grams: previous.grams,
+          days: previous.days,
+        ),
+        excludingIndex: index,
+      );
+    }
+
     // Update the switch immediately; Firestore persistence continues in the
     // background. This avoids making the UI animation wait on the network and
     // the audit-log write.
@@ -457,10 +472,10 @@ class FeederService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await tankDoc
-          .collection('feeder_schedules')
-          .doc(scheduleKey)
-          .update({'enabled': enabled, 'isDone': false});
+      await tankDoc.collection('feeder_schedules').doc(scheduleKey).update({
+        'enabled': enabled,
+        'isDone': false,
+      });
       await _addLogEntry(
         action: enabled
             ? 'Schedule enabled: $timeStr'
@@ -494,6 +509,14 @@ class FeederService extends ChangeNotifier {
     if (index < 0 || index >= _scheduleKeys.length) return;
     final tankDoc = _tankDoc();
     if (tankDoc == null) return;
+    final requested = ScheduleItem(
+      time,
+      ampm,
+      enabled: enabled ?? true,
+      grams: grams,
+      days: days,
+    );
+    _throwIfScheduleConflicts(requested, excludingIndex: index);
     try {
       final parts = time.split(':');
       final hour = int.tryParse(parts.first) ?? 6;
@@ -525,6 +548,19 @@ class FeederService extends ChangeNotifier {
       debugPrint('[FeederService] editSchedule error: $e');
     }
     notifyListeners();
+  }
+
+  void _throwIfScheduleConflicts(
+    ScheduleItem requested, {
+    int? excludingIndex,
+  }) {
+    for (var index = 0; index < _schedules.length; index++) {
+      if (index == excludingIndex) continue;
+      final existing = _schedules[index];
+      if (feederSchedulesConflict(requested, existing)) {
+        throw FeederScheduleConflictException(requested, existing);
+      }
+    }
   }
 
   void _startScheduleTimer() {

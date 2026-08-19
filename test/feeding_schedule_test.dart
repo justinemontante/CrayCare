@@ -3,6 +3,19 @@ import 'package:craycare/models/control_types.dart';
 
 void main() {
   group('feeder repeat-day scheduling', () {
+    test('Manila wall clock does not retain the shifted UTC flag', () {
+      final now = manilaWallClock(DateTime.utc(2026, 8, 19, 6, 52));
+
+      expect(now, DateTime(2026, 8, 19, 14, 52));
+      expect(now.isUtc, isFalse);
+      final schedules = [
+        ScheduleItem('6:00', 'AM', days: '0001000'),
+        ScheduleItem('4:00', 'PM', days: '0001000'),
+      ];
+
+      expect(nextEnabledFeeding(schedules, now)?.schedule.time, '4:00');
+    });
+
     test('selects the nearest of multiple enabled times today', () {
       final now = DateTime(2026, 8, 19, 10, 0); // Wednesday.
       final schedules = [
@@ -69,6 +82,38 @@ void main() {
         nextFeederScheduleOccurrence(schedule, DateTime(2026, 8, 19, 7)),
         isNull,
       );
+    });
+
+    test('detects same-time overlap even when amounts and masks differ', () {
+      final first = ScheduleItem(
+        '4:00',
+        'PM',
+        grams: 20,
+        days: '0110000', // Monday and Tuesday.
+      );
+      final second = ScheduleItem(
+        '4:00',
+        'PM',
+        grams: 35,
+        days: '0101000', // Monday and Wednesday.
+      );
+
+      expect(feederSchedulesConflict(first, second), isTrue);
+      expect(feederScheduleConflictMessage(second, first), contains('Monday'));
+    });
+
+    test('allows the same time on completely different days', () {
+      final monday = ScheduleItem('4:00', 'PM', days: '0100000');
+      final wednesday = ScheduleItem('4:00', 'PM', days: '0001000');
+
+      expect(feederSchedulesConflict(monday, wednesday), isFalse);
+    });
+
+    test('allows different times on the same day', () {
+      final first = ScheduleItem('4:00', 'PM', days: '0100000');
+      final second = ScheduleItem('5:00', 'PM', days: '0100000');
+
+      expect(feederSchedulesConflict(first, second), isFalse);
     });
   });
 }

@@ -62,6 +62,7 @@
 
         <receiver
             android:name=".CrayCareWidgetProvider"
+            android:label="@string/craycare_water_widget_name"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />

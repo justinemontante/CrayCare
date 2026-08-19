@@ -81,7 +81,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppColors.darkWith(0.12), width: 1.5),
+          border: Border.all(color: AppColors.darkWith(0.08)),
         ),
         child: Column(
           children: [
@@ -97,7 +97,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             Text(
               label,
               style: TextStyle(
-                fontSize: 8,
+                fontSize: 10,
                 fontWeight: FontWeight.w600,
                 color: AppColors.darkWith(0.6),
                 letterSpacing: 0.2,
@@ -119,47 +119,55 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         color: AppColors.dark.withValues(alpha: 0.03),
         borderRadius: BorderRadius.circular(16),
       ),
-      child: Row(
-        children: filters.map((f) {
-          final isActive = _activeFilter == f;
-          return Expanded(
-            child: GestureDetector(
-              onTap: () => setState(() => _activeFilter = f),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                decoration: BoxDecoration(
-                  color: isActive ? Colors.white : Colors.transparent,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: isActive
-                      ? [
-                          BoxShadow(
-                            color: AppColors.dark.withValues(alpha: 0.05),
-                            blurRadius: 10,
-                            offset: const Offset(0, 2),
-                          ),
-                        ]
-                      : null,
-                ),
-                child: Text(
-                  // FIX: Custom text label format to still show 'Reminders' correctly
-                  f == 'all'
-                      ? 'All'
-                      : (f == 'reminder'
-                            ? 'Reminders'
-                            : '${f[0].toUpperCase()}${f.substring(1)}'),
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 9,
-                    fontWeight: FontWeight.w700,
-                    color: isActive
-                        ? AppColors.primary
-                        : AppColors.dark.withValues(alpha: 0.4),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: filters.map((f) {
+            final isActive = _activeFilter == f;
+            final label = f == 'all'
+                ? 'All'
+                : (f == 'reminder'
+                      ? 'Reminders'
+                      : '${f[0].toUpperCase()}${f.substring(1)}');
+            return Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: GestureDetector(
+                onTap: () => setState(() => _activeFilter = f),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  constraints: const BoxConstraints(minHeight: 40),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isActive ? Colors.white : Colors.transparent,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: isActive
+                        ? [
+                            BoxShadow(
+                              color: AppColors.dark.withValues(alpha: 0.05),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: isActive
+                          ? AppColors.primary
+                          : AppColors.dark.withValues(alpha: 0.45),
+                    ),
                   ),
                 ),
               ),
-            ),
-          );
-        }).toList(),
+            );
+          }).toList(),
+        ),
       ),
     );
   }
@@ -218,7 +226,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final color = _typeColor(n.notif_type);
     final isUnread = NotificationService.instance.unreadStatus(n.id);
     return GestureDetector(
-      onTap: () => _showDetail(n),  // markAsRead happens inside _showDetail
+      onTap: () => _showDetail(n), // markAsRead happens inside _showDetail
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         margin: const EdgeInsets.only(bottom: 6),
@@ -228,7 +236,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           color: isUnread ? color.withValues(alpha: 0.04) : Colors.white,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isUnread ? color.withValues(alpha: 0.25) : AppColors.darkWith(0.08),
+            color: isUnread
+                ? color.withValues(alpha: 0.25)
+                : AppColors.darkWith(0.08),
             width: isUnread ? 1.5 : 1.0,
           ),
         ),
@@ -367,7 +377,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         color: color.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: Icon(_typeIcon(n.notif_type), size: 20, color: color),
+                      child: Icon(
+                        _typeIcon(n.notif_type),
+                        size: 20,
+                        color: color,
+                      ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -395,7 +409,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     ),
                     // Per-user read receipt chip
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: AppColors.primary.withValues(alpha: 0.10),
                         borderRadius: BorderRadius.circular(20),

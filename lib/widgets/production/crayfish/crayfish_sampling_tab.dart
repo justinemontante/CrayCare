@@ -72,14 +72,8 @@ class SamplingTab extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFFFCFCFC),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.darkWith(0.12),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        border: Border.all(color: AppColors.darkWith(0.08)),
+        boxShadow: AppShadows.card,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -148,14 +142,8 @@ class NextSamplingPanel extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFFFCFCFC),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.darkWith(0.12),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        border: Border.all(color: AppColors.darkWith(0.08)),
+        boxShadow: AppShadows.card,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -190,7 +178,7 @@ class NextSamplingPanel extends StatelessWidget {
                 child: Text(
                   'Week $nextWeekNum',
                   style: const TextStyle(
-                    fontSize: 9,
+                    fontSize: 10,
                     fontWeight: FontWeight.w800,
                     color: AppColors.primary,
                   ),
@@ -212,7 +200,7 @@ class NextSamplingPanel extends StatelessWidget {
                   Text(
                     'Next Session',
                     style: TextStyle(
-                      fontSize: 9,
+                      fontSize: 10,
                       fontWeight: FontWeight.w600,
                       color: AppColors.darkWith(0.45),
                     ),
@@ -234,7 +222,7 @@ class NextSamplingPanel extends StatelessWidget {
                         ? 'Day $currentDay'
                         : 'Day $currentDay · $daysRemaining days to go',
                     style: TextStyle(
-                      fontSize: 9,
+                      fontSize: 10,
                       fontWeight: FontWeight.w700,
                       color: AppColors.darkWith(0.5),
                     ),
@@ -247,7 +235,7 @@ class NextSamplingPanel extends StatelessWidget {
                   Text(
                     'Time Remaining',
                     style: TextStyle(
-                      fontSize: 9,
+                      fontSize: 10,
                       fontWeight: FontWeight.w600,
                       color: AppColors.darkWith(0.45),
                     ),
@@ -506,14 +494,8 @@ class GrowthOverviewPanel extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFFFCFCFC),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.darkWith(0.12),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        border: Border.all(color: AppColors.darkWith(0.08)),
+        boxShadow: AppShadows.card,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -664,7 +646,7 @@ class GrowthOverviewPanel extends StatelessWidget {
                     subTitle,
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      fontSize: 9,
+                      fontSize: 10,
                       fontWeight: FontWeight.w600,
                       color: AppColors.darkWith(0.5),
                     ),
@@ -687,7 +669,7 @@ class GrowthOverviewPanel extends StatelessWidget {
                               Text(
                                 'ABW',
                                 style: TextStyle(
-                                  fontSize: 9,
+                                  fontSize: 10,
                                   fontWeight: FontWeight.w600,
                                   color: AppColors.darkWith(0.45),
                                 ),
@@ -716,7 +698,7 @@ class GrowthOverviewPanel extends StatelessWidget {
                               Text(
                                 'ABL',
                                 style: TextStyle(
-                                  fontSize: 9,
+                                  fontSize: 10,
                                   fontWeight: FontWeight.w600,
                                   color: AppColors.darkWith(0.45),
                                 ),
@@ -800,7 +782,7 @@ class GrowthOverviewPanel extends StatelessWidget {
                     'Pending',
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      fontSize: 9,
+                      fontSize: 10,
                       fontWeight: FontWeight.w600,
                       color: AppColors.darkWith(0.5),
                     ),
@@ -915,7 +897,7 @@ class GrowthOverviewPanel extends StatelessWidget {
       children: [
         Text(
           label,
-          style: TextStyle(fontSize: 8, color: AppColors.darkWith(0.5)),
+          style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.5)),
         ),
         const SizedBox(height: 4),
         Text(
@@ -1245,14 +1227,8 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
       decoration: BoxDecoration(
         color: const Color(0xFFFCFCFC),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.darkWith(0.12),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        border: Border.all(color: AppColors.darkWith(0.08)),
+        boxShadow: AppShadows.card,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1528,7 +1504,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
           Text(
             label,
             style: TextStyle(
-              fontSize: 9,
+              fontSize: 10,
               fontWeight: FontWeight.w700,
               color: hasError && enabled
                   ? AppColors.critical
@@ -1540,7 +1516,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
           Text(
             subtitle,
             style: TextStyle(
-              fontSize: 8,
+              fontSize: 9,
               fontWeight: FontWeight.w500,
               color: hasError && enabled
                   ? AppColors.critical.withValues(alpha: 0.6)
@@ -1668,14 +1644,8 @@ class GrowthStagePanel extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFFFCFCFC),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.darkWith(0.12),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        border: Border.all(color: AppColors.darkWith(0.08)),
+        boxShadow: AppShadows.card,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1748,7 +1718,7 @@ class GrowthStagePanel extends StatelessWidget {
                     _labels[i],
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      fontSize: 8,
+                      fontSize: 9,
                       fontWeight: isThisActive
                           ? FontWeight.w800
                           : FontWeight.w600,
@@ -1805,7 +1775,7 @@ class GrowthStagePanel extends StatelessWidget {
                 Text(
                   'Stage is based on both ABW and ABL.',
                   style: TextStyle(
-                    fontSize: 9,
+                    fontSize: 10,
                     fontWeight: FontWeight.w500,
                     color: AppColors.darkWith(0.45),
                   ),
@@ -2078,7 +2048,7 @@ class SamplingHistoryPanel extends StatelessWidget {
                     Text(
                       dateLabel,
                       style: TextStyle(
-                        fontSize: 9,
+                        fontSize: 10,
                         fontWeight: FontWeight.w500,
                         color: AppColors.darkWith(0.45),
                       ),
@@ -2099,7 +2069,7 @@ class SamplingHistoryPanel extends StatelessWidget {
                   child: const Text(
                     'Latest',
                     style: TextStyle(
-                      fontSize: 8,
+                      fontSize: 9,
                       fontWeight: FontWeight.w700,
                       color: AppColors.primary,
                     ),
@@ -2268,14 +2238,8 @@ class SamplingHistoryPanel extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFFFCFCFC),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.darkWith(0.12),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        border: Border.all(color: AppColors.darkWith(0.08)),
+        boxShadow: AppShadows.card,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

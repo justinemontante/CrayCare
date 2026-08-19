@@ -33,10 +33,10 @@ class WaterQualityAssessmentCard extends StatelessWidget {
             boxShadow: [
               BoxShadow(
                 color: hasData
-                    ? conditionColor.withValues(alpha: 0.15)
-                    : Colors.black.withValues(alpha: 0.05),
-                blurRadius: 12,
-                offset: const Offset(0, 3),
+                    ? conditionColor.withValues(alpha: 0.08)
+                    : Colors.black.withValues(alpha: 0.04),
+                blurRadius: 10,
+                offset: const Offset(0, 2),
               ),
             ],
           ),

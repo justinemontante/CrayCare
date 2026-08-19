@@ -49,6 +49,10 @@ function getTokensFromUserData(userData) {
   if (Array.isArray(userData.fcmTokens)) {
     tokens.push(...userData.fcmTokens.filter(Boolean));
   }
+  const legacyToken = typeof userData.fcmToken === "string"
+    ? userData.fcmToken.trim()
+    : "";
+  if (legacyToken && !tokens.includes(legacyToken)) tokens.push(legacyToken);
   return tokens;
 }
 
@@ -69,9 +73,15 @@ async function getUserTokens(uid) {
 // Removes one stale/invalid token from the user's token array.
 async function removeStaleToken(uid, token) {
   try {
-    await firestoreDb.collection("users").doc(uid).update({
+    const userRef = firestoreDb.collection("users").doc(uid);
+    const updates = {
       fcmTokens: admin.firestore.FieldValue.arrayRemove(token),
-    });
+    };
+    const userSnap = await userRef.get();
+    if (userSnap.exists && (userSnap.data() || {}).fcmToken === token) {
+      updates.fcmToken = admin.firestore.FieldValue.delete();
+    }
+    await userRef.update(updates);
   } catch (_) {}
 }
 

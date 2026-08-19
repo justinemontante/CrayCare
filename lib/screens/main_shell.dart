@@ -477,7 +477,7 @@ class _MainShellState extends State<MainShell> {
             child: Text(
               item.label,
               style: TextStyle(
-                fontSize: 9,
+                fontSize: 10,
                 fontWeight: FontWeight.w600,
                 color: isActive ? AppColors.primary : AppColors.darkWith(0.4),
               ),

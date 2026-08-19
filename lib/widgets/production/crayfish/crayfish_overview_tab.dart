@@ -53,14 +53,8 @@ class OverviewTab extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFFFCFCFC),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.darkWith(0.12),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        border: Border.all(color: AppColors.darkWith(0.08)),
+        boxShadow: AppShadows.card,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -142,14 +136,8 @@ class OverviewTab extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFFFCFCFC),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.darkWith(0.12),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        border: Border.all(color: AppColors.darkWith(0.08)),
+        boxShadow: AppShadows.card,
       ),
       child: Column(
         children: [
@@ -200,7 +188,7 @@ class OverviewTab extends StatelessWidget {
                     child: Text(
                       'SURVIVAL RATE',
                       style: TextStyle(
-                        fontSize: 9,
+                        fontSize: 10,
                         fontWeight: FontWeight.w800,
                         color: statusColor,
                         letterSpacing: 0.8,
@@ -429,7 +417,7 @@ class OverviewTab extends StatelessWidget {
                 Text(
                   title,
                   style: const TextStyle(
-                    fontSize: 9,
+                    fontSize: 10,
                     fontWeight: FontWeight.w700,
                     color: AppColors.dark,
                   ),
@@ -448,7 +436,7 @@ class OverviewTab extends StatelessWidget {
                 Text(
                   subtitle,
                   style: TextStyle(
-                    fontSize: 8,
+                    fontSize: 9,
                     fontWeight: FontWeight.w500,
                     color: AppColors.dark.withValues(alpha: 0.45),
                   ),
@@ -885,7 +873,7 @@ class OverviewTab extends StatelessWidget {
                     label,
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      fontSize: 9,
+                      fontSize: 10,
                       fontWeight: FontWeight.w700,
                       color: color,
                     ),
@@ -914,9 +902,9 @@ class OverviewTab extends StatelessWidget {
         children: [
           Icon(icon, size: 12, color: AppColors.primary),
           const SizedBox(width: 5),
-          Text(label, style: TextStyle(fontSize: 8, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.5))),
+          Text(label, style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.5))),
           const SizedBox(width: 4),
-          Text(value, style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: AppColors.dark)),
+          Text(value, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.dark)),
         ],
       ),
     );

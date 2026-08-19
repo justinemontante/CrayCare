@@ -73,7 +73,10 @@ class HomeWidgetService {
         'widget_water_level_value': '--',
         'widget_water_level_status': 'UNKNOWN',
         'widget_next_feed': 'No schedule',
-        'widget_updated': '--',
+        'widget_next_feed_at': -1,
+        'widget_feeder_status': 'OFFLINE',
+        'widget_feed_amount': '--',
+        'widget_feed_amount_type': '',
       });
       await _requestNativeUpdate(snapshot);
       return;
@@ -106,16 +109,29 @@ class HomeWidgetService {
       decimals: 1,
     );
 
-    final now = DateTime.now().toUtc().add(_manilaOffset);
-    final next = nextEnabledFeeding(FeederService.instance.schedules, now);
+    final now = manilaWallClock();
+    final feeder = FeederService.instance;
+    final activeSchedules = feeder.schedules
+        .where((schedule) => schedule.enabled)
+        .toList();
+    final next = nextEnabledFeeding(activeSchedules, now);
     snapshot['widget_next_feed'] = next == null
         ? 'No schedule'
         : _formatFeedOccurrence(next.at, now);
-    final lastSensorUpdate = sensors.lastUpdated;
-    snapshot['widget_updated'] =
-        lastSensorUpdate.millisecondsSinceEpoch <= 0
+    snapshot['widget_next_feed_at'] = next == null
+        ? -1
+        : _manilaWallClockToEpoch(next.at);
+    snapshot['widget_feeder_status'] = feeder.isRunning
+        ? 'DISPENSING'
+        : (feeder.isOnline ? 'READY' : 'OFFLINE');
+    snapshot['widget_feed_amount'] = next == null
         ? '--'
-        : _formatClock(_toManila(lastSensorUpdate), includeSeconds: true);
+        : (next.schedule.grams == null
+              ? '${defaultFeederGrams.toStringAsFixed(1)} g'
+              : '${next.schedule.grams!.toStringAsFixed(1)} g');
+    snapshot['widget_feed_amount_type'] = next == null
+        ? ''
+        : (next.schedule.grams == null ? 'DEFAULT' : 'CUSTOM');
     await _requestNativeUpdate(snapshot);
   }
 
@@ -174,18 +190,25 @@ class HomeWidgetService {
     return '$dayLabel, ${_formatClock(value)}';
   }
 
-  DateTime _toManila(DateTime value) {
-    return value.toUtc().add(_manilaOffset);
+  /// Feeding schedules are evaluated using Manila wall-clock fields. Convert
+  /// those fields to an absolute instant so Android can run a live countdown.
+  int _manilaWallClockToEpoch(DateTime value) {
+    return DateTime.utc(
+      value.year,
+      value.month,
+      value.day,
+      value.hour,
+      value.minute,
+      value.second,
+    ).subtract(_manilaOffset).millisecondsSinceEpoch;
   }
 
-  String _formatClock(DateTime value, {bool includeSeconds = false}) {
+  String _formatClock(DateTime value) {
     final hour = value.hour == 0
         ? 12
         : (value.hour > 12 ? value.hour - 12 : value.hour);
     final minute = value.minute.toString().padLeft(2, '0');
-    final second = value.second.toString().padLeft(2, '0');
-    final secondsText = includeSeconds ? ':$second' : '';
-    return '$hour:$minute$secondsText ${value.hour >= 12 ? 'PM' : 'AM'}';
+    return '$hour:$minute ${value.hour >= 12 ? 'PM' : 'AM'}';
   }
 
   Future<void> _requestNativeUpdate(Map<String, Object> snapshot) async {

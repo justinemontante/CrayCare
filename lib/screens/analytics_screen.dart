@@ -69,11 +69,22 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     final now = DateTime.now();
     for (final key in SensorService.sensorKeys) {
       final history = SensorService.instance.getData(key);
-      final last8 = history.length > 8 ? history.sublist(history.length - 8) : history;
-      _data['$key-live'] = List<double>.from(last8);
+      final historyTimes = SensorService.instance.getDataTimes(key);
+      final last12 = history.length > 12
+          ? history.sublist(history.length - 12)
+          : history;
+      _data['$key-live'] = List<double>.from(last12);
 
-      _labels['live'] = List<String>.generate(last8.length, (i) {
-        final t = now.subtract(Duration(seconds: (last8.length - 1 - i) * 5));
+      final hasMatchingTimes = historyTimes.length == history.length;
+      final lastTimes = hasMatchingTimes
+          ? (historyTimes.length > 12
+                ? historyTimes.sublist(historyTimes.length - 12)
+                : historyTimes)
+          : const <DateTime>[];
+      _labels['$key-live'] = List<String>.generate(last12.length, (i) {
+        final t = hasMatchingTimes
+            ? lastTimes[i]
+            : now.subtract(Duration(seconds: (last12.length - 1 - i) * 5));
         final h = t.hour > 12 ? t.hour - 12 : (t.hour == 0 ? 12 : t.hour);
         final ampm = t.hour >= 12 ? 'PM' : 'AM';
         return '$h:${t.minute.toString().padLeft(2, '0')}:${t.second.toString().padLeft(2, '0')} $ampm';
@@ -185,15 +196,24 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       historyEnd = now;
     } else {
       historyStart = _customStartDate;
-      historyEnd = _customEndDate;
+      // Date pickers return midnight. Include the complete selected end date
+      // instead of dropping every record after 12:00 AM.
+      historyEnd = DateTime(
+        _customEndDate.year,
+        _customEndDate.month,
+        _customEndDate.day,
+        23,
+        59,
+        59,
+        999,
+      );
     }
 
     List<Map<String, dynamic>> records;
     try {
-      records = await SensorService.instance.fetchHistoryRange(
-        start: historyStart,
-        end: historyEnd,
-      ).timeout(const Duration(seconds: 10));
+      records = await SensorService.instance
+          .fetchHistoryRange(start: historyStart, end: historyEnd)
+          .timeout(const Duration(seconds: 10));
     } catch (_) {
       records = [];
     } finally {
@@ -215,6 +235,23 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       return at.compareTo(bt);
     });
 
+    // History is stored under calendar-day documents, so fetching the first
+    // and last day also returns readings outside the selected time window.
+    // Keep only the exact requested range before plotting or aggregating.
+    records = records.where((record) {
+      final timestamp = _recordTime(record);
+      return !timestamp.isBefore(historyStart) &&
+          !timestamp.isAfter(historyEnd);
+    }).toList();
+
+    if (records.isEmpty) {
+      for (final key in SensorService.sensorKeys) {
+        _data['$key-$range'] = [];
+      }
+      _labels[range] = [];
+      return;
+    }
+
     // Canonical history uses `recorded_at`; aliases remain for legacy records.
     final parsedTs = records.map(_recordTime).toList();
 
@@ -222,7 +259,20 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     List<DateTime> labelTimes;
     if (range == '24h') {
       // Plot every raw record — no bucketing — so all real readings are visible.
-      final months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      final months = [
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
+      ];
       _labels[range] = parsedTs.map((d) {
         final h = d.hour > 12 ? d.hour - 12 : (d.hour == 0 ? 12 : d.hour);
         final ampm = d.hour >= 12 ? 'PM' : 'AM';
@@ -247,11 +297,26 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       _labels[range] = labelTimes.map((d) => _formatDate(d)).toList();
     } else {
       // 30d
-      final months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      final months = [
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
+      ];
       labelTimes = List<DateTime>.generate(pts, (i) {
         return now.subtract(Duration(days: (pts - 1 - i)));
       });
-      _labels[range] = labelTimes.map((d) => '${months[d.month - 1]} ${d.day}').toList();
+      _labels[range] = labelTimes
+          .map((d) => '${months[d.month - 1]} ${d.day}')
+          .toList();
     }
 
     // Extract values ONCE for all keys
@@ -276,18 +341,27 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     for (final key in SensorService.sensorKeys) {
       final vals = valuesPerKey[key]!;
       _data['$key-$range'] = List<double>.generate(labelTimes.length, (i) {
-        final isDaily = i < labelTimes.length - 1 &&
+        final isDaily =
+            i < labelTimes.length - 1 &&
             labelTimes[i + 1].difference(labelTimes[i]).inDays >= 1;
 
         if (isDaily) {
-          final dayStart = DateTime(labelTimes[i].year, labelTimes[i].month, labelTimes[i].day);
+          final dayStart = DateTime(
+            labelTimes[i].year,
+            labelTimes[i].month,
+            labelTimes[i].day,
+          );
           final dayEnd = dayStart.add(const Duration(days: 1));
           double sum = 0;
           int count = 0;
           for (int j = 0; j < records.length; j++) {
-            if (parsedTs[j].isAfter(dayStart) && parsedTs[j].isBefore(dayEnd)) {
+            if (!parsedTs[j].isBefore(dayStart) &&
+                parsedTs[j].isBefore(dayEnd)) {
               final v = vals[j];
-              if (v != null && v >= 0) { sum += v; count++; }
+              if (v != null && v >= 0) {
+                sum += v;
+                count++;
+              }
             }
           }
           return count > 0 ? sum / count : double.nan;
@@ -299,9 +373,12 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
         double sum = 0;
         int count = 0;
         for (int j = 0; j < records.length; j++) {
-          if (parsedTs[j].isAfter(start) && parsedTs[j].isBefore(end)) {
+          if (!parsedTs[j].isBefore(start) && parsedTs[j].isBefore(end)) {
             final v = vals[j];
-            if (v != null && v >= 0) { sum += v; count++; }
+            if (v != null && v >= 0) {
+              sum += v;
+              count++;
+            }
           }
         }
         return count > 0 ? sum / count : double.nan;
@@ -330,11 +407,11 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       }
       _labels[range] = keepIdx.map((i) => _labels[range]![i]).toList();
     }
-
   }
 
   DateTime _recordTime(Map<String, dynamic> record) {
-    final raw = record['recorded_at'] ??
+    final raw =
+        record['recorded_at'] ??
         record['timestamp'] ??
         record['captured_at_ms'] ??
         record['created_at'];
@@ -360,6 +437,10 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     return _data['$key-$range'] ?? [];
   }
 
+  List<String> _getLabels(String key, String range) {
+    return _labels[range == 'live' ? '$key-live' : range] ?? [];
+  }
+
   double _calc(List<double> data, double Function(List<double>) fn) {
     return data.isEmpty ? 0.0 : fn(data);
   }
@@ -383,7 +464,9 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                     activeFilter: _activeFilter,
                     showCustom: _showCustom,
                     onFilterChanged: (val) async {
-                      if (_isFetching) return; // don't stack requests on rapid taps
+                      if (_isFetching) {
+                        return; // don't stack requests on rapid taps
+                      }
                       setState(() {
                         _activeFilter = val;
                         _showCustom = false;
@@ -419,59 +502,59 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                   ),
                 if (!_isLoading)
                   Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      KeyedSubtree(
-                        key: _chartCardKeys['temp'],
-                        child: _buildChartCard(
-                          context,
-                          title: 'Temperature',
-                          iconPath: 'assets/images/temperature.png',
-                          chartKey: 'temp',
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        KeyedSubtree(
+                          key: _chartCardKeys['temp'],
+                          child: _buildChartCard(
+                            context,
+                            title: 'Temperature',
+                            iconPath: 'assets/images/temperature.png',
+                            chartKey: 'temp',
+                          ),
                         ),
-                      ),
-                      KeyedSubtree(
-                        key: _chartCardKeys['ph'],
-                        child: _buildChartCard(
-                          context,
-                          title: 'pH Level',
-                          iconPath: 'assets/images/pH.png',
-                          chartKey: 'ph',
+                        KeyedSubtree(
+                          key: _chartCardKeys['ph'],
+                          child: _buildChartCard(
+                            context,
+                            title: 'pH Level',
+                            iconPath: 'assets/images/pH.png',
+                            chartKey: 'ph',
+                          ),
                         ),
-                      ),
-                      KeyedSubtree(
-                        key: _chartCardKeys['do'],
-                        child: _buildChartCard(
-                          context,
-                          title: 'Dissolved O\u2082',
-                          iconPath: 'assets/images/DO.png',
-                          chartKey: 'do',
+                        KeyedSubtree(
+                          key: _chartCardKeys['do'],
+                          child: _buildChartCard(
+                            context,
+                            title: 'Dissolved O\u2082',
+                            iconPath: 'assets/images/DO.png',
+                            chartKey: 'do',
+                          ),
                         ),
-                      ),
-                      KeyedSubtree(
-                        key: _chartCardKeys['turb'],
-                        child: _buildChartCard(
-                          context,
-                          title: 'Turbidity',
-                          iconPath: 'assets/images/Turbidity.png',
-                          chartKey: 'turb',
+                        KeyedSubtree(
+                          key: _chartCardKeys['turb'],
+                          child: _buildChartCard(
+                            context,
+                            title: 'Turbidity',
+                            iconPath: 'assets/images/Turbidity.png',
+                            chartKey: 'turb',
+                          ),
                         ),
-                      ),
-                      KeyedSubtree(
-                        key: _chartCardKeys['waterlevel'],
-                        child: _buildChartCard(
-                          context,
-                          title: 'Water Level',
-                          iconPath: 'assets/images/waterLevel.png',
-                          chartKey: 'waterlevel',
+                        KeyedSubtree(
+                          key: _chartCardKeys['waterlevel'],
+                          child: _buildChartCard(
+                            context,
+                            title: 'Water Level',
+                            iconPath: 'assets/images/waterLevel.png',
+                            chartKey: 'waterlevel',
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 16),
-                    ],
+                        const SizedBox(height: 16),
+                      ],
+                    ),
                   ),
-                ),
               ],
             ),
           ),
@@ -480,7 +563,6 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       ],
     );
   }
-
 
   Widget _buildHeader() {
     return Container(
@@ -497,13 +579,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
           ],
         ),
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.darkWith(0.08),
-            blurRadius: 12,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        boxShadow: AppShadows.card,
       ),
       clipBehavior: Clip.antiAlias,
       child: Stack(
@@ -708,7 +784,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     required String chartKey,
   }) {
     final data = _getData(chartKey, _activeFilter);
-    final labels = _labels[_activeFilter] ?? [];
+    final labels = _getLabels(chartKey, _activeFilter);
     final dp = _decimalFor(chartKey);
     final validData = data.where((v) => !v.isNaN).toList();
     final hasValid = validData.isNotEmpty;
@@ -738,7 +814,13 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
     final thresholds = _thresholdsFor(chartKey);
     final criticalCount = _showCritical
-        ? data.where((v) => !v.isNaN && (v < thresholds['min']! || v > thresholds['max']!)).length
+        ? data
+              .where(
+                (v) =>
+                    !v.isNaN &&
+                    (v < thresholds['min']! || v > thresholds['max']!),
+              )
+              .length
         : 0;
 
     final selIdx = _selectedIndices[chartKey];
@@ -922,7 +1004,6 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     ValueChanged<int>? onSelectIndex,
     int dp = 1,
   }) {
-
     double avg = 0.0;
     if (data.isNotEmpty) {
       final valid = data.where((v) => !v.isNaN).toList();
@@ -945,9 +1026,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
             children: [
               Expanded(
                 child: GestureDetector(
-                  onTap: minIdx >= 0
-                      ? () => onSelectIndex?.call(minIdx)
-                      : null,
+                  onTap: minIdx >= 0 ? () => onSelectIndex?.call(minIdx) : null,
                   child: _buildStatRow(
                     Icons.arrow_downward,
                     'Min: $mn $unit',
@@ -959,9 +1038,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
               const SizedBox(width: 6),
               Expanded(
                 child: GestureDetector(
-                  onTap: maxIdx >= 0
-                      ? () => onSelectIndex?.call(maxIdx)
-                      : null,
+                  onTap: maxIdx >= 0 ? () => onSelectIndex?.call(maxIdx) : null,
                   child: _buildStatRow(
                     Icons.arrow_upward,
                     'Max: $mx $unit',
@@ -973,9 +1050,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
               const SizedBox(width: 6),
               Expanded(
                 child: GestureDetector(
-                  onTap: nowIdx >= 0
-                      ? () => onSelectIndex?.call(nowIdx)
-                      : null,
+                  onTap: nowIdx >= 0 ? () => onSelectIndex?.call(nowIdx) : null,
                   child: _buildStatRow(
                     Icons.sensors,
                     'Avg: ${avg.toStringAsFixed(dp)} $unit',
@@ -987,36 +1062,36 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
             ],
           ),
           if (_showCritical) ...[
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  Icon(
-                    Icons.warning_amber_rounded,
-                    size: 11,
-                    color: criticalCount > 0
-                        ? AppColors.critical
-                        : AppColors.success,
-                  ),
-                  const SizedBox(width: 4),
-                  Flexible(
-                    child: Text(
-                      criticalCount > 0
-                          ? '$criticalCount critical point${criticalCount > 1 ? 's' : ''}'
-                          : 'No critical points',
-                      maxLines: 1,
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        color: criticalCount > 0
-                            ? AppColors.critical
-                            : AppColors.success,
-                      ),
-                      overflow: TextOverflow.ellipsis,
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Icon(
+                  Icons.warning_amber_rounded,
+                  size: 11,
+                  color: criticalCount > 0
+                      ? AppColors.critical
+                      : AppColors.success,
+                ),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    criticalCount > 0
+                        ? '$criticalCount critical point${criticalCount > 1 ? 's' : ''}'
+                        : 'No critical points',
+                    maxLines: 1,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: criticalCount > 0
+                          ? AppColors.critical
+                          : AppColors.success,
                     ),
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ],
-              ),
-            ],
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -1094,7 +1169,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
           ]),
           builder: (context, child) {
             final data = _getData(chartKey, _activeFilter);
-            final labels = _labels[_activeFilter] ?? [];
+            final labels = _getLabels(chartKey, _activeFilter);
             final color = _colorFor(chartKey);
             final dp = _decimalFor(chartKey);
             final validData = data.where((v) => !v.isNaN).toList();
@@ -1126,13 +1201,18 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
             List<_CriticalItem> criticalItems;
             if (_showCritical) {
               criticalCount = data
-                  .where((v) => !v.isNaN && (v < thresholds['min']! || v > thresholds['max']!))
+                  .where(
+                    (v) =>
+                        !v.isNaN &&
+                        (v < thresholds['min']! || v > thresholds['max']!),
+                  )
                   .length;
               criticalItems = <_CriticalItem>[];
               if (criticalCount > 0) {
                 for (int i = 0; i < data.length; i++) {
                   final v = data[i];
-                  if (!v.isNaN && (v < thresholds['min']! || v > thresholds['max']!)) {
+                  if (!v.isNaN &&
+                      (v < thresholds['min']! || v > thresholds['max']!)) {
                     criticalItems.add(
                       _CriticalItem(
                         value: v,
@@ -1246,8 +1326,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                                       child: GestureDetector(
                                         onTap: minIdx >= 0
                                             ? () => setDialogState(
-                                                () => modalSelectedIndex =
-                                                    minIdx,
+                                                () =>
+                                                    modalSelectedIndex = minIdx,
                                               )
                                             : null,
                                         child: _buildStatRow(
@@ -1263,8 +1343,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                                       child: GestureDetector(
                                         onTap: maxIdx >= 0
                                             ? () => setDialogState(
-                                                () => modalSelectedIndex =
-                                                    maxIdx,
+                                                () =>
+                                                    modalSelectedIndex = maxIdx,
                                               )
                                             : null,
                                         child: _buildStatRow(
@@ -1280,8 +1360,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                                       child: GestureDetector(
                                         onTap: nowIdx >= 0
                                             ? () => setDialogState(
-                                                () => modalSelectedIndex =
-                                                    nowIdx,
+                                                () =>
+                                                    modalSelectedIndex = nowIdx,
                                               )
                                             : null,
                                         child: _buildStatRow(
@@ -1389,7 +1469,11 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
-  Widget _buildModalCriticalList(List<_CriticalItem> items, String unit, {int dp = 1}) {
+  Widget _buildModalCriticalList(
+    List<_CriticalItem> items,
+    String unit, {
+    int dp = 1,
+  }) {
     return Container(
       height: 220,
       padding: const EdgeInsets.all(10),

@@ -1,5 +1,25 @@
 import 'package:flutter/foundation.dart';
 
+const manilaUtcOffset = Duration(hours: 8);
+const defaultFeederGrams = 20.0;
+
+/// Returns Manila calendar fields in a non-UTC [DateTime]. Schedule helpers
+/// compare wall-clock fields, so preserving `isUtc` after adding eight hours
+/// would shift comparisons by another eight hours.
+DateTime manilaWallClock([DateTime? instant]) {
+  final shifted = (instant ?? DateTime.now()).toUtc().add(manilaUtcOffset);
+  return DateTime(
+    shifted.year,
+    shifted.month,
+    shifted.day,
+    shifted.hour,
+    shifted.minute,
+    shifted.second,
+    shifted.millisecond,
+    shifted.microsecond,
+  );
+}
+
 class ScheduleItem {
   final String time;
   final String ampm;
@@ -19,6 +39,57 @@ class ScheduleItem {
     this.grams,
     this.days = '1111111',
   });
+}
+
+const feederDayNames = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+];
+
+/// Returns the days shared by two Sunday-first repeat masks. Legacy or
+/// malformed masks are treated as daily, matching the schedule runner.
+List<int> overlappingFeederDays(String first, String second) {
+  bool runsOn(String mask, int day) => mask.length < 7 || mask[day] == '1';
+
+  return [
+    for (var day = 0; day < 7; day++)
+      if (runsOn(first, day) && runsOn(second, day)) day,
+  ];
+}
+
+/// Two schedules conflict when they would dispense at the same time on at
+/// least one common day. Feed amount intentionally does not affect this rule.
+bool feederSchedulesConflict(ScheduleItem first, ScheduleItem second) =>
+    feederScheduleMinutes(first) == feederScheduleMinutes(second) &&
+    overlappingFeederDays(first.days, second.days).isNotEmpty;
+
+String feederScheduleConflictMessage(
+  ScheduleItem requested,
+  ScheduleItem existing,
+) {
+  final days = overlappingFeederDays(
+    requested.days,
+    existing.days,
+  ).map((index) => feederDayNames[index]).join(', ');
+  return 'A feeding schedule already exists for $days at '
+      '${requested.time} ${requested.ampm}. Please select a different day or time, or edit the existing schedule.';
+}
+
+class FeederScheduleConflictException implements Exception {
+  final ScheduleItem requested;
+  final ScheduleItem existing;
+
+  const FeederScheduleConflictException(this.requested, this.existing);
+
+  String get message => feederScheduleConflictMessage(requested, existing);
+
+  @override
+  String toString() => message;
 }
 
 /// Converts a 12-hour feeder schedule into minutes after midnight.

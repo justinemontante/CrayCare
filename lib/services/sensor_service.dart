@@ -116,7 +116,10 @@ class SensorService extends ChangeNotifier {
   double getTrendRate(String key) {
     final values = _history[key];
     final times = _historyTimes[key];
-    if (values == null || times == null || values.length < 4 || times.length != values.length) {
+    if (values == null ||
+        times == null ||
+        values.length < 4 ||
+        times.length != values.length) {
       return 0.0;
     }
 
@@ -197,7 +200,8 @@ class SensorService extends ChangeNotifier {
     _staleTimer?.cancel();
     _periodicCheckTimer?.cancel();
     _periodicCheckTimer = Timer.periodic(const Duration(seconds: 2), (_) {
-      if (_hasLiveData && DateTime.now().difference(_lastUpdated) > _staleTimeout) {
+      if (_hasLiveData &&
+          DateTime.now().difference(_lastUpdated) > _staleTimeout) {
         _markStale();
       }
     });
@@ -205,8 +209,10 @@ class SensorService extends ChangeNotifier {
     if (uid == null) return;
 
     try {
-      final profileDoc =
-          await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      final profileDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get();
       final profileData = profileDoc.data();
       if (profileData?['role'] == 'admin') {
         _tankId = null;
@@ -218,8 +224,9 @@ class SensorService extends ChangeNotifier {
       if (tankId == null || tankId.isEmpty) {
         tankId = uid;
         try {
-          await profileDoc.reference
-              .set({'tank_id': uid}, SetOptions(merge: true));
+          await profileDoc.reference.set({
+            'tank_id': uid,
+          }, SetOptions(merge: true));
         } catch (e, stack) {
           debugPrint('[Sensor] hardware init error: $e\n$stack');
         }
@@ -243,26 +250,32 @@ class SensorService extends ChangeNotifier {
         .doc('latest')
         .snapshots()
         .listen(
-      (snapshot) {
-        _lastError = null;
-        if (!snapshot.exists || snapshot.data() == null) return;
-        _parseAndUpdate(snapshot.data()!);
-      },
-      onError: (error) {
-        final msg = error.toString();
-        if (msg.contains('permission-denied') || msg.contains('PERMISSION_DENIED')) {
-          _lastError = 'Sensor access not configured. Waiting for hardware assignment...';
-        } else {
-          _lastError = msg;
-        }
-        debugPrint('[SensorService] Firestore stream error: $error');
-        notifyListeners();
-      },
-    );
+          (snapshot) {
+            _lastError = null;
+            if (!snapshot.exists || snapshot.data() == null) return;
+            _parseAndUpdate(snapshot.data()!);
+          },
+          onError: (error) {
+            final msg = error.toString();
+            if (msg.contains('permission-denied') ||
+                msg.contains('PERMISSION_DENIED')) {
+              _lastError =
+                  'Sensor access not configured. Waiting for hardware assignment...';
+            } else {
+              _lastError = msg;
+            }
+            debugPrint('[SensorService] Firestore stream error: $error');
+            notifyListeners();
+          },
+        );
   }
 
   DateTime? _extractTimestamp(Map<String, dynamic> data) {
-    final rawTs = data['recorded_at'] ?? data['timestamp'] ?? data['updatedAt'] ?? data['time'];
+    final rawTs =
+        data['recorded_at'] ??
+        data['timestamp'] ??
+        data['updatedAt'] ??
+        data['time'];
     if (rawTs == null) return null;
     if (rawTs is Timestamp) return rawTs.toDate();
     if (rawTs is int) {
@@ -296,7 +309,8 @@ class SensorService extends ChangeNotifier {
 
     if (age > _staleTimeout) {
       debugPrint(
-          '[SensorService] Data in Firestore is stale (${age.inSeconds}s old). ESP is offline.');
+        '[SensorService] Data in Firestore is stale (${age.inSeconds}s old). ESP is offline.',
+      );
       _markStale(lastSeen: readingTime);
       return;
     }
@@ -308,7 +322,9 @@ class SensorService extends ChangeNotifier {
 
     final tempRaw = _toDouble(data['temperature']);
     final turbRaw = _toDouble(data['turbidity']);
-    final doRaw = _toDouble(data['dissolved_oxygen'] ?? data['dissolvedOxygen']);
+    final doRaw = _toDouble(
+      data['dissolved_oxygen'] ?? data['dissolvedOxygen'],
+    );
     final phRaw = _toDouble(data['ph_level'] ?? data['phLevel']);
     final wlRaw = _toDouble(data['water_level'] ?? data['waterLevel']);
     final turbAirRaw = data['turbidity_air'] ?? data['turbidityAir'];
@@ -343,7 +359,9 @@ class SensorService extends ChangeNotifier {
     _bufferedEntries = 0;
     _staleTimer?.cancel();
     notifyListeners();
-    debugPrint('[SensorService] Data stale - ESP32 offline (last seen: $_lastUpdated)');
+    debugPrint(
+      '[SensorService] Data stale - ESP32 offline (last seen: $_lastUpdated)',
+    );
   }
 
   void _updateSensor(String key, double? value, DateTime readingTime) {
@@ -414,6 +432,8 @@ class SensorService extends ChangeNotifier {
 
   List<double> getData(String key) => _history[key] ?? [];
 
+  List<DateTime> getDataTimes(String key) => _historyTimes[key] ?? [];
+
   final Map<String, List<Map<String, dynamic>>> _dayCache = {};
   final Map<String, DateTime> _dayCachedAt = {};
   static const _todayCacheTtl = Duration(seconds: 60);
@@ -455,17 +475,21 @@ class SensorService extends ChangeNotifier {
     if (tankId == null) {
       final uid = FirebaseAuth.instance.currentUser?.uid;
       if (uid != null) {
-        final profileDoc =
-            await FirebaseFirestore.instance.collection('users').doc(uid).get();
+        final profileDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(uid)
+            .get();
         tankId = profileDoc.data()?['tank_id'] as String?;
         _tankId = tankId;
       }
     }
 
     final days = <String>[];
-    for (var d = DateTime(start.year, start.month, start.day);
-        !d.isAfter(end);
-        d = d.add(const Duration(days: 1))) {
+    for (
+      var d = DateTime(start.year, start.month, start.day);
+      !d.isAfter(end);
+      d = d.add(const Duration(days: 1))
+    ) {
       days.add(
         '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}',
       );
@@ -544,7 +568,9 @@ class SensorService extends ChangeNotifier {
               cacheDay(dateStr, docs);
               return docs;
             } catch (e) {
-              debugPrint('[SensorService] fetchHistoryRange error for $dateStr: $e');
+              debugPrint(
+                '[SensorService] fetchHistoryRange error for $dateStr: $e',
+              );
               cacheDay(dateStr, []);
               return <Map<String, dynamic>>[];
             }

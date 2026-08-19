@@ -121,14 +121,8 @@ class _TrendsTabState extends State<TrendsTab> {
       decoration: BoxDecoration(
         color: const Color(0xFFFCFCFC),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.darkWith(0.12),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        border: Border.all(color: AppColors.darkWith(0.08)),
+        boxShadow: AppShadows.card,
       ),
       child: Column(
         children: [
@@ -288,7 +282,7 @@ class _TrendsTabState extends State<TrendsTab> {
                     child: Text(
                       labels[i],
                       style: TextStyle(
-                        fontSize: 9,
+                        fontSize: 10,
                         color: AppColors.darkWith(0.4),
                       ),
                     ),
@@ -308,7 +302,7 @@ class _TrendsTabState extends State<TrendsTab> {
                     padding: const EdgeInsets.only(right: 4),
                     child: Text(
                       '${value.toStringAsFixed(1)} $unit',
-                      style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.4)),
+                      style: TextStyle(fontSize: 10, color: AppColors.darkWith(0.4)),
                     ),
                   );
                 }
@@ -318,7 +312,7 @@ class _TrendsTabState extends State<TrendsTab> {
                     padding: const EdgeInsets.only(right: 4),
                     child: Text(
                       '${value.toStringAsFixed(1)} $unit',
-                      style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.4)),
+                      style: TextStyle(fontSize: 10, color: AppColors.darkWith(0.4)),
                     ),
                   );
                 }
@@ -464,14 +458,8 @@ class _TrendsTabState extends State<TrendsTab> {
       decoration: BoxDecoration(
         color: const Color(0xFFFCFCFC),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.darkWith(0.12),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        border: Border.all(color: AppColors.darkWith(0.08)),
+        boxShadow: AppShadows.card,
       ),
       child: Column(
         children: [
@@ -496,7 +484,7 @@ class _TrendsTabState extends State<TrendsTab> {
             alignment: Alignment.centerLeft,
             child: Text(
               'Biomass = live count × ABW',
-              style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.4)),
+              style: TextStyle(fontSize: 10, color: AppColors.darkWith(0.4)),
             ),
           ),
           const SizedBox(height: 20),
@@ -571,7 +559,7 @@ class _TrendsTabState extends State<TrendsTab> {
                   return Padding(
                     padding: const EdgeInsets.only(top: 6),
                     child: Text(labels[i],
-                        style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.4))),
+                        style: TextStyle(fontSize: 10, color: AppColors.darkWith(0.4))),
                   );
                 }
                 return const SizedBox.shrink();
@@ -587,7 +575,7 @@ class _TrendsTabState extends State<TrendsTab> {
                   return Padding(
                     padding: const EdgeInsets.only(right: 4),
                     child: Text('${value.toStringAsFixed(1)} $unit',
-                        style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.4))),
+                        style: TextStyle(fontSize: 10, color: AppColors.darkWith(0.4))),
                   );
                 }
                 final mid = (meta.max + meta.min) / 2;
@@ -595,7 +583,7 @@ class _TrendsTabState extends State<TrendsTab> {
                   return Padding(
                     padding: const EdgeInsets.only(right: 4),
                     child: Text('${value.toStringAsFixed(1)} $unit',
-                        style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.4))),
+                        style: TextStyle(fontSize: 10, color: AppColors.darkWith(0.4))),
                   );
                 }
                 return const SizedBox.shrink();
@@ -752,14 +740,8 @@ class _TrendsTabState extends State<TrendsTab> {
       decoration: BoxDecoration(
         color: const Color(0xFFFCFCFC),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.darkWith(0.12),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        border: Border.all(color: AppColors.darkWith(0.08)),
+        boxShadow: AppShadows.card,
       ),
       child: Column(
         children: [
@@ -856,10 +838,10 @@ class _TrendsTabState extends State<TrendsTab> {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text('$label: ',
-              style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.5))),
+              style: TextStyle(fontSize: 10, color: AppColors.darkWith(0.5))),
           Text(
             value,
-            style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: color),
+            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: color),
           ),
         ],
       ),
@@ -898,7 +880,7 @@ class _TrendsTabState extends State<TrendsTab> {
                   return Padding(
                     padding: const EdgeInsets.only(top: 6),
                     child: Text(labels[i],
-                        style: TextStyle(fontSize: 8, color: AppColors.darkWith(0.4))),
+                        style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.4))),
                   );
                 }
                 return const SizedBox.shrink();
@@ -916,7 +898,7 @@ class _TrendsTabState extends State<TrendsTab> {
                   return Padding(
                     padding: const EdgeInsets.only(right: 4),
                     child: Text('$v',
-                        style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.4))),
+                        style: TextStyle(fontSize: 10, color: AppColors.darkWith(0.4))),
                   );
                 }
                 return const SizedBox.shrink();

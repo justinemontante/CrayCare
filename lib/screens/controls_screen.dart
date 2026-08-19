@@ -26,13 +26,13 @@ class ControlsScreenState extends State<ControlsScreen> {
   // Feeder schedules and the ESP clock are anchored to Asia/Manila. The
   // nearest-schedule match below must compare against Manila wall-clock time,
   // not the device's local timezone.
-  static const _manilaOffset = Duration(hours: 8);
-  DateTime _manilaNow() => DateTime.now().toUtc().add(_manilaOffset);
+  DateTime _manilaNow() => manilaWallClock();
 
   void switchToTab(int index) {
     if (index < 0 || index > 1) return;
     setState(() => _activeTab = index);
   }
+
   int _activeTab = 0;
   _FeedState _feedState = _FeedState.hidden;
 
@@ -63,12 +63,9 @@ class ControlsScreenState extends State<ControlsScreen> {
     EspService.instance.init();
     ActuatorLogService.instance.init();
     _initActuatorModes();
-    _runtimeTimer = Timer.periodic(
-      const Duration(seconds: 1),
-      (_) {
-        if (mounted) setState(() => _computeRuntimeLabels());
-      },
-    );
+    _runtimeTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() => _computeRuntimeLabels());
+    });
   }
 
   void _initActuatorModes() async {
@@ -76,7 +73,10 @@ class ControlsScreenState extends State<ControlsScreen> {
     // with the mode stored under 'control_mode' instead of 'mode'.
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
-    final profileDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+    final profileDoc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .get();
     final tankId = profileDoc.data()?['tank_id'] as String? ?? uid;
 
     _actuatorsSub = FirebaseFirestore.instance
@@ -86,13 +86,16 @@ class ControlsScreenState extends State<ControlsScreen> {
         .limit(10)
         .snapshots()
         .listen((snapshot) {
-      final modes = <String, String>{};
-      for (final doc in snapshot.docs) {
-        final data = doc.data();
-        modes[doc.id] = data['control_mode'] as String? ?? data['mode'] as String? ?? 'auto';
-      }
-      if (mounted) setState(() => _actuatorModes = modes);
-    });
+          final modes = <String, String>{};
+          for (final doc in snapshot.docs) {
+            final data = doc.data();
+            modes[doc.id] =
+                data['control_mode'] as String? ??
+                data['mode'] as String? ??
+                'auto';
+          }
+          if (mounted) setState(() => _actuatorModes = modes);
+        });
   }
 
   void _computeRuntimeLabels() {
@@ -202,7 +205,8 @@ class ControlsScreenState extends State<ControlsScreen> {
       } else {
         _dispenseTimer?.cancel();
         // isRunning went true → false: check if feed actually dispensed
-        if (_feedState == _FeedState.dispensing && svc.dispenseCount == _dispenseCountAtStart) {
+        if (_feedState == _FeedState.dispensing &&
+            svc.dispenseCount == _dispenseCountAtStart) {
           unawaited(FeederService.instance.logFeedFailure());
           _feedState = _FeedState.failed;
           _feedTimer?.cancel();
@@ -283,7 +287,9 @@ class ControlsScreenState extends State<ControlsScreen> {
     final ranges = SettingsService.instance.currentRanges;
     final turbMax = ranges['turb']?['max'] ?? 999.0;
     final turb = svc.getLatestValue('turb');
-    if (turb > turbMax) return 'Feed blocked: turbidity too high (${turb.toStringAsFixed(0)} > ${turbMax.toStringAsFixed(0)} NTU)';
+    if (turb > turbMax) {
+      return 'Feed blocked: turbidity too high (${turb.toStringAsFixed(0)} > ${turbMax.toStringAsFixed(0)} NTU)';
+    }
     return '';
   }
 
@@ -336,14 +342,20 @@ class ControlsScreenState extends State<ControlsScreen> {
               }
             }
             return Padding(
-              padding: EdgeInsets.fromLTRB(20, 10, 20, 20 + MediaQuery.of(sheetCtx).viewInsets.bottom),
+              padding: EdgeInsets.fromLTRB(
+                20,
+                10,
+                20,
+                20 + MediaQuery.of(sheetCtx).viewInsets.bottom,
+              ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Center(
                     child: Container(
-                      width: 36, height: 4,
+                      width: 36,
+                      height: 4,
                       decoration: BoxDecoration(
                         color: Colors.grey.shade300,
                         borderRadius: BorderRadius.circular(2),
@@ -354,20 +366,38 @@ class ControlsScreenState extends State<ControlsScreen> {
                   Row(
                     children: [
                       Container(
-                        width: 42, height: 42,
+                        width: 42,
+                        height: 42,
                         decoration: BoxDecoration(
                           color: AppColors.primary.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: const Icon(Icons.play_arrow_rounded, size: 22, color: AppColors.primary),
+                        child: const Icon(
+                          Icons.play_arrow_rounded,
+                          size: 22,
+                          color: AppColors.primary,
+                        ),
                       ),
                       const SizedBox(width: 12),
                       const Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Feed Now', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.dark)),
+                          Text(
+                            'Feed Now',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.dark,
+                            ),
+                          ),
                           SizedBox(height: 2),
-                          Text('Optional: set grams to dispense', style: TextStyle(fontSize: 10, color: Color(0x80000000))),
+                          Text(
+                            'Optional: set grams to dispense',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Color(0x80000000),
+                            ),
+                          ),
                         ],
                       ),
                     ],
@@ -375,25 +405,38 @@ class ControlsScreenState extends State<ControlsScreen> {
                   const SizedBox(height: 20),
                   TextField(
                     controller: gramsCtl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     onChanged: (_) => setModalState(() {}),
                     decoration: InputDecoration(
                       labelText: 'Grams (optional)',
                       hintText: 'e.g. 50',
                       suffixText: 'g',
                       errorText: gramsError,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: AppColors.primary, width: 2),
+                        borderSide: const BorderSide(
+                          color: AppColors.primary,
+                          width: 2,
+                        ),
                       ),
                       errorBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: AppColors.critical, width: 1.5),
+                        borderSide: const BorderSide(
+                          color: AppColors.critical,
+                          width: 1.5,
+                        ),
                       ),
                       focusedErrorBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: AppColors.critical, width: 2),
+                        borderSide: const BorderSide(
+                          color: AppColors.critical,
+                          width: 2,
+                        ),
                       ),
                     ),
                   ),
@@ -417,9 +460,17 @@ class ControlsScreenState extends State<ControlsScreen> {
                         disabledForegroundColor: Colors.grey.shade500,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         elevation: 0,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
-                      child: const Text('Dispense Feed', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+                      child: const Text(
+                        'Dispense Feed',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -448,8 +499,17 @@ class ControlsScreenState extends State<ControlsScreen> {
     final hStr = formatted.split(':')[0];
     final hour = int.tryParse(hStr) ?? 6;
     final timeStr = '$hour:${formatted.split(':')[1].split(' ')[0]}';
-    await FeederService.instance.addSchedule(timeStr, isPM ? 'PM' : 'AM', grams: grams, days: days);
-    _timeCtl.clear();
+    try {
+      await FeederService.instance.addSchedule(
+        timeStr,
+        isPM ? 'PM' : 'AM',
+        grams: grams,
+        days: days,
+      );
+      _timeCtl.clear();
+    } on FeederScheduleConflictException catch (error) {
+      _showScheduleConflict(error);
+    }
   }
 
   Future<void> _deleteSchedule(int index) async {
@@ -457,14 +517,38 @@ class ControlsScreenState extends State<ControlsScreen> {
   }
 
   Future<void> _editSchedule(int index, ScheduleItem item) async {
-    await FeederService.instance.editSchedule(
-      index,
-      time: item.time,
-      ampm: item.ampm,
-      enabled: item.enabled,
-      grams: item.grams,
-      clearGrams: item.grams == null,
-      days: item.days,
+    try {
+      await FeederService.instance.editSchedule(
+        index,
+        time: item.time,
+        ampm: item.ampm,
+        enabled: item.enabled,
+        grams: item.grams,
+        clearGrams: item.grams == null,
+        days: item.days,
+      );
+    } on FeederScheduleConflictException catch (error) {
+      _showScheduleConflict(error);
+    }
+  }
+
+  Future<void> _toggleSchedule(int index, bool enabled) async {
+    try {
+      await FeederService.instance.toggleSchedule(index, enabled);
+    } on FeederScheduleConflictException catch (error) {
+      _showScheduleConflict(error);
+    }
+  }
+
+  void _showScheduleConflict(FeederScheduleConflictException error) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(error.message),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: AppColors.critical,
+        duration: const Duration(seconds: 4),
+      ),
     );
   }
 
@@ -480,22 +564,24 @@ class ControlsScreenState extends State<ControlsScreen> {
       'aerator2': 'Aerator 2',
       'pump': 'Water Pump',
     };
-    DatabaseService.instance.saveActuatorMode(
-      actuatorId: actuatorId,
-      mode: mode,
-      actuatorName: actuatorNames[actuatorId] ?? actuatorId,
-      modeLabel: modeNames[mode] ?? mode,
-    ).catchError((e) {
-      debugPrint('[Controls] ERROR saving $actuatorId: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to save $actuatorId mode: $e'),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
-      }
-    });
+    DatabaseService.instance
+        .saveActuatorMode(
+          actuatorId: actuatorId,
+          mode: mode,
+          actuatorName: actuatorNames[actuatorId] ?? actuatorId,
+          modeLabel: modeNames[mode] ?? mode,
+        )
+        .catchError((e) {
+          debugPrint('[Controls] ERROR saving $actuatorId: $e');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Failed to save $actuatorId mode: $e'),
+                backgroundColor: Colors.redAccent,
+              ),
+            );
+          }
+        });
   }
 
   @override
@@ -516,11 +602,14 @@ class ControlsScreenState extends State<ControlsScreen> {
                       schedules: FeederService.instance.schedules,
                       timeCtl: _timeCtl,
                       onFeedNow: _showFeedNowDialog,
-                      onAddSchedule: (grams, days) => unawaited(_addSchedule(grams: grams, days: days)),
-                      onDeleteSchedule: (index) => unawaited(_deleteSchedule(index)),
-                      onEditSchedule: (index, item) => unawaited(_editSchedule(index, item)),
+                      onAddSchedule: (grams, days) =>
+                          unawaited(_addSchedule(grams: grams, days: days)),
+                      onDeleteSchedule: (index) =>
+                          unawaited(_deleteSchedule(index)),
+                      onEditSchedule: (index, item) =>
+                          unawaited(_editSchedule(index, item)),
                       onToggleSchedule: (index, enabled) =>
-                          unawaited(FeederService.instance.toggleSchedule(index, enabled)),
+                          unawaited(_toggleSchedule(index, enabled)),
                       feederLogs: FeederService.instance.logs,
                       fedToday: _fedToday,
                       isOnline: FeederService.instance.isOnline,
@@ -552,13 +641,48 @@ class ControlsScreenState extends State<ControlsScreen> {
     final isDispensing = _feedState == _FeedState.dispensing;
     final isScheduled = !_manualFeedInitiated;
 
-    final (String title, String subtitle, IconData icon, Color iconColor) = switch ((isFailed, isDone, isDispensing, isScheduled)) {
-      (true,  _,     _,      _)     => ('Feed Failed!',          'Feed did not dispense. Check feeder.',        Icons.error_outline_rounded, AppColors.critical),
-      (_,     true,  _,      true)  => ('Feed Complete!',        'Scheduled feed has been dispensed.',          Icons.check_circle_rounded,  AppColors.success),
-      (_,     true,  _,      false) => ('Done!',                 'Feed has been dispensed successfully.',       Icons.check_circle_rounded,  AppColors.success),
-      (_,     _,     true,   true)  => ('Auto-feeding...',       'Scheduled feed in progress.',                 Icons.schedule,              AppColors.primary),
-      (_,     _,     true,   false) => ('Dispensing...',         'Please wait while the feeder is running.',    Icons.schedule,              AppColors.primary),
-      _                              => ('Dispensing...',         'Please wait while the feeder is running.',    Icons.schedule,              AppColors.primary),
+    final (
+      String title,
+      String subtitle,
+      IconData icon,
+      Color iconColor,
+    ) = switch ((isFailed, isDone, isDispensing, isScheduled)) {
+      (true, _, _, _) => (
+        'Feed Failed!',
+        'Feed did not dispense. Check feeder.',
+        Icons.error_outline_rounded,
+        AppColors.critical,
+      ),
+      (_, true, _, true) => (
+        'Feed Complete!',
+        'Scheduled feed has been dispensed.',
+        Icons.check_circle_rounded,
+        AppColors.success,
+      ),
+      (_, true, _, false) => (
+        'Done!',
+        'Feed has been dispensed successfully.',
+        Icons.check_circle_rounded,
+        AppColors.success,
+      ),
+      (_, _, true, true) => (
+        'Auto-feeding...',
+        'Scheduled feed in progress.',
+        Icons.schedule,
+        AppColors.primary,
+      ),
+      (_, _, true, false) => (
+        'Dispensing...',
+        'Please wait while the feeder is running.',
+        Icons.schedule,
+        AppColors.primary,
+      ),
+      _ => (
+        'Dispensing...',
+        'Please wait while the feeder is running.',
+        Icons.schedule,
+        AppColors.primary,
+      ),
     };
 
     return Positioned(
@@ -641,13 +765,7 @@ class ControlsScreenState extends State<ControlsScreen> {
           ],
         ),
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.primary.withValues(alpha: 0.1),
-            blurRadius: 15,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        boxShadow: AppShadows.brandCard,
       ),
       clipBehavior: Clip.antiAlias,
       child: Stack(
@@ -784,7 +902,15 @@ class ControlsScreenState extends State<ControlsScreen> {
     }
     allLogs.sort((a, b) => b.timestamp.compareTo(a.timestamp));
     final imageAsset = actuators.isNotEmpty ? actuators.first.$4 : null;
-    _showActuatorLogSheet(context, label, '', '', allLogs, null, imageAsset: imageAsset);
+    _showActuatorLogSheet(
+      context,
+      label,
+      '',
+      '',
+      allLogs,
+      null,
+      imageAsset: imageAsset,
+    );
   }
 
   void _showActuatorLogSheet(
@@ -813,209 +939,228 @@ class ControlsScreenState extends State<ControlsScreen> {
               ),
               child: SingleChildScrollView(
                 child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 36,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade300,
-                        borderRadius: BorderRadius.circular(2),
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 36,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade300,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Container(
-                        width: 52,
-                        height: 52,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF1FA5A5).withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(16),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Container(
+                          width: 52,
+                          height: 52,
+                          decoration: BoxDecoration(
+                            color: const Color(
+                              0xFF1FA5A5,
+                            ).withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: imageAsset != null
+                              ? Padding(
+                                  padding: const EdgeInsets.all(6),
+                                  child: Image.asset(
+                                    imageAsset,
+                                    fit: BoxFit.contain,
+                                  ),
+                                )
+                              : Icon(
+                                  Icons.air,
+                                  size: 22,
+                                  color: AppColors.primary,
+                                ),
                         ),
-                        child: imageAsset != null
-                            ? Padding(
-                                padding: const EdgeInsets.all(6),
-                                child: Image.asset(imageAsset, fit: BoxFit.contain),
-                              )
-                            : Icon(
-                                Icons.air,
-                                size: 22,
-                                color: AppColors.primary,
+                        const SizedBox(width: 14),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.dark,
                               ),
-                      ),
-                      const SizedBox(width: 14),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                            ),
+                            Text(
+                              subtitle,
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: const Color(
+                                  0xFF0B3C49,
+                                ).withValues(alpha: 0.45),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    if (actuatorId != null) ...[
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
-                            title,
-                            style: const TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.dark,
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: mode == 'on'
+                                  ? const Color(
+                                      0xFF1FA5A5,
+                                    ).withValues(alpha: 0.12)
+                                  : mode == 'auto'
+                                  ? const Color(
+                                      0xFFf59e0b,
+                                    ).withValues(alpha: 0.12)
+                                  : const Color(
+                                      0xFFE63946,
+                                    ).withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              mode.toUpperCase(),
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: mode == 'on'
+                                    ? AppColors.primary
+                                    : mode == 'auto'
+                                    ? const Color(0xFFc97d08)
+                                    : AppColors.critical,
+                              ),
                             ),
                           ),
                           Text(
-                            subtitle,
+                            'Last changed: ${logs.isNotEmpty ? logs.first.time : '--'}',
                             style: TextStyle(
-                              fontSize: 10,
-                              color: const Color(0xFF0B3C49).withValues(alpha: 0.45),
+                              fontSize: 9,
+                              color: const Color(
+                                0xFF0B3C49,
+                              ).withValues(alpha: 0.4),
                             ),
                           ),
                         ],
                       ),
                     ],
-                  ),
-                  if (actuatorId != null) ...[
-                    const SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: mode == 'on'
-                                ? const Color(0xFF1FA5A5).withValues(alpha: 0.12)
-                                : mode == 'auto'
-                                    ? const Color(0xFFf59e0b).withValues(alpha: 0.12)
-                                    : const Color(0xFFE63946).withValues(alpha: 0.08),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'ACTIVITY LOG',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.darkWith(0.4),
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    if (logs.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Center(
                           child: Text(
-                            mode.toUpperCase(),
+                            'No activity yet.',
                             style: TextStyle(
                               fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: mode == 'on'
-                                  ? AppColors.primary
-                                  : mode == 'auto'
-                                      ? const Color(0xFFc97d08)
-                                      : AppColors.critical,
+                              color: const Color(
+                                0xFF0B3C49,
+                              ).withValues(alpha: 0.35),
                             ),
                           ),
                         ),
-                        Text(
-                          'Last changed: ${logs.isNotEmpty ? logs.first.time : '--'}',
-                          style: TextStyle(
-                            fontSize: 9,
-                            color: const Color(0xFF0B3C49).withValues(alpha: 0.4),
+                      )
+                    else
+                      ...logs
+                          .take(20)
+                          .map(
+                            (l) => Container(
+                              margin: const EdgeInsets.only(bottom: 6),
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFf7f7f7),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 8,
+                                    height: 8,
+                                    decoration: BoxDecoration(
+                                      color: l.type == 'on'
+                                          ? AppColors.primary
+                                          : l.type == 'auto'
+                                          ? AppColors.warning
+                                          : AppColors.critical,
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          l.action,
+                                          style: const TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w700,
+                                            color: AppColors.dark,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 1),
+                                        Text(
+                                          '${l.date} \u00B7 ${l.time}',
+                                          style: TextStyle(
+                                            fontSize: 9,
+                                            color: const Color(
+                                              0xFF0B3C49,
+                                            ).withValues(alpha: 0.4),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: TextButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        style: TextButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 9),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
                           ),
                         ),
-                      ],
+                        child: const Text(
+                          'Close',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
                     ),
                   ],
-                  const SizedBox(height: 16),
-                  Text(
-                    'ACTIVITY LOG',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.darkWith(0.4),
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  if (logs.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Center(
-                        child: Text(
-                          'No activity yet.',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: const Color(0xFF0B3C49).withValues(alpha: 0.35),
-                          ),
-                        ),
-                      ),
-                    )
-                  else
-                    ...logs
-                        .take(20)
-                        .map(
-                          (l) => Container(
-                            margin: const EdgeInsets.only(bottom: 6),
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFf7f7f7),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 8,
-                                  height: 8,
-                                  decoration: BoxDecoration(
-                                    color: l.type == 'on'
-                                        ? AppColors.primary
-                                        : l.type == 'auto'
-                                            ? AppColors.warning
-                                            : AppColors.critical,
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        l.action,
-                                        style: const TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w700,
-                                          color: AppColors.dark,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 1),
-                                      Text(
-                                        '${l.date} \u00B7 ${l.time}',
-                                        style: TextStyle(
-                                          fontSize: 9,
-                                          color: const Color(0xFF0B3C49).withValues(alpha: 0.4),
-                                        ),
-                                      ),
-
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: TextButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      style: TextButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 9),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                      child: const Text(
-                        'Close',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ),
-        ),
         );
       },
     );

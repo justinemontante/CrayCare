@@ -131,9 +131,16 @@ def _analyze_tank(tank_id: str) -> None:
         print(f"[Water Quality Assessment] Insufficient data ({len(df)} rows); at least 6 are required")
         result = {
             "level": "Insufficient",
+            "model_level": "Insufficient",
+            "rule_level": "Insufficient",
+            "safety_override": False,
             "confidence": 0,
             "driver": "N/A",
             "driver_label": "Collecting sensor history",
+            "driver_value": None,
+            "driver_unit": "",
+            "driver_min": None,
+            "driver_max": None,
             "problem": "Not enough data collected yet",
             "insight": "A minimum of six 10-minute history readings is required.",
             "action": "Continue collecting data. The first Water Quality Assessment will be available after about one hour.",
@@ -143,9 +150,12 @@ def _analyze_tank(tank_id: str) -> None:
         }
     else:
         result = _run_water_quality_assessment(df)
-        result["tank_id"] = tank_id
-        if owner_uid:
-            result["uid"] = owner_uid
+
+    # Identity fields are part of the canonical assessment schema even while
+    # the tank is still collecting its first hour of history.
+    result["tank_id"] = tank_id
+    if owner_uid:
+        result["uid"] = owner_uid
 
     result["ts_epoch"] = int(datetime.now(timezone.utc).timestamp())
 

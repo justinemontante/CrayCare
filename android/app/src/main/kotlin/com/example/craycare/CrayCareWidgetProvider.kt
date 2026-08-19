@@ -9,6 +9,9 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.os.Build
+import android.os.SystemClock
+import android.view.View
 import android.widget.RemoteViews
 
 class CrayCareWidgetProvider : AppWidgetProvider() {
@@ -62,7 +65,7 @@ class CrayCareWidgetProvider : AppWidgetProvider() {
             setFlutterAsset(views, context, R.id.widget_do_icon, "assets/images/DO.png", 22)
             setFlutterAsset(views, context, R.id.widget_turb_icon, "assets/images/Turbidity.png", 22)
             setFlutterAsset(views, context, R.id.widget_water_icon, "assets/images/waterLevel.png", 22)
-            setFlutterAsset(views, context, R.id.widget_feed_icon, "assets/images/FeedingImage.png", 18)
+            setFlutterAsset(views, context, R.id.widget_feed_icon, "assets/images/FeedingImage.png", 24)
 
             views.setTextViewText(
                 R.id.widget_online,
@@ -95,9 +98,22 @@ class CrayCareWidgetProvider : AppWidgetProvider() {
                 prefs.getString("widget_next_feed", "No schedule"),
             )
             views.setTextViewText(
-                R.id.widget_updated,
-                prefs.getString("widget_updated", "--"),
+                R.id.widget_feed_amount,
+                prefs.getString("widget_feed_amount", "--"),
             )
+            val amountType = prefs.getString("widget_feed_amount_type", "") ?: ""
+            views.setTextViewText(R.id.widget_feed_amount_type, amountType)
+            views.setViewVisibility(
+                R.id.widget_feed_amount_type,
+                if (amountType.isEmpty()) View.GONE else View.VISIBLE,
+            )
+            views.setTextColor(
+                R.id.widget_feed_amount_type,
+                if (amountType == "DEFAULT") Color.parseColor("#D48806")
+                else Color.parseColor("#168B82"),
+            )
+            val feedAtEpochMs = (prefs.all["widget_next_feed_at"] as? Number)?.toLong() ?: -1L
+            setFeedCountdown(views, feedAtEpochMs)
 
             val launchIntent = Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -131,6 +147,46 @@ class CrayCareWidgetProvider : AppWidgetProvider() {
             "WARNING", "MODERATE" -> Color.parseColor("#D48806")
             "CRITICAL", "POOR" -> Color.parseColor("#DC3545")
             else -> Color.parseColor("#7A8A94")
+        }
+
+        private fun setFeedCountdown(views: RemoteViews, feedAtEpochMs: Long) {
+            val remainingMs = feedAtEpochMs - System.currentTimeMillis()
+            val hasUpcomingFeed = feedAtEpochMs > 0L && remainingMs > 0L
+            views.setViewVisibility(
+                R.id.widget_feed_countdown,
+                if (hasUpcomingFeed) View.VISIBLE else View.GONE,
+            )
+            if (!hasUpcomingFeed) return
+
+            val elapsedRealtimeDeadline = SystemClock.elapsedRealtime() + remainingMs
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                views.setChronometer(
+                    R.id.widget_feed_countdown,
+                    elapsedRealtimeDeadline,
+                    "in %s",
+                    true,
+                )
+                views.setChronometerCountDown(R.id.widget_feed_countdown, true)
+            } else {
+                views.setChronometer(
+                    R.id.widget_feed_countdown,
+                    elapsedRealtimeDeadline,
+                    formatRemaining(remainingMs),
+                    false,
+                )
+            }
+        }
+
+        private fun formatRemaining(remainingMs: Long): String {
+            val totalMinutes = ((remainingMs + 59_999L) / 60_000L).coerceAtLeast(1L)
+            val days = totalMinutes / (24L * 60L)
+            val hours = (totalMinutes % (24L * 60L)) / 60L
+            val minutes = totalMinutes % 60L
+            return when {
+                days > 0L -> "in ${days}d ${hours}h"
+                hours > 0L -> "in ${hours}h ${minutes}m"
+                else -> "in ${minutes}m"
+            }
         }
 
         private fun setFlutterAsset(
