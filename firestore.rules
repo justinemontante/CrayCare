@@ -62,13 +62,15 @@ service cloud.firestore {
     match /users/{uid} {
       allow get: if isSignedIn() && (request.auth.uid == uid || isAdmin());
       allow list: if isAdmin();
-      allow create: if isAdmin() || (
+      allow create: if (isAdmin() && request.resource.data.role == 'owner') || (
         isSignedIn() && request.auth.uid == uid &&
         request.resource.data.role == 'owner' &&
         request.resource.data.status == 'active' &&
         request.resource.data.tank_id == request.auth.uid
       );
-      allow update: if isAdmin() || canClaimInitialTank(uid) ||
+      allow update: if (isAdmin() &&
+          request.resource.data.role == resource.data.role) ||
+        canClaimInitialTank(uid) ||
         canBackfillLegacyProfile(uid) || (
           isSignedIn() && request.auth.uid == uid &&
           request.resource.data.diff(resource.data).affectedKeys()

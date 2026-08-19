@@ -435,10 +435,4 @@ class DatabaseService {
     );
   }
 
-  Future<void> setUserRole(String uid, String role) async {
-    await _db.collection('users').doc(uid).set(
-      {'role': role},
-      SetOptions(merge: true),
-    );
-  }
 }
