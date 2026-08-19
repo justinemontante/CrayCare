@@ -321,6 +321,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (hasAnyData && error == null && !syncing) return const SizedBox.shrink();
 
     final String message;
+    final IconData bannerIcon;
     final tankService = TankService.instance;
     if (!tankService.isInitialized) {
       // Owner has a tank but hasn't set it up yet — clearer than
@@ -328,30 +329,38 @@ class _DashboardScreenState extends State<DashboardScreen>
       // is deleted (TankService resets on tank deletion).
       message =
           'Tank not set up yet — initialize your grow-out batch to start seeing sensor data.';
+      bannerIcon = Icons.info_outline_rounded;
     } else if (error != null && error.contains('No tank assigned')) {
       message = 'No tank assigned to this account yet.';
+      bannerIcon = Icons.link_off_rounded;
     } else if (error != null) {
       message = error;
+      bannerIcon = Icons.error_outline_rounded;
     } else if (!ss.initialDataLoaded) {
       message = 'Connecting to sensors...';
+      bannerIcon = Icons.sensors_rounded;
     } else if (syncing) {
       final n = ss.bufferedEntries;
       message =
           'Syncing $n offline reading${n == 1 ? '' : 's'} captured during the outage…';
+      bannerIcon = Icons.sync_rounded;
     } else {
       message = 'ESP32 Offline — No live sensor updates';
+      bannerIcon = Icons.wifi_off_rounded;
     }
+
+    final isErrorState = error != null && tankService.isInitialized;
 
     return Container(
       margin: const EdgeInsets.fromLTRB(14, 3, 14, 2),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: error != null
+        color: isErrorState
             ? const Color(0xFFFFF3F0)
             : const Color(0xFFFFF8E1),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
-          color: error != null
+          color: isErrorState
               ? const Color(0xFFFFCCBB)
               : const Color(0xFFFFE082),
         ),
@@ -359,11 +368,9 @@ class _DashboardScreenState extends State<DashboardScreen>
       child: Row(
         children: [
           Icon(
-            error != null
-                ? Icons.error_outline
-                : (syncing ? Icons.sync_rounded : Icons.wifi_off_rounded),
+            bannerIcon,
             size: 16,
-            color: error != null
+            color: isErrorState
                 ? const Color(0xFFD84315)
                 : const Color(0xFFF9A825),
           ),
@@ -374,7 +381,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w500,
-                color: error != null
+                color: isErrorState
                     ? const Color(0xFFBF360C)
                     : const Color(0xFF795548),
               ),
