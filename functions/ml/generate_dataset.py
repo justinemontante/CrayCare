@@ -1,5 +1,5 @@
-"""CrayCare — Water Quality Classification Dataset Generator
-===========================================================
+"""CrayCare — Water Quality Assessment Model Dataset Generator
+==============================================================
 
 Generates `sensor_dataset.csv` — a synthetic 90-day time-series of pond
 sensor readings at 10-minute intervals (~12,960 rows).
@@ -10,9 +10,9 @@ standards (DENR DAO 2016-08, DA-BFAR, FAO TP-458, Boyd & Tucker 1998).
 See agency_standards.py for full citations.
 
 Class distribution target (approximate):
-  0 — Low      ~45%   (all parameters within optimal/good range)
+  0 — Good     ~45%   (all parameters within optimal/good range)
   1 — Moderate ~28%   (minor deviations, single parameter drifting)
-  2 — High     ~15%   (one or more parameters in fair/poor zone)
+  2 — Poor     ~15%   (one or more parameters in fair/poor zone)
   3 — Critical ~12%   (any parameter in critical zone)
 
 Usage:

@@ -185,7 +185,10 @@ tanks/{tank_id}/batches/{batch_id}
     created_at: Timestamp
 
   machine_learning_assessments/current
-    level: "Low" | "Moderate" | "High" | "Critical" | "Insufficient"
+    level: "Good" | "Moderate" | "Poor" | "Critical" | "Insufficient"
+    model_level: "Good" | "Moderate" | "Poor" | "Critical"
+    rule_level: "Good" | "Moderate" | "Poor" | "Critical"
+    safety_override: boolean
     confidence: number
     driver, driver_label, driver_value, driver_unit
     driver_min, driver_max

@@ -1,4 +1,4 @@
-"""Shared feature engineering, scoring, and constants for the CrayCare Water Quality Classification pipeline.
+"""Feature engineering and scoring for the CrayCare Water Quality Assessment.
 
 All threshold values are aligned with official agency standards:
   - DENR DAO 2016-08  (Class C Inland Waters — Fishery Water Supply)
@@ -9,10 +9,12 @@ All threshold values are aligned with official agency standards:
 See agency_standards.py for full citations and threshold rationale.
 
 METHODOLOGY NOTE (for thesis/defense):
-The ML training label is derived from the deterministic `compute_wqc_score()` formula —
+The ML training label is derived from the deterministic
+`compute_water_quality_assessment_score()` formula —
 it is NOT independent, expert-labeled ground truth.
-The Water Quality Classification model approximates/generalises this formula using richer
-temporal features (rolling trend, volatility, hours-in-bad-condition) than the formula itself uses.
+The classification model used by the Water Quality Assessment approximates/generalises
+this formula using richer temporal features (rolling trend, volatility,
+hours-in-bad-condition) than the formula itself uses.
 High classification accuracy primarily demonstrates that the model can closely reproduce a known
 deterministic function. Frame the ML component as "trend-aware early warning / smoothing over the
 rule-based system." See train_model.py Stage 1.5 for ablation numbers to cite in the defense.
@@ -59,11 +61,12 @@ WATER_MAX_CM = 20.0
 
 # ── Normalisation reference ──────────────────────────────────────────────────────
 # p96 of the raw rolling hazard on the 90-day dataset → balanced class split.
-# Recompute if thresholds change: run compute_wqc_score() on the new dataset
+# Recompute if thresholds change: run compute_water_quality_assessment_score()
+# on the new dataset
 # and take np.percentile(hazard_raw / p96 * 100, 96).
-WQC_NORM_REF = 5.20
+WATER_QUALITY_ASSESSMENT_NORM_REF = 5.20
 
-CLASS_NAMES = ["Low", "Moderate", "High", "Critical"]
+CLASS_NAMES = ["Good", "Moderate", "Poor", "Critical"]
 
 
 # ── Feature engineering ──────────────────────────────────────────────────────────
@@ -112,7 +115,7 @@ def build_features(df):
 
     # ── Continuous per-sensor hazard (rolling 1h) — smooth signal for boundary ─
     # These give the model a continuous gradient around each class boundary,
-    # not just a binary pass/fail flag (which starves the "High" class).
+    # not just a binary pass/fail flag (which starves the "Poor" class).
     water_range = max(WATER_MAX_CM - WATER_MIN_CM, 1.0)
 
     do_hz   = np.clip(DO_OPTIMAL_MIN - df["DO_min"],   0, None) / DO_OPTIMAL_MIN
@@ -149,11 +152,11 @@ def build_features(df):
 
 
 # ── Hazard score computation (deterministic rule-based, used for label generation) ──
-def compute_wqc_score(df):
+def compute_water_quality_assessment_score(df):
     """Compute a 0–100 internal hazard score from raw sensor DataFrame.
 
-    Used internally to auto-generate Water Quality Classification training labels.
-    NOT exposed in the final classification output.
+    Used internally to auto-generate classification labels for model training.
+    NOT exposed in the final Water Quality Assessment output.
 
     Uses a rolling 6-tick (1-hour) window sum of instantaneous per-sensor
     hazard sub-scores, normalised to [0, 100].
@@ -194,22 +197,26 @@ def compute_wqc_score(df):
     row_hazard  = s.sum(axis=1)
     WIN         = 6    # 1-hour window (six 10-minute readings)
     hazard_raw  = row_hazard.rolling(WIN, min_periods=1).sum()
-    hazard_score = np.clip(hazard_raw / WQC_NORM_REF * 100, 0, 100)
+    hazard_score = np.clip(
+        hazard_raw / WATER_QUALITY_ASSESSMENT_NORM_REF * 100,
+        0,
+        100,
+    )
     return hazard_score
 
 
 # ── Class label mapping ──────────────────────────────────────────────────────────
 def classify(score):
-    """Map a WQC hazard score (0–100) to (class_int, class_name).
+    """Map the internal Water Quality Assessment hazard score to a model class.
 
-      0 — Low      (score < 25)  : All parameters within DENR/DA-BFAR optimal
+      0 — Good     (score < 25)  : All parameters within DENR/DA-BFAR optimal
       1 — Moderate (25 ≤ score < 50): Minor deviation; within good bounds
-      2 — High     (50 ≤ score < 75): Fair/poor zone; action recommended
+      2 — Poor     (50 ≤ score < 75): Fair/poor zone; action recommended
       3 — Critical (score ≥ 75)  : Any parameter in critical zone; act now
     """
-    if score < 25:  return 0, "Low"
+    if score < 25:  return 0, "Good"
     if score < 50:  return 1, "Moderate"
-    if score < 75:  return 2, "High"
+    if score < 75:  return 2, "Poor"
     return 3, "Critical"
 
 
@@ -263,7 +270,7 @@ def generate_insight(driver, last_row, level):
     return templates.get(driver, f"{driver} reading is outside the agency-recommended range.")
 
 
-# ── Full classification pipeline ─────────────────────────────────────────────────
+# ── Full Water Quality Assessment pipeline ───────────────────────────────────────
 def _current_driver_details(last):
     """Identify the sensor causing the current risk from live deviations."""
     import numpy as np
@@ -291,12 +298,20 @@ def _current_driver_details(last):
     return driver, hazards[driver], details[driver]
 
 
-def predict_wqc(df, bundle, recs):
-    """Classify risk and produce a current, explainable recommendation."""
+def assess_water_quality(df, bundle, recs):
+    """Produce a trend-aware, explainable Water Quality Assessment.
+
+    A classification model categorizes the overall condition as one part of
+    the complete Water Quality Assessment.
+    """
     import numpy as np
     feat, _ = build_features(df)
-    hazard_series = compute_wqc_score(df)
-    score = round(float(hazard_series.iloc[-1]), 1)
+    hazard_series = compute_water_quality_assessment_score(df)
+    baseline_score = round(float(hazard_series.iloc[-1]), 1)
+    baseline_class, rule_level = classify(baseline_score)
+    score = baseline_score
+    model_level = rule_level
+    safety_override = False
     if bundle is not None:
         model, features = bundle["model"], bundle["features"]
         latest = feat.iloc[[-1]].copy()
@@ -305,23 +320,37 @@ def predict_wqc(df, bundle, recs):
         if bundle.get("type", "classifier") == "regressor":
             predicted = float(np.clip(model.predict(latest)[0], 0, 100))
             score = round(predicted, 1)
-            _, level = classify(score)
+            model_class, model_level = classify(score)
+            final_class = max(model_class, baseline_class)
+            level = CLASS_NAMES[final_class]
+            safety_override = final_class != model_class
             diff = abs(predicted - float(hazard_series.iloc[-1]))
             confidence = 92 if diff < 5 else (85 if diff < 10 else (75 if diff < 20 else 65))
         else:
             raw = model.predict(latest)
             cls = int(raw.argmax(axis=1)[0] if len(raw.shape) == 2 else raw[0])
-            confidence = round(float(model.predict_proba(latest)[0][cls]) * 100)
-            level = CLASS_NAMES[cls]
+            probabilities = model.predict_proba(latest)[0]
+            model_level = CLASS_NAMES[cls]
+            final_class = max(cls, baseline_class)
+            level = CLASS_NAMES[final_class]
+            safety_override = final_class != cls
+            confidence = round(float(probabilities[final_class]) * 100)
     else:
-        _, level = classify(score)
+        level = rule_level
         confidence = 85
     driver, driver_hazard, details = _current_driver_details(df.iloc[-1])
     rec = recs.get(driver, recs["overall"])
     action = rec.get("critical_action" if level == "Critical" else "action", rec["action"])
     from datetime import datetime, timezone
+    source = (
+        bundle.get("model_version", "XGBoost classifier")
+        if bundle is not None
+        else "Rule-based fallback"
+    )
     return {
         "level": level, "confidence": confidence,
+        "model_level": model_level, "rule_level": rule_level,
+        "safety_override": safety_override,
         "driver": driver, "driver_label": details["label"],
         "driver_value": details["value"], "driver_unit": details["unit"],
         "driver_min": details["min"], "driver_max": details["max"],
@@ -329,5 +358,6 @@ def predict_wqc(df, bundle, recs):
         "problem": rec["problem"],
         "insight": generate_insight(driver, df.iloc[-1], level) if driver != "overall" else rec["problem"],
         "action": action,
+        "source": source,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }

@@ -21,7 +21,7 @@ ESP32 anonymous device session
       -> tanks/{tankId}/sensor_readings/latest
       -> tanks/{tankId}/sensor_readings_history/{date}/entries/{id}
           -> Flutter live dashboard and historical analytics
-          -> hourly Python WQC
+          -> hourly Python Water Quality Assessment
           -> tanks/{tankId}/ml_predictions/current
 ```
 

@@ -6,7 +6,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 
-import 'health_risk_service.dart';
+import 'water_quality_assessment_service.dart';
 import 'tank_service.dart';
 
 /// Builds CSV and PDF reports from the in-memory grow-out and water-quality
@@ -35,8 +35,7 @@ class ReportExportService {
     return '"$escaped"';
   }
 
-  static String _row(List<Object?> cells) =>
-      '${cells.map(_cell).join(',')}\n';
+  static String _row(List<Object?> cells) => '${cells.map(_cell).join(',')}\n';
 
   static String _fmtDate(DateTime dt) =>
       '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
@@ -97,18 +96,33 @@ class ReportExportService {
 
     final samples = t.samplingHistory;
     if (samples.isNotEmpty) {
-      buf.writeln(_row([
-        'Sampling Records',
-        'Date', 'ABW (g)', 'ABL (cm)', 'Sample Size',
-        'Total Weight (g)', 'Total Length (cm)', 'Biomass (g)', 'Live Count',
-      ]));
+      buf.writeln(
+        _row([
+          'Sampling Records',
+          'Date',
+          'ABW (g)',
+          'ABL (cm)',
+          'Sample Size',
+          'Total Weight (g)',
+          'Total Length (cm)',
+          'Biomass (g)',
+          'Live Count',
+        ]),
+      );
       for (final s in samples) {
-        buf.writeln(_row([
-          '', _fmtDate(s.date), s.abw.toStringAsFixed(2),
-          s.avgLength.toStringAsFixed(2), s.sampleSize,
-          s.totalWeight.toStringAsFixed(2), s.totalLength.toStringAsFixed(2),
-          s.biomass.toStringAsFixed(2), s.liveCount,
-        ]));
+        buf.writeln(
+          _row([
+            '',
+            _fmtDate(s.date),
+            s.abw.toStringAsFixed(2),
+            s.avgLength.toStringAsFixed(2),
+            s.sampleSize,
+            s.totalWeight.toStringAsFixed(2),
+            s.totalLength.toStringAsFixed(2),
+            s.biomass.toStringAsFixed(2),
+            s.liveCount,
+          ]),
+        );
       }
       buf.writeln();
     }
@@ -124,15 +138,25 @@ class ReportExportService {
 
     final harvests = t.harvestRecords;
     if (harvests.isNotEmpty) {
-      buf.writeln(_row([
-        'Harvest Records', 'Date', 'Harvested Count',
-        'Total Weight (kg)', 'ABW (g)',
-      ]));
+      buf.writeln(
+        _row([
+          'Harvest Records',
+          'Date',
+          'Harvested Count',
+          'Total Weight (kg)',
+          'ABW (g)',
+        ]),
+      );
       for (final h in harvests) {
-        buf.writeln(_row([
-          '', _fmtDate(h.date), h.harvestedCount,
-          h.totalWeightKg.toStringAsFixed(3), h.abwGrams.toStringAsFixed(2),
-        ]));
+        buf.writeln(
+          _row([
+            '',
+            _fmtDate(h.date),
+            h.harvestedCount,
+            h.totalWeightKg.toStringAsFixed(3),
+            h.abwGrams.toStringAsFixed(2),
+          ]),
+        );
       }
       buf.writeln();
     }
@@ -140,44 +164,63 @@ class ReportExportService {
     return buf.toString();
   }
 
-  // ── Water Quality Classification (WQC) CSV ─────────────────────────────
-  String buildWqcCsv() {
-    final hr = HealthRiskService.instance;
+  // ── Machine Learning-Based Water Quality Assessment CSV ────────────────
+  String buildWaterQualityAssessmentCsv() {
+    final assessmentService = WaterQualityAssessmentService.instance;
     final buf = StringBuffer();
 
-    buf.writeln('CrayCare Water Quality Classification Report');
+    buf.writeln(
+      'CrayCare Machine Learning-Based Water Quality Assessment Report',
+    );
     buf.writeln('Generated,${_fmtDateTime(DateTime.now())}');
     buf.writeln();
 
-    final history = hr.history;
+    final history = assessmentService.history;
     if (history.isEmpty) {
-      buf.writeln('No assessment history yet. The first assessment appears '
-          'after about one hour of sensor data.');
+      buf.writeln(
+        'No Water Quality Assessment history yet. The first Water Quality Assessment appears '
+        'after about one hour of sensor data.',
+      );
       return buf.toString();
     }
 
-    buf.writeln(_row([
-      'Timestamp', 'Level', 'Confidence (%)', 'Driver', 'Driver Value',
-      'Unit', 'Problem', 'Action',
-    ]));
+    buf.writeln(
+      _row([
+        'Timestamp',
+        'Level',
+        'Assessment Basis',
+        'Confidence (%)',
+        'Driver',
+        'Driver Value',
+        'Unit',
+        'Problem',
+        'Action',
+      ]),
+    );
     for (final h in history) {
-      buf.writeln(_row([
-        _fmtDateTime(h.timestamp.toLocal()),
-        h.level,
-        h.confidence,
-        h.driverLabel,
-        h.driverValue?.toStringAsFixed(2) ?? '',
-        h.driverUnit,
-        h.problem,
-        h.action,
-      ]));
+      buf.writeln(
+        _row([
+          _fmtDateTime(h.timestamp.toLocal()),
+          h.level,
+          h.assessmentBasis,
+          h.safetyOverride ? '' : h.confidence,
+          h.driverLabel,
+          h.driverValue?.toStringAsFixed(2) ?? '',
+          h.driverUnit,
+          h.problem,
+          h.action,
+        ]),
+      );
     }
     buf.writeln();
 
     final latest = history.first;
-    buf.writeln(_row(['Latest Assessment Detail']));
+    buf.writeln(_row(['Latest Water Quality Assessment Detail']));
     buf.writeln(_row(['Level', latest.level]));
-    buf.writeln(_row(['Confidence (%)', latest.confidence]));
+    buf.writeln(_row(['Assessment Basis', latest.assessmentBasis]));
+    if (!latest.safetyOverride) {
+      buf.writeln(_row(['Confidence (%)', latest.confidence]));
+    }
     buf.writeln(_row(['Primary Driver', latest.driverLabel]));
     buf.writeln(_row(['Insight', latest.insight]));
     buf.writeln(_row(['Recommended Action', latest.action]));
@@ -191,32 +234,34 @@ class ReportExportService {
     final doc = pw.Document();
 
     pw.Table kwTable(List<List<String>> rows) => pw.TableHelper.fromTextArray(
-          headers: ['Metric', 'Value'],
-          headerStyle: pw.TextStyle(
-            fontWeight: pw.FontWeight.bold,
-            color: PdfColors.white,
-          ),
-          headerDecoration: const pw.BoxDecoration(color: _careColorDark),
-          cellStyle: const pw.TextStyle(fontSize: 9),
-          cellAlignment: pw.Alignment.centerLeft,
-          headerAlignment: pw.Alignment.centerLeft,
-          border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
-          data: rows,
-        );
+      headers: ['Metric', 'Value'],
+      headerStyle: pw.TextStyle(
+        fontWeight: pw.FontWeight.bold,
+        color: PdfColors.white,
+      ),
+      headerDecoration: const pw.BoxDecoration(color: _careColorDark),
+      cellStyle: const pw.TextStyle(fontSize: 9),
+      cellAlignment: pw.Alignment.centerLeft,
+      headerAlignment: pw.Alignment.centerLeft,
+      border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
+      data: rows,
+    );
 
     final samples = t.samplingHistory;
     final mortality = t.mortalityHistory;
     final harvests = t.harvestRecords;
 
     final samplingRows = samples
-        .map((s) => [
-              _fmtDate(s.date),
-              s.abw.toStringAsFixed(2),
-              s.avgLength.toStringAsFixed(2),
-              '${s.sampleSize}',
-              s.totalWeight.toStringAsFixed(2),
-              s.biomass.toStringAsFixed(2),
-            ])
+        .map(
+          (s) => [
+            _fmtDate(s.date),
+            s.abw.toStringAsFixed(2),
+            s.avgLength.toStringAsFixed(2),
+            '${s.sampleSize}',
+            s.totalWeight.toStringAsFixed(2),
+            s.biomass.toStringAsFixed(2),
+          ],
+        )
         .toList();
 
     final mortalityRows = mortality
@@ -224,219 +269,284 @@ class ReportExportService {
         .toList();
 
     final harvestRows = harvests
-        .map((h) => [
-              _fmtDate(h.date),
-              '${h.harvestedCount}',
-              h.totalWeightKg.toStringAsFixed(3),
-              h.abwGrams.toStringAsFixed(2),
-            ])
+        .map(
+          (h) => [
+            _fmtDate(h.date),
+            '${h.harvestedCount}',
+            h.totalWeightKg.toStringAsFixed(3),
+            h.abwGrams.toStringAsFixed(2),
+          ],
+        )
         .toList();
 
-    doc.addPage(pw.MultiPage(
-      pageFormat: PdfPageFormat.a4,
-      margin: const pw.EdgeInsets.all(36),
-      header: (context) => pw.Text(
-        'CrayCare Grow-Out Report',
-        style: pw.TextStyle(
-          fontSize: 20,
-          fontWeight: pw.FontWeight.bold,
-          color: _crayColor,
+    doc.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(36),
+        header: (context) => pw.Text(
+          'CrayCare Grow-Out Report',
+          style: pw.TextStyle(
+            fontSize: 20,
+            fontWeight: pw.FontWeight.bold,
+            color: _crayColor,
+          ),
         ),
+        footer: (context) => pw.Align(
+          alignment: pw.Alignment.centerRight,
+          child: pw.Text(
+            'Generated ${_fmtDateTime(DateTime.now())}  ·  Page ${context.pageNumber} of ${context.pagesCount}',
+            style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
+          ),
+        ),
+        build: (context) => [
+          pw.Text(
+            _pdfSafe(
+              'Tank grow-out and production records exported from CrayCare.',
+            ),
+            style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
+          ),
+          pw.SizedBox(height: 16),
+          pw.Text(
+            'Tank Summary',
+            style: pw.TextStyle(
+              fontSize: 13,
+              fontWeight: pw.FontWeight.bold,
+              color: _crayColor,
+            ),
+          ),
+          pw.SizedBox(height: 8),
+          kwTable([
+            ['Batch ID', _pdfSafe(t.selectedBatchId ?? '-')],
+            ['Stocking Date', _fmtDate(t.stockingDate)],
+            ['Days in Culture', '${t.daysInCulture}'],
+            ['Initial Population', '${t.initialCount}'],
+            ['Initial ABW (g)', t.initialWeight.toStringAsFixed(2)],
+            ['Initial ABL (cm)', t.initialLength.toStringAsFixed(2)],
+            ['Live Count', '${t.liveCount}'],
+            ['Total Mortality', '${t.totalMortalityFromHistory}'],
+            ['Total Harvested', '${t.totalHarvested}'],
+            ['Survival Rate (%)', t.survivalRate.toStringAsFixed(2)],
+          ]),
+          pw.SizedBox(height: 20),
+          pw.Text(
+            'Sampling Records',
+            style: pw.TextStyle(
+              fontSize: 13,
+              fontWeight: pw.FontWeight.bold,
+              color: _crayColor,
+            ),
+          ),
+          pw.SizedBox(height: 8),
+          if (samplingRows.isEmpty)
+            pw.Text(
+              'No sampling records yet.',
+              style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey600),
+            )
+          else
+            pw.TableHelper.fromTextArray(
+              headers: [
+                'Date',
+                'ABW (g)',
+                'ABL (cm)',
+                'Sample',
+                'Total W (g)',
+                'Biomass (g)',
+              ],
+              headerStyle: pw.TextStyle(
+                fontWeight: pw.FontWeight.bold,
+                color: PdfColors.white,
+              ),
+              headerDecoration: const pw.BoxDecoration(color: _careColor),
+              cellStyle: const pw.TextStyle(fontSize: 9),
+              border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
+              data: samplingRows,
+            ),
+          pw.SizedBox(height: 20),
+          pw.Text(
+            'Mortality Records',
+            style: pw.TextStyle(
+              fontSize: 13,
+              fontWeight: pw.FontWeight.bold,
+              color: _crayColor,
+            ),
+          ),
+          pw.SizedBox(height: 8),
+          if (mortalityRows.isEmpty)
+            pw.Text(
+              'No mortality records.',
+              style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey600),
+            )
+          else
+            pw.TableHelper.fromTextArray(
+              headers: ['Date', 'Count'],
+              headerStyle: pw.TextStyle(
+                fontWeight: pw.FontWeight.bold,
+                color: PdfColors.white,
+              ),
+              headerDecoration: const pw.BoxDecoration(color: _careColor),
+              cellStyle: const pw.TextStyle(fontSize: 9),
+              border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
+              data: mortalityRows,
+            ),
+          pw.SizedBox(height: 20),
+          pw.Text(
+            'Harvest Records',
+            style: pw.TextStyle(
+              fontSize: 13,
+              fontWeight: pw.FontWeight.bold,
+              color: _crayColor,
+            ),
+          ),
+          pw.SizedBox(height: 8),
+          if (harvestRows.isEmpty)
+            pw.Text(
+              'No harvest records.',
+              style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey600),
+            )
+          else
+            pw.TableHelper.fromTextArray(
+              headers: ['Date', 'Count', 'Total W (kg)', 'ABW (g)'],
+              headerStyle: pw.TextStyle(
+                fontWeight: pw.FontWeight.bold,
+                color: PdfColors.white,
+              ),
+              headerDecoration: const pw.BoxDecoration(color: _careColor),
+              cellStyle: const pw.TextStyle(fontSize: 9),
+              border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
+              data: harvestRows,
+            ),
+        ],
       ),
-      footer: (context) => pw.Align(
-        alignment: pw.Alignment.centerRight,
-        child: pw.Text(
-          'Generated ${_fmtDateTime(DateTime.now())}  ·  Page ${context.pageNumber} of ${context.pagesCount}',
-          style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
-        ),
-      ),
-      build: (context) => [
-        pw.Text(
-          _pdfSafe('Tank grow-out and production records exported from CrayCare.'),
-          style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
-        ),
-        pw.SizedBox(height: 16),
-        pw.Text('Tank Summary',
-            style: pw.TextStyle(
-                fontSize: 13,
-                fontWeight: pw.FontWeight.bold,
-                color: _crayColor)),
-        pw.SizedBox(height: 8),
-        kwTable([
-          ['Batch ID', _pdfSafe(t.selectedBatchId ?? '-')],
-          ['Stocking Date', _fmtDate(t.stockingDate)],
-          ['Days in Culture', '${t.daysInCulture}'],
-          ['Initial Population', '${t.initialCount}'],
-          ['Initial ABW (g)', t.initialWeight.toStringAsFixed(2)],
-          ['Initial ABL (cm)', t.initialLength.toStringAsFixed(2)],
-          ['Live Count', '${t.liveCount}'],
-          ['Total Mortality', '${t.totalMortalityFromHistory}'],
-          ['Total Harvested', '${t.totalHarvested}'],
-          ['Survival Rate (%)', t.survivalRate.toStringAsFixed(2)],
-        ]),
-        pw.SizedBox(height: 20),
-        pw.Text('Sampling Records',
-            style: pw.TextStyle(
-                fontSize: 13,
-                fontWeight: pw.FontWeight.bold,
-                color: _crayColor)),
-        pw.SizedBox(height: 8),
-        if (samplingRows.isEmpty)
-          pw.Text('No sampling records yet.',
-              style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey600))
-        else
-          pw.TableHelper.fromTextArray(
-            headers: ['Date', 'ABW (g)', 'ABL (cm)', 'Sample', 'Total W (g)', 'Biomass (g)'],
-            headerStyle: pw.TextStyle(
-                fontWeight: pw.FontWeight.bold, color: PdfColors.white),
-            headerDecoration: const pw.BoxDecoration(color: _careColor),
-            cellStyle: const pw.TextStyle(fontSize: 9),
-            border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
-            data: samplingRows,
-          ),
-        pw.SizedBox(height: 20),
-        pw.Text('Mortality Records',
-            style: pw.TextStyle(
-                fontSize: 13,
-                fontWeight: pw.FontWeight.bold,
-                color: _crayColor)),
-        pw.SizedBox(height: 8),
-        if (mortalityRows.isEmpty)
-          pw.Text('No mortality records.',
-              style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey600))
-        else
-          pw.TableHelper.fromTextArray(
-            headers: ['Date', 'Count'],
-            headerStyle: pw.TextStyle(
-                fontWeight: pw.FontWeight.bold, color: PdfColors.white),
-            headerDecoration: const pw.BoxDecoration(color: _careColor),
-            cellStyle: const pw.TextStyle(fontSize: 9),
-            border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
-            data: mortalityRows,
-          ),
-        pw.SizedBox(height: 20),
-        pw.Text('Harvest Records',
-            style: pw.TextStyle(
-                fontSize: 13,
-                fontWeight: pw.FontWeight.bold,
-                color: _crayColor)),
-        pw.SizedBox(height: 8),
-        if (harvestRows.isEmpty)
-          pw.Text('No harvest records.',
-              style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey600))
-        else
-          pw.TableHelper.fromTextArray(
-            headers: ['Date', 'Count', 'Total W (kg)', 'ABW (g)'],
-            headerStyle: pw.TextStyle(
-                fontWeight: pw.FontWeight.bold, color: PdfColors.white),
-            headerDecoration: const pw.BoxDecoration(color: _careColor),
-            cellStyle: const pw.TextStyle(fontSize: 9),
-            border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
-            data: harvestRows,
-          ),
-      ],
-    ));
+    );
 
     return doc.save();
   }
 
-  // ── Water Quality Classification (WQC) PDF ─────────────────────────────
-  Future<Uint8List> buildWqcPdf() async {
-    final hr = HealthRiskService.instance;
-    final history = hr.history;
+  // ── Machine Learning-Based Water Quality Assessment PDF ────────────────
+  Future<Uint8List> buildWaterQualityAssessmentPdf() async {
+    final assessmentService = WaterQualityAssessmentService.instance;
+    final history = assessmentService.history;
     final doc = pw.Document();
 
     final rows = history
-        .map((h) => [
-              _fmtDateTime(h.timestamp.toLocal()),
-              h.level,
-              '${h.confidence}',
-              _pdfSafe(h.driverLabel),
-              _pdfSafe(h.problem),
-              _pdfSafe(h.action),
-            ])
+        .map(
+          (h) => [
+            _fmtDateTime(h.timestamp.toLocal()),
+            h.level,
+            h.assessmentBasis,
+            h.safetyOverride ? '' : '${h.confidence}',
+            _pdfSafe(h.driverLabel),
+            _pdfSafe(h.problem),
+            _pdfSafe(h.action),
+          ],
+        )
         .toList();
 
-    doc.addPage(pw.MultiPage(
-      pageFormat: PdfPageFormat.a4,
-      margin: const pw.EdgeInsets.all(36),
-      header: (context) => pw.Text(
-        'CrayCare Water Quality Classification Report',
-        style: pw.TextStyle(
-          fontSize: 18,
-          fontWeight: pw.FontWeight.bold,
-          color: _crayColor,
-        ),
-      ),
-      footer: (context) => pw.Align(
-        alignment: pw.Alignment.centerRight,
-        child: pw.Text(
-          'Generated ${_fmtDateTime(DateTime.now())}  ·  Page ${context.pageNumber} of ${context.pagesCount}',
-          style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
-        ),
-      ),
-      build: (context) => [
-        if (history.isEmpty)
-          pw.Text(
-            'No assessment history yet. The first WQC assessment appears after about one hour of sensor data.',
-            style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
-          )
-        else ...[
-          pw.Text('Assessment History',
-              style: pw.TextStyle(
-                  fontSize: 13,
-                  fontWeight: pw.FontWeight.bold,
-                  color: _crayColor)),
-          pw.SizedBox(height: 8),
-          pw.TableHelper.fromTextArray(
-            headers: ['Timestamp', 'Level', 'Conf %', 'Driver', 'Problem', 'Action'],
-            headerStyle: pw.TextStyle(
-                fontWeight: pw.FontWeight.bold, color: PdfColors.white),
-            headerDecoration: const pw.BoxDecoration(color: _careColor),
-            cellStyle: const pw.TextStyle(fontSize: 8),
-            border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
-            data: rows,
+    doc.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(36),
+        header: (context) => pw.Text(
+          'CrayCare Machine Learning-Based Water Quality Assessment Report',
+          style: pw.TextStyle(
+            fontSize: 18,
+            fontWeight: pw.FontWeight.bold,
+            color: _crayColor,
           ),
-          pw.SizedBox(height: 20),
-          pw.Text('Latest Assessment Detail',
-              style: pw.TextStyle(
-                  fontSize: 13,
-                  fontWeight: pw.FontWeight.bold,
-                  color: _crayColor)),
-          pw.SizedBox(height: 8),
-          pw.TableHelper.fromTextArray(
-            headers: ['Field', 'Value'],
-            headerStyle: pw.TextStyle(
-                fontWeight: pw.FontWeight.bold, color: PdfColors.white),
-            headerDecoration: const pw.BoxDecoration(color: _careColorDark),
-            cellStyle: const pw.TextStyle(fontSize: 9),
-            cellAlignment: pw.Alignment.centerLeft,
-            headerAlignment: pw.Alignment.centerLeft,
-            border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
-            data: [
-              ['Level', history.first.level],
-              ['Confidence (%)', '${history.first.confidence}'],
-              ['Primary Driver', _pdfSafe(history.first.driverLabel)],
-              ['Insight', _pdfSafe(history.first.insight)],
-              ['Recommended Action', _pdfSafe(history.first.action)],
-            ],
+        ),
+        footer: (context) => pw.Align(
+          alignment: pw.Alignment.centerRight,
+          child: pw.Text(
+            'Generated ${_fmtDateTime(DateTime.now())}  ·  Page ${context.pageNumber} of ${context.pagesCount}',
+            style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
           ),
+        ),
+        build: (context) => [
+          if (history.isEmpty)
+            pw.Text(
+              'No Water Quality Assessment history yet. The first Water Quality Assessment appears after about one hour of sensor data.',
+              style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
+            )
+          else ...[
+            pw.Text(
+              'Water Quality Assessment History',
+              style: pw.TextStyle(
+                fontSize: 13,
+                fontWeight: pw.FontWeight.bold,
+                color: _crayColor,
+              ),
+            ),
+            pw.SizedBox(height: 8),
+            pw.TableHelper.fromTextArray(
+              headers: [
+                'Timestamp',
+                'Level',
+                'Basis',
+                'Conf %',
+                'Driver',
+                'Problem',
+                'Action',
+              ],
+              headerStyle: pw.TextStyle(
+                fontWeight: pw.FontWeight.bold,
+                color: PdfColors.white,
+              ),
+              headerDecoration: const pw.BoxDecoration(color: _careColor),
+              cellStyle: const pw.TextStyle(fontSize: 8),
+              border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
+              data: rows,
+            ),
+            pw.SizedBox(height: 20),
+            pw.Text(
+              'Latest Water Quality Assessment Detail',
+              style: pw.TextStyle(
+                fontSize: 13,
+                fontWeight: pw.FontWeight.bold,
+                color: _crayColor,
+              ),
+            ),
+            pw.SizedBox(height: 8),
+            pw.TableHelper.fromTextArray(
+              headers: ['Field', 'Value'],
+              headerStyle: pw.TextStyle(
+                fontWeight: pw.FontWeight.bold,
+                color: PdfColors.white,
+              ),
+              headerDecoration: const pw.BoxDecoration(color: _careColorDark),
+              cellStyle: const pw.TextStyle(fontSize: 9),
+              cellAlignment: pw.Alignment.centerLeft,
+              headerAlignment: pw.Alignment.centerLeft,
+              border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
+              data: [
+                ['Level', history.first.level],
+                ['Assessment Basis', history.first.assessmentBasis],
+                if (!history.first.safetyOverride)
+                  ['Confidence (%)', '${history.first.confidence}'],
+                ['Primary Driver', _pdfSafe(history.first.driverLabel)],
+                ['Insight', _pdfSafe(history.first.insight)],
+                ['Recommended Action', _pdfSafe(history.first.action)],
+              ],
+            ),
+          ],
         ],
-      ],
-    ));
+      ),
+    );
 
     return doc.save();
   }
 
   // ── File writing + sharing ─────────────────────────────────────────────
-  Future<void> _writeAndShare(String filename, String mime, List<int> bytes) async {
+  Future<void> _writeAndShare(
+    String filename,
+    String mime,
+    List<int> bytes,
+  ) async {
     final dir = await getTemporaryDirectory();
     final file = File('${dir.path}/$filename');
     await file.writeAsBytes(bytes, flush: true);
-    await Share.shareXFiles(
-      [XFile(file.path, mimeType: mime)],
-      subject: filename,
-    );
+    await Share.shareXFiles([
+      XFile(file.path, mimeType: mime),
+    ], subject: filename);
   }
 
   Future<void> shareGrowthCsv() async {
@@ -449,13 +559,21 @@ class ReportExportService {
     await _writeAndShare(name, 'application/pdf', await buildGrowthPdf());
   }
 
-  Future<void> shareWqcCsv() async {
-    final name = 'craycare_wqc_${_stamp()}.csv';
-    await _writeAndShare(name, 'text/csv', buildWqcCsv().codeUnits);
+  Future<void> shareWaterQualityAssessmentCsv() async {
+    final name = 'craycare_water_quality_assessment_${_stamp()}.csv';
+    await _writeAndShare(
+      name,
+      'text/csv',
+      buildWaterQualityAssessmentCsv().codeUnits,
+    );
   }
 
-  Future<void> shareWqcPdf() async {
-    final name = 'craycare_wqc_${_stamp()}.pdf';
-    await _writeAndShare(name, 'application/pdf', await buildWqcPdf());
+  Future<void> shareWaterQualityAssessmentPdf() async {
+    final name = 'craycare_water_quality_assessment_${_stamp()}.pdf';
+    await _writeAndShare(
+      name,
+      'application/pdf',
+      await buildWaterQualityAssessmentPdf(),
+    );
   }
 }

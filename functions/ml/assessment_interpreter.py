@@ -1,13 +1,13 @@
 """Post-ML interpretation for CrayCare water-quality assessments.
 
-The ML model produces the overall Low/Moderate/High/Critical classification.
+The ML model produces the overall Good/Moderate/Poor/Critical classification.
 This module explains that classification using the most recent one-hour sensor
 window. It identifies a primary concern, secondary concerns, and conditions
 that have returned to range but were abnormal during the recent window.
 
-A small safety floor is applied after ML classification: an independently
-critical current sensor condition can never be displayed below Critical, and a
-currently abnormal condition can never be displayed as Low.
+A final immediate-safety override is applied after ML classification: an
+independently critical current sensor condition can never be displayed below
+Critical. The deterministic rolling-risk floor is applied in features.py.
 """
 
 from features import (
@@ -134,11 +134,12 @@ def enrich_assessment(result, df, recs):
         result["secondary_concerns"] = []
         return result
 
-    # Safety floor: never understate an immediate critical/current abnormality.
+    # Never understate an independently critical current reading. The rolling
+    # deterministic floor was already applied to the model output in features.py.
     if any(c["status"] == "critical" for c in concerns):
+        if result.get("level") != "Critical":
+            result["safety_override"] = True
         result["level"] = "Critical"
-    elif result.get("level") == "Low" and any(c["status"] == "active" for c in concerns):
-        result["level"] = "Moderate"
 
     primary = concerns[0]
     result["driver"] = primary["sensor"]

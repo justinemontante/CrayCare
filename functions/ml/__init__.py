@@ -1,6 +1,8 @@
-"""CrayCare ML module — Water Quality Classification (WQC) for crayfish aquaculture.
+"""CrayCare Machine Learning-Based Water Quality Assessment module.
 
-Uses an XGBoost classifier to predict water quality level (Low / Moderate / High / Critical)
-from rolling sensor features. See features.py for the full feature-engineering pipeline
-and agency_standards.py for DENR/DA-BFAR/FAO threshold rationale.
+The Water Quality Assessment uses an XGBoost classification model to categorize
+the overall condition (Good / Moderate / Poor / Critical), analyze recent trends,
+identify emerging risks, and provide insights and recommendations. See features.py
+for the feature-engineering pipeline and agency_standards.py for the
+DENR/DA-BFAR/FAO threshold rationale.
 """

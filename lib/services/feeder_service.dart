@@ -12,8 +12,18 @@ class FeederService extends ChangeNotifier {
   FeederService._();
 
   static const _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ];
 
   /// Formats an epoch-ms timestamp as "3:45 PM" (matches the old pre-formatted
@@ -50,8 +60,10 @@ class FeederService extends ChangeNotifier {
     if (_tankId != null) return _tankId;
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return null;
-    final profileDoc =
-        await FirebaseFirestore.instance.collection('users').doc(uid).get();
+    final profileDoc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .get();
     final profile = profileDoc.data();
     if (profile?['role'] == 'admin') return null;
     var tankId = profile?['tank_id'] as String?;
@@ -64,8 +76,9 @@ class FeederService extends ChangeNotifier {
     return _tankId;
   }
 
-  DocumentReference<Map<String, dynamic>>? _tankDoc() =>
-      _tankId == null ? null : FirebaseFirestore.instance.collection('tanks').doc(_tankId);
+  DocumentReference<Map<String, dynamic>>? _tankDoc() => _tankId == null
+      ? null
+      : FirebaseFirestore.instance.collection('tanks').doc(_tankId);
 
   StreamSubscription? _statusSub;
   StreamSubscription? _schedulesSub;
@@ -89,8 +102,7 @@ class FeederService extends ChangeNotifier {
   DateTime get lastSeen => _lastSeen;
   String? get lastError => _lastError;
 
-  bool get isOnline =>
-      DateTime.now().difference(_lastSeen).inSeconds < 30;
+  bool get isOnline => DateTime.now().difference(_lastSeen).inSeconds < 30;
 
   List<LogEntry> get logs => List.unmodifiable(_logs);
   List<ScheduleItem> get schedules => List.unmodifiable(_schedules);
@@ -122,7 +134,9 @@ class FeederService extends ChangeNotifier {
   Future<void> _reinitListeners() async {
     final tankId = await _resolveTankId();
     if (tankId == null) {
-      debugPrint('[FeederService] No tank_id resolved for user; feeder listeners not started.');
+      debugPrint(
+        '[FeederService] No tank_id resolved for user; feeder listeners not started.',
+      );
       return;
     }
     _listenStatus();
@@ -165,28 +179,32 @@ class FeederService extends ChangeNotifier {
           .collection('feeder')
           .doc('status')
           .snapshots()
-          .listen((snapshot) {
-        _lastError = null;
-        if (!snapshot.exists || snapshot.data() == null) return;
-        try {
-          final data = snapshot.data()!;
-          _isRunning = data['status'] == 'dispensing';
-          _dispenseCount = (data['dispenseCount'] as num?)?.toInt() ?? _dispenseCount;
-          final seen = data['lastSeen'];
-          if (seen is int && seen > 0) {
-            _lastSeen = DateTime.fromMillisecondsSinceEpoch(seen);
-          } else if (seen is double && seen > 0) {
-            _lastSeen = DateTime.fromMillisecondsSinceEpoch(seen.toInt());
-          }
-        } catch (e) {
-          debugPrint('[FeederService] Status parse error: $e');
-        }
-        notifyListeners();
-      }, onError: (error) {
-        _lastError = error.toString();
-        debugPrint('[FeederService] Status stream error: $error');
-        notifyListeners();
-      });
+          .listen(
+            (snapshot) {
+              _lastError = null;
+              if (!snapshot.exists || snapshot.data() == null) return;
+              try {
+                final data = snapshot.data()!;
+                _isRunning = data['status'] == 'dispensing';
+                _dispenseCount =
+                    (data['dispenseCount'] as num?)?.toInt() ?? _dispenseCount;
+                final seen = data['lastSeen'];
+                if (seen is int && seen > 0) {
+                  _lastSeen = DateTime.fromMillisecondsSinceEpoch(seen);
+                } else if (seen is double && seen > 0) {
+                  _lastSeen = DateTime.fromMillisecondsSinceEpoch(seen.toInt());
+                }
+              } catch (e) {
+                debugPrint('[FeederService] Status parse error: $e');
+              }
+              notifyListeners();
+            },
+            onError: (error) {
+              _lastError = error.toString();
+              debugPrint('[FeederService] Status stream error: $error');
+              notifyListeners();
+            },
+          );
     } catch (e) {
       debugPrint('[FeederService] Status listen error: $e');
     }
@@ -202,30 +220,35 @@ class FeederService extends ChangeNotifier {
           .orderBy('timeValue')
           .limit(20)
           .snapshots()
-          .listen((snapshot) {
-        try {
-          _schedules.clear();
-          _scheduleKeys.clear();
-          for (final doc in snapshot.docs) {
-            final data = doc.data();
-            _scheduleKeys.add(doc.id);
-            _schedules.add(ScheduleItem(
-              data['time'] as String? ?? '6:00',
-              data['ampm'] as String? ?? 'AM',
-              enabled: data['enabled'] as bool? ?? true,
-              isDone: data['isDone'] as bool? ?? false,
-              grams: (data['grams'] as num?)?.toDouble(),
-              days: data['days'] as String? ?? '1111111',
-            ));
-          }
-          FeedState.schedules.value = List.from(_schedules);
-        } catch (e) {
-          debugPrint('[FeederService] Schedules parse error: $e');
-        }
-        notifyListeners();
-      }, onError: (error) {
-        debugPrint('[FeederService] Schedules stream error: $error');
-      });
+          .listen(
+            (snapshot) {
+              try {
+                _schedules.clear();
+                _scheduleKeys.clear();
+                for (final doc in snapshot.docs) {
+                  final data = doc.data();
+                  _scheduleKeys.add(doc.id);
+                  _schedules.add(
+                    ScheduleItem(
+                      data['time'] as String? ?? '6:00',
+                      data['ampm'] as String? ?? 'AM',
+                      enabled: data['enabled'] as bool? ?? true,
+                      isDone: data['isDone'] as bool? ?? false,
+                      grams: (data['grams'] as num?)?.toDouble(),
+                      days: data['days'] as String? ?? '1111111',
+                    ),
+                  );
+                }
+                FeedState.schedules.value = List.from(_schedules);
+              } catch (e) {
+                debugPrint('[FeederService] Schedules parse error: $e');
+              }
+              notifyListeners();
+            },
+            onError: (error) {
+              debugPrint('[FeederService] Schedules stream error: $error');
+            },
+          );
     } catch (e) {
       debugPrint('[FeederService] Schedules listen error: $e');
     }
@@ -241,38 +264,45 @@ class FeederService extends ChangeNotifier {
           .orderBy('logged_at', descending: true)
           .limit(50)
           .snapshots()
-          .listen((snapshot) {
-        try {
-          _logs.clear();
-          for (final doc in snapshot.docs) {
-            final data = doc.data();
-            // time/date are derived from logged_at (no longer stored) so the
-            // display matches the single source of truth for "when". Schedules
-            // and ESP NTP are anchored to Asia/Manila wall-clock time, so the
-            // log timestamps must be rendered in Manila too — otherwise a
-            // device in a different timezone fails to match its log against
-            // the schedule (false "Feed skipped" detection).
-            final ts = data['logged_at'] as int? ?? 0;
-            final dt = ts > 0
-                ? DateTime.fromMillisecondsSinceEpoch(ts, isUtc: true)
-                    .add(_manilaOffset)
-                : null;
-            _logs.add(LogEntry(
-              data['action'] as String? ?? '',
-              data['type'] as String? ?? 'auto',
-              dt == null ? '' : _formatTime(dt),
-              dt == null ? '' : _formatDate(dt),
-              timestamp: ts,
-            ));
-          }
-          FeedState.feederLogs.value = List.from(_logs);
-        } catch (e) {
-          debugPrint('[FeederService] Logs parse error: $e');
-        }
-        notifyListeners();
-      }, onError: (error) {
-        debugPrint('[FeederService] Logs stream error: $error');
-      });
+          .listen(
+            (snapshot) {
+              try {
+                _logs.clear();
+                for (final doc in snapshot.docs) {
+                  final data = doc.data();
+                  // time/date are derived from logged_at (no longer stored) so the
+                  // display matches the single source of truth for "when". Schedules
+                  // and ESP NTP are anchored to Asia/Manila wall-clock time, so the
+                  // log timestamps must be rendered in Manila too — otherwise a
+                  // device in a different timezone fails to match its log against
+                  // the schedule (false "Feed skipped" detection).
+                  final ts = data['logged_at'] as int? ?? 0;
+                  final dt = ts > 0
+                      ? DateTime.fromMillisecondsSinceEpoch(
+                          ts,
+                          isUtc: true,
+                        ).add(_manilaOffset)
+                      : null;
+                  _logs.add(
+                    LogEntry(
+                      data['action'] as String? ?? '',
+                      data['type'] as String? ?? 'auto',
+                      dt == null ? '' : _formatTime(dt),
+                      dt == null ? '' : _formatDate(dt),
+                      timestamp: ts,
+                    ),
+                  );
+                }
+                FeedState.feederLogs.value = List.from(_logs);
+              } catch (e) {
+                debugPrint('[FeederService] Logs parse error: $e');
+              }
+              notifyListeners();
+            },
+            onError: (error) {
+              debugPrint('[FeederService] Logs stream error: $error');
+            },
+          );
     } catch (e) {
       debugPrint('[FeederService] Logs listen error: $e');
     }
@@ -307,13 +337,13 @@ class FeederService extends ChangeNotifier {
   }
 
   Future<void> logFeedFailure() async {
-    await _addLogEntry(
-      action: 'Feed failed to dispense',
-      type: 'error',
-    );
+    await _addLogEntry(action: 'Feed failed to dispense', type: 'error');
   }
 
-  Future<void> _addLogEntry({required String action, required String type}) async {
+  Future<void> _addLogEntry({
+    required String action,
+    required String type,
+  }) async {
     final tankDoc = _tankDoc();
     if (tankDoc == null) return;
     try {
@@ -339,16 +369,19 @@ class FeederService extends ChangeNotifier {
     }
   }
 
-  Future<void> addSchedule(String time, String ampm, {double? grams, String days = '1111111'}) async {
+  Future<void> addSchedule(
+    String time,
+    String ampm, {
+    double? grams,
+    String days = '1111111',
+  }) async {
     final tankDoc = _tankDoc();
     if (tankDoc == null) return;
     try {
       final parts = time.split(':');
       final h = int.tryParse(parts[0]) ?? 6;
       final m = int.tryParse(parts[1]) ?? 0;
-      final hour24 = ampm == 'PM'
-          ? (h == 12 ? 12 : h + 12)
-          : (h == 12 ? 0 : h);
+      final hour24 = ampm == 'PM' ? (h == 12 ? 12 : h + 12) : (h == 12 ? 0 : h);
       final timeValue = hour24 * 60 + m;
       // tanks/{tank_id}/feeder_schedules/{autoId}
       await tankDoc.collection('feeder_schedules').add({
@@ -384,11 +417,11 @@ class FeederService extends ChangeNotifier {
     if (tankDoc == null) return;
     final timeStr = getScheduleTime(index);
     try {
-      await tankDoc.collection('feeder_schedules').doc(_scheduleKeys[index]).delete();
-      await _addLogEntry(
-        action: 'Removed schedule at $timeStr',
-        type: 'auto',
-      );
+      await tankDoc
+          .collection('feeder_schedules')
+          .doc(_scheduleKeys[index])
+          .delete();
+      await _addLogEntry(action: 'Removed schedule at $timeStr', type: 'auto');
     } catch (e) {
       debugPrint('[FeederService] deleteSchedule error: $e');
     }
@@ -408,7 +441,9 @@ class FeederService extends ChangeNotifier {
           .doc(_scheduleKeys[index])
           .update({'enabled': enabled, 'isDone': false});
       await _addLogEntry(
-        action: enabled ? 'Schedule enabled: $timeStr' : 'Schedule disabled: $timeStr',
+        action: enabled
+            ? 'Schedule enabled: $timeStr'
+            : 'Schedule disabled: $timeStr',
         type: 'auto',
       );
     } catch (e) {
@@ -417,7 +452,8 @@ class FeederService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> editSchedule(int index, {
+  Future<void> editSchedule(
+    int index, {
     required String time,
     required String ampm,
     bool? enabled,
@@ -432,16 +468,24 @@ class FeederService extends ChangeNotifier {
       final parts = time.split(':');
       final hour = int.tryParse(parts.first) ?? 6;
       final minute = parts.length > 1 ? (int.tryParse(parts[1]) ?? 0) : 0;
-      final timeValue = (ampm == 'PM' && hour != 12 ? hour + 12 : (ampm == 'AM' && hour == 12 ? 0 : hour)) * 60 + minute;
-      await tankDoc.collection('feeder_schedules').doc(_scheduleKeys[index]).update({
-        'time': time,
-        'ampm': ampm,
-        'timeValue': timeValue,
-        'enabled': enabled ?? true,
-        'isDone': false,
-        'grams': grams,
-        'days': days,
-      });
+      final timeValue =
+          (ampm == 'PM' && hour != 12
+                  ? hour + 12
+                  : (ampm == 'AM' && hour == 12 ? 0 : hour)) *
+              60 +
+          minute;
+      await tankDoc
+          .collection('feeder_schedules')
+          .doc(_scheduleKeys[index])
+          .update({
+            'time': time,
+            'ampm': ampm,
+            'timeValue': timeValue,
+            'enabled': enabled ?? true,
+            'isDone': false,
+            'grams': grams,
+            'days': days,
+          });
       final gramsStr = grams != null ? ' (${grams.toStringAsFixed(1)}g)' : '';
       await _addLogEntry(
         action: 'Edited schedule to $time $ampm$gramsStr',
@@ -466,34 +510,46 @@ class FeederService extends ChangeNotifier {
     final now = _manilaNow();
     final todayKey = '${now.year}-${now.month}-${now.day}';
     if (_lastCheckDate != todayKey) {
-      _lastCheckDate = todayKey;
+      // Wait until the Firestore listener has loaded the schedule keys. If the
+      // timer marks the date first while the list is still empty, yesterday's
+      // isDone values would never be reset after startup.
+      if (_scheduleKeys.isEmpty) return;
       _missedLogged.clear();
       for (final key in _scheduleKeys) {
-        await tankDoc.collection('feeder_schedules').doc(key).update({'isDone': false});
+        await tankDoc.collection('feeder_schedules').doc(key).update({
+          'isDone': false,
+        });
       }
+      _lastCheckDate = todayKey;
     }
 
     for (int i = 0; i < _schedules.length; i++) {
       final s = _schedules[i];
       if (!s.enabled || s.isDone) continue;
       // Skip schedules that are not active on today's weekday (Sunday-first).
-      final dayIdx = now.weekday % 7; // 7=Sun->0, 1=Mon->1, ... 6=Sat->6
-      if (s.days.length > dayIdx && s.days[dayIdx] != '1') continue;
+      if (!feederScheduleRunsOnDate(s, now)) continue;
       final key = i < _scheduleKeys.length
           ? _scheduleKeys[i]
           : '${s.time}_${s.ampm}';
       if (_missedLogged.contains(key)) continue;
 
-      final parts = s.time.split(':');
-      final h = int.tryParse(parts.isNotEmpty ? parts[0] : '') ?? 6;
-      final m = int.tryParse(parts.length > 1 ? parts[1] : '') ?? 0;
-      var hour24 = h;
-      if (s.ampm == 'PM' && h != 12) hour24 = h + 12;
-      if (s.ampm == 'AM' && h == 12) hour24 = 0;
+      final scheduleMinutes = feederScheduleMinutes(s);
+      final hour24 = scheduleMinutes ~/ 60;
+      final m = scheduleMinutes % 60;
       final scheduleDt = DateTime(now.year, now.month, now.day, hour24, m);
       final months = [
-        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
       ];
       final expectedDate = '${months[now.month - 1]} ${now.day}, ${now.year}';
       final expectedTime = '${s.time} ${s.ampm}';

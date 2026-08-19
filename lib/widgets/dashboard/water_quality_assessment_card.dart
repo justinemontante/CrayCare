@@ -1,19 +1,19 @@
 import 'package:flutter/material.dart';
 
-import '../../services/health_risk_service.dart';
+import '../../services/water_quality_assessment_service.dart';
 import '../../theme/app_colors.dart';
-import 'wqc_history_sheet.dart';
+import 'water_quality_assessment_history_sheet.dart';
 
-class HealthRiskCard extends StatelessWidget {
-  const HealthRiskCard({super.key});
+class WaterQualityAssessmentCard extends StatelessWidget {
+  const WaterQualityAssessmentCard({super.key});
 
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: HealthRiskService.instance,
+      listenable: WaterQualityAssessmentService.instance,
       builder: (context, _) {
-        final hr = HealthRiskService.instance;
-        final result = hr.result;
+        final assessmentService = WaterQualityAssessmentService.instance;
+        final result = assessmentService.result;
         final hasData = result?.hasData ?? false;
         final level = result?.level ?? 'Insufficient';
         final confidence = result?.confidence ?? 0;
@@ -22,7 +22,7 @@ class HealthRiskCard extends StatelessWidget {
         final problem = result?.problem ?? '';
         final insight = result?.insight ?? '';
         final action = result?.action ?? '';
-        final riskColor = result?.color ?? AppColors.mutedText;
+        final conditionColor = result?.color ?? AppColors.mutedText;
         final lightColor = result?.lightColor ?? const Color(0xFFF8FAFC);
 
         return Container(
@@ -33,7 +33,7 @@ class HealthRiskCard extends StatelessWidget {
             boxShadow: [
               BoxShadow(
                 color: hasData
-                    ? riskColor.withValues(alpha: 0.15)
+                    ? conditionColor.withValues(alpha: 0.15)
                     : Colors.black.withValues(alpha: 0.05),
                 blurRadius: 12,
                 offset: const Offset(0, 3),
@@ -68,7 +68,7 @@ class HealthRiskCard extends StatelessWidget {
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
                         color: hasData
-                            ? riskColor.withValues(alpha: 0.15)
+                            ? conditionColor.withValues(alpha: 0.15)
                             : AppColors.darkWith(0.06),
                         borderRadius: BorderRadius.circular(10),
                       ),
@@ -77,7 +77,7 @@ class HealthRiskCard extends StatelessWidget {
                             ? _iconForLevel(level)
                             : Icons.health_and_safety_outlined,
                         size: 20,
-                        color: hasData ? riskColor : AppColors.mutedText,
+                        color: hasData ? conditionColor : AppColors.mutedText,
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -86,7 +86,7 @@ class HealthRiskCard extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Health Risk Assessment',
+                            'Water Quality Assessment',
                             style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w800,
@@ -95,7 +95,7 @@ class HealthRiskCard extends StatelessWidget {
                           ),
                           SizedBox(height: 2),
                           Text(
-                            'ML-based overall water-quality assessment',
+                            'Machine Learning-Based Water Quality Assessment',
                             style: TextStyle(
                               fontSize: 9.5,
                               color: AppColors.subtitleText,
@@ -111,7 +111,7 @@ class HealthRiskCard extends StatelessWidget {
                           vertical: 4,
                         ),
                         decoration: BoxDecoration(
-                          color: riskColor,
+                          color: conditionColor,
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
@@ -126,20 +126,31 @@ class HealthRiskCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 14),
-                if (hr.loading)
-                  const SizedBox(
-                    height: 48,
-                    child: Center(
-                      child: SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+                if (assessmentService.loading)
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(20),
+                        child: const LinearProgressIndicator(
+                          minHeight: 4,
+                          color: AppColors.primary,
+                          backgroundColor: Color(0xFFE2EEEE),
+                        ),
                       ),
-                    ),
+                      const SizedBox(height: 10),
+                      const Text(
+                        'Preparing the latest assessment...',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: AppColors.mutedText,
+                        ),
+                      ),
+                    ],
                   )
                 else if (!hasData)
                   const Text(
-                    'Insufficient data.\nThe assessment will appear once enough sensor history is available.',
+                    'Insufficient data.\nThe Water Quality Assessment will appear once enough sensor history is available.',
                     style: TextStyle(
                       fontSize: 12,
                       color: AppColors.mutedText,
@@ -151,19 +162,25 @@ class HealthRiskCard extends StatelessWidget {
                     children: [
                       Expanded(
                         child: _summaryTile(
-                          label: 'Risk Level',
+                          label: 'Condition',
                           value: level,
-                          color: riskColor,
+                          color: conditionColor,
                           icon: _iconForLevel(level),
                         ),
                       ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: _summaryTile(
-                          label: 'Confidence',
-                          value: '$confidence%',
+                          label: result!.safetyOverride
+                              ? 'Assessment Basis'
+                              : 'Confidence',
+                          value: result.safetyOverride
+                              ? result.assessmentBasis
+                              : '$confidence%',
                           color: AppColors.primary,
-                          icon: Icons.analytics_outlined,
+                          icon: result.safetyOverride
+                              ? Icons.health_and_safety_outlined
+                              : Icons.analytics_outlined,
                         ),
                       ),
                     ],
@@ -184,7 +201,7 @@ class HealthRiskCard extends StatelessWidget {
                           icon: Icons.monitor_heart_outlined,
                           label: 'Primary concern',
                           text: driverLabel.isNotEmpty ? driverLabel : driver,
-                          color: riskColor,
+                          color: conditionColor,
                         ),
                         if (problem.trim().isNotEmpty) ...[
                           const SizedBox(height: 10),
@@ -221,9 +238,10 @@ class HealthRiskCard extends StatelessWidget {
                 Align(
                   alignment: Alignment.centerRight,
                   child: TextButton.icon(
-                    onPressed: () => showWqcHistorySheet(context),
+                    onPressed: () =>
+                        showWaterQualityAssessmentHistorySheet(context),
                     icon: const Icon(Icons.history, size: 16),
-                    label: const Text('View assessment history'),
+                    label: const Text('View Water Quality Assessment history'),
                     style: TextButton.styleFrom(
                       foregroundColor: AppColors.primary,
                       textStyle: const TextStyle(
@@ -337,11 +355,11 @@ class HealthRiskCard extends StatelessWidget {
 
   IconData _iconForLevel(String level) {
     switch (level) {
-      case 'Low':
+      case 'Good':
         return Icons.check_circle_outline;
       case 'Moderate':
         return Icons.info_outline;
-      case 'High':
+      case 'Poor':
         return Icons.warning_amber_outlined;
       case 'Critical':
         return Icons.gpp_bad_outlined;

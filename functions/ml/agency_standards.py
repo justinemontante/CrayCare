@@ -50,13 +50,15 @@ AGENCY_CITATIONS = {
 }
 
 # ── Per-parameter thresholds and agency links ──────────────────────────────────
-# Each entry defines the boundary for WQC scoring and label generation.
+# Each entry defines the boundary for Water Quality Assessment scoring and
+# classification-label generation.
 # "direction": "lower_is_worse" | "higher_is_worse" | "range"
 #
-# Class mapping used in compute_wqc_score() / generate_dataset.py:
-#   0 — Low      (all parameters excellent / within optimal)
+# Class mapping used in compute_water_quality_assessment_score() /
+# generate_dataset.py:
+#   0 — Good     (all parameters excellent / within optimal)
 #   1 — Moderate (minor deviation; within "good" bounds)
-#   2 — High     (approaching or at "fair" boundary)
+#   2 — Poor     (approaching or at "fair" boundary)
 #   3 — Critical (any parameter in "poor" or "critical" zone)
 
 PARAM_STANDARDS = {

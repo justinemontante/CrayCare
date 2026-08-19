@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
-import '../../services/health_risk_service.dart';
+import '../../services/water_quality_assessment_service.dart';
 
 class MovableAiLogo extends StatefulWidget {
   const MovableAiLogo({super.key});
@@ -57,9 +57,9 @@ class _MovableAiLogoState extends State<MovableAiLogo>
           ],
         ),
         child: ListenableBuilder(
-          listenable: HealthRiskService.instance,
+          listenable: WaterQualityAssessmentService.instance,
           builder: (context, _) {
-            final hr = HealthRiskService.instance;
+            final assessmentService = WaterQualityAssessmentService.instance;
 
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -83,10 +83,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                       decoration: BoxDecoration(
                         color: Colors.white,
                         shape: BoxShape.circle,
-                        border: Border.all(
-                          color: AppColors.primary,
-                          width: 2,
-                        ),
+                        border: Border.all(color: AppColors.primary, width: 2),
                       ),
                       child: ClipOval(
                         child: Padding(
@@ -129,35 +126,40 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                 ),
                 const SizedBox(height: 16),
                 Expanded(
-                  child: hr.loading
+                  child: assessmentService.loading
                       ? _buildStateMessage(
                           icon: null,
                           loading: true,
                           message: 'CrayAI is analyzing your tank data...',
                         )
-                      : !hr.hasData
+                      : !assessmentService.hasData
                       ? _buildStateMessage(
                           icon: Icons.cloud_off_rounded,
                           loading: false,
                           message:
-                              'CrayAI is building your tank profile. About 1 hour of sensor history is needed for the first assessment.',
+                              'CrayAI is building your tank profile. About 1 hour of sensor history is needed for the first Water Quality Assessment.',
                         )
                       : ListView(
                           padding: const EdgeInsets.only(bottom: 24),
                           children: [
-                            _buildClassificationCard(hr.result!),
+                            _buildWaterQualityAssessmentCard(
+                              assessmentService.result!,
+                            ),
                             const SizedBox(height: 16),
                             _buildDetailCard(
                               label: 'Problem',
-                              text: hr.result!.problem,
+                              text: assessmentService.result!.problem,
                               icon: Icons.warning_amber_rounded,
-                              color: hr.result!.color,
+                              color: assessmentService.result!.color,
                             ),
-                            if (hr.result!.insight.isNotEmpty) ...[
+                            if (assessmentService
+                                .result!
+                                .insight
+                                .isNotEmpty) ...[
                               const SizedBox(height: 12),
                               _buildDetailCard(
                                 label: 'Insight',
-                                text: hr.result!.insight,
+                                text: assessmentService.result!.insight,
                                 icon: Icons.science_outlined,
                                 color: AppColors.primary,
                               ),
@@ -165,7 +167,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                             const SizedBox(height: 12),
                             _buildDetailCard(
                               label: 'Recommendation',
-                              text: hr.result!.action,
+                              text: assessmentService.result!.action,
                               icon: Icons.lightbulb_outline,
                               color: AppColors.warningDark,
                             ),
@@ -224,7 +226,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
     );
   }
 
-  Widget _buildClassificationCard(HealthRiskResult result) {
+  Widget _buildWaterQualityAssessmentCard(WaterQualityAssessmentResult result) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -263,7 +265,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Water Quality Classification',
+                      'Water Quality Assessment',
                       style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w600,
@@ -300,9 +302,15 @@ class _MovableAiLogoState extends State<MovableAiLogo>
           Row(
             children: [
               _buildStatChip(
-                icon: Icons.verified_rounded,
-                label: 'Model confidence',
-                value: '${result.confidence}%',
+                icon: result.safetyOverride
+                    ? Icons.health_and_safety_outlined
+                    : Icons.verified_rounded,
+                label: result.safetyOverride
+                    ? 'Assessment basis'
+                    : 'Model confidence',
+                value: result.safetyOverride
+                    ? result.assessmentBasis
+                    : '${result.confidence}%',
                 color: result.color,
               ),
               const SizedBox(width: 10),
@@ -475,11 +483,11 @@ class _MovableAiLogoState extends State<MovableAiLogo>
 
   IconData _iconForLevel(String level) {
     switch (level) {
-      case 'Low':
+      case 'Good':
         return Icons.check_circle_outline;
       case 'Moderate':
         return Icons.info_outline;
-      case 'High':
+      case 'Poor':
         return Icons.warning_amber_outlined;
       case 'Critical':
         return Icons.gpp_bad_outlined;

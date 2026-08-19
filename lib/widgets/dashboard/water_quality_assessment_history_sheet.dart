@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 
-import '../../services/health_risk_service.dart';
+import '../../services/water_quality_assessment_service.dart';
 import '../../services/report_export_service.dart';
 import '../../theme/app_colors.dart';
 
-/// Bottom sheet listing the hourly Water Quality Classification history and
-/// offering a CSV export of the assessment log.
-Future<void> showWqcHistorySheet(BuildContext context) {
+/// Bottom sheet listing the hourly Water Quality Assessment history and
+/// offering CSV and PDF exports of the Water Quality Assessment log.
+Future<void> showWaterQualityAssessmentHistorySheet(BuildContext context) {
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -14,20 +14,20 @@ Future<void> showWqcHistorySheet(BuildContext context) {
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
-    builder: (ctx) => const _WqcHistorySheet(),
+    builder: (ctx) => const _WaterQualityAssessmentHistorySheet(),
   );
 }
 
-class _WqcHistorySheet extends StatelessWidget {
-  const _WqcHistorySheet();
+class _WaterQualityAssessmentHistorySheet extends StatelessWidget {
+  const _WaterQualityAssessmentHistorySheet();
 
   Color _levelColor(String level) {
     switch (level) {
-      case 'Low':
+      case 'Good':
         return AppColors.success;
       case 'Moderate':
         return AppColors.warning;
-      case 'High':
+      case 'Poor':
         return AppColors.critical;
       case 'Critical':
         return const Color(0xFF991b1b);
@@ -40,8 +40,20 @@ class _WqcHistorySheet extends StatelessWidget {
     final l = dt.toLocal();
     final h = l.hour > 12 ? l.hour - 12 : (l.hour == 0 ? 12 : l.hour);
     final ampm = l.hour >= 12 ? 'PM' : 'AM';
-    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
     return '${months[l.month - 1]} ${l.day}, $h:${l.minute.toString().padLeft(2, '0')} $ampm';
   }
 
@@ -53,8 +65,8 @@ class _WqcHistorySheet extends StatelessWidget {
       maxChildSize: 0.95,
       expand: false,
       builder: (context, scrollController) {
-        final hr = HealthRiskService.instance;
-        final history = hr.history;
+        final assessmentService = WaterQualityAssessmentService.instance;
+        final history = assessmentService.history;
 
         return Column(
           children: [
@@ -76,7 +88,7 @@ class _WqcHistorySheet extends StatelessWidget {
                   const SizedBox(width: 8),
                   const Expanded(
                     child: Text(
-                      'Water Quality History',
+                      'Water Quality Assessment History',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w800,
@@ -90,41 +102,54 @@ class _WqcHistorySheet extends StatelessWidget {
                         : () async {
                             final ok = await ReportExportService.instance
                                 .copyToClipboard(
-                                    ReportExportService.instance.buildWqcCsv());
+                                  ReportExportService.instance
+                                      .buildWaterQualityAssessmentCsv(),
+                                );
                             if (!context.mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                              content: Text(ok
-                                  ? 'WQC report copied — paste it into Excel or Google Sheets.'
-                                  : 'Could not copy to clipboard.'),
-                            ));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  ok
+                                      ? 'Water Quality Assessment report copied — paste it into Excel or Google Sheets.'
+                                      : 'Could not copy to clipboard.',
+                                ),
+                              ),
+                            );
                           },
                     icon: const Icon(Icons.content_copy, size: 18),
                     label: const Text('Copy CSV'),
                   ),
                   const SizedBox(width: 4),
                   PopupMenuButton<String>(
-                    tooltip: 'Export WQC report',
-                    icon: const Icon(Icons.ios_share,
-                        size: 20, color: AppColors.primary),
+                    tooltip: 'Export Water Quality Assessment report',
+                    icon: const Icon(
+                      Icons.ios_share,
+                      size: 20,
+                      color: AppColors.primary,
+                    ),
                     onSelected: (value) async {
                       final svc = ReportExportService.instance;
                       try {
                         if (value == 'csv') {
-                          await svc.shareWqcCsv();
+                          await svc.shareWaterQualityAssessmentCsv();
                         } else {
-                          await svc.shareWqcPdf();
+                          await svc.shareWaterQualityAssessmentPdf();
                         }
                         if (!context.mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                          content: Text(value == 'csv'
-                              ? 'CSV report ready — choose where to save or share it.'
-                              : 'PDF report ready — choose where to save or share it.'),
-                        ));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              value == 'csv'
+                                  ? 'CSV report ready — choose where to save or share it.'
+                                  : 'PDF report ready — choose where to save or share it.',
+                            ),
+                          ),
+                        );
                       } catch (e) {
                         if (!context.mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                          content: Text('Export failed: $e'),
-                        ));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Export failed: $e')),
+                        );
                       }
                     },
                     itemBuilder: (context) => [
@@ -132,8 +157,11 @@ class _WqcHistorySheet extends StatelessWidget {
                         value: 'csv',
                         child: Row(
                           children: [
-                            Icon(Icons.table_chart_outlined,
-                                size: 18, color: AppColors.primary),
+                            Icon(
+                              Icons.table_chart_outlined,
+                              size: 18,
+                              color: AppColors.primary,
+                            ),
                             SizedBox(width: 10),
                             Text('Export CSV (Excel)'),
                           ],
@@ -143,8 +171,11 @@ class _WqcHistorySheet extends StatelessWidget {
                         value: 'pdf',
                         child: Row(
                           children: [
-                            Icon(Icons.picture_as_pdf_outlined,
-                                size: 18, color: AppColors.primary),
+                            Icon(
+                              Icons.picture_as_pdf_outlined,
+                              size: 18,
+                              color: AppColors.primary,
+                            ),
                             SizedBox(width: 10),
                             Text('Export PDF'),
                           ],
@@ -162,7 +193,7 @@ class _WqcHistorySheet extends StatelessWidget {
                       child: Padding(
                         padding: EdgeInsets.all(24),
                         child: Text(
-                          'No assessment history yet.\nThe first WQC assessment appears after about one hour of sensor data.',
+                          'No Water Quality Assessment history yet.\nThe first Water Quality Assessment appears after about one hour of sensor data.',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             fontSize: 13,
@@ -185,13 +216,17 @@ class _WqcHistorySheet extends StatelessWidget {
                           decoration: BoxDecoration(
                             color: color.withValues(alpha: 0.06),
                             borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: color.withValues(alpha: 0.25)),
+                            border: Border.all(
+                              color: color.withValues(alpha: 0.25),
+                            ),
                           ),
                           child: Row(
                             children: [
                               Container(
                                 padding: const EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 4),
+                                  horizontal: 10,
+                                  vertical: 4,
+                                ),
                                 decoration: BoxDecoration(
                                   color: color,
                                   borderRadius: BorderRadius.circular(20),
@@ -222,6 +257,8 @@ class _WqcHistorySheet extends StatelessWidget {
                                     Text(
                                       item.level == 'Insufficient'
                                           ? item.problem
+                                          : item.safetyOverride
+                                          ? 'Safety rule · Driver: ${item.driverLabel}'
                                           : '${item.confidence}% confidence · Driver: ${item.driverLabel}',
                                       style: TextStyle(
                                         fontSize: 11,

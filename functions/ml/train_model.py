@@ -1,8 +1,9 @@
-"""CrayCare — Water Quality Classification XGBoost Model
-========================================================
+"""CrayCare — Water Quality Assessment Classification Model
+============================================================
 
-Trains a Water Quality Classification model on sensor_dataset.csv
-and saves the bundle to wqc_model.joblib.
+Trains the XGBoost classification model used by the Machine Learning-Based
+Water Quality Assessment on sensor_dataset.csv and saves the bundle to the
+legacy-compatible wqc_model.joblib artifact.
 
 All thresholds used in label generation are aligned with:
   DENR DAO 2016-08 (Class C Inland Waters)
@@ -18,7 +19,8 @@ READ BEFORE QUOTING ACCURACY IN A DEFENSE:
    "prototype/development-stage validation on synthetic data," NOT field validation.
    Field validation requires real historical sensor data from Firestore.
 
-2. LABELS ARE AUTO-DERIVED from the deterministic compute_wqc_score() formula,
+2. LABELS ARE AUTO-DERIVED from the deterministic
+   compute_water_quality_assessment_score() formula,
    not independent biological labeling. High accuracy means the model reproduces a
    known formula using richer temporal features — see Stage 1.5 ablation for the
    honest number to cite (temporal features vs. raw readings alone).
@@ -32,16 +34,28 @@ Usage:
 """
 
 import os
+import sys
 import numpy as np
 import pandas as pd
 import joblib
-from xgboost import XGBClassifier
+from xgboost import XGBClassifier, __version__ as xgboost_version
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import (
     classification_report, confusion_matrix, accuracy_score, balanced_accuracy_score
 )
 
-from features import SENSORS, CLASS_NAMES, build_features, compute_wqc_score, classify
+from features import (
+    SENSORS,
+    CLASS_NAMES,
+    build_features,
+    compute_water_quality_assessment_score,
+    classify,
+)
+
+# Keep the validation report readable on Windows terminals whose legacy code
+# page cannot represent the Unicode symbols used in the report.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 _DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -53,17 +67,17 @@ df = (
 )
 
 # Auto-label via deterministic hazard formula (see docstring note 2 above)
-wqc_score        = compute_wqc_score(df)
-df["wqc_score"]  = wqc_score.round(1)
-df["wqc_class"]  = wqc_score.apply(lambda v: classify(v)[0])
+assessment_score = compute_water_quality_assessment_score(df)
+df["assessment_score"] = assessment_score.round(1)
+df["assessment_class"] = assessment_score.apply(lambda value: classify(value)[0])
 
 print("=" * 65)
-print("CrayCare Water Quality Classification — Training")
+print("CrayCare Water Quality Assessment — Classification Model Training")
 print("=" * 65)
 print(f"Dataset: {len(df):,} rows × {len(df.columns)} columns")
 print(f"Date range: {df['timestamp'].min().date()} → {df['timestamp'].max().date()}\n")
 print("Label distribution (DENR/DA-BFAR/FAO agency-aligned):")
-dist = df["wqc_class"].value_counts().sort_index()
+dist = df["assessment_class"].value_counts().sort_index()
 for cls_int, count in dist.items():
     pct  = count / len(df) * 100
     name = CLASS_NAMES[cls_int]
@@ -71,7 +85,7 @@ for cls_int, count in dist.items():
 
 # ── Build features ─────────────────────────────────────────────────────────────
 feat, _ = build_features(df)
-X, y    = feat, df["wqc_class"]
+X, y    = feat, df["assessment_class"]
 
 RAW_BASE_COLS = [f"{s}_{stat}" for s in SENSORS for stat in ("avg", "min", "max")]
 
@@ -200,8 +214,10 @@ for s in SENSORS:
     print(f"  {s:<15s}: {s_imp:.4f}")
 
 # ── Rule-based baseline comparison ────────────────────────────────────────────
-wqc_val   = compute_wqc_score(df.iloc[split_idx + CV_GAP:])
-rule_pred = wqc_val.apply(lambda v: classify(v)[0])
+assessment_validation = compute_water_quality_assessment_score(
+    df.iloc[split_idx + CV_GAP:]
+)
+rule_pred = assessment_validation.apply(lambda value: classify(value)[0])
 print("\n── Rule-based baseline (same validation slice) ──")
 print(classification_report(
     yval, rule_pred,
@@ -215,6 +231,9 @@ bundle = {
     "model":    model,
     "features": list(X.columns),
     "type":     "classifier",
+    "model_version": f"water-quality-assessment-xgboost-{xgboost_version}",
+    "trained_at_utc": pd.Timestamp.now(tz="UTC").isoformat(),
+    "dataset_rows": len(df),
     "class_names": CLASS_NAMES,
     "agencies": [
         "DENR DAO 2016-08 (Class C Inland Waters)",

@@ -7,6 +7,7 @@ import 'signup_screen.dart';
 import 'verify_screen.dart';
 import 'main_shell.dart';
 import '../services/auth_service.dart';
+import '../utils/smooth_page_route.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -102,7 +103,10 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const MainShell()),
+        smoothPageRoute(
+          (_) =>
+              MainShell(initialProfile: _authService.lastAuthenticatedProfile),
+        ),
       );
     } catch (e) {
       final msg = e.toString().replaceAll('Exception: ', '');
@@ -119,7 +123,7 @@ class _LoginScreenState extends State<LoginScreen> {
         if (!mounted) return;
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => const VerifyScreen()),
+          smoothPageRoute((_) => const VerifyScreen()),
         );
       } else {
         setState(() {
@@ -141,7 +145,11 @@ class _LoginScreenState extends State<LoginScreen> {
         if (!mounted) return;
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => const MainShell()),
+          smoothPageRoute(
+            (_) => MainShell(
+              initialProfile: _authService.lastAuthenticatedProfile,
+            ),
+          ),
         );
       }
     } catch (e) {
@@ -209,8 +217,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     if (val == null || val.trim().isEmpty) {
                       return 'Email is required';
                     }
-                    if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$')
-                        .hasMatch(val.trim())) {
+                    if (!RegExp(
+                      r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
+                    ).hasMatch(val.trim())) {
                       return 'Enter a valid email';
                     }
                     return null;
@@ -231,8 +240,9 @@ class _LoginScreenState extends State<LoginScreen> {
                         setState(() => _isResetLoading = true);
                         setDialogState(() {});
                         try {
-                          await FirebaseAuth.instance
-                              .sendPasswordResetEmail(email: emailCtl.text.trim());
+                          await FirebaseAuth.instance.sendPasswordResetEmail(
+                            email: emailCtl.text.trim(),
+                          );
                           if (!ctx.mounted) return;
                           Navigator.pop(ctx);
                           setState(() => _isResetLoading = false);
@@ -250,7 +260,9 @@ class _LoginScreenState extends State<LoginScreen> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
-                  disabledBackgroundColor: AppColors.primary.withValues(alpha: 0.4),
+                  disabledBackgroundColor: AppColors.primary.withValues(
+                    alpha: 0.4,
+                  ),
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -258,11 +270,11 @@ class _LoginScreenState extends State<LoginScreen> {
                   elevation: 0,
                 ),
                 child: _isResetLoading
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
+                    ? const Text(
+                        'Sending...',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
                           color: Colors.white,
                         ),
                       )
@@ -581,9 +593,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ],
                               ),
                               GestureDetector(
-                                onTap: _anyLoading
-                                    ? null
-                                    : _forgotPassword,
+                                onTap: _anyLoading ? null : _forgotPassword,
                                 child: const Text(
                                   'Forgot password?',
                                   style: TextStyle(
@@ -612,12 +622,13 @@ class _LoginScreenState extends State<LoginScreen> {
                           GradientButton(
                             onTap: _anyLoading ? () {} : _signIn,
                             child: _isEmailLoading
-                                ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
+                                ? const Text(
+                                    'Signing in...',
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w700,
                                       color: Colors.white,
-                                      strokeWidth: 2,
+                                      letterSpacing: 0.5,
                                     ),
                                   )
                                 : const Text(
@@ -700,7 +711,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                       height: 20,
                                       child: CircularProgressIndicator(
                                         color: AppColors.primary,
-                                        strokeWidth: 2,
+                                        strokeWidth: 2.2,
                                       ),
                                     )
                                   : Row(
@@ -750,13 +761,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
                                         FocusScope.of(context).unfocus();
 
-                                          Navigator.push(
-                                            context,
-                                            MaterialPageRoute(
-                                              builder: (_) =>
-                                                  const SignupScreen(),
-                                            ),
-                                          );
+                                        Navigator.push(
+                                          context,
+                                          smoothPageRoute(
+                                            (_) => const SignupScreen(),
+                                          ),
+                                        );
                                       },
                                 child: const Text(
                                   'Sign up',

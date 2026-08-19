@@ -29,6 +29,8 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen>
     with SingleTickerProviderStateMixin {
+  static const _manilaOffset = Duration(hours: 8);
+
   final ScrollController _quickActionsController = ScrollController();
   Timer? _countdownTimer;
   late AnimationController _pulseController;
@@ -47,6 +49,8 @@ class _DashboardScreenState extends State<DashboardScreen>
     SensorService.instance.addListener(_refreshUI);
     SettingsService.instance.addListener(_refreshUI);
     TankService.instance.addListener(_refreshUI);
+    FeedState.schedules.addListener(_refreshUI);
+    FeedState.feederLogs.addListener(_refreshUI);
     _refreshUI();
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
@@ -59,6 +63,8 @@ class _DashboardScreenState extends State<DashboardScreen>
     SensorService.instance.removeListener(_refreshUI);
     SettingsService.instance.removeListener(_refreshUI);
     TankService.instance.removeListener(_refreshUI);
+    FeedState.schedules.removeListener(_refreshUI);
+    FeedState.feederLogs.removeListener(_refreshUI);
     _countdownTimer?.cancel();
     _pulseController.dispose();
     super.dispose();
@@ -68,6 +74,8 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (!mounted) return;
     setState(() {});
   }
+
+  DateTime _manilaNow() => DateTime.now().toUtc().add(_manilaOffset);
 
   // Returns the first name of the signed-in user.
   String _getFirstName() {
@@ -147,54 +155,60 @@ class _DashboardScreenState extends State<DashboardScreen>
   Widget build(BuildContext context) {
     return Container(
       color: Colors.white,
-      child: SingleChildScrollView(
-        child: Column(
-          children: [
-            _buildGreeting(),
-            _buildConnectionBanner(),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 4),
-              child: SectionLabel(
-                label: 'Water Quality Overview',
-                showLiveData: false,
-                icon: Icons.water_drop_outlined,
-                topPadding: 4,
+      child: Column(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  _buildGreeting(),
+                  _buildConnectionBanner(),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 4),
+                    child: SectionLabel(
+                      label: 'Water Quality Overview',
+                      showLiveData: false,
+                      icon: Icons.water_drop_outlined,
+                      topPadding: 4,
+                    ),
+                  ),
+                  _buildGaugeGrid(context),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 4),
+                    child: SectionLabel(
+                      label: 'Physical Parameter',
+                      showLiveData: false,
+                      icon: Icons.analytics_outlined,
+                    ),
+                  ),
+                  _buildWaterLevelGauge(context),
+                  const SizedBox(height: 12),
+                  _buildQuickActionsHeader(),
+                  _buildQuickActions(),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 4),
+                    child: SectionLabel(
+                      label: 'Monitoring & Inventory',
+                      showLiveData: false,
+                      icon: Icons.inventory_2_outlined,
+                    ),
+                  ),
+                  _buildTankStatusCard(),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 4),
+                    child: SectionLabel(
+                      label: 'Operational Schedule',
+                      showLiveData: false,
+                      icon: Icons.event_note_outlined,
+                    ),
+                  ),
+                  _buildFeedingScheduleCard(),
+                  const SizedBox(height: 32),
+                ],
               ),
             ),
-            _buildGaugeGrid(context),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 4),
-              child: SectionLabel(
-                label: 'Physical Parameter',
-                showLiveData: false,
-                icon: Icons.analytics_outlined,
-              ),
-            ),
-            _buildWaterLevelGauge(context),
-            const SizedBox(height: 12),
-            _buildQuickActionsHeader(),
-            _buildQuickActions(),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 4),
-              child: SectionLabel(
-                label: 'Monitoring & Inventory',
-                showLiveData: false,
-                icon: Icons.inventory_2_outlined,
-              ),
-            ),
-            _buildTankStatusCard(),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 4),
-              child: SectionLabel(
-                label: 'Operational Schedule',
-                showLiveData: false,
-                icon: Icons.event_note_outlined,
-              ),
-            ),
-            _buildFeedingScheduleCard(),
-            const SizedBox(height: 32),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -205,6 +219,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.darkWith(0.08)),
         boxShadow: [
           BoxShadow(
             color: AppColors.darkWith(0.08),
@@ -311,7 +326,8 @@ class _DashboardScreenState extends State<DashboardScreen>
       // Owner has a tank but hasn't set it up yet — clearer than
       // "no tank assigned" and it updates in real time if the tank doc
       // is deleted (TankService resets on tank deletion).
-      message = 'Tank not set up yet — initialize your grow-out batch to start seeing sensor data.';
+      message =
+          'Tank not set up yet — initialize your grow-out batch to start seeing sensor data.';
     } else if (error != null && error.contains('No tank assigned')) {
       message = 'No tank assigned to this account yet.';
     } else if (error != null) {
@@ -320,7 +336,8 @@ class _DashboardScreenState extends State<DashboardScreen>
       message = 'Connecting to sensors...';
     } else if (syncing) {
       final n = ss.bufferedEntries;
-      message = 'Syncing $n offline reading${n == 1 ? '' : 's'} captured during the outage…';
+      message =
+          'Syncing $n offline reading${n == 1 ? '' : 's'} captured during the outage…';
     } else {
       message = 'ESP32 Offline — No live sensor updates';
     }
@@ -378,21 +395,21 @@ class _DashboardScreenState extends State<DashboardScreen>
           Row(
             children: [
               Expanded(
-                  child: _buildGaugeCard(
-                    title: 'Temperature',
-                    value: ss.hasSensorData('temp')
-                        ? ss.getLatestValue('temp').toStringAsFixed(2)
-                        : '--',
-                    unit: '\u00B0C',
-                    ideal: _getIdealText('temp'),
-                    iconPath: 'assets/images/temperature.png',
-                    status: _getStatus('temp'),
-                    statusColor: _getStatusColor('temp'),
-                    trend: ss.getTrend('temp'),
-                    trendRate: ss.getTrendRate('temp'),
-                    hasData: ss.hasSensorData('temp'),
-                    sensorKey: 'temp',
-                    rawValue: ss.getLatestValue('temp'),
+                child: _buildGaugeCard(
+                  title: 'Temperature',
+                  value: ss.hasSensorData('temp')
+                      ? ss.getLatestValue('temp').toStringAsFixed(2)
+                      : '--',
+                  unit: '\u00B0C',
+                  ideal: _getIdealText('temp'),
+                  iconPath: 'assets/images/temperature.png',
+                  status: _getStatus('temp'),
+                  statusColor: _getStatusColor('temp'),
+                  trend: ss.getTrend('temp'),
+                  trendRate: ss.getTrendRate('temp'),
+                  hasData: ss.hasSensorData('temp'),
+                  sensorKey: 'temp',
+                  rawValue: ss.getLatestValue('temp'),
                   onTap: () => _showGaugeDetail(
                     context,
                     sensorKey: 'temp',
@@ -406,20 +423,20 @@ class _DashboardScreenState extends State<DashboardScreen>
               const SizedBox(width: 12),
               Expanded(
                 child: _buildGaugeCard(
-                    title: 'pH Level',
-                    value: ss.hasSensorData('ph')
-                        ? ss.getLatestValue('ph').toStringAsFixed(2)
-                        : '--',
-                    unit: 'pH',
-                    ideal: _getIdealText('ph'),
-                    iconPath: 'assets/images/pH.png',
-                    status: _getStatus('ph'),
-                    statusColor: _getStatusColor('ph'),
-                    trend: ss.getTrend('ph'),
-                    trendRate: ss.getTrendRate('ph'),
-                    hasData: ss.hasSensorData('ph'),
-                    sensorKey: 'ph',
-                    rawValue: ss.getLatestValue('ph'),
+                  title: 'pH Level',
+                  value: ss.hasSensorData('ph')
+                      ? ss.getLatestValue('ph').toStringAsFixed(2)
+                      : '--',
+                  unit: 'pH',
+                  ideal: _getIdealText('ph'),
+                  iconPath: 'assets/images/pH.png',
+                  status: _getStatus('ph'),
+                  statusColor: _getStatusColor('ph'),
+                  trend: ss.getTrend('ph'),
+                  trendRate: ss.getTrendRate('ph'),
+                  hasData: ss.hasSensorData('ph'),
+                  sensorKey: 'ph',
+                  rawValue: ss.getLatestValue('ph'),
                   onTap: () => _showGaugeDetail(
                     context,
                     sensorKey: 'ph',
@@ -437,20 +454,20 @@ class _DashboardScreenState extends State<DashboardScreen>
             children: [
               Expanded(
                 child: _buildGaugeCard(
-                    title: 'Dissolved O\u2082',
-                    value: ss.hasSensorData('do')
-                        ? ss.getLatestValue('do').toStringAsFixed(2)
-                        : '--',
-                    unit: 'mg/L',
-                    ideal: _getIdealText('do'),
-                    iconPath: 'assets/images/DO.png',
-                    status: _getStatus('do'),
-                    statusColor: _getStatusColor('do'),
-                    trend: ss.getTrend('do'),
-                    trendRate: ss.getTrendRate('do'),
-                    hasData: ss.hasSensorData('do'),
-                    sensorKey: 'do',
-                    rawValue: ss.getLatestValue('do'),
+                  title: 'Dissolved O\u2082',
+                  value: ss.hasSensorData('do')
+                      ? ss.getLatestValue('do').toStringAsFixed(2)
+                      : '--',
+                  unit: 'mg/L',
+                  ideal: _getIdealText('do'),
+                  iconPath: 'assets/images/DO.png',
+                  status: _getStatus('do'),
+                  statusColor: _getStatusColor('do'),
+                  trend: ss.getTrend('do'),
+                  trendRate: ss.getTrendRate('do'),
+                  hasData: ss.hasSensorData('do'),
+                  sensorKey: 'do',
+                  rawValue: ss.getLatestValue('do'),
                   onTap: () => _showGaugeDetail(
                     context,
                     sensorKey: 'do',
@@ -464,20 +481,20 @@ class _DashboardScreenState extends State<DashboardScreen>
               const SizedBox(width: 12),
               Expanded(
                 child: _buildGaugeCard(
-                    title: 'Turbidity',
-                    value: ss.hasSensorData('turb')
-                        ? ss.getLatestValue('turb').toStringAsFixed(2)
-                        : '--',
-                    unit: 'NTU',
-                    ideal: _getIdealText('turb'),
-                    iconPath: 'assets/images/Turbidity.png',
-                    status: _getStatus('turb'),
-                    statusColor: _getStatusColor('turb'),
-                    trend: ss.getTrend('turb'),
-                    trendRate: ss.getTrendRate('turb'),
-                    hasData: ss.hasSensorData('turb'),
-                    sensorKey: 'turb',
-                    rawValue: ss.getLatestValue('turb'),
+                  title: 'Turbidity',
+                  value: ss.hasSensorData('turb')
+                      ? ss.getLatestValue('turb').toStringAsFixed(2)
+                      : '--',
+                  unit: 'NTU',
+                  ideal: _getIdealText('turb'),
+                  iconPath: 'assets/images/Turbidity.png',
+                  status: _getStatus('turb'),
+                  statusColor: _getStatusColor('turb'),
+                  trend: ss.getTrend('turb'),
+                  trendRate: ss.getTrendRate('turb'),
+                  hasData: ss.hasSensorData('turb'),
+                  sensorKey: 'turb',
+                  rawValue: ss.getLatestValue('turb'),
                   onTap: () => _showGaugeDetail(
                     context,
                     sensorKey: 'turb',
@@ -570,7 +587,13 @@ class _DashboardScreenState extends State<DashboardScreen>
     return false;
   }
 
-  Color _getTrendColor(String key, double value, String trend, double rate, String status) {
+  Color _getTrendColor(
+    String key,
+    double value,
+    String trend,
+    double rate,
+    String status,
+  ) {
     // Sensors with a clear preferred direction — collapse the 3 identical branches into one.
     if (_risingIsGood(key, value) || _fallingIsGood(key, value)) {
       final bool goodDir = _risingIsGood(key, value)
@@ -580,7 +603,11 @@ class _DashboardScreenState extends State<DashboardScreen>
           ? (trend == 'falling' || trend == 'falling_fast')
           : (trend == 'rising' || trend == 'rising_fast');
       if (goodDir) return AppColors.success;
-      if (badDir) return status == 'CRITICAL' || status == 'WARNING' ? AppColors.critical : AppColors.warning;
+      if (badDir) {
+        return status == 'CRITICAL' || status == 'WARNING'
+            ? AppColors.critical
+            : AppColors.warning;
+      }
       return AppColors.dark.withValues(alpha: 0.4);
     }
 
@@ -633,7 +660,13 @@ class _DashboardScreenState extends State<DashboardScreen>
     required double rawValue,
     VoidCallback? onTap,
   }) {
-    final trendColor = _getTrendColor(sensorKey, rawValue, trend, trendRate, status);
+    final trendColor = _getTrendColor(
+      sensorKey,
+      rawValue,
+      trend,
+      trendRate,
+      status,
+    );
     return _GaugeCard(
       title: title,
       value: value,
@@ -789,7 +822,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: AppColors.darkWith(0.1)),
+                border: Border.all(color: AppColors.darkWith(0.08)),
                 boxShadow: [
                   BoxShadow(
                     color: AppColors.darkWith(0.06),
@@ -852,25 +885,28 @@ class _DashboardScreenState extends State<DashboardScreen>
     String popStr, survivalStr, aliveStr, mortalityStr;
     if (hasActive && batch != null) {
       final isSelected = tank.selectedBatchId == batch.batchId;
-      final effectiveMortality = isSelected ? tank.mortality : batch.totalMortality;
+      final effectiveMortality = isSelected
+          ? tank.mortality
+          : batch.totalMortality;
       final effectiveInitial = batch.initialCount;
       popStr = effectiveInitial.toString();
       final surv = effectiveInitial > 0
           ? ((effectiveInitial - effectiveMortality) / effectiveInitial * 100)
-              .clamp(0.0, 100.0)
+                .clamp(0.0, 100.0)
           : 0.0;
       survivalStr = '${surv.toStringAsFixed(1)}%';
       aliveStr = isSelected
           ? tank.inTankCount.toString()
           : (effectiveInitial - effectiveMortality - batch.harvestCount)
-              .clamp(0, effectiveInitial)
-              .toString();
+                .clamp(0, effectiveInitial)
+                .toString();
       mortalityStr = effectiveMortality.toString();
     } else if (batch != null) {
       final surv = batch.initialCount > 0
           ? ((batch.initialCount - batch.totalMortality) /
-                  batch.initialCount * 100)
-              .clamp(0.0, 100.0)
+                    batch.initialCount *
+                    100)
+                .clamp(0.0, 100.0)
           : 0.0;
       popStr = '${batch.initialCount}';
       survivalStr = '${surv.toStringAsFixed(1)}%';
@@ -885,7 +921,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       decoration: BoxDecoration(
         color: const Color(0xFFFCFCFC),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
+        border: Border.all(color: AppColors.darkWith(0.08)),
         boxShadow: [
           BoxShadow(
             color: AppColors.darkWith(0.12),
@@ -901,11 +937,19 @@ class _DashboardScreenState extends State<DashboardScreen>
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
             child: Row(
               children: [
-                Icon(Icons.inventory_2_outlined, size: 18, color: AppColors.primary),
+                Icon(
+                  Icons.inventory_2_outlined,
+                  size: 18,
+                  color: AppColors.primary,
+                ),
                 const SizedBox(width: 10),
                 const Text(
                   'Crayfish Information',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.dark),
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.dark,
+                  ),
                 ),
                 const Spacer(),
                 GestureDetector(
@@ -916,7 +960,10 @@ class _DashboardScreenState extends State<DashboardScreen>
                     widget.onTankTab?.call(0);
                   },
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: AppColors.primary.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
@@ -925,7 +972,9 @@ class _DashboardScreenState extends State<DashboardScreen>
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          hasActive ? 'Manage' : (hasBatch ? 'View' : 'Initialize'),
+                          hasActive
+                              ? 'Manage'
+                              : (hasBatch ? 'View' : 'Initialize'),
                           style: const TextStyle(
                             fontSize: 9,
                             fontWeight: FontWeight.w700,
@@ -933,7 +982,11 @@ class _DashboardScreenState extends State<DashboardScreen>
                           ),
                         ),
                         const SizedBox(width: 2),
-                        const Icon(Icons.chevron_right, size: 10, color: AppColors.primary),
+                        const Icon(
+                          Icons.chevron_right,
+                          size: 10,
+                          color: AppColors.primary,
+                        ),
                       ],
                     ),
                   ),
@@ -945,10 +998,35 @@ class _DashboardScreenState extends State<DashboardScreen>
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
               children: [
-                Expanded(child: _buildStatColumn('assets/images/InitialPopulationNo.png', popStr, 'Initial Population')),
-                Expanded(child: _buildStatColumn('assets/images/SurvivalRate.png', survivalStr, 'Survival Rate')),
-                Expanded(child: _buildStatColumn('assets/images/AliveNo.png', aliveStr, 'In Tank')),
-                Expanded(child: _buildStatColumn('assets/images/mortalityNo.png', mortalityStr, 'Mortality', valueColor: AppColors.critical)),
+                Expanded(
+                  child: _buildStatColumn(
+                    'assets/images/InitialPopulationNo.png',
+                    popStr,
+                    'Initial Population',
+                  ),
+                ),
+                Expanded(
+                  child: _buildStatColumn(
+                    'assets/images/SurvivalRate.png',
+                    survivalStr,
+                    'Survival Rate',
+                  ),
+                ),
+                Expanded(
+                  child: _buildStatColumn(
+                    'assets/images/AliveNo.png',
+                    aliveStr,
+                    'In Tank',
+                  ),
+                ),
+                Expanded(
+                  child: _buildStatColumn(
+                    'assets/images/mortalityNo.png',
+                    mortalityStr,
+                    'Mortality',
+                    valueColor: AppColors.critical,
+                  ),
+                ),
               ],
             ),
           ),
@@ -958,7 +1036,11 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
-  Widget _buildCrayfishGraySection(TankService tank, bool hasActive, [CrayfishBatch? batch]) {
+  Widget _buildCrayfishGraySection(
+    TankService tank,
+    bool hasActive, [
+    CrayfishBatch? batch,
+  ]) {
     final isArchived = batch != null && !hasActive;
     final isSelected = batch != null && tank.selectedBatchId == batch.batchId;
 
@@ -975,13 +1057,17 @@ class _DashboardScreenState extends State<DashboardScreen>
       daysStr = tank.daysInCulture.toString();
       lastSamplingStr = latest != null
           ? _formatTankDate(latest.date)
-          : (history.isNotEmpty ? 'Baseline (${_formatTankDate(history.first.date)})' : '--');
+          : (history.isNotEmpty
+                ? 'Baseline (${_formatTankDate(history.first.date)})'
+                : '--');
       showSampling = true;
     } else if (isArchived) {
       abw = batch.finalAbw;
       abl = batch.finalAbl;
       daysStr = '${batch.daysInCulture}';
-      lastSamplingStr = batch.harvestDate != null ? _formatTankDate(batch.harvestDate!) : '--';
+      lastSamplingStr = batch.harvestDate != null
+          ? _formatTankDate(batch.harvestDate!)
+          : '--';
       showSampling = false;
     } else {
       abw = abl = 0;
@@ -1005,7 +1091,9 @@ class _DashboardScreenState extends State<DashboardScreen>
       }
     }
 
-    final biomassKg = hasActive && isSelected && abw > 0 ? tank.inTankCount * abw / 1000 : 0.0;
+    final biomassKg = hasActive && isSelected && abw > 0
+        ? tank.inTankCount * abw / 1000
+        : 0.0;
 
     return Container(
       margin: const EdgeInsets.only(top: 16),
@@ -1016,24 +1104,47 @@ class _DashboardScreenState extends State<DashboardScreen>
       ),
       child: Column(
         children: [
-          Row(children: [
-            Expanded(child: _grayItem(Icons.eco, 'Stage', stageLabel)),
-            Expanded(child: _grayItem(Icons.monitor_weight_outlined, 'ABW', abw > 0 ? '${abw.toStringAsFixed(2)}g' : '--')),
-            Expanded(child: _grayItem(Icons.straighten, 'ABL', abl > 0 ? '${abl.toStringAsFixed(2)}cm' : '--')),
-          ]),
+          Row(
+            children: [
+              Expanded(child: _grayItem(Icons.eco, 'Stage', stageLabel)),
+              Expanded(
+                child: _grayItem(
+                  Icons.monitor_weight_outlined,
+                  'ABW',
+                  abw > 0 ? '${abw.toStringAsFixed(2)}g' : '--',
+                ),
+              ),
+              Expanded(
+                child: _grayItem(
+                  Icons.straighten,
+                  'ABL',
+                  abl > 0 ? '${abl.toStringAsFixed(2)}cm' : '--',
+                ),
+              ),
+            ],
+          ),
           if (hasActive) ...[
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 10),
               child: Divider(height: 1),
             ),
-            _buildGrayDetailRow(Icons.monitor_weight_outlined, 'Estimated Biomass', '${biomassKg.toStringAsFixed(2)} kg'),
+            _buildGrayDetailRow(
+              Icons.monitor_weight_outlined,
+              'Estimated Biomass',
+              '${biomassKg.toStringAsFixed(2)} kg',
+            ),
             const SizedBox(height: 10),
           ],
-          if (!hasActive) const Padding(
-            padding: EdgeInsets.symmetric(vertical: 10),
-            child: Divider(height: 1),
+          if (!hasActive)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 10),
+              child: Divider(height: 1),
+            ),
+          _buildGrayDetailRow(
+            Icons.hourglass_bottom,
+            'Days in Culture',
+            daysStr == '--' ? '--' : '${daysStr}d',
           ),
-          _buildGrayDetailRow(Icons.hourglass_bottom, 'Days in Culture', daysStr == '--' ? '--' : '${daysStr}d'),
           const SizedBox(height: 8),
           _buildGrayDetailRow(
             Icons.calendar_today,
@@ -1042,21 +1153,37 @@ class _DashboardScreenState extends State<DashboardScreen>
           ),
           if (showSampling) ...[
             const SizedBox(height: 8),
-            _buildGrayDetailRow(Icons.history, 'Last Sampling', lastSamplingStr),
+            _buildGrayDetailRow(
+              Icons.history,
+              'Last Sampling',
+              lastSamplingStr,
+            ),
             const SizedBox(height: 8),
             _buildNextSamplingRow(),
           ],
           if (isArchived) ...[
             const SizedBox(height: 8),
-            _buildGrayDetailRow(Icons.archive_rounded, 'Harvested', '${batch.harvestCount}'),
+            _buildGrayDetailRow(
+              Icons.archive_rounded,
+              'Harvested',
+              '${batch.harvestCount}',
+            ),
             if (batch.harvestWeightGrams != null) ...[
               const SizedBox(height: 8),
-              _buildGrayDetailRow(Icons.monitor_weight_outlined, 'Harvest Weight', '${batch.harvestWeightGrams!.toStringAsFixed(1)} g'),
+              _buildGrayDetailRow(
+                Icons.monitor_weight_outlined,
+                'Harvest Weight',
+                '${batch.harvestWeightGrams!.toStringAsFixed(1)} g',
+              ),
             ],
           ],
           if (hasActive && tank.harvestRecords.isNotEmpty) ...[
             const SizedBox(height: 8),
-            _buildGrayDetailRow(Icons.archive_rounded, 'Total Harvested', '${tank.harvestRecords.fold<int>(0, (s, r) => s + r.harvestedCount)}'),
+            _buildGrayDetailRow(
+              Icons.archive_rounded,
+              'Total Harvested',
+              '${tank.harvestRecords.fold<int>(0, (s, r) => s + r.harvestedCount)}',
+            ),
           ],
         ],
       ),
@@ -1069,9 +1196,23 @@ class _DashboardScreenState extends State<DashboardScreen>
       children: [
         Icon(icon, size: 13, color: AppColors.darkWith(0.5)),
         const SizedBox(height: 3),
-        Text(value, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: AppColors.dark)),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+            color: AppColors.dark,
+          ),
+        ),
         const SizedBox(height: 1),
-        Text(label, style: TextStyle(fontSize: 7, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.5))),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 7,
+            fontWeight: FontWeight.w600,
+            color: AppColors.darkWith(0.5),
+          ),
+        ),
       ],
     );
   }
@@ -1100,9 +1241,20 @@ class _DashboardScreenState extends State<DashboardScreen>
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.calendar_today, size: 14, color: AppColors.darkWith(0.5)),
+            Icon(
+              Icons.calendar_today,
+              size: 14,
+              color: AppColors.darkWith(0.5),
+            ),
             const SizedBox(width: 8),
-            Text('Next Sampling', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: AppColors.darkWith(0.7))),
+            Text(
+              'Next Sampling',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: AppColors.darkWith(0.7),
+              ),
+            ),
           ],
         ),
         isReady
@@ -1111,11 +1263,25 @@ class _DashboardScreenState extends State<DashboardScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Text('Ready!', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.primary)),
+                    Text(
+                      'Ready!',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.primary,
+                      ),
+                    ),
                     const SizedBox(height: 2),
                     FadeTransition(
                       opacity: _pulseAnimation,
-                      child: Text('Tap to record', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: AppColors.primary)),
+                      child: Text(
+                        'Tap to record',
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.primary,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -1123,7 +1289,14 @@ class _DashboardScreenState extends State<DashboardScreen>
             : Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text(nextDateStr, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.dark)),
+                  Text(
+                    nextDateStr,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.dark,
+                    ),
+                  ),
                   const SizedBox(height: 2),
                   _AnimatedDaysLeft(daysLeft: daysLeft),
                 ],
@@ -1141,15 +1314,34 @@ class _DashboardScreenState extends State<DashboardScreen>
           children: [
             Icon(icon, size: 14, color: AppColors.darkWith(0.5)),
             const SizedBox(width: 8),
-            Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: AppColors.darkWith(0.7))),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: AppColors.darkWith(0.7),
+              ),
+            ),
           ],
         ),
-        Text(value, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.dark)),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: AppColors.dark,
+          ),
+        ),
       ],
     );
   }
 
-  Widget _buildStatColumn(String iconPath, String value, String label, {Color? valueColor}) {
+  Widget _buildStatColumn(
+    String iconPath,
+    String value,
+    String label, {
+    Color? valueColor,
+  }) {
     return Column(
       children: [
         Container(
@@ -1187,32 +1379,39 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   Widget _buildFeedingScheduleCard() {
     final schedules = FeedState.schedules.value;
-    final now = DateTime.now();
-    final nowMin = now.hour * 60 + now.minute;
+    final now = _manilaNow();
 
-    List<ScheduleItem> sorted = List.from(schedules);
-    sorted.sort((a, b) {
-      int aMin = _toScheduleMinutes(a);
-      int bMin = _toScheduleMinutes(b);
-      return aMin.compareTo(bMin);
-    });
+    final sorted = List<ScheduleItem>.from(schedules)
+      ..sort(
+        (a, b) => feederScheduleMinutes(a).compareTo(feederScheduleMinutes(b)),
+      );
 
     ScheduleItem? lastFed;
-    ScheduleItem? nextFeed;
+    final statuses = <ScheduleItem, String>{};
     int completed = 0;
+    int activeToday = 0;
 
     for (final s in sorted) {
-      final status = _scheduleStatus(s, now, nowMin);
+      final status = _scheduleStatus(s, now);
+      statuses[s] = status;
+      if (feederScheduleRunsOnDate(s, now)) {
+        activeToday++;
+      }
       if (status == 'completed') {
         lastFed = s;
         completed++;
-      } else if (status == 'upcoming') {
-        nextFeed ??= s;
       }
     }
 
-    final total = sorted.length;
-    final progress = total > 0 ? completed / total : 0.0;
+    final nextOccurrence = nextEnabledFeeding(
+      sorted,
+      now,
+      skipToday: (schedule) => statuses[schedule] == 'completed',
+    );
+    final nextFeed = nextOccurrence?.schedule;
+    final nextFeedAt = nextOccurrence?.at;
+
+    final progress = activeToday > 0 ? completed / activeToday : 0.0;
 
     String lastFedTime = '--';
     String lastFedDate = 'No feedings';
@@ -1222,25 +1421,20 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
 
     String nextTime = '--';
-    String nextLabel = 'No upcoming';
-    if (nextFeed != null) {
+    String nextLabel = 'No enabled schedule';
+    if (nextFeed != null && nextFeedAt != null) {
       nextTime = '${nextFeed.time} ${nextFeed.ampm}';
-      int h = int.parse(nextFeed.time.split(':')[0]);
-      final m = int.parse(nextFeed.time.split(':')[1]);
-      if (nextFeed.ampm == 'PM' && h != 12) h += 12;
-      if (nextFeed.ampm == 'AM' && h == 12) h = 0;
-      final target = DateTime(now.year, now.month, now.day, h, m);
-      final diff = target.isAfter(now)
-          ? target.difference(now)
-          : target.add(const Duration(days: 1)).difference(now);
-      final dh = diff.inHours;
+      final diff = nextFeedAt.difference(now);
+      final days = diff.inDays;
+      final dh = diff.inHours.remainder(24);
       final dm = diff.inMinutes.remainder(60);
       final ds = diff.inSeconds.remainder(60);
       final parts = <String>[];
+      if (days > 0) parts.add('${days}d');
       if (dh > 0) parts.add('${dh}h');
       parts.add('${dm}m');
       parts.add('${ds}s');
-      nextLabel = parts.join(' ');
+      nextLabel = '${_feedingDayLabel(nextFeedAt, now)} • ${parts.join(' ')}';
     }
 
     return Container(
@@ -1249,7 +1443,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       decoration: BoxDecoration(
         color: const Color(0xFFFCFCFC),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.darkWith(0.15), width: 1.5),
+        border: Border.all(color: AppColors.darkWith(0.08)),
         boxShadow: [
           BoxShadow(
             color: AppColors.darkWith(0.12),
@@ -1317,7 +1511,10 @@ class _DashboardScreenState extends State<DashboardScreen>
                     if (lastFed?.grams != null) ...[
                       const SizedBox(height: 4),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
                         decoration: BoxDecoration(
                           color: AppColors.primary.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(4),
@@ -1375,7 +1572,10 @@ class _DashboardScreenState extends State<DashboardScreen>
                     if (nextFeed?.grams != null) ...[
                       const SizedBox(height: 4),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
                         decoration: BoxDecoration(
                           color: AppColors.primary.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(4),
@@ -1395,7 +1595,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               ),
             ],
           ),
-          if (total > 0) ...[
+          if (activeToday > 0) ...[
             const SizedBox(height: 16),
             ClipRRect(
               borderRadius: BorderRadius.circular(6),
@@ -1423,11 +1623,21 @@ class _DashboardScreenState extends State<DashboardScreen>
             ),
             const SizedBox(height: 8),
             Text(
-              '$completed of $total feedings today completed',
+              '$completed of $activeToday feedings today completed',
               style: const TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.w500,
                 color: AppColors.dark,
+              ),
+            ),
+          ] else if (schedules.any((schedule) => schedule.enabled)) ...[
+            const SizedBox(height: 14),
+            Text(
+              'No feedings scheduled for today. The next active repeat day is shown above.',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w500,
+                color: AppColors.darkWith(0.55),
               ),
             ),
           ],
@@ -1436,30 +1646,34 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
-  int _toScheduleMinutes(ScheduleItem s) {
-    int h = int.tryParse(s.time.split(':')[0]) ?? 6;
-    final m = int.tryParse(s.time.split(':')[1]) ?? 0;
-    if (s.ampm == 'PM' && h != 12) h += 12;
-    if (s.ampm == 'AM' && h == 12) h = 0;
-    return h * 60 + m;
-  }
-
-  String _logDateString() {
-    final now = DateTime.now();
+  String _logDateString(DateTime date) {
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
-    return '${months[now.month - 1]} ${now.day}, ${now.year}';
+    return '${months[date.month - 1]} ${date.day}, ${date.year}';
   }
 
-  String _scheduleStatus(ScheduleItem s, DateTime now, int nowMin) {
+  String _scheduleStatus(ScheduleItem s, DateTime now) {
+    if (!s.enabled) return 'disabled';
+    if (!feederScheduleRunsOnDate(s, now)) return 'off_today';
     if (s.isDone) return 'completed';
     final scheduleTimeStr = '${s.time} ${s.ampm}';
-    final todayStr = _logDateString();
+    final todayStr = _logDateString(now);
     for (final log in FeedState.feederLogs.value) {
       final action = log.action.toLowerCase();
-      final isConfirmedSchedule = log.type == 'auto' &&
+      final isConfirmedSchedule =
+          log.type == 'auto' &&
           (action.contains('dispensed feed (scheduled)') ||
               action.contains('auto feed dispensed'));
       if (isConfirmedSchedule &&
@@ -1468,10 +1682,9 @@ class _DashboardScreenState extends State<DashboardScreen>
         return 'completed';
       }
     }
-    int h = int.tryParse(s.time.split(':')[0]) ?? 6;
-    final m = int.tryParse(s.time.split(':')[1]) ?? 0;
-    if (s.ampm == 'PM' && h != 12) h += 12;
-    if (s.ampm == 'AM' && h == 12) h = 0;
+    final minutes = feederScheduleMinutes(s);
+    final h = minutes ~/ 60;
+    final m = minutes % 60;
     final scheduleDt = DateTime(now.year, now.month, now.day, h, m);
     final diffSec = now.difference(scheduleDt).inSeconds;
     if (diffSec > 120) return 'skipped';
@@ -1479,7 +1692,31 @@ class _DashboardScreenState extends State<DashboardScreen>
     return 'upcoming';
   }
 
-  Widget _buildModalTrendIndicator(String trend, double rate, String status, {String? sensorKey, double? value}) {
+  String _feedingDayLabel(DateTime target, DateTime now) {
+    final today = DateTime(now.year, now.month, now.day);
+    final targetDay = DateTime(target.year, target.month, target.day);
+    final dayOffset = targetDay.difference(today).inDays;
+    if (dayOffset == 0) return 'Today';
+    if (dayOffset == 1) return 'Tomorrow';
+    const weekdays = [
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+      'Sunday',
+    ];
+    return weekdays[target.weekday - 1];
+  }
+
+  Widget _buildModalTrendIndicator(
+    String trend,
+    double rate,
+    String status, {
+    String? sensorKey,
+    double? value,
+  }) {
     final v = value ?? 0.0;
     final risingIsGood = sensorKey != null && _risingIsGood(sensorKey, v);
     final fallingIsGood = sensorKey != null && _fallingIsGood(sensorKey, v);
@@ -1496,22 +1733,30 @@ class _DashboardScreenState extends State<DashboardScreen>
       case 'rising_fast':
         icon = Icons.keyboard_double_arrow_up;
         label = 'Rising Fast';
-        color = risingIsGood ? goodColor() : (fallingIsGood ? badColor() : AppColors.critical);
+        color = risingIsGood
+            ? goodColor()
+            : (fallingIsGood ? badColor() : AppColors.critical);
         break;
       case 'rising':
         icon = Icons.arrow_upward;
         label = 'Rising';
-        color = risingIsGood ? goodColor() : (fallingIsGood ? badColor() : AppColors.warning);
+        color = risingIsGood
+            ? goodColor()
+            : (fallingIsGood ? badColor() : AppColors.warning);
         break;
       case 'falling_fast':
         icon = Icons.keyboard_double_arrow_down;
         label = 'Falling Fast';
-        color = fallingIsGood ? goodColor() : (risingIsGood ? badColor() : AppColors.critical);
+        color = fallingIsGood
+            ? goodColor()
+            : (risingIsGood ? badColor() : AppColors.critical);
         break;
       case 'falling':
         icon = Icons.arrow_downward;
         label = 'Falling';
-        color = fallingIsGood ? goodColor() : (risingIsGood ? badColor() : AppColors.warning);
+        color = fallingIsGood
+            ? goodColor()
+            : (risingIsGood ? badColor() : AppColors.warning);
         break;
       case 'stable':
       default:
@@ -1569,18 +1814,23 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (checkLower && checkUpper) {
       final lowWarnEnd = rMin + warningThreshold;
       final highWarnStart = rMax - warningThreshold;
-      optimalRangeText = '${lowWarnEnd.toStringAsFixed(1)}$rUnit \u2013 ${highWarnStart.toStringAsFixed(1)}$rUnit';
-      warningRangeText = '${rMin.toStringAsFixed(1)}$rUnit \u2013 ${lowWarnEnd.toStringAsFixed(1)}$rUnit or ${highWarnStart.toStringAsFixed(1)}$rUnit \u2013 ${rMax.toStringAsFixed(1)}$rUnit';
-      criticalRangeText = '< ${rMin.toStringAsFixed(1)}$rUnit or > ${rMax.toStringAsFixed(1)}$rUnit';
+      optimalRangeText =
+          '${lowWarnEnd.toStringAsFixed(1)}$rUnit \u2013 ${highWarnStart.toStringAsFixed(1)}$rUnit';
+      warningRangeText =
+          '${rMin.toStringAsFixed(1)}$rUnit \u2013 ${lowWarnEnd.toStringAsFixed(1)}$rUnit or ${highWarnStart.toStringAsFixed(1)}$rUnit \u2013 ${rMax.toStringAsFixed(1)}$rUnit';
+      criticalRangeText =
+          '< ${rMin.toStringAsFixed(1)}$rUnit or > ${rMax.toStringAsFixed(1)}$rUnit';
     } else if (checkLower) {
       final lowWarnEnd = rMin + warningThreshold;
       optimalRangeText = '> ${lowWarnEnd.toStringAsFixed(1)}$rUnit';
-      warningRangeText = '${rMin.toStringAsFixed(1)}$rUnit \u2013 ${lowWarnEnd.toStringAsFixed(1)}$rUnit';
+      warningRangeText =
+          '${rMin.toStringAsFixed(1)}$rUnit \u2013 ${lowWarnEnd.toStringAsFixed(1)}$rUnit';
       criticalRangeText = '< ${rMin.toStringAsFixed(1)}$rUnit';
     } else if (checkUpper) {
       final highWarnStart = rMax - warningThreshold;
       optimalRangeText = '< ${highWarnStart.toStringAsFixed(1)}$rUnit';
-      warningRangeText = '${highWarnStart.toStringAsFixed(1)}$rUnit \u2013 ${rMax.toStringAsFixed(1)}$rUnit';
+      warningRangeText =
+          '${highWarnStart.toStringAsFixed(1)}$rUnit \u2013 ${rMax.toStringAsFixed(1)}$rUnit';
       criticalRangeText = '> ${rMax.toStringAsFixed(1)}$rUnit';
     } else {
       optimalRangeText = 'Optimal range';
@@ -1628,9 +1878,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             final value = ss.getLatestValue(sensorKey);
             final status = _getStatus(sensorKey);
             final statusColor = _getStatusColor(sensorKey);
-            final formattedValue = !hasData
-                ? '--'
-                : value.toStringAsFixed(2);
+            final formattedValue = !hasData ? '--' : value.toStringAsFixed(2);
 
             return SafeArea(
               child: SingleChildScrollView(
@@ -1772,7 +2020,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                                 sensorKey: sensorKey,
                                 value: value,
                               ),
-                            ]
+                            ],
                           ],
                         ),
                       ),
@@ -1837,7 +2085,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         l.label,
@@ -2007,20 +2256,9 @@ class _GaugeCardState extends State<_GaugeCard> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: _isPressed
-                ? AppColors.darkWith(0.16)
-                : AppColors.darkWith(0.12),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
+      decoration: BoxDecoration(borderRadius: BorderRadius.circular(20)),
       child: Material(
-        color: _isPressed ? AppColors.darkWith(0.03) : const Color(0xFFFCFCFC),
+        color: _isPressed ? AppColors.primaryWith(0.04) : Colors.white,
         borderRadius: BorderRadius.circular(20),
         child: InkWell(
           borderRadius: BorderRadius.circular(20),
@@ -2033,9 +2271,8 @@ class _GaugeCardState extends State<_GaugeCard> {
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
                 color: _isPressed
-                    ? AppColors.darkWith(0.25)
-                    : AppColors.darkWith(0.15),
-                width: 1.5,
+                    ? AppColors.primaryWith(0.24)
+                    : AppColors.darkWith(0.08),
               ),
             ),
             child: Column(

@@ -8,6 +8,10 @@ import 'database_service.dart';
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final GoogleSignIn _googleSignIn = GoogleSignIn();
+  Map<String, dynamic>? _lastAuthenticatedProfile;
+
+  Map<String, dynamic>? get lastAuthenticatedProfile =>
+      _lastAuthenticatedProfile;
 
   Stream<User?> get user => _auth.authStateChanges();
 
@@ -55,7 +59,9 @@ class AuthService {
         var profile = await DatabaseService.instance.getUserProfile(user.uid);
         if (profile != null && profile['status'] == 'disabled') {
           await signOut();
-          throw Exception('Your account has been disabled. Please contact the administrator.');
+          throw Exception(
+            'Your account has been disabled. Please contact the administrator.',
+          );
         }
 
         if (!user.emailVerified) {
@@ -78,6 +84,12 @@ class AuthService {
             status: needsStatus ? 'active' : null,
           );
         }
+
+        _lastAuthenticatedProfile = {
+          ...?profile,
+          'role': profile?['role'] ?? 'owner',
+          'status': profile?['status'] ?? 'active',
+        };
       }
       return user;
     } on FirebaseAuthException catch (e) {
@@ -110,14 +122,18 @@ class AuthService {
         var profile = await DatabaseService.instance.getUserProfile(user.uid);
         if (profile != null && profile['status'] == 'disabled') {
           await signOut();
-          throw Exception('Your account has been disabled. Please contact the administrator.');
+          throw Exception(
+            'Your account has been disabled. Please contact the administrator.',
+          );
         }
 
-        final isNewUser = userCredential.additionalUserInfo?.isNewUser ?? (profile == null);
+        final isNewUser =
+            userCredential.additionalUserInfo?.isNewUser ?? (profile == null);
 
         // Only backfill if profile doc is missing or lacks role/status.
         // Never overwrite existing values — admin may have set them.
-        final needsRole = isNewUser || profile == null || profile['role'] == null;
+        final needsRole =
+            isNewUser || profile == null || profile['role'] == null;
         final needsStatus = profile == null || profile['status'] == null;
         if (needsRole || needsStatus) {
           await DatabaseService.instance.saveUserProfile(
@@ -128,6 +144,12 @@ class AuthService {
             status: needsStatus ? 'active' : null,
           );
         }
+
+        _lastAuthenticatedProfile = {
+          ...?profile,
+          'role': profile?['role'] ?? 'owner',
+          'status': profile?['status'] ?? 'active',
+        };
       }
 
       return userCredential.user;
@@ -165,7 +187,8 @@ class AuthService {
           // in before retrying the password change.
           throw FirebaseAuthException(
             code: e.code,
-            message: 'Your session is too old to change your password. '
+            message:
+                'Your session is too old to change your password. '
                 'Please log out and log back in, then try again.',
           );
         }
@@ -177,6 +200,7 @@ class AuthService {
   }
 
   Future<void> signOut() async {
+    _lastAuthenticatedProfile = null;
     final uid = _auth.currentUser?.uid;
     if (uid != null) {
       try {
@@ -184,10 +208,9 @@ class AuthService {
         // receiving push notifications.
         final token = await FirebaseMessaging.instance.getToken();
         if (token != null) {
-          await FirebaseFirestore.instance
-              .collection('users')
-              .doc(uid)
-              .update({'fcmTokens': FieldValue.arrayRemove([token])});
+          await FirebaseFirestore.instance.collection('users').doc(uid).update({
+            'fcmTokens': FieldValue.arrayRemove([token]),
+          });
         }
       } catch (e) {
         debugPrint('[AuthService] Failed to clear FCM token on signout: $e');

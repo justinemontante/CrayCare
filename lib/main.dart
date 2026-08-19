@@ -10,7 +10,6 @@ import 'theme/app_theme.dart';
 import 'screens/login_screen.dart';
 import 'screens/main_shell.dart';
 import 'services/background_service.dart';
-import 'services/ml_service.dart';
 import 'firebase_options.dart';
 import 'screens/verify_screen.dart';
 import 'services/settings_service.dart';
@@ -19,7 +18,8 @@ import 'services/connectivity_service.dart';
 import 'services/feeder_service.dart';
 import 'services/tank_service.dart';
 import 'services/database_service.dart';
-import 'services/health_risk_service.dart';
+import 'services/water_quality_assessment_service.dart';
+import 'utils/smooth_page_route.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 
@@ -97,7 +97,10 @@ class _SplashScreenState extends State<SplashScreen>
   void _advanceProgress() {
     _currentStep++;
     _targetProgress = (_currentStep / _totalSteps).clamp(0.0, 1.0);
-    _animController.animateTo(_targetProgress, duration: const Duration(milliseconds: 500));
+    _animController.animateTo(
+      _targetProgress,
+      duration: const Duration(milliseconds: 500),
+    );
   }
 
   Future<void> _withTimeout(Future<void> Function() fn, int timeoutMs) async {
@@ -110,15 +113,15 @@ class _SplashScreenState extends State<SplashScreen>
 
   Future<void> _initServices() async {
     await _withTimeout(
-      () => Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform),
+      () => Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      ),
       10000,
     );
     _advanceProgress();
     if (!mounted) return;
 
-    FirebaseFirestore.instance.settings = Settings(
-      persistenceEnabled: true,
-    );
+    FirebaseFirestore.instance.settings = Settings(persistenceEnabled: true);
     _advanceProgress();
     FirebaseMessaging.onBackgroundMessage(firebaseBackgroundMessageHandler);
 
@@ -143,11 +146,9 @@ class _SplashScreenState extends State<SplashScreen>
     _advanceProgress();
     TankService.instance.init();
     _advanceProgress();
-    MlService.instance.init();
     _advanceProgress();
-    HealthRiskService.instance.init();
+    WaterQualityAssessmentService.instance.init();
     _advanceProgress();
-
 
     _checkAuthAndNavigate();
   }
@@ -155,8 +156,9 @@ class _SplashScreenState extends State<SplashScreen>
   Future<void> _checkAuthAndNavigate() async {
     bool isOnline = false;
     try {
-      isOnline = await ConnectivityService.instance.checkConnectivity()
-          .timeout(const Duration(seconds: 3));
+      isOnline = await ConnectivityService.instance.checkConnectivity().timeout(
+        const Duration(seconds: 3),
+      );
     } catch (e, stack) {
       debugPrint('[Splash] Connectivity check failed: $e\n$stack');
     }
@@ -180,16 +182,24 @@ class _SplashScreenState extends State<SplashScreen>
         final freshUser = FirebaseAuth.instance.currentUser;
 
         if (freshUser != null && freshUser.emailVerified) {
+          Map<String, dynamic>? initialProfile;
           if (isOnline) {
             try {
-              final profile = await DatabaseService.instance.getUserProfile(freshUser.uid);
-              if (profile != null && profile['status'] == 'disabled') {
-                await FirebaseFirestore.instance.collection('users').doc(freshUser.uid).update({'fcmToken': FieldValue.delete()}).catchError((_) {});
+              initialProfile = await DatabaseService.instance.getUserProfile(
+                freshUser.uid,
+              );
+              if (initialProfile != null &&
+                  initialProfile['status'] == 'disabled') {
+                await FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(freshUser.uid)
+                    .update({'fcmToken': FieldValue.delete()})
+                    .catchError((_) {});
                 await FirebaseAuth.instance.signOut();
                 if (!mounted) return;
                 Navigator.pushReplacement(
                   context,
-                  MaterialPageRoute(builder: (_) => const LoginScreen()),
+                  splashExitPageRoute((_) => const LoginScreen()),
                 );
                 return;
               }
@@ -201,26 +211,28 @@ class _SplashScreenState extends State<SplashScreen>
           if (!mounted) return;
           Navigator.pushReplacement(
             context,
-            MaterialPageRoute(builder: (_) => const MainShell()),
+            splashExitPageRoute(
+              (_) => MainShell(initialProfile: initialProfile),
+            ),
           );
         } else if (freshUser != null && !freshUser.emailVerified) {
           if (!mounted) return;
           Navigator.pushReplacement(
             context,
-            MaterialPageRoute(builder: (_) => const VerifyScreen()),
+            splashExitPageRoute((_) => const VerifyScreen()),
           );
         } else {
           if (!mounted) return;
           Navigator.pushReplacement(
             context,
-            MaterialPageRoute(builder: (_) => const LoginScreen()),
+            splashExitPageRoute((_) => const LoginScreen()),
           );
         }
       } else {
         if (!mounted) return;
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => const LoginScreen()),
+          splashExitPageRoute((_) => const LoginScreen()),
         );
       }
     } catch (e) {
@@ -229,7 +241,7 @@ class _SplashScreenState extends State<SplashScreen>
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        splashExitPageRoute((_) => const LoginScreen()),
       );
     }
   }

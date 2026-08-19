@@ -5,8 +5,28 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'connectivity_service.dart';
 import '../utils/prediction_timestamp.dart';
 
-class HealthRiskResult {
+String normalizeWaterQualityAssessmentLevel(Object? value) {
+  switch (value?.toString().trim().toLowerCase()) {
+    case 'good':
+    case 'low':
+      return 'Good';
+    case 'moderate':
+      return 'Moderate';
+    case 'poor':
+    case 'high':
+      return 'Poor';
+    case 'critical':
+      return 'Critical';
+    default:
+      return 'Insufficient';
+  }
+}
+
+class WaterQualityAssessmentResult {
   final String level;
+  final String modelLevel;
+  final String ruleLevel;
+  final bool safetyOverride;
   final int confidence;
   final String driver;
   final String problem;
@@ -19,8 +39,11 @@ class HealthRiskResult {
   final double? driverMax;
   final DateTime timestamp;
 
-  HealthRiskResult({
+  WaterQualityAssessmentResult({
     required this.level,
+    required this.modelLevel,
+    required this.ruleLevel,
+    required this.safetyOverride,
     required this.confidence,
     required this.driver,
     required this.problem,
@@ -34,32 +57,44 @@ class HealthRiskResult {
     required this.timestamp,
   });
 
-  factory HealthRiskResult.fromMap(Map<String, dynamic> data) {
-    return HealthRiskResult(
-      level: data['level'] as String? ?? 'Insufficient',
+  factory WaterQualityAssessmentResult.fromMap(Map<String, dynamic> data) {
+    final level = normalizeWaterQualityAssessmentLevel(data['level']);
+    return WaterQualityAssessmentResult(
+      level: level,
+      modelLevel: normalizeWaterQualityAssessmentLevel(
+        data['model_level'] ?? data['level'],
+      ),
+      ruleLevel: normalizeWaterQualityAssessmentLevel(
+        data['rule_level'] ?? data['level'],
+      ),
+      safetyOverride: data['safety_override'] as bool? ?? false,
       confidence: (data['confidence'] as num?)?.toInt() ?? 0,
       driver: data['driver'] as String? ?? 'N/A',
       problem: data['problem'] as String? ?? '',
       insight: data['insight'] as String? ?? '',
       action: data['action'] as String? ?? '',
-      driverLabel: data['driver_label'] as String? ?? (data['driver'] as String? ?? 'N/A'),
+      driverLabel:
+          data['driver_label'] as String? ??
+          (data['driver'] as String? ?? 'N/A'),
       driverValue: (data['driver_value'] as num?)?.toDouble(),
       driverUnit: data['driver_unit'] as String? ?? '',
       driverMin: (data['driver_min'] as num?)?.toDouble(),
       driverMax: (data['driver_max'] as num?)?.toDouble(),
-      timestamp: parsePredictionTimestamp(data['timestamp']) ?? DateTime.now().toUtc(),
+      timestamp:
+          parsePredictionTimestamp(data['timestamp']) ?? DateTime.now().toUtc(),
     );
   }
 
   bool get hasData => level != 'Insufficient';
+  String get assessmentBasis => safetyOverride ? 'Safety Rule' : 'ML Model';
 
   Color get color {
     switch (level) {
-      case 'Low':
+      case 'Good':
         return const Color(0xFF166534);
       case 'Moderate':
         return const Color(0xFFf59e0b);
-      case 'High':
+      case 'Poor':
         return const Color(0xFFE63946);
       case 'Critical':
         return const Color(0xFF991b1b);
@@ -70,11 +105,11 @@ class HealthRiskResult {
 
   Color get lightColor {
     switch (level) {
-      case 'Low':
+      case 'Good':
         return const Color(0xFFdcfce7);
       case 'Moderate':
         return const Color(0xFFfef3c7);
-      case 'High':
+      case 'Poor':
         return const Color(0xFFffe4e6);
       case 'Critical':
         return const Color(0xFFfecaca);
@@ -84,24 +119,25 @@ class HealthRiskResult {
   }
 }
 
-class HealthRiskService extends ChangeNotifier {
-  static final HealthRiskService instance = HealthRiskService._();
-  HealthRiskService._();
+class WaterQualityAssessmentService extends ChangeNotifier {
+  static final WaterQualityAssessmentService instance =
+      WaterQualityAssessmentService._();
+  WaterQualityAssessmentService._();
 
-  HealthRiskResult? _result;
+  WaterQualityAssessmentResult? _result;
   bool _loading = true;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _sub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _historySub;
-  List<HealthRiskResult> _history = [];
+  List<WaterQualityAssessmentResult> _history = [];
 
-  HealthRiskResult? get result => _result;
+  WaterQualityAssessmentResult? get result => _result;
   bool get loading => _loading;
   bool get hasData => _result != null && _result!.hasData;
 
-  /// Hourly assessment history (newest first), including the current one.
-  /// The ML function writes one doc per assessment into the same
+  /// Hourly Water Quality Assessment history (newest first), including current.
+  /// The ML function writes one document per Water Quality Assessment into the
   /// machine_learning_assessments collection, keyed by a sortable UTC timestamp.
-  List<HealthRiskResult> get history => List.unmodifiable(_history);
+  List<WaterQualityAssessmentResult> get history => List.unmodifiable(_history);
 
   void init() {
     _sub?.cancel();
@@ -129,7 +165,9 @@ class HealthRiskService extends ChangeNotifier {
   }
 
   void _onReconnect() {
-    debugPrint('[HealthRiskService] Internet reconnected — refreshing listener');
+    debugPrint(
+      '[WaterQualityAssessmentService] Internet reconnected — refreshing listener',
+    );
     if (FirebaseAuth.instance.currentUser != null) {
       _startListening();
     }
@@ -148,47 +186,61 @@ class HealthRiskService extends ChangeNotifier {
     }
 
     try {
-      final profile = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      final profile = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get();
       final tankId = profile.data()?['tank_id'] as String? ?? uid;
       final assessments = FirebaseFirestore.instance
           .collection('tanks')
           .doc(tankId)
           .collection('machine_learning_assessments');
 
-      _sub = assessments.doc('current').snapshots().listen((snap) {
-        if (snap.exists && snap.data() != null) {
-          _result = HealthRiskResult.fromMap(snap.data()!);
-        } else {
-          _result = null;
-        }
-        _loading = false;
-        notifyListeners();
-      }, onError: (e) {
-        debugPrint('[HealthRiskService] Stream error: $e');
-        _loading = false;
-        notifyListeners();
-      });
+      _sub = assessments
+          .doc('current')
+          .snapshots()
+          .listen(
+            (snap) {
+              if (snap.exists && snap.data() != null) {
+                _result = WaterQualityAssessmentResult.fromMap(snap.data()!);
+              } else {
+                _result = null;
+              }
+              _loading = false;
+              notifyListeners();
+            },
+            onError: (e) {
+              debugPrint('[WaterQualityAssessmentService] Stream error: $e');
+              _loading = false;
+              notifyListeners();
+            },
+          );
 
       _historySub = assessments
           .orderBy('ts_epoch', descending: true)
           .limit(31)
           .snapshots()
-          .listen((snap) {
-        final list = <HealthRiskResult>[];
-        for (final doc in snap.docs) {
-          if (doc.id == 'current') continue;
-          final data = doc.data();
-          if (data.isEmpty) continue;
-          list.add(HealthRiskResult.fromMap(data));
-          if (list.length == 30) break;
-        }
-        _history = list;
-        notifyListeners();
-      }, onError: (e) {
-        debugPrint('[HealthRiskService] history stream error: $e');
-      });
+          .listen(
+            (snap) {
+              final list = <WaterQualityAssessmentResult>[];
+              for (final doc in snap.docs) {
+                if (doc.id == 'current') continue;
+                final data = doc.data();
+                if (data.isEmpty) continue;
+                list.add(WaterQualityAssessmentResult.fromMap(data));
+                if (list.length == 30) break;
+              }
+              _history = list;
+              notifyListeners();
+            },
+            onError: (e) {
+              debugPrint(
+                '[WaterQualityAssessmentService] history stream error: $e',
+              );
+            },
+          );
     } catch (e) {
-      debugPrint('[HealthRiskService] Listener setup error: $e');
+      debugPrint('[WaterQualityAssessmentService] Listener setup error: $e');
       _loading = false;
       notifyListeners();
     }

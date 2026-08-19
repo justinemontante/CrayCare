@@ -168,7 +168,10 @@
         "fields": [
           "uid",
           "tank_id",
-          "level (Low|Moderate|High|Critical|Insufficient)",
+          "level (Good|Moderate|Poor|Critical|Insufficient)",
+          "model_level (Good|Moderate|Poor|Critical)",
+          "rule_level (Good|Moderate|Poor|Critical)",
+          "safety_override (bool)",
           "confidence (0-100)",
           "driver",
           "driver_label",

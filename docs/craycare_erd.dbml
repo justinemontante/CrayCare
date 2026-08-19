@@ -214,13 +214,16 @@ Table feeder_commands {
 }
 
 // ──────────────────────────────────────────────────────────────
-//  MACHINE LEARNING (WQC)
+//  MACHINE LEARNING-BASED WATER QUALITY ASSESSMENT
 // ──────────────────────────────────────────────────────────────
 
 Table machine_learning_assessments {
   id varchar [pk, note: 'sortable UTC timestamp doc id']
   tank_id varchar [ref: > tanks.tank_id]
-  level varchar [note: 'Low | Moderate | High | Critical | Insufficient']
+  level varchar [note: 'Good | Moderate | Poor | Critical | Insufficient']
+  model_level varchar [note: 'Raw ML class: Good | Moderate | Poor | Critical']
+  rule_level varchar [note: 'Deterministic rolling-risk safety floor']
+  safety_override boolean [default: false]
   confidence int
   driver varchar [note: 'DO | pH | temp | turbidity | waterLevel | overall']
   driver_label varchar
@@ -233,6 +236,8 @@ Table machine_learning_assessments {
   action text
   ts_epoch bigint
   timestamp timestamp
+
+  Note: 'Water Quality Assessment results. A classification model categorizes the overall condition; the assessment layer also analyzes recent trends, identifies emerging risks, and provides insights and recommendations.'
 
   Indexes {
     (tank_id, ts_epoch)

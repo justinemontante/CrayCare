@@ -1,6 +1,7 @@
 firebase-functions>=0.5,<1
 firebase-admin>=6,<7
-# Pin the model serializer/runtime pair; wqc_model.joblib was regenerated with 3.4.0.
+# Pin the model serializer/runtime pair; the legacy-compatible assessment model
+# artifact (wqc_model.joblib) was regenerated with 3.4.0.
 xgboost==3.4.0
 pandas>=2.2,<4
 numpy>=2,<3

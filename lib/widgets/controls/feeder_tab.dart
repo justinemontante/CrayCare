@@ -110,7 +110,10 @@ class FeederTab extends StatelessWidget {
                           GestureDetector(
                             onTap: () => _showFeederLog(ctx),
                             child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
                               decoration: BoxDecoration(
                                 color: AppColors.primary.withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(6),
@@ -118,7 +121,11 @@ class FeederTab extends StatelessWidget {
                               child: const Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Icon(Icons.history, size: 11, color: AppColors.primary),
+                                  Icon(
+                                    Icons.history,
+                                    size: 11,
+                                    color: AppColors.primary,
+                                  ),
                                   SizedBox(width: 3),
                                   Text(
                                     'Log',
@@ -169,6 +176,8 @@ class FeederTab extends StatelessWidget {
             ),
             if (schedules.isNotEmpty) _buildCountdown(),
             const SizedBox(height: 16),
+            _buildFeedNowButton(ctx),
+            const SizedBox(height: 18),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -183,7 +192,10 @@ class FeederTab extends StatelessWidget {
                 GestureDetector(
                   onTap: () => _showScheduleModal(ctx),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
                     decoration: BoxDecoration(
                       color: AppColors.primary.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
@@ -191,11 +203,7 @@ class FeederTab extends StatelessWidget {
                     child: const Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(
-                          Icons.add,
-                          size: 12,
-                          color: AppColors.primary,
-                        ),
+                        Icon(Icons.add, size: 12, color: AppColors.primary),
                         SizedBox(width: 4),
                         Text(
                           'Add Schedule',
@@ -213,18 +221,31 @@ class FeederTab extends StatelessWidget {
             ),
             if (schedules.isNotEmpty) ...[
               const SizedBox(height: 12),
-              _buildSchedulePeriod(
-                ctx,
-                'Morning',
-                Icons.wb_sunny_outlined,
-                morning,
-              ),
-              const SizedBox(height: 12),
-              _buildSchedulePeriod(
-                ctx,
-                'Afternoon',
-                Icons.wb_twilight_outlined,
-                afternoon,
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 320),
+                child: Scrollbar(
+                  child: SingleChildScrollView(
+                    primary: false,
+                    padding: const EdgeInsets.only(right: 4),
+                    child: Column(
+                      children: [
+                        _buildSchedulePeriod(
+                          ctx,
+                          'Morning',
+                          Icons.wb_sunny_outlined,
+                          morning,
+                        ),
+                        const SizedBox(height: 12),
+                        _buildSchedulePeriod(
+                          ctx,
+                          'Afternoon',
+                          Icons.wb_twilight_outlined,
+                          afternoon,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
             ] else
               Padding(
@@ -238,7 +259,11 @@ class FeederTab extends StatelessWidget {
                   ),
                   child: Column(
                     children: [
-                      Icon(Icons.schedule_send_outlined, size: 28, color: AppColors.darkWith(0.2)),
+                      Icon(
+                        Icons.schedule_send_outlined,
+                        size: 28,
+                        color: AppColors.darkWith(0.2),
+                      ),
                       const SizedBox(height: 8),
                       Text(
                         'No schedules yet',
@@ -260,84 +285,86 @@ class FeederTab extends StatelessWidget {
                   ),
                 ),
               ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: Builder(
-                  builder: (context) => Tooltip(
-                    message: !canFeed && isOnline
-                        ? feedBlockedReason
-                        : '',
-                    decoration: BoxDecoration(
-                      color: AppColors.critical,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    textStyle: const TextStyle(fontSize: 12, color: Colors.white),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    waitDuration: const Duration(milliseconds: 100),
-                    child: ElevatedButton(
-                    onPressed: isOnline && !isRunning && canFeed
-                        ? onFeedNow
-                        : () {
-                            if (!isOnline) {
-                              showBeautifulSnackbar(context, 'Feeder is offline. Cannot dispense feed.', false, title: 'Feeder Offline');
-                            } else if (!canFeed) {
-                              showBeautifulSnackbar(context, feedBlockedReason, false, title: 'Feed Blocked');
-                            }
-                          },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: isOnline
-                          ? AppColors.primary
-                          : Colors.grey.shade300,
-                      foregroundColor: isOnline
-                          ? Colors.white
-                          : Colors.grey.shade500,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          isRunning
-                              ? Icons.hourglass_top
-                              : !isOnline
-                              ? Icons.wifi_off
-                              : !canFeed
-                              ? Icons.block
-                              : Icons.play_arrow,
-                          size: 16,
-                          color: isOnline
-                              ? Colors.white
-                              : Colors.grey.shade500,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          isRunning
-                              ? 'Feeding...'
-                              : !isOnline
-                              ? 'Feeder Offline'
-                              : !canFeed
-                              ? 'Feed Blocked'
-                              : 'Feed Now',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: isOnline
-                                ? Colors.white
-                                : Colors.grey.shade500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                ),
-            ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFeedNowButton(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: Tooltip(
+        message: !canFeed && isOnline ? feedBlockedReason : '',
+        decoration: BoxDecoration(
+          color: AppColors.critical,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        textStyle: const TextStyle(fontSize: 12, color: Colors.white),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        waitDuration: const Duration(milliseconds: 100),
+        child: ElevatedButton(
+          onPressed: isOnline && !isRunning && canFeed
+              ? onFeedNow
+              : () {
+                  if (!isOnline) {
+                    showBeautifulSnackbar(
+                      context,
+                      'Feeder is offline. Cannot dispense feed.',
+                      false,
+                      title: 'Feeder Offline',
+                    );
+                  } else if (!canFeed) {
+                    showBeautifulSnackbar(
+                      context,
+                      feedBlockedReason,
+                      false,
+                      title: 'Feed Blocked',
+                    );
+                  }
+                },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: isOnline
+                ? AppColors.primary
+                : Colors.grey.shade300,
+            foregroundColor: isOnline ? Colors.white : Colors.grey.shade500,
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                isRunning
+                    ? Icons.hourglass_top
+                    : !isOnline
+                    ? Icons.wifi_off
+                    : !canFeed
+                    ? Icons.block
+                    : Icons.play_arrow,
+                size: 16,
+                color: isOnline ? Colors.white : Colors.grey.shade500,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                isRunning
+                    ? 'Feeding...'
+                    : !isOnline
+                    ? 'Feeder Offline'
+                    : !canFeed
+                    ? 'Feed Blocked'
+                    : 'Feed Now',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: isOnline ? Colors.white : Colors.grey.shade500,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -348,33 +375,26 @@ class FeederTab extends StatelessWidget {
       stream: Stream.periodic(const Duration(seconds: 1), (i) => i),
       builder: (context, _) {
         final now = _manilaNow();
-        final nowMin = now.hour * 60 + now.minute;
 
-        ScheduleItem? next;
-        for (final s in schedules) {
-          final sMin = _toScheduleMinutes(s);
-          if (sMin > nowMin) {
-            next = s;
-            break;
-          }
-        }
+        final statuses = <ScheduleItem, String>{
+          for (final schedule in schedules) schedule: _scheduleStatus(schedule),
+        };
+        final nextOccurrence = nextEnabledFeeding(
+          schedules,
+          now,
+          skipToday: (schedule) => statuses[schedule] == 'completed',
+        );
+        final next = nextOccurrence?.schedule;
+        final nextAt = nextOccurrence?.at;
 
-        final bool noUpcoming = next == null;
+        final bool noUpcoming = next == null || nextAt == null;
 
         String? display;
+        String? scheduleLabel;
         if (!noUpcoming) {
-          int h = int.tryParse(next.time.split(':')[0]) ?? 6;
-          final m = int.tryParse(next.time.split(':')[1]) ?? 0;
-          if (next.ampm == 'PM' && h != 12) h += 12;
-          if (next.ampm == 'AM' && h == 12) h = 0;
-          final target = DateTime(now.year, now.month, now.day, h, m);
-          final diff = target.difference(now);
-          if (diff.isNegative) {
-            final nextDay = target.add(const Duration(days: 1));
-            display = _formatDuration(nextDay.difference(now));
-          } else {
-            display = _formatDuration(diff);
-          }
+          display = _formatDuration(nextAt.difference(now));
+          scheduleLabel =
+              '${next.time} ${next.ampm} • ${_scheduleDayLabel(nextAt, now)}';
         }
 
         return Padding(
@@ -390,12 +410,16 @@ class FeederTab extends StatelessWidget {
                 Icon(
                   noUpcoming ? Icons.info_outline : Icons.timer_outlined,
                   size: 14,
-                  color: noUpcoming ? AppColors.darkWith(0.4) : AppColors.primary,
+                  color: noUpcoming
+                      ? AppColors.darkWith(0.4)
+                      : AppColors.primary,
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    noUpcoming ? 'No upcoming feeding' : 'Next feeding in  ',
+                    noUpcoming
+                        ? 'No enabled feeding schedule'
+                        : 'Next: $scheduleLabel',
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
@@ -421,29 +445,43 @@ class FeederTab extends StatelessWidget {
   }
 
   String _formatDuration(Duration d) {
-    final h = d.inHours;
+    final days = d.inDays;
+    final h = d.inHours.remainder(24);
     final m = d.inMinutes.remainder(60);
     final s = d.inSeconds.remainder(60);
     final parts = <String>[];
+    if (days > 0) parts.add('${days}d');
     if (h > 0) parts.add('${h}h');
     parts.add('${m}m');
     parts.add('${s}s');
     return parts.join(' ');
   }
 
-  int _toScheduleMinutes(ScheduleItem s) {
-    int h = int.tryParse(s.time.split(':')[0]) ?? 6;
-    final m = int.tryParse(s.time.split(':')[1]) ?? 0;
-    if (s.ampm == 'PM' && h != 12) h += 12;
-    if (s.ampm == 'AM' && h == 12) h = 0;
-    return h * 60 + m;
+  String _scheduleDayLabel(DateTime target, DateTime now) {
+    final today = DateTime(now.year, now.month, now.day);
+    final targetDay = DateTime(target.year, target.month, target.day);
+    final dayOffset = targetDay.difference(today).inDays;
+    if (dayOffset == 0) return 'Today';
+    if (dayOffset == 1) return 'Tomorrow';
+    const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    return weekdays[target.weekday - 1];
   }
 
   String _logDateString() {
     final now = _manilaNow();
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return '${months[now.month - 1]} ${now.day}, ${now.year}';
   }
@@ -466,12 +504,10 @@ class FeederTab extends StatelessWidget {
 
   String _scheduleStatus(ScheduleItem s) {
     if (!s.enabled) return 'disabled';
-    if (s.isDone) return 'completed';
     // Not active today → show as "off today" (not due).
     final now = _manilaNow();
-    final dayIdx = now.weekday % 7; // 7=Sun->0, 1=Mon->1, ... 6=Sat->6
-    final activeToday = s.days.length <= dayIdx || s.days[dayIdx] == '1';
-    if (!activeToday) return 'off_today';
+    if (!feederScheduleRunsOnDate(s, now)) return 'off_today';
+    if (s.isDone) return 'completed';
     final key = '${s.time}_${s.ampm}';
     if (fedToday.contains(key)) return 'completed';
     final scheduleTimeStr = '${s.time} ${s.ampm}';
@@ -550,7 +586,9 @@ class FeederTab extends StatelessWidget {
             ...items.map(
               (s) => _buildScheduleItem(
                 ctx,
-                schedules.indexWhere((x) => x.time == s.time && x.ampm == s.ampm),
+                schedules.indexWhere(
+                  (x) => x.time == s.time && x.ampm == s.ampm,
+                ),
                 s,
               ),
             ),
@@ -646,7 +684,7 @@ class FeederTab extends StatelessWidget {
                             decorationColor: AppColors.darkWith(0.3),
                           ),
                         ),
-                        if (s.grams != null) ...[  
+                        if (s.grams != null) ...[
                           const SizedBox(height: 2),
                           Text(
                             '${s.grams!.toStringAsFixed(1)}g',
@@ -670,7 +708,10 @@ class FeederTab extends StatelessWidget {
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
                     decoration: BoxDecoration(
                       color: status == 'completed'
                           ? AppColors.success.withValues(alpha: 0.15)
@@ -741,7 +782,10 @@ class FeederTab extends StatelessWidget {
           children: [
             Icon(Icons.warning_rounded, size: 20, color: AppColors.critical),
             SizedBox(width: 8),
-            Text('Delete Schedule', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
+            Text(
+              'Delete Schedule',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+            ),
           ],
         ),
         content: const Text(
@@ -751,14 +795,23 @@ class FeederTab extends StatelessWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogCtx),
-            child: const Text('Cancel', style: TextStyle(fontWeight: FontWeight.w600)),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
           ),
           TextButton(
             onPressed: () {
               Navigator.pop(dialogCtx);
               onDeleteSchedule(index);
             },
-            child: const Text('Delete', style: TextStyle(color: AppColors.critical, fontWeight: FontWeight.w700)),
+            child: const Text(
+              'Delete',
+              style: TextStyle(
+                color: AppColors.critical,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
         ],
       ),
@@ -850,55 +903,60 @@ class FeederTab extends StatelessWidget {
                           )
                         : SingleChildScrollView(
                             child: Column(
-                              children: feederLogs.take(20).map(
-                                (l) => Container(
-                                  margin: const EdgeInsets.only(bottom: 6),
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.darkWith(0.03),
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        width: 8,
-                                        height: 8,
-                                        decoration: BoxDecoration(
-                                          color: l.type == 'auto'
-                                              ? AppColors.primary
-                                              : AppColors.warning,
-                                          shape: BoxShape.circle,
-                                        ),
+                              children: feederLogs
+                                  .take(20)
+                                  .map(
+                                    (l) => Container(
+                                      margin: const EdgeInsets.only(bottom: 6),
+                                      padding: const EdgeInsets.all(10),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.darkWith(0.03),
+                                        borderRadius: BorderRadius.circular(10),
                                       ),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              l.action,
-                                              style: const TextStyle(
-                                                fontSize: 11,
-                                                fontWeight: FontWeight.w700,
-                                                color: AppColors.dark,
-                                              ),
+                                      child: Row(
+                                        children: [
+                                          Container(
+                                            width: 8,
+                                            height: 8,
+                                            decoration: BoxDecoration(
+                                              color: l.type == 'auto'
+                                                  ? AppColors.primary
+                                                  : AppColors.warning,
+                                              shape: BoxShape.circle,
                                             ),
-                                            const SizedBox(height: 1),
-                                            Text(
-                                              '${l.date} \u00B7 ${l.time}',
-                                              style: TextStyle(
-                                                fontSize: 9,
-                                                color: AppColors.darkWith(0.4),
-                                              ),
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  l.action,
+                                                  style: const TextStyle(
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w700,
+                                                    color: AppColors.dark,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 1),
+                                                Text(
+                                                  '${l.date} \u00B7 ${l.time}',
+                                                  style: TextStyle(
+                                                    fontSize: 9,
+                                                    color: AppColors.darkWith(
+                                                      0.4,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
                                             ),
-                                          ],
-                                        ),
+                                          ),
+                                        ],
                                       ),
-                                    ],
-                                  ),
-                                ),
-                              ).toList(),
+                                    ),
+                                  )
+                                  .toList(),
                             ),
                           ),
                   ),
@@ -933,7 +991,11 @@ class FeederTab extends StatelessWidget {
     );
   }
 
-  void _showScheduleModal(BuildContext ctx, {int? index, ScheduleItem? existing}) {
+  void _showScheduleModal(
+    BuildContext ctx, {
+    int? index,
+    ScheduleItem? existing,
+  }) {
     final isEdit = existing != null;
     TimeOfDay selectedTime;
     if (isEdit) {
@@ -1026,9 +1088,7 @@ class FeederTab extends StatelessWidget {
                         vertical: 16,
                       ),
                       decoration: BoxDecoration(
-                        border: Border.all(
-                          color: AppColors.darkWith(0.15),
-                        ),
+                        border: Border.all(color: AppColors.darkWith(0.15)),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Row(
@@ -1055,7 +1115,10 @@ class FeederTab extends StatelessWidget {
                   // Grams field
                   TextField(
                     controller: gramsCtl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: false),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                      signed: false,
+                    ),
                     inputFormatters: [
                       FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$')),
                     ],
@@ -1067,20 +1130,34 @@ class FeederTab extends StatelessWidget {
                       errorText: gramsError,
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: AppColors.darkWith(0.15), width: 1.5),
+                        borderSide: BorderSide(
+                          color: AppColors.darkWith(0.15),
+                          width: 1.5,
+                        ),
                       ),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: AppColors.primary, width: 2),
+                        borderSide: const BorderSide(
+                          color: AppColors.primary,
+                          width: 2,
+                        ),
                       ),
                       errorBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: AppColors.critical, width: 1.5),
+                        borderSide: const BorderSide(
+                          color: AppColors.critical,
+                          width: 1.5,
+                        ),
                       ),
                       focusedErrorBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: AppColors.critical, width: 2),
+                        borderSide: const BorderSide(
+                          color: AppColors.critical,
+                          width: 2,
+                        ),
                       ),
                     ),
                   ),
@@ -1126,7 +1203,9 @@ class FeederTab extends StatelessWidget {
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w800,
-                              color: on ? Colors.white : AppColors.darkWith(0.5),
+                              color: on
+                                  ? Colors.white
+                                  : AppColors.darkWith(0.5),
                             ),
                           ),
                         ),
@@ -1148,14 +1227,18 @@ class FeederTab extends StatelessWidget {
                                   '$h12:${m.toString().padLeft(2, '0')}';
                               final grams = double.tryParse(gramsCtl.text);
                               final daysMask = String.fromCharCodes(
-                                List.generate(7, (i) =>
-                                    selectedDays.contains(i) ? 49 : 48),
+                                List.generate(
+                                  7,
+                                  (i) => selectedDays.contains(i) ? 49 : 48,
+                                ),
                               );
                               // Check duplicate: same time AND same day mask.
                               // This allows two schedules at the same time as
                               // long as they run on different weekdays (e.g.
                               // 6:00 AM weekdays vs 6:00 AM weekends).
-                              final duplicate = schedules.asMap().entries.any((e) {
+                              final duplicate = schedules.asMap().entries.any((
+                                e,
+                              ) {
                                 if (isEdit && e.key == index) return false;
                                 final s = e.value;
                                 return s.time == timeStr &&
@@ -1165,7 +1248,9 @@ class FeederTab extends StatelessWidget {
                               if (duplicate) {
                                 ScaffoldMessenger.of(ctx).showSnackBar(
                                   SnackBar(
-                                    content: const Text('A schedule at this time already exists'),
+                                    content: const Text(
+                                      'A schedule at this time already exists',
+                                    ),
                                     behavior: SnackBarBehavior.floating,
                                     backgroundColor: AppColors.critical,
                                     duration: const Duration(seconds: 2),
@@ -1176,8 +1261,12 @@ class FeederTab extends StatelessWidget {
                               if (isEdit) {
                                 onEditSchedule(
                                   index!,
-                                  ScheduleItem(timeStr, ampm,
-                                      grams: grams, days: daysMask),
+                                  ScheduleItem(
+                                    timeStr,
+                                    ampm,
+                                    grams: grams,
+                                    days: daysMask,
+                                  ),
                                 );
                               } else {
                                 timeCtl.text = '$timeStr:$ampm';

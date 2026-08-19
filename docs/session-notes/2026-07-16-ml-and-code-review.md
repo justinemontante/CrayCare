@@ -58,7 +58,7 @@ Three compounding issues, all fixed:
 | Metric | Before | After |
 |---|---|---|
 | Mean CV accuracy | 51.0% | 91.2% |
-| High-class recall | 0% | ~100% |
+| Poor-class recall (formerly High) | 0% | ~100% |
 | Final holdout accuracy | 71% | 100% |
 | vs. rule-based baseline (96%) | worse | better |
 
