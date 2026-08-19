@@ -19,6 +19,7 @@ import 'services/feeder_service.dart';
 import 'services/tank_service.dart';
 import 'services/database_service.dart';
 import 'services/water_quality_assessment_service.dart';
+import 'services/home_widget_service.dart';
 import 'utils/smooth_page_route.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
@@ -148,6 +149,7 @@ class _SplashScreenState extends State<SplashScreen>
     _advanceProgress();
     _advanceProgress();
     WaterQualityAssessmentService.instance.init();
+    HomeWidgetService.instance.init();
     _advanceProgress();
 
     _checkAuthAndNavigate();

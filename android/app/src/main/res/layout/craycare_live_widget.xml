@@ -1,0 +1,299 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/craycare_widget_background"
+    android:clickable="true"
+    android:elevation="6dp"
+    android:orientation="vertical"
+    android:padding="14dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="CrayCare"
+            android:textColor="#093F4B"
+            android:textSize="17sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/widget_online"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="● OFFLINE"
+            android:textColor="#DC3545"
+            android:textSize="10sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:background="@drawable/craycare_widget_assessment_background"
+        android:orientation="vertical"
+        android:paddingLeft="10dp"
+        android:paddingTop="8dp"
+        android:paddingRight="10dp"
+        android:paddingBottom="8dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Water Quality"
+                android:textColor="#536A73"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/widget_assessment"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="WAITING"
+                android:textColor="#7A8A94"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/widget_concern"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="Collecting assessment history"
+            android:textColor="#40555E"
+            android:textSize="10sp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="7dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Temperature"
+                android:textColor="#274650"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+            <TextView
+                android:id="@+id/widget_temp_value"
+                android:layout_width="78dp"
+                android:layout_height="wrap_content"
+                android:gravity="end"
+                android:text="--"
+                android:textColor="#274650"
+                android:textSize="11sp" />
+            <TextView
+                android:id="@+id/widget_temp_status"
+                android:layout_width="66dp"
+                android:layout_height="wrap_content"
+                android:gravity="end"
+                android:text="UNKNOWN"
+                android:textColor="#7A8A94"
+                android:textSize="9sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="pH"
+                android:textColor="#274650"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+            <TextView
+                android:id="@+id/widget_ph_value"
+                android:layout_width="78dp"
+                android:layout_height="wrap_content"
+                android:gravity="end"
+                android:text="--"
+                android:textColor="#274650"
+                android:textSize="11sp" />
+            <TextView
+                android:id="@+id/widget_ph_status"
+                android:layout_width="66dp"
+                android:layout_height="wrap_content"
+                android:gravity="end"
+                android:text="UNKNOWN"
+                android:textColor="#7A8A94"
+                android:textSize="9sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Dissolved Oxygen"
+                android:textColor="#274650"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+            <TextView
+                android:id="@+id/widget_do_value"
+                android:layout_width="78dp"
+                android:layout_height="wrap_content"
+                android:gravity="end"
+                android:text="--"
+                android:textColor="#274650"
+                android:textSize="11sp" />
+            <TextView
+                android:id="@+id/widget_do_status"
+                android:layout_width="66dp"
+                android:layout_height="wrap_content"
+                android:gravity="end"
+                android:text="UNKNOWN"
+                android:textColor="#7A8A94"
+                android:textSize="9sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Turbidity"
+                android:textColor="#274650"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+            <TextView
+                android:id="@+id/widget_turb_value"
+                android:layout_width="78dp"
+                android:layout_height="wrap_content"
+                android:gravity="end"
+                android:text="--"
+                android:textColor="#274650"
+                android:textSize="11sp" />
+            <TextView
+                android:id="@+id/widget_turb_status"
+                android:layout_width="66dp"
+                android:layout_height="wrap_content"
+                android:gravity="end"
+                android:text="UNKNOWN"
+                android:textColor="#7A8A94"
+                android:textSize="9sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Water Level"
+                android:textColor="#274650"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+            <TextView
+                android:id="@+id/widget_water_value"
+                android:layout_width="78dp"
+                android:layout_height="wrap_content"
+                android:gravity="end"
+                android:text="--"
+                android:textColor="#274650"
+                android:textSize="11sp" />
+            <TextView
+                android:id="@+id/widget_water_status"
+                android:layout_width="66dp"
+                android:layout_height="wrap_content"
+                android:gravity="end"
+                android:text="UNKNOWN"
+                android:textColor="#7A8A94"
+                android:textSize="9sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="4dp"
+        android:background="#16093F4B" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="7dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Next Feed: "
+            android:textColor="#71828A"
+            android:textSize="9sp" />
+        <TextView
+            android:id="@+id/widget_next_feed"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="No schedule"
+            android:textColor="#168B82"
+            android:textSize="10sp"
+            android:textStyle="bold" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Updated "
+            android:textColor="#71828A"
+            android:textSize="9sp" />
+        <TextView
+            android:id="@+id/widget_updated"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="--"
+            android:textColor="#40555E"
+            android:textSize="9sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+</LinearLayout>

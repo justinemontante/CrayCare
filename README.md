@@ -32,6 +32,16 @@ determine the overall water condition. Immediate actuator
 control remains threshold-based; the ML feature provides the broader trend-aware
 assessment and early warning.
 
+### Android Live Tank Status Widget
+
+The resizable Android home-screen widget shows the ESP32 online state, latest
+Water Quality Assessment and primary concern, all five live sensor values with
+their individual threshold status, the next enabled feeding time, and the last
+refresh time. The Flutter app pushes a cached snapshot to the native widget
+whenever sensor, assessment, feeder, connectivity, or threshold data changes.
+Tapping the widget opens CrayCare. After installing a build containing the
+feature, add it from the Android launcher widget picker as **CrayCare**.
+
 Single hardware package assigned to one farmer via `hardware_system/currentOwner`
 (admin-managed). Reassignment is instant; previous owner's data is preserved.
 
