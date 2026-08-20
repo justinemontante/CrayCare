@@ -2,9 +2,6 @@ name: Refine crayfish information action
 
 on:
   push:
-    branches: [main]
-    paths:
-      - '.github/workflows/refine-crayfish-action.yml'
 
 permissions:
   contents: write
@@ -24,6 +21,9 @@ jobs:
 
           path = Path('lib/screens/dashboard_screen.dart')
           text = path.read_text(encoding='utf-8')
+
+          if "behavior: HitTestBehavior.opaque\n                  onTap: () {\n                    if (batch != null)" in text:
+              raise SystemExit(0)
 
           old = '''                GestureDetector(
                   onTap: () {
@@ -113,5 +113,3 @@ jobs:
           git diff --cached --quiet && exit 0
           git commit -m "Match crayfish dashboard action styling"
           git push origin HEAD:main
-
-# trigger
