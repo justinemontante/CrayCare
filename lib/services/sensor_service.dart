@@ -137,13 +137,6 @@ class SensorService extends ChangeNotifier {
     return 'OPTIMAL';
   }
 
-  /// Returns the least-squares slope of recent live readings in physical
-  /// units per minute. A 60-second time window is used instead of a fixed
-  /// number of readings, so jitter in ESP/Firebase update timing does not
-  /// change the meaning of the rate. Regression uses every point in the
-  /// window and is therefore less sensitive to one noisy first/last sample.
-  ///
-  /// Returns 0.0 until at least 4 samples covering 15 seconds are available.
   double getTrendRate(String key) {
     final values = _history[key];
     final times = _historyTimes[key];
@@ -186,9 +179,6 @@ class SensorService extends ChangeNotifier {
     return numerator / denominator;
   }
 
-  /// Classifies the one-minute regression slope as:
-  /// stable | rising | rising_fast | falling | falling_fast.
-  /// Thresholds are expressed in physical units per minute.
   String getTrend(String key) {
     final rate = getTrendRate(key);
 
@@ -196,23 +186,23 @@ class SensorService extends ChangeNotifier {
     double fastThreshold;
     switch (key) {
       case 'temp':
-        stableThreshold = 0.10; // °C/min
+        stableThreshold = 0.10;
         fastThreshold = 0.50;
         break;
       case 'ph':
-        stableThreshold = 0.03; // pH/min
+        stableThreshold = 0.03;
         fastThreshold = 0.15;
         break;
       case 'do':
-        stableThreshold = 0.10; // mg/L/min
+        stableThreshold = 0.10;
         fastThreshold = 0.50;
         break;
       case 'turb':
-        stableThreshold = 1.00; // NTU/min
+        stableThreshold = 1.00;
         fastThreshold = 5.00;
         break;
       case 'waterlevel':
-        stableThreshold = 0.50; // cm/min
+        stableThreshold = 0.50;
         fastThreshold = 2.00;
         break;
       default:
@@ -352,7 +342,6 @@ class SensorService extends ChangeNotifier {
 
     _lastUpdated = readingTime;
     _hasLiveData = true;
-
     _bufferedEntries = (data['buffered_entries'] as num?)?.toInt() ?? 0;
 
     final tempRaw = _toDouble(data['temperature']);
@@ -413,15 +402,11 @@ class SensorService extends ChangeNotifier {
 
     final times = _historyTimes[key]!;
     final values = _history[key]!;
-
-    // Ignore duplicate/out-of-order snapshots for trend calculation. The
-    // latest value is still displayed, but regression must remain chronological.
     if (times.isNotEmpty && !readingTime.isAfter(times.last)) return;
 
     values.add(value);
     times.add(readingTime);
 
-    // Keep a small safety margin beyond the 60-second analysis window.
     final cutoff = readingTime.subtract(const Duration(seconds: 90));
     while (times.length > 1 && times.first.isBefore(cutoff)) {
       times.removeAt(0);
@@ -472,7 +457,7 @@ class SensorService extends ChangeNotifier {
   final Map<String, List<Map<String, dynamic>>> _dayCache = {};
   final Map<String, DateTime> _dayCachedAt = {};
   static const _todayCacheTtl = Duration(seconds: 60);
-  static const _historicalCacheTtl = Duration(minutes: 10);
+  static const _historicalCacheTtl = Duration(hours: 12);
 
   static String _dateStrFor(DateTime d) =>
       '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
@@ -532,34 +517,44 @@ class SensorService extends ChangeNotifier {
       !d.isAfter(end);
       d = d.add(const Duration(days: 1))
     ) {
-      days.add(
-        '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}',
-      );
+      days.add(_dateStrFor(d));
     }
 
     final uncachedDays = <String>[];
-    final cachedRecords = <Map<String, dynamic>>[];
+    final records = <Map<String, dynamic>>[];
     for (final dateStr in days) {
       final cached = getCachedDay(dateStr);
       if (cached != null) {
-        cachedRecords.addAll(cached);
+        records.addAll(cached);
       } else {
         uncachedDays.add(dateStr);
       }
     }
 
     if (uncachedDays.isNotEmpty) {
-      final remainingUncached = <String>[];
-      final cacheFutures = uncachedDays.map((dateStr) async {
-        try {
-          final snap = await FirebaseFirestore.instance
-              .collection('tanks')
-              .doc(tankId)
-              .collection('sensor_readings_history')
-              .doc(dateStr)
-              .collection('entries')
-              .get(const GetOptions(source: Source.cache));
-          if (snap.docs.isNotEmpty) {
+      final isOnline = ConnectivityService.instance.isOnline;
+      final source = isOnline ? Source.serverAndCache : Source.cache;
+
+      // Each day is stored in a separate Firestore subcollection. Fetch a
+      // reasonable number of days concurrently so 7d/30d/custom ranges do not
+      // wait on many sequential network rounds.
+      const maxConcurrentDays = 24;
+      for (var i = 0; i < uncachedDays.length; i += maxConcurrentDays) {
+        final endIndex = i + maxConcurrentDays > uncachedDays.length
+            ? uncachedDays.length
+            : i + maxConcurrentDays;
+        final chunk = uncachedDays.sublist(i, endIndex);
+
+        final futures = chunk.map((dateStr) async {
+          try {
+            final snap = await FirebaseFirestore.instance
+                .collection('tanks')
+                .doc(tankId)
+                .collection('sensor_readings_history')
+                .doc(dateStr)
+                .collection('entries')
+                .get(GetOptions(source: source));
+
             final docs = snap.docs.map((doc) {
               final data = doc.data();
               data['id'] = doc.id;
@@ -567,63 +562,43 @@ class SensorService extends ChangeNotifier {
             }).toList();
             cacheDay(dateStr, docs);
             return docs;
-          }
-        } catch (e, stack) {
-          debugPrint('[Sensor] history cache load error: $e\n$stack');
-        }
-        remainingUncached.add(dateStr);
-        return <Map<String, dynamic>>[];
-      });
+          } catch (e) {
+            debugPrint(
+              '[SensorService] fetchHistoryRange error for $dateStr: $e',
+            );
 
-      final cacheResults = await Future.wait(cacheFutures);
-      cachedRecords.addAll(cacheResults.expand((r) => r));
-
-      if (remainingUncached.isNotEmpty &&
-          ConnectivityService.instance.isOnline) {
-        const chunkSize = 6;
-        for (var i = 0; i < remainingUncached.length; i += chunkSize) {
-          final chunk = remainingUncached.sublist(
-            i,
-            i + chunkSize > remainingUncached.length
-                ? remainingUncached.length
-                : i + chunkSize,
-          );
-          final serverFutures = chunk.map((dateStr) async {
-            try {
-              final snap = await FirebaseFirestore.instance
-                  .collection('tanks')
-                  .doc(tankId)
-                  .collection('sensor_readings_history')
-                  .doc(dateStr)
-                  .collection('entries')
-                  .get(const GetOptions(source: Source.serverAndCache));
-              final docs = snap.docs.map((doc) {
-                final data = doc.data();
-                data['id'] = doc.id;
-                return data;
-              }).toList();
-              cacheDay(dateStr, docs);
-              return docs;
-            } catch (e) {
-              debugPrint(
-                '[SensorService] fetchHistoryRange error for $dateStr: $e',
-              );
-              // Do not cache transient failures as a valid empty day.
-              return <Map<String, dynamic>>[];
+            // If a network request fails, still show any persisted local data.
+            if (isOnline) {
+              try {
+                final cachedSnap = await FirebaseFirestore.instance
+                    .collection('tanks')
+                    .doc(tankId)
+                    .collection('sensor_readings_history')
+                    .doc(dateStr)
+                    .collection('entries')
+                    .get(const GetOptions(source: Source.cache));
+                return cachedSnap.docs.map((doc) {
+                  final data = doc.data();
+                  data['id'] = doc.id;
+                  return data;
+                }).toList();
+              } catch (_) {}
             }
-          });
-          final serverResults = await Future.wait(serverFutures);
-          cachedRecords.addAll(serverResults.expand((r) => r));
-        }
+            return <Map<String, dynamic>>[];
+          }
+        });
+
+        final results = await Future.wait(futures);
+        records.addAll(results.expand((r) => r));
       }
     }
 
-    cachedRecords.sort((a, b) {
+    records.sort((a, b) {
       final at = _extractTimestamp(a) ?? DateTime.fromMillisecondsSinceEpoch(0);
       final bt = _extractTimestamp(b) ?? DateTime.fromMillisecondsSinceEpoch(0);
       return at.compareTo(bt);
     });
-    return cachedRecords;
+    return records;
   }
 
   @override
