@@ -430,7 +430,10 @@ class TankService extends ChangeNotifier {
       _lastSampleDate = DateTime.fromMillisecondsSinceEpoch(
         (data['last_sample_date'] as int?) ?? _stockingDate.millisecondsSinceEpoch,
       );
-      _selectedBatchId = data['current_batch_id'] as String?;
+      final rawBatchId = data['current_batch_id'] as String?;
+      _selectedBatchId = rawBatchId == null || rawBatchId.trim().isEmpty
+          ? null
+          : rawBatchId.trim();
       _isInitialized = (data['is_initialized'] as bool?) ?? _initialCount > 0;
       _setupComplete = _isInitialized;
       notifyListeners();
@@ -601,9 +604,8 @@ class TankService extends ChangeNotifier {
     _harvestsSub?.cancel();
     _harvestsSub = null;
 
-    if (_selectedBatchId == null) return;
-
-    final batchId = _selectedBatchId!;
+    final batchId = _selectedBatchId?.trim();
+    if (batchId == null || batchId.isEmpty) return;
 
     // Listen to this batch's nested sampling_records subcollection.
     _samplingSub = _samplingRef(batchId)
