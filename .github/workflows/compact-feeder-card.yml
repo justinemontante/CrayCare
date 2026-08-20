@@ -2,7 +2,7 @@ name: Compact feeder card typography
 
 on:
   pull_request:
-    types: [opened]
+    types: [opened, reopened]
 
 permissions:
   contents: write
@@ -36,7 +36,7 @@ jobs:
             ("'Add Schedule',\n                          style: TextStyle(\n                            fontSize: 10,", "'Add Schedule',\n                          style: TextStyle(\n                            fontSize: 9,"),
             ("if (schedules.isNotEmpty) ...[\n              const SizedBox(height: 12),", "if (schedules.isNotEmpty) ...[\n              const SizedBox(height: 10),"),
             ("padding: const EdgeInsets.symmetric(vertical: 14),\n            elevation: 0,", "padding: const EdgeInsets.symmetric(vertical: 11),\n            elevation: 0,"),
-            ("? Icons.play_arrow,\n                size: 16,", "? Icons.play_arrow,\n                size: 14,"),
+            (": Icons.play_arrow,\n                size: 16,", ": Icons.play_arrow,\n                size: 14,"),
             ("const SizedBox(width: 8),\n              Text(\n                isRunning", "const SizedBox(width: 6),\n              Text(\n                isRunning"),
             ("? 'Feed Now',\n                style: TextStyle(\n                  fontSize: 14,", "? 'Feed Now',\n                style: TextStyle(\n                  fontSize: 12,"),
             ("padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),", "padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),"),
