@@ -7,16 +7,15 @@ import 'connectivity_service.dart';
 
 class SensorService extends ChangeNotifier {
   static final SensorService instance = SensorService._();
+
   SensorService._() {
     if (FirebaseAuth.instance.currentUser != null) {
       _initFirebaseListener();
     }
-    FirebaseAuth.instance.authStateChanges().listen((user) {
+    _authSubscription = FirebaseAuth.instance.authStateChanges().listen((user) {
+      _resetForAccountChange();
       if (user != null) {
         _initFirebaseListener();
-      } else {
-        _subscription?.cancel();
-        _subscription = null;
       }
     });
     ConnectivityService.instance.addOnConnectCallback(_onReconnect);
@@ -38,6 +37,7 @@ class SensorService extends ChangeNotifier {
   ];
 
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _subscription;
+  StreamSubscription<User?>? _authSubscription;
   String? _tankId;
 
   final Map<String, List<double>> _history = {};
@@ -67,6 +67,37 @@ class SensorService extends ChangeNotifier {
   DateTime get lastUpdated => _lastUpdated;
   String? get lastError => _lastError;
   int get bufferedEntries => _bufferedEntries;
+
+  void _resetForAccountChange() {
+    _subscription?.cancel();
+    _subscription = null;
+    _staleTimer?.cancel();
+    _periodicCheckTimer?.cancel();
+    _tankId = null;
+    _history.clear();
+    _historyTimes.clear();
+    _latest.clear();
+    _turbidityAir = null;
+    _initialDataLoaded = false;
+    _hasLiveData = false;
+    _lastUpdated = DateTime.fromMillisecondsSinceEpoch(0);
+    _lastError = null;
+    _bufferedEntries = 0;
+    clearHistoryCache();
+    notifyListeners();
+  }
+
+  void _resetForTankChange(String? newTankId) {
+    if (_tankId == null || _tankId == newTankId) return;
+    _history.clear();
+    _historyTimes.clear();
+    _latest.clear();
+    _turbidityAir = null;
+    _hasLiveData = false;
+    _lastUpdated = DateTime.fromMillisecondsSinceEpoch(0);
+    _bufferedEntries = 0;
+    clearHistoryCache();
+  }
 
   String get overallStatus {
     String status = 'NORMAL';
@@ -208,6 +239,7 @@ class SensorService extends ChangeNotifier {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
 
+    String? resolvedTankId;
     try {
       final profileDoc = await FirebaseFirestore.instance
           .collection('users')
@@ -215,14 +247,15 @@ class SensorService extends ChangeNotifier {
           .get();
       final profileData = profileDoc.data();
       if (profileData?['role'] == 'admin') {
+        _resetForTankChange(null);
         _tankId = null;
         _lastError = 'Admin accounts have no tank.';
         notifyListeners();
         return;
       }
-      var tankId = profileData?['tank_id'] as String?;
-      if (tankId == null || tankId.isEmpty) {
-        tankId = uid;
+      resolvedTankId = profileData?['tank_id'] as String?;
+      if (resolvedTankId == null || resolvedTankId.isEmpty) {
+        resolvedTankId = uid;
         try {
           await profileDoc.reference.set({
             'tank_id': uid,
@@ -231,11 +264,13 @@ class SensorService extends ChangeNotifier {
           debugPrint('[Sensor] hardware init error: $e\n$stack');
         }
       }
-      _tankId = tankId;
     } catch (e) {
       debugPrint('[SensorService] Failed to resolve tank_id: $e');
-      _tankId = uid;
+      resolvedTankId = uid;
     }
+
+    _resetForTankChange(resolvedTankId);
+    _tankId = resolvedTankId;
     final tankId = _tankId;
     if (tankId == null || tankId.isEmpty) {
       _lastError = 'No tank assigned to this account yet.';
@@ -437,6 +472,7 @@ class SensorService extends ChangeNotifier {
   final Map<String, List<Map<String, dynamic>>> _dayCache = {};
   final Map<String, DateTime> _dayCachedAt = {};
   static const _todayCacheTtl = Duration(seconds: 60);
+  static const _historicalCacheTtl = Duration(minutes: 10);
 
   static String _dateStrFor(DateTime d) =>
       '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
@@ -445,14 +481,14 @@ class SensorService extends ChangeNotifier {
 
   List<Map<String, dynamic>>? getCachedDay(String dateStr) {
     final cached = _dayCache[dateStr];
-    if (cached == null) return null;
+    final cachedAt = _dayCachedAt[dateStr];
+    if (cached == null || cachedAt == null) return null;
 
-    if (_isToday(dateStr)) {
-      final cachedAt = _dayCachedAt[dateStr];
-      if (cachedAt == null ||
-          DateTime.now().difference(cachedAt) > _todayCacheTtl) {
-        return null;
-      }
+    final ttl = _isToday(dateStr) ? _todayCacheTtl : _historicalCacheTtl;
+    if (DateTime.now().difference(cachedAt) > ttl) {
+      _dayCache.remove(dateStr);
+      _dayCachedAt.remove(dateStr);
+      return null;
     }
     return cached;
   }
@@ -479,10 +515,16 @@ class SensorService extends ChangeNotifier {
             .collection('users')
             .doc(uid)
             .get();
-        tankId = profileDoc.data()?['tank_id'] as String?;
-        _tankId = tankId;
+        final data = profileDoc.data();
+        if (data?['role'] != 'admin') {
+          tankId = data?['tank_id'] as String? ?? uid;
+          _resetForTankChange(tankId);
+          _tankId = tankId;
+        }
       }
     }
+
+    if (tankId == null || tankId.isEmpty) return [];
 
     final days = <String>[];
     for (
@@ -509,10 +551,6 @@ class SensorService extends ChangeNotifier {
     if (uncachedDays.isNotEmpty) {
       final remainingUncached = <String>[];
       final cacheFutures = uncachedDays.map((dateStr) async {
-        if (tankId == null) {
-          remainingUncached.add(dateStr);
-          return <Map<String, dynamic>>[];
-        }
         try {
           final snap = await FirebaseFirestore.instance
               .collection('tanks')
@@ -531,7 +569,7 @@ class SensorService extends ChangeNotifier {
             return docs;
           }
         } catch (e, stack) {
-          debugPrint('[Sensor] history load error: $e\n$stack');
+          debugPrint('[Sensor] history cache load error: $e\n$stack');
         }
         remainingUncached.add(dateStr);
         return <Map<String, dynamic>>[];
@@ -541,8 +579,7 @@ class SensorService extends ChangeNotifier {
       cachedRecords.addAll(cacheResults.expand((r) => r));
 
       if (remainingUncached.isNotEmpty &&
-          ConnectivityService.instance.isOnline &&
-          tankId != null) {
+          ConnectivityService.instance.isOnline) {
         const chunkSize = 6;
         for (var i = 0; i < remainingUncached.length; i += chunkSize) {
           final chunk = remainingUncached.sublist(
@@ -571,7 +608,7 @@ class SensorService extends ChangeNotifier {
               debugPrint(
                 '[SensorService] fetchHistoryRange error for $dateStr: $e',
               );
-              cacheDay(dateStr, []);
+              // Do not cache transient failures as a valid empty day.
               return <Map<String, dynamic>>[];
             }
           });
@@ -592,6 +629,7 @@ class SensorService extends ChangeNotifier {
   @override
   void dispose() {
     _subscription?.cancel();
+    _authSubscription?.cancel();
     _staleTimer?.cancel();
     _periodicCheckTimer?.cancel();
     super.dispose();
