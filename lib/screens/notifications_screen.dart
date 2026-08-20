@@ -134,7 +134,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         children: [
           ...List.generate(filters.length, (i) {
             final isActive = _activeFilter == filters[i].$1;
+            final flex = i == 0 ? 3 : (i == 3 ? 6 : 5);
             return Expanded(
+              flex: flex,
               child: GestureDetector(
                 onTap: () => _selectFilter(filters[i].$1),
                 child: Container(
