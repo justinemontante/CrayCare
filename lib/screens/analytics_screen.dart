@@ -287,10 +287,15 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       }
       return;
     } else if (range == '7d') {
+      // 168 exact one-hour buckets covering the requested seven-day window.
       labelTimes = List<DateTime>.generate(pts, (i) {
-        return now.subtract(Duration(hours: (pts - 1 - i)));
+        return historyStart.add(Duration(hours: i));
       });
-      _labels[range] = labelTimes.map((d) => '${d.month}/${d.day}').toList();
+      _labels[range] = labelTimes.map((d) {
+        final h = d.hour > 12 ? d.hour - 12 : (d.hour == 0 ? 12 : d.hour);
+        final ampm = d.hour >= 12 ? 'PM' : 'AM';
+        return '${d.month}/${d.day} $h $ampm';
+      }).toList();
     } else if (range == 'custom') {
       labelTimes = List<DateTime>.generate(pts, (i) {
         return _customStartDate.add(Duration(days: i));
@@ -344,6 +349,26 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       final vals = valuesPerKey[key]!;
       _data['$key-$range'] = List<double>.generate(labelTimes.length, (i) {
         final isDaily = range == '30d' || range == 'custom';
+
+        if (range == '7d') {
+          final bucketStart = labelTimes[i];
+          final bucketEnd = i == labelTimes.length - 1
+              ? historyEnd.add(const Duration(microseconds: 1))
+              : bucketStart.add(const Duration(hours: 1));
+          double sum = 0;
+          int count = 0;
+          for (int j = 0; j < records.length; j++) {
+            if (!parsedTs[j].isBefore(bucketStart) &&
+                parsedTs[j].isBefore(bucketEnd)) {
+              final v = vals[j];
+              if (v != null && v >= 0) {
+                sum += v;
+                count++;
+              }
+            }
+          }
+          return count > 0 ? sum / count : double.nan;
+        }
 
         if (isDaily) {
           final dayStart = DateTime(
@@ -528,7 +553,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                           key: _chartCardKeys['do'],
                           child: _buildChartCard(
                             context,
-                            title: 'Dissolved O\u2082',
+                            title: 'Dissolved O₂',
                             iconPath: 'assets/images/DO.png',
                             chartKey: 'do',
                           ),
@@ -572,10 +597,10 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            Color(0xFFF8FFFF), // #f8ffff
-            Color(0xFFF2FDFD), // #f2fdfd
-            Color(0xFFE8FAFA), // #e8fafa
-            Color(0xFFDAF4F5), // #daf4f5
+            Color(0xFFF8FFFF),
+            Color(0xFFF2FDFD),
+            Color(0xFFE8FAFA),
+            Color(0xFFDAF4F5),
           ],
         ),
         borderRadius: BorderRadius.circular(16),
@@ -671,10 +696,18 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
           if (_customStartDate.isAfter(_customEndDate)) {
             _customEndDate = _customStartDate;
           }
+          final maxEnd = _customStartDate.add(const Duration(days: 364));
+          if (_customEndDate.isAfter(maxEnd)) {
+            _customEndDate = maxEnd.isAfter(now) ? now : maxEnd;
+          }
         } else {
           _customEndDate = picked;
           if (_customEndDate.isBefore(_customStartDate)) {
             _customStartDate = _customEndDate;
+          }
+          final minStart = _customEndDate.subtract(const Duration(days: 364));
+          if (_customStartDate.isBefore(minStart)) {
+            _customStartDate = minStart;
           }
         }
       });
@@ -962,7 +995,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   String _unitFor(String key) {
     switch (key) {
       case 'temp':
-        return '\u00B0C';
+        return '°C';
       case 'ph':
         return 'pH';
       case 'do':
@@ -1394,7 +1427,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                                         const SizedBox(width: 4),
                                         Text(
                                           criticalCount > 0
-                                              ? '$criticalCount critical point${criticalCount > 1 ? 's' : ''}  \u203A'
+                                              ? '$criticalCount critical point${criticalCount > 1 ? 's' : ''}  ›'
                                               : 'No critical points',
                                           style: TextStyle(
                                             fontSize: 10,
