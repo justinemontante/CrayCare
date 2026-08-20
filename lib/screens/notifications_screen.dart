@@ -51,28 +51,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           _buildFilterRow(),
           _buildHeaderRow(),
           Expanded(
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 180),
-              reverseDuration: const Duration(milliseconds: 140),
-              switchInCurve: Curves.easeOutCubic,
-              switchOutCurve: Curves.easeInCubic,
-              transitionBuilder: (child, animation) {
-                final slide = Tween<Offset>(
-                  begin: const Offset(0.025, 0),
-                  end: Offset.zero,
-                ).animate(
-                  CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
-                );
-                return FadeTransition(
-                  opacity: animation,
-                  child: SlideTransition(position: slide, child: child),
-                );
-              },
-              child: KeyedSubtree(
-                key: ValueKey(_activeFilter),
-                child: _filtered.isEmpty ? _buildEmptyState() : _buildList(),
-              ),
-            ),
+            child: _filtered.isEmpty ? _buildEmptyState() : _buildList(),
           ),
         ],
       ),
@@ -137,13 +116,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   Widget _buildFilterRow() {
     final filters = [
-      ('all', 'All'),
-      ('critical', 'Critical'),
-      ('warning', 'Warning'),
-      ('operational', 'Operational'),
-      ('reminder', 'Reminders'),
+      (Icons.notifications_rounded, 'all', 'All'),
+      (Icons.warning_rounded, 'critical', 'Critical'),
+      (Icons.info_outline_rounded, 'warning', 'Warning'),
+      (Icons.check_circle_outline_rounded, 'operational', 'Operational'),
+      (Icons.notifications_outlined, 'reminder', 'Reminders'),
     ];
-    final activeIndex = filters.indexWhere((f) => f.$1 == _activeFilter);
 
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
@@ -152,76 +130,59 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         color: AppColors.dark.withValues(alpha: 0.02),
         borderRadius: BorderRadius.circular(14),
       ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final tabWidth = constraints.maxWidth / filters.length;
-
-          return SizedBox(
-            height: 38,
-            child: Stack(
-              children: [
-                AnimatedPositioned(
-                  duration: const Duration(milliseconds: 220),
-                  curve: Curves.easeOutCubic,
-                  left: tabWidth * (activeIndex < 0 ? 0 : activeIndex),
-                  top: 0,
-                  bottom: 0,
-                  width: tabWidth,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 1),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(10),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.dark.withValues(alpha: 0.04),
-                            blurRadius: 6,
-                            offset: const Offset(0, 1),
+      child: Row(
+        children: [
+          ...List.generate(filters.length, (i) {
+            final isActive = _activeFilter == filters[i].$2;
+            return Expanded(
+              child: GestureDetector(
+                onTap: () => _selectFilter(filters[i].$2),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  decoration: BoxDecoration(
+                    color: isActive ? Colors.white : Colors.transparent,
+                    borderRadius: BorderRadius.circular(10),
+                    boxShadow: isActive
+                        ? [
+                            BoxShadow(
+                              color: AppColors.dark.withValues(alpha: 0.04),
+                              blurRadius: 6,
+                              offset: const Offset(0, 1),
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          filters[i].$1,
+                          size: 13,
+                          color: isActive
+                              ? AppColors.primary
+                              : AppColors.dark.withValues(alpha: 0.45),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          filters[i].$3,
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: isActive
+                                ? AppColors.primary
+                                : AppColors.dark.withValues(alpha: 0.45),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-                Row(
-                  children: List.generate(filters.length, (i) {
-                    final filter = filters[i].$1;
-                    final label = filters[i].$2;
-                    final isActive = _activeFilter == filter;
-
-                    return Expanded(
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: () => _selectFilter(filter),
-                        child: Center(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 2),
-                            child: FittedBox(
-                              fit: BoxFit.scaleDown,
-                              child: AnimatedDefaultTextStyle(
-                                duration: const Duration(milliseconds: 180),
-                                curve: Curves.easeOutCubic,
-                                style: TextStyle(
-                                  fontSize: 9.5,
-                                  fontWeight: FontWeight.w700,
-                                  color: isActive
-                                      ? AppColors.primary
-                                      : AppColors.dark.withValues(alpha: 0.45),
-                                ),
-                                child: Text(label, maxLines: 1),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  }),
-                ),
-              ],
-            ),
-          );
-        },
+              ),
+            );
+          }),
+        ],
       ),
     );
   }
