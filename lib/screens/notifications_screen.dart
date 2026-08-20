@@ -35,6 +35,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     if (mounted) setState(() {});
   }
 
+  void _selectFilter(String filter) {
+    if (_activeFilter == filter) return;
+    setState(() => _activeFilter = filter);
+  }
+
   @override
   Widget build(BuildContext context) {
     final svc = NotificationService.instance;
@@ -46,7 +51,28 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           _buildFilterRow(),
           _buildHeaderRow(),
           Expanded(
-            child: _filtered.isEmpty ? _buildEmptyState() : _buildList(),
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 180),
+              reverseDuration: const Duration(milliseconds: 140),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              transitionBuilder: (child, animation) {
+                final slide = Tween<Offset>(
+                  begin: const Offset(0.025, 0),
+                  end: Offset.zero,
+                ).animate(
+                  CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+                );
+                return FadeTransition(
+                  opacity: animation,
+                  child: SlideTransition(position: slide, child: child),
+                );
+              },
+              child: KeyedSubtree(
+                key: ValueKey(_activeFilter),
+                child: _filtered.isEmpty ? _buildEmptyState() : _buildList(),
+              ),
+            ),
           ),
         ],
       ),
@@ -110,64 +136,71 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Widget _buildFilterRow() {
-    // FIX: Changed 'reminders' to 'reminder' para mag-match sa object n.notif_type
-    final filters = ['all', 'critical', 'warning', 'operational', 'reminder'];
+    final filters = [
+      ('all', 'All'),
+      ('critical', 'Critical'),
+      ('warning', 'Warning'),
+      ('operational', 'Operational'),
+      ('reminder', 'Reminders'),
+    ];
+
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-      padding: const EdgeInsets.all(5),
+      padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: AppColors.dark.withValues(alpha: 0.03),
-        borderRadius: BorderRadius.circular(16),
+        color: AppColors.dark.withValues(alpha: 0.02),
+        borderRadius: BorderRadius.circular(14),
       ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: filters.map((f) {
-            final isActive = _activeFilter == f;
-            final label = f == 'all'
-                ? 'All'
-                : (f == 'reminder'
-                      ? 'Reminders'
-                      : '${f[0].toUpperCase()}${f.substring(1)}');
-            return Padding(
-              padding: const EdgeInsets.only(right: 4),
-              child: GestureDetector(
-                onTap: () => setState(() => _activeFilter = f),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 180),
-                  constraints: const BoxConstraints(minHeight: 40),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: isActive ? Colors.white : Colors.transparent,
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: isActive
-                        ? [
-                            BoxShadow(
-                              color: AppColors.dark.withValues(alpha: 0.05),
-                              blurRadius: 8,
-                              offset: const Offset(0, 2),
-                            ),
-                          ]
-                        : null,
-                  ),
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      color: isActive
-                          ? AppColors.primary
-                          : AppColors.dark.withValues(alpha: 0.45),
+      child: Row(
+        children: List.generate(filters.length, (i) {
+          final filter = filters[i].$1;
+          final label = filters[i].$2;
+          final isActive = _activeFilter == filter;
+
+          return Expanded(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => _selectFilter(filter),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                curve: Curves.easeOutCubic,
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: isActive ? Colors.white : Colors.transparent,
+                  borderRadius: BorderRadius.circular(10),
+                  boxShadow: isActive
+                      ? [
+                          BoxShadow(
+                            color: AppColors.dark.withValues(alpha: 0.04),
+                            blurRadius: 6,
+                            offset: const Offset(0, 1),
+                          ),
+                        ]
+                      : null,
+                ),
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 2),
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        style: TextStyle(
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w700,
+                          color: isActive
+                              ? AppColors.primary
+                              : AppColors.dark.withValues(alpha: 0.45),
+                        ),
+                      ),
                     ),
                   ),
                 ),
               ),
-            );
-          }).toList(),
-        ),
+            ),
+          );
+        }),
       ),
     );
   }
