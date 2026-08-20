@@ -1,0 +1,58 @@
+name: Compact feeder card typography
+
+on:
+  push:
+    paths:
+      - '.github/workflows/compact-feeder-card.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Match feeder sizing to actuator cards
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('lib/widgets/controls/feeder_tab.dart')
+          s = p.read_text()
+          replacements = [
+            ("padding: const EdgeInsets.all(16),\n        child: Column(\n          crossAxisAlignment: CrossAxisAlignment.start,", "padding: const EdgeInsets.all(14),\n        child: Column(\n          crossAxisAlignment: CrossAxisAlignment.start,"),
+            ("width: 70,\n                  height: 70,", "width: 56,\n                  height: 56,"),
+            ("borderRadius: BorderRadius.circular(14),\n                  ),\n                  child: Padding(\n                    padding: const EdgeInsets.all(8),\n                    child: Image.asset(\n                      'assets/images/FeedingImage.png'", "borderRadius: BorderRadius.circular(12),\n                  ),\n                  child: Padding(\n                    padding: const EdgeInsets.all(6),\n                    child: Image.asset(\n                      'assets/images/FeedingImage.png'"),
+            ("const SizedBox(width: 14),\n                Expanded(", "const SizedBox(width: 10),\n                Expanded("),
+            ("'Automatic Feeder',\n                            style: TextStyle(\n                              fontSize: 15,", "'Automatic Feeder',\n                            style: TextStyle(\n                              fontSize: 12,"),
+            ("const SizedBox(height: 6),\n                      Row(\n                        children: [\n                          Container(\n                            width: 8,\n                            height: 8,", "const SizedBox(height: 4),\n                      Row(\n                        children: [\n                          Container(\n                            width: 7,\n                            height: 7,"),
+            ("const SizedBox(width: 6),\n                          Text(\n                            schedules.isNotEmpty", "const SizedBox(width: 5),\n                          Text(\n                            schedules.isNotEmpty"),
+            ("? 'Schedules Active'\n                                : 'No Schedules',\n                            style: TextStyle(\n                              fontSize: 11,", "? 'Schedules Active'\n                                : 'No Schedules',\n                            style: TextStyle(\n                              fontSize: 9,"),
+            ("if (schedules.isNotEmpty) _buildCountdown(),\n            const SizedBox(height: 16),", "if (schedules.isNotEmpty) _buildCountdown(),\n            const SizedBox(height: 12),"),
+            ("_buildFeedNowButton(ctx),\n            const SizedBox(height: 18),", "_buildFeedNowButton(ctx),\n            const SizedBox(height: 14),"),
+            ("'Schedules:',\n                  style: TextStyle(\n                    fontSize: 13,", "'Schedules:',\n                  style: TextStyle(\n                    fontSize: 11,"),
+            ("Icon(Icons.add, size: 12, color: AppColors.primary),", "Icon(Icons.add, size: 10, color: AppColors.primary),"),
+            ("'Add Schedule',\n                          style: TextStyle(\n                            fontSize: 10,", "'Add Schedule',\n                          style: TextStyle(\n                            fontSize: 9,"),
+            ("if (schedules.isNotEmpty) ...[\n              const SizedBox(height: 12),", "if (schedules.isNotEmpty) ...[\n              const SizedBox(height: 10),"),
+            ("padding: const EdgeInsets.symmetric(vertical: 14),\n            elevation: 0,", "padding: const EdgeInsets.symmetric(vertical: 11),\n            elevation: 0,"),
+            ("? Icons.play_arrow,\n                size: 16,", "? Icons.play_arrow,\n                size: 14,"),
+            ("const SizedBox(width: 8),\n              Text(\n                isRunning", "const SizedBox(width: 6),\n              Text(\n                isRunning"),
+            ("? 'Feed Now',\n                style: TextStyle(\n                  fontSize: 14,", "? 'Feed Now',\n                style: TextStyle(\n                  fontSize: 12,"),
+            ("padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),", "padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),"),
+            ("fontSize: 11,\n                      fontWeight: FontWeight.w600,\n                      color: AppColors.darkWith(0.6),", "fontSize: 9,\n                      fontWeight: FontWeight.w600,\n                      color: AppColors.darkWith(0.6),"),
+            ("fontSize: 13,\n                      fontWeight: FontWeight.w800,\n                      color: AppColors.dark,", "fontSize: 11,\n                      fontWeight: FontWeight.w800,\n                      color: AppColors.dark,"),
+          ]
+          for old, new in replacements:
+            if old not in s:
+              raise SystemExit(f'Missing expected snippet: {old[:80]!r}')
+            s = s.replace(old, new, 1)
+          p.write_text(s)
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/widgets/controls/feeder_tab.dart
+          git commit -m "Match feeder card sizing to actuators"
+          git push origin main
