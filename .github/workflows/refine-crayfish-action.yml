@@ -1,13 +1,15 @@
 name: Refine crayfish information action
 
 on:
-  push:
+  issues:
+    types: [opened]
 
 permissions:
   contents: write
 
 jobs:
   refine-crayfish-action:
+    if: github.event.issue.title == 'Apply crayfish action styling patch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,9 +23,6 @@ jobs:
 
           path = Path('lib/screens/dashboard_screen.dart')
           text = path.read_text(encoding='utf-8')
-
-          if "behavior: HitTestBehavior.opaque\n                  onTap: () {\n                    if (batch != null)" in text:
-              raise SystemExit(0)
 
           old = '''                GestureDetector(
                   onTap: () {
