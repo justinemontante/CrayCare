@@ -1382,7 +1382,11 @@ class _DashboardScreenState extends State<DashboardScreen>
       final status = _scheduleStatus(s, now);
       statuses[s] = status;
       if (feederScheduleRunsOnDate(s, now)) {
-        activeToday++;
+        final minutes = feederScheduleMinutes(s);
+        final occurrence = DateTime(
+          now.year, now.month, now.day, minutes ~/ 60, minutes % 60,
+        );
+        if (feederScheduleWasEffectiveAt(s, occurrence)) activeToday++;
       }
       if (status == 'completed') {
         lastFed = s;
@@ -1690,14 +1694,18 @@ class _DashboardScreenState extends State<DashboardScreen>
         return 'completed';
       }
     }
+    for (final log in FeedState.feederLogs.value) {
+      if (log.type == 'missed' && s.id != null &&
+          log.scheduleKey == s.id && log.scheduleTime == scheduleTimeStr &&
+          log.date == todayStr) return 'missed';
+    }
     final minutes = feederScheduleMinutes(s);
     final h = minutes ~/ 60;
     final m = minutes % 60;
     final scheduleDt = DateTime(now.year, now.month, now.day, h, m);
-    final diffSec = now.difference(scheduleDt).inSeconds;
-    if (diffSec > 120) return 'skipped';
-    if (diffSec >= 0) return 'pending';
-    return 'upcoming';
+    if (!feederScheduleWasEffectiveAt(s, scheduleDt)) return 'upcoming';
+    if (now.isBefore(scheduleDt)) return 'upcoming';
+    return 'pending';
   }
 
   String _feedingDayLabel(DateTime target, DateTime now) {

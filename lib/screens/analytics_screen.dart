@@ -282,7 +282,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       for (final key in SensorService.sensorKeys) {
         final hKey = _historyKeyMap[key]!;
         _data['$key-$range'] = List<double>.generate(records.length, (i) {
-          return _toDouble(records[i][hKey]) ?? double.nan;
+          final value = _toDouble(records[i][hKey]);
+          return value != null && value >= 0 ? value : double.nan;
         });
       }
       return;

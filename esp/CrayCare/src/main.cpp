@@ -859,50 +859,34 @@ void buildFirestorePayload(FirebaseJson &json, bool includeTimestamp) {
   // The window accumulators hold every ACCEPTED reading since the last
   // history save (up to ~300 samples at 2s poll), so brief spikes
   // inside the window are preserved (e.g. temp_max catches a spike that
-  // the snapshot at save time would miss). Falls back to the smoothed
-  // value when no samples were accepted this window.
+  // the snapshot at save time would miss). Sensors with zero accepted samples are omitted
+  // instead of writing stale fallback values.
 
-  // Temperature
-  const float tMin = winTempN > 0 ? winTempMin : smoothedTemp;
-  const float tMax = winTempN > 0 ? winTempMax : smoothedTemp;
-  const float tAvg = winTempN > 0 ? winTempSum / (float)winTempN : smoothedTemp;
-  json.set("fields/temp_min/doubleValue", tMin);
-  json.set("fields/temp_max/doubleValue", tMax);
-  json.set("fields/temp_avg/doubleValue", tAvg);
-
-  // Turbidity
-  const float trMin = winTurbN > 0 ? winTurbMin : smoothedTurbidityNTU;
-  const float trMax = winTurbN > 0 ? winTurbMax : smoothedTurbidityNTU;
-  const float trAvg = winTurbN > 0 ? winTurbSum / (float)winTurbN : smoothedTurbidityNTU;
-  json.set("fields/turbidity_min/doubleValue", trMin);
-  json.set("fields/turbidity_max/doubleValue", trMax);
-  json.set("fields/turbidity_avg/doubleValue", trAvg);
-
-  if (ENABLE_DO_SENSOR) {
-    const float dMin = winDON > 0 ? winDOMin : dissolvedOxygen;
-    const float dMax = winDON > 0 ? winDOMax : dissolvedOxygen;
-    const float dAvg = winDON > 0 ? winDOSum / (float)winDON : dissolvedOxygen;
-    json.set("fields/DO_min/doubleValue", dMin);
-    json.set("fields/DO_max/doubleValue", dMax);
-    json.set("fields/DO_avg/doubleValue", dAvg);
+  // Only include sensors that had valid samples in this 10-minute window.
+  if (winTempN > 0) {
+    json.set("fields/temp_min/doubleValue", winTempMin);
+    json.set("fields/temp_max/doubleValue", winTempMax);
+    json.set("fields/temp_avg/doubleValue", winTempSum / (float)winTempN);
   }
-
-  if (ENABLE_PH_SENSOR) {
-    const float pMin = winPHN > 0 ? winPHMin : phLevel;
-    const float pMax = winPHN > 0 ? winPHMax : phLevel;
-    const float pAvg = winPHN > 0 ? winPHSum / (float)winPHN : phLevel;
-    json.set("fields/pH_min/doubleValue", pMin);
-    json.set("fields/pH_max/doubleValue", pMax);
-    json.set("fields/pH_avg/doubleValue", pAvg);
+  if (winTurbN > 0) {
+    json.set("fields/turbidity_min/doubleValue", winTurbMin);
+    json.set("fields/turbidity_max/doubleValue", winTurbMax);
+    json.set("fields/turbidity_avg/doubleValue", winTurbSum / (float)winTurbN);
   }
-
-  if (ENABLE_WATER_LEVEL_SENSOR) {
-    const float wMin = winWaterN > 0 ? winWaterMin : waterLevelCm;
-    const float wMax = winWaterN > 0 ? winWaterMax : waterLevelCm;
-    const float wAvg = winWaterN > 0 ? winWaterSum / (float)winWaterN : waterLevelCm;
-    json.set("fields/waterLevel_min/doubleValue", wMin);
-    json.set("fields/waterLevel_max/doubleValue", wMax);
-    json.set("fields/waterLevel_avg/doubleValue", wAvg);
+  if (ENABLE_DO_SENSOR && winDON > 0) {
+    json.set("fields/DO_min/doubleValue", winDOMin);
+    json.set("fields/DO_max/doubleValue", winDOMax);
+    json.set("fields/DO_avg/doubleValue", winDOSum / (float)winDON);
+  }
+  if (ENABLE_PH_SENSOR && winPHN > 0) {
+    json.set("fields/pH_min/doubleValue", winPHMin);
+    json.set("fields/pH_max/doubleValue", winPHMax);
+    json.set("fields/pH_avg/doubleValue", winPHSum / (float)winPHN);
+  }
+  if (ENABLE_WATER_LEVEL_SENSOR && winWaterN > 0) {
+    json.set("fields/waterLevel_min/doubleValue", winWaterMin);
+    json.set("fields/waterLevel_max/doubleValue", winWaterMax);
+    json.set("fields/waterLevel_avg/doubleValue", winWaterSum / (float)winWaterN);
   }
 
   // History entries carry the ESP's capture time so the Cloud Function can
@@ -1879,7 +1863,7 @@ void processFeederTick() {
         feederFeedSource == "scheduled"
           ? "Dispensed feed (Scheduled)"
           : "Dispensed feed (Manual)",
-        feederAutoMode ? "auto" : "manual"
+        feederFeedSource == "scheduled" ? "auto" : "manual"
       );
       // Let the app mark this schedule as completed for today. The nightly
       // reset (FeederService on a new Manila day) flips it back to false.

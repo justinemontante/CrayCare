@@ -8,7 +8,7 @@ class FeederTab extends StatelessWidget {
   // Feeder schedules are anchored to Asia/Manila wall-clock time to match the
   // ESP32's NTP-synced clock and the Cloud Function's MANILA_OFFSET_MS. Using
   // DateTime.now() here compares against the device timezone, which can cause
-  // false "skipped"/"completed" states when the phone is abroad.
+  // false "missed"/"completed" states when the phone is abroad.
   static DateTime _manilaNow() => manilaWallClock();
 
   final List<ScheduleItem> schedules;
@@ -501,15 +501,22 @@ class FeederTab extends StatelessWidget {
         return 'completed';
       }
     }
-    int h = int.tryParse(s.time.split(':')[0]) ?? 6;
-    final m = int.tryParse(s.time.split(':')[1]) ?? 0;
-    if (s.ampm == 'PM' && h != 12) h += 12;
-    if (s.ampm == 'AM' && h == 12) h = 0;
+    for (final log in feederLogs) {
+      if (log.type == 'missed' &&
+          s.id != null &&
+          log.scheduleKey == s.id &&
+          log.scheduleTime == scheduleTimeStr &&
+          log.date == todayStr) {
+        return 'missed';
+      }
+    }
+    final minutes = feederScheduleMinutes(s);
+    final h = minutes ~/ 60;
+    final m = minutes % 60;
     final scheduleDt = DateTime(now.year, now.month, now.day, h, m);
-    final diffSec = now.difference(scheduleDt).inSeconds;
-    if (diffSec > 120) return 'skipped';
-    if (diffSec >= 0) return 'pending';
-    return 'upcoming';
+    if (!feederScheduleWasEffectiveAt(s, scheduleDt)) return 'upcoming';
+    if (now.isBefore(scheduleDt)) return 'upcoming';
+    return 'pending';
   }
 
   Widget _buildSchedulePeriod(
@@ -721,12 +728,12 @@ class FeederTab extends StatelessWidget {
         statusLabel = 'Pending';
         statusIcon = Icons.hourglass_bottom;
         break;
-      case 'skipped':
+      case 'missed':
         bgColor = AppColors.darkWith(0.06);
         borderColor = AppColors.darkWith(0.15);
         dotColor = AppColors.darkWith(0.4);
-        statusLabel = 'Skipped';
-        statusIcon = Icons.skip_next;
+        statusLabel = 'Missed';
+        statusIcon = Icons.error_outline;
         break;
       case 'off_today':
         bgColor = AppColors.darkWith(0.03);
@@ -819,7 +826,7 @@ class FeederTab extends StatelessWidget {
                         ? AppColors.success.withValues(alpha: 0.15)
                         : status == 'pending'
                         ? AppColors.warning.withValues(alpha: 0.15)
-                        : status == 'skipped'
+                        : status == 'missed'
                         ? AppColors.darkWith(0.1)
                         : AppColors.darkWith(0.08),
                     borderRadius: BorderRadius.circular(12),

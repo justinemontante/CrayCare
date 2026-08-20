@@ -26,6 +26,12 @@ class ScheduleItem {
   final bool enabled;
   final bool isDone;
   final double? grams;
+  final String? id;
+
+  /// Instant when this schedule configuration became effective. This prevents
+  /// a newly-created, edited, or re-enabled schedule from being treated as a
+  /// missed occurrence earlier on the same day.
+  final DateTime? effectiveAt;
 
   /// Day-of-week mask, Sunday first: "1111111" = every day,
   /// "1010100" = Sun/Tue/Thu only. Each char is '1' (on) or '0' (off).
@@ -38,6 +44,8 @@ class ScheduleItem {
     this.isDone = false,
     this.grams,
     this.days = '1111111',
+    this.id,
+    this.effectiveAt,
   });
 }
 
@@ -100,6 +108,19 @@ int feederScheduleMinutes(ScheduleItem schedule) {
   if (schedule.ampm == 'PM' && hour != 12) hour += 12;
   if (schedule.ampm == 'AM' && hour == 12) hour = 0;
   return hour * 60 + minute;
+}
+
+/// Returns true when [schedule] was already effective at the supplied Manila
+/// wall-clock occurrence. Legacy schedules without an effective timestamp are
+/// treated as existing, preserving their previous behavior.
+bool feederScheduleWasEffectiveAt(
+  ScheduleItem schedule,
+  DateTime occurrence,
+) {
+  final effectiveAt = schedule.effectiveAt;
+  if (effectiveAt == null) return true;
+  final effectiveManila = manilaWallClock(effectiveAt);
+  return !effectiveManila.isAfter(occurrence);
 }
 
 /// Whether an enabled schedule runs on [date]. The mask is Sunday-first.
@@ -172,7 +193,18 @@ class LogEntry {
   final String time;
   final String date;
   final int timestamp;
-  LogEntry(this.action, this.type, this.time, this.date, {this.timestamp = 0});
+  final String? scheduleKey;
+  final String? scheduleTime;
+
+  LogEntry(
+    this.action,
+    this.type,
+    this.time,
+    this.date, {
+    this.timestamp = 0,
+    this.scheduleKey,
+    this.scheduleTime,
+  });
 }
 
 class FeedState {

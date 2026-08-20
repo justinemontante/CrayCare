@@ -228,6 +228,24 @@ class FeederService extends ChangeNotifier {
                 for (final doc in snapshot.docs) {
                   final data = doc.data();
                   _scheduleKeys.add(doc.id);
+                  DateTime? effectiveAt;
+                  final effectiveRaw = data['effective_at_ms'];
+                  if (effectiveRaw is num && effectiveRaw.toInt() > 0) {
+                    effectiveAt = DateTime.fromMillisecondsSinceEpoch(
+                      effectiveRaw.toInt(),
+                      isUtc: true,
+                    );
+                  } else {
+                    final createdRaw = data['created_at'];
+                    if (createdRaw is Timestamp) {
+                      effectiveAt = createdRaw.toDate();
+                    } else if (createdRaw is num && createdRaw.toInt() > 0) {
+                      effectiveAt = DateTime.fromMillisecondsSinceEpoch(
+                        createdRaw.toInt(),
+                        isUtc: true,
+                      );
+                    }
+                  }
                   _schedules.add(
                     ScheduleItem(
                       data['time'] as String? ?? '6:00',
@@ -236,6 +254,8 @@ class FeederService extends ChangeNotifier {
                       isDone: data['isDone'] as bool? ?? false,
                       grams: (data['grams'] as num?)?.toDouble(),
                       days: data['days'] as String? ?? '1111111',
+                      id: doc.id,
+                      effectiveAt: effectiveAt,
                     ),
                   );
                 }
@@ -275,7 +295,7 @@ class FeederService extends ChangeNotifier {
                   // and ESP NTP are anchored to Asia/Manila wall-clock time, so the
                   // log timestamps must be rendered in Manila too — otherwise a
                   // device in a different timezone fails to match its log against
-                  // the schedule (false "Feed skipped" detection).
+                  // the schedule (false "Feed missed" detection).
                   final ts = data['logged_at'] as int? ?? 0;
                   final dt = ts > 0
                       ? DateTime.fromMillisecondsSinceEpoch(
@@ -290,6 +310,8 @@ class FeederService extends ChangeNotifier {
                       dt == null ? '' : _formatTime(dt),
                       dt == null ? '' : _formatDate(dt),
                       timestamp: ts,
+                      scheduleKey: data['schedule_key'] as String?,
+                      scheduleTime: data['schedule_time'] as String?,
                     ),
                   );
                 }
@@ -395,6 +417,7 @@ class FeederService extends ChangeNotifier {
         'timeValue': timeValue,
         'days': days,
         'created_at': FieldValue.serverTimestamp(),
+        'effective_at_ms': DateTime.now().toUtc().millisecondsSinceEpoch,
       });
       final gramsStr = grams != null ? ' (${grams.toStringAsFixed(1)}g)' : '';
       await _addLogEntry(
@@ -460,6 +483,9 @@ class FeederService extends ChangeNotifier {
     // Update the switch immediately; Firestore persistence continues in the
     // background. This avoids making the UI animation wait on the network and
     // the audit-log write.
+    final effectiveNow = enabled
+        ? DateTime.now().toUtc()
+        : previous.effectiveAt;
     _schedules[index] = ScheduleItem(
       previous.time,
       previous.ampm,
@@ -467,6 +493,8 @@ class FeederService extends ChangeNotifier {
       isDone: false,
       grams: previous.grams,
       days: previous.days,
+      id: previous.id,
+      effectiveAt: effectiveNow,
     );
     FeedState.schedules.value = List.from(_schedules);
     notifyListeners();
@@ -475,6 +503,8 @@ class FeederService extends ChangeNotifier {
       await tankDoc.collection('feeder_schedules').doc(scheduleKey).update({
         'enabled': enabled,
         'isDone': false,
+        if (enabled)
+          'effective_at_ms': effectiveNow!.millisecondsSinceEpoch,
       });
       await _addLogEntry(
         action: enabled
@@ -538,6 +568,7 @@ class FeederService extends ChangeNotifier {
             'isDone': false,
             'grams': grams,
             'days': days,
+            'effective_at_ms': DateTime.now().toUtc().millisecondsSinceEpoch,
           });
       final gramsStr = grams != null ? ' (${grams.toStringAsFixed(1)}g)' : '';
       await _addLogEntry(
@@ -596,13 +627,16 @@ class FeederService extends ChangeNotifier {
       if (!feederScheduleRunsOnDate(s, now)) continue;
       final key = i < _scheduleKeys.length
           ? _scheduleKeys[i]
-          : '${s.time}_${s.ampm}';
-      if (_missedLogged.contains(key)) continue;
+          : (s.id ?? '${s.time}_${s.ampm}');
 
       final scheduleMinutes = feederScheduleMinutes(s);
       final hour24 = scheduleMinutes ~/ 60;
       final m = scheduleMinutes % 60;
       final scheduleDt = DateTime(now.year, now.month, now.day, hour24, m);
+      if (!feederScheduleWasEffectiveAt(s, scheduleDt)) continue;
+      final occurrenceKey = '$key|$scheduleMinutes';
+      if (_missedLogged.contains(occurrenceKey)) continue;
+
       final months = [
         'Jan',
         'Feb',
@@ -630,18 +664,18 @@ class FeederService extends ChangeNotifier {
       if (alreadyConfirmed) continue;
 
       if (now.difference(scheduleDt).inMinutes >= 5) {
-        _missedLogged.add(key);
+        _missedLogged.add(occurrenceKey);
         final reason = isOnline
             ? 'No confirmed feeder log received'
             : 'ESP was offline';
         // Use a deterministic document ID so an app restart or multiple
         // devices cannot write duplicate "Feed skipped" logs for the same
         // schedule on the same Manila day.
-        final missedDocId = 'missed_${todayKey}_$key'
+        final missedDocId = 'missed_${todayKey}_${key}_$scheduleMinutes'
             .replaceAll('/', '_')
             .replaceAll(RegExp(r'[^\w.\-]'), '_');
         await tankDoc.collection('feeder_logs').doc(missedDocId).set({
-          'action': 'Feed skipped - $reason',
+          'action': 'Feed missed - $reason',
           'type': 'missed',
           // Store the real current UTC instant. `now` is only a Manila
           // wall-clock view used for schedule comparison/date keys.

@@ -116,4 +116,18 @@ void main() {
       expect(feederSchedulesConflict(first, second), isFalse);
     });
   });
+
+  group('schedule effective occurrence', () {
+    test('new schedule after today occurrence is not considered due', () {
+      final schedule = ScheduleItem('2:00', 'PM', effectiveAt: DateTime.utc(2026, 8, 20, 8, 30));
+      expect(feederScheduleWasEffectiveAt(schedule, DateTime(2026, 8, 20, 14)), isFalse);
+    });
+    test('schedule created before occurrence remains due', () {
+      final schedule = ScheduleItem('2:00', 'PM', effectiveAt: DateTime.utc(2026, 8, 20, 5));
+      expect(feederScheduleWasEffectiveAt(schedule, DateTime(2026, 8, 20, 14)), isTrue);
+    });
+    test('legacy schedule keeps previous behavior', () {
+      expect(feederScheduleWasEffectiveAt(ScheduleItem('2:00', 'PM'), DateTime(2026, 8, 20, 14)), isTrue);
+    });
+  });
 }
