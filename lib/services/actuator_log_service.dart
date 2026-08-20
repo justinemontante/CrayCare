@@ -6,11 +6,13 @@ import '../models/control_types.dart';
 import '../utils/prediction_timestamp.dart';
 
 class AutoActuatorEvent {
+  final String eventId;
   final String actuatorId;
   final String actuatorLabel;
   final String action;
   final DateTime timestamp;
   const AutoActuatorEvent({
+    required this.eventId,
     required this.actuatorId,
     required this.actuatorLabel,
     required this.action,
@@ -149,6 +151,7 @@ class ActuatorLogService extends ChangeNotifier {
             final label = actuatorLabels[actuatorId] ?? actuatorId;
 
             _autoControlController.add(AutoActuatorEvent(
+              eventId: change.doc.id,
               actuatorId: actuatorId,
               actuatorLabel: label,
               action: action,

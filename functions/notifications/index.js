@@ -194,7 +194,9 @@ async function sendPush(uid, payload, prefsCheck) {
 // ─── Helper: write notification to Firestore ──────────────────────────
 async function writeNotification(targetUid, notif) {
   // Canonical notification schema consumed by NotificationService.
-  await firestoreDb.collection("notifications").doc().set({
+  const collectionRef = firestoreDb.collection("notifications");
+  const docRef = notif.docId ? collectionRef.doc(notif.docId) : collectionRef.doc();
+  await docRef.set({
     uid: targetUid,
     notif_type: notif.notif_type || notif.type || "general",
     title: notif.title || "CrayCare",
@@ -743,3 +745,55 @@ async function sendSamplingPush(uid, notifTarget) {
     data: { sampling: "true" },
   }, "sampling");
 }
+
+
+// ─── AUTO ACTUATOR NOTIFICATION (single DB record, multi-device push) ───
+// One physical AUTO actuator log -> one notification document.
+// FCM fans that same event out to every registered device of the owner.
+exports.onAutoActuatorLogCreate = functions.region("asia-southeast1").firestore
+  .document("tanks/{tankId}/actuator_logs/{logId}")
+  .onCreate(async (snap, context) => {
+    const data = snap.data() || {};
+    const action = String(data.action || "");
+    if (!action.includes("(AUTO)")) return null;
+
+    const tankId = context.params.tankId;
+    const logId = context.params.logId;
+    const tankSnap = await firestoreDb.collection("tanks").doc(tankId).get();
+    if (!tankSnap.exists) return null;
+
+    const ownerUid = String((tankSnap.data() || {}).owner_uid || "").trim();
+    if (!ownerUid) return null;
+
+    const userSnap = await firestoreDb.collection("users").doc(ownerUid).get();
+    const userData = userSnap.exists ? (userSnap.data() || {}) : {};
+    if (String(userData.role || "owner").toLowerCase() === "admin") return null;
+    if (String(userData.status || "active").toLowerCase() === "disabled") return null;
+
+    const actuatorId = String(data.actuator_type || "");
+    const labels = {
+      aerator1: "Aerator 1",
+      aerator2: "Aerator 2",
+      pump: "Water Pump",
+    };
+    const label = labels[actuatorId] || actuatorId || "Actuator";
+    const turnedOn = action.includes("Switched ON");
+    const turnedOff = action.includes("Switched OFF");
+    if (!turnedOn && !turnedOff) return null;
+
+    const title = `${label} turned ${turnedOn ? "ON" : "OFF"}`;
+    const body = action.replace(/^Switched (?:ON|OFF) \(AUTO\) - /, "");
+    const docId = `actuator_${logId}`;
+
+    await writeNotification(ownerUid, {
+      docId,
+      type: "operational",
+      title,
+      message: body,
+    });
+    await sendPush(ownerUid, {
+      notification: { title, body },
+      data: { operational: "true", critical: "false" },
+    });
+    return null;
+  });

@@ -93,8 +93,9 @@ Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
     final isFeeding = data['feeding'] == 'true';
     final isSampling = data['sampling'] == 'true';
     final isWarning = data['warning'] == 'true';
+    final isOperational = data['operational'] == 'true';
     final showCritical = data['critical'] != 'false';
-    if (!showCritical && !isFeeding && !isSampling && !isWarning) return;
+    if (!showCritical && !isFeeding && !isSampling && !isWarning && !isOperational) return;
 
     try {
       final user = FirebaseAuth.instance.currentUser;
@@ -121,7 +122,7 @@ Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
             debugPrint('[FCM] Skipping warning notification because it is turned off in preferences.');
             return;
           }
-          if (!isFeeding && !isSampling && !isWarning && map['critical'] == false) {
+          if (!isFeeding && !isSampling && !isWarning && !isOperational && map['critical'] == false) {
             debugPrint('[FCM] Skipping critical notification because it is turned off in preferences.');
             return;
           }
@@ -546,13 +547,14 @@ class NotificationService extends ChangeNotifier {
     final isFeeding = data['feeding'] == 'true';
     final isSampling = data['sampling'] == 'true';
     final isWarning = data['warning'] == 'true';
+    final isOperational = data['operational'] == 'true';
     final showCritical = data['critical'] != 'false';
-    if (!showCritical && !isFeeding && !isSampling && !isWarning) return;
+    if (!showCritical && !isFeeding && !isSampling && !isWarning && !isOperational) return;
 
     if (isFeeding && !_notifFeeding) return;
     if (isSampling && !_notifSampling) return;
     if (isWarning && !_notifWarning) return;
-    if (!isFeeding && !isSampling && !isWarning && !_notifCritical) return;
+    if (!isFeeding && !isSampling && !isWarning && !isOperational && !_notifCritical) return;
 
     final playSound = data['sound'] != 'false' && _notifSound;
     final vibrate = data['vibration'] != 'false' && _notifVibration;
@@ -638,7 +640,13 @@ class NotificationService extends ChangeNotifier {
         title = '${event.actuatorLabel} turned OFF';
         message = event.action.replaceFirst('Switched OFF (AUTO) - ', '');
       }
-      _addNotification(type: 'operational', title: title, message: message, timestamp: event.timestamp);
+      _addNotification(
+        type: 'operational',
+        title: title,
+        message: message,
+        timestamp: event.timestamp,
+        documentId: 'actuator_${event.eventId}',
+      );
     });
   }
 
@@ -663,7 +671,10 @@ class NotificationService extends ChangeNotifier {
 
     for (final log in FeedState.feederLogs.value) {
       if (log.type != 'auto') continue;
-      if (!log.action.contains('Auto feed dispensed')) continue;
+      final isScheduledDispense =
+          log.action.contains('Dispensed feed (Scheduled)') ||
+          log.action.contains('Auto feed dispensed');
+      if (!isScheduledDispense) continue;
       if (log.timestamp <= 0 || log.timestamp < oneMinAgo) continue;
 
       final confirmKey = 'confirm_${now.month}/${now.day}_${log.timestamp}';
@@ -740,11 +751,13 @@ class NotificationService extends ChangeNotifier {
     required String title,
     required String message,
     required DateTime timestamp,
+    String? documentId,
   }) {
     if (_userRole == 'admin') return;
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (uid.isEmpty) return;
-    final docRef = FirebaseFirestore.instance.collection('notifications').doc();
+    final docRef = FirebaseFirestore.instance.collection('notifications').doc(documentId);
+    if (_notifications.any((n) => n.id == docRef.id)) return;
     final notif = NotificationItem(
       id: docRef.id,
       notif_type: type,

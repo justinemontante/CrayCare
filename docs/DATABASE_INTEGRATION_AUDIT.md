@@ -22,7 +22,7 @@ ESP32 anonymous device session
       -> tanks/{tankId}/sensor_readings_history/{date}/entries/{id}
           -> Flutter live dashboard and historical analytics
           -> hourly Python Water Quality Assessment
-          -> tanks/{tankId}/ml_predictions/current
+          -> tanks/{tankId}/machine_learning_assessments/current
 ```
 
 Device control paths are scoped to the assigned tank:

@@ -82,7 +82,8 @@ class _AdminScreenState extends State<AdminScreen> {
   }
 
   String _displayName(Map<String, dynamic> user) {
-    return (user['fullName'] as String?) ??
+    return (user['full_name'] as String?) ??
+        (user['fullName'] as String?) ??
         (user['displayName'] as String?) ??
         (user['email'] as String?) ??
         'User';
