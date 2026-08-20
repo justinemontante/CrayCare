@@ -1,0 +1,118 @@
+name: Optimize analytics history loading
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/optimize-analytics-history.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Optimize history loading
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('lib/services/sensor_service.dart')
+          s = p.read_text(encoding='utf-8')
+
+          s = s.replace(
+              "static const _historicalCacheTtl = Duration(minutes: 10);",
+              "static const _historicalCacheTtl = Duration(hours: 12);",
+              1,
+          )
+
+          start = s.index("    if (uncachedDays.isNotEmpty) {\n")
+          end_marker = "\n    cachedRecords.sort((a, b) {"
+          end = s.index(end_marker, start)
+
+          new_block = '''    if (uncachedDays.isNotEmpty) {
+      final isOnline = ConnectivityService.instance.isOnline;
+
+      // Firestore history is split into one subcollection per calendar day.
+      // Previously every uncached day was queried from local cache first and
+      // then queried again from the server in batches of only six. That made
+      // 7d/30d/custom ranges perform almost twice as many reads and several
+      // sequential network rounds. Online requests now go straight through
+      // serverAndCache with bounded parallelism; offline requests use cache.
+      final source = isOnline ? Source.serverAndCache : Source.cache;
+      const maxConcurrentDays = 24;
+
+      for (var i = 0; i < uncachedDays.length; i += maxConcurrentDays) {
+        final endIndex = i + maxConcurrentDays > uncachedDays.length
+            ? uncachedDays.length
+            : i + maxConcurrentDays;
+        final chunk = uncachedDays.sublist(i, endIndex);
+
+        final futures = chunk.map((dateStr) async {
+          try {
+            final snap = await FirebaseFirestore.instance
+                .collection('tanks')
+                .doc(tankId)
+                .collection('sensor_readings_history')
+                .doc(dateStr)
+                .collection('entries')
+                .get(GetOptions(source: source));
+
+            final docs = snap.docs.map((doc) {
+              final data = doc.data();
+              data['id'] = doc.id;
+              return data;
+            }).toList();
+
+            // Cache successful responses, including truly empty days. Today
+            // expires quickly; completed days stay hot for 12 hours.
+            cacheDay(dateStr, docs);
+            return docs;
+          } catch (e) {
+            debugPrint(
+              '[SensorService] fetchHistoryRange error for $dateStr: $e',
+            );
+
+            // If the network request failed, still try Firestore's local cache
+            // once so temporary connectivity problems do not blank the graph.
+            if (isOnline) {
+              try {
+                final cachedSnap = await FirebaseFirestore.instance
+                    .collection('tanks')
+                    .doc(tankId)
+                    .collection('sensor_readings_history')
+                    .doc(dateStr)
+                    .collection('entries')
+                    .get(const GetOptions(source: Source.cache));
+                return cachedSnap.docs.map((doc) {
+                  final data = doc.data();
+                  data['id'] = doc.id;
+                  return data;
+                }).toList();
+              } catch (_) {}
+            }
+            return <Map<String, dynamic>>[];
+          }
+        });
+
+        final results = await Future.wait(futures);
+        cachedRecords.addAll(results.expand((r) => r));
+      }
+    }
+'''
+
+          s = s[:start] + new_block + s[end:]
+          p.write_text(s, encoding='utf-8')
+
+      - name: Commit optimization
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/services/sensor_service.dart
+          git diff --cached --quiet && exit 0
+          git commit -m "Speed up analytics history loading"
+          git push origin main
