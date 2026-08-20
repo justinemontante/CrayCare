@@ -946,21 +946,15 @@ class _DashboardScreenState extends State<DashboardScreen>
                 ),
                 const Spacer(),
                 GestureDetector(
+                  behavior: HitTestBehavior.opaque,
                   onTap: () {
                     if (batch != null) {
                       tank.selectBatch(batch.batchId);
                     }
                     widget.onTankTab?.call(0);
                   },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -969,15 +963,15 @@ class _DashboardScreenState extends State<DashboardScreen>
                               ? 'Manage'
                               : (hasBatch ? 'View' : 'Initialize'),
                           style: const TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w700,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
                             color: AppColors.primary,
                           ),
                         ),
-                        const SizedBox(width: 2),
+                        const SizedBox(width: 3),
                         const Icon(
-                          Icons.chevron_right,
-                          size: 10,
+                          Icons.arrow_forward_ios_rounded,
+                          size: 9,
                           color: AppColors.primary,
                         ),
                       ],
