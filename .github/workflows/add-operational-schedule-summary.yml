@@ -231,3 +231,5 @@ jobs:
           git diff --cached --quiet && exit 0
           git commit -m "Improve dashboard operational schedule summary"
           git push origin main
+
+# retrigger existing workflow
