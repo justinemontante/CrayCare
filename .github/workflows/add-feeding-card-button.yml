@@ -1,0 +1,99 @@
+name: Add feeding card navigation button
+
+on:
+  push:
+    paths:
+      - '.github/workflows/add-feeding-card-button.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  update-dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Add View Feeding button
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('lib/screens/dashboard_screen.dart')
+          text = path.read_text(encoding='utf-8')
+
+          old = '''          Row(
+            children: [
+              Icon(Icons.bubble_chart, size: 18, color: AppColors.primary),
+              const SizedBox(width: 6),
+              const Text(
+                'Feeding Schedule',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.dark,
+                ),
+              ),
+            ],
+          ),'''
+
+          new = '''          Row(
+            children: [
+              Icon(Icons.bubble_chart, size: 18, color: AppColors.primary),
+              const SizedBox(width: 6),
+              const Expanded(
+                child: Text(
+                  'Feeding Schedule',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.dark,
+                  ),
+                ),
+              ),
+              TextButton.icon(
+                onPressed: widget.onControlTab == null
+                    ? null
+                    : () => widget.onControlTab!(0),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.primary,
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                icon: const Icon(Icons.arrow_forward_rounded, size: 14),
+                iconAlignment: IconAlignment.end,
+                label: const Text(
+                  'View Feeding',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),'''
+
+          if 'View Feeding' in text:
+              raise SystemExit(0)
+          if old not in text:
+              raise SystemExit('Feeding Schedule header block not found')
+
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+      - name: Commit dashboard button
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/screens/dashboard_screen.dart
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Add feeding navigation button to dashboard"
+          git push origin HEAD:main
