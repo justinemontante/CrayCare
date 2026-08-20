@@ -1,0 +1,54 @@
+name: Adjust ESP sensor poll interval
+
+on:
+  push:
+    paths:
+      - '.github/workflows/adjust-sensor-poll-2s.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  update-sensor-poll:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set sensor polling to 2 seconds
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("esp/CrayCare/src/main.cpp")
+          text = path.read_text(encoding="utf-8")
+
+          replacements = [
+              ("#define SENSOR_POLL_MS 500", "#define SENSOR_POLL_MS 2000"),
+              ("// every 0.5 s, so each window collects up to ~1200 samples.",
+               "// every 2 s, so each window collects up to ~300 samples."),
+              ("// history save (up to ~1200 samples at 0.5s poll), so brief spikes",
+               "// history save (up to ~300 samples at 2s poll), so brief spikes"),
+          ]
+
+          for old, new in replacements:
+              if old not in text:
+                  raise SystemExit(f"Expected text not found: {old}")
+              text = text.replace(old, new, 1)
+
+          path.write_text(text, encoding="utf-8")
+
+      - name: Commit change
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add esp/CrayCare/src/main.cpp
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "Use 2-second ESP sensor polling"
+          git push origin HEAD:main
