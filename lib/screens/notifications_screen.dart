@@ -116,11 +116,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   Widget _buildFilterRow() {
     final filters = [
-      (Icons.notifications_rounded, 'all', 'All'),
-      (Icons.warning_rounded, 'critical', 'Critical'),
-      (Icons.info_outline_rounded, 'warning', 'Warning'),
-      (Icons.check_circle_outline_rounded, 'operational', 'Operational'),
-      (Icons.notifications_outlined, 'reminder', 'Reminders'),
+      ('all', 'All'),
+      ('critical', 'Critical'),
+      ('warning', 'Warning'),
+      ('operational', 'Operational'),
+      ('reminder', 'Reminders'),
     ];
 
     return Container(
@@ -133,10 +133,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       child: Row(
         children: [
           ...List.generate(filters.length, (i) {
-            final isActive = _activeFilter == filters[i].$2;
+            final isActive = _activeFilter == filters[i].$1;
             return Expanded(
               child: GestureDetector(
-                onTap: () => _selectFilter(filters[i].$2),
+                onTap: () => _selectFilter(filters[i].$1),
                 child: Container(
                   padding: const EdgeInsets.symmetric(vertical: 10),
                   decoration: BoxDecoration(
@@ -154,28 +154,15 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   ),
                   child: FittedBox(
                     fit: BoxFit.scaleDown,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          filters[i].$1,
-                          size: 13,
-                          color: isActive
-                              ? AppColors.primary
-                              : AppColors.dark.withValues(alpha: 0.45),
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          filters[i].$3,
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                            color: isActive
-                                ? AppColors.primary
-                                : AppColors.dark.withValues(alpha: 0.45),
-                          ),
-                        ),
-                      ],
+                    child: Text(
+                      filters[i].$2,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: isActive
+                            ? AppColors.primary
+                            : AppColors.dark.withValues(alpha: 0.45),
+                      ),
                     ),
                   ),
                 ),
