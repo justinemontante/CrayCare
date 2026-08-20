@@ -101,9 +101,16 @@ service cloud.firestore {
         allow read: if isTankOwner(tankId);
         allow create, update, delete: if false;
       }
-      match /sensor_readings_history/{dateStr}/entries/{entryId} {
+      match /sensor_readings_history/{dateStr} {
+        // Parent day documents are server-maintained daily summaries. Owners
+        // may read them for long-range Analytics, but clients can never write.
         allow read: if isTankOwner(tankId);
         allow create, update, delete: if false;
+
+        match /entries/{entryId} {
+          allow read: if isTankOwner(tankId);
+          allow create, update, delete: if false;
+        }
       }
       match /sensors/{sensorName} {
         allow read: if isTankOwner(tankId) || isAssignedEsp(tankId);

@@ -488,29 +488,128 @@ class SensorService extends ChangeNotifier {
     _dayCachedAt.clear();
   }
 
-  Future<List<Map<String, dynamic>>> fetchHistoryRange({
+  DateTime? _dateFromKey(String dateStr) {
+    final parts = dateStr.split('-');
+    if (parts.length != 3) return null;
+    final year = int.tryParse(parts[0]);
+    final month = int.tryParse(parts[1]);
+    final day = int.tryParse(parts[2]);
+    if (year == null || month == null || day == null) return null;
+    return DateTime(year, month, day);
+  }
+
+  bool _hasUsableDailySummary(Map<String, dynamic> data) {
+    if (data['summary_version'] != 1 || data['summary_complete'] != true) {
+      return false;
+    }
+    const averageFields = [
+      'temp_avg',
+      'pH_avg',
+      'DO_avg',
+      'turbidity_avg',
+      'waterLevel_avg',
+    ];
+    return averageFields.any((field) => data[field] is num);
+  }
+
+  Future<List<Map<String, dynamic>>?> _fetchDailySummaryBackedRange({
+    required String tankId,
     required DateTime start,
     required DateTime end,
   }) async {
-    var tankId = _tankId;
-    if (tankId == null) {
-      final uid = FirebaseAuth.instance.currentUser?.uid;
-      if (uid != null) {
-        final profileDoc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(uid)
-            .get();
-        final data = profileDoc.data();
-        if (data?['role'] != 'admin') {
-          tankId = data?['tank_id'] as String? ?? uid;
-          _resetForTankChange(tankId);
-          _tankId = tankId;
-        }
+    final firstDay = DateTime(start.year, start.month, start.day);
+    final lastDay = DateTime(end.year, end.month, end.day);
+    final days = <DateTime>[];
+    for (var day = firstDay; !day.isAfter(lastDay); day = day.add(const Duration(days: 1))) {
+      days.add(day);
+    }
+    if (days.length < 14) return null;
+
+    final historyRef = FirebaseFirestore.instance
+        .collection('tanks')
+        .doc(tankId)
+        .collection('sensor_readings_history');
+    final isOnline = ConnectivityService.instance.isOnline;
+    final source = isOnline ? Source.serverAndCache : Source.cache;
+
+    QuerySnapshot<Map<String, dynamic>> summarySnap;
+    try {
+      summarySnap = await historyRef
+          .orderBy(FieldPath.documentId)
+          .startAt([_dateStrFor(firstDay)])
+          .endAt([_dateStrFor(lastDay)])
+          .get(GetOptions(source: source));
+    } catch (e) {
+      debugPrint('[SensorService] Daily summary query unavailable: $e');
+      if (!isOnline) return null;
+      try {
+        summarySnap = await historyRef
+            .orderBy(FieldPath.documentId)
+            .startAt([_dateStrFor(firstDay)])
+            .endAt([_dateStrFor(lastDay)])
+            .get(const GetOptions(source: Source.cache));
+      } catch (_) {
+        return null;
       }
     }
 
-    if (tankId == null || tankId.isEmpty) return [];
+    final summaries = <String, Map<String, dynamic>>{};
+    for (final doc in summarySnap.docs) {
+      final data = Map<String, dynamic>.from(doc.data());
+      if (!_hasUsableDailySummary(data)) continue;
+      final date = _dateFromKey(doc.id);
+      if (date == null) continue;
+      data['id'] = 'summary:${doc.id}';
+      // Noon keeps the synthetic daily point safely inside the selected day.
+      data['recorded_at'] = DateTime(date.year, date.month, date.day, 12);
+      summaries[doc.id] = data;
+    }
 
+    if (summaries.isEmpty) return null;
+
+    // Avoid a fragmented fallback when the deployment has only just started
+    // producing summaries. Until at least half the requested days are covered,
+    // the optimized raw-entry loader is faster and simpler.
+    if (summaries.length * 2 < days.length) return null;
+
+    final records = <Map<String, dynamic>>[...summaries.values];
+    final missingDays = days
+        .where((day) => !summaries.containsKey(_dateStrFor(day)))
+        .toList();
+
+    // Missing days are normally only today or legacy gaps. Load them in small
+    // bounded groups, preserving full backward compatibility with old history.
+    const missingChunkSize = 12;
+    for (var i = 0; i < missingDays.length; i += missingChunkSize) {
+      final endIndex = i + missingChunkSize > missingDays.length
+          ? missingDays.length
+          : i + missingChunkSize;
+      final chunk = missingDays.sublist(i, endIndex);
+      final futures = chunk.map((day) {
+        final dayEnd = DateTime(day.year, day.month, day.day, 23, 59, 59, 999);
+        return _fetchEntryHistoryRange(
+          tankId: tankId,
+          start: day,
+          end: dayEnd,
+        );
+      });
+      final fallbackResults = await Future.wait(futures);
+      records.addAll(fallbackResults.expand((result) => result));
+    }
+
+    records.sort((a, b) {
+      final at = _extractTimestamp(a) ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bt = _extractTimestamp(b) ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return at.compareTo(bt);
+    });
+    return records;
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchEntryHistoryRange({
+    required String tankId,
+    required DateTime start,
+    required DateTime end,
+  }) async {
     final days = <String>[];
     for (
       var d = DateTime(start.year, start.month, start.day);
@@ -535,9 +634,6 @@ class SensorService extends ChangeNotifier {
       final isOnline = ConnectivityService.instance.isOnline;
       final source = isOnline ? Source.serverAndCache : Source.cache;
 
-      // Each day is stored in a separate Firestore subcollection. Fetch a
-      // reasonable number of days concurrently so 7d/30d/custom ranges do not
-      // wait on many sequential network rounds.
       const maxConcurrentDays = 24;
       for (var i = 0; i < uncachedDays.length; i += maxConcurrentDays) {
         final endIndex = i + maxConcurrentDays > uncachedDays.length
@@ -567,7 +663,6 @@ class SensorService extends ChangeNotifier {
               '[SensorService] fetchHistoryRange error for $dateStr: $e',
             );
 
-            // If a network request fails, still show any persisted local data.
             if (isOnline) {
               try {
                 final cachedSnap = await FirebaseFirestore.instance
@@ -589,7 +684,7 @@ class SensorService extends ChangeNotifier {
         });
 
         final results = await Future.wait(futures);
-        records.addAll(results.expand((r) => r));
+        records.addAll(results.expand((result) => result));
       }
     }
 
@@ -599,6 +694,47 @@ class SensorService extends ChangeNotifier {
       return at.compareTo(bt);
     });
     return records;
+  }
+
+  Future<List<Map<String, dynamic>>> fetchHistoryRange({
+    required DateTime start,
+    required DateTime end,
+  }) async {
+    var tankId = _tankId;
+    if (tankId == null) {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null) {
+        final profileDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(uid)
+            .get();
+        final data = profileDoc.data();
+        if (data?['role'] != 'admin') {
+          tankId = data?['tank_id'] as String? ?? uid;
+          _resetForTankChange(tankId);
+          _tankId = tankId;
+        }
+      }
+    }
+
+    if (tankId == null || tankId.isEmpty) return [];
+
+    final firstDay = DateTime(start.year, start.month, start.day);
+    final lastDay = DateTime(end.year, end.month, end.day);
+    final dayCount = lastDay.difference(firstDay).inDays + 1;
+
+    // 30-day and long custom ranges can use one parent-document summary query
+    // instead of dozens/hundreds of 10-minute entry subcollection reads.
+    if (dayCount >= 14) {
+      final summaryBacked = await _fetchDailySummaryBackedRange(
+        tankId: tankId,
+        start: start,
+        end: end,
+      );
+      if (summaryBacked != null) return summaryBacked;
+    }
+
+    return _fetchEntryHistoryRange(tankId: tankId, start: start, end: end);
   }
 
   @override
