@@ -1,15 +1,15 @@
 name: Compact feeder card typography
 
 on:
-  push:
-    paths:
-      - '.github/workflows/compact-feeder-card.yml'
+  issues:
+    types: [opened]
 
 permissions:
   contents: write
 
 jobs:
   patch:
+    if: github.event.issue.title == 'Apply feeder typography patch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
