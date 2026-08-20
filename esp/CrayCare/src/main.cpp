@@ -84,7 +84,7 @@ String currentTankId = "";
 #define HISTORY_SEND_INTERVAL_MS 600000  // 10 minutes; matches the documented schema
 #define CONFIG_SYNC_INTERVAL_MS 10000
 #define FLUSH_INTERVAL_MS 1000           // flush backlog at 1 entry/sec (max)
-#define SENSOR_POLL_MS 500
+#define SENSOR_POLL_MS 2000
 
 // Feeder timing
 #define FEEDER_CMD_INTERVAL_MS 300
@@ -463,7 +463,7 @@ float turbidityVoltage = 0.0;
 // Accumulated from ACCEPTED readings between history saves, so brief
 // spikes inside a 10-min window are preserved in the history entry
 // (and the ML volatility feature gets a real signal). The ESP polls
-// every 0.5 s, so each window collects up to ~1200 samples.
+// every 2 s, so each window collects up to ~300 samples.
 // Reset after every history write (or buffer append).
 float winTempSum = 0.0f; uint16_t winTempN = 0;
 float winTempMin = 0.0f; float winTempMax = 0.0f;
@@ -857,7 +857,7 @@ void buildFirestorePayload(FirebaseJson &json, bool includeTimestamp) {
   // ── 10-min HISTORY payload: per-sensor window aggregates. ────────────
   // Structure per sensor: MIN, MAX, AVG (in that order — avg NOT first).
   // The window accumulators hold every ACCEPTED reading since the last
-  // history save (up to ~1200 samples at 0.5s poll), so brief spikes
+  // history save (up to ~300 samples at 2s poll), so brief spikes
   // inside the window are preserved (e.g. temp_max catches a spike that
   // the snapshot at save time would miss). Falls back to the smoothed
   // value when no samples were accepted this window.
