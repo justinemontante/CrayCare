@@ -1,7 +1,7 @@
 name: Compact feeder card typography
 
 on:
-  issues:
+  pull_request:
     types: [opened]
 
 permissions:
@@ -9,7 +9,6 @@ permissions:
 
 jobs:
   patch:
-    if: github.event.issue.title == 'Apply feeder typography patch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
