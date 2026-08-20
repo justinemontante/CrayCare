@@ -752,9 +752,9 @@ class FeederTab extends StatelessWidget {
     }
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.only(bottom: 4),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
           color: bgColor,
           border: Border.all(color: borderColor),
@@ -762,8 +762,8 @@ class FeederTab extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Icon(statusIcon, size: 12, color: dotColor),
-            const SizedBox(width: 6),
+            Icon(statusIcon, size: 11, color: dotColor),
+            const SizedBox(width: 5),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -783,7 +783,7 @@ class FeederTab extends StatelessWidget {
                     ),
                   ),
                   if (s.grams != null) ...[
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 1),
                     Text(
                       '${s.grams!.toStringAsFixed(1)}g',
                       style: TextStyle(
@@ -793,7 +793,7 @@ class FeederTab extends StatelessWidget {
                       ),
                     ),
                   ],
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 1),
                   Text(
                     _formatDays(s.days),
                     style: TextStyle(
@@ -805,14 +805,14 @@ class FeederTab extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 6),
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 3,
+                    horizontal: 7,
+                    vertical: 2,
                   ),
                   decoration: BoxDecoration(
                     color: status == 'completed'
@@ -837,13 +837,13 @@ class FeederTab extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(height: 3),
+                const SizedBox(height: 2),
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     SizedBox(
-                      width: 38,
-                      height: 34,
+                      width: 34,
+                      height: 30,
                       child: FittedBox(
                         fit: BoxFit.contain,
                         child: Switch(
@@ -854,14 +854,14 @@ class FeederTab extends StatelessWidget {
                       ),
                     ),
                     SizedBox(
-                      width: 38,
-                      height: 38,
+                      width: 34,
+                      height: 34,
                       child: PopupMenuButton<String>(
                         tooltip: 'Schedule actions',
                         padding: EdgeInsets.zero,
                         icon: Icon(
                           Icons.more_vert_rounded,
-                          size: 20,
+                          size: 18,
                           color: AppColors.darkWith(0.55),
                         ),
                         onSelected: (action) {
