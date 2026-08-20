@@ -38,7 +38,7 @@ jobs:
             ("padding: const EdgeInsets.symmetric(vertical: 14),\n            elevation: 0,", "padding: const EdgeInsets.symmetric(vertical: 11),\n            elevation: 0,"),
             (": Icons.play_arrow,\n                size: 16,", ": Icons.play_arrow,\n                size: 14,"),
             ("const SizedBox(width: 8),\n              Text(\n                isRunning", "const SizedBox(width: 6),\n              Text(\n                isRunning"),
-            ("? 'Feed Now',\n                style: TextStyle(\n                  fontSize: 14,", "? 'Feed Now',\n                style: TextStyle(\n                  fontSize: 12,"),
+            (": 'Feed Now',\n                style: TextStyle(\n                  fontSize: 14,", ": 'Feed Now',\n                style: TextStyle(\n                  fontSize: 12,"),
             ("padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),", "padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),"),
             ("fontSize: 11,\n                      fontWeight: FontWeight.w600,\n                      color: AppColors.darkWith(0.6),", "fontSize: 9,\n                      fontWeight: FontWeight.w600,\n                      color: AppColors.darkWith(0.6),"),
             ("fontSize: 13,\n                      fontWeight: FontWeight.w800,\n                      color: AppColors.dark,", "fontSize: 11,\n                      fontWeight: FontWeight.w800,\n                      color: AppColors.dark,"),
