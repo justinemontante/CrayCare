@@ -52,12 +52,13 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart> {
   @override
   void didUpdateWidget(covariant AnalyticsLineChart oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // When new data arrives and initialScrollToEnd is set, scroll to end again.
     if (widget.initialScrollToEnd && widget.data != oldWidget.data) {
       _needsScrollToEnd = true;
     }
     if (widget.selectedIndex != oldWidget.selectedIndex &&
-        widget.selectedIndex != null) {
+        widget.selectedIndex != null &&
+        widget.selectedIndex! >= 0 &&
+        widget.selectedIndex! < widget.data.length) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) setState(() => _scrollToIndex(widget.selectedIndex!));
       });
@@ -85,14 +86,14 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart> {
   }
 
   void _scrollToIndex(int index) {
-    if (!_isScrollable || _visibleWidth <= 0) return;
+    if (!_isScrollable || _visibleWidth <= 0 || widget.data.length <= 1) return;
     final padL = _yLabelW();
     final vw = _virtualWidth();
     final chartW = vw - padL;
     if (chartW <= 0) return;
-    final stepX =
-        widget.data.length > 1 ? chartW / (widget.data.length - 1) : 0.0;
-    final pointX = padL + index * stepX;
+    final safeIndex = index.clamp(0, widget.data.length - 1);
+    final stepX = chartW / (widget.data.length - 1);
+    final pointX = padL + safeIndex * stepX;
     final maxScroll = max(0.0, vw - _visibleWidth);
     _scrollOffset = (pointX - _visibleWidth / 2).clamp(0.0, maxScroll);
   }
@@ -107,11 +108,16 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart> {
   void _onTapUp(TapUpDetails details) {
     final data = widget.data;
     if (data.isEmpty) return;
+    if (data.length == 1) {
+      widget.onSelectedIndexChanged?.call(0);
+      return;
+    }
     final padL = _yLabelW();
     final vw = _virtualWidth();
     final chartW = vw - padL;
     if (chartW <= 0) return;
-    final stepX = data.length > 1 ? chartW / (data.length - 1) : 0.0;
+    final stepX = chartW / (data.length - 1);
+    if (stepX <= 0) return;
     final virtualDx = details.localPosition.dx + _scrollOffset;
     final index =
         ((virtualDx - padL) / stepX).round().clamp(0, data.length - 1);
@@ -171,24 +177,26 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart> {
                       scrollable ? _onHorizontalDragUpdate : null,
                   child: CustomPaint(
                     painter: _LineChartPainter(
-                          widget.data,
-                          minVal,
-                          range,
-                          widget.color,
-                          labels: widget.labels,
-                          unit: widget.unit,
-                          showAxis: true,
-                          large: widget.large,
-                          selectedIndex: curIdx,
-                          thresholdMin: widget.thresholdMin,
-                          thresholdMax: widget.thresholdMax,
-                          scrollOffset: _scrollOffset,
-                          virtualWidth: vw,
-                        ),
-                        size: Size(_visibleWidth, chartH),
-                      ),
+                      widget.data,
+                      minVal,
+                      range,
+                      widget.color,
+                      labels: widget.labels,
+                      unit: widget.unit,
+                      showAxis: true,
+                      large: widget.large,
+                      selectedIndex: curIdx,
+                      thresholdMin: widget.thresholdMin,
+                      thresholdMax: widget.thresholdMax,
+                      scrollOffset: _scrollOffset,
+                      virtualWidth: vw,
+                    ),
+                    size: Size(_visibleWidth, chartH),
+                  ),
                 ),
-                if (curIdx != null && curIdx < widget.data.length)
+                if (curIdx != null &&
+                    curIdx >= 0 &&
+                    curIdx < widget.data.length)
                   Positioned(
                     top: 3,
                     left: _tooltipLeft(_visibleWidth),
@@ -214,20 +222,24 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final trackW = constraints.maxWidth;
+        if (trackW <= 0 || virtualWidth <= 0) return const SizedBox.shrink();
         final thumbFraction = _visibleWidth / virtualWidth;
-        final thumbW = max(24.0, trackW * thumbFraction);
-        final thumbPos =
-            (trackW - thumbW) * (_scrollOffset / maxScroll);
+        final thumbW = min(trackW, max(24.0, trackW * thumbFraction));
+        final travel = trackW - thumbW;
+        final thumbPos = travel <= 0
+            ? 0.0
+            : travel * (_scrollOffset / maxScroll);
 
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onHorizontalDragUpdate: (details) {
-            setState(() {
-              _scrollOffset +=
-                  details.delta.dx * (maxScroll / (trackW - thumbW));
-              _clampScroll();
-            });
-          },
+          onHorizontalDragUpdate: travel <= 0
+              ? null
+              : (details) {
+                  setState(() {
+                    _scrollOffset += details.delta.dx * (maxScroll / travel);
+                    _clampScroll();
+                  });
+                },
           onTapDown: (details) {
             final tapX = details.localPosition.dx;
             final normalized = (tapX / trackW).clamp(0.0, 1.0);
@@ -273,12 +285,12 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart> {
     final padL = _yLabelW();
     final vw = _virtualWidth();
     final chartW = vw - padL;
-    if (chartW <= 0 || data.length <= 1) return 8;
+    if (chartW <= 0 || data.length <= 1) return padL;
     final stepX = chartW / (data.length - 1);
     final x = padL + curIdx * stepX - _scrollOffset;
-    const tooltipW = 100;
+    const tooltipW = 100.0;
     if (x + tooltipW > totalWidth) {
-      return totalWidth - tooltipW;
+      return max(0.0, totalWidth - tooltipW);
     }
     if (x - tooltipW / 2 < padL) return padL;
     return x - tooltipW / 2;
@@ -369,7 +381,6 @@ class _LineChartPainter extends CustomPainter {
       fontWeight: FontWeight.w500,
     );
 
-    // Y-axis grid lines + labels
     if (showAxis) {
       final gridPaint = Paint()
         ..color = AppColors.darkWith(0.05)
@@ -380,11 +391,9 @@ class _LineChartPainter extends CustomPainter {
         decimalPlaces = 2;
       } else if (range < 5.0) {
         decimalPlaces = 1;
-      } else {
-        decimalPlaces = 0;
       }
 
-      final tickCount = 5;
+      const tickCount = 5;
       for (int i = 0; i <= tickCount; i++) {
         final y = padT + (chartH * i / tickCount);
         canvas.drawLine(
@@ -406,15 +415,11 @@ class _LineChartPainter extends CustomPainter {
       }
     }
 
-    // Clip chart area for data
     canvas.save();
     canvas.clipRect(
       Rect.fromLTWH(padL - 1, 0, visibleChartW + 2, size.height),
     );
 
-    // Threshold lines removed per user request
-
-    // Line paint
     final paintLine = Paint()
       ..color = color
       ..strokeWidth = large ? 2.5 : 2.0
@@ -422,7 +427,6 @@ class _LineChartPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round;
 
-    // Fill paint
     final fillPaint = Paint()
       ..shader = LinearGradient(
         begin: Alignment.topCenter,
@@ -436,7 +440,6 @@ class _LineChartPainter extends CustomPainter {
     final path = Path();
     final fillPath = Path();
 
-    // Build smooth points list (skip NaN gaps)
     final segments = <List<Offset>>[];
     var current = <Offset>[];
     for (int i = 0; i < data.length; i++) {
@@ -474,7 +477,7 @@ class _LineChartPainter extends CustomPainter {
         final p2 = seg[i];
         final p3 = seg[min(seg.length - 1, i + 1)];
 
-        final tension = 0.3;
+        const tension = 0.3;
         final cp1x = p1.dx + (p2.dx - p0.dx) * tension;
         final cp1y = p1.dy + (p2.dy - p0.dy) * tension;
         final cp2x = p2.dx - (p3.dx - p1.dx) * tension;
@@ -491,7 +494,6 @@ class _LineChartPainter extends CustomPainter {
     canvas.drawPath(fillPath, fillPaint);
     canvas.drawPath(path, paintLine);
 
-    // Dots (skip if too many)
     final dotPaint = Paint()..color = color;
     final dotBorder = Paint()..color = Colors.white;
     final dotStep = max(1, data.length ~/ 120);
@@ -504,7 +506,6 @@ class _LineChartPainter extends CustomPainter {
       canvas.drawCircle(Offset(x, y), 2, dotPaint);
     }
 
-    // Selected point highlight
     if (selectedIndex != null &&
         selectedIndex! >= 0 &&
         selectedIndex! < data.length &&
@@ -517,7 +518,8 @@ class _LineChartPainter extends CustomPainter {
         ..color = color.withValues(alpha: 0.6)
         ..strokeWidth = 1.2;
 
-      double dashHeight = 4, dashSpace = 3;
+      const dashHeight = 4.0;
+      const dashSpace = 3.0;
       double startY = padT;
       while (startY < padT + chartH) {
         canvas.drawLine(
@@ -540,7 +542,6 @@ class _LineChartPainter extends CustomPainter {
 
     canvas.restore();
 
-    // X-axis labels — always 6, evenly spaced, slanted
     if (showAxis && labels != null && labels!.isNotEmpty) {
       final count = data.length;
       if (count > 0) {
@@ -550,12 +551,18 @@ class _LineChartPainter extends CustomPainter {
         final sinA = sin(angle);
         final maxRight = size.width - padR - 2;
 
+        // A single point has no horizontal interval; anchor its only label at
+        // the first plotting position instead of dividing by stepX == 0.
         final idxs = <int>[];
-        for (int n = 0; n < targetCount; n++) {
-          final t = targetCount > 1 ? n / (targetCount - 1) : 0.5;
-          final probeX = padL + (maxRight - padL) * t;
-          final dataX = probeX + scrollOffset - padL;
-          idxs.add((dataX / stepX).round().clamp(0, count - 1));
+        if (count == 1) {
+          idxs.add(0);
+        } else {
+          for (int n = 0; n < targetCount; n++) {
+            final t = targetCount > 1 ? n / (targetCount - 1) : 0.5;
+            final probeX = padL + (maxRight - padL) * t;
+            final dataX = probeX + scrollOffset - padL;
+            idxs.add((dataX / stepX).round().clamp(0, count - 1));
+          }
         }
 
         double maxSlantExtent = 0;
@@ -570,12 +577,17 @@ class _LineChartPainter extends CustomPainter {
 
         final firstX = padL;
         final lastX = maxRight - maxSlantExtent;
-        final spacing = targetCount > 1 ? (lastX - firstX) / (targetCount - 1) : 0.0;
+        final spacing = targetCount > 1
+            ? (lastX - firstX) / (targetCount - 1)
+            : 0.0;
 
         for (int n = 0; n < targetCount; n++) {
           final fixedX = firstX + spacing * n;
-          final dataX = fixedX + scrollOffset - padL;
-          final idx = (dataX / stepX).round().clamp(0, count - 1);
+          final idx = count == 1
+              ? 0
+              : ((fixedX + scrollOffset - padL) / stepX)
+                  .round()
+                  .clamp(0, count - 1);
           final tp = TextPainter(
             text: TextSpan(text: labels![idx], style: textStyle),
             textDirection: TextDirection.ltr,
@@ -610,5 +622,3 @@ class _LineChartPainter extends CustomPainter {
       oldDelegate.scrollOffset != scrollOffset ||
       oldDelegate.virtualWidth != virtualWidth;
 }
-
-
