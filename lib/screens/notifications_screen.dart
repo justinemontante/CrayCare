@@ -143,6 +143,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       ('operational', 'Operational'),
       ('reminder', 'Reminders'),
     ];
+    final activeIndex = filters.indexWhere((f) => f.$1 == _activeFilter);
 
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
@@ -151,56 +152,76 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         color: AppColors.dark.withValues(alpha: 0.02),
         borderRadius: BorderRadius.circular(14),
       ),
-      child: Row(
-        children: List.generate(filters.length, (i) {
-          final filter = filters[i].$1;
-          final label = filters[i].$2;
-          final isActive = _activeFilter == filter;
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final tabWidth = constraints.maxWidth / filters.length;
 
-          return Expanded(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () => _selectFilter(filter),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
-                curve: Curves.easeOutCubic,
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                decoration: BoxDecoration(
-                  color: isActive ? Colors.white : Colors.transparent,
-                  borderRadius: BorderRadius.circular(10),
-                  boxShadow: isActive
-                      ? [
+          return SizedBox(
+            height: 38,
+            child: Stack(
+              children: [
+                AnimatedPositioned(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                  left: tabWidth * (activeIndex < 0 ? 0 : activeIndex),
+                  top: 0,
+                  bottom: 0,
+                  width: tabWidth,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 1),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                        boxShadow: [
                           BoxShadow(
                             color: AppColors.dark.withValues(alpha: 0.04),
                             blurRadius: 6,
                             offset: const Offset(0, 1),
                           ),
-                        ]
-                      : null,
-                ),
-                child: Center(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 2),
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Text(
-                        label,
-                        maxLines: 1,
-                        style: TextStyle(
-                          fontSize: 9.5,
-                          fontWeight: FontWeight.w700,
-                          color: isActive
-                              ? AppColors.primary
-                              : AppColors.dark.withValues(alpha: 0.45),
-                        ),
+                        ],
                       ),
                     ),
                   ),
                 ),
-              ),
+                Row(
+                  children: List.generate(filters.length, (i) {
+                    final filter = filters[i].$1;
+                    final label = filters[i].$2;
+                    final isActive = _activeFilter == filter;
+
+                    return Expanded(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => _selectFilter(filter),
+                        child: Center(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 2),
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: AnimatedDefaultTextStyle(
+                                duration: const Duration(milliseconds: 180),
+                                curve: Curves.easeOutCubic,
+                                style: TextStyle(
+                                  fontSize: 9.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: isActive
+                                      ? AppColors.primary
+                                      : AppColors.dark.withValues(alpha: 0.45),
+                                ),
+                                child: Text(label, maxLines: 1),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                ),
+              ],
             ),
           );
-        }),
+        },
       ),
     );
   }
@@ -259,13 +280,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final color = _typeColor(n.notif_type);
     final isUnread = NotificationService.instance.unreadStatus(n.id);
     return GestureDetector(
-      onTap: () => _showDetail(n), // markAsRead happens inside _showDetail
+      onTap: () => _showDetail(n),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         margin: const EdgeInsets.only(bottom: 6),
         padding: const EdgeInsets.fromLTRB(10, 10, 6, 10),
         decoration: BoxDecoration(
-          // Unread items have a subtle tinted background
           color: isUnread ? color.withValues(alpha: 0.04) : Colors.white,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
@@ -368,8 +388,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   void _showDetail(NotificationItem n) {
     final color = _typeColor(n.notif_type);
-    // Mark as read as soon as the user opens the detail — per-user via is_read / per-user in Firebase.
-    // Each user's read state is independent; tapping here only marks IT for the current user.
     NotificationService.instance.markAsRead(n.id);
 
     showModalBottomSheet(
@@ -387,7 +405,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Drag handle
                 Center(
                   child: Container(
                     width: 36,
@@ -399,7 +416,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                // Header: icon + title + time
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -440,7 +456,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         ],
                       ),
                     ),
-                    // Per-user read receipt chip
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 8,
@@ -473,7 +488,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   ],
                 ),
                 const SizedBox(height: 16),
-                // Message body
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(14),
@@ -492,7 +506,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                // Timestamp detail
                 Padding(
                   padding: const EdgeInsets.only(left: 2),
                   child: Text(
@@ -504,7 +517,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                // Close button
                 SizedBox(
                   width: double.infinity,
                   child: TextButton(
