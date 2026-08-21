@@ -81,10 +81,14 @@ Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
 
     final isFeeding = data['feeding'] == 'true';
     final isSampling = data['sampling'] == 'true';
-    final isWarning = data['warning'] == 'true';
+    final isCritical = data['critical'] == 'true';
+    // Only treat as a warning-only event when critical is explicitly "false"
+    // (resolved sensor event) or absent (non-sensor push). Critical pushes
+    // also carry warning: "true", so reading warning alone would hide the
+    // critical alert whenever the owner disabled only the warning toggle.
+    final isWarning = !isCritical && data['warning'] == 'true';
     final isOperational = data['operational'] == 'true';
-    final showCritical = data['critical'] != 'false';
-    if (!showCritical && !isFeeding && !isSampling && !isWarning && !isOperational) return;
+    if (!isCritical && !isFeeding && !isSampling && !isWarning && !isOperational) return;
 
     try {
       final user = FirebaseAuth.instance.currentUser;
@@ -99,21 +103,25 @@ Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
         if (prefsDoc.exists && prefsDoc.data() != null) {
           final map = prefsDoc.data()!;
 
-          if (isFeeding && map['feeding'] == false) {
-            debugPrint('[FCM] Skipping feeding notification because it is turned off in preferences.');
-            return;
-          }
-          if (isSampling && map['sampling'] == false) {
-            debugPrint('[FCM] Skipping sampling notification because it is turned off in preferences.');
-            return;
-          }
-          if (isWarning && map['warning'] == false) {
-            debugPrint('[FCM] Skipping warning notification because it is turned off in preferences.');
-            return;
-          }
-          if (!isFeeding && !isSampling && !isWarning && !isOperational && map['critical'] == false) {
+          // Critical alerts always win. Only respect the per-category
+          // toggles once we know the push is not critical.
+          if (isCritical && map['critical'] == false) {
             debugPrint('[FCM] Skipping critical notification because it is turned off in preferences.');
             return;
+          }
+          if (!isCritical) {
+            if (isFeeding && map['feeding'] == false) {
+              debugPrint('[FCM] Skipping feeding notification because it is turned off in preferences.');
+              return;
+            }
+            if (isSampling && map['sampling'] == false) {
+              debugPrint('[FCM] Skipping sampling notification because it is turned off in preferences.');
+              return;
+            }
+            if (isWarning && map['warning'] == false) {
+              debugPrint('[FCM] Skipping warning notification because it is turned off in preferences.');
+              return;
+            }
           }
         }
       }
@@ -396,15 +404,23 @@ class NotificationService extends ChangeNotifier {
 
     final isFeeding = data['feeding'] == 'true';
     final isSampling = data['sampling'] == 'true';
-    final isWarning = data['warning'] == 'true';
+    final isCritical = data['critical'] == 'true';
+    // Same logic as the background handler: critical payloads also carry
+    // warning="true", so only treat warning as its own category when the
+    // critical flag is not set.
+    final isWarning = !isCritical && data['warning'] == 'true';
     final isOperational = data['operational'] == 'true';
-    final showCritical = data['critical'] != 'false';
-    if (!showCritical && !isFeeding && !isSampling && !isWarning && !isOperational) return;
+    if (!isCritical && !isFeeding && !isSampling && !isWarning && !isOperational) return;
 
-    if (isFeeding && !_notifFeeding) return;
-    if (isSampling && !_notifSampling) return;
-    if (isWarning && !_notifWarning) return;
-    if (!isFeeding && !isSampling && !isWarning && !isOperational && !_notifCritical) return;
+    // Critical alerts bypass every other toggle; only the Critical toggle
+    // can silence them. This prevents a disabled Warning toggle from hiding
+    // a Critical alert that ships in the same FCM payload.
+    if (isCritical && !_notifCritical) return;
+    if (!isCritical) {
+      if (isFeeding && !_notifFeeding) return;
+      if (isSampling && !_notifSampling) return;
+      if (isWarning && !_notifWarning) return;
+    }
 
     final playSound = data['sound'] != 'false' && _notifSound;
     final vibrate = data['vibration'] != 'false' && _notifVibration;
