@@ -2100,11 +2100,14 @@ void applyActuatorDevice(int idx) {
   setActuatorRelay(idx, target);
 
   if (changed) {
-    // Action format matches what the app expects:
-    //  - "Switched ON/OFF"  -> Controls screen runtime label
-    //  - "(AUTO)"           -> ActuatorLogService auto-control event
-    String action = String("Switched ") + (target ? "ON" : "OFF") + " — " + a.label;
-    if (a.controlMode == "auto") action += String(" (AUTO) — ") + reason;
+    // Canonical ASCII format (do not use em/en dashes — the Flutter app
+    // and Cloud Function strip prefixes with regex that expects '-'):
+    //   manual: "Switched ON - Water Pump"
+    //   auto:   "Switched ON (AUTO) - Water Pump - Auto condition met"
+    String action = String("Switched ") + (target ? "ON" : "OFF");
+    if (a.controlMode == "auto") action += " (AUTO)";
+    action += " - " + String(a.label);
+    if (a.controlMode == "auto") action += " - " + reason;
     pushActuatorLog(idx, action, type);
   }
   reportActuatorState(idx, false);

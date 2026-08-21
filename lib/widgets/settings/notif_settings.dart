@@ -131,7 +131,7 @@ class _NotifSettingsState extends State<NotifSettings> {
                 label: 'Feeding Reminders',
                 subtitle: 'Daily feeding confirmations and reminders',
                 icon: Icons.set_meal_rounded,
-                color: AppColors.success,
+                color: AppColors.primary,
                 value: _notifFeeding,
                 onChanged: (value) {
                   setState(() => _notifFeeding = value ?? true);

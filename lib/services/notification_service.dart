@@ -4,24 +4,13 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:timezone/timezone.dart' as tz;
-import 'package:timezone/data/latest.dart' as tz;
-import 'actuator_log_service.dart';
 import '../models/notification_item.dart';
-import '../models/control_types.dart';
 
 /// TOP-LEVEL background message handler — required by Firebase Messaging.
 /// Must be outside any class and annotated with @pragma('vm:entry-point').
 @pragma('vm:entry-point')
 Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
   debugPrint('[FCM] Background msg: ${message.messageId}');
-
-  // Pre-arm FCM — wake the app and schedule exact OS alarm at T-5m
-  if (message.data['type'] == 'pre_arm') {
-    debugPrint('[FCM] Pre-arm received — scheduling OS alarm');
-    await _handlePreArm(message.data.cast<String, String>());
-    return;
-  }
 
   // Skip showing local notification if FCM has a 'notification' payload.
   // When app is background/terminated, the Android system auto-displays it
@@ -168,134 +157,13 @@ Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
   }
 }
 
-/// Top-level handler for pre-arm FCM — schedules exact OS alarm at T-5m.
-@pragma('vm:entry-point')
-Future<void> _handlePreArm(Map<String, String> data) async {
-  try {
-    tz.initializeTimeZones();
-    final timeStr = data['scheduleTime'] ?? '';
-    final ampm = data['scheduleAmPm'] ?? 'AM';
-    if (timeStr.isEmpty) return;
-
-    DateTime scheduleDt;
-    final epochStr = data['scheduleEpoch'];
-    if (epochStr != null) {
-      final ms = int.tryParse(epochStr);
-      if (ms == null) return;
-      scheduleDt = DateTime.fromMillisecondsSinceEpoch(ms);
-    } else {
-      int h = int.parse(timeStr.split(':')[0]);
-      final m = int.parse(timeStr.split(':')[1]);
-      if (ampm == 'PM' && h != 12) h += 12;
-      if (ampm == 'AM' && h == 12) h = 0;
-      final now = DateTime.now();
-      scheduleDt = DateTime(now.year, now.month, now.day, h, m);
-    }
-
-    final target = scheduleDt.subtract(const Duration(minutes: 5));
-    final now = DateTime.now();
-
-    final localNotif = FlutterLocalNotificationsPlugin();
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-    await localNotif.initialize(const InitializationSettings(android: androidSettings));
-
-    bool playSound = true;
-    bool vibrate = true;
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        final prefsDoc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .collection('notification_settings')
-            .doc('preferences')
-            .get();
-        if (prefsDoc.exists && prefsDoc.data() != null) {
-          final prefs = prefsDoc.data()!;
-          playSound = prefs['sound'] != false;
-          vibrate = prefs['vibration'] != false;
-        }
-      }
-    } catch (e, stack) { debugPrint('[Notif] FCM token save error: $e\n$stack'); }
-
-    String channelId = 'craycare_alerts_silent';
-    if (playSound && vibrate) {
-      channelId = 'craycare_alerts_sound_vibrate';
-    } else if (playSound) {
-      channelId = 'craycare_alerts_sound_only';
-    } else if (vibrate) {
-      channelId = 'craycare_alerts_vibrate_only';
-    }
-
-    final alarmId = 'prearm_${timeStr}_$ampm'.hashCode;
-    final msg = 'Your feeding schedule at $timeStr $ampm will be dispensed in 5 minutes.';
-
-    if (target.isAfter(now)) {
-      final loc = tz.local;
-      final tzTarget = tz.TZDateTime.from(target, loc);
-
-      await localNotif.zonedSchedule(
-        alarmId,
-        'Feeding Reminder',
-        msg,
-        tzTarget,
-        NotificationDetails(
-          android: AndroidNotificationDetails(
-            channelId, 'CrayCare Alerts',
-            importance: playSound || vibrate ? Importance.high : Importance.low,
-            priority: Priority.high,
-            playSound: playSound,
-            enableVibration: vibrate,
-            vibrationPattern: !vibrate ? Int64List(0) : null,
-            sound: !playSound ? null : const RawResourceAndroidNotificationSound('default'),
-          ),
-        ),
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
-      );
-
-      debugPrint('[FCM pre-arm] OS alarm set for $target (id=$alarmId, ${target.difference(now).inSeconds}s away)');
-      NotificationService._preArmed.add('${timeStr}_$ampm');
-    } else if (now.isBefore(scheduleDt)) {
-      // Target passed but schedule hasn't — FCM arrived late, fire immediately
-      await localNotif.show(
-        alarmId,
-        'Feeding Reminder',
-        msg,
-        NotificationDetails(
-          android: AndroidNotificationDetails(
-            channelId, 'CrayCare Alerts',
-            importance: playSound || vibrate ? Importance.high : Importance.low,
-            priority: Priority.high,
-            playSound: playSound,
-            enableVibration: vibrate,
-            vibrationPattern: !vibrate ? Int64List(0) : null,
-            sound: !playSound ? null : const RawResourceAndroidNotificationSound('default'),
-          ),
-        ),
-      );
-      debugPrint('[FCM pre-arm] Target passed — fired immediately (${scheduleDt.difference(now).inSeconds}s before schedule)');
-      NotificationService._preArmed.add('${timeStr}_$ampm');
-    } else {
-      debugPrint('[FCM pre-arm] Schedule already passed — skipping');
-    }
-  } catch (e) {
-    debugPrint('[FCM pre-arm] Error: $e');
-  }
-}
-
 class NotificationService extends ChangeNotifier {
   static final NotificationService instance = NotificationService._();
   NotificationService._();
 
-  static final Set<String> _preArmed = {};
-
   final List<NotificationItem> _notifications = [];
 
   bool _initialized = false;
-
-  // Auto-control notification tracking
-  StreamSubscription<AutoActuatorEvent>? _autoControlSub;
 
   bool _notifSound = true;
   bool _notifVibration = true;
@@ -304,14 +172,10 @@ class NotificationService extends ChangeNotifier {
   bool _notifFeeding = true;
   bool _notifSampling = true;
 
-  final Set<String> _feedingReminderSent = {};
-
   String? _userRole;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _profileFirestoreSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _notifSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _prefsSub;
-  Timer? _slowTimer;
-
   bool unreadStatus(String id) {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (uid.isEmpty) return false;
@@ -344,27 +208,19 @@ class NotificationService extends ChangeNotifier {
   void init() {
     if (_initialized) return;
     _initialized = true;
-    // Sensor alert documents are created by the server-side onSensorUpdate
-    // function. Do not create a second client-side copy for the same transition.
-    ActuatorLogService.instance.init();
-    tz.initializeTimeZones();
-
+    // Sensor/actuator alert documents are created server-side by the
+    // Cloud Functions (onSensorUpdate, onAutoActuatorLogCreate).
     if (FirebaseAuth.instance.currentUser != null) {
       _listenFirebase();
       _loadUserPrefs();
-      _startReminderTimer();
-      _initAutoControlListener();
     }
 
     FirebaseAuth.instance.authStateChanges().listen((user) {
       _notifications.clear();
       _cancelSubscriptions();
-      _cancelAutoControlSubs();
-      _slowTimer?.cancel();
       _userRole = null;
       if (user != null) {
-        _startReminderTimer();
-        _listenProfile();
+          _listenProfile();
       }
       notifyListeners();
     });
@@ -538,12 +394,6 @@ class NotificationService extends ChangeNotifier {
   Future<void> _onForegroundMessage(RemoteMessage message) async {
     final data = message.data;
 
-    if (data['type'] == 'pre_arm') {
-      debugPrint('[NotificationService] Foreground pre-arm received — scheduling OS alarm');
-      await _handlePreArm(data.cast<String, String>());
-      return;
-    }
-
     final isFeeding = data['feeding'] == 'true';
     final isSampling = data['sampling'] == 'true';
     final isWarning = data['warning'] == 'true';
@@ -601,8 +451,6 @@ class NotificationService extends ChangeNotifier {
     _notifSub?.cancel();
     _prefsSub?.cancel();
     _profileFirestoreSub?.cancel();
-    _slowTimer?.cancel();
-    _cancelAutoControlSubs();
     super.dispose();
   }
 
@@ -629,66 +477,11 @@ class NotificationService extends ChangeNotifier {
         });
   }
 
-  void _initAutoControlListener() {
-    _autoControlSub?.cancel();
-    _autoControlSub = ActuatorLogService.instance.autoControlEvents.listen((event) {
-      String title, message;
-      if (event.action.contains('ON')) {
-        title = '${event.actuatorLabel} turned ON';
-        message = event.action.replaceFirst('Switched ON (AUTO) - ', '');
-      } else {
-        title = '${event.actuatorLabel} turned OFF';
-        message = event.action.replaceFirst('Switched OFF (AUTO) - ', '');
-      }
-      _addNotification(
-        type: 'operational',
-        title: title,
-        message: message,
-        timestamp: event.timestamp,
-        documentId: 'actuator_${event.eventId}',
-      );
-    });
-  }
-
-  void _cancelAutoControlSubs() {
-    _autoControlSub?.cancel();
-    _autoControlSub = null;
-  }
-
-  void _startReminderTimer() {
-    // Feeding and sampling reminders are server-owned Cloud Functions. Running
-    // parallel client timers created duplicate database entries and OS banners.
-    _slowTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      _confirmFeedingComplete();
-    });
-  }
-
-  Future<void> _confirmFeedingComplete() async {
-    if (_userRole == 'admin') return;
-    if (!_notifFeeding) return;
-    final now = DateTime.now();
-    final oneMinAgo = now.millisecondsSinceEpoch - 60000;
-
-    for (final log in FeedState.feederLogs.value) {
-      if (log.type != 'auto') continue;
-      final isScheduledDispense =
-          log.action.contains('Dispensed feed (Scheduled)') ||
-          log.action.contains('Auto feed dispensed');
-      if (!isScheduledDispense) continue;
-      if (log.timestamp <= 0 || log.timestamp < oneMinAgo) continue;
-
-      final confirmKey = 'confirm_${now.month}/${now.day}_${log.timestamp}';
-      if (_feedingReminderSent.contains(confirmKey)) continue;
-      _feedingReminderSent.add(confirmKey);
-    }
-  }
-
   void _cancelSubscriptions() {
     _notifSub?.cancel();
     _prefsSub?.cancel();
     _profileFirestoreSub?.cancel();
     _profileFirestoreSub = null;
-    _cancelAutoControlSubs();
   }
 
   void _listenFirebase() {
@@ -836,8 +629,14 @@ class NotificationService extends ChangeNotifier {
     }
   }
 
+  static const _manilaOffset = Duration(hours: 8);
+  DateTime _manilaNow() => DateTime.now().toUtc().add(_manilaOffset);
+
   bool _isToday(DateTime dt) {
-    final now = DateTime.now();
-    return dt.day == now.day && dt.month == now.month && dt.year == now.year;
+    final now = _manilaNow();
+    final dtManila = dt.isUtc ? dt.add(_manilaOffset) : dt;
+    return dtManila.year == now.year &&
+        dtManila.month == now.month &&
+        dtManila.day == now.day;
   }
 }

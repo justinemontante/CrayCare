@@ -503,7 +503,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       case 'warning':
         return AppColors.warning;
       case 'operational':
-      case 'normal':
         return AppColors.normal;
       case 'reminder':
         return AppColors.warningDark;
@@ -519,7 +518,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       case 'warning':
         return Icons.info_outline;
       case 'operational':
-      case 'normal':
         return Icons.check_circle_outline;
       case 'reminder':
         return Icons.notifications_outlined;

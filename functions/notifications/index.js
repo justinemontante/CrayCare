@@ -599,7 +599,7 @@ exports.processFeeding = functions.region("asia-southeast1").pubsub
           const time = data.time || data.feed_time || "";
           const ampm = data.ampm || "";
           const body = `Your feeding schedule at ${time} ${ampm} will be dispensed in 5 minutes.`;
-          await writeNotification(owner.uid, { type: "feeder", title: "Feeding Reminder", message: body });
+          await writeNotification(owner.uid, { type: "reminder", title: "Feeding Reminder", message: body });
           await sendPush(owner.uid, { notification: { title: "Feeding Reminder", body }, data: { feeding: "true" } }, "feeding");
           await saveMarker(owner.uid, markerKey, Date.now());
         }
@@ -651,31 +651,42 @@ async function getSamplingDue(notifTarget) {
     if (!snap.exists) return null;
     const config = snap.data() || {};
 
-    const isInitialized = config.is_initialized === true;
-    if (!isInitialized) return null;
+    if (config.is_initialized !== true) return null;
 
     const currentBatchId = config.current_batch_id || "";
     if (currentBatchId) {
-      const latestSampling = await firestoreDb
+      // Anchor to the latest NON-baseline sampling record so the baseline
+      // (Day-0 initial measurement) doesn't shift the weekly due date.
+      const weekly = await firestoreDb
         .collection("tanks").doc(tankId)
         .collection("batches").doc(currentBatchId)
         .collection("sampling_records")
+        .where("is_baseline", "==", false)
         .orderBy("sampling_date", "desc")
         .limit(1)
         .get();
-      if (!latestSampling.empty) {
-        lastSampleTs = latestSampling.docs[0].data().sampling_date || null;
+      if (!weekly.empty) {
+        lastSampleTs = weekly.docs[0].data().sampling_date || null;
+      } else {
+        lastSampleTs = config.stocking_date || null;
       }
     }
-
-    lastSampleTs = lastSampleTs || config.last_sample_date || config.stocking_date;
+    if (!lastSampleTs) lastSampleTs = config.stocking_date || null;
   } catch (e) {
     functions.logger.error(`getSamplingDue error for ${notifTarget}:`, e.message);
     return null;
   }
 
   if (!lastSampleTs) return null;
-  const daysSince = Math.floor((now - lastSampleTs) / (1000 * 60 * 60 * 24));
+
+  // Calendar-day (Asia/Manila) difference to match the dashboard's
+  // Days-in-Culture display, not a rolling 24-hour counter.
+  const anchorMs = lastSampleTs.toMillis ? lastSampleTs.toMillis() : Number(lastSampleTs);
+  const mn = new Date(now + MANILA_OFFSET_MS);
+  const an = new Date(anchorMs + MANILA_OFFSET_MS);
+  const today0 = Date.UTC(mn.getUTCFullYear(), mn.getUTCMonth(), mn.getUTCDate());
+  const anchor0 = Date.UTC(an.getUTCFullYear(), an.getUTCMonth(), an.getUTCDate());
+  const daysSince = Math.floor((today0 - anchor0) / 86400000);
   if (daysSince < 7) return null;
 
   return { daysSince, lastSampleTs };
@@ -782,7 +793,18 @@ exports.onAutoActuatorLogCreate = functions.region("asia-southeast1").firestore
     if (!turnedOn && !turnedOff) return null;
 
     const title = `${label} turned ${turnedOn ? "ON" : "OFF"}`;
-    const body = action.replace(/^Switched (?:ON|OFF) \(AUTO\) - /, "");
+    // Canonical ESP format: "Switched ON (AUTO) - Label - Reason"
+    // Accept hyphen-minus, en dash, or em dash, and old firmware format.
+    let body = action.replace(
+      /^Switched (?:ON|OFF)(?:\s*\(AUTO\))?\s*[-–—]\s*[^–—-]+?\s*[-–—]\s*/,
+      "",
+    );
+    if (body === action) {
+      body = action.replace(
+        /^Switched (?:ON|OFF)(?:\s*\(AUTO\))?\s*[-–—]\s*/,
+        "",
+      );
+    }
     const docId = `actuator_${logId}`;
 
     await writeNotification(ownerUid, {
