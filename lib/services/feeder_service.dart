@@ -38,6 +38,30 @@ class FeederService extends ChangeNotifier {
   static String _formatDate(DateTime dt) =>
       '${_months[dt.month - 1]} ${dt.day}, ${dt.year}';
 
+  /// Accepts the canonical epoch-ms feeder timestamp plus legacy Firestore
+  /// Timestamp/DateTime/ISO-string values so one old log cannot break the
+  /// entire realtime feeder-log snapshot.
+  static int _parseLoggedAtMillis(dynamic raw) {
+    if (raw == null) return 0;
+    if (raw is Timestamp) return raw.toDate().toUtc().millisecondsSinceEpoch;
+    if (raw is DateTime) return raw.toUtc().millisecondsSinceEpoch;
+    if (raw is num) {
+      final value = raw.toInt();
+      if (value <= 0) return 0;
+      // Legacy integrations occasionally stored Unix seconds rather than ms.
+      return value < 100000000000 ? value * 1000 : value;
+    }
+    if (raw is String) {
+      final text = raw.trim();
+      if (text.isEmpty) return 0;
+      final numeric = num.tryParse(text);
+      if (numeric != null) return _parseLoggedAtMillis(numeric);
+      final parsed = DateTime.tryParse(text);
+      if (parsed != null) return parsed.toUtc().millisecondsSinceEpoch;
+    }
+    return 0;
+  }
+
   // The feeder schedule times (and the Cloud Function that dispatches/confirms
   // them) are always expressed in Asia/Manila wall-clock time, regardless of
   // where the viewing device is physically located (e.g. someone
@@ -289,31 +313,37 @@ class FeederService extends ChangeNotifier {
               try {
                 _logs.clear();
                 for (final doc in snapshot.docs) {
-                  final data = doc.data();
-                  // time/date are derived from logged_at (no longer stored) so the
-                  // display matches the single source of truth for "when". Schedules
-                  // and ESP NTP are anchored to Asia/Manila wall-clock time, so the
-                  // log timestamps must be rendered in Manila too — otherwise a
-                  // device in a different timezone fails to match its log against
-                  // the schedule (false "Feed missed" detection).
-                  final ts = data['logged_at'] as int? ?? 0;
-                  final dt = ts > 0
-                      ? DateTime.fromMillisecondsSinceEpoch(
-                          ts,
-                          isUtc: true,
-                        ).add(_manilaOffset)
-                      : null;
-                  _logs.add(
-                    LogEntry(
-                      data['action'] as String? ?? '',
-                      data['type'] as String? ?? 'auto',
-                      dt == null ? '' : _formatTime(dt),
-                      dt == null ? '' : _formatDate(dt),
-                      timestamp: ts,
-                      scheduleKey: data['schedule_key'] as String?,
-                      scheduleTime: data['schedule_time'] as String?,
-                    ),
-                  );
+                  try {
+                    final data = doc.data();
+                    // time/date are derived from logged_at (no longer stored) so the
+                    // display matches the single source of truth for "when". Schedules
+                    // and ESP NTP are anchored to Asia/Manila wall-clock time, so the
+                    // log timestamps must be rendered in Manila too — otherwise a
+                    // device in a different timezone fails to match its log against
+                    // the schedule (false "Feed missed" detection).
+                    final ts = _parseLoggedAtMillis(data['logged_at']);
+                    final dt = ts > 0
+                        ? DateTime.fromMillisecondsSinceEpoch(
+                            ts,
+                            isUtc: true,
+                          ).add(_manilaOffset)
+                        : null;
+                    _logs.add(
+                      LogEntry(
+                        data['action'] as String? ?? '',
+                        data['type'] as String? ?? 'auto',
+                        dt == null ? '' : _formatTime(dt),
+                        dt == null ? '' : _formatDate(dt),
+                        timestamp: ts,
+                        scheduleKey: data['schedule_key'] as String?,
+                        scheduleTime: data['schedule_time'] as String?,
+                      ),
+                    );
+                  } catch (e) {
+                    debugPrint(
+                      '[FeederService] Skipping malformed log ${doc.id}: $e',
+                    );
+                  }
                 }
                 FeedState.feederLogs.value = List.from(_logs);
               } catch (e) {
