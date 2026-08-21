@@ -429,10 +429,51 @@ class DatabaseService {
   }
 
   Future<void> setUserStatus(String uid, String status) async {
-    await _db.collection('users').doc(uid).set(
-      {'status': status},
-      SetOptions(merge: true),
-    );
+    if (uid.isEmpty) throw ArgumentError('UID cannot be empty');
+    final normalizedStatus = status.trim().toLowerCase();
+    if (normalizedStatus != 'active' && normalizedStatus != 'disabled') {
+      throw ArgumentError('Status must be active or disabled.');
+    }
+
+    final userRef = _db.collection('users').doc(uid);
+    if (normalizedStatus != 'disabled') {
+      await userRef.set(
+        {'status': normalizedStatus},
+        SetOptions(merge: true),
+      );
+      return;
+    }
+
+    final ownerRef = _db.collection('hardware_system').doc('currentOwner');
+    await _db.runTransaction((transaction) async {
+      final userSnap = await transaction.get(userRef);
+      if (!userSnap.exists || userSnap.data() == null) {
+        throw Exception('User $uid does not exist.');
+      }
+      final assignmentSnap = await transaction.get(ownerRef);
+      final userTankId = userSnap.data()!['tank_id'] as String?;
+      final assignment = assignmentSnap.data();
+      final assignedUid = assignment?['uid'] as String?;
+      final assignedTankId = assignment?['tank_id'] as String?;
+      final isAssignedOwner = assignedUid == uid ||
+          ((assignedUid == null || assignedUid.isEmpty) &&
+              userTankId != null &&
+              userTankId.isNotEmpty &&
+              assignedTankId == userTankId);
+
+      transaction.set(
+        userRef,
+        {'status': normalizedStatus},
+        SetOptions(merge: true),
+      );
+      if (isAssignedOwner) {
+        transaction.set(
+          ownerRef,
+          {'uid': null, 'tank_id': null},
+          SetOptions(merge: true),
+        );
+      }
+    });
   }
 
 }
