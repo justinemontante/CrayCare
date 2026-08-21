@@ -192,11 +192,23 @@ class _SplashScreenState extends State<SplashScreen>
               );
               if (initialProfile != null &&
                   initialProfile['status'] == 'disabled') {
-                await FirebaseFirestore.instance
-                    .collection('users')
-                    .doc(freshUser.uid)
-                    .update({'fcmToken': FieldValue.delete()})
-                    .catchError((_) {});
+                try {
+                  final token = await FirebaseMessaging.instance.getToken();
+                  final updates = <String, dynamic>{
+                    'fcmToken': FieldValue.delete(),
+                  };
+                  if (token != null && token.isNotEmpty) {
+                    updates['fcmTokens'] = FieldValue.arrayRemove([token]);
+                  }
+                  await FirebaseFirestore.instance
+                      .collection('users')
+                      .doc(freshUser.uid)
+                      .update(updates);
+                } catch (tokenCleanupError) {
+                  debugPrint(
+                    '[Splash] Disabled-user FCM cleanup error: $tokenCleanupError',
+                  );
+                }
                 await FirebaseAuth.instance.signOut();
                 if (!mounted) return;
                 Navigator.pushReplacement(
