@@ -155,9 +155,6 @@ service cloud.firestore {
         allow create: if isTankOwner(tankId) || isAssignedEsp(tankId);
         allow update, delete: if isTankOwner(tankId);
       }
-      match /feeder_dispatched/{dateKey} {
-        allow read, write: if isTankOwner(tankId);
-      }
 
       match /machine_learning_assessments/{docId} {
         allow read: if isTankOwner(tankId);

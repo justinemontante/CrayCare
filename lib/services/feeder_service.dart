@@ -371,20 +371,16 @@ class FeederService extends ChangeNotifier {
     try {
       // tanks/{tank_id}/feeder_logs/{autoId}
       //
-      // trigger_type maps the log category to how the feed was initiated.
-      //  - auto/missed → scheduled (clock-driven)
-      //  - error/manual → manual (user-initiated or failure on a manual feed)
-      final triggerType = (type == 'auto' || type == 'missed')
-          ? 'scheduled'
-          : 'manual';
       // Store a true Unix epoch (UTC milliseconds) so it matches what the
       // ESP32 writes and can be rendered/ordered correctly anywhere. The
       // Manila wall-clock conversion is applied only when formatting.
+      // `type` is the source of truth for how the feed was initiated:
+      //   auto/missed → clock-driven (scheduled)
+      //   error/manual → user-initiated or failure
       await tankDoc.collection('feeder_logs').add({
         'action': action,
         'type': type,
         'logged_at': DateTime.now().toUtc().millisecondsSinceEpoch,
-        'trigger_type': triggerType,
       });
     } catch (e) {
       debugPrint('[FeederService] addLogEntry error: $e');
@@ -680,7 +676,6 @@ class FeederService extends ChangeNotifier {
           // Store the real current UTC instant. `now` is only a Manila
           // wall-clock view used for schedule comparison/date keys.
           'logged_at': DateTime.now().toUtc().millisecondsSinceEpoch,
-          'trigger_type': 'scheduled',
           'schedule_key': key,
           'schedule_time': expectedTime,
         }, SetOptions(merge: true));

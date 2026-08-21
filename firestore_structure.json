@@ -17,10 +17,10 @@
     "fields": [
       "sound (bool)",
       "vibration (bool)",
-      "critical (bool) — critical sensor alerts",
-      "warning (bool) — sensor warnings (approaching threshold)",
-      "feeding (bool) — feeding reminders",
-      "sampling (bool) — weekly sampling reminders",
+      "critical (bool) \u2014 critical sensor alerts",
+      "warning (bool) \u2014 sensor warnings (approaching threshold)",
+      "feeding (bool) \u2014 feeding reminders",
+      "sampling (bool) \u2014 weekly sampling reminders",
       "updated_at (Timestamp)"
     ]
   },
@@ -41,7 +41,7 @@
   },
   "tanks": {
     "_id": "tank_id (== owner's uid by default)",
-    "_description": "One tank per user. Core of the whole system — all sensor, actuator, feeder, Water Quality Assessment, and production data live here as subcollections.",
+    "_description": "One tank per user. Core of the whole system \u2014 all sensor, actuator, feeder, Water Quality Assessment, and production data live here as subcollections.",
     "fields": [
       "owner_uid (string)",
       "userId (string, alias)",
@@ -102,7 +102,7 @@
         ],
         "fields": [
           "control_mode (on|off|auto)",
-          "current_state (on|off) — ACTUAL relay state, written by ESP32",
+          "current_state (on|off) \u2014 ACTUAL relay state, written by ESP32",
           "last_changed (Timestamp from app / int epoch-ms from ESP)"
         ]
       },
@@ -110,7 +110,7 @@
         "_description": "Device activity log. ESP32 creates a doc on every physical relay change; app reads for the Controls screen runtime labels and auto-control events.",
         "fields": [
           "actuator_type (pump|aerator1|aerator2)",
-          "action (e.g. 'Switched ON — Aerator 1 (AUTO) — ...')",
+          "action (e.g. 'Switched ON \u2014 Aerator 1 (AUTO) \u2014 ...')",
           "type (on|off|auto)",
           "logged_at (timestamp)"
         ]
@@ -151,16 +151,9 @@
         "_description": "Manual feed commands pending ESP32 execution. Flutter creates; ESP32 reads + deletes processed commands.",
         "fields": [
           "command_type (feed_now)",
-          "grams (double, optional — default 20.0)",
+          "grams (double, optional \u2014 default 20.0)",
           "issued_by (uid)",
           "issued_at (Timestamp)"
-        ]
-      },
-      "feeder_dispatched/{YYYY-MM-DD}": {
-        "_description": "Flutter-only. Tracks which feeding schedules already fired today.",
-        "fields": [
-          "scheduleIds (array)",
-          "dispatched_at (Timestamp)"
         ]
       },
       "machine_learning_assessments/current": {

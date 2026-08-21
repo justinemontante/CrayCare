@@ -66,9 +66,6 @@ Fields: `control_mode`, `current_state`, `last_changed`
 ### `tanks/{tankId}/feeder_commands/{commandId}` ✓
 `command_type`, `grams`, `issued_by`, `issued_at`
 
-### `tanks/{tankId}/feeder_dispatched/{YYYY-M-D}` ✓
-Legacy/idempotency marker used by manual app dispatch flows.
-
 ### `tanks/{tankId}/machine_learning_assessments/current` ✓
 **Written hourly by the Python Water Quality Assessment Cloud Function** (Admin SDK). The app reads it with snapshot listeners.
 `uid`, `tank_id`, `level` (`Good`|`Moderate`|`Poor`|`Critical`|`Insufficient`), `model_level`, `rule_level`, `safety_override`, `confidence`, `driver`, `driver_label`, `driver_value`, `driver_unit`, `driver_min`, `driver_max`, `problem`, `insight`, `action`, `ts_epoch`, `timestamp` (ISO-8601 string). Legacy `Low` and `High` history values are normalized by the app to `Good` and `Poor`.

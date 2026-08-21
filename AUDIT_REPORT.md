@@ -235,7 +235,7 @@ Separate from duplicate dispatch, `background_helper.dart:154-165` records succe
 
 Examples:
 
-- `feeder_dispatched` docs describe `scheduleIds` array and `dispatched_at` (`FIRESTORE_STRUCTURE_ACTUAL.md:119-120`), while app code writes dynamic schedule-ID boolean fields.
+- `feeder_dispatched` was a legacy idempotency collection referenced by old docs only; it has been removed from the codebase and Firestore rules.
 - Batch/production summary sections use camelCase field names (`lines 128-139`), while actual app records use snake_case (`tank_service.dart`). A later appendix partially documents snake_case, leaving contradictory definitions in one file.
 - Notification docs mention old aliases in places while runtime uses `notif_type`, `body`, `created_at`, `is_read`.
 

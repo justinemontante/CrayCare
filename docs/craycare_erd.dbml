@@ -44,8 +44,11 @@ Table notification_settings {
   updated_at timestamp
 }
 
+// Note: maps to the single Firestore document
+// `hardware_system/currentOwner` (not a collection). Kept as a table
+// in the ERD to show the relationship explicitly.
 Table hardware_assignments {
-  id varchar [pk, note: 'single row = current ESP32 assignment']
+  id varchar [pk, note: 'always "currentOwner" — single Firestore doc']
   owner_uid varchar [ref: > users.uid]
   tank_id varchar [ref: > tanks.tank_id]
   assigned_by varchar [ref: > users.uid, note: 'admin who assigned']
@@ -74,8 +77,11 @@ Table tanks {
 //  SENSORS (thresholds + readings)
 // ──────────────────────────────────────────────────────────────
 
+// Note: maps to 5 Firestore documents under
+// `tanks/{tank_id}/sensors/{sensor_name}` — one doc per sensor
+// (temperature, ph_level, dissolved_oxygen, turbidity, water_level).
 Table sensor_thresholds {
-  id varchar [pk]
+  id varchar [pk, note: 'sensor_name (temperature|ph_level|dissolved_oxygen|turbidity|water_level)']
   tank_id varchar [ref: > tanks.tank_id]
   sensor_name varchar [note: 'temperature | ph_level | dissolved_oxygen | turbidity | water_level']
   min_value decimal(10,2)
@@ -163,11 +169,15 @@ Table actuator_logs {
 //  FEEDER
 // ──────────────────────────────────────────────────────────────
 
+// Note: maps to the single Firestore document
+// `tanks/{tank_id}/feeder/status` (not a collection). Field names in
+// Firestore are camelCase: status, dispenseCount, lastSeen,
+// last_dispensed_at, last_dispensed_grams.
 Table feeder_status {
   tank_id varchar [pk, ref: - tanks.tank_id]
   status varchar [note: 'idle | dispensing']
-  dispense_count int [note: 'completed feeds; app uses it to verify dispense success']
-  last_seen timestamp
+  dispense_count int [note: 'completed feeds (Firestore: dispenseCount)']
+  last_seen timestamp [note: 'Firestore: lastSeen']
   last_dispensed_at timestamp
   last_dispensed_grams decimal(8,2)
 }
