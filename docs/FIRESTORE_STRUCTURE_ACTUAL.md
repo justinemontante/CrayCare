@@ -14,10 +14,10 @@
 | role | string | `owner` \| `admin` |
 | status | string | `active` \| `disabled` |
 | tank_id | string | = uid by default; source of tank ownership |
-| photo_url / photoUrl | string | legacy alias |
+| photo_url / photoUrl | string | `photo_url` canonical; `photoUrl` legacy alias |
 | created_at | timestamp | |
 
-> **FCM device tokens:** stored in the `users/{uid}.fcmTokens` **array**.
+> **FCM device tokens:** stored in the `users/{uid}.fcmTokens` **array**. Legacy `fcmToken` is cleanup-only compatibility data.
 
 ### `users/{uid}/notification_settings/preferences` ✓
 `sound`, `vibration`, `critical`, `warning`, `feeding`, `sampling`, `updated_at`
@@ -30,6 +30,8 @@ Tracks last-seen notification markers.
 ## 2. HARDWARE ASSIGNMENT
 ### `hardware_system/currentOwner` ✓
 `uid`, `tank_id`, `assigned_by`, `assigned_at`
+
+When the currently assigned owner is disabled through Admin user management, `uid` and `tank_id` are cleared atomically so new hardware data no longer remains assigned to that disabled owner.
 
 ---
 
@@ -58,10 +60,14 @@ Fields: `control_mode`, `current_state`, `last_changed`
 `status`, `dispenseCount`, `lastSeen`, `last_dispensed_at`, `last_dispensed_grams`
 
 ### `tanks/{tankId}/feeder_schedules/{scheduleId}` ✓
-`time`, `ampm`, `timeValue`, `grams`, `days`, `enabled`, `isDone`, `created_at`
+`time`, `ampm`, `timeValue`, `grams`, `days`, `enabled`, `isDone`, `created_at`, `effective_at_ms`
+
+`effective_at_ms` records when a schedule becomes effective after creation, edit, or re-enable, preventing an occurrence earlier than that instant from being incorrectly marked as missed.
 
 ### `tanks/{tankId}/feeder_logs/{logId}` ✓
-`action`, `type`, `trigger_type`, `logged_at`
+Canonical fields: `action`, `type`, `logged_at`.
+
+Missed-schedule logs may additionally contain `schedule_key` and `schedule_time`. `trigger_type` is no longer written by the active runtime. The app accepts legacy Firestore `Timestamp`, `DateTime`, ISO-string, Unix-seconds, and Unix-milliseconds forms of `logged_at`, while new writes use Unix epoch milliseconds.
 
 ### `tanks/{tankId}/feeder_commands/{commandId}` ✓
 `command_type`, `grams`, `issued_by`, `issued_at`
@@ -119,4 +125,5 @@ ESP32 historical ingestion path.
 
 ## 🔐 Security rules summary
 - Water Quality Assessments: owner read only; Admin SDK writer only.
-- Other operational ownership/security rules remain unchanged.
+- Active owner/admin access checks require `status == active`.
+- ESP staging/assigned-device access currently identifies ESP sessions through Firebase Anonymous Auth. Before production deployment, bind ESP authorization to a provisioned device identity/custom claim instead of treating every anonymous session as trusted hardware.
