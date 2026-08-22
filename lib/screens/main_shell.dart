@@ -435,7 +435,6 @@ class _MainShellState extends State<MainShell> {
             child: GestureDetector(
               onTap: () {
                 setState(() => _currentIndex = i);
-                if (i == 4) NotificationService.instance.markAllRead();
                 if (i == 2) {
                   _productionKey.currentState?.switchToTab(0);
                 }
