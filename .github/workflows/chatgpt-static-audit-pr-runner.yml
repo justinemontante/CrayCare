@@ -18,9 +18,9 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
-      - name: Preserve guarded patch script
+      - name: Preserve guarded follow-up script
         shell: bash
-        run: cp .github/chatgpt_apply_audit_fixes.py /tmp/apply_fixes.py
+        run: cp .github/chatgpt_followup_audit_fixes.py /tmp/apply_fixes.py
 
       - name: Apply to current main
         shell: bash
@@ -40,25 +40,10 @@ jobs:
           git config user.name "ChatGPT"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
-            lib/services/database_service.dart \
-            lib/screens/controls_screen.dart \
-            lib/services/esp_service.dart \
-            lib/services/auth_service.dart \
-            lib/screens/verify_screen.dart \
             lib/screens/signup_screen.dart \
-            lib/screens/login_screen.dart \
-            lib/screens/main_shell.dart \
-            lib/services/tank_service.dart \
             lib/screens/production_screen.dart \
-            lib/widgets/production/crayfish/crayfish_sampling_tab.dart \
-            lib/widgets/settings/sensor_threshold_settings.dart \
-            lib/screens/notifications_screen.dart \
-            lib/services/report_export_service.dart \
-            lib/services/notification_service.dart \
-            android/app/src/main/AndroidManifest.xml \
-            functions/ml/export_firestore.py \
-            functions/ml/predict.py
+            lib/widgets/settings/sensor_threshold_settings.dart
           git diff --cached --check
           git diff --cached --stat
-          git commit -m "Fix remaining static audit bugs and lifecycle mismatches"
+          git commit -m "Polish verification flow and modal lifecycle cleanup"
           git push origin HEAD:main
