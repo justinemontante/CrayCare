@@ -1,0 +1,58 @@
+name: ChatGPT Static Audit PR Runner
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout audit branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Extract guarded patch script
+        shell: bash
+        run: |
+          python - <<'PYEXTRACT'
+          from pathlib import Path
+          text = Path('.github/workflows/chatgpt-static-audit-fixes.yml').read_text(encoding='utf-8')
+          start_marker = "          cat > /tmp/apply_fixes.py <<'PY'\n"
+          end_marker = "          PY\n          python /tmp/apply_fixes.py"
+          if start_marker not in text or end_marker not in text:
+              raise SystemExit('Could not locate embedded guarded patch script')
+          body = text.split(start_marker, 1)[1].split(end_marker, 1)[0]
+          lines = []
+          for line in body.splitlines():
+              lines.append(line[10:] if line.startswith('          ') else line)
+          Path('/tmp/apply_fixes.py').write_text('\n'.join(lines) + '\n', encoding='utf-8')
+          PYEXTRACT
+
+      - name: Apply to current main
+        shell: bash
+        run: |
+          git fetch origin main
+          git checkout -B main origin/main
+          python /tmp/apply_fixes.py
+
+      - name: Validate and push
+        shell: bash
+        run: |
+          node --check functions/notifications/index.js
+          node --check functions/notifications/assignment_guard.js
+          node --check functions/notifications/daily_summary.js
+          python -m py_compile functions/ml/*.py
+          git diff --check
+          git config user.name "ChatGPT"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --stat
+          git commit -m "Fix remaining static audit bugs and lifecycle mismatches"
+          git push origin HEAD:main
