@@ -47,14 +47,13 @@ class ActuatorLogService extends ChangeNotifier {
     if (_initialized) return;
     _initialized = true;
 
+    // authStateChanges emits the current auth state immediately after the
+    // listener is registered. Use that single startup path instead of also
+    // calling _restartListening(currentUser), which could race the initial
+    // auth event and attach two sets of actuator Firestore listeners.
     _authSub = FirebaseAuth.instance.authStateChanges().listen((user) {
       unawaited(_restartListening(user));
     });
-
-    final current = FirebaseAuth.instance.currentUser;
-    if (current != null) {
-      unawaited(_restartListening(current));
-    }
   }
 
   Future<void> _restartListening(User? user) async {
