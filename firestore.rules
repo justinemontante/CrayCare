@@ -58,6 +58,18 @@ service cloud.firestore {
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['control_mode']) &&
         request.resource.data.control_mode in ['on', 'off', 'auto'];
     }
+    function isValidHardwareAssignment() {
+      let uid = request.resource.data.get('uid', null);
+      let tankId = request.resource.data.get('tank_id', null);
+      return (uid == null && tankId == null) || (
+        uid is string && uid.size() > 0 &&
+        tankId is string && tankId.size() > 0 &&
+        exists(/databases/$(database)/documents/users/$(uid)) &&
+        get(/databases/$(database)/documents/users/$(uid)).data.role == 'owner' &&
+        get(/databases/$(database)/documents/users/$(uid)).data.get('status', 'active') == 'active' &&
+        get(/databases/$(database)/documents/users/$(uid)).data.tank_id == tankId
+      );
+    }
 
     match /users/{uid} {
       allow get: if isSignedIn() && (request.auth.uid == uid || isAdmin());
@@ -88,7 +100,9 @@ service cloud.firestore {
 
     match /hardware_system/{doc} {
       allow read: if isAdmin() || isEspSession();
-      allow write, delete: if isAdmin();
+      allow create, update: if isAdmin() &&
+        (doc != 'currentOwner' || isValidHardwareAssignment());
+      allow delete: if isAdmin();
     }
 
     match /tanks/{tankId} {
