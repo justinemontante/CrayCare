@@ -1,14 +1,17 @@
 {
   "users": {
     "_id": "uid",
-    "_description": "User profile. Subcollections: notification_settings/preferences and notif_markers. FCM device tokens live in the users/{uid}.fcmTokens array. Only self or admin can read/write.",
+    "_description": "User profile. Subcollections: notification_settings/preferences and notif_markers. FCM device tokens live in users/{uid}.fcmTokens. Only self or admin can read; profile mutations are constrained by Firestore rules.",
     "fields": [
       "full_name (string)",
       "email (string)",
       "role (owner|admin)",
       "status (active|disabled)",
       "tank_id (= uid by default; source of tank ownership)",
-      "photo_url / photoUrl (legacy)",
+      "photo_url (string/data URL, optional)",
+      "photoUrl (legacy alias, removed on canonical writes)",
+      "fcmTokens (array<string>, one token per logged-in device)",
+      "fcmToken (legacy single-token alias)",
       "created_at (Timestamp)"
     ]
   },
@@ -17,69 +20,89 @@
     "fields": [
       "sound (bool)",
       "vibration (bool)",
-      "critical (bool) \u2014 critical sensor alerts",
-      "warning (bool) \u2014 sensor warnings (approaching threshold)",
-      "feeding (bool) \u2014 feeding reminders",
-      "sampling (bool) \u2014 weekly sampling reminders",
+      "critical (bool)",
+      "warning (bool)",
+      "feeding (bool)",
+      "sampling (bool)",
       "updated_at (Timestamp)"
     ]
   },
   "users/{uid}/notif_markers/{key}": {
-    "_description": "Last-seen notification markers (reminders / confirmations).",
+    "_description": "Server-side idempotency markers for reminders and other scheduled notification checks.",
     "fields": [
-      "last_read_at (Timestamp)"
+      "markerKey (string)",
+      "value (dynamic marker value)",
+      "updated_at (Timestamp)"
     ]
   },
   "hardware_system/currentOwner": {
-    "_description": "SINGLE source of truth for hardware assignment. Written by admin; read by ESP32 + Cloud Functions to route sensor data. Reassignment is instant; previous owner's data is preserved.",
+    "_description": "Single source of truth for the one physical hardware package. A valid assignment is either uid/tank_id both null, or an active owner whose profile tank_id exactly matches.",
     "fields": [
-      "uid (string)",
-      "tank_id (string)",
-      "assigned_by (admin uid)",
-      "assigned_at (Timestamp)"
+      "uid (string|null)",
+      "tank_id (string|null)",
+      "assigned_by (admin uid, retained from last assignment)",
+      "assigned_at (Timestamp, retained from last assignment)"
     ]
   },
   "tanks": {
-    "_id": "tank_id (== owner's uid by default)",
-    "_description": "One tank per user. Core of the whole system \u2014 all sensor, actuator, feeder, Water Quality Assessment, and production data live here as subcollections.",
+    "_id": "tank_id (owner uid by default)",
+    "_description": "Owner tank root. Sensor, actuator, feeder, Water Quality Assessment, and production data are nested below it.",
     "fields": [
       "owner_uid (string)",
-      "userId (string, alias)",
-      "current_batch_id / currentBatchId (string|null)",
-      "stocking_date / stockingDate (int epoch-ms)",
-      "last_sample_date / lastSampleDate (int epoch-ms)",
-      "sample_count / sampleCount (int)",
-      "initial_total_sample_weight / initialTotalSampleWeight (double)",
-      "initial_total_sample_length / initialTotalSampleLength (double)",
-      "initial_population / initialPopulation (int)",
-      "is_initialized / isInitialized (bool)",
+      "current_batch_id (string)",
+      "stocking_date (int epoch-ms, when initialized)",
+      "last_sample_date (int epoch-ms, when available)",
+      "sample_count (int)",
+      "initial_total_sample_weight (double)",
+      "initial_total_sample_length (double)",
+      "initial_population (int)",
+      "is_initialized (bool)",
       "created_at (Timestamp)"
     ],
     "subcollections": {
       "sensor_readings/latest": {
-        "_description": "Latest sensor reading per tank. Written by Cloud Functions (ESP32 writes to sensorIngestion; CF routes here using hardware_system/currentOwner.tank_id). Read by owner/admin.",
+        "_description": "Latest complete routed sensor snapshot. Written by Cloud Functions from ESP staging; read by the owner.",
         "fields": [
-          "temperature",
-          "ph_level",
-          "dissolved_oxygen",
-          "turbidity",
-          "water_level",
+          "temperature (double, when present)",
+          "ph_level (double, when present)",
+          "dissolved_oxygen (double, when present)",
+          "turbidity (double, when present)",
+          "turbidity_air (bool, when present)",
+          "water_level (double, cm, when present)",
+          "buffered_entries (int, optional offline-backlog count)",
           "recorded_at (Timestamp)"
         ]
       },
-      "sensor_readings_history/{YYYY-MM-DD}/entries/{docId}": {
-        "_description": "Historical readings partitioned by Manila date. Written by Cloud Functions. Each entry is a 10-min window with per-sensor MIN/MAX/AVG aggregates (structure order: min, max, avg).",
+      "sensor_readings_history/{YYYY-MM-DD}": {
+        "_description": "Server-maintained daily summary parent for long-range Analytics. Completed sanitized summaries are rebuilt from their raw 10-minute entries when needed.",
         "fields": [
-          "temp_min, temp_max, temp_avg",
-          "turbidity_min, turbidity_max, turbidity_avg",
-          "pH_min, pH_max, pH_avg (when ENABLE_PH_SENSOR)",
-          "DO_min, DO_max, DO_avg (when ENABLE_DO_SENSOR)",
-          "waterLevel_min, waterLevel_max, waterLevel_avg (when ENABLE_WATER_LEVEL_SENSOR)",
+          "summary_version (int, currently 1)",
+          "summary_sanitized (bool)",
+          "summary_complete (bool)",
+          "date_key (YYYY-MM-DD)",
+          "sample_count (int entry count)",
+          "processed_entry_ids (array<string>)",
+          "temp_min/temp_max/temp_avg/temp_sum/temp_count (when data exists)",
+          "pH_min/pH_max/pH_avg/pH_sum/pH_count (when data exists)",
+          "DO_min/DO_max/DO_avg/DO_sum/DO_count (when data exists)",
+          "turbidity_min/turbidity_max/turbidity_avg/turbidity_sum/turbidity_count (when data exists)",
+          "waterLevel_min/waterLevel_max/waterLevel_avg/waterLevel_sum/waterLevel_count (when data exists)",
+          "updated_at (Timestamp)"
+        ]
+      },
+      "sensor_readings_history/{YYYY-MM-DD}/entries/{docId}": {
+        "_description": "Canonical 10-minute per-sensor window aggregates, partitioned by original Manila capture date. Invalid sensors are omitted rather than stored as sentinel values.",
+        "fields": [
+          "temp_min, temp_max, temp_avg (when valid samples exist)",
+          "turbidity_min, turbidity_max, turbidity_avg (when valid samples exist)",
+          "pH_min, pH_max, pH_avg (when valid samples exist)",
+          "DO_min, DO_max, DO_avg (when valid samples exist)",
+          "waterLevel_min, waterLevel_max, waterLevel_avg (when valid samples exist)",
           "recorded_at (Timestamp)"
         ]
       },
       "sensors/{sensorName}": {
-        "_description": "Per-sensor threshold/min-max config. Seeded by _createTankIfMissing(). Owner writes; ESP32 + CF read.",
+        "_description": "Per-sensor threshold configuration. Owner writes validated min/max values; the assigned ESP reads them.",
         "examples": [
           "temperature",
           "ph_level",
@@ -94,76 +117,78 @@
         ]
       },
       "actuators/{deviceId}": {
-        "_description": "Device control state. control_mode written ONLY by the app (owner/admin); ESP32 (anonymous) reads it and reports back the ACTUAL relay state via current_state + last_changed.",
+        "_description": "App requests control_mode; ESP reports the actual relay current_state and last_changed.",
         "examples": [
-          "pump (GPIO 26)",
-          "aerator1 (GPIO 27)",
-          "aerator2 (GPIO 14)"
+          "pump",
+          "aerator1",
+          "aerator2"
         ],
         "fields": [
           "control_mode (on|off|auto)",
-          "current_state (on|off) \u2014 ACTUAL relay state, written by ESP32",
-          "last_changed (Timestamp from app / int epoch-ms from ESP)"
+          "current_state (on|off)",
+          "last_changed (int epoch-ms; 0 means never changed)"
         ]
       },
       "actuator_logs/{logId}": {
-        "_description": "Device activity log. ESP32 creates a doc on every physical relay change; app reads for the Controls screen runtime labels and auto-control events.",
+        "_description": "Actuator activity log. Owner-request logs and ESP-confirmed physical/AUTO changes use the same canonical collection.",
         "fields": [
           "actuator_type (pump|aerator1|aerator2)",
-          "action (e.g. 'Switched ON \u2014 Aerator 1 (AUTO) \u2014 ...')",
-          "type (on|off|auto)",
-          "logged_at (timestamp)"
+          "action (string)",
+          "type (on|off|auto or source label)",
+          "logged_at (int epoch-ms; legacy Timestamp/ISO values remain readable by the app)"
         ]
       },
       "feeder/status": {
-        "_description": "Current feeder status written by ESP32; read by owner/admin.",
+        "_description": "Current feeder status written by the ESP32.",
         "fields": [
           "status (idle|dispensing)",
-          "dispenseCount",
-          "lastSeen",
-          "last_dispensed_at",
-          "last_dispensed_grams"
+          "dispenseCount (int)",
+          "lastSeen (int epoch-ms)",
+          "last_dispensed_at (int epoch-ms|null)",
+          "last_dispensed_grams (double)"
         ]
       },
       "feeder_schedules/{scheduleId}": {
-        "_description": "Scheduled feeding times. Flutter reads/writes; ESP32 polls.",
+        "_description": "Recurring scheduled feeding configuration. effective_at_ms prevents a newly created/edited/enabled schedule from being treated as retroactively due.",
         "fields": [
           "time (HH:MM)",
           "ampm (AM|PM)",
           "timeValue (int minutes since midnight)",
-          "grams (double, optional)",
-          "days (string mask \"1111111\" Sunday-first)",
+          "grams (double|null)",
+          "days (7-char Sunday-first mask)",
           "enabled (bool)",
           "isDone (bool)",
-          "created_at (Timestamp)"
+          "created_at (Timestamp)",
+          "effective_at_ms (int epoch-ms)"
         ]
       },
       "feeder_logs/{logId}": {
-        "_description": "Feeding logs. ESP32 + Flutter both create.",
+        "_description": "Feeding lifecycle/audit logs. Physical completion is confirmed by the ESP; the app can also write schedule/missed/error audit entries.",
         "fields": [
-          "action",
-          "type (auto|manual)",
-          "trigger_type (scheduled|manual)",
-          "logged_at (timestamp)"
+          "action (string)",
+          "type (auto|manual|missed|error)",
+          "logged_at (int epoch-ms; legacy Timestamp/ISO values remain readable)",
+          "schedule_key (string, optional)",
+          "schedule_time (string, optional)"
         ]
       },
       "feeder_commands/{commandId}": {
-        "_description": "Manual feed commands pending ESP32 execution. Flutter creates; ESP32 reads + deletes processed commands.",
+        "_description": "Manual Feed Now commands pending ESP execution. Flutter creates; ESP reads and deletes processed commands.",
         "fields": [
           "command_type (feed_now)",
-          "grams (double, optional \u2014 default 20.0)",
+          "grams (double, optional; firmware default 20.0)",
           "issued_by (uid)",
           "issued_at (Timestamp)"
         ]
       },
-      "machine_learning_assessments/current": {
-        "_description": "Latest water-quality machine-learning assessment. Written by ML Cloud Function (Admin SDK); read by app.",
+      "machine_learning_assessments/{assessmentId}": {
+        "_description": "Water Quality Assessment documents. `current` is the live alias; timestamp-named documents provide history. Written by the Python Cloud Function via Admin SDK.",
         "fields": [
           "uid",
           "tank_id",
           "level (Good|Moderate|Poor|Critical|Insufficient)",
-          "model_level (Good|Moderate|Poor|Critical)",
-          "rule_level (Good|Moderate|Poor|Critical)",
+          "model_level (Good|Moderate|Poor|Critical|Insufficient)",
+          "rule_level (Good|Moderate|Poor|Critical|Insufficient)",
           "safety_override (bool)",
           "confidence (0-100)",
           "driver",
@@ -175,6 +200,8 @@
           "problem",
           "insight",
           "action",
+          "concerns (array)",
+          "secondary_concerns (array)",
           "ts_epoch (epoch seconds)",
           "timestamp (ISO-8601 string)"
         ]
@@ -182,7 +209,7 @@
     }
   },
   "tanks/{tankId}/batches/{batchId}": {
-    "_description": "Nested crayfish batch doc under its owning tank. Replaces the legacy flat batches collection.",
+    "_description": "Nested crayfish batch document using canonical snake_case fields.",
     "fields": [
       "batch_id",
       "batch_status (active|harvested|superseded)",
@@ -239,7 +266,7 @@
     ]
   },
   "notifications/{notifId}": {
-    "_description": "Root notification collection scoped by uid field. Readable if uid matches auth uid.",
+    "_description": "Root notification collection scoped by uid. Deterministic IDs are used where one physical event must map to one notification record across multiple devices.",
     "fields": [
       "uid",
       "notif_type",
@@ -250,27 +277,28 @@
     ]
   },
   "sensorIngestion/current": {
-    "_description": "Anonymous ESP32 ingestion endpoint (fixed path). Cloud Functions route to tanks/{tankId}/sensor_readings/latest.",
+    "_description": "Anonymous ESP staging document for the 5-second live snapshot. Cloud Functions route it to the currently assigned tank.",
     "fields": [
-      "hardwareId",
-      "temperature",
-      "turbidity",
+      "hardwareId (string)",
+      "temperature (double; -1 sentinel possible when live probe invalid)",
+      "turbidity (double)",
       "turbidity_air (bool)",
-      "dissolved_oxygen",
-      "ph_level",
-      "water_level"
+      "dissolved_oxygen (double, when enabled)",
+      "ph_level (double, when enabled)",
+      "water_level (double cm, when enabled)",
+      "buffered_entries (int)"
     ]
   },
   "sensorIngestion/current/history/{docId}": {
-    "_description": "Anonymous append-only history (~10 min interval). Cloud Functions route to tanks/{tankId}/sensor_readings_history/{date}/entries.",
+    "_description": "Anonymous ESP append-only 10-minute aggregate staging entry. Cloud Functions preserve captured_at_ms as recorded_at and route by original Manila date.",
     "fields": [
-      "hardwareId",
-      "temperature",
-      "turbidity",
-      "turbidity_air (bool)",
-      "dissolved_oxygen",
-      "ph_level",
-      "water_level"
+      "hardwareId (string)",
+      "temp_min/temp_max/temp_avg (when valid samples exist)",
+      "turbidity_min/turbidity_max/turbidity_avg (when valid samples exist)",
+      "DO_min/DO_max/DO_avg (when valid samples exist)",
+      "pH_min/pH_max/pH_avg (when valid samples exist)",
+      "waterLevel_min/waterLevel_max/waterLevel_avg (when valid samples exist)",
+      "captured_at_ms (int epoch-ms when NTP is synced)"
     ]
   }
 }
