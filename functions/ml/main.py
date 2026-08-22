@@ -1,5 +1,6 @@
 import os
 import json
+import math
 from datetime import datetime, timedelta, timezone
 
 # Global state for lazy-loaded model
@@ -82,7 +83,8 @@ def _valid_history_row(row: dict) -> bool:
         if any(
             value is None
             or not isinstance(value, (int, float))
-            or not float(value) >= 0.0
+            or not math.isfinite(float(value))
+            or float(value) < 0.0
             for value in values
         ):
             return False
