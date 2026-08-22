@@ -68,6 +68,30 @@ def _run_water_quality_assessment(df):
     return enrich_assessment(result, df, recs)
 
 
+def _valid_history_row(row: dict) -> bool:
+    """Reject malformed/sentinel aggregates before they reach ML/rule logic."""
+    triplets = (
+        ("temp_min", "temp_avg", "temp_max"),
+        ("pH_min", "pH_avg", "pH_max"),
+        ("DO_min", "DO_avg", "DO_max"),
+        ("turbidity_min", "turbidity_avg", "turbidity_max"),
+        ("waterLevel_min", "waterLevel_avg", "waterLevel_max"),
+    )
+    for min_key, avg_key, max_key in triplets:
+        values = (row.get(min_key), row.get(avg_key), row.get(max_key))
+        if any(
+            value is None
+            or not isinstance(value, (int, float))
+            or not float(value) >= 0.0
+            for value in values
+        ):
+            return False
+        min_value, avg_value, max_value = map(float, values)
+        if min_value > avg_value or avg_value > max_value:
+            return False
+    return True
+
+
 def _fetch_sensor_history(tank_id: str, hours: int = 24):
     """Fetch one tank's canonical history documents from the final schema."""
     import pandas as pd
@@ -98,18 +122,18 @@ def _fetch_sensor_history(tank_id: str, hours: int = 24):
                 do = data.get("DO_avg", data.get("dissolved_oxygen"))
                 turb = data.get("turbidity_avg", data.get("turbidity"))
                 water = data.get("waterLevel_avg", data.get("water_level"))
-                base_values = (temp, ph, do, turb, water)
-                if any(v is None or not isinstance(v, (int, float)) or v < 0 for v in base_values):
-                    print(f"[Water Quality Assessment] Skipping incomplete/invalid history doc {doc.id}")
-                    continue
-                rows.append({
+                row = {
                     "timestamp": recorded_at.timestamp(),
                     "temp_avg": temp, "temp_min": data.get("temp_min", temp), "temp_max": data.get("temp_max", temp),
                     "pH_avg": ph, "pH_min": data.get("pH_min", ph), "pH_max": data.get("pH_max", ph),
                     "DO_avg": do, "DO_min": data.get("DO_min", do), "DO_max": data.get("DO_max", do),
                     "turbidity_avg": turb, "turbidity_min": data.get("turbidity_min", turb), "turbidity_max": data.get("turbidity_max", turb),
                     "waterLevel_avg": water, "waterLevel_min": data.get("waterLevel_min", water), "waterLevel_max": data.get("waterLevel_max", water),
-                })
+                }
+                if not _valid_history_row(row):
+                    print(f"[Water Quality Assessment] Skipping incomplete/invalid history doc {doc.id}")
+                    continue
+                rows.append(row)
         except Exception as e:
             print(f"[Water Quality Assessment] Error fetching {tank_id}/{date_key}: {e}")
         current_day += timedelta(days=1)
@@ -174,15 +198,26 @@ def _analyze_tank(tank_id: str) -> None:
     region="asia-southeast1",
 )
 def run_hourly_wqa(event) -> None:
-    """Run the Water Quality Assessment for the assigned tank each hour.
-
-    The exported function name uses WQA to match Water Quality Assessment.
-    """
+    """Run the Water Quality Assessment for the active assigned owner/tank."""
     db = _get_db()
     assignment = db.collection("hardware_system").document("currentOwner").get()
     data = assignment.to_dict() if assignment.exists else None
+    uid = (data or {}).get("uid")
     tank_id = (data or {}).get("tank_id")
-    if not tank_id:
+    if not uid or not tank_id:
         print("[Water Quality Assessment] No hardware owner/tank assigned; hourly analysis skipped.")
         return
-    _analyze_tank(tank_id)
+
+    user_snap = db.collection("users").document(str(uid)).get()
+    if not user_snap.exists:
+        print("[Water Quality Assessment] Assigned owner profile is missing; hourly analysis skipped.")
+        return
+    user = user_snap.to_dict() or {}
+    role = str(user.get("role", "owner")).strip().lower()
+    status = str(user.get("status", "active")).strip().lower()
+    profile_tank_id = str(user.get("tank_id", "")).strip()
+    if role != "owner" or status != "active" or profile_tank_id != str(tank_id):
+        print("[Water Quality Assessment] Hardware assignment is not an active owner/tank pair; hourly analysis skipped.")
+        return
+
+    _analyze_tank(str(tank_id))
