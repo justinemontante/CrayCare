@@ -38,7 +38,6 @@ async function clearMatchingAssignment(uid, tankId) {
     transaction.set(ownerRef, {
       uid: null,
       tank_id: null,
-      unassigned_at: admin.firestore.FieldValue.serverTimestamp(),
     }, { merge: true });
   });
 }
@@ -74,7 +73,6 @@ exports.onHardwareAssignmentWrite = functions.region("asia-southeast1").firestor
     await change.after.ref.set({
       uid: null,
       tank_id: null,
-      unassigned_at: admin.firestore.FieldValue.serverTimestamp(),
     }, { merge: true });
     return null;
   });
