@@ -9,13 +9,13 @@ class SensorService extends ChangeNotifier {
   static final SensorService instance = SensorService._();
 
   SensorService._() {
-    if (FirebaseAuth.instance.currentUser != null) {
-      _initFirebaseListener();
-    }
+    // authStateChanges emits the current state immediately. Use that one
+    // startup path so a direct currentUser initialization cannot race it and
+    // create a second Firestore listener after an asynchronous profile lookup.
     _authSubscription = FirebaseAuth.instance.authStateChanges().listen((user) {
       _resetForAccountChange();
       if (user != null) {
-        _initFirebaseListener();
+        unawaited(_initFirebaseListener());
       }
     });
     ConnectivityService.instance.addOnConnectCallback(_onReconnect);
@@ -24,7 +24,7 @@ class SensorService extends ChangeNotifier {
   void _onReconnect() {
     debugPrint('[SensorService] Internet reconnected — refreshing listeners');
     if (FirebaseAuth.instance.currentUser != null) {
-      _initFirebaseListener();
+      unawaited(_initFirebaseListener());
     }
   }
 
@@ -39,6 +39,7 @@ class SensorService extends ChangeNotifier {
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _subscription;
   StreamSubscription<User?>? _authSubscription;
   String? _tankId;
+  int _listenerGeneration = 0;
 
   final Map<String, List<double>> _history = {};
   final Map<String, List<DateTime>> _historyTimes = {};
@@ -69,6 +70,8 @@ class SensorService extends ChangeNotifier {
   int get bufferedEntries => _bufferedEntries;
 
   void _resetForAccountChange() {
+    // Invalidate any profile/tank lookup that is still awaiting Firestore.
+    _listenerGeneration++;
     _subscription?.cancel();
     _subscription = null;
     _staleTimer?.cancel();
@@ -215,8 +218,10 @@ class SensorService extends ChangeNotifier {
     return rate <= -fastThreshold ? 'falling_fast' : 'falling';
   }
 
-  void _initFirebaseListener() async {
-    _subscription?.cancel();
+  Future<void> _initFirebaseListener() async {
+    final generation = ++_listenerGeneration;
+    await _subscription?.cancel();
+    _subscription = null;
     _initialDataLoaded = false;
     _staleTimer?.cancel();
     _periodicCheckTimer?.cancel();
@@ -235,6 +240,10 @@ class SensorService extends ChangeNotifier {
           .collection('users')
           .doc(uid)
           .get();
+      if (generation != _listenerGeneration ||
+          FirebaseAuth.instance.currentUser?.uid != uid) {
+        return;
+      }
       final profileData = profileDoc.data();
       if (profileData?['role'] == 'admin') {
         _resetForTankChange(null);
@@ -259,6 +268,12 @@ class SensorService extends ChangeNotifier {
       resolvedTankId = uid;
     }
 
+    // Do not let an old reconnect/account lookup attach after a newer one.
+    if (generation != _listenerGeneration ||
+        FirebaseAuth.instance.currentUser?.uid != uid) {
+      return;
+    }
+
     _resetForTankChange(resolvedTankId);
     _tankId = resolvedTankId;
     final tankId = _tankId;
@@ -276,11 +291,13 @@ class SensorService extends ChangeNotifier {
         .snapshots()
         .listen(
           (snapshot) {
+            if (generation != _listenerGeneration) return;
             _lastError = null;
             if (!snapshot.exists || snapshot.data() == null) return;
             _parseAndUpdate(snapshot.data()!);
           },
           onError: (error) {
+            if (generation != _listenerGeneration) return;
             final msg = error.toString();
             if (msg.contains('permission-denied') ||
                 msg.contains('PERMISSION_DENIED')) {
@@ -499,7 +516,9 @@ class SensorService extends ChangeNotifier {
   }
 
   bool _hasUsableDailySummary(Map<String, dynamic> data) {
-    if (data['summary_version'] != 1 || data['summary_complete'] != true) {
+    if (data['summary_version'] != 1 ||
+        data['summary_complete'] != true ||
+        data['summary_sanitized'] != true) {
       return false;
     }
     const averageFields = [
@@ -739,10 +758,12 @@ class SensorService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _listenerGeneration++;
     _subscription?.cancel();
     _authSubscription?.cancel();
     _staleTimer?.cancel();
     _periodicCheckTimer?.cancel();
+    ConnectivityService.instance.removeOnConnectCallback(_onReconnect);
     super.dispose();
   }
 }
