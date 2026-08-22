@@ -20,7 +20,7 @@ jobs:
 
       - name: Preserve audit runner
         shell: bash
-        run: cp tools/exhaustive_every_file_audit.py /tmp/exhaustive_every_file_audit.py
+        run: cp tools/exhaustive_every_file_audit_v2.py /tmp/exhaustive_every_file_audit_v2.py
 
       - name: Checkout exact current main
         shell: bash
@@ -35,20 +35,20 @@ jobs:
 
       - name: Audit every tracked file
         shell: bash
-        run: python /tmp/exhaustive_every_file_audit.py
+        run: python /tmp/exhaustive_every_file_audit_v2.py
 
       - name: Show summary
         if: always()
         shell: bash
         run: |
-          cat audit_every_file_output/summary.md || true
+          cat audit_every_file_output_v2/summary.md || true
           echo "--- first 80 file rows ---"
-          head -n 81 audit_every_file_output/files.tsv || true
+          head -n 81 audit_every_file_output_v2/files.tsv || true
 
       - name: Upload exhaustive audit artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: exhaustive-every-file-audit
-          path: audit_every_file_output/
+          name: exhaustive-every-file-audit-v2
+          path: audit_every_file_output_v2/
           if-no-files-found: error
