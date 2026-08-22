@@ -26,7 +26,6 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isResetLoading = false;
 
   String? _loginError;
-  String? _emailResetError;
 
   // Global keys for the form and email field
   final _formKey = GlobalKey<FormState>();
@@ -53,6 +52,7 @@ class _LoginScreenState extends State<LoginScreen> {
   void _loadSavedCredentials() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      if (!mounted) return;
       setState(() {
         _rememberMe = prefs.getBool('remember_me') ?? false;
         if (_rememberMe) {

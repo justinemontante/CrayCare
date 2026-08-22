@@ -554,22 +554,10 @@ class ControlsScreenState extends State<ControlsScreen> {
 
   void _setActuatorMode(String actuatorId, String mode) {
     setState(() => _actuatorModes[actuatorId] = mode);
-    final modeNames = {
-      'on': 'Switched ON',
-      'auto': 'Set to AUTO',
-      'off': 'Switched OFF',
-    };
-    final actuatorNames = {
-      'aerator1': 'Aerator 1',
-      'aerator2': 'Aerator 2',
-      'pump': 'Water Pump',
-    };
     DatabaseService.instance
         .saveActuatorMode(
           actuatorId: actuatorId,
           mode: mode,
-          actuatorName: actuatorNames[actuatorId] ?? actuatorId,
-          modeLabel: modeNames[mode] ?? mode,
         )
         .catchError((e) {
           debugPrint('[Controls] ERROR saving $actuatorId: $e');

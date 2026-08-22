@@ -527,11 +527,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   String _dateGroupKey(DateTime dt) {
+    final local = dt.toLocal();
     final now = DateTime.now();
-    final diff = now.difference(dt);
-    if (diff.inDays == 0) return 'Today';
-    if (diff.inDays == 1) return 'Yesterday';
-    return '${dt.month}/${dt.day}/${dt.year}';
+    final today = DateTime(now.year, now.month, now.day);
+    final date = DateTime(local.year, local.month, local.day);
+    final dayDiff = today.difference(date).inDays;
+    if (dayDiff == 0) return 'Today';
+    if (dayDiff == 1) return 'Yesterday';
+    return '${local.month}/${local.day}/${local.year}';
   }
 
   String _timeAgo(DateTime dt) {

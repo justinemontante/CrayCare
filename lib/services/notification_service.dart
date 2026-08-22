@@ -342,7 +342,6 @@ class NotificationService extends ChangeNotifier {
           ),
         );
 
-        await manager.requestExactAlarmsPermission();
         await manager.requestNotificationsPermission();
       }
 

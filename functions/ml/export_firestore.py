@@ -5,6 +5,7 @@ Usage:
   GOOGLE_APPLICATION_CREDENTIALS=/path/serviceAccountKey.json \
   python functions/ml/export_firestore.py
 """
+import math
 import os
 from pathlib import Path
 
@@ -60,7 +61,23 @@ columns = [
 ]
 df = pd.DataFrame(rows, columns=columns)
 if not df.empty:
-    df = df.dropna(subset=columns).sort_values("timestamp")
+    df = df.dropna(subset=columns)
+
+    def valid_aggregate(row):
+        for sensor in ("temp", "pH", "DO", "turbidity", "waterLevel"):
+            minimum = float(row[f"{sensor}_min"])
+            average = float(row[f"{sensor}_avg"])
+            maximum = float(row[f"{sensor}_max"])
+            if not all(
+                math.isfinite(value) and value >= 0
+                for value in (minimum, average, maximum)
+            ):
+                return False
+            if not (minimum <= average <= maximum):
+                return False
+        return True
+
+    df = df[df.apply(valid_aggregate, axis=1)].sort_values("timestamp")
     df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True).dt.tz_localize(None)
 
 out_path = Path(__file__).with_name("sensor_dataset.csv")

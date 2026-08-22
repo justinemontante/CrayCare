@@ -5,17 +5,17 @@ class EspService extends ChangeNotifier {
   static final EspService instance = EspService._();
   EspService._();
 
-  DateTime _lastSeen = DateTime.fromMillisecondsSinceEpoch(0);
+  bool _initialized = false;
 
-  bool get isEspOnline =>
-      DateTime.now().difference(_lastSeen).inSeconds < 30;
+  bool get isEspOnline => SensorService.instance.isEspOnline;
 
   void init() {
+    if (_initialized) return;
+    _initialized = true;
     SensorService.instance.addListener(_onSensorUpdate);
   }
 
   void _onSensorUpdate() {
-    _lastSeen = DateTime.now();
     notifyListeners();
   }
 

@@ -519,7 +519,7 @@ class ProductionScreenState extends State<ProductionScreen> {
 
   void _showEditModal() {
     final tank = TankService.instance;
-    if (tank.samplingHistory.isNotEmpty ||
+    if (tank.samplingHistory.any((entry) => !entry.isBaseline) ||
         tank.mortalityHistory.isNotEmpty ||
         tank.harvestRecords.isNotEmpty) {
       showBeautifulSnackbar(
@@ -552,6 +552,7 @@ class ProductionScreenState extends State<ProductionScreen> {
           ? TankService.instance.initialTotalLength.toStringAsFixed(1)
           : '',
     );
+    var isSaving = false;
 
     showModalBottomSheet(
       context: context,
@@ -563,8 +564,6 @@ class ProductionScreenState extends State<ProductionScreen> {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setLocalState) {
-            bool isSaving = false;
-
             String? validateSample() {
               final pop = int.tryParse(countCtrl.text) ?? 0;
               final sample = int.tryParse(sampleCountCtrl.text) ?? 0;
@@ -999,6 +998,7 @@ class ProductionScreenState extends State<ProductionScreen> {
   void _showMortalityModal() {
     final countCtrl = TextEditingController();
     final liveCount = TankService.instance.inTankCount;
+    var savingMortality = false;
 
     showModalBottomSheet(
       context: context,
@@ -1010,7 +1010,6 @@ class ProductionScreenState extends State<ProductionScreen> {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setLocalState) {
-            bool savingMortality = false;
             final mortalityVal = int.tryParse(countCtrl.text) ?? 0;
             final String? errorText = mortalityVal > liveCount
                 ? 'Cannot exceed current live count ($liveCount).'

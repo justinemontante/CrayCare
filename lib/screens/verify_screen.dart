@@ -17,7 +17,6 @@ class VerifyScreen extends StatefulWidget {
 class _VerifyScreenState extends State<VerifyScreen> {
   final User? _currentUser = FirebaseAuth.instance.currentUser;
   bool _isLoading = false;
-  bool _isVerified = false;
 
   // COUNTDOWN TIMER VARIABLES
   Timer? _timer;
@@ -33,18 +32,7 @@ class _VerifyScreenState extends State<VerifyScreen> {
   @override
   void dispose() {
     _timer?.cancel();
-    if (!_isVerified) {
-      _deleteUnverifiedAccount();
-    }
     super.dispose();
-  }
-
-  void _deleteUnverifiedAccount() async {
-    try {
-      await _currentUser?.delete();
-    } catch (_) {
-      // Account already deleted or token expired
-    }
   }
 
   void _startTimer() {
@@ -193,7 +181,6 @@ class _VerifyScreenState extends State<VerifyScreen> {
                     child: ElevatedButton(
                       onPressed: () {
                         _timer?.cancel();
-                        _isVerified = true;
                         Navigator.pop(context); // Close Modal
                         Navigator.pushReplacement(
                           context,

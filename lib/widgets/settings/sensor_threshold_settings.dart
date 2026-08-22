@@ -160,7 +160,7 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
     );
   }
 
-  Future<void> _saveConfigToFirebase({String? changedKey, bool showMessage = true}) async {
+  Future<bool> _saveConfigToFirebase({String? changedKey, bool showMessage = true}) async {
     // Block unsafe values client-side before hitting Firestore (which also
     // enforces the same bounds in rules).
     final validationError = _validateRanges();
@@ -168,7 +168,7 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('⚠️ $validationError'), duration: const Duration(seconds: 4)),
       );
-      return;
+      return false;
     }
     if (mounted) setState(() => _saving = true);
     try {
@@ -176,17 +176,20 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
         currentRanges: SettingsService.instance.currentRanges,
         changedKey: changedKey,
       );
-      if (!mounted) return;
+      if (!mounted) return true;
       setState(() => _saving = false);
       if (showMessage) {
         _showSuccessModal(changedKey != null ? 'Threshold updated!' : 'Thresholds saved!');
       }
+      return true;
     } catch (e) {
-      if (!mounted) return;
-      setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to save to Firebase: $e'), duration: const Duration(seconds: 3)),
-      );
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to save to Firebase: $e'), duration: const Duration(seconds: 3)),
+        );
+      }
+      return false;
     }
   }
 
@@ -245,17 +248,39 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
             onPressed: () async {
               final min = double.tryParse(minCtrl.text.trim()) ?? currentMin;
               final max = double.tryParse(maxCtrl.text.trim()) ?? (currentMax >= 999 ? 999.0 : currentMax);
+              final bounds = _safeBounds[sensorKey];
+              final unitText = _safeUnits[sensorKey] ?? '';
+              String? candidateError;
               if (min >= max) {
+                candidateError = 'Minimum must be lower than maximum.';
+              } else if (bounds != null &&
+                  (min < bounds['minLow']! || min > bounds['minHigh']!)) {
+                candidateError =
+                    'Minimum must be ${bounds['minLow']}–${bounds['minHigh']} $unitText.';
+              } else if (bounds != null &&
+                  (max < bounds['maxLow']! || max > bounds['maxHigh']!)) {
+                candidateError =
+                    'Maximum must be ${bounds['maxLow']}–${bounds['maxHigh']} $unitText.';
+              }
+              if (candidateError != null) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Minimum must be lower than maximum'), duration: Duration(seconds: 2)),
+                  SnackBar(content: Text(candidateError), duration: const Duration(seconds: 3)),
                 );
                 return;
               }
+
               await SettingsService.instance.updateRange(sensorKey, min, max);
               if (!ctx.mounted) return;
               Navigator.pop(ctx);
-              setState(() {});
-              await _saveConfigToFirebase(changedKey: sensorKey);
+              if (mounted) setState(() {});
+              final saved = await _saveConfigToFirebase(changedKey: sensorKey);
+              if (!saved) {
+                await SettingsService.instance.updateRange(
+                  sensorKey,
+                  currentMin,
+                  currentMax,
+                );
+              }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,

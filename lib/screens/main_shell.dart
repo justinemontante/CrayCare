@@ -6,6 +6,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../theme/app_colors.dart';
 import '../services/notification_service.dart';
 import '../services/connectivity_service.dart';
+import '../services/auth_service.dart';
+import 'login_screen.dart';
 import 'dashboard_screen.dart';
 import 'analytics_screen.dart';
 import 'controls_screen.dart';
@@ -33,6 +35,7 @@ class _MainShellState extends State<MainShell> {
   String? _photoUrl;
   bool _isAdmin = false;
   bool _roleLoaded = false;
+  bool _handlingDisabledAccount = false;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _profileSub;
 
   static const List<_NavItem> _ownerNavItems = [
@@ -106,6 +109,10 @@ class _MainShellState extends State<MainShell> {
               return;
             }
             final data = doc.data()!;
+            if (data['status'] == 'disabled') {
+              unawaited(_handleDisabledAccount());
+              return;
+            }
             setState(() {
               _applyProfile(data);
               _roleLoaded = true;
@@ -118,6 +125,24 @@ class _MainShellState extends State<MainShell> {
             }
           },
         );
+  }
+
+  Future<void> _handleDisabledAccount() async {
+    if (_handlingDisabledAccount) return;
+    _handlingDisabledAccount = true;
+    await _profileSub?.cancel();
+    _profileSub = null;
+    try {
+      await AuthService().signOut();
+    } catch (e) {
+      debugPrint('[MainShell] Disabled-account sign-out cleanup failed: $e');
+      await FirebaseAuth.instance.signOut();
+    }
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      (_) => false,
+    );
   }
 
   void _goToAnalytics(String chartKey) {

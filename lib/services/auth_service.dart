@@ -65,7 +65,8 @@ class AuthService {
         }
 
         if (!user.emailVerified) {
-          await _auth.signOut();
+          // Keep this authenticated session alive so VerifyScreen can reload
+          // the user and resend the verification email when needed.
           throw Exception(
             'Please verify your email first. A verification link was sent to your inbox.',
           );
@@ -208,9 +209,15 @@ class AuthService {
         // receiving push notifications.
         final token = await FirebaseMessaging.instance.getToken();
         if (token != null) {
-          await FirebaseFirestore.instance.collection('users').doc(uid).update({
+          final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
+          final snap = await userRef.get();
+          final updates = <String, dynamic>{
             'fcmTokens': FieldValue.arrayRemove([token]),
-          });
+          };
+          if (snap.data()?['fcmToken'] == token) {
+            updates['fcmToken'] = FieldValue.delete();
+          }
+          await userRef.update(updates);
         }
       } catch (e) {
         debugPrint('[AuthService] Failed to clear FCM token on signout: $e');

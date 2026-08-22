@@ -279,9 +279,7 @@ class DatabaseService {
 
   Future<void> saveActuatorMode({
     required String actuatorId, // 'pump', 'aerator1', or 'aerator2'
-    required String mode,     // 'on' | 'off' | 'auto'
-    required String actuatorName,
-    required String modeLabel,
+    required String mode, // 'on' | 'off' | 'auto'
   }) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -298,12 +296,8 @@ class DatabaseService {
       'control_mode': mode,
     }, SetOptions(merge: true));
 
-    await tankRef.collection('actuator_logs').add({
-      'actuator_type': actuatorId,
-      'action': 'Switched ${mode.toUpperCase()} — $actuatorName ($modeLabel)',
-      'type': mode,
-      'logged_at': DateTime.now().millisecondsSinceEpoch,
-    });
+    // Do not create a physical-state log here. The ESP writes actuator_logs
+    // only after the relay has actually applied the requested mode/state.
   }
 
   // ─── Hardware Owner (admin) ─────────────────────────────────────────

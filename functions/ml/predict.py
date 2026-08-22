@@ -3,9 +3,10 @@
 Runs the current assessment model and recommendations on the latest row of
 sensor_dataset.csv, then prints the complete Water Quality Assessment result.
 
-Uses the exact same features.assess_water_quality() that the deployed Cloud
-Function (main.py) uses, so this is a true preview of what production
-would output for that row -- not a separate reimplementation.
+Uses the same features.assess_water_quality() model core as the deployed
+Cloud Function. Production additionally applies main.py enrichment and the
+deterministic safety floor, so this script previews the model core rather than
+claiming to reproduce the final Firestore document byte-for-byte.
 
 Usage: python predict.py
 """

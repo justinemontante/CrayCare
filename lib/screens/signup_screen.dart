@@ -66,19 +66,22 @@ class _SignupScreenState extends State<SignupScreen> {
             _emailController.text.trim(),
             _passwordController.text.trim(),
           );
+        } catch (e, stack) {
+          debugPrint('[Signup] sign-in check: $e\n$stack');
+        }
 
-          final user = FirebaseAuth.instance.currentUser;
-          if (user != null && !user.emailVerified) {
-            await user.sendEmailVerification();
-            if (!mounted) return;
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (_) => const VerifyScreen()),
-            );
-            return;
-          }
-        } catch (e, stack) { debugPrint('[Signup] error: $e\n$stack'); }
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null && !user.emailVerified) {
+          await user.sendEmailVerification();
+          if (!mounted) return;
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const VerifyScreen()),
+          );
+          return;
+        }
 
+        if (!mounted) return;
         setState(() {
           _emailError = 'This email is already registered. Try signing in instead.';
           _autovalidateMode = AutovalidateMode.onUserInteraction;

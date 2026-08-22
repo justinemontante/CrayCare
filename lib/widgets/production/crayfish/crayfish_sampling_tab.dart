@@ -963,7 +963,9 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
 
   void _checkLastSampling() {
     _isEditing = false;
-    final history = TankService.instance.samplingHistory;
+    final history = TankService.instance.samplingHistory
+        .where((entry) => !entry.isBaseline)
+        .toList();
     // Sample size stays FIXED for the whole batch (consistency standard).
     // It always mirrors the batch's initial sample count, never the last
     // record — so week-over-week ABW/ABL comparisons stay apples-to-apples.
@@ -980,9 +982,13 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
         _lengthController.text = last.totalLength.toStringAsFixed(1);
       } else {
         _isRecorded = false;
+        _weightController.clear();
+        _lengthController.clear();
       }
     } else {
       _isRecorded = false;
+      _weightController.clear();
+      _lengthController.clear();
     }
   }
 
@@ -1198,7 +1204,11 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
   }
 
   void _handleEdit() {
-    final lastEntry = TankService.instance.samplingHistory.last.date;
+    final weekly = TankService.instance.samplingHistory
+        .where((entry) => !entry.isBaseline)
+        .toList();
+    if (weekly.isEmpty) return;
+    final lastEntry = weekly.last.date;
     if (!_isToday(lastEntry)) {
       showBeautifulSnackbar(
         context,
@@ -1217,8 +1227,11 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
   Widget build(BuildContext context) {
     final canSample = TankService.instance.canSample;
     final service = TankService.instance;
-    final lastEntryIsToday = service.samplingHistory.isNotEmpty
-        ? _isToday(service.samplingHistory.last.date)
+    final weeklySampling = service.samplingHistory
+        .where((entry) => !entry.isBaseline)
+        .toList();
+    final lastEntryIsToday = weeklySampling.isNotEmpty
+        ? _isToday(weeklySampling.last.date)
         : false;
 
     return Container(

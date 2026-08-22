@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -561,7 +562,7 @@ class ReportExportService {
 
   Future<void> shareGrowthCsv() async {
     final name = 'craycare_growth_${_stamp()}.csv';
-    await _writeAndShare(name, 'text/csv', buildGrowthCsv().codeUnits);
+    await _writeAndShare(name, 'text/csv', utf8.encode(buildGrowthCsv()));
   }
 
   Future<void> shareGrowthPdf() async {
@@ -574,7 +575,7 @@ class ReportExportService {
     await _writeAndShare(
       name,
       'text/csv',
-      buildWaterQualityAssessmentCsv().codeUnits,
+      utf8.encode(buildWaterQualityAssessmentCsv()),
     );
   }
 

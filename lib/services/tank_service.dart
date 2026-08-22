@@ -278,8 +278,11 @@ class TankService extends ChangeNotifier {
         if (!profileExists) 'status': 'active',
       }, SetOptions(merge: true));
       return uid;
-    } catch (_) {
-      return uid;
+    } catch (e) {
+      debugPrint('[TankService] Failed to resolve tank for $uid: $e');
+      // Fail closed. Returning uid here can incorrectly make an admin or a
+      // temporarily unreadable profile look like an owner tank.
+      return '';
     }
   }
 
@@ -803,7 +806,7 @@ class TankService extends ChangeNotifier {
       if (requestedName.isNotEmpty && requestedName != currentId) {
         throw ArgumentError('The batch name cannot be changed after initialization');
       }
-      if (_samplingHistory.isNotEmpty ||
+      if (_samplingHistory.any((entry) => !entry.isBaseline) ||
           _mortalityHistory.isNotEmpty ||
           _harvestRecords.isNotEmpty) {
         throw StateError('Initialization cannot be edited after operational records exist');
@@ -991,6 +994,9 @@ class TankService extends ChangeNotifier {
 
   Future<void> updateLastSamplingEntry(int count, double weight, double length) async {
     if (_lastSamplingDocId == null || _samplingHistory.isEmpty) return;
+    if (_samplingHistory.last.isBaseline) {
+      throw StateError('No weekly sampling record is available to edit.');
+    }
     if (_selectedBatchId == null) return;
     if (count <= 0) throw ArgumentError('Sample count must be greater than 0');
     if (count > inTankCount) throw ArgumentError('Sample count exceeds in-tank population');
@@ -1018,7 +1024,7 @@ class TankService extends ChangeNotifier {
         'live_count': updated.liveCount,
         'created_at': FieldValue.serverTimestamp(),
       });
-      _saveConfig();
+      await _saveConfig();
     } catch (e) {
       debugPrint('[TankService] Error updating sampling entry: $e');
       rethrow;
