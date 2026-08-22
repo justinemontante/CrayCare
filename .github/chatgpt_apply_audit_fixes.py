@@ -1,0 +1,740 @@
+from pathlib import Path
+import re
+
+
+def read(path):
+    return Path(path).read_text(encoding="utf-8")
+
+
+def write(path, text):
+    Path(path).write_text(text, encoding="utf-8")
+
+
+def replace_once(path, old, new):
+    text = read(path)
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(
+            f"{path}: expected 1 exact match, found {count}: {old[:100]!r}"
+        )
+    write(path, text.replace(old, new, 1))
+    print("patched", path)
+
+
+def regex_once(path, pattern, repl, flags=0):
+    text = read(path)
+    new, count = re.subn(pattern, repl, text, count=1, flags=flags)
+    if count != 1:
+        raise SystemExit(
+            f"{path}: expected 1 regex match, found {count}: {pattern[:100]!r}"
+        )
+    write(path, new)
+    print("patched", path)
+
+
+# 1) Physical actuator logs belong to ESP confirmation, not Flutter request.
+replace_once(
+    "lib/services/database_service.dart",
+    """  Future<void> saveActuatorMode({
+    required String actuatorId, // 'pump', 'aerator1', or 'aerator2'
+    required String mode,     // 'on' | 'off' | 'auto'
+    required String actuatorName,
+    required String modeLabel,
+  }) async {""",
+    """  Future<void> saveActuatorMode({
+    required String actuatorId, // 'pump', 'aerator1', or 'aerator2'
+    required String mode, // 'on' | 'off' | 'auto'
+  }) async {""",
+)
+replace_once(
+    "lib/services/database_service.dart",
+    """
+    await tankRef.collection('actuator_logs').add({
+      'actuator_type': actuatorId,
+      'action': 'Switched ${mode.toUpperCase()} — $actuatorName ($modeLabel)',
+      'type': mode,
+      'logged_at': DateTime.now().millisecondsSinceEpoch,
+    });
+""",
+    """
+    // Do not create a physical-state log here. The ESP writes actuator_logs
+    // only after the relay has actually applied the requested mode/state.
+""",
+)
+replace_once(
+    "lib/screens/controls_screen.dart",
+    """    final modeNames = {
+      'on': 'Switched ON',
+      'auto': 'Set to AUTO',
+      'off': 'Switched OFF',
+    };
+    final actuatorNames = {
+      'aerator1': 'Aerator 1',
+      'aerator2': 'Aerator 2',
+      'pump': 'Water Pump',
+    };
+    DatabaseService.instance
+        .saveActuatorMode(
+          actuatorId: actuatorId,
+          mode: mode,
+          actuatorName: actuatorNames[actuatorId] ?? actuatorId,
+          modeLabel: modeNames[mode] ?? mode,
+        )""",
+    """    DatabaseService.instance
+        .saveActuatorMode(
+          actuatorId: actuatorId,
+          mode: mode,
+        )""",
+)
+
+# 2) ESP online state proxies the authoritative SensorService freshness state.
+write(
+    "lib/services/esp_service.dart",
+    """import 'package:flutter/foundation.dart';
+import 'sensor_service.dart';
+
+class EspService extends ChangeNotifier {
+  static final EspService instance = EspService._();
+  EspService._();
+
+  bool _initialized = false;
+
+  bool get isEspOnline => SensorService.instance.isEspOnline;
+
+  void init() {
+    if (_initialized) return;
+    _initialized = true;
+    SensorService.instance.addListener(_onSensorUpdate);
+  }
+
+  void _onSensorUpdate() {
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    SensorService.instance.removeListener(_onSensorUpdate);
+    super.dispose();
+  }
+}
+""",
+)
+print("patched lib/services/esp_service.dart")
+
+# 3) Keep unverified sessions alive so VerifyScreen can reload/resend.
+replace_once(
+    "lib/services/auth_service.dart",
+    """        if (!user.emailVerified) {
+          await _auth.signOut();
+          throw Exception(
+            'Please verify your email first. A verification link was sent to your inbox.',
+          );
+        }""",
+    """        if (!user.emailVerified) {
+          // Keep this authenticated session alive so VerifyScreen can reload
+          // the user and resend the verification email when needed.
+          throw Exception(
+            'Please verify your email first. A verification link was sent to your inbox.',
+          );
+        }""",
+)
+replace_once(
+    "lib/services/auth_service.dart",
+    """        if (token != null) {
+          await FirebaseFirestore.instance.collection('users').doc(uid).update({
+            'fcmTokens': FieldValue.arrayRemove([token]),
+          });
+        }""",
+    """        if (token != null) {
+          final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
+          final snap = await userRef.get();
+          final updates = <String, dynamic>{
+            'fcmTokens': FieldValue.arrayRemove([token]),
+          };
+          if (snap.data()?['fcmToken'] == token) {
+            updates['fcmToken'] = FieldValue.delete();
+          }
+          await userRef.update(updates);
+        }""",
+)
+
+# VerifyScreen must not silently delete an auth account on widget disposal.
+replace_once(
+    "lib/screens/verify_screen.dart",
+    """  bool _isLoading = false;
+  bool _isVerified = false;
+""",
+    """  bool _isLoading = false;
+""",
+)
+replace_once(
+    "lib/screens/verify_screen.dart",
+    """  @override
+  void dispose() {
+    _timer?.cancel();
+    if (!_isVerified) {
+      _deleteUnverifiedAccount();
+    }
+    super.dispose();
+  }
+
+  void _deleteUnverifiedAccount() async {
+    try {
+      await _currentUser?.delete();
+    } catch (_) {
+      // Account already deleted or token expired
+    }
+  }
+""",
+    """  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+""",
+)
+replace_once(
+    "lib/screens/verify_screen.dart",
+    """                        _timer?.cancel();
+                        _isVerified = true;
+                        Navigator.pop(context); // Close Modal""",
+    """                        _timer?.cancel();
+                        Navigator.pop(context); // Close Modal""",
+)
+
+# Signup: inspect the still-authenticated user even when AuthService throws verify.
+replace_once(
+    "lib/screens/signup_screen.dart",
+    """        try {
+          await _authService.signIn(
+            _emailController.text.trim(),
+            _passwordController.text.trim(),
+          );
+
+          final user = FirebaseAuth.instance.currentUser;
+          if (user != null && !user.emailVerified) {
+            await user.sendEmailVerification();
+            if (!mounted) return;
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => const VerifyScreen()),
+            );
+            return;
+          }
+        } catch (e, stack) { debugPrint('[Signup] error: $e\\n$stack'); }
+
+        setState(() {""",
+    """        try {
+          await _authService.signIn(
+            _emailController.text.trim(),
+            _passwordController.text.trim(),
+          );
+        } catch (e, stack) {
+          debugPrint('[Signup] sign-in check: $e\\n$stack');
+        }
+
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null && !user.emailVerified) {
+          await user.sendEmailVerification();
+          if (!mounted) return;
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const VerifyScreen()),
+          );
+          return;
+        }
+
+        if (!mounted) return;
+        setState(() {""",
+)
+
+# Login saved-credential async lifecycle.
+replace_once(
+    "lib/screens/login_screen.dart",
+    """      final prefs = await SharedPreferences.getInstance();
+      setState(() {""",
+    """      final prefs = await SharedPreferences.getInstance();
+      if (!mounted) return;
+      setState(() {""",
+)
+replace_once(
+    "lib/screens/login_screen.dart",
+    """  String? _loginError;
+  String? _emailResetError;
+""",
+    """  String? _loginError;
+""",
+)
+
+# 4) Live disabled account should leave MainShell immediately and clean token.
+replace_once(
+    "lib/screens/main_shell.dart",
+    """import '../services/connectivity_service.dart';
+import 'dashboard_screen.dart';""",
+    """import '../services/connectivity_service.dart';
+import '../services/auth_service.dart';
+import 'login_screen.dart';
+import 'dashboard_screen.dart';""",
+)
+replace_once(
+    "lib/screens/main_shell.dart",
+    """  bool _isAdmin = false;
+  bool _roleLoaded = false;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _profileSub;""",
+    """  bool _isAdmin = false;
+  bool _roleLoaded = false;
+  bool _handlingDisabledAccount = false;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _profileSub;""",
+)
+replace_once(
+    "lib/screens/main_shell.dart",
+    """            final data = doc.data()!;
+            setState(() {
+              _applyProfile(data);
+              _roleLoaded = true;
+            });""",
+    """            final data = doc.data()!;
+            if (data['status'] == 'disabled') {
+              unawaited(_handleDisabledAccount());
+              return;
+            }
+            setState(() {
+              _applyProfile(data);
+              _roleLoaded = true;
+            });""",
+)
+replace_once(
+    "lib/screens/main_shell.dart",
+    """  void _goToAnalytics(String chartKey) {""",
+    """  Future<void> _handleDisabledAccount() async {
+    if (_handlingDisabledAccount) return;
+    _handlingDisabledAccount = true;
+    await _profileSub?.cancel();
+    _profileSub = null;
+    try {
+      await AuthService().signOut();
+    } catch (e) {
+      debugPrint('[MainShell] Disabled-account sign-out cleanup failed: $e');
+      await FirebaseAuth.instance.signOut();
+    }
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      (_) => false,
+    );
+  }
+
+  void _goToAnalytics(String chartKey) {""",
+)
+
+# 5) Tank resolution must fail closed, and baseline isn't an operational sample.
+replace_once(
+    "lib/services/tank_service.dart",
+    """    } catch (_) {
+      return uid;
+    }
+  }""",
+    """    } catch (e) {
+      debugPrint('[TankService] Failed to resolve tank for $uid: $e');
+      // Fail closed. Returning uid here can incorrectly make an admin or a
+      // temporarily unreadable profile look like an owner tank.
+      return '';
+    }
+  }""",
+)
+replace_once(
+    "lib/services/tank_service.dart",
+    """      if (_samplingHistory.isNotEmpty ||
+          _mortalityHistory.isNotEmpty ||
+          _harvestRecords.isNotEmpty) {""",
+    """      if (_samplingHistory.any((entry) => !entry.isBaseline) ||
+          _mortalityHistory.isNotEmpty ||
+          _harvestRecords.isNotEmpty) {""",
+)
+replace_once(
+    "lib/services/tank_service.dart",
+    """  Future<void> updateLastSamplingEntry(int count, double weight, double length) async {
+    if (_lastSamplingDocId == null || _samplingHistory.isEmpty) return;
+    if (_selectedBatchId == null) return;""",
+    """  Future<void> updateLastSamplingEntry(int count, double weight, double length) async {
+    if (_lastSamplingDocId == null || _samplingHistory.isEmpty) return;
+    if (_samplingHistory.last.isBaseline) {
+      throw StateError('No weekly sampling record is available to edit.');
+    }
+    if (_selectedBatchId == null) return;""",
+)
+replace_once(
+    "lib/services/tank_service.dart",
+    """      _saveConfig();
+    } catch (e) {
+      debugPrint('[TankService] Error updating sampling entry: $e');""",
+    """      await _saveConfig();
+    } catch (e) {
+      debugPrint('[TankService] Error updating sampling entry: $e');""",
+)
+
+# Production edit gate should ignore baseline, and saving flags persist across rebuilds.
+replace_once(
+    "lib/screens/production_screen.dart",
+    """    if (tank.samplingHistory.isNotEmpty ||
+        tank.mortalityHistory.isNotEmpty ||
+        tank.harvestRecords.isNotEmpty) {""",
+    """    if (tank.samplingHistory.any((entry) => !entry.isBaseline) ||
+        tank.mortalityHistory.isNotEmpty ||
+        tank.harvestRecords.isNotEmpty) {""",
+)
+replace_once(
+    "lib/screens/production_screen.dart",
+    """    final totalLengthCtrl = TextEditingController(
+      text: isEdit
+          ? TankService.instance.initialTotalLength.toStringAsFixed(1)
+          : '',
+    );
+
+    showModalBottomSheet(""",
+    """    final totalLengthCtrl = TextEditingController(
+      text: isEdit
+          ? TankService.instance.initialTotalLength.toStringAsFixed(1)
+          : '',
+    );
+    var isSaving = false;
+
+    showModalBottomSheet(""",
+)
+replace_once(
+    "lib/screens/production_screen.dart",
+    """          builder: (ctx, setLocalState) {
+            bool isSaving = false;
+
+            String? validateSample() {""",
+    """          builder: (ctx, setLocalState) {
+            String? validateSample() {""",
+)
+replace_once(
+    "lib/screens/production_screen.dart",
+    """  void _showMortalityModal() {
+    final countCtrl = TextEditingController();
+    final liveCount = TankService.instance.inTankCount;
+
+    showModalBottomSheet(""",
+    """  void _showMortalityModal() {
+    final countCtrl = TextEditingController();
+    final liveCount = TankService.instance.inTankCount;
+    var savingMortality = false;
+
+    showModalBottomSheet(""",
+)
+replace_once(
+    "lib/screens/production_screen.dart",
+    """          builder: (ctx, setLocalState) {
+            bool savingMortality = false;
+            final mortalityVal = int.tryParse(countCtrl.text) ?? 0;""",
+    """          builder: (ctx, setLocalState) {
+            final mortalityVal = int.tryParse(countCtrl.text) ?? 0;""",
+)
+
+# Sampling UI: baseline is never today's weekly sample or editable.
+replace_once(
+    "lib/widgets/production/crayfish/crayfish_sampling_tab.dart",
+    """    final history = TankService.instance.samplingHistory;
+    // Sample size stays FIXED for the whole batch (consistency standard).""",
+    """    final history = TankService.instance.samplingHistory
+        .where((entry) => !entry.isBaseline)
+        .toList();
+    // Sample size stays FIXED for the whole batch (consistency standard).""",
+)
+replace_once(
+    "lib/widgets/production/crayfish/crayfish_sampling_tab.dart",
+    """      } else {
+        _isRecorded = false;
+      }
+    } else {
+      _isRecorded = false;
+    }""",
+    """      } else {
+        _isRecorded = false;
+        _weightController.clear();
+        _lengthController.clear();
+      }
+    } else {
+      _isRecorded = false;
+      _weightController.clear();
+      _lengthController.clear();
+    }""",
+)
+replace_once(
+    "lib/widgets/production/crayfish/crayfish_sampling_tab.dart",
+    """  void _handleEdit() {
+    final lastEntry = TankService.instance.samplingHistory.last.date;
+    if (!_isToday(lastEntry)) {""",
+    """  void _handleEdit() {
+    final weekly = TankService.instance.samplingHistory
+        .where((entry) => !entry.isBaseline)
+        .toList();
+    if (weekly.isEmpty) return;
+    final lastEntry = weekly.last.date;
+    if (!_isToday(lastEntry)) {""",
+)
+replace_once(
+    "lib/widgets/production/crayfish/crayfish_sampling_tab.dart",
+    """    final lastEntryIsToday = service.samplingHistory.isNotEmpty
+        ? _isToday(service.samplingHistory.last.date)
+        : false;""",
+    """    final weeklySampling = service.samplingHistory
+        .where((entry) => !entry.isBaseline)
+        .toList();
+    final lastEntryIsToday = weeklySampling.isNotEmpty
+        ? _isToday(weeklySampling.last.date)
+        : false;""",
+)
+
+# 6) Thresholds: validate before mutation and rollback local cache on write failure.
+replace_once(
+    "lib/widgets/settings/sensor_threshold_settings.dart",
+    """  Future<void> _saveConfigToFirebase({String? changedKey, bool showMessage = true}) async {""",
+    """  Future<bool> _saveConfigToFirebase({String? changedKey, bool showMessage = true}) async {""",
+)
+replace_once(
+    "lib/widgets/settings/sensor_threshold_settings.dart",
+    """      return;
+    }
+    if (mounted) setState(() => _saving = true);""",
+    """      return false;
+    }
+    if (mounted) setState(() => _saving = true);""",
+)
+replace_once(
+    "lib/widgets/settings/sensor_threshold_settings.dart",
+    """      if (!mounted) return;
+      setState(() => _saving = false);
+      if (showMessage) {
+        _showSuccessModal(changedKey != null ? 'Threshold updated!' : 'Thresholds saved!');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to save to Firebase: $e'), duration: const Duration(seconds: 3)),
+      );
+    }
+  }""",
+    """      if (!mounted) return true;
+      setState(() => _saving = false);
+      if (showMessage) {
+        _showSuccessModal(changedKey != null ? 'Threshold updated!' : 'Thresholds saved!');
+      }
+      return true;
+    } catch (e) {
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to save to Firebase: $e'), duration: const Duration(seconds: 3)),
+        );
+      }
+      return false;
+    }
+  }""",
+)
+replace_once(
+    "lib/widgets/settings/sensor_threshold_settings.dart",
+    """              if (min >= max) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Minimum must be lower than maximum'), duration: Duration(seconds: 2)),
+                );
+                return;
+              }
+              await SettingsService.instance.updateRange(sensorKey, min, max);
+              if (!ctx.mounted) return;
+              Navigator.pop(ctx);
+              setState(() {});
+              await _saveConfigToFirebase(changedKey: sensorKey);""",
+    """              final bounds = _safeBounds[sensorKey];
+              final unitText = _safeUnits[sensorKey] ?? '';
+              String? candidateError;
+              if (min >= max) {
+                candidateError = 'Minimum must be lower than maximum.';
+              } else if (bounds != null &&
+                  (min < bounds['minLow']! || min > bounds['minHigh']!)) {
+                candidateError =
+                    'Minimum must be ${bounds['minLow']}–${bounds['minHigh']} $unitText.';
+              } else if (bounds != null &&
+                  (max < bounds['maxLow']! || max > bounds['maxHigh']!)) {
+                candidateError =
+                    'Maximum must be ${bounds['maxLow']}–${bounds['maxHigh']} $unitText.';
+              }
+              if (candidateError != null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(candidateError), duration: const Duration(seconds: 3)),
+                );
+                return;
+              }
+
+              await SettingsService.instance.updateRange(sensorKey, min, max);
+              if (!ctx.mounted) return;
+              Navigator.pop(ctx);
+              if (mounted) setState(() {});
+              final saved = await _saveConfigToFirebase(changedKey: sensorKey);
+              if (!saved) {
+                await SettingsService.instance.updateRange(
+                  sensorKey,
+                  currentMin,
+                  currentMax,
+                );
+              }""",
+)
+
+# 7) Notifications: calendar-day grouping, not elapsed 24-hour buckets.
+replace_once(
+    "lib/screens/notifications_screen.dart",
+    """  String _dateGroupKey(DateTime dt) {
+    final now = DateTime.now();
+    final diff = now.difference(dt);
+    if (diff.inDays == 0) return 'Today';
+    if (diff.inDays == 1) return 'Yesterday';
+    return '${dt.month}/${dt.day}/${dt.year}';
+  }""",
+    """  String _dateGroupKey(DateTime dt) {
+    final local = dt.toLocal();
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final date = DateTime(local.year, local.month, local.day);
+    final dayDiff = today.difference(date).inDays;
+    if (dayDiff == 0) return 'Today';
+    if (dayDiff == 1) return 'Yesterday';
+    return '${local.month}/${local.day}/${local.year}';
+  }""",
+)
+
+# 8) CSV shares must use UTF-8 bytes.
+replace_once(
+    "lib/services/report_export_service.dart",
+    """import 'dart:io';
+
+import 'package:flutter/services.dart';""",
+    """import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter/services.dart';""",
+)
+replace_once(
+    "lib/services/report_export_service.dart",
+    """    await _writeAndShare(name, 'text/csv', buildGrowthCsv().codeUnits);""",
+    """    await _writeAndShare(name, 'text/csv', utf8.encode(buildGrowthCsv()));""",
+)
+replace_once(
+    "lib/services/report_export_service.dart",
+    """      buildWaterQualityAssessmentCsv().codeUnits,""",
+    """      utf8.encode(buildWaterQualityAssessmentCsv()),""",
+)
+
+# 9) Obsolete exact-alarm request and over-broad Android declarations.
+replace_once(
+    "lib/services/notification_service.dart",
+    """        await manager.requestExactAlarmsPermission();
+        await manager.requestNotificationsPermission();""",
+    """        await manager.requestNotificationsPermission();""",
+)
+replace_once(
+    "android/app/src/main/AndroidManifest.xml",
+    """<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">""",
+    """<manifest xmlns:android="http://schemas.android.com/apk/res/android">""",
+)
+replace_once(
+    "android/app/src/main/AndroidManifest.xml",
+    """    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+""",
+    """""",
+)
+replace_once(
+    "android/app/src/main/AndroidManifest.xml",
+    """        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">""",
+    """        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher">""",
+)
+regex_once(
+    "android/app/src/main/AndroidManifest.xml",
+    r'''\n        <service
+            android:name="io\.flutter\.plugins\.firebase\.messaging\.FlutterFirebaseMessagingService"
+            android:exported="true"
+            tools:replace="android:exported">
+            <intent-filter>
+                <action android:name="com\.google\.firebase\.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>\n''',
+    "\n",
+)
+
+# 10) ML export sanitation should match production aggregate validation.
+replace_once(
+    "functions/ml/export_firestore.py",
+    """import os
+from pathlib import Path
+""",
+    """import math
+import os
+from pathlib import Path
+""",
+)
+replace_once(
+    "functions/ml/export_firestore.py",
+    """df = pd.DataFrame(rows, columns=columns)
+if not df.empty:
+    df = df.dropna(subset=columns).sort_values("timestamp")
+    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True).dt.tz_localize(None)
+""",
+    """df = pd.DataFrame(rows, columns=columns)
+if not df.empty:
+    df = df.dropna(subset=columns)
+
+    def valid_aggregate(row):
+        for sensor in ("temp", "pH", "DO", "turbidity", "waterLevel"):
+            minimum = float(row[f"{sensor}_min"])
+            average = float(row[f"{sensor}_avg"])
+            maximum = float(row[f"{sensor}_max"])
+            if not all(
+                math.isfinite(value) and value >= 0
+                for value in (minimum, average, maximum)
+            ):
+                return False
+            if not (minimum <= average <= maximum):
+                return False
+        return True
+
+    df = df[df.apply(valid_aggregate, axis=1)].sort_values("timestamp")
+    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True).dt.tz_localize(None)
+""",
+)
+replace_once(
+    "functions/ml/predict.py",
+    """Uses the exact same features.assess_water_quality() that the deployed Cloud
+Function (main.py) uses, so this is a true preview of what production
+would output for that row -- not a separate reimplementation.
+""",
+    """Uses the same features.assess_water_quality() model core as the deployed
+Cloud Function. Production additionally applies main.py enrichment and the
+deterministic safety floor, so this script previews the model core rather than
+claiming to reproduce the final Firestore document byte-for-byte.
+""",
+)
+
+# Ensure the specifically retired patterns are gone.
+for path, tokens in {
+    "lib/screens/verify_screen.dart": ["_deleteUnverifiedAccount", "_isVerified"],
+    "lib/services/notification_service.dart": ["requestExactAlarmsPermission"],
+    "android/app/src/main/AndroidManifest.xml": [
+        "SCHEDULE_EXACT_ALARM",
+        "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+        "usesCleartextTraffic=\"true\"",
+        "FlutterFirebaseMessagingService",
+    ],
+}.items():
+    text = read(path)
+    for token in tokens:
+        if token in text:
+            raise SystemExit(f"{path}: stale token still present: {token}")
+
+print("All guarded source patches applied successfully.")
