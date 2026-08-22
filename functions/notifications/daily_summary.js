@@ -4,7 +4,7 @@ const admin = require("firebase-admin");
 // main.js loads index.js first, so the shared Admin app is already initialized.
 const firestoreDb = admin.firestore();
 const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
-const COMPLETE_SUMMARY_VERSION = 2;
+const SUMMARY_VERSION = 1;
 
 const DAILY_SENSORS = [
   { avg: "temp_avg", min: "temp_min", max: "temp_max", sum: "temp_sum", count: "temp_count" },
@@ -48,17 +48,15 @@ function addReadingToSummary(current, reading, entryId, dateKey) {
   if (processed.includes(entryId)) return null;
 
   const currentSampleCount = finiteNumber(current.sample_count) || 0;
-  const currentVersion = finiteNumber(current.summary_version) || 0;
   const hasExistingData = processed.length > 0 || currentSampleCount > 0;
-  // Do not mark a partially-built legacy current-day summary as v2: it may
-  // already contain an old sentinel. The hourly backfill excludes today and
-  // will rebuild this day from raw entries as v2 after the day completes.
-  const incrementalVersion = hasExistingData && currentVersion < COMPLETE_SUMMARY_VERSION
-    ? (currentVersion || 1)
-    : COMPLETE_SUMMARY_VERSION;
+  // A brand-new current-day summary is sanitized from its first entry. If a
+  // legacy partial summary already existed before this deployment, keep the
+  // marker false; tomorrow's completed-day rebuild will recompute it cleanly.
+  const sanitized = hasExistingData ? current.summary_sanitized === true : true;
 
   const update = {
-    summary_version: incrementalVersion,
+    summary_version: SUMMARY_VERSION,
+    summary_sanitized: sanitized,
     summary_complete: false,
     date_key: dateKey,
     sample_count: currentSampleCount + 1,
@@ -91,7 +89,8 @@ function addReadingToSummary(current, reading, entryId, dateKey) {
 
 function buildCompleteSummary(entryDocs, dateKey) {
   const summary = {
-    summary_version: COMPLETE_SUMMARY_VERSION,
+    summary_version: SUMMARY_VERSION,
+    summary_sanitized: true,
     summary_complete: true,
     date_key: dateKey,
     sample_count: entryDocs.length,
@@ -137,8 +136,7 @@ async function rebuildCompletedDay(tankId, dateKey) {
   const daySnap = await dayRef.get();
   if (daySnap.exists) {
     const data = daySnap.data() || {};
-    const version = finiteNumber(data.summary_version) || 0;
-    if (data.summary_complete === true && version >= COMPLETE_SUMMARY_VERSION) {
+    if (data.summary_complete === true && data.summary_sanitized === true) {
       return false;
     }
   }
@@ -168,11 +166,11 @@ exports.onSensorHistoryDailySummary = functions.region("asia-southeast1").firest
     return null;
   });
 
-// Backfill the last 30 completed Manila calendar days. This runs hourly. V2
-// completed summaries are skipped; older completed summaries are rebuilt once
-// so legacy negative sentinel values are removed from long-range analytics.
-// Today is intentionally excluded because Analytics uses raw entries for the
-// current partial day and the completed-day rebuild will handle it tomorrow.
+// Backfill the last 30 completed Manila calendar days. Sanitized completed
+// summaries are skipped; older summaries are rebuilt once so legacy negative
+// sentinel values are removed from long-range analytics. Today is excluded
+// because Analytics uses raw entries for the current partial day and the
+// completed-day rebuild will handle it tomorrow.
 exports.backfillRecentSensorDailySummaries = functions.region("asia-southeast1").pubsub
   .schedule("every 1 hours")
   .onRun(async () => {
