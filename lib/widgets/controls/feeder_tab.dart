@@ -54,6 +54,7 @@ class FeederTab extends StatelessWidget {
   Widget _buildFeederCardBody(BuildContext ctx) {
     final morning = schedules.where((s) => s.ampm == 'AM').toList();
     final afternoon = schedules.where((s) => s.ampm == 'PM').toList();
+    final hasEnabledSchedules = schedules.any((s) => s.enabled);
 
     return Container(
       decoration: BoxDecoration(
@@ -141,7 +142,7 @@ class FeederTab extends StatelessWidget {
                             width: 7,
                             height: 7,
                             decoration: BoxDecoration(
-                              color: schedules.isNotEmpty
+                              color: hasEnabledSchedules
                                   ? AppColors.success
                                   : AppColors.darkWith(0.3),
                               shape: BoxShape.circle,
@@ -149,13 +150,15 @@ class FeederTab extends StatelessWidget {
                           ),
                           const SizedBox(width: 5),
                           Text(
-                            schedules.isNotEmpty
+                            schedules.isEmpty
+                                ? 'No Schedules'
+                                : hasEnabledSchedules
                                 ? 'Schedules Active'
-                                : 'No Schedules',
+                                : 'Schedules Paused',
                             style: TextStyle(
                               fontSize: 9,
                               fontWeight: FontWeight.w600,
-                              color: schedules.isNotEmpty
+                              color: hasEnabledSchedules
                                   ? AppColors.success
                                   : AppColors.darkWith(0.4),
                             ),
@@ -1359,11 +1362,22 @@ class FeederTab extends StatelessWidget {
                       );
                     }),
                   ),
+                  if (selectedDays.isEmpty) ...[
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Select at least one day',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.critical,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 20),
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: gramsError != null
+                      onPressed: gramsError != null || selectedDays.isEmpty
                           ? null
                           : () {
                               final h = selectedTime.hour;
