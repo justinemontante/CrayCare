@@ -62,19 +62,22 @@ class SettingsMenu extends StatelessWidget {
                 onTap: () => onGoTo(2),
               ),
             ]),
-            const SizedBox(height: 24),
-            _buildSectionLabel(Icons.notifications_none_rounded, 'PREFERENCES'),
-            const SizedBox(height: 10),
-            _buildSingleCard(
-              _SettingsItem(
-                label: 'Notifications',
-                subtitle: 'Manage your notification preferences',
-                icon: Icons.notifications_rounded,
-                color: AppColors.warning,
-                onTap: () => onGoTo(3),
-              ),
-            ),
             if (!isAdmin) ...[
+              const SizedBox(height: 24),
+              _buildSectionLabel(
+                Icons.notifications_none_rounded,
+                'PREFERENCES',
+              ),
+              const SizedBox(height: 10),
+              _buildSingleCard(
+                _SettingsItem(
+                  label: 'Notifications',
+                  subtitle: 'Manage your notification preferences',
+                  icon: Icons.notifications_rounded,
+                  color: AppColors.warning,
+                  onTap: () => onGoTo(3),
+                ),
+              ),
               const SizedBox(height: 10),
               _buildSingleCard(
                 _SettingsItem(
@@ -207,7 +210,12 @@ class SettingsMenu extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 12),
-        Expanded(child: Container(height: 1, color: AppColors.primary.withValues(alpha: 0.14))),
+        Expanded(
+          child: Container(
+            height: 1,
+            color: AppColors.primary.withValues(alpha: 0.14),
+          ),
+        ),
       ],
     );
   }
@@ -223,7 +231,11 @@ class SettingsMenu extends StatelessWidget {
               if (index < items.length - 1)
                 Padding(
                   padding: const EdgeInsets.only(left: 68, right: 16),
-                  child: Divider(height: 1, thickness: 1, color: AppColors.darkWith(0.06)),
+                  child: Divider(
+                    height: 1,
+                    thickness: 1,
+                    color: AppColors.darkWith(0.06),
+                  ),
                 ),
             ],
           );
@@ -283,25 +295,33 @@ class SettingsMenu extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w800,
-                        color: item.color == AppColors.critical ? AppColors.critical : AppColors.dark,
+                        color: item.color == AppColors.critical
+                            ? AppColors.critical
+                            : AppColors.dark,
                       ),
                     ),
                     const SizedBox(height: 3),
                     Text(
                       item.subtitle,
-                      style: const TextStyle(fontSize: 10.5, color: AppColors.subtitleText),
+                      style: const TextStyle(
+                        fontSize: 10.5,
+                        color: AppColors.subtitleText,
+                      ),
                     ),
                   ],
                 ),
               ),
-              Icon(Icons.chevron_right_rounded, size: 21, color: item.color.withValues(alpha: 0.85)),
+              Icon(
+                Icons.chevron_right_rounded,
+                size: 21,
+                color: item.color.withValues(alpha: 0.85),
+              ),
             ],
           ),
         ),
       ),
     );
   }
-
 }
 
 class _SettingsItem {
