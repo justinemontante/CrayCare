@@ -4,6 +4,7 @@ const admin = require("firebase-admin");
 // main.js loads index.js first, so the shared Admin app is already initialized.
 const firestoreDb = admin.firestore();
 const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
+const COMPLETE_SUMMARY_VERSION = 2;
 
 const DAILY_SENSORS = [
   { avg: "temp_avg", min: "temp_min", max: "temp_max", sum: "temp_sum", count: "temp_count" },
@@ -16,6 +17,15 @@ const DAILY_SENSORS = [
 function finiteNumber(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
+}
+
+// Sensor history previously used negative sentinel values (for example -1)
+// for unavailable probes. Those are not physical readings and must never be
+// folded into daily analytics. Current firmware omits invalid aggregates, but
+// this guard also cleans older history when a completed day is rebuilt.
+function finiteSensorNumber(value) {
+  const n = finiteNumber(value);
+  return n !== null && n >= 0 ? n : null;
 }
 
 function manilaDateKey(date) {
@@ -37,17 +47,27 @@ function addReadingToSummary(current, reading, entryId, dateKey) {
     : [];
   if (processed.includes(entryId)) return null;
 
+  const currentSampleCount = finiteNumber(current.sample_count) || 0;
+  const currentVersion = finiteNumber(current.summary_version) || 0;
+  const hasExistingData = processed.length > 0 || currentSampleCount > 0;
+  // Do not mark a partially-built legacy current-day summary as v2: it may
+  // already contain an old sentinel. The hourly backfill excludes today and
+  // will rebuild this day from raw entries as v2 after the day completes.
+  const incrementalVersion = hasExistingData && currentVersion < COMPLETE_SUMMARY_VERSION
+    ? (currentVersion || 1)
+    : COMPLETE_SUMMARY_VERSION;
+
   const update = {
-    summary_version: 1,
+    summary_version: incrementalVersion,
     summary_complete: false,
     date_key: dateKey,
-    sample_count: (finiteNumber(current.sample_count) || 0) + 1,
+    sample_count: currentSampleCount + 1,
     processed_entry_ids: [...processed, entryId],
     updated_at: admin.firestore.FieldValue.serverTimestamp(),
   };
 
   for (const sensor of DAILY_SENSORS) {
-    const avg = finiteNumber(reading[sensor.avg]);
+    const avg = finiteSensorNumber(reading[sensor.avg]);
     if (avg === null) continue;
 
     const oldSum = finiteNumber(current[sensor.sum]) || 0;
@@ -58,10 +78,10 @@ function addReadingToSummary(current, reading, entryId, dateKey) {
     update[sensor.count] = nextCount;
     update[sensor.avg] = nextSum / nextCount;
 
-    const entryMin = finiteNumber(reading[sensor.min]) ?? avg;
-    const entryMax = finiteNumber(reading[sensor.max]) ?? avg;
-    const oldMin = finiteNumber(current[sensor.min]);
-    const oldMax = finiteNumber(current[sensor.max]);
+    const entryMin = finiteSensorNumber(reading[sensor.min]) ?? avg;
+    const entryMax = finiteSensorNumber(reading[sensor.max]) ?? avg;
+    const oldMin = finiteSensorNumber(current[sensor.min]);
+    const oldMax = finiteSensorNumber(current[sensor.max]);
     update[sensor.min] = oldMin === null ? entryMin : Math.min(oldMin, entryMin);
     update[sensor.max] = oldMax === null ? entryMax : Math.max(oldMax, entryMax);
   }
@@ -71,7 +91,7 @@ function addReadingToSummary(current, reading, entryId, dateKey) {
 
 function buildCompleteSummary(entryDocs, dateKey) {
   const summary = {
-    summary_version: 1,
+    summary_version: COMPLETE_SUMMARY_VERSION,
     summary_complete: true,
     date_key: dateKey,
     sample_count: entryDocs.length,
@@ -87,11 +107,11 @@ function buildCompleteSummary(entryDocs, dateKey) {
 
     for (const doc of entryDocs) {
       const reading = doc.data() || {};
-      const avg = finiteNumber(reading[sensor.avg]);
+      const avg = finiteSensorNumber(reading[sensor.avg]);
       if (avg === null) continue;
 
-      const entryMin = finiteNumber(reading[sensor.min]) ?? avg;
-      const entryMax = finiteNumber(reading[sensor.max]) ?? avg;
+      const entryMin = finiteSensorNumber(reading[sensor.min]) ?? avg;
+      const entryMax = finiteSensorNumber(reading[sensor.max]) ?? avg;
       sum += avg;
       count += 1;
       minValue = minValue === null ? entryMin : Math.min(minValue, entryMin);
@@ -115,8 +135,12 @@ async function rebuildCompletedDay(tankId, dateKey) {
     .collection("sensor_readings_history").doc(dateKey);
 
   const daySnap = await dayRef.get();
-  if (daySnap.exists && (daySnap.data() || {}).summary_complete === true) {
-    return false;
+  if (daySnap.exists) {
+    const data = daySnap.data() || {};
+    const version = finiteNumber(data.summary_version) || 0;
+    if (data.summary_complete === true && version >= COMPLETE_SUMMARY_VERSION) {
+      return false;
+    }
   }
 
   const entries = await dayRef.collection("entries").get();
@@ -144,11 +168,11 @@ exports.onSensorHistoryDailySummary = functions.region("asia-southeast1").firest
     return null;
   });
 
-// Backfill the last 30 completed Manila calendar days. This runs hourly, but
-// completed summaries are skipped, so after the one-time catch-up it normally
-// costs only the lightweight parent-document checks. Today is intentionally
-// excluded; its live summary stays incremental and Analytics can use raw
-// 10-minute entries for the current partial day.
+// Backfill the last 30 completed Manila calendar days. This runs hourly. V2
+// completed summaries are skipped; older completed summaries are rebuilt once
+// so legacy negative sentinel values are removed from long-range analytics.
+// Today is intentionally excluded because Analytics uses raw entries for the
+// current partial day and the completed-day rebuild will handle it tomorrow.
 exports.backfillRecentSensorDailySummaries = functions.region("asia-southeast1").pubsub
   .schedule("every 1 hours")
   .onRun(async () => {
