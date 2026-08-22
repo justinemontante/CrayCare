@@ -72,7 +72,6 @@ class _SignupScreenState extends State<SignupScreen> {
 
         final user = FirebaseAuth.instance.currentUser;
         if (user != null && !user.emailVerified) {
-          await user.sendEmailVerification();
           if (!mounted) return;
           Navigator.pushReplacement(
             context,

@@ -784,7 +784,13 @@ class ProductionScreenState extends State<ProductionScreen> {
           },
         );
       },
-    );
+    ).whenComplete(() {
+      batchNameCtrl.dispose();
+      countCtrl.dispose();
+      sampleCountCtrl.dispose();
+      totalWeightCtrl.dispose();
+      totalLengthCtrl.dispose();
+    });
   }
 
   Widget _buildBatchNameField(TextEditingController controller) {
@@ -1153,7 +1159,7 @@ class ProductionScreenState extends State<ProductionScreen> {
           },
         );
       },
-    );
+    ).whenComplete(countCtrl.dispose);
   }
 
   void _showLogsModal() {

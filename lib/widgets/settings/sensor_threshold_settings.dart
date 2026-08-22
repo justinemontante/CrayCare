@@ -293,7 +293,10 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
           ),
         ],
       ),
-    );
+    ).whenComplete(() {
+      minCtrl.dispose();
+      maxCtrl.dispose();
+    });
   }
 
   Widget _buildModalField(String label, TextEditingController ctrl, String unit) {
