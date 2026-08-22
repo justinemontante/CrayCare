@@ -126,6 +126,9 @@ class WaterQualityAssessmentService extends ChangeNotifier {
 
   WaterQualityAssessmentResult? _result;
   bool _loading = true;
+  bool _initialized = false;
+  int _listenGeneration = 0;
+  StreamSubscription<User?>? _authSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _sub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _historySub;
   List<WaterQualityAssessmentResult> _history = [];
@@ -134,73 +137,92 @@ class WaterQualityAssessmentService extends ChangeNotifier {
   bool get loading => _loading;
   bool get hasData => _result != null && _result!.hasData;
 
-  /// Hourly Water Quality Assessment history (newest first), including current.
-  /// The ML function writes one document per Water Quality Assessment into the
-  /// machine_learning_assessments collection, keyed by a sortable UTC timestamp.
+  /// Hourly Water Quality Assessment history (newest first). The `current`
+  /// document is a live alias and is intentionally excluded from this list so
+  /// the same assessment is not shown twice.
   List<WaterQualityAssessmentResult> get history => List.unmodifiable(_history);
 
   void init() {
-    _sub?.cancel();
-    _historySub?.cancel();
+    if (_initialized) return;
+    _initialized = true;
     _loading = true;
     notifyListeners();
 
-    if (FirebaseAuth.instance.currentUser != null) {
-      _startListening();
+    // authStateChanges emits the current state immediately. Keeping one auth
+    // startup path avoids racing a direct currentUser start against that first
+    // event and accidentally attaching duplicate Firestore listeners.
+    _authSub = FirebaseAuth.instance.authStateChanges().listen(_restartForUser);
+    ConnectivityService.instance.addOnConnectCallback(_onReconnect);
+  }
+
+  void _restartForUser(User? user) {
+    final generation = ++_listenGeneration;
+    _sub?.cancel();
+    _sub = null;
+    _historySub?.cancel();
+    _historySub = null;
+
+    if (user == null) {
+      _result = null;
+      _history = [];
+      _loading = true;
+      notifyListeners();
+      return;
     }
 
-    FirebaseAuth.instance.authStateChanges().listen((user) {
-      _sub?.cancel();
-      _historySub?.cancel();
-      if (user != null) {
-        _startListening();
-      } else {
-        _result = null;
-        _history = [];
-        _loading = true;
-        notifyListeners();
-      }
-    });
-    ConnectivityService.instance.addOnConnectCallback(_onReconnect);
+    _loading = true;
+    notifyListeners();
+    unawaited(_startListening(user.uid, generation));
   }
 
   void _onReconnect() {
     debugPrint(
       '[WaterQualityAssessmentService] Internet reconnected — refreshing listener',
     );
-    if (FirebaseAuth.instance.currentUser != null) {
-      _startListening();
-    }
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) _restartForUser(user);
   }
 
-  void _startListening() async {
-    _sub?.cancel();
-    _historySub?.cancel();
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) {
-      _result = null;
-      _history = [];
-      _loading = false;
-      notifyListeners();
-      return;
-    }
-
+  Future<void> _startListening(String uid, int generation) async {
     try {
       final profile = await FirebaseFirestore.instance
           .collection('users')
           .doc(uid)
           .get();
-      final tankId = profile.data()?['tank_id'] as String? ?? uid;
+
+      // Ignore setup work that finished after an auth/reconnect generation was
+      // replaced. This prevents a stale account/tank from attaching listeners.
+      if (generation != _listenGeneration ||
+          FirebaseAuth.instance.currentUser?.uid != uid) {
+        return;
+      }
+
+      final profileData = profile.data();
+      if (profileData?['role'] == 'admin') {
+        _result = null;
+        _history = [];
+        _loading = false;
+        notifyListeners();
+        return;
+      }
+
+      final tankId = profileData?['tank_id'] as String? ?? uid;
       final assessments = FirebaseFirestore.instance
           .collection('tanks')
           .doc(tankId)
           .collection('machine_learning_assessments');
+
+      // A newer restart may have happened while the profile was resolving.
+      if (generation != _listenGeneration) return;
+      _sub?.cancel();
+      _historySub?.cancel();
 
       _sub = assessments
           .doc('current')
           .snapshots()
           .listen(
             (snap) {
+              if (generation != _listenGeneration) return;
               if (snap.exists && snap.data() != null) {
                 _result = WaterQualityAssessmentResult.fromMap(snap.data()!);
               } else {
@@ -210,6 +232,7 @@ class WaterQualityAssessmentService extends ChangeNotifier {
               notifyListeners();
             },
             onError: (e) {
+              if (generation != _listenGeneration) return;
               debugPrint('[WaterQualityAssessmentService] Stream error: $e');
               _loading = false;
               notifyListeners();
@@ -222,6 +245,7 @@ class WaterQualityAssessmentService extends ChangeNotifier {
           .snapshots()
           .listen(
             (snap) {
+              if (generation != _listenGeneration) return;
               final list = <WaterQualityAssessmentResult>[];
               for (final doc in snap.docs) {
                 if (doc.id == 'current') continue;
@@ -234,12 +258,14 @@ class WaterQualityAssessmentService extends ChangeNotifier {
               notifyListeners();
             },
             onError: (e) {
+              if (generation != _listenGeneration) return;
               debugPrint(
                 '[WaterQualityAssessmentService] history stream error: $e',
               );
             },
           );
     } catch (e) {
+      if (generation != _listenGeneration) return;
       debugPrint('[WaterQualityAssessmentService] Listener setup error: $e');
       _loading = false;
       notifyListeners();
@@ -248,8 +274,13 @@ class WaterQualityAssessmentService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _listenGeneration++;
+    _authSub?.cancel();
+    _authSub = null;
     _sub?.cancel();
     _historySub?.cancel();
+    ConnectivityService.instance.removeOnConnectCallback(_onReconnect);
+    _initialized = false;
     super.dispose();
   }
 }
