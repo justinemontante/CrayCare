@@ -56,7 +56,7 @@ hardware_system/currentOwner
   assigned_at: Timestamp | null
 ```
 
-The admin changes only this document to assign/reassign the one ESP32 system. New readings are routed to `tanks/{tank_id}`. Existing readings remain in the previous tank.
+A valid assignment is either fully unassigned (`uid == null` and `tank_id == null`) or points to an **active owner** whose profile `tank_id` exactly matches. Flutter clears the assignment atomically when the assigned owner is disabled, Firestore rules reject invalid client assignments, and Cloud Functions clear invalid Console/Admin-SDK assignments as defense in depth.
 
 ## Tank and hardware data
 
@@ -78,17 +78,28 @@ tanks/{tank_id}
     ph_level: number
     dissolved_oxygen: number
     turbidity: number
-    water_level: number
     turbidity_air: boolean
+    water_level: number                # centimeters
+    buffered_entries: number           # optional offline-backlog count
     recorded_at: Timestamp
 
-  sensor_readings_history/{YYYY-MM-DD}/entries/{reading_id}
-    temp_min, temp_max, temp_avg
-    pH_min, pH_max, pH_avg
-    DO_min, DO_max, DO_avg
-    turbidity_min, turbidity_max, turbidity_avg
-    waterLevel_min, waterLevel_max, waterLevel_avg
-    recorded_at: Timestamp
+  sensor_readings_history/{YYYY-MM-DD}
+    summary_version: 1
+    summary_sanitized: boolean
+    summary_complete: boolean
+    date_key: string
+    sample_count: number
+    processed_entry_ids: string[]
+    *_min, *_max, *_avg, *_sum, *_count  # only where sensor data exists
+    updated_at: Timestamp
+
+    entries/{reading_id}
+      temp_min, temp_max, temp_avg
+      pH_min, pH_max, pH_avg
+      DO_min, DO_max, DO_avg
+      turbidity_min, turbidity_max, turbidity_avg
+      waterLevel_min, waterLevel_max, waterLevel_avg
+      recorded_at: Timestamp
 
   sensors/{temperature|ph_level|dissolved_oxygen|turbidity|water_level}
     min_value: number
@@ -104,7 +115,7 @@ tanks/{tank_id}
     actuator_type: string
     action: string
     type: string
-    logged_at: timestamp
+    logged_at: epoch milliseconds
 
   feeder/status
     status: "idle" | "dispensing"
@@ -118,10 +129,11 @@ tanks/{tank_id}
     ampm: string
     timeValue: number
     grams: number | null
-    days: string
+    days: string                       # 7-char Sunday-first mask
     enabled: boolean
     isDone: boolean
     created_at: Timestamp
+    effective_at_ms: epoch milliseconds
 
   feeder_commands/{command_id}
     command_type: "feed_now"
@@ -131,10 +143,34 @@ tanks/{tank_id}
 
   feeder_logs/{log_id}
     action: string
-    type: string
-    trigger_type: string
-    logged_at: timestamp
+    type: "auto" | "manual" | "missed" | "error"
+    logged_at: epoch milliseconds
+    schedule_key: string | null        # missed-schedule audit only
+    schedule_time: string | null       # missed-schedule audit only
+
+  machine_learning_assessments/current
+    uid: string
+    tank_id: string
+    level: "Good" | "Moderate" | "Poor" | "Critical" | "Insufficient"
+    model_level: "Good" | "Moderate" | "Poor" | "Critical" | "Insufficient"
+    rule_level: "Good" | "Moderate" | "Poor" | "Critical" | "Insufficient"
+    safety_override: boolean
+    confidence: number
+    driver, driver_label, driver_value, driver_unit
+    driver_min, driver_max
+    problem, insight, action
+    concerns: array
+    secondary_concerns: array
+    ts_epoch: epoch seconds
+    timestamp: ISO-8601 string
+
+  machine_learning_assessments/{YYYYMMDDTHHMMSS}
+    # Same assessment schema as `current`; retained as hourly history.
 ```
+
+`effective_at_ms` is reset when a feeding schedule is created, edited, or re-enabled. It prevents an occurrence that happened before that instant from being falsely classified as missed.
+
+New feeder/actuator runtime writes use epoch milliseconds for `logged_at`. Flutter readers retain compatibility with legacy Firestore `Timestamp`, `DateTime`, ISO-string, Unix-second, and Unix-millisecond values where applicable.
 
 ## Production hierarchy
 
@@ -183,18 +219,6 @@ tanks/{tank_id}/batches/{batch_id}
     total_weight_kg: number
     abw_grams: number
     created_at: Timestamp
-
-  machine_learning_assessments/current
-    level: "Good" | "Moderate" | "Poor" | "Critical" | "Insufficient"
-    model_level: "Good" | "Moderate" | "Poor" | "Critical"
-    rule_level: "Good" | "Moderate" | "Poor" | "Critical"
-    safety_override: boolean
-    confidence: number
-    driver, driver_label, driver_value, driver_unit
-    driver_min, driver_max
-    problem, insight, action
-    ts_epoch: epoch seconds
-    timestamp: ISO-8601 string
 ```
 
 ## ESP ingestion flow
@@ -202,11 +226,23 @@ tanks/{tank_id}/batches/{batch_id}
 ```text
 ESP32
   -> sensorIngestion/current
-  -> sensorIngestion/current/history/{reading_id}
+       hardwareId
+       live sensor values
+       turbidity_air
+       buffered_entries
 
-Cloud Function reads hardware_system/currentOwner.tank_id
+  -> sensorIngestion/current/history/{reading_id}
+       hardwareId
+       per-sensor 10-minute min/max/avg (only sensors with valid samples)
+       captured_at_ms
+
+Cloud Functions read hardware_system/currentOwner
   -> tanks/{tank_id}/sensor_readings/latest
   -> tanks/{tank_id}/sensor_readings_history/{date}/entries/{reading_id}
 ```
 
-`sensorIngestion` is internal system-managed data. Do not create it manually.
+`sensorIngestion` is internal system-managed staging data. Invalid 10-minute sensor aggregates are omitted rather than stored as negative sentinels. The routed `recorded_at` preserves the ESP capture time when NTP was valid.
+
+## Security note
+
+The current ESP firmware authenticates with Firebase Anonymous Auth. Firestore rules therefore still treat an anonymous Firebase session as an ESP session. This is an acknowledged pre-production limitation: production deployment should provision a persistent device identity/custom claim rather than trusting every anonymous session.
