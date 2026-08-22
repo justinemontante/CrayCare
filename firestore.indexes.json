@@ -27,6 +27,20 @@
           "order": "DESCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "sampling_records",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "is_baseline",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "sampling_date",
+          "order": "DESCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": []
