@@ -179,7 +179,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                       icon: Icons.analytics_outlined,
                     ),
                   ),
-                  _buildWaterLevelGauge(context),
+                  _buildPhysicalParameterRow(context),
                   const SizedBox(height: 12),
                   _buildQuickActionsHeader(),
                   _buildQuickActions(),
@@ -684,33 +684,57 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
-  Widget _buildWaterLevelGauge(BuildContext context) {
+  Widget _buildPhysicalParameterRow(BuildContext context) {
     final ss = SensorService.instance;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14),
-      child: _buildGaugeCard(
-        title: 'Water Level',
-        value: ss.hasSensorData('waterlevel')
-            ? ss.getLatestValue('waterlevel').toStringAsFixed(2)
-            : '--',
-        unit: 'cm',
-        ideal: _getIdealText('waterlevel'),
-        iconPath: 'assets/images/waterLevel.png',
-        status: _getStatus('waterlevel'),
-        statusColor: _getStatusColor('waterlevel'),
-        trend: ss.getTrend('waterlevel'),
-        trendRate: ss.getTrendRate('waterlevel'),
-        hasData: ss.hasSensorData('waterlevel'),
-        sensorKey: 'waterlevel',
-        rawValue: ss.getLatestValue('waterlevel'),
-        onTap: () => _showGaugeDetail(
-          context,
-          sensorKey: 'waterlevel',
-          title: 'Water Level',
-          unit: 'cm',
-          ideal: _getIdealText('waterlevel'),
-          iconPath: 'assets/images/waterLevel.png',
-        ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: _buildGaugeCard(
+              title: 'Water Level',
+              value: ss.hasSensorData('waterlevel')
+                  ? ss.getLatestValue('waterlevel').toStringAsFixed(2)
+                  : '--',
+              unit: 'cm',
+              ideal: _getIdealText('waterlevel'),
+              iconPath: 'assets/images/waterLevel.png',
+              status: _getStatus('waterlevel'),
+              statusColor: _getStatusColor('waterlevel'),
+              trend: ss.getTrend('waterlevel'),
+              trendRate: ss.getTrendRate('waterlevel'),
+              hasData: ss.hasSensorData('waterlevel'),
+              sensorKey: 'waterlevel',
+              rawValue: ss.getLatestValue('waterlevel'),
+              onTap: () => _showGaugeDetail(
+                context,
+                sensorKey: 'waterlevel',
+                title: 'Water Level',
+                unit: 'cm',
+                ideal: _getIdealText('waterlevel'),
+                iconPath: 'assets/images/waterLevel.png',
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _buildGaugeCard(
+              title: 'Feed Level',
+              value: '--',
+              unit: '%',
+              ideal: 'Normal >20% • Low 11–20% • Critical 1–10%',
+              iconPath: 'assets/images/FeedingImage.png',
+              status: 'NO DATA',
+              statusColor: AppColors.darkWith(0.45),
+              trend: 'stable',
+              trendRate: 0,
+              hasData: false,
+              sensorKey: 'feedlevel',
+              rawValue: 0,
+            ),
+          ),
+        ],
       ),
     );
   }
