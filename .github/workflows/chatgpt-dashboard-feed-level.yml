@@ -29,6 +29,9 @@ jobs:
           test "$(git hash-object lib/screens/dashboard_screen.dart)" = "a825d4a016a61e1df12a7b406f69a7d51c9c2c2f"
           python - <<'PY'
           from pathlib import Path
+          import re
+          import textwrap
+
           p = Path('lib/screens/dashboard_screen.dart')
           s = p.read_text()
 
@@ -38,39 +41,15 @@ jobs:
               raise SystemExit(f'Expected exactly one old dashboard call, found {s.count(old_call)}')
           s = s.replace(old_call, new_call, 1)
 
-          old = '''  Widget _buildWaterLevelGauge(BuildContext context) {
-            final ss = SensorService.instance;
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              child: _buildGaugeCard(
-                title: 'Water Level',
-                value: ss.hasSensorData('waterlevel')
-                    ? ss.getLatestValue('waterlevel').toStringAsFixed(2)
-                    : '--',
-                unit: 'cm',
-                ideal: _getIdealText('waterlevel'),
-                iconPath: 'assets/images/waterLevel.png',
-                status: _getStatus('waterlevel'),
-                statusColor: _getStatusColor('waterlevel'),
-                trend: ss.getTrend('waterlevel'),
-                trendRate: ss.getTrendRate('waterlevel'),
-                hasData: ss.hasSensorData('waterlevel'),
-                sensorKey: 'waterlevel',
-                rawValue: ss.getLatestValue('waterlevel'),
-                onTap: () => _showGaugeDetail(
-                  context,
-                  sensorKey: 'waterlevel',
-                  title: 'Water Level',
-                  unit: 'cm',
-                  ideal: _getIdealText('waterlevel'),
-                  iconPath: 'assets/images/waterLevel.png',
-                ),
-              ),
-            );
-          }
-          '''
+          pattern = re.compile(
+              r"  Widget _buildWaterLevelGauge\(BuildContext context\) \{.*?\n  \}\n\n(?=  Widget _buildQuickActionsHeader)",
+              re.S,
+          )
+          if len(pattern.findall(s)) != 1:
+              raise SystemExit(f'Expected exactly one water-level function, found {len(pattern.findall(s))}')
 
-          new = '''  Widget _buildPhysicalParameterRow(BuildContext context) {
+          new = textwrap.indent(textwrap.dedent("""\
+          Widget _buildPhysicalParameterRow(BuildContext context) {
             final ss = SensorService.instance;
             return Padding(
               padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -124,10 +103,9 @@ jobs:
               ),
             );
           }
-          '''
-          if s.count(old) != 1:
-              raise SystemExit(f'Expected exactly one water-level function, found {s.count(old)}')
-          s = s.replace(old, new, 1)
+          """), '  ')
+
+          s = pattern.sub(new + '\n\n', s, count=1)
           p.write_text(s)
           PY
 
