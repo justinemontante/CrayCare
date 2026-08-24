@@ -18,91 +18,90 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Guard and fix physical parameter row layout
+      - name: Guard and normalize physical parameter row
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "24c0b88afb22cdadb6a6ecfbfb2cbd63986805af"
-          test "$(git hash-object lib/screens/dashboard_screen.dart)" = "4eee601fd8fcac5cc7c1508eb8935243b52a0934"
+          test "$(git rev-parse HEAD)" = "8afff045634d835d078a5e55fc10c75a71283192"
+          test "$(git hash-object lib/screens/dashboard_screen.dart)" = "7c048b53b3485685c7cc55789889350f8c4d1938"
           python - <<'PY'
           from pathlib import Path
           import re
           p = Path('lib/screens/dashboard_screen.dart')
           s = p.read_text()
           pattern = re.compile(
-              r"  Widget _buildPhysicalParameterRow\(BuildContext context\) \{.*?\n  \}\n\n(?=  Widget _buildQuickActionsHeader)",
+              r"  Widget _buildPhysicalParameterRow\(BuildContext context\) \{.*?\n\}\n\n(?=  Widget _buildQuickActionsHeader)",
               re.S,
           )
           if len(pattern.findall(s)) != 1:
               raise SystemExit(f'Expected one physical-parameter row, found {len(pattern.findall(s))}')
-          new = """  Widget _buildPhysicalParameterRow(BuildContext context) {
-            final ss = SensorService.instance;
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              child: IntrinsicHeight(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Expanded(
-                      child: _buildGaugeCard(
-                        title: 'Water Level',
-                        value: ss.hasSensorData('waterlevel')
-                            ? ss.getLatestValue('waterlevel').toStringAsFixed(2)
-                            : '--',
-                        unit: 'cm',
-                        ideal: _getIdealText('waterlevel'),
-                        iconPath: 'assets/images/waterLevel.png',
-                        status: _getStatus('waterlevel'),
-                        statusColor: _getStatusColor('waterlevel'),
-                        trend: ss.getTrend('waterlevel'),
-                        trendRate: ss.getTrendRate('waterlevel'),
-                        hasData: ss.hasSensorData('waterlevel'),
-                        sensorKey: 'waterlevel',
-                        rawValue: ss.getLatestValue('waterlevel'),
-                        onTap: () => _showGaugeDetail(
-                          context,
-                          sensorKey: 'waterlevel',
-                          title: 'Water Level',
-                          unit: 'cm',
-                          ideal: _getIdealText('waterlevel'),
-                          iconPath: 'assets/images/waterLevel.png',
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildGaugeCard(
-                        title: 'Feed Level',
-                        value: '--',
-                        unit: '%',
-                        ideal: 'Normal >20% • Low 11–20% • Critical 1–10%',
-                        iconPath: 'assets/images/FeedingImage.png',
-                        status: 'NO DATA',
-                        statusColor: AppColors.darkWith(0.45),
-                        trend: 'stable',
-                        trendRate: 0,
-                        hasData: false,
-                        sensorKey: 'feedlevel',
-                        rawValue: 0,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }
-
-          """
-          s = pattern.sub(new, s, count=1)
+          lines = [
+              "  Widget _buildPhysicalParameterRow(BuildContext context) {",
+              "    final ss = SensorService.instance;",
+              "    return Padding(",
+              "      padding: const EdgeInsets.symmetric(horizontal: 14),",
+              "      child: IntrinsicHeight(",
+              "        child: Row(",
+              "          crossAxisAlignment: CrossAxisAlignment.stretch,",
+              "          children: [",
+              "            Expanded(",
+              "              child: _buildGaugeCard(",
+              "                title: 'Water Level',",
+              "                value: ss.hasSensorData('waterlevel')",
+              "                    ? ss.getLatestValue('waterlevel').toStringAsFixed(2)",
+              "                    : '--',",
+              "                unit: 'cm',",
+              "                ideal: _getIdealText('waterlevel'),",
+              "                iconPath: 'assets/images/waterLevel.png',",
+              "                status: _getStatus('waterlevel'),",
+              "                statusColor: _getStatusColor('waterlevel'),",
+              "                trend: ss.getTrend('waterlevel'),",
+              "                trendRate: ss.getTrendRate('waterlevel'),",
+              "                hasData: ss.hasSensorData('waterlevel'),",
+              "                sensorKey: 'waterlevel',",
+              "                rawValue: ss.getLatestValue('waterlevel'),",
+              "                onTap: () => _showGaugeDetail(",
+              "                  context,",
+              "                  sensorKey: 'waterlevel',",
+              "                  title: 'Water Level',",
+              "                  unit: 'cm',",
+              "                  ideal: _getIdealText('waterlevel'),",
+              "                  iconPath: 'assets/images/waterLevel.png',",
+              "                ),",
+              "              ),",
+              "            ),",
+              "            const SizedBox(width: 12),",
+              "            Expanded(",
+              "              child: _buildGaugeCard(",
+              "                title: 'Feed Level',",
+              "                value: '--',",
+              "                unit: '%',",
+              "                ideal: 'Normal >20% • Low 11–20% • Critical 1–10%',",
+              "                iconPath: 'assets/images/FeedingImage.png',",
+              "                status: 'NO DATA',",
+              "                statusColor: AppColors.darkWith(0.45),",
+              "                trend: 'stable',",
+              "                trendRate: 0,",
+              "                hasData: false,",
+              "                sensorKey: 'feedlevel',",
+              "                rawValue: 0,",
+              "              ),",
+              "            ),",
+              "          ],",
+              "        ),",
+              "      ),",
+              "    );",
+              "  }",
+              "",
+          ]
+          s = pattern.sub("\n".join(lines), s, count=1)
           p.write_text(s)
           PY
           git diff --check
           test "$(git diff --name-only | wc -l)" -eq 1
           test "$(git diff --name-only)" = "lib/screens/dashboard_screen.dart"
-          grep -Fq "Widget _buildPhysicalParameterRow" lib/screens/dashboard_screen.dart
-          grep -Fq "child: IntrinsicHeight(" lib/screens/dashboard_screen.dart
-          grep -Fq "title: 'Feed Level'" lib/screens/dashboard_screen.dart
-          grep -Fq "unit: '%'" lib/screens/dashboard_screen.dart
+          grep -Fq "      child: IntrinsicHeight(" lib/screens/dashboard_screen.dart
+          grep -Fq "              title: 'Feed Level'" lib/screens/dashboard_screen.dart
 
       - name: Commit and push dashboard only
         shell: bash
@@ -111,5 +110,5 @@ jobs:
           git config user.name "Justine Montante"
           git config user.email "justinemontante04@gmail.com"
           git add lib/screens/dashboard_screen.dart
-          git commit -m "Fix dashboard physical parameter row layout"
+          git commit -m "Format dashboard physical parameter row"
           git push origin HEAD:main
