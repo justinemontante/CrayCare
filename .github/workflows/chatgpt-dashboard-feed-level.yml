@@ -105,7 +105,7 @@ jobs:
           }
           """), '  ')
 
-          s = pattern.sub(new + '\n\n', s, count=1)
+          s = pattern.sub(new + '\n', s, count=1)
           p.write_text(s)
           PY
 
