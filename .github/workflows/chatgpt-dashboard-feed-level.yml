@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - chatgpt/dashboard-feed-level-20260824
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
