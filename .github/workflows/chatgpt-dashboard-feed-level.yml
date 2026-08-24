@@ -1,0 +1,147 @@
+name: Temporary guarded dashboard feed level patch
+
+on:
+  push:
+    branches:
+      - chatgpt/dashboard-feed-level-20260824
+
+permissions:
+  contents: write
+
+jobs:
+  patch-dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Guard base and apply dashboard-only patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "b9ca505bbcd9cfaf37f7c2aec5b5067572a86c7d"
+          test "$(git hash-object lib/screens/dashboard_screen.dart)" = "a825d4a016a61e1df12a7b406f69a7d51c9c2c2f"
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('lib/screens/dashboard_screen.dart')
+          s = p.read_text()
+
+          old_call = "                  _buildWaterLevelGauge(context),"
+          new_call = "                  _buildPhysicalParameterRow(context),"
+          if s.count(old_call) != 1:
+              raise SystemExit(f'Expected exactly one old dashboard call, found {s.count(old_call)}')
+          s = s.replace(old_call, new_call, 1)
+
+          old = '''  Widget _buildWaterLevelGauge(BuildContext context) {
+            final ss = SensorService.instance;
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: _buildGaugeCard(
+                title: 'Water Level',
+                value: ss.hasSensorData('waterlevel')
+                    ? ss.getLatestValue('waterlevel').toStringAsFixed(2)
+                    : '--',
+                unit: 'cm',
+                ideal: _getIdealText('waterlevel'),
+                iconPath: 'assets/images/waterLevel.png',
+                status: _getStatus('waterlevel'),
+                statusColor: _getStatusColor('waterlevel'),
+                trend: ss.getTrend('waterlevel'),
+                trendRate: ss.getTrendRate('waterlevel'),
+                hasData: ss.hasSensorData('waterlevel'),
+                sensorKey: 'waterlevel',
+                rawValue: ss.getLatestValue('waterlevel'),
+                onTap: () => _showGaugeDetail(
+                  context,
+                  sensorKey: 'waterlevel',
+                  title: 'Water Level',
+                  unit: 'cm',
+                  ideal: _getIdealText('waterlevel'),
+                  iconPath: 'assets/images/waterLevel.png',
+                ),
+              ),
+            );
+          }
+          '''
+
+          new = '''  Widget _buildPhysicalParameterRow(BuildContext context) {
+            final ss = SensorService.instance;
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: _buildGaugeCard(
+                      title: 'Water Level',
+                      value: ss.hasSensorData('waterlevel')
+                          ? ss.getLatestValue('waterlevel').toStringAsFixed(2)
+                          : '--',
+                      unit: 'cm',
+                      ideal: _getIdealText('waterlevel'),
+                      iconPath: 'assets/images/waterLevel.png',
+                      status: _getStatus('waterlevel'),
+                      statusColor: _getStatusColor('waterlevel'),
+                      trend: ss.getTrend('waterlevel'),
+                      trendRate: ss.getTrendRate('waterlevel'),
+                      hasData: ss.hasSensorData('waterlevel'),
+                      sensorKey: 'waterlevel',
+                      rawValue: ss.getLatestValue('waterlevel'),
+                      onTap: () => _showGaugeDetail(
+                        context,
+                        sensorKey: 'waterlevel',
+                        title: 'Water Level',
+                        unit: 'cm',
+                        ideal: _getIdealText('waterlevel'),
+                        iconPath: 'assets/images/waterLevel.png',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildGaugeCard(
+                      title: 'Feed Level',
+                      value: '--',
+                      unit: '%',
+                      ideal: 'Normal >20% • Low 11–20% • Critical 1–10%',
+                      iconPath: 'assets/images/FeedingImage.png',
+                      status: 'NO DATA',
+                      statusColor: AppColors.darkWith(0.45),
+                      trend: 'stable',
+                      trendRate: 0,
+                      hasData: false,
+                      sensorKey: 'feedlevel',
+                      rawValue: 0,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+          '''
+          if s.count(old) != 1:
+              raise SystemExit(f'Expected exactly one water-level function, found {s.count(old)}')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+
+          test -f assets/images/FeedingImage.png
+          git diff --check
+          test "$(git diff --name-only | wc -l)" -eq 1
+          test "$(git diff --name-only)" = "lib/screens/dashboard_screen.dart"
+          grep -Fq "title: 'Feed Level'" lib/screens/dashboard_screen.dart
+          grep -Fq "unit: '%'" lib/screens/dashboard_screen.dart
+          test "$(git hash-object lib/screens/dashboard_screen.dart)" = "4eee601fd8fcac5cc7c1508eb8935243b52a0934"
+
+      - name: Commit and push dashboard only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Justine Montante"
+          git config user.email "justinemontante04@gmail.com"
+          git add lib/screens/dashboard_screen.dart
+          git commit -m "Add feed level card to dashboard"
+          git push origin HEAD:main
