@@ -134,6 +134,17 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart> {
 
     double originalMin = validData.reduce(min);
     double originalMax = validData.reduce(max);
+    final safeThresholdMin = widget.thresholdMin;
+    final safeThresholdMax = widget.thresholdMax;
+    if (safeThresholdMin != null && safeThresholdMin.isFinite) {
+      originalMin = min(originalMin, safeThresholdMin);
+    }
+    // 999 is the app's sentinel for an intentionally unbounded upper range.
+    if (safeThresholdMax != null &&
+        safeThresholdMax.isFinite &&
+        safeThresholdMax < 999) {
+      originalMax = max(originalMax, safeThresholdMax);
+    }
     double minVal;
     double maxVal;
 
@@ -415,6 +426,53 @@ class _LineChartPainter extends CustomPainter {
       }
     }
 
+    void drawThreshold(double? threshold, String label, Color lineColor) {
+      if (threshold == null ||
+          !threshold.isFinite ||
+          threshold < minVal ||
+          threshold > maxVal) {
+        return;
+      }
+      final y = padT + chartH - ((threshold - minVal) / range) * chartH;
+      final thresholdPaint = Paint()
+        ..color = lineColor.withValues(alpha: 0.55)
+        ..strokeWidth = 1.0;
+      const dash = 5.0;
+      const gap = 4.0;
+      double x = visibleLeft;
+      while (x < visibleRight) {
+        canvas.drawLine(
+          Offset(x, y),
+          Offset(min(x + dash, visibleRight), y),
+          thresholdPaint,
+        );
+        x += dash + gap;
+      }
+      final tp = TextPainter(
+        text: TextSpan(
+          text: label,
+          style: TextStyle(
+            color: lineColor.withValues(alpha: 0.75),
+            fontSize: large ? 8 : 7,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(
+        canvas,
+        Offset(
+          max(visibleLeft, visibleRight - tp.width - 2),
+          max(0, y - tp.height - 1),
+        ),
+      );
+    }
+
+    drawThreshold(thresholdMin, 'Min', AppColors.warning);
+    if (thresholdMax != null && thresholdMax! < 999) {
+      drawThreshold(thresholdMax, 'Max', AppColors.critical);
+    }
+
     canvas.save();
     canvas.clipRect(
       Rect.fromLTWH(padL - 1, 0, visibleChartW + 2, size.height),
@@ -471,20 +529,12 @@ class _LineChartPainter extends CustomPainter {
       fillPath.moveTo(seg.first.dx, padT + chartH);
       fillPath.lineTo(seg.first.dx, seg.first.dy);
 
+      // Sensor analytics should not invent intermediate extrema. Draw
+      // straight segments between measured/bucketed points; NaN values already
+      // split the series into separate segments for real data gaps.
       for (int i = 1; i < seg.length; i++) {
-        final p0 = seg[max(0, i - 2)];
-        final p1 = seg[max(0, i - 1)];
-        final p2 = seg[i];
-        final p3 = seg[min(seg.length - 1, i + 1)];
-
-        const tension = 0.3;
-        final cp1x = p1.dx + (p2.dx - p0.dx) * tension;
-        final cp1y = p1.dy + (p2.dy - p0.dy) * tension;
-        final cp2x = p2.dx - (p3.dx - p1.dx) * tension;
-        final cp2y = p2.dy - (p3.dy - p1.dy) * tension;
-
-        path.cubicTo(cp1x, cp1y, cp2x, cp2y, p2.dx, p2.dy);
-        fillPath.cubicTo(cp1x, cp1y, cp2x, cp2y, p2.dx, p2.dy);
+        path.lineTo(seg[i].dx, seg[i].dy);
+        fillPath.lineTo(seg[i].dx, seg[i].dy);
       }
 
       fillPath.lineTo(seg.last.dx, padT + chartH);
