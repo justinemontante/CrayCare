@@ -685,9 +685,10 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Widget _buildPhysicalParameterRow(BuildContext context) {
-    final ss = SensorService.instance;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14),
+  final ss = SensorService.instance;
+  return Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 14),
+    child: IntrinsicHeight(
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -736,8 +737,9 @@ class _DashboardScreenState extends State<DashboardScreen>
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildQuickActionsHeader() {
     return Padding(
