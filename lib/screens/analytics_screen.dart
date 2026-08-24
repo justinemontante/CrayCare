@@ -24,7 +24,10 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   DateTime _customEndDate = DateTime.now();
 
   final Map<String, List<double>> _data = {};
+  final Map<String, List<double>> _minData = {};
+  final Map<String, List<double>> _maxData = {};
   final Map<String, List<String>> _labels = {};
+  final Set<String> _historyLoadFailed = <String>{};
   final Map<String, int?> _selectedIndices = {};
   late final Map<String, GlobalKey> _chartCardKeys;
   late final ScrollController _scrollController;
@@ -74,6 +77,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
           ? history.sublist(history.length - 12)
           : history;
       _data['$key-live'] = List<double>.from(last12);
+      _minData['$key-live'] = List<double>.from(last12);
+      _maxData['$key-live'] = List<double>.from(last12);
 
       final hasMatchingTimes = historyTimes.length == history.length;
       final lastTimes = hasMatchingTimes
@@ -146,12 +151,20 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     if (mounted) setState(() {});
   }
 
-  static const _historyKeyMap = {
-    'temp': 'temp_avg',
-    'ph': 'pH_avg',
-    'do': 'DO_avg',
-    'turb': 'turbidity_avg',
-    'waterlevel': 'waterLevel_avg',
+  static const Map<String, Map<String, String>> _historyFieldMap = {
+    'temp': {'avg': 'temp_avg', 'min': 'temp_min', 'max': 'temp_max'},
+    'ph': {'avg': 'pH_avg', 'min': 'pH_min', 'max': 'pH_max'},
+    'do': {'avg': 'DO_avg', 'min': 'DO_min', 'max': 'DO_max'},
+    'turb': {
+      'avg': 'turbidity_avg',
+      'min': 'turbidity_min',
+      'max': 'turbidity_max',
+    },
+    'waterlevel': {
+      'avg': 'waterLevel_avg',
+      'min': 'waterLevel_min',
+      'max': 'waterLevel_max',
+    },
   };
 
   Future<void> _generateData(String range) async {
@@ -161,30 +174,25 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     }
     if (_isFetching) return;
     _isFetching = true;
+    _historyLoadFailed.remove(range);
+
     int pts;
-    int intervalMinutes;
     if (range == '24h') {
-      pts = 144; // every 10 minutes × 24h
-      intervalMinutes = 10;
+      pts = 144; // 10-minute buckets × 24 hours
     } else if (range == '7d') {
-      pts = 168; // every hour × 7d
-      intervalMinutes = 60;
+      pts = 168; // hourly buckets × 7 days
     } else if (range == '30d') {
-      pts = 30; // every day
-      intervalMinutes = 0;
+      pts = 30; // daily buckets
     } else if (range == 'custom') {
       pts = _customEndDate.difference(_customStartDate).inDays + 1;
-      if (pts < 1) pts = 1;
-      if (pts > 365) pts = 365;
-      intervalMinutes = 0;
+      pts = pts.clamp(1, 365).toInt();
     } else {
       pts = 10;
-      intervalMinutes = 0;
     }
 
     final now = DateTime.now();
-    DateTime historyStart;
-    DateTime historyEnd;
+    late DateTime historyStart;
+    late DateTime historyEnd;
     if (range == '24h') {
       historyStart = now.subtract(const Duration(hours: 24));
       historyEnd = now;
@@ -196,9 +204,11 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       historyStart = today.subtract(const Duration(days: 29));
       historyEnd = now;
     } else {
-      historyStart = _customStartDate;
-      // Date pickers return midnight. Include the complete selected end date
-      // instead of dropping every record after 12:00 AM.
+      historyStart = DateTime(
+        _customStartDate.year,
+        _customStartDate.month,
+        _customStartDate.day,
+      );
       historyEnd = DateTime(
         _customEndDate.year,
         _customEndDate.month,
@@ -212,33 +222,40 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
     List<Map<String, dynamic>> records;
     try {
-      records = await SensorService.instance
-          .fetchHistoryRange(start: historyStart, end: historyEnd)
-          .timeout(const Duration(seconds: 10));
-    } catch (_) {
-      records = [];
+      // History can be backfilled after the ESP reconnects. Refresh the cache
+      // before an explicit Analytics read so an older cached day cannot hide
+      // newly uploaded entries for up to 12 hours.
+      SensorService.instance.clearHistoryCache();
+      final fetch = SensorService.instance.fetchHistoryRange(
+        start: historyStart,
+        end: historyEnd,
+      );
+      if (range == 'custom') {
+        // Large custom ranges can legitimately span hundreds of daily
+        // summaries/raw-history days. Let Firestore complete instead of
+        // converting a slow but valid query into a false "No data" result.
+        records = await fetch;
+      } else {
+        final timeout = range == '30d'
+            ? const Duration(seconds: 60)
+            : const Duration(seconds: 30);
+        records = await fetch.timeout(timeout);
+      }
+      _lastFetchedAt[range] = DateTime.now();
+    } catch (e) {
+      _historyLoadFailed.add(range);
+      debugPrint('[Analytics] Failed to load $range history: $e');
+      return;
     } finally {
       _isFetching = false;
-      _lastFetchedAt[range] = DateTime.now();
     }
 
     if (records.isEmpty || pts == 0) {
-      for (final key in SensorService.sensorKeys) {
-        _data['$key-$range'] = [];
-      }
-      _labels[range] = [];
+      _clearRange(range);
       return;
     }
 
-    records.sort((a, b) {
-      final at = _recordTime(a);
-      final bt = _recordTime(b);
-      return at.compareTo(bt);
-    });
-
-    // History is stored under calendar-day documents, so fetching the first
-    // and last day also returns readings outside the selected time window.
-    // Keep only the exact requested range before plotting or aggregating.
+    records.sort((a, b) => _recordTime(a).compareTo(_recordTime(b)));
     records = records.where((record) {
       final timestamp = _recordTime(record);
       return !timestamp.isBefore(historyStart) &&
@@ -246,193 +263,134 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     }).toList();
 
     if (records.isEmpty) {
-      for (final key in SensorService.sensorKeys) {
-        _data['$key-$range'] = [];
-      }
-      _labels[range] = [];
+      _clearRange(range);
       return;
     }
 
-    // Canonical history uses `recorded_at`; aliases remain for legacy records.
     final parsedTs = records.map(_recordTime).toList();
+    late final List<DateTime> labelTimes;
 
-    // 24h, 7d, 30d, custom: use bucketed aggregation
-    List<DateTime> labelTimes;
     if (range == '24h') {
-      // Plot every raw record — no bucketing — so all real readings are visible.
-      final months = [
-        'Jan',
-        'Feb',
-        'Mar',
-        'Apr',
-        'May',
-        'Jun',
-        'Jul',
-        'Aug',
-        'Sep',
-        'Oct',
-        'Nov',
-        'Dec',
-      ];
-      _labels[range] = parsedTs.map((d) {
+      labelTimes = List<DateTime>.generate(
+        pts,
+        (i) => historyStart.add(Duration(minutes: i * 10)),
+      );
+      _labels[range] = labelTimes.map((d) {
         final h = d.hour > 12 ? d.hour - 12 : (d.hour == 0 ? 12 : d.hour);
         final ampm = d.hour >= 12 ? 'PM' : 'AM';
-        return '${months[d.month - 1]} ${d.day}, $h:${d.minute.toString().padLeft(2, '0')} $ampm';
+        return '${d.month}/${d.day} $h:${d.minute.toString().padLeft(2, '0')} $ampm';
       }).toList();
-      for (final key in SensorService.sensorKeys) {
-        final hKey = _historyKeyMap[key]!;
-        _data['$key-$range'] = List<double>.generate(records.length, (i) {
-          final value = _toDouble(records[i][hKey]);
-          return value != null && value >= 0 ? value : double.nan;
-        });
-      }
-      return;
     } else if (range == '7d') {
-      // 168 exact one-hour buckets covering the requested seven-day window.
-      labelTimes = List<DateTime>.generate(pts, (i) {
-        return historyStart.add(Duration(hours: i));
-      });
+      labelTimes = List<DateTime>.generate(
+        pts,
+        (i) => historyStart.add(Duration(hours: i)),
+      );
       _labels[range] = labelTimes.map((d) {
         final h = d.hour > 12 ? d.hour - 12 : (d.hour == 0 ? 12 : d.hour);
         final ampm = d.hour >= 12 ? 'PM' : 'AM';
         return '${d.month}/${d.day} $h $ampm';
       }).toList();
     } else if (range == 'custom') {
-      labelTimes = List<DateTime>.generate(pts, (i) {
-        return _customStartDate.add(Duration(days: i));
-      });
-      _labels[range] = labelTimes.map((d) => _formatDate(d)).toList();
+      labelTimes = List<DateTime>.generate(
+        pts,
+        (i) => historyStart.add(Duration(days: i)),
+      );
+      _labels[range] = labelTimes.map(_formatDate).toList();
     } else {
-      // 30d
-      final months = [
-        'Jan',
-        'Feb',
-        'Mar',
-        'Apr',
-        'May',
-        'Jun',
-        'Jul',
-        'Aug',
-        'Sep',
-        'Oct',
-        'Nov',
-        'Dec',
-      ];
       final today = DateTime(now.year, now.month, now.day);
-      labelTimes = List<DateTime>.generate(pts, (i) {
-        return today.subtract(Duration(days: pts - 1 - i));
-      });
-      _labels[range] = labelTimes
-          .map((d) => '${months[d.month - 1]} ${d.day}')
-          .toList();
-    }
-
-    // Extract values ONCE for all keys
-    final valuesPerKey = <String, List<double?>>{};
-    for (final key in SensorService.sensorKeys) {
-      final hKey = _historyKeyMap[key]!;
-      valuesPerKey[key] = List<double?>.generate(records.length, (i) {
-        return _toDouble(records[i][hKey]);
-      });
-    }
-
-    Duration window;
-    if (intervalMinutes > 0) {
-      window = Duration(minutes: intervalMinutes ~/ 2);
-    } else {
-      final interval = labelTimes.length > 1
-          ? labelTimes[1].difference(labelTimes[0])
-          : const Duration(minutes: 10);
-      window = interval ~/ 2;
+      labelTimes = List<DateTime>.generate(
+        pts,
+        (i) => today.subtract(Duration(days: pts - 1 - i)),
+      );
+      _labels[range] = labelTimes.map((d) => '${d.month}/${d.day}').toList();
     }
 
     for (final key in SensorService.sensorKeys) {
-      final vals = valuesPerKey[key]!;
-      _data['$key-$range'] = List<double>.generate(labelTimes.length, (i) {
-        final isDaily = range == '30d' || range == 'custom';
+      final fields = _historyFieldMap[key]!;
+      final averages = List<double>.filled(labelTimes.length, double.nan);
+      final minima = List<double>.filled(labelTimes.length, double.nan);
+      final maxima = List<double>.filled(labelTimes.length, double.nan);
 
-        if (range == '7d') {
-          final bucketStart = labelTimes[i];
-          final bucketEnd = i == labelTimes.length - 1
+      for (int i = 0; i < labelTimes.length; i++) {
+        final bucketStart = range == '30d' || range == 'custom'
+            ? DateTime(
+                labelTimes[i].year,
+                labelTimes[i].month,
+                labelTimes[i].day,
+              )
+            : labelTimes[i];
+        final bucketEnd = switch (range) {
+          '24h' => i == labelTimes.length - 1
               ? historyEnd.add(const Duration(microseconds: 1))
-              : bucketStart.add(const Duration(hours: 1));
-          double sum = 0;
-          int count = 0;
-          for (int j = 0; j < records.length; j++) {
-            if (!parsedTs[j].isBefore(bucketStart) &&
-                parsedTs[j].isBefore(bucketEnd)) {
-              final v = vals[j];
-              if (v != null && v >= 0) {
-                sum += v;
-                count++;
-              }
-            }
-          }
-          return count > 0 ? sum / count : double.nan;
-        }
+              : bucketStart.add(const Duration(minutes: 10)),
+          '7d' => i == labelTimes.length - 1
+              ? historyEnd.add(const Duration(microseconds: 1))
+              : bucketStart.add(const Duration(hours: 1)),
+          _ => bucketStart.add(const Duration(days: 1)),
+        };
 
-        if (isDaily) {
-          final dayStart = DateTime(
-            labelTimes[i].year,
-            labelTimes[i].month,
-            labelTimes[i].day,
-          );
-          final dayEnd = dayStart.add(const Duration(days: 1));
-          double sum = 0;
-          int count = 0;
-          for (int j = 0; j < records.length; j++) {
-            if (!parsedTs[j].isBefore(dayStart) &&
-                parsedTs[j].isBefore(dayEnd)) {
-              final v = vals[j];
-              if (v != null && v >= 0) {
-                sum += v;
-                count++;
-              }
-            }
-          }
-          return count > 0 ? sum / count : double.nan;
-        }
-
-        final mid = labelTimes[i];
-        final start = mid.subtract(window);
-        final end = mid.add(window);
         double sum = 0;
         int count = 0;
+        double? bucketMin;
+        double? bucketMax;
+
         for (int j = 0; j < records.length; j++) {
-          if (!parsedTs[j].isBefore(start) && parsedTs[j].isBefore(end)) {
-            final v = vals[j];
-            if (v != null && v >= 0) {
-              sum += v;
-              count++;
-            }
+          final timestamp = parsedTs[j];
+          if (timestamp.isBefore(bucketStart) || !timestamp.isBefore(bucketEnd)) {
+            continue;
+          }
+
+          final avg = _historyValue(key, records[j][fields['avg']!]);
+          final rawMin = _historyValue(key, records[j][fields['min']!]);
+          final rawMax = _historyValue(key, records[j][fields['max']!]);
+          if (avg != null) {
+            sum += avg;
+            count++;
+          }
+          final entryMin = rawMin ?? avg;
+          final entryMax = rawMax ?? avg;
+          if (entryMin != null) {
+            bucketMin = bucketMin == null ? entryMin : min(bucketMin, entryMin);
+          }
+          if (entryMax != null) {
+            bucketMax = bucketMax == null ? entryMax : max(bucketMax, entryMax);
           }
         }
-        return count > 0 ? sum / count : double.nan;
-      });
-    }
 
-    // Remove buckets where every sensor is NaN (no data at all)
-    final keepIdx = <int>[];
-    for (int i = 0; i < labelTimes.length; i++) {
-      bool anyValid = false;
-      for (final key in SensorService.sensorKeys) {
-        final d = _data['$key-$range'];
-        if (d != null && i < d.length && !d[i].isNaN) {
-          anyValid = true;
-          break;
-        }
+        if (count > 0) averages[i] = sum / count;
+        if (bucketMin != null) minima[i] = bucketMin;
+        if (bucketMax != null) maxima[i] = bucketMax;
       }
-      if (anyValid) keepIdx.add(i);
+
+      // Keep empty buckets as NaN. AnalyticsLineChart already breaks line
+      // segments at NaN, so actual sensor outages remain visible instead of
+      // compressing time and joining unrelated readings together.
+      _data['$key-$range'] = averages;
+      _minData['$key-$range'] = minima;
+      _maxData['$key-$range'] = maxima;
     }
-    if (keepIdx.length < labelTimes.length) {
-      for (final key in SensorService.sensorKeys) {
-        final d = _data['$key-$range'];
-        if (d != null) {
-          _data['$key-$range'] = keepIdx.map((i) => d[i]).toList();
-        }
-      }
-      _labels[range] = keepIdx.map((i) => _labels[range]![i]).toList();
+  }
+
+  void _clearRange(String range) {
+    for (final key in SensorService.sensorKeys) {
+      _data['$key-$range'] = <double>[];
+      _minData['$key-$range'] = <double>[];
+      _maxData['$key-$range'] = <double>[];
     }
+    _labels[range] = <String>[];
+  }
+
+  double? _historyValue(String key, dynamic raw) {
+    final value = _toDouble(raw);
+    if (value == null || !value.isFinite) return null;
+    return switch (key) {
+      'temp' => value >= 0 && value <= 60 ? value : null,
+      'ph' => value >= 2 && value <= 12 ? value : null,
+      'do' => value >= 0 && value <= 15 ? value : null,
+      'turb' => value >= 0 && value <= 500 ? value : null,
+      'waterlevel' => value >= 0 && value <= 300 ? value : null,
+      _ => value >= 0 ? value : null,
+    };
   }
 
   DateTime _recordTime(Map<String, dynamic> record) {
@@ -461,6 +419,14 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
   List<double> _getData(String key, String range) {
     return _data['$key-$range'] ?? [];
+  }
+
+  List<double> _getMinData(String key, String range) {
+    return _minData['$key-$range'] ?? _getData(key, range);
+  }
+
+  List<double> _getMaxData(String key, String range) {
+    return _maxData['$key-$range'] ?? _getData(key, range);
   }
 
   List<String> _getLabels(String key, String range) {
@@ -496,6 +462,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                       setState(() {
                         _activeFilter = val;
                         _showCustom = false;
+                        _selectedIndices.clear();
                         _isLoading = val != 'live';
                       });
                       if (val == 'live') {
@@ -508,10 +475,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                       if (mounted) setState(() => _isLoading = false);
                     },
                     onToggleCustom: () {
-                      setState(() {
-                        _showCustom = !_showCustom;
-                        _activeFilter = '';
-                      });
+                      setState(() => _showCustom = !_showCustom);
                     },
                   ),
                 ),
@@ -525,6 +489,34 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 40),
                     child: Center(child: CircularProgressIndicator()),
+                  ),
+                if (!_isLoading &&
+                    _activeFilter != 'live' &&
+                    _historyLoadFailed.contains(_activeFilter))
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 9,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.warning.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: AppColors.warning.withValues(alpha: 0.25),
+                        ),
+                      ),
+                      child: const Text(
+                        'Could not refresh history. Check your connection and try again.',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.dark,
+                        ),
+                      ),
+                    ),
                   ),
                 if (!_isLoading)
                   Padding(
@@ -779,6 +771,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
               onTap: () async {
                 setState(() {
                   _activeFilter = 'custom';
+                  _selectedIndices.clear();
                   _isLoading = true;
                 });
                 await _generateData('custom');
@@ -818,25 +811,29 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     required String chartKey,
   }) {
     final data = _getData(chartKey, _activeFilter);
+    final minData = _getMinData(chartKey, _activeFilter);
+    final maxData = _getMaxData(chartKey, _activeFilter);
     final labels = _getLabels(chartKey, _activeFilter);
     final dp = _decimalFor(chartKey);
     final validData = data.where((v) => !v.isNaN).toList();
+    final validMinData = minData.where((v) => !v.isNaN).toList();
+    final validMaxData = maxData.where((v) => !v.isNaN).toList();
     final hasValid = validData.isNotEmpty;
-    final mn = !hasValid
+    final mn = validMinData.isEmpty
         ? '--'
-        : _calc(validData, (d) => d.reduce(min)).toStringAsFixed(dp);
-    final mx = !hasValid
+        : validMinData.reduce(min).toStringAsFixed(dp);
+    final mx = validMaxData.isEmpty
         ? '--'
-        : _calc(validData, (d) => d.reduce(max)).toStringAsFixed(dp);
+        : validMaxData.reduce(max).toStringAsFixed(dp);
     const curLabel = 'Selected period';
     final unit = _unitFor(chartKey);
 
     int minIdx = -1, maxIdx = -1;
-    if (hasValid) {
-      final minVal = validData.reduce(min);
-      final maxVal = validData.reduce(max);
-      minIdx = data.indexOf(minVal);
-      maxIdx = data.indexOf(maxVal);
+    if (validMinData.isNotEmpty) {
+      minIdx = minData.indexOf(validMinData.reduce(min));
+    }
+    if (validMaxData.isNotEmpty) {
+      maxIdx = maxData.indexOf(validMaxData.reduce(max));
     }
     const nowIdx = -1;
     final minLabel = (minIdx >= 0 && minIdx < labels.length)
@@ -847,15 +844,15 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
         : '';
 
     final thresholds = _thresholdsFor(chartKey);
-    final criticalCount = _showCritical
-        ? data
-              .where(
-                (v) =>
-                    !v.isNaN &&
-                    (v < thresholds['min']! || v > thresholds['max']!),
-              )
-              .length
-        : 0;
+    final criticalItems = _showCritical
+        ? _criticalItemsFor(
+            labels: labels,
+            minData: minData,
+            maxData: maxData,
+            thresholds: thresholds,
+          )
+        : const <_CriticalItem>[];
+    final criticalCount = criticalItems.length;
 
     final selIdx = _selectedIndices[chartKey];
 
@@ -1019,7 +1016,38 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   String _noDataStatus(String key) {
+    if (_activeFilter != 'live' && _historyLoadFailed.contains(_activeFilter)) {
+      return 'Unable to load history. Check your connection and try again.';
+    }
     return 'No sensor reading';
+  }
+
+  List<_CriticalItem> _criticalItemsFor({
+    required List<String> labels,
+    required List<double> minData,
+    required List<double> maxData,
+    required Map<String, double> thresholds,
+  }) {
+    final items = <_CriticalItem>[];
+    final minThreshold = thresholds['min'] ?? double.negativeInfinity;
+    final maxThreshold = thresholds['max'] ?? double.infinity;
+    final length = max(minData.length, maxData.length);
+    for (int i = 0; i < length; i++) {
+      final label = i < labels.length ? labels[i] : '';
+      if (i < minData.length) {
+        final low = minData[i];
+        if (!low.isNaN && low < minThreshold) {
+          items.add(_CriticalItem(value: low, label: label, isAboveMax: false));
+        }
+      }
+      if (i < maxData.length) {
+        final high = maxData[i];
+        if (!high.isNaN && high > maxThreshold) {
+          items.add(_CriticalItem(value: high, label: label, isAboveMax: true));
+        }
+      }
+    }
+    return items;
   }
 
   Widget _buildStatsFooter(
@@ -1166,6 +1194,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
   Future<void> scrollToChart(String chartKey) async {
     _activeFilter = '24h';
+    _selectedIndices.clear();
     _liveTimer?.cancel();
     setState(() {});
     await _generateData('24h');
@@ -1203,24 +1232,28 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
           ]),
           builder: (context, child) {
             final data = _getData(chartKey, _activeFilter);
+            final minData = _getMinData(chartKey, _activeFilter);
+            final maxData = _getMaxData(chartKey, _activeFilter);
             final labels = _getLabels(chartKey, _activeFilter);
             final color = _colorFor(chartKey);
             final dp = _decimalFor(chartKey);
             final validData = data.where((v) => !v.isNaN).toList();
+            final validMinData = minData.where((v) => !v.isNaN).toList();
+            final validMaxData = maxData.where((v) => !v.isNaN).toList();
             final hasValid = validData.isNotEmpty;
 
             int minIdx = -1, maxIdx = -1;
-            final mn = !hasValid
+            final mn = validMinData.isEmpty
                 ? '--'
-                : validData.reduce(min).toStringAsFixed(dp);
-            final mx = !hasValid
+                : validMinData.reduce(min).toStringAsFixed(dp);
+            final mx = validMaxData.isEmpty
                 ? '--'
-                : validData.reduce(max).toStringAsFixed(dp);
-            if (hasValid) {
-              final minVal = validData.reduce(min);
-              final maxVal = validData.reduce(max);
-              minIdx = data.indexOf(minVal);
-              maxIdx = data.indexOf(maxVal);
+                : validMaxData.reduce(max).toStringAsFixed(dp);
+            if (validMinData.isNotEmpty) {
+              minIdx = minData.indexOf(validMinData.reduce(min));
+            }
+            if (validMaxData.isNotEmpty) {
+              maxIdx = maxData.indexOf(validMaxData.reduce(max));
             }
             const nowIdx = -1;
             final minLabel = (minIdx >= 0 && minIdx < labels.length)
@@ -1231,36 +1264,15 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                 : '';
 
             final thresholds = _thresholdsFor(chartKey);
-            int criticalCount;
-            List<_CriticalItem> criticalItems;
-            if (_showCritical) {
-              criticalCount = data
-                  .where(
-                    (v) =>
-                        !v.isNaN &&
-                        (v < thresholds['min']! || v > thresholds['max']!),
+            final criticalItems = _showCritical
+                ? _criticalItemsFor(
+                    labels: labels,
+                    minData: minData,
+                    maxData: maxData,
+                    thresholds: thresholds,
                   )
-                  .length;
-              criticalItems = <_CriticalItem>[];
-              if (criticalCount > 0) {
-                for (int i = 0; i < data.length; i++) {
-                  final v = data[i];
-                  if (!v.isNaN &&
-                      (v < thresholds['min']! || v > thresholds['max']!)) {
-                    criticalItems.add(
-                      _CriticalItem(
-                        value: v,
-                        label: i < labels.length ? labels[i] : '',
-                        isAboveMax: v > thresholds['max']!,
-                      ),
-                    );
-                  }
-                }
-              }
-            } else {
-              criticalCount = 0;
-              criticalItems = [];
-            }
+                : const <_CriticalItem>[];
+            final criticalCount = criticalItems.length;
             const curLabel = 'Selected period';
             double avg = 0.0;
             if (validData.isNotEmpty) {
