@@ -278,6 +278,8 @@ class ControlsScreenState extends State<ControlsScreen> {
     final turbMax = ranges['turb']?['max'] ?? 999.0;
     final turb = svc.getLatestValue('turb');
     if (turb > turbMax) return false;
+    if (!svc.hasSensorData('feedlevel')) return false;
+    if (svc.getLatestValue('feedlevel') <= 0) return false;
     return true;
   }
 
@@ -290,6 +292,12 @@ class ControlsScreenState extends State<ControlsScreen> {
     if (turb > turbMax) {
       return 'Feed blocked: turbidity too high (${turb.toStringAsFixed(0)} > ${turbMax.toStringAsFixed(0)} NTU)';
     }
+    if (!svc.hasSensorData('feedlevel')) {
+      return 'Feed blocked: waiting for the feed-level sensor';
+    }
+    if (svc.getLatestValue('feedlevel') <= 0) {
+      return 'Feed blocked: hopper is empty';
+    }
     return '';
   }
 
@@ -301,6 +309,24 @@ class ControlsScreenState extends State<ControlsScreen> {
       _feedTimer = Timer(const Duration(seconds: 3), () {
         if (mounted) setState(() => _feedState = _FeedState.hidden);
       });
+      return;
+    }
+    final requiredGrams = grams ?? defaultFeederGrams;
+    final availableGrams = SensorService.instance.estimatedFeedGrams;
+    if (availableGrams == null || availableGrams + 0.5 < requiredGrams) {
+      if (mounted) {
+        final availableText = availableGrams == null
+            ? 'unavailable'
+            : '~${availableGrams.toStringAsFixed(0)} g';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Insufficient feed: $availableText available, ${requiredGrams.toStringAsFixed(0)} g required.',
+            ),
+            backgroundColor: AppColors.critical,
+          ),
+        );
+      }
       return;
     }
     _manualFeedInitiated = true;
@@ -555,10 +581,7 @@ class ControlsScreenState extends State<ControlsScreen> {
   void _setActuatorMode(String actuatorId, String mode) {
     setState(() => _actuatorModes[actuatorId] = mode);
     DatabaseService.instance
-        .saveActuatorMode(
-          actuatorId: actuatorId,
-          mode: mode,
-        )
+        .saveActuatorMode(actuatorId: actuatorId, mode: mode)
         .catchError((e) {
           debugPrint('[Controls] ERROR saving $actuatorId: $e');
           if (mounted) {
@@ -602,8 +625,23 @@ class ControlsScreenState extends State<ControlsScreen> {
                       fedToday: _fedToday,
                       isOnline: FeederService.instance.isOnline,
                       isRunning: FeederService.instance.isRunning,
+                      feederStatus: FeederService.instance.status,
                       canFeed: _canFeed,
                       feedBlockedReason: _feedBlockedReason,
+                      feedLevelPercent:
+                          FeederService.instance.feedLevelPercent ??
+                          (SensorService.instance.hasSensorData('feedlevel')
+                              ? SensorService.instance.getLatestValue(
+                                  'feedlevel',
+                                )
+                              : null),
+                      estimatedFeedGrams:
+                          FeederService.instance.estimatedFeedGrams ??
+                          SensorService.instance.estimatedFeedGrams,
+                      consumptionTodayGrams:
+                          FeederService.instance.consumptionTodayGrams,
+                      completedFeedingsToday:
+                          FeederService.instance.completedFeedingsToday,
                     ),
                     ActuatorsTab(
                       actuatorModes: _actuatorModes,

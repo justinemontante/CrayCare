@@ -23,8 +23,13 @@ class FeederTab extends StatelessWidget {
 
   final bool isOnline;
   final bool isRunning;
+  final String feederStatus;
   final bool canFeed;
   final String feedBlockedReason;
+  final double? feedLevelPercent;
+  final double? estimatedFeedGrams;
+  final double consumptionTodayGrams;
+  final int completedFeedingsToday;
 
   const FeederTab({
     super.key,
@@ -39,8 +44,13 @@ class FeederTab extends StatelessWidget {
     this.fedToday = const {},
     this.isOnline = true,
     this.isRunning = false,
+    this.feederStatus = 'idle',
     this.canFeed = true,
     this.feedBlockedReason = '',
+    this.feedLevelPercent,
+    this.estimatedFeedGrams,
+    this.consumptionTodayGrams = 0,
+    this.completedFeedingsToday = 0,
   });
 
   @override
@@ -150,15 +160,28 @@ class FeederTab extends StatelessWidget {
                           ),
                           const SizedBox(width: 5),
                           Text(
-                            schedules.isEmpty
-                                ? 'No Schedules'
-                                : hasEnabledSchedules
-                                ? 'Schedules Active'
-                                : 'Schedules Paused',
+                            switch (feederStatus) {
+                              'checking_feed_level' => 'Checking Feed Level',
+                              'dispensing' => 'Dispensing',
+                              'completed' => 'Completed',
+                              'skipped_insufficient' =>
+                                'Skipped • Insufficient Feed',
+                              'blocked' => 'Feed Blocked',
+                              _ =>
+                                schedules.isEmpty
+                                    ? 'Auto Mode • No Schedules'
+                                    : hasEnabledSchedules
+                                    ? 'Auto Mode • Ready'
+                                    : 'Auto Mode • Paused',
+                            },
                             style: TextStyle(
                               fontSize: 9,
                               fontWeight: FontWeight.w600,
-                              color: hasEnabledSchedules
+                              color:
+                                  feederStatus == 'skipped_insufficient' ||
+                                      feederStatus == 'blocked'
+                                  ? AppColors.critical
+                                  : hasEnabledSchedules
                                   ? AppColors.success
                                   : AppColors.darkWith(0.4),
                             ),
@@ -170,6 +193,8 @@ class FeederTab extends StatelessWidget {
                 ),
               ],
             ),
+            const SizedBox(height: 12),
+            _buildFeedInventorySummary(),
             if (schedules.isNotEmpty) _buildCountdown(),
             const SizedBox(height: 12),
             _buildFeedNowButton(ctx),
@@ -270,6 +295,215 @@ class FeederTab extends StatelessWidget {
               ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildFeedInventorySummary() {
+    final now = _manilaNow();
+    final nextOccurrence = nextEnabledFeeding(schedules, now);
+    final nextGrams = nextOccurrence?.schedule.grams ?? defaultFeederGrams;
+    final level = feedLevelPercent;
+    final available = estimatedFeedGrams;
+    final hasLevel = level != null && available != null;
+    final availableValue = available ?? 0.0;
+    final enoughForNext = hasLevel && availableValue + 0.5 >= nextGrams;
+    final tomorrow = now.add(const Duration(days: 1));
+    final endOfTomorrow = DateTime(
+      tomorrow.year,
+      tomorrow.month,
+      tomorrow.day,
+      23,
+      59,
+      59,
+    );
+    var requiredThroughTomorrow = 0.0;
+    for (var dayOffset = 0; dayOffset <= 1; dayOffset++) {
+      final day = DateTime(now.year, now.month, now.day + dayOffset);
+      for (final schedule in schedules) {
+        if (!feederScheduleRunsOnDate(schedule, day)) continue;
+        final minutes = feederScheduleMinutes(schedule);
+        final occurrence = DateTime(
+          day.year,
+          day.month,
+          day.day,
+          minutes ~/ 60,
+          minutes % 60,
+        );
+        if (!occurrence.isAfter(now) || occurrence.isAfter(endOfTomorrow)) {
+          continue;
+        }
+        requiredThroughTomorrow += schedule.grams ?? defaultFeederGrams;
+      }
+    }
+
+    Color levelColor = AppColors.darkWith(0.35);
+    String levelLabel = 'Waiting for sensor';
+    if (level != null) {
+      if (level <= 0) {
+        levelColor = AppColors.critical;
+        levelLabel = 'Empty';
+      } else if (level <= 10) {
+        levelColor = AppColors.critical;
+        levelLabel = 'Critical Feed Level';
+      } else if (level <= 20) {
+        levelColor = AppColors.warning;
+        levelLabel = 'Low Feed';
+      } else {
+        levelColor = AppColors.success;
+        levelLabel = 'Normal';
+      }
+    }
+
+    String availabilityText;
+    Color availabilityColor;
+    IconData availabilityIcon;
+    if (!hasLevel) {
+      availabilityText = 'Feed availability is not available yet';
+      availabilityColor = AppColors.darkWith(0.45);
+      availabilityIcon = Icons.sensors_off_outlined;
+    } else if (nextOccurrence == null) {
+      availabilityText = 'No upcoming feeding to evaluate';
+      availabilityColor = AppColors.darkWith(0.5);
+      availabilityIcon = Icons.event_available_outlined;
+    } else if (enoughForNext &&
+        availableValue + 0.5 < requiredThroughTomorrow) {
+      final shortBy = requiredThroughTomorrow - availableValue;
+      availabilityText =
+          'Refill reminder: ~${availableValue.toStringAsFixed(0)}g available, ${requiredThroughTomorrow.toStringAsFixed(0)}g needed through tomorrow (short ${shortBy.toStringAsFixed(0)}g)';
+      availabilityColor = AppColors.warning;
+      availabilityIcon = Icons.inventory_outlined;
+    } else if (enoughForNext) {
+      availabilityText = level <= 10
+          ? 'Critical level, but feed can still proceed'
+          : 'Feed available for next feeding';
+      availabilityColor = level <= 10 ? AppColors.warning : AppColors.success;
+      availabilityIcon = Icons.check_circle_outline;
+    } else {
+      availabilityText =
+          'Insufficient: ~${availableValue.toStringAsFixed(0)}g available • ${nextGrams.toStringAsFixed(0)}g required';
+      availabilityColor = AppColors.critical;
+      availabilityIcon = Icons.error_outline_rounded;
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.primaryWith(0.035),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.primaryWith(0.10)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: _inventoryMetric(
+                  Icons.inventory_2_outlined,
+                  'Feed Level',
+                  level == null ? '--' : '${level.toStringAsFixed(0)}%',
+                  levelLabel,
+                  levelColor,
+                ),
+              ),
+              Container(width: 1, height: 46, color: AppColors.darkWith(0.08)),
+              Expanded(
+                child: _inventoryMetric(
+                  Icons.scale_outlined,
+                  'Consumption Today',
+                  '${consumptionTodayGrams.toStringAsFixed(0)} g',
+                  '$completedFeedingsToday completed',
+                  AppColors.primary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: availabilityColor.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              children: [
+                Icon(availabilityIcon, size: 14, color: availabilityColor),
+                const SizedBox(width: 7),
+                Expanded(
+                  child: Text(
+                    availabilityText,
+                    style: TextStyle(
+                      fontSize: 9,
+                      height: 1.3,
+                      fontWeight: FontWeight.w700,
+                      color: availabilityColor,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _inventoryMetric(
+    IconData icon,
+    String label,
+    String value,
+    String detail,
+    Color color,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 7),
+      child: Row(
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(9),
+            ),
+            child: Icon(icon, size: 16, color: color),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 8,
+                    color: AppColors.darkWith(0.45),
+                  ),
+                ),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                    color: AppColors.dark,
+                  ),
+                ),
+                Text(
+                  detail,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 8,
+                    fontWeight: FontWeight.w600,
+                    color: color,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1071,6 +1305,9 @@ class FeederTab extends StatelessWidget {
                                             decoration: BoxDecoration(
                                               color: l.type == 'auto'
                                                   ? AppColors.primary
+                                                  : l.type == 'error' ||
+                                                        l.status == 'skipped'
+                                                  ? AppColors.critical
                                                   : AppColors.warning,
                                               shape: BoxShape.circle,
                                             ),
@@ -1099,6 +1336,50 @@ class FeederTab extends StatelessWidget {
                                                     ),
                                                   ),
                                                 ),
+                                                if (l.requestedGrams !=
+                                                    null) ...[
+                                                  const SizedBox(height: 4),
+                                                  Text(
+                                                    [
+                                                      'Required ${l.requestedGrams!.toStringAsFixed(0)}g',
+                                                      if (l.estimatedAvailableGrams !=
+                                                          null)
+                                                        'Available ~${l.estimatedAvailableGrams!.toStringAsFixed(0)}g',
+                                                      if (l.feedLevelBefore !=
+                                                          null)
+                                                        'Before ${l.feedLevelBefore!.toStringAsFixed(0)}%',
+                                                      if (l.feedLevelAfter !=
+                                                          null)
+                                                        'After ${l.feedLevelAfter!.toStringAsFixed(0)}%',
+                                                    ].join('  •  '),
+                                                    style: TextStyle(
+                                                      fontSize: 8,
+                                                      height: 1.35,
+                                                      color: AppColors.darkWith(
+                                                        0.55,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  if (l.status == 'completed' &&
+                                                      l.levelChangeDetected ==
+                                                          false)
+                                                    Padding(
+                                                      padding:
+                                                          const EdgeInsets.only(
+                                                            top: 3,
+                                                          ),
+                                                      child: Text(
+                                                        'Possible dispense issue: no detectable level change',
+                                                        style: TextStyle(
+                                                          fontSize: 8,
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                          color:
+                                                              AppColors.warning,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                ],
                                               ],
                                             ),
                                           ),

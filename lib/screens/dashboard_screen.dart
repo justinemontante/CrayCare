@@ -347,9 +347,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       margin: const EdgeInsets.fromLTRB(14, 3, 14, 2),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: isErrorState
-            ? const Color(0xFFFFF3F0)
-            : const Color(0xFFFFF8E1),
+        color: isErrorState ? const Color(0xFFFFF3F0) : const Color(0xFFFFF8E1),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
           color: isErrorState
@@ -556,7 +554,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     final zone = ss.getZone(key);
     if (zone == 'OPTIMAL') return AppColors.success;
     if (zone == 'WARNING') return AppColors.warning;
-    if (zone == 'CRITICAL') return AppColors.critical;
+    if (zone == 'CRITICAL' || zone == 'EMPTY') return AppColors.critical;
     return AppColors.darkWith(0.4);
   }
 
@@ -722,17 +720,19 @@ class _DashboardScreenState extends State<DashboardScreen>
             Expanded(
               child: _buildGaugeCard(
                 title: 'Feed Level',
-                value: '--',
+                value: ss.hasSensorData('feedlevel')
+                    ? ss.getLatestValue('feedlevel').toStringAsFixed(0)
+                    : '--',
                 unit: '%',
                 ideal: 'Normal >20% • Low 11–20% • Critical 1–10%',
                 iconPath: 'assets/images/FeedingImage.png',
-                status: 'NO DATA',
-                statusColor: AppColors.darkWith(0.45),
-                trend: 'stable',
-                trendRate: 0,
-                hasData: false,
+                status: _getStatus('feedlevel'),
+                statusColor: _getStatusColor('feedlevel'),
+                trend: ss.getTrend('feedlevel'),
+                trendRate: ss.getTrendRate('feedlevel'),
+                hasData: ss.hasSensorData('feedlevel'),
                 sensorKey: 'feedlevel',
-                rawValue: 0,
+                rawValue: ss.getLatestValue('feedlevel'),
               ),
             ),
           ],
@@ -740,6 +740,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       ),
     );
   }
+
   Widget _buildQuickActionsHeader() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -979,7 +980,10 @@ class _DashboardScreenState extends State<DashboardScreen>
                     widget.onTankTab?.call(0);
                   },
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 2,
+                      vertical: 6,
+                    ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -1409,7 +1413,11 @@ class _DashboardScreenState extends State<DashboardScreen>
       if (feederScheduleRunsOnDate(s, now)) {
         final minutes = feederScheduleMinutes(s);
         final occurrence = DateTime(
-          now.year, now.month, now.day, minutes ~/ 60, minutes % 60,
+          now.year,
+          now.month,
+          now.day,
+          minutes ~/ 60,
+          minutes % 60,
         );
         if (feederScheduleWasEffectiveAt(s, occurrence)) activeToday++;
       }
@@ -1720,9 +1728,12 @@ class _DashboardScreenState extends State<DashboardScreen>
       }
     }
     for (final log in FeedState.feederLogs.value) {
-      if (log.type == 'missed' && s.id != null &&
-          log.scheduleKey == s.id && log.scheduleTime == scheduleTimeStr &&
-          log.date == todayStr) return 'missed';
+      if (log.type == 'missed' &&
+          s.id != null &&
+          log.scheduleKey == s.id &&
+          log.scheduleTime == scheduleTimeStr &&
+          log.date == todayStr)
+        return 'missed';
     }
     final minutes = feederScheduleMinutes(s);
     final h = minutes ~/ 60;

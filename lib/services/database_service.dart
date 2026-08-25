@@ -60,7 +60,8 @@ class DatabaseService {
     try {
       final existing = await userRef.get();
       final isNewUser = !existing.exists;
-      final effectiveRole = role ?? existing.data()?['role'] as String? ?? 'owner';
+      final effectiveRole =
+          role ?? existing.data()?['role'] as String? ?? 'owner';
 
       final data = <String, dynamic>{
         'full_name': name,
@@ -101,8 +102,9 @@ class DatabaseService {
     return null;
   }
 
-  Stream<DocumentSnapshot<Map<String, dynamic>>> userProfileStream(String uid) =>
-      _db.collection('users').doc(uid).snapshots();
+  Stream<DocumentSnapshot<Map<String, dynamic>>> userProfileStream(
+    String uid,
+  ) => _db.collection('users').doc(uid).snapshots();
 
   // ─── Notification Settings (users/{uid}/notification_settings) ────
 
@@ -140,14 +142,14 @@ class DatabaseService {
         .collection('notification_settings')
         .doc('preferences')
         .set({
-      'sound': sound,
-      'vibration': vibration,
-      'critical': critical,
-      'warning': warning,
-      'feeding': feeding,
-      'sampling': sampling,
-      'updated_at': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+          'sound': sound,
+          'vibration': vibration,
+          'critical': critical,
+          'warning': warning,
+          'feeding': feeding,
+          'sampling': sampling,
+          'updated_at': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
   }
 
   Future<Map<String, dynamic>?> getNotificationPrefs(String uid) async {
@@ -254,6 +256,7 @@ class DatabaseService {
       'do': 'dissolved_oxygen',
       'turb': 'turbidity',
       'waterlevel': 'water_level',
+      'feedlevel': 'feed_level',
     };
     final batch = _db.batch();
     for (final entry in currentRanges.entries) {
@@ -263,17 +266,24 @@ class DatabaseService {
       batch.set(sensorRef, {
         'min_value': entry.value['min'],
         'max_value': entry.value['max'],
+        if (entry.key == 'feedlevel') ...{
+          'critical_value': entry.value['critical'],
+          'hopper_capacity_grams': entry.value['capacity_grams'],
+        },
         'updated_at': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
     }
     await batch.commit();
     if (changedKey != null) {
-      debugPrint('[DatabaseService] Threshold changed: $changedKey for tank $tankId');
+      debugPrint(
+        '[DatabaseService] Threshold changed: $changedKey for tank $tankId',
+      );
     }
   }
 
-  Stream<QuerySnapshot<Map<String, dynamic>>> sensorThresholdsStream(String tankId) =>
-      _db.collection('tanks').doc(tankId).collection('sensors').snapshots();
+  Stream<QuerySnapshot<Map<String, dynamic>>> sensorThresholdsStream(
+    String tankId,
+  ) => _db.collection('tanks').doc(tankId).collection('sensors').snapshots();
 
   // ─── Actuators (tanks/{tank_id}/actuators/{pump|aerator1|aerator2}) ─────────
 
@@ -309,7 +319,10 @@ class DatabaseService {
   /// Legacy/currentOwner documents that only have tank_id are resolved back
   /// to the matching owner profile so the Admin UI does not show unassigned.
   Future<String?> getCurrentOwnerUid() async {
-    final doc = await _db.collection('hardware_system').doc('currentOwner').get();
+    final doc = await _db
+        .collection('hardware_system')
+        .doc('currentOwner')
+        .get();
     if (!doc.exists || doc.data() == null) return null;
 
     final data = doc.data()!;
@@ -330,7 +343,10 @@ class DatabaseService {
 
   /// Returns the tank_id currently receiving hardware data, or null.
   Future<String?> getCurrentOwnerTankId() async {
-    final doc = await _db.collection('hardware_system').doc('currentOwner').get();
+    final doc = await _db
+        .collection('hardware_system')
+        .doc('currentOwner')
+        .get();
     if (!doc.exists || doc.data() == null) return null;
     return doc.data()!['tank_id'] as String?;
   }
@@ -340,12 +356,11 @@ class DatabaseService {
   /// intermediate snapshot so the Admin screen keeps the owner resolved by
   /// getCurrentOwnerUid() instead of immediately replacing it with null.
   /// A real unassign (both uid and tank_id null) still passes through.
-  Stream<DocumentSnapshot<Map<String, dynamic>>> streamCurrentOwner() =>
-      _db
-          .collection('hardware_system')
-          .doc('currentOwner')
-          .snapshots()
-          .where((doc) {
+  Stream<DocumentSnapshot<Map<String, dynamic>>> streamCurrentOwner() => _db
+      .collection('hardware_system')
+      .doc('currentOwner')
+      .snapshots()
+      .where((doc) {
         final data = doc.data();
         if (data == null) return true;
         final uid = data['uid'] as String?;
@@ -382,10 +397,9 @@ class DatabaseService {
       // Persist the owner-to-tank link before provisioning the tank. This
       // keeps the user profile and Firestore ownership rule in sync even for
       // legacy accounts that were created before tank provisioning existed.
-      await _db.collection('users').doc(ownerUid).set(
-        {'tank_id': tankId},
-        SetOptions(merge: true),
-      );
+      await _db.collection('users').doc(ownerUid).set({
+        'tank_id': tankId,
+      }, SetOptions(merge: true));
       await _createTankIfMissing(tankId, ownerUid: ownerUid);
     }
 
@@ -431,10 +445,7 @@ class DatabaseService {
 
     final userRef = _db.collection('users').doc(uid);
     if (normalizedStatus != 'disabled') {
-      await userRef.set(
-        {'status': normalizedStatus},
-        SetOptions(merge: true),
-      );
+      await userRef.set({'status': normalizedStatus}, SetOptions(merge: true));
       return;
     }
 
@@ -449,25 +460,22 @@ class DatabaseService {
       final assignment = assignmentSnap.data();
       final assignedUid = assignment?['uid'] as String?;
       final assignedTankId = assignment?['tank_id'] as String?;
-      final isAssignedOwner = assignedUid == uid ||
+      final isAssignedOwner =
+          assignedUid == uid ||
           ((assignedUid == null || assignedUid.isEmpty) &&
               userTankId != null &&
               userTankId.isNotEmpty &&
               assignedTankId == userTankId);
 
-      transaction.set(
-        userRef,
-        {'status': normalizedStatus},
-        SetOptions(merge: true),
-      );
+      transaction.set(userRef, {
+        'status': normalizedStatus,
+      }, SetOptions(merge: true));
       if (isAssignedOwner) {
-        transaction.set(
-          ownerRef,
-          {'uid': null, 'tank_id': null},
-          SetOptions(merge: true),
-        );
+        transaction.set(ownerRef, {
+          'uid': null,
+          'tank_id': null,
+        }, SetOptions(merge: true));
       }
     });
   }
-
 }

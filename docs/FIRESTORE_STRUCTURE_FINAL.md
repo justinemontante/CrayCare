@@ -80,6 +80,8 @@ tanks/{tank_id}
     turbidity: number
     turbidity_air: boolean
     water_level: number                # centimeters
+    feed_level: number                 # hopper percentage; operational only
+    estimated_feed_grams: number       # percentage × configured capacity
     buffered_entries: number           # optional offline-backlog count
     recorded_at: Timestamp
 
@@ -101,9 +103,11 @@ tanks/{tank_id}
       waterLevel_min, waterLevel_max, waterLevel_avg
       recorded_at: Timestamp
 
-  sensors/{temperature|ph_level|dissolved_oxygen|turbidity|water_level}
+  sensors/{temperature|ph_level|dissolved_oxygen|turbidity|water_level|feed_level}
     min_value: number
     max_value: number
+    critical_value: number | null      # feed_level only
+    hopper_capacity_grams: number|null # feed_level only
     updated_at: Timestamp
 
   actuators/{pump|aerator1|aerator2}
@@ -118,11 +122,13 @@ tanks/{tank_id}
     logged_at: epoch milliseconds
 
   feeder/status
-    status: "idle" | "dispensing"
+    status: "idle" | "checking_feed_level" | "dispensing" | "completed" | "skipped_insufficient" | "blocked"
     dispenseCount: number
     lastSeen: epoch milliseconds
     last_dispensed_at: epoch milliseconds | null
     last_dispensed_grams: number
+    feed_level: number
+    estimated_feed_grams: number
 
   feeder_schedules/{schedule_id}
     time: string
@@ -147,6 +153,12 @@ tanks/{tank_id}
     logged_at: epoch milliseconds
     schedule_key: string | null        # missed-schedule audit only
     schedule_time: string | null       # missed-schedule audit only
+    status: "completed" | "skipped_insufficient" | "failed" | null
+    requested_grams: number | null
+    estimated_available_grams: number | null
+    feed_level_before: number | null
+    feed_level_after: number | null
+    level_change_detected: boolean | null
 
   machine_learning_assessments/current
     uid: string

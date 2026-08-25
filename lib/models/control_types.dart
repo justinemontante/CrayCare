@@ -113,10 +113,7 @@ int feederScheduleMinutes(ScheduleItem schedule) {
 /// Returns true when [schedule] was already effective at the supplied Manila
 /// wall-clock occurrence. Legacy schedules without an effective timestamp are
 /// treated as existing, preserving their previous behavior.
-bool feederScheduleWasEffectiveAt(
-  ScheduleItem schedule,
-  DateTime occurrence,
-) {
+bool feederScheduleWasEffectiveAt(ScheduleItem schedule, DateTime occurrence) {
   final effectiveAt = schedule.effectiveAt;
   if (effectiveAt == null) return true;
   final effectiveManila = manilaWallClock(effectiveAt);
@@ -195,6 +192,12 @@ class LogEntry {
   final int timestamp;
   final String? scheduleKey;
   final String? scheduleTime;
+  final String? status;
+  final double? requestedGrams;
+  final double? estimatedAvailableGrams;
+  final double? feedLevelBefore;
+  final double? feedLevelAfter;
+  final bool? levelChangeDetected;
 
   LogEntry(
     this.action,
@@ -204,6 +207,12 @@ class LogEntry {
     this.timestamp = 0,
     this.scheduleKey,
     this.scheduleTime,
+    this.status,
+    this.requestedGrams,
+    this.estimatedAvailableGrams,
+    this.feedLevelBefore,
+    this.feedLevelAfter,
+    this.levelChangeDetected,
   });
 }
 

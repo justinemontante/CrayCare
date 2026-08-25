@@ -10,6 +10,7 @@ const SENSOR_MAP = {
   dissolved_oxygen: "do",
   turbidity: "turb",
   water_level: "waterlevel",
+  feed_level: "feedlevel",
 };
 
 const LABELS = {
@@ -18,6 +19,7 @@ const LABELS = {
   do: "Dissolved Oxygen",
   turb: "Turbidity",
   waterlevel: "Water Level",
+  feedlevel: "Feed Level",
 };
 
 const UNITS = {
@@ -26,6 +28,7 @@ const UNITS = {
   do: "mg/L",
   turb: "NTU",
   waterlevel: "cm",
+  feedlevel: "%",
 };
 
 const WARNING_MARGIN_FRACTION = 0.1;
@@ -167,6 +170,8 @@ function normalizeSensorReading(raw) {
     dissolved_oxygen: raw.dissolved_oxygen ?? raw.dissolvedOxygen ?? null,
     turbidity: raw.turbidity ?? null,
     water_level: raw.water_level ?? raw.waterLevelPercent ?? raw.waterLevel ?? null,
+    feed_level: raw.feed_level ?? raw.feedLevel ?? null,
+    estimated_feed_grams: raw.estimated_feed_grams ?? raw.estimatedFeedGrams ?? null,
     turbidity_air: raw.turbidity_air ?? raw.turbidityAir ?? null,
     temp_min: raw.temp_min ?? null,
     temp_max: raw.temp_max ?? null,
@@ -217,6 +222,25 @@ function sensorState(value, range) {
   return { state: "normal" };
 }
 
+function feedLevelState(value, range) {
+  const val = Number(value);
+  const low = Number(range && range.min);
+  const critical = Number(range && range.critical);
+  if (!Number.isFinite(val) || !Number.isFinite(low) || !Number.isFinite(critical)) {
+    return { state: "unknown" };
+  }
+  if (val <= 0) return { state: "critical", dir: "empty", threshold: 0 };
+  if (val <= critical) return { state: "critical", dir: "low", threshold: critical };
+  if (val <= low) return { state: "warning", dir: "low", threshold: low };
+  return { state: "normal" };
+}
+
+function stateForSensor(sensorName, value, range) {
+  return sensorName === "feed_level"
+    ? feedLevelState(value, range)
+    : sensorState(value, range);
+}
+
 function stateSignature(state) {
   return `${state.state}:${state.dir || ""}`;
 }
@@ -225,6 +249,18 @@ function sensorMessage(change) {
   const label = LABELS[change.svcKey] || change.svcKey;
   const unit = UNITS[change.svcKey] || "";
   const suffix = unit ? ` ${unit}` : "";
+  if (change.svcKey === "feedlevel") {
+    if (change.state === "resolved") {
+      return `Feed level is back to normal (${change.val.toFixed(0)}%)`;
+    }
+    if (change.dir === "empty") {
+      return "Feed hopper is empty. Refill before the next feeding.";
+    }
+    if (change.state === "critical") {
+      return `Feed level is critically low at ${change.val.toFixed(0)}%. Refill the feeder soon.`;
+    }
+    return `Feed level is low at ${change.val.toFixed(0)}%. Consider refilling soon.`;
+  }
   if (change.state === "resolved") {
     return `${label} is back to normal (${change.val.toFixed(1)}${suffix})`;
   }
@@ -306,6 +342,65 @@ exports.onSensorIngestionHistoryCreate = functions.region("asia-southeast1").fir
     return null;
   });
 
+exports.onFeederLogCreate = functions.region("asia-southeast1").firestore
+  .document("tanks/{tankId}/feeder_logs/{logId}")
+  .onCreate(async (snap, context) => {
+    const data = snap.data() || {};
+    const status = String(data.status || "").trim().toLowerCase();
+    if (status !== "completed" && status !== "skipped_insufficient") return null;
+
+    try {
+      const { tankId, logId } = context.params;
+      const tankSnap = await firestoreDb.collection("tanks").doc(tankId).get();
+      const ownerUid = tankSnap.exists ? (tankSnap.data() || {}).owner_uid : null;
+      if (!ownerUid) return null;
+
+      const prefs = await getUserPreferences(ownerUid);
+      if (prefs.feeding === false) return null;
+
+      const requested = Number(data.requested_grams);
+      const available = Number(data.estimated_available_grams);
+      const requestedText = Number.isFinite(requested)
+        ? `${requested.toFixed(0)} g`
+        : "the scheduled amount";
+      const source = String(data.type || "").toLowerCase() === "manual"
+        ? "Manual feeding"
+        : "Scheduled feeding";
+
+      let title;
+      let body;
+      if (status === "completed") {
+        title = "Feeding Completed";
+        body = `${source} completed successfully (${requestedText}).`;
+      } else {
+        title = "Feeding Skipped";
+        const availableText = Number.isFinite(available)
+          ? `${available.toFixed(0)} g available`
+          : "insufficient feed available";
+        body = `${source} was skipped: insufficient feed (${availableText}; ${requestedText} required). Refill the hopper.`;
+      }
+
+      await writeNotification(ownerUid, {
+        docId: `feeder_${tankId}_${logId}`,
+        type: status === "completed" ? "feeding" : "warning",
+        title,
+        message: body,
+      });
+      await sendPush(ownerUid, {
+        notification: { title, body },
+        data: {
+          feeding: "true",
+          feederStatus: status,
+          tankId,
+          logId,
+        },
+      }, "feeding");
+    } catch (e) {
+      functions.logger.error("onFeederLogCreate error:", e.message);
+    }
+    return null;
+  });
+
 exports.onSensorUpdate = functions.region("asia-southeast1").firestore
   .document("tanks/{tankId}/sensor_readings/latest")
   .onWrite(async (change, context) => {
@@ -324,7 +419,11 @@ exports.onSensorUpdate = functions.region("asia-southeast1").firestore
         .collection("sensors").get();
       sensorsSnap.forEach((doc) => {
         const data = doc.data() || {};
-        thresholds[doc.id] = { min: data.min_value, max: data.max_value };
+        thresholds[doc.id] = {
+          min: data.min_value,
+          max: data.max_value,
+          critical: data.critical_value,
+        };
       });
 
       const stateChanges = [];
@@ -332,9 +431,9 @@ exports.onSensorUpdate = functions.region("asia-southeast1").firestore
         const newVal = Number(afterData[field]);
         if (!Number.isFinite(newVal) || !thresholds[field]) continue;
         const oldRaw = beforeData ? Number(beforeData[field]) : NaN;
-        const current = sensorState(newVal, thresholds[field]);
+        const current = stateForSensor(field, newVal, thresholds[field]);
         const previous = Number.isFinite(oldRaw)
-          ? sensorState(oldRaw, thresholds[field])
+          ? stateForSensor(field, oldRaw, thresholds[field])
           : { state: "unknown" };
         if (stateSignature(current) === stateSignature(previous)) continue;
         if (current.state === "critical" || current.state === "warning") {
@@ -362,7 +461,11 @@ exports.onSensorThresholdUpdate = functions.region("asia-southeast1").firestore
     try {
       const before = change.before.data() || {};
       const after = change.after.data() || {};
-      if (before.min_value === after.min_value && before.max_value === after.max_value) {
+      if (
+        before.min_value === after.min_value &&
+        before.max_value === after.max_value &&
+        before.critical_value === after.critical_value
+      ) {
         return null;
       }
 
@@ -381,8 +484,16 @@ exports.onSensorThresholdUpdate = functions.region("asia-southeast1").firestore
       const value = Number((latestSnap.data() || {})[sensorName]);
       if (!Number.isFinite(value)) return null;
 
-      const previous = sensorState(value, { min: before.min_value, max: before.max_value });
-      const current = sensorState(value, { min: after.min_value, max: after.max_value });
+      const previous = stateForSensor(sensorName, value, {
+        min: before.min_value,
+        max: before.max_value,
+        critical: before.critical_value,
+      });
+      const current = stateForSensor(sensorName, value, {
+        min: after.min_value,
+        max: after.max_value,
+        critical: after.critical_value,
+      });
       if (stateSignature(previous) === stateSignature(current)) return null;
 
       const stateChanges = [];

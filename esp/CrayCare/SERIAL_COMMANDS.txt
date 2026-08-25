@@ -15,9 +15,17 @@ WIFI
 FEEDER
   FEED
     Requests one manual feed using the default 20 g estimate. Feeding is blocked
-    when required water-quality sensors are unavailable or outside safe ranges.
+    when required water-quality sensors are unavailable/outside safe ranges, or
+    when the feed-level estimate is empty or below the requested grams.
 
 SENSOR CALIBRATION
+  feedempty
+    With the hopper empty, saves the current GPIO39 voltage as the 0% point.
+
+  feedfull
+    With the hopper filled to its configured capacity, saves the current GPIO39
+    voltage as the 100% point. Configure hopper capacity in Settings.
+
   phcal7
     Place the pH probe in pH 7.00 buffer, wait for a stable voltage, then run.
 
@@ -57,7 +65,8 @@ HC-SR04 WATER LEVEL
 
 DEBUG
   raw
-    Prints pH voltage, DO voltage, turbidity voltage, HC-SR04 distance, and depth.
+    Prints pH, DO, turbidity, water depth, plus hopper voltage, percentage, and
+    estimated remaining grams.
 
 RELAYS — LOCAL TEST
   n1on / n1off       Water pump, GPIO26

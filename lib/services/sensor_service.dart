@@ -45,8 +45,10 @@ class SensorService extends ChangeNotifier {
   final Map<String, List<DateTime>> _historyTimes = {};
   final Map<String, double> _latest = {};
   bool? _turbidityAir;
+  double? _estimatedFeedGrams;
 
   bool get turbidityAir => _turbidityAir ?? false;
+  double? get estimatedFeedGrams => _estimatedFeedGrams;
 
   bool _initialDataLoaded = false;
 
@@ -81,6 +83,7 @@ class SensorService extends ChangeNotifier {
     _historyTimes.clear();
     _latest.clear();
     _turbidityAir = null;
+    _estimatedFeedGrams = null;
     _initialDataLoaded = false;
     _hasLiveData = false;
     _lastUpdated = DateTime.fromMillisecondsSinceEpoch(0);
@@ -96,6 +99,7 @@ class SensorService extends ChangeNotifier {
     _historyTimes.clear();
     _latest.clear();
     _turbidityAir = null;
+    _estimatedFeedGrams = null;
     _hasLiveData = false;
     _lastUpdated = DateTime.fromMillisecondsSinceEpoch(0);
     _bufferedEntries = 0;
@@ -118,6 +122,15 @@ class SensorService extends ChangeNotifier {
     final ranges = SettingsService.instance.currentRanges;
     final range = ranges[key];
     if (range == null) return 'UNKNOWN';
+
+    if (key == 'feedlevel') {
+      final critical = range['critical'] ?? 10.0;
+      final low = range['min'] ?? 20.0;
+      if (value <= 0) return 'EMPTY';
+      if (value <= critical) return 'CRITICAL';
+      if (value <= low) return 'WARNING';
+      return 'OPTIMAL';
+    }
     final min = range['min'] ?? 0.0;
     final max = range['max'] ?? 999.0;
 
@@ -368,6 +381,10 @@ class SensorService extends ChangeNotifier {
     );
     final phRaw = _toDouble(data['ph_level'] ?? data['phLevel']);
     final wlRaw = _toDouble(data['water_level'] ?? data['waterLevel']);
+    final feedLevelRaw = _toDouble(data['feed_level'] ?? data['feedLevel']);
+    final estimatedFeedRaw = _toDouble(
+      data['estimated_feed_grams'] ?? data['estimatedFeedGrams'],
+    );
     final turbAirRaw = data['turbidity_air'] ?? data['turbidityAir'];
     _turbidityAir = turbAirRaw is bool ? turbAirRaw : (turbAirRaw == true);
 
@@ -380,6 +397,8 @@ class SensorService extends ChangeNotifier {
     _updateSensor('do', doRaw, readingTime);
     _updateSensor('ph', phRaw, readingTime);
     _updateSensor('waterlevel', wlRaw, readingTime);
+    _updateSensor('feedlevel', feedLevelRaw, readingTime);
+    _estimatedFeedGrams = estimatedFeedRaw >= 0 ? estimatedFeedRaw : null;
 
     _staleTimer?.cancel();
     final remaining = _staleTimeout - age;
@@ -398,6 +417,7 @@ class SensorService extends ChangeNotifier {
     }
     _hasLiveData = false;
     _bufferedEntries = 0;
+    _estimatedFeedGrams = null;
     _staleTimer?.cancel();
     notifyListeners();
     debugPrint(
@@ -410,7 +430,12 @@ class SensorService extends ChangeNotifier {
       _latest.remove(key);
       return;
     }
-    if (value == 0 && key != 'turb' && !_latest.containsKey(key)) return;
+    if (value == 0 &&
+        key != 'turb' &&
+        key != 'feedlevel' &&
+        !_latest.containsKey(key)) {
+      return;
+    }
     if (!_isValidReading(key, value)) return;
 
     _latest[key] = value;
@@ -447,6 +472,8 @@ class SensorService extends ChangeNotifier {
         return value >= 0 && value <= 500;
       case 'waterlevel':
         return value >= 0 && value <= 300;
+      case 'feedlevel':
+        return value >= 0 && value <= 100;
       default:
         return true;
     }
@@ -539,7 +566,11 @@ class SensorService extends ChangeNotifier {
     final firstDay = DateTime(start.year, start.month, start.day);
     final lastDay = DateTime(end.year, end.month, end.day);
     final days = <DateTime>[];
-    for (var day = firstDay; !day.isAfter(lastDay); day = day.add(const Duration(days: 1))) {
+    for (
+      var day = firstDay;
+      !day.isAfter(lastDay);
+      day = day.add(const Duration(days: 1))
+    ) {
       days.add(day);
     }
     if (days.length < 14) return null;
@@ -606,11 +637,7 @@ class SensorService extends ChangeNotifier {
       final chunk = missingDays.sublist(i, endIndex);
       final futures = chunk.map((day) {
         final dayEnd = DateTime(day.year, day.month, day.day, 23, 59, 59, 999);
-        return _fetchEntryHistoryRange(
-          tankId: tankId,
-          start: day,
-          end: dayEnd,
-        );
+        return _fetchEntryHistoryRange(tankId: tankId, start: day, end: dayEnd);
       });
       final fallbackResults = await Future.wait(futures);
       records.addAll(fallbackResults.expand((result) => result));

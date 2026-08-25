@@ -69,6 +69,8 @@
           "turbidity (double, when present)",
           "turbidity_air (bool, when present)",
           "water_level (double, cm, when present)",
+          "feed_level (double, percent, when present)",
+          "estimated_feed_grams (double, derived estimate)",
           "buffered_entries (int, optional offline-backlog count)",
           "recorded_at (Timestamp)"
         ]
@@ -109,10 +111,13 @@
           "dissolved_oxygen",
           "turbidity",
           "water_level"
+          ,"feed_level"
         ],
         "fields": [
           "min_value (double)",
           "max_value (double)",
+          "critical_value (double, feed_level only)",
+          "hopper_capacity_grams (double, feed_level only)",
           "updated_at (Timestamp)"
         ]
       },
@@ -141,11 +146,13 @@
       "feeder/status": {
         "_description": "Current feeder status written by the ESP32.",
         "fields": [
-          "status (idle|dispensing)",
+          "status (idle|checking_feed_level|dispensing|completed|skipped_insufficient|blocked)",
           "dispenseCount (int)",
           "lastSeen (int epoch-ms)",
           "last_dispensed_at (int epoch-ms|null)",
-          "last_dispensed_grams (double)"
+          "last_dispensed_grams (double)",
+          "feed_level (double, percent)",
+          "estimated_feed_grams (double)"
         ]
       },
       "feeder_schedules/{scheduleId}": {
@@ -170,6 +177,12 @@
           "logged_at (int epoch-ms; legacy Timestamp/ISO values remain readable)",
           "schedule_key (string, optional)",
           "schedule_time (string, optional)"
+          ,"status (completed|skipped_insufficient|failed, optional)"
+          ,"requested_grams (double, optional)"
+          ,"estimated_available_grams (double, optional)"
+          ,"feed_level_before (double, optional)"
+          ,"feed_level_after (double, optional)"
+          ,"level_change_detected (bool, optional; supporting indication only)"
         ]
       },
       "feeder_commands/{commandId}": {
@@ -286,6 +299,8 @@
       "dissolved_oxygen (double, when enabled)",
       "ph_level (double, when enabled)",
       "water_level (double cm, when enabled)",
+      "feed_level (double percent, when enabled)",
+      "estimated_feed_grams (double estimate)",
       "buffered_entries (int)"
     ]
   },

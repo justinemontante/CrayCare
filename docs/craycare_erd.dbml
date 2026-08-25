@@ -77,15 +77,17 @@ Table tanks {
 //  SENSORS (thresholds + readings)
 // ──────────────────────────────────────────────────────────────
 
-// Note: maps to 5 Firestore documents under
+// Note: maps to 6 Firestore documents under
 // `tanks/{tank_id}/sensors/{sensor_name}` — one doc per sensor
-// (temperature, ph_level, dissolved_oxygen, turbidity, water_level).
+// (temperature, ph_level, dissolved_oxygen, turbidity, water_level, feed_level).
 Table sensor_thresholds {
-  id varchar [pk, note: 'sensor_name (temperature|ph_level|dissolved_oxygen|turbidity|water_level)']
+  id varchar [pk, note: 'sensor_name (temperature|ph_level|dissolved_oxygen|turbidity|water_level|feed_level)']
   tank_id varchar [ref: > tanks.tank_id]
-  sensor_name varchar [note: 'temperature | ph_level | dissolved_oxygen | turbidity | water_level']
+  sensor_name varchar [note: 'temperature | ph_level | dissolved_oxygen | turbidity | water_level | feed_level']
   min_value decimal(10,2)
   max_value decimal(10,2)
+  critical_value decimal(10,2) [note: 'Feed level only: critical-below percentage']
+  hopper_capacity_grams decimal(10,2) [note: 'Feed level only: calibrated full capacity']
   updated_at timestamp
 
   Indexes {
@@ -102,6 +104,8 @@ Table sensor_readings {
   dissolved_oxygen decimal(5,2)
   turbidity decimal(8,2)
   water_level decimal(6,2)
+  feed_level decimal(5,2) [note: 'Hopper percentage; operational, not a WQA feature']
+  estimated_feed_grams decimal(10,2) [note: 'Estimate derived from level percentage and configured hopper capacity']
   recorded_at timestamp
 
   Indexes {
@@ -128,6 +132,8 @@ Table sensor_readings_history {
   waterLevel_min decimal(6,2)
   waterLevel_max decimal(6,2)
   waterLevel_avg decimal(6,2)
+  feed_level decimal(5,2) [note: 'Operational snapshot; excluded from WQA inputs']
+  estimated_feed_grams decimal(10,2)
   recorded_at timestamp
 
   Indexes {
@@ -175,11 +181,13 @@ Table actuator_logs {
 // last_dispensed_at, last_dispensed_grams.
 Table feeder_status {
   tank_id varchar [pk, ref: - tanks.tank_id]
-  status varchar [note: 'idle | dispensing']
+  status varchar [note: 'idle | checking_feed_level | dispensing | completed | skipped_insufficient | blocked']
   dispense_count int [note: 'completed feeds (Firestore: dispenseCount)']
   last_seen timestamp [note: 'Firestore: lastSeen']
   last_dispensed_at timestamp
   last_dispensed_grams decimal(8,2)
+  feed_level decimal(5,2)
+  estimated_feed_grams decimal(10,2)
 }
 
 Table feeder_schedules {
@@ -203,8 +211,14 @@ Table feeder_logs {
   id varchar [pk]
   tank_id varchar [ref: > tanks.tank_id]
   action varchar
-  type varchar [note: 'auto | manual']
+  type varchar [note: 'auto | manual | missed | error']
   trigger_type varchar [note: 'scheduled | manual']
+  status varchar [note: 'completed | skipped_insufficient | failed']
+  requested_grams decimal(8,2)
+  estimated_available_grams decimal(10,2)
+  feed_level_before decimal(5,2)
+  feed_level_after decimal(5,2)
+  level_change_detected boolean [note: 'Supporting indication only; not proof of exact dispensed mass']
   logged_at timestamp
 
   Indexes {
@@ -220,7 +234,7 @@ Table feeder_commands {
   issued_by varchar [ref: > users.uid]
   issued_at timestamp
 
-  Note: 'One-shot manual feeding queue. App enqueues, ESP32 polls every 5s, executes, then deletes (deletion = completion). Scheduled feeding is separate (feeder_schedules).'
+  Note: 'One-shot manual feeding queue. App enqueues; ESP32 accepts and removes the command, then records the actual completed/skipped/failed outcome in feeder_logs. Command deletion alone is not proof of completion. Scheduled feeding is separate (feeder_schedules).'
 }
 
 // ──────────────────────────────────────────────────────────────

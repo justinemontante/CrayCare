@@ -43,7 +43,13 @@ service cloud.firestore {
       let doOk = sensorName == 'dissolved_oxygen' && min >= 1.0 && min <= 8.0 && max >= 3.0 && max <= 15.0;
       let turbOk = sensorName == 'turbidity' && min >= 0.0 && min <= 100.0 && max >= 5.0 && max <= 1000.0;
       let waterOk = sensorName == 'water_level' && min >= 0.0 && min <= 95.0 && max >= 5.0 && max <= 100.0;
-      return validNumbers && (tempOk || phOk || doOk || turbOk || waterOk);
+      let feedCritical = request.resource.data.get('critical_value', -1);
+      let feedCapacity = request.resource.data.get('hopper_capacity_grams', 0);
+      let feedOk = sensorName == 'feed_level' &&
+        min >= 1.0 && min <= 50.0 && max == 100.0 &&
+        feedCritical is number && feedCritical >= 0.0 && feedCritical < min &&
+        feedCapacity is number && feedCapacity >= 100.0 && feedCapacity <= 50000.0;
+      return validNumbers && (tempOk || phOk || doOk || turbOk || waterOk || feedOk);
     }
     function isEspSession() {
       return isSignedIn() &&

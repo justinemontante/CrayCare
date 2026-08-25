@@ -1,7 +1,7 @@
 
 ============================================
   CRAYCARE ESP32 ALL-IN-ONE — PINOUT
-  Last Updated: 2026-06-14
+  Last Updated: 2026-08-25
 ============================================
 
 RELAYS (Active LOW = LOW turns ON)
@@ -23,6 +23,7 @@ SENSORS
 │    4   │       │ DS18B20 (Water Temp) │ Standard OneWire         │
 │   32   │ TRIG  │ HC-SR04 (Water Level)│ Ultrasonic Trig         │
 │   33   │ ECHO  │ HC-SR04 (Water Level)│ Ultrasonic Echo         │
+│   39   │ VN    │ Feed Level Sensor    │ Analog hopper level      │
 └────────┴───────┴──────────────────────┴──────────────────────────┘
 
 OTHER PERIPHERALS
@@ -34,8 +35,9 @@ OTHER PERIPHERALS
 │   13   │       │ Servo (Feeder)       │ PWM control              │
 └────────┴───────┴──────────────────────┴──────────────────────────┘
 
-NOTE: No hopper sensor pin is assigned. Hopper percentage in the app is an
-estimated value until a dedicated load cell/ADC is added. GPIO36 is reserved
+NOTE: GPIO39 is an ADC1 input-only pin and remains usable while Wi-Fi is active.
+The default analog calibration is 0.50V empty and 2.80V full. Run `feedempty`
+and `feedfull` after installing the actual sensor. GPIO36 remains reserved
 exclusively for the dissolved-oxygen analog input.
 
 ============================================
@@ -103,6 +105,8 @@ CALIBRATION
   phcal7               Calibrate pH 7.0
   phcal4               Calibrate pH 4.0
   doclear              Calibrate DO in air
+  feedempty            Save current hopper voltage as empty
+  feedfull             Save current hopper voltage as full
 
 DEBUG / SYSTEM
   debugmode [0/1]      Toggle debug mode

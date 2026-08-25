@@ -280,10 +280,13 @@ void _setServoAngle(int angle) {
 bool feederAutoMode = true;
 unsigned long feederLastFeedEpoch = 0;
 bool feederIsRunning = false;
+String feederStatus = "idle";
 String feederFeedSource = "";          // "manual" or "scheduled"
 String feederLastScheduleKey = "";     // doc id of the schedule that triggered the latest scheduled feed
 int feederDispenseCount = 0;              // total feeds dispensed since boot
 float feederRequestedGrams = 20.0f;   // calibrated estimate; 20 g per servo cycle
+float feederFeedLevelBefore = -1.0f;
+float feederAvailableBefore = -1.0f;
 
 // Firestore integerValue is textual. Avoid 32-bit unsigned-long overflow
 // when sending epoch milliseconds from the ESP32.
@@ -372,10 +375,10 @@ unsigned long lastActuatorSyncMs = 0;
 #define PH_PIN 35
 #define WATER_LEVEL_TRIG_PIN 32
 #define WATER_LEVEL_ECHO_PIN 33
+#define FEED_LEVEL_PIN 39  // ADC1 input-only pin (VN), safe while Wi-Fi is active
 
 // Feeder
 #define FEEDER_SERVO_PIN 13
-// No hopper input is assigned: GPIO36 is the production DO analog input.
 
 // Actuator pins are defined with the ACTUATOR STATE block above.
 
@@ -383,6 +386,7 @@ unsigned long lastActuatorSyncMs = 0;
 #define ENABLE_DO_SENSOR 1
 #define ENABLE_PH_SENSOR 1
 #define ENABLE_WATER_LEVEL_SENSOR 1
+#define ENABLE_FEED_LEVEL_SENSOR 1
 
 // ============================================================
 //  CALIBRATED TURBIDITY THRESHOLDS
@@ -407,6 +411,14 @@ float phCriticalHigh = 8.5;
 
 float waterLevelCriticalLow = 15.0;
 float waterLevelCriticalHigh = 20.0;
+
+float feedLevelLowThreshold = 20.0;
+float feedLevelCriticalThreshold = 10.0;
+float hopperCapacityGrams = 1000.0;
+// Calibrate these two voltages with an empty and a full hopper. Both sensor
+// orientations are supported because the percentage formula uses their span.
+float feedLevelEmptyVoltage = 0.50;
+float feedLevelFullVoltage = 2.80;
 
 float doVoltageScale = 4.0;
 float doVoltageOffset = 0.0;
@@ -504,6 +516,11 @@ float waterLevelCm = -1.0;
 float waterDistanceCm = -1.0;
 bool waterLevelSensorOK = false;
 
+float feedLevelPercent = -1.0;
+float estimatedFeedGrams = -1.0;
+float feedLevelVoltage = 0.0;
+bool feedLevelSensorOK = false;
+
 struct TurbidityResult {
   float ntu;
   bool valid;
@@ -542,6 +559,8 @@ void saveSensorCalibrations() {
   prefs.putFloat("turbClear", turbidityVClear);
   prefs.putFloat("turbDirty", turbidityVDirty);
   prefs.putFloat("turbAir", turbidityVAirMax);
+  prefs.putFloat("feedEmpty", feedLevelEmptyVoltage);
+  prefs.putFloat("feedFull", feedLevelFullVoltage);
   prefs.end();
 }
 
@@ -556,6 +575,8 @@ void loadSensorCalibrations() {
   turbidityVClear = prefs.getFloat("turbClear", turbidityVClear);
   turbidityVDirty = prefs.getFloat("turbDirty", turbidityVDirty);
   turbidityVAirMax = prefs.getFloat("turbAir", turbidityVAirMax);
+  feedLevelEmptyVoltage = prefs.getFloat("feedEmpty", feedLevelEmptyVoltage);
+  feedLevelFullVoltage = prefs.getFloat("feedFull", feedLevelFullVoltage);
   prefs.end();
 }
 
@@ -762,6 +783,32 @@ bool syncTankRange(const char* sensorDoc, float &lowTarget, float &highTarget,
   return true;
 }
 
+bool syncFeedLevelConfig() {
+  String path = String("tanks/") + currentTankId + "/sensors/feed_level";
+  if (!Firebase.Firestore.getDocument(&fbdo, FIREBASE_PROJECT_ID, "", path.c_str(), "")) {
+    return false;
+  }
+  FirebaseJson doc;
+  doc.setJsonData(fbdo.payload());
+  float low = feedLevelLowThreshold;
+  float critical = feedLevelCriticalThreshold;
+  float capacity = hopperCapacityGrams;
+  const bool gotLow = readConfigFloatPath(
+    doc, "fields/min_value/doubleValue", low, 1.0f, 50.0f);
+  const bool gotCritical = readConfigFloatPath(
+    doc, "fields/critical_value/doubleValue", critical, 0.0f, 49.0f);
+  const bool gotCapacity = readConfigFloatPath(
+    doc, "fields/hopper_capacity_grams/doubleValue", capacity, 100.0f, 50000.0f);
+  if (!gotLow || !gotCritical || !gotCapacity || critical >= low) {
+    Serial.println("[CONFIG] Invalid feed-level settings; retaining previous values.");
+    return false;
+  }
+  feedLevelLowThreshold = low;
+  feedLevelCriticalThreshold = critical;
+  hopperCapacityGrams = capacity;
+  return true;
+}
+
 // Thresholds are owned by the currently assigned tank. The ESP obtains its
 // tank ID from hardware_system/currentOwner, never from a user UID.
 void syncConfigFromFirebase() {
@@ -777,12 +824,16 @@ void syncConfigFromFirebase() {
   changed |= syncTankRange("dissolved_oxygen",  doCriticalLow,         doCriticalHigh,          0.0,   30.0);
   changed |= syncTankRange("ph_level",          phCriticalLow,         phCriticalHigh,          0.0,   14.0);
   changed |= syncTankRange("water_level",       waterLevelCriticalLow, waterLevelCriticalHigh,  0.0,  300.0);
+  changed |= syncFeedLevelConfig();
 
   if (changed) {
     Serial.printf("[CONFIG] Tank %s | Temp %.1f-%.1f | Turb %.0f-%.0f | DO %.1f-%.1f | pH %.1f-%.1f | Water %.1f-%.1fcm\n",
                   currentTankId.c_str(), tempCriticalLow, tempCriticalHigh,
                   turbNtuMin, turbNtuMax, doCriticalLow, doCriticalHigh,
                   phCriticalLow, phCriticalHigh, waterLevelCriticalLow, waterLevelCriticalHigh);
+    Serial.printf("[CONFIG] Feed low <%.0f%% | critical <%.0f%% | capacity %.0fg\n",
+                  feedLevelLowThreshold, feedLevelCriticalThreshold,
+                  hopperCapacityGrams);
   }
 }
 
@@ -851,6 +902,10 @@ void buildFirestorePayload(FirebaseJson &json, bool includeTimestamp) {
     if (ENABLE_WATER_LEVEL_SENSOR) {
       json.set("fields/water_level/doubleValue", waterLevelCm);
     }
+    if (ENABLE_FEED_LEVEL_SENSOR && feedLevelSensorOK) {
+      json.set("fields/feed_level/doubleValue", feedLevelPercent);
+      json.set("fields/estimated_feed_grams/doubleValue", estimatedFeedGrams);
+    }
     return;
   }
 
@@ -887,6 +942,10 @@ void buildFirestorePayload(FirebaseJson &json, bool includeTimestamp) {
     json.set("fields/waterLevel_min/doubleValue", winWaterMin);
     json.set("fields/waterLevel_max/doubleValue", winWaterMax);
     json.set("fields/waterLevel_avg/doubleValue", winWaterSum / (float)winWaterN);
+  }
+  if (ENABLE_FEED_LEVEL_SENSOR && feedLevelSensorOK) {
+    json.set("fields/feed_level/doubleValue", feedLevelPercent);
+    json.set("fields/estimated_feed_grams/doubleValue", estimatedFeedGrams);
   }
 
   // History entries carry the ESP's capture time so the Cloud Function can
@@ -1186,12 +1245,41 @@ void readWaterLevelSensor() {
   ACCUM_WINDOW(winWaterSum, winWaterN, winWaterMin, winWaterMax, waterLevelCm);
 }
 
+void readFeedLevelSensor() {
+  if (!ENABLE_FEED_LEVEL_SENSOR) {
+    feedLevelSensorOK = false;
+    feedLevelPercent = -1.0f;
+    estimatedFeedGrams = -1.0f;
+    return;
+  }
+
+  feedLevelVoltage = readAnalogVoltage(FEED_LEVEL_PIN);
+  const float span = feedLevelFullVoltage - feedLevelEmptyVoltage;
+  if (!isfinite(feedLevelVoltage) || fabs(span) < 0.05f ||
+      feedLevelVoltage < 0.02f || feedLevelVoltage > 3.28f) {
+    feedLevelSensorOK = false;
+    feedLevelPercent = -1.0f;
+    estimatedFeedGrams = -1.0f;
+    Serial.printf("[FEED LEVEL] Invalid/disconnected voltage: %.3fV\n",
+                  feedLevelVoltage);
+    return;
+  }
+
+  feedLevelPercent = constrain(
+    (feedLevelVoltage - feedLevelEmptyVoltage) * 100.0f / span,
+    0.0f,
+    100.0f);
+  estimatedFeedGrams = hopperCapacityGrams * feedLevelPercent / 100.0f;
+  feedLevelSensorOK = true;
+}
+
 void readAllSensors() {
   readTemperatureSensor();
   readTurbiditySensor();
   readDissolvedOxygenSensor();
   readPHSensor();
   readWaterLevelSensor();
+  readFeedLevelSensor();
 }
 
 // ─── Feeder forward declarations ───
@@ -1206,7 +1294,11 @@ void saveFeederState();
 void checkScheduledFeed();
 void startFeed(String source, float grams = 20.0f);
 void processFeederTick();
-void pushFeederLog(String action, String type);
+void pushFeederLog(String action, String type, String status = "",
+                   float requestedGrams = -1.0f,
+                   float availableGrams = -1.0f,
+                   float levelBefore = -1.0f,
+                   float levelAfter = -1.0f);
 void markScheduledFeedDone();
 
 // ─── Actuator forward declarations ───
@@ -1230,6 +1322,7 @@ void setup() {
   pinMode(WATER_LEVEL_TRIG_PIN, OUTPUT);
   digitalWrite(WATER_LEVEL_TRIG_PIN, LOW);
   pinMode(WATER_LEVEL_ECHO_PIN, INPUT);
+  pinMode(FEED_LEVEL_PIN, INPUT);
 
   sensors.begin();
   loadSensorCalibrations();
@@ -1341,10 +1434,21 @@ void loop() {
       turbidityVAirMax = cmd.substring(8).toFloat();
       saveSensorCalibrations();
     }
+    if (cmd == "feedempty") {
+      feedLevelEmptyVoltage = readAnalogVoltage(FEED_LEVEL_PIN);
+      saveSensorCalibrations();
+      Serial.printf("[CAL] Feed hopper EMPTY = %.3fV\n", feedLevelEmptyVoltage);
+    }
+    if (cmd == "feedfull") {
+      feedLevelFullVoltage = readAnalogVoltage(FEED_LEVEL_PIN);
+      saveSensorCalibrations();
+      Serial.printf("[CAL] Feed hopper FULL = %.3fV\n", feedLevelFullVoltage);
+    }
     if (cmd == "raw") {
-      Serial.printf("[RAW] pH=%.3fV DO=%.3fV Turb=%.3fV HC-SR04=%.1fcm Water=%.1fcm\n",
+      Serial.printf("[RAW] pH=%.3fV DO=%.3fV Turb=%.3fV HC-SR04=%.1fcm Water=%.1fcm Feed=%.3fV/%.0f%%/~%.0fg\n",
                     phVoltage, dissolvedOxygenVoltage, turbidityVoltage,
-                    waterDistanceCm, waterLevelCm);
+                    waterDistanceCm, waterLevelCm, feedLevelVoltage,
+                    feedLevelPercent, estimatedFeedGrams);
     }
     // Relay test commands (local only — cloud mode re-asserts on next sync)
     if (cmd == "n1on")  { setActuatorRelay(0, true);  reportActuatorState(0, true); }
@@ -1562,7 +1666,7 @@ void sendFeederStatus() {
 
   FirebaseJson json;
   // Match FeederService's canonical status fields and keep the heartbeat fresh.
-  json.set("fields/status/stringValue", feederIsRunning ? "dispensing" : "idle");
+  json.set("fields/status/stringValue", feederStatus);
   json.set("fields/dispenseCount/integerValue", String(feederDispenseCount));
   json.set("fields/lastSeen/integerValue", nowMs);
   if (feederLastFeedEpoch > 0) {
@@ -1572,11 +1676,15 @@ void sendFeederStatus() {
   }
   json.set("fields/last_dispensed_grams/doubleValue",
            (feederIsRunning || feederLastFeedEpoch > 0) ? String(feederRequestedGrams, 1) : "0.0");
+  if (feedLevelSensorOK) {
+    json.set("fields/feed_level/doubleValue", feedLevelPercent);
+    json.set("fields/estimated_feed_grams/doubleValue", estimatedFeedGrams);
+  }
 
   String statusDoc = "tanks/" + currentTankId + "/feeder/status";
   if (!Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "",
         statusDoc.c_str(), json.raw(),
-        "status,dispenseCount,lastSeen,last_dispensed_at,last_dispensed_grams")) {
+        "status,dispenseCount,lastSeen,last_dispensed_at,last_dispensed_grams,feed_level,estimated_feed_grams")) {
     if (fbdo.httpConnected()) {
       Serial.printf("[FEEDER STATUS ERROR] %s\n", fbdo.errorReason().c_str());
     }
@@ -1718,7 +1826,7 @@ void syncFeederSchedules() {
   Serial.printf("[FEEDER] Synced %d schedules from Firestore\n", feederScheduleCount);
 }
 
-bool canFeedSafely(String &reason) {
+bool canFeedSafely(String &reason, float requiredGrams) {
   if (!tempSensorOK || !doSensorOK || !phSensorOK || !turbiditySensorOK) {
     reason = "required water-quality sensor unavailable";
     return false;
@@ -1727,6 +1835,9 @@ bool canFeedSafely(String &reason) {
   else if (dissolvedOxygen < doCriticalLow) reason = "dissolved oxygen too low";
   else if (phLevel < phCriticalLow || phLevel > phCriticalHigh) reason = "pH outside range";
   else if (smoothedTurbidityNTU > turbNtuMax) reason = "turbidity too high";
+  else if (!feedLevelSensorOK) reason = "feed-level sensor unavailable";
+  else if (feedLevelPercent <= 0.0f) reason = "empty feed hopper";
+  else if (estimatedFeedGrams + 0.5f < requiredGrams) reason = "insufficient feed";
   else return true;
   return false;
 }
@@ -1772,14 +1883,38 @@ void startFeed(String source, float grams) {
     Serial.println("[FEEDER] Already running, skipping");
     return;
   }
+  feederRequestedGrams = constrain(grams, 1.0f, 200.0f);
+  feederStatus = "checking_feed_level";
+  readFeedLevelSensor();
+  sendFeederStatus();
+
   String blockedReason;
-  if (!canFeedSafely(blockedReason)) {
+  if (!canFeedSafely(blockedReason, feederRequestedGrams)) {
     Serial.printf("[FEEDER] BLOCKED: %s\n", blockedReason.c_str());
-    pushFeederLog("Feed blocked: " + blockedReason, "error");
+    time_t blockedAt;
+    time(&blockedAt);
+    feederLastFeedEpoch = (unsigned long)blockedAt;
+    feederStatus = blockedReason == "insufficient feed" ||
+                           blockedReason == "empty feed hopper"
+                       ? "skipped_insufficient"
+                       : "blocked";
+    String action = blockedReason == "insufficient feed" ||
+                            blockedReason == "empty feed hopper"
+                        ? "Skipped - Insufficient feed"
+                        : "Feed blocked: " + blockedReason;
+    pushFeederLog(action, "error", "skipped", feederRequestedGrams,
+                  estimatedFeedGrams, feedLevelPercent, feedLevelPercent);
+    sendFeederStatus();
+    if (source == "scheduled" && feederLastScheduleKey.length() > 0 &&
+        !feederLastScheduleKey.startsWith("cached_")) {
+      markScheduledFeedDone();
+    }
+    feederLastScheduleKey = "";
     return;
   }
 
-  feederRequestedGrams = constrain(grams, 1.0f, 200.0f);
+  feederFeedLevelBefore = feedLevelPercent;
+  feederAvailableBefore = estimatedFeedGrams;
   feederMaxCycles = constrain((int)ceil(feederRequestedGrams / 20.0f), 1, 10);
 
   time_t now;
@@ -1787,6 +1922,7 @@ void startFeed(String source, float grams) {
   feederLastFeedEpoch = (unsigned long)now;
   feederFeedSource = source;
   feederIsRunning = true;
+  feederStatus = "dispensing";
   feederCurrentCycle = 0;
   feederRunState = FEEDER_FORWARD;
   feederStartMs = millis();
@@ -1843,7 +1979,7 @@ void processFeederTick() {
       }
       break;
 
-    case FEEDER_DONE:
+    case FEEDER_DONE: {
       // Keep isRunning=true for at least 1s so Flutter reliably catches the transition
       if (now - feederStartMs < 1000) break;
 
@@ -1855,15 +1991,25 @@ void processFeederTick() {
       saveFeederState();
 
       feederIsRunning = false;
+      feederStatus = "completed";
       feederRunState = FEEDER_IDLE;
 
+      // A level sensor supports confirmation that feed decreased, but it is
+      // not a weighing scale and therefore never proves the exact grams.
+      readFeedLevelSensor();
+      const float levelAfter = feedLevelSensorOK ? feedLevelPercent : -1.0f;
       // Push final status + log
       sendFeederStatus();
       pushFeederLog(
         feederFeedSource == "scheduled"
           ? "Dispensed feed (Scheduled)"
           : "Dispensed feed (Manual)",
-        feederFeedSource == "scheduled" ? "auto" : "manual"
+        feederFeedSource == "scheduled" ? "auto" : "manual",
+        "completed",
+        feederRequestedGrams,
+        feederAvailableBefore,
+        feederFeedLevelBefore,
+        levelAfter
       );
       // Let the app mark this schedule as completed for today. The nightly
       // reset (FeederService on a new Manila day) flips it back to false.
@@ -1874,8 +2020,10 @@ void processFeederTick() {
 
       feederFeedSource = "";
       feederLastScheduleKey = "";
+      feederStatus = "idle";
       Serial.println("[FEEDER] Feed complete");
       break;
+    }
 
     default:
       feederRunState = FEEDER_IDLE;
@@ -1909,7 +2057,9 @@ void markScheduledFeedDone() {
 
 // ─── Push Feeding Log to Firestore ───
 // Creates a new auto-ID document in tanks/{tankId}/feeder_logs.
-void pushFeederLog(String action, String type) {
+void pushFeederLog(String action, String type, String status,
+                   float requestedGrams, float availableGrams,
+                   float levelBefore, float levelAfter) {
   if (!ensureFirebaseReady()) return;
   if (currentTankId.length() == 0) return;   // no tank assigned -> nothing to log
 
@@ -1921,6 +2071,25 @@ void pushFeederLog(String action, String type) {
   json.set("fields/action/stringValue",    action);
   json.set("fields/type/stringValue",      type);
   json.set("fields/logged_at/integerValue", String(epochMs));
+  if (status.length() > 0) json.set("fields/status/stringValue", status);
+  if (requestedGrams >= 0.0f) {
+    json.set("fields/requested_grams/doubleValue", String(requestedGrams, 1));
+  }
+  if (availableGrams >= 0.0f) {
+    json.set("fields/estimated_available_grams/doubleValue", String(availableGrams, 1));
+  }
+  if (levelBefore >= 0.0f) {
+    json.set("fields/feed_level_before/doubleValue", String(levelBefore, 1));
+  }
+  if (levelAfter >= 0.0f) {
+    json.set("fields/feed_level_after/doubleValue", String(levelAfter, 1));
+    json.set("fields/level_change_detected/booleanValue",
+             levelBefore >= 0.0f && levelBefore - levelAfter >= 0.5f);
+    if (levelBefore >= 0.0f && levelBefore - levelAfter < 0.5f) {
+      json.set("fields/verification_note/stringValue",
+               "Possible dispense failure: no detectable feed-level change");
+    }
+  }
 
   String logCollection = "tanks/" + currentTankId + "/feeder_logs";
   if (Firebase.Firestore.createDocument(&fbdo, FIREBASE_PROJECT_ID, "",

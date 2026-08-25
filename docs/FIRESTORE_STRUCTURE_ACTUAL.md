@@ -40,7 +40,7 @@ A valid assignment is either `uid == null && tank_id == null`, or an **active ow
 `owner_uid`, `current_batch_id`, `stocking_date`, `last_sample_date`, `sample_count`, `initial_population`, `initial_total_sample_weight`, `initial_total_sample_length`, `is_initialized`, `created_at`
 
 ### `tanks/{tankId}/sensor_readings/latest` ✓
-`temperature`, `ph_level`, `dissolved_oxygen`, `turbidity`, `turbidity_air`, `water_level`, optional `buffered_entries`, `recorded_at`.
+`temperature`, `ph_level`, `dissolved_oxygen`, `turbidity`, `turbidity_air`, `water_level`, `feed_level`, `estimated_feed_grams`, optional `buffered_entries`, `recorded_at`.
 
 ### `tanks/{tankId}/sensor_readings_history/{YYYY-MM-DD}` ✓
 Daily summary parent used for long-range Analytics. Canonical maintenance fields: `summary_version` (currently `1`), `summary_sanitized`, `summary_complete`, `date_key`, `sample_count`, `processed_entry_ids`, `updated_at`, plus per-sensor `*_min`, `*_max`, `*_avg`, `*_sum`, and `*_count` fields when data exists.
@@ -51,8 +51,8 @@ Only completed summaries with `summary_sanitized == true` are used by the optimi
 10-minute MIN/MAX/AVG aggregates plus `recorded_at`. A sensor with zero valid samples is omitted rather than stored as a negative sentinel.
 
 ### `tanks/{tankId}/sensors/{sensorName}` ✓
-Sensor names: `temperature` | `ph_level` | `dissolved_oxygen` | `turbidity` | `water_level`
-Fields: `min_value`, `max_value`, `updated_at`
+Sensor names: `temperature` | `ph_level` | `dissolved_oxygen` | `turbidity` | `water_level` | `feed_level`
+Fields: `min_value`, `max_value`, `updated_at`. The `feed_level` document also stores `critical_value` and `hopper_capacity_grams`.
 
 ### `tanks/{tankId}/actuators/{deviceId}` ✓
 Device IDs: `pump`, `aerator1`, `aerator2`
@@ -62,7 +62,9 @@ Fields: `control_mode`, `current_state`, `last_changed` (epoch milliseconds; `0`
 `actuator_type`, `action`, `type`, `logged_at`. New writes use epoch milliseconds; the app remains tolerant of legacy timestamp representations.
 
 ### `tanks/{tankId}/feeder/status` ✓
-`status`, `dispenseCount`, `lastSeen`, `last_dispensed_at`, `last_dispensed_grams`
+`status`, `dispenseCount`, `lastSeen`, `last_dispensed_at`, `last_dispensed_grams`, `feed_level`, `estimated_feed_grams`.
+
+Feeder status flow: `checking_feed_level` → `dispensing` → `completed`, with `skipped_insufficient` or `blocked` failure paths. A critical percentage alone does not block feeding; the ESP blocks only an empty hopper, unavailable reading, or estimated grams below the requested amount.
 
 ### `tanks/{tankId}/feeder_schedules/{scheduleId}` ✓
 `time`, `ampm`, `timeValue`, `grams`, `days`, `enabled`, `isDone`, `created_at`, `effective_at_ms`
@@ -70,7 +72,9 @@ Fields: `control_mode`, `current_state`, `last_changed` (epoch milliseconds; `0`
 `effective_at_ms` records when a schedule becomes effective after creation, edit, or re-enable, preventing an occurrence earlier than that instant from being incorrectly marked as missed.
 
 ### `tanks/{tankId}/feeder_logs/{logId}` ✓
-Canonical fields: `action`, `type`, `logged_at`.
+Canonical fields: `action`, `type`, `logged_at`. ESP outcome logs additionally store `status`, `requested_grams`, `estimated_available_grams`, `feed_level_before`, `feed_level_after`, and `level_change_detected`.
+
+The before/after level change is supporting evidence only—not proof that the exact requested mass was dispensed. Completed logs alone contribute to Consumption Today.
 
 Missed-schedule logs may additionally contain `schedule_key` and `schedule_time`. `trigger_type` is no longer written by the active runtime. The app accepts legacy Firestore `Timestamp`, `DateTime`, ISO-string, Unix-seconds, and Unix-milliseconds forms of `logged_at`, while new writes use Unix epoch milliseconds.
 
@@ -108,11 +112,13 @@ Canonical stored fields are snake_case.
 
 For operational actuator events, deterministic notification IDs ensure one Firestore notification/log record while FCM fans the same notification out to all registered devices of the account.
 
+New feeder outcome logs with `status == completed` or `status == skipped_insufficient` also create deterministic notification records and immediate FCM pushes when the user's Feeding preference is enabled.
+
 ---
 
 ## 6. ESP STAGING ✓
 ### `sensorIngestion/current` ✓
-5-second live ESP staging snapshot: `hardwareId`, live sensor values, `turbidity_air`, and `buffered_entries`. Cloud Functions route the latest snapshot to the active tank.
+5-second live ESP staging snapshot: `hardwareId`, live sensor values including `feed_level` and `estimated_feed_grams`, `turbidity_air`, and `buffered_entries`. Cloud Functions route the latest snapshot to the active tank.
 
 ### `sensorIngestion/current/history/{docId}` ✓
 10-minute ESP staging aggregate: `hardwareId`, per-sensor MIN/MAX/AVG only when valid samples exist, plus `captured_at_ms` when the NTP clock is trusted. Cloud Functions preserve the original capture instant as canonical `recorded_at`.

@@ -18,7 +18,7 @@ class SettingsService extends ChangeNotifier {
   Map<String, Map<String, double>> get currentRanges => _ranges;
 
   // The app uses short internal sensor keys ('temp','ph','do','turb',
-  // 'waterlevel'), but Firestore stores thresholds under
+  // 'waterlevel','feedlevel'), but Firestore stores thresholds under
   // tanks/{tank_id}/sensors/{longName}.
   static const Map<String, String> _longKeyFor = {
     'temp': 'temperature',
@@ -26,6 +26,7 @@ class SettingsService extends ChangeNotifier {
     'do': 'dissolved_oxygen',
     'turb': 'turbidity',
     'waterlevel': 'water_level',
+    'feedlevel': 'feed_level',
   };
 
   String? _tankId;
@@ -53,6 +54,10 @@ class SettingsService extends ChangeNotifier {
           _ranges[sensorEntry.key] = {
             'min': min.toDouble(),
             'max': max.toDouble(),
+            if (range['critical'] is num)
+              'critical': (range['critical'] as num).toDouble(),
+            if (range['capacity_grams'] is num)
+              'capacity_grams': (range['capacity_grams'] as num).toDouble(),
           };
         }
       }
@@ -63,7 +68,10 @@ class SettingsService extends ChangeNotifier {
 
   Future<String?> _resolveTankId(String uid) async {
     if (_tankId != null) return _tankId;
-    final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+    final doc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .get();
     final data = doc.data();
     // Admins do NOT own a tank — never resolve (or create) a tank for them.
     if (data?['role'] == 'admin') return null;
@@ -112,38 +120,53 @@ class SettingsService extends ChangeNotifier {
           .doc(tankId)
           .collection('sensors')
           .snapshots()
-          .listen((snap) {
-        if (snap.docs.isEmpty) return;
-        bool changed = false;
-        for (final doc in snap.docs) {
-          final longKey = doc.id;
-          final shortKey = _longKeyFor.entries
-              .firstWhere(
-                (e) => e.value == longKey,
-                orElse: () => const MapEntry('', ''),
-              )
-              .key;
-          if (shortKey.isEmpty || !_ranges.containsKey(shortKey)) continue;
-          final data = doc.data();
-          final min = (data['min_value'] as num?)?.toDouble();
-          final max = (data['max_value'] as num?)?.toDouble();
-          if (min != null &&
-              max != null &&
-              (_ranges[shortKey]?['min'] != min ||
-                  _ranges[shortKey]?['max'] != max)) {
-            _ranges[shortKey] = {'min': min, 'max': max};
-            changed = true;
-          }
-        }
-        if (changed) {
-          notifyListeners();
-          SharedPreferences.getInstance().then((prefs) {
-            prefs.setString(_cacheKeyForTank(tankId), jsonEncode(_ranges));
-          });
-        }
-      }, onError: (e) {
-        debugPrint('[SettingsService] Realtime sync error: $e');
-      });
+          .listen(
+            (snap) {
+              if (snap.docs.isEmpty) return;
+              bool changed = false;
+              for (final doc in snap.docs) {
+                final longKey = doc.id;
+                final shortKey = _longKeyFor.entries
+                    .firstWhere(
+                      (e) => e.value == longKey,
+                      orElse: () => const MapEntry('', ''),
+                    )
+                    .key;
+                if (shortKey.isEmpty || !_ranges.containsKey(shortKey))
+                  continue;
+                final data = doc.data();
+                final min = (data['min_value'] as num?)?.toDouble();
+                final max = (data['max_value'] as num?)?.toDouble();
+                final critical = (data['critical_value'] as num?)?.toDouble();
+                final capacity = (data['hopper_capacity_grams'] as num?)
+                    ?.toDouble();
+                if (min != null &&
+                    max != null &&
+                    (_ranges[shortKey]?['min'] != min ||
+                        _ranges[shortKey]?['max'] != max)) {
+                  _ranges[shortKey] = {
+                    'min': min,
+                    'max': max,
+                    if (critical != null) 'critical': critical,
+                    if (capacity != null) 'capacity_grams': capacity,
+                  };
+                  changed = true;
+                }
+              }
+              if (changed) {
+                notifyListeners();
+                SharedPreferences.getInstance().then((prefs) {
+                  prefs.setString(
+                    _cacheKeyForTank(tankId),
+                    jsonEncode(_ranges),
+                  );
+                });
+              }
+            },
+            onError: (e) {
+              debugPrint('[SettingsService] Realtime sync error: $e');
+            },
+          );
     } catch (e) {
       debugPrint('[SettingsService] Realtime listen error: $e');
     }
@@ -173,8 +196,10 @@ class SettingsService extends ChangeNotifier {
       }
 
       bool anyApplied = false;
+      final foundSensorDocs = <String>{};
       for (final doc in sensorsSnap.docs) {
         final longKey = doc.id;
+        foundSensorDocs.add(longKey);
         final shortKey = _longKeyFor.entries
             .firstWhere(
               (e) => e.value == longKey,
@@ -185,8 +210,15 @@ class SettingsService extends ChangeNotifier {
         final data = doc.data();
         final min = (data['min_value'] as num?)?.toDouble();
         final max = (data['max_value'] as num?)?.toDouble();
+        final critical = (data['critical_value'] as num?)?.toDouble();
+        final capacity = (data['hopper_capacity_grams'] as num?)?.toDouble();
         if (min != null && max != null) {
-          _ranges[shortKey] = {'min': min, 'max': max};
+          _ranges[shortKey] = {
+            'min': min,
+            'max': max,
+            if (critical != null) 'critical': critical,
+            if (capacity != null) 'capacity_grams': capacity,
+          };
           anyApplied = true;
         }
       }
@@ -194,6 +226,32 @@ class SettingsService extends ChangeNotifier {
         await _syncToFirebase();
         notifyListeners();
         return;
+      }
+
+      // Existing tanks created before a newly supported sensor was added do
+      // not have its threshold document. Seed only missing documents; never
+      // overwrite an owner's established water-quality thresholds.
+      final missingEntries = _longKeyFor.entries.where(
+        (entry) => !foundSensorDocs.contains(entry.value),
+      );
+      if (missingEntries.isNotEmpty) {
+        final tankRef = FirebaseFirestore.instance
+            .collection('tanks')
+            .doc(tankId);
+        final batch = FirebaseFirestore.instance.batch();
+        for (final entry in missingEntries) {
+          final values = defaultRanges[entry.key]!;
+          batch.set(tankRef.collection('sensors').doc(entry.value), {
+            'min_value': values['min'],
+            'max_value': values['max'],
+            if (entry.key == 'feedlevel') ...{
+              'critical_value': values['critical'],
+              'hopper_capacity_grams': values['capacity_grams'],
+            },
+            'updated_at': FieldValue.serverTimestamp(),
+          });
+        }
+        await batch.commit();
       }
 
       final prefs = await SharedPreferences.getInstance();
@@ -211,20 +269,22 @@ class SettingsService extends ChangeNotifier {
       final tankId = await _resolveTankId(user.uid);
       if (tankId == null) return;
 
-      final tankRef = FirebaseFirestore.instance.collection('tanks').doc(tankId);
+      final tankRef = FirebaseFirestore.instance
+          .collection('tanks')
+          .doc(tankId);
       final batch = FirebaseFirestore.instance.batch();
       for (final e in _ranges.entries) {
         final longKey = _longKeyFor[e.key];
         if (longKey == null) continue;
-        batch.set(
-          tankRef.collection('sensors').doc(longKey),
-          {
-            'min_value': e.value['min'],
-            'max_value': e.value['max'],
-            'updated_at': FieldValue.serverTimestamp(),
+        batch.set(tankRef.collection('sensors').doc(longKey), {
+          'min_value': e.value['min'],
+          'max_value': e.value['max'],
+          if (e.key == 'feedlevel') ...{
+            'critical_value': e.value['critical'],
+            'hopper_capacity_grams': e.value['capacity_grams'],
           },
-          SetOptions(merge: true),
-        );
+          'updated_at': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
       }
       await batch.commit();
     } catch (e) {
@@ -232,16 +292,27 @@ class SettingsService extends ChangeNotifier {
     }
   }
 
-  Future<void> updateRange(
-    String sensorKey,
-    double min,
-    double max,
-  ) async {
+  Future<void> updateRange(String sensorKey, double min, double max) async {
     if (!_ranges.containsKey(sensorKey)) return;
     _ranges[sensorKey] = {'min': min, 'max': max};
     notifyListeners();
     // SensorThresholdSettings performs the canonical Firestore write; this
     // stores only the current tank's offline copy.
+    await _saveRanges();
+  }
+
+  Future<void> updateFeedLevelConfig({
+    required double critical,
+    required double low,
+    required double capacityGrams,
+  }) async {
+    _ranges['feedlevel'] = {
+      'min': low,
+      'max': 100.0,
+      'critical': critical,
+      'capacity_grams': capacityGrams,
+    };
+    notifyListeners();
     await _saveRanges();
   }
 
@@ -258,7 +329,9 @@ class SettingsService extends ChangeNotifier {
     await prefs.remove(_cacheKeyForTank(tankId));
 
     try {
-      final tankRef = FirebaseFirestore.instance.collection('tanks').doc(tankId);
+      final tankRef = FirebaseFirestore.instance
+          .collection('tanks')
+          .doc(tankId);
       final batch = FirebaseFirestore.instance.batch();
       for (final e in defaultRanges.entries) {
         final longKey = _longKeyFor[e.key];
@@ -266,6 +339,10 @@ class SettingsService extends ChangeNotifier {
         batch.set(tankRef.collection('sensors').doc(longKey), {
           'min_value': e.value['min'],
           'max_value': e.value['max'],
+          if (e.key == 'feedlevel') ...{
+            'critical_value': e.value['critical'],
+            'hopper_capacity_grams': e.value['capacity_grams'],
+          },
           'updated_at': FieldValue.serverTimestamp(),
         });
       }

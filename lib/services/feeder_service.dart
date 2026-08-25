@@ -109,7 +109,10 @@ class FeederService extends ChangeNotifier {
   StreamSubscription? _logsSub;
 
   bool _isRunning = false;
+  String _status = 'idle';
   int _dispenseCount = 0;
+  double? _feedLevelPercent;
+  double? _estimatedFeedGrams;
   DateTime _lastSeen = DateTime.fromMillisecondsSinceEpoch(0);
   String? _lastError;
 
@@ -122,7 +125,10 @@ class FeederService extends ChangeNotifier {
   final Set<String> _missedLogged = {};
 
   bool get isRunning => _isRunning;
+  String get status => _status;
   int get dispenseCount => _dispenseCount;
+  double? get feedLevelPercent => _feedLevelPercent;
+  double? get estimatedFeedGrams => _estimatedFeedGrams;
   DateTime get lastSeen => _lastSeen;
   String? get lastError => _lastError;
 
@@ -130,6 +136,36 @@ class FeederService extends ChangeNotifier {
 
   List<LogEntry> get logs => List.unmodifiable(_logs);
   List<ScheduleItem> get schedules => List.unmodifiable(_schedules);
+
+  double get consumptionTodayGrams {
+    final now = _manilaNow();
+    return _logs
+        .where((log) {
+          if (log.timestamp <= 0 || log.status != 'completed') return false;
+          final day = DateTime.fromMillisecondsSinceEpoch(
+            log.timestamp,
+            isUtc: true,
+          ).add(_manilaOffset);
+          return day.year == now.year &&
+              day.month == now.month &&
+              day.day == now.day;
+        })
+        .fold(0.0, (total, log) => total + (log.requestedGrams ?? 0.0));
+  }
+
+  int get completedFeedingsToday {
+    final now = _manilaNow();
+    return _logs.where((log) {
+      if (log.timestamp <= 0 || log.status != 'completed') return false;
+      final day = DateTime.fromMillisecondsSinceEpoch(
+        log.timestamp,
+        isUtc: true,
+      ).add(_manilaOffset);
+      return day.year == now.year &&
+          day.month == now.month &&
+          day.day == now.day;
+    }).length;
+  }
 
   void init() {
     if (_initialized) return;
@@ -209,7 +245,11 @@ class FeederService extends ChangeNotifier {
               if (!snapshot.exists || snapshot.data() == null) return;
               try {
                 final data = snapshot.data()!;
-                _isRunning = data['status'] == 'dispensing';
+                _status = data['status'] as String? ?? 'idle';
+                _isRunning = _status == 'dispensing';
+                _feedLevelPercent = (data['feed_level'] as num?)?.toDouble();
+                _estimatedFeedGrams = (data['estimated_feed_grams'] as num?)
+                    ?.toDouble();
                 _dispenseCount =
                     (data['dispenseCount'] as num?)?.toInt() ?? _dispenseCount;
                 final seen = data['lastSeen'];
@@ -337,6 +377,18 @@ class FeederService extends ChangeNotifier {
                         timestamp: ts,
                         scheduleKey: data['schedule_key'] as String?,
                         scheduleTime: data['schedule_time'] as String?,
+                        status: data['status'] as String?,
+                        requestedGrams: (data['requested_grams'] as num?)
+                            ?.toDouble(),
+                        estimatedAvailableGrams:
+                            (data['estimated_available_grams'] as num?)
+                                ?.toDouble(),
+                        feedLevelBefore: (data['feed_level_before'] as num?)
+                            ?.toDouble(),
+                        feedLevelAfter: (data['feed_level_after'] as num?)
+                            ?.toDouble(),
+                        levelChangeDetected:
+                            data['level_change_detected'] as bool?,
                       ),
                     );
                   } catch (e) {
@@ -529,8 +581,7 @@ class FeederService extends ChangeNotifier {
       await tankDoc.collection('feeder_schedules').doc(scheduleKey).update({
         'enabled': enabled,
         'isDone': false,
-        if (enabled)
-          'effective_at_ms': effectiveNow!.millisecondsSinceEpoch,
+        if (enabled) 'effective_at_ms': effectiveNow!.millisecondsSinceEpoch,
       });
       await _addLogEntry(
         action: enabled

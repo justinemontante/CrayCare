@@ -26,6 +26,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isResetLoading = false;
 
   String? _loginError;
+  String? _emailResetError;
 
   // Global keys for the form and email field
   final _formKey = GlobalKey<FormState>();
