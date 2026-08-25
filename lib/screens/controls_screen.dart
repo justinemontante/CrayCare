@@ -342,8 +342,27 @@ class ControlsScreenState extends State<ControlsScreen> {
       });
       if (mounted) setState(() {});
     });
-    await svc.feedNow(grams: grams);
-    setState(() => _feedState = _FeedState.dispensing);
+    final queued = await svc.feedNow(grams: grams);
+    if (!queued) {
+      _manualFeedInitiated = false;
+      _dispenseTimer?.cancel();
+      if (!mounted) return;
+      setState(() => _feedState = _FeedState.failed);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Could not send the Feed Now command. Check your connection and try again.',
+          ),
+          backgroundColor: AppColors.critical,
+        ),
+      );
+      _feedTimer?.cancel();
+      _feedTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted) setState(() => _feedState = _FeedState.hidden);
+      });
+      return;
+    }
+    if (mounted) setState(() => _feedState = _FeedState.dispensing);
   }
 
   void _showFeedNowDialog() {

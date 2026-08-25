@@ -412,9 +412,9 @@ class FeederService extends ChangeNotifier {
     }
   }
 
-  Future<void> feedNow({double? grams}) async {
+  Future<bool> feedNow({double? grams}) async {
     final tankDoc = _tankDoc();
-    if (tankDoc == null) return;
+    if (tankDoc == null) return false;
     final uid = FirebaseAuth.instance.currentUser?.uid;
     try {
       // New structure: tanks/{tank_id}/feeder_commands/{autoId}
@@ -434,10 +434,13 @@ class FeederService extends ChangeNotifier {
       // Scheduled dispatch is owned by the ESP32 (it compares its synced
       // schedules against its own NTP-synced clock); the app does not enqueue
       // feed commands on a schedule.
+      notifyListeners();
+      return true;
     } catch (e) {
       debugPrint('[FeederService] feedNow error: $e');
+      notifyListeners();
+      return false;
     }
-    notifyListeners();
   }
 
   Future<void> logFeedFailure() async {

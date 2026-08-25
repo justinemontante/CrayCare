@@ -1595,6 +1595,9 @@ void initFeeder() {
 void processFeederCommands() {
   if (!ensureFirebaseReady()) return;
   if (currentTankId.length() == 0) return;   // no tank assigned -> nothing to do
+  // Leave queued commands untouched while a feed is already running. This
+  // prevents a second Feed Now request from being deleted without execution.
+  if (feederRunState != FEEDER_IDLE) return;
 
   String cmdCol = "tanks/" + currentTankId + "/feeder_commands";
   if (!Firebase.Firestore.listDocuments(&fbdo, FIREBASE_PROJECT_ID, "",
@@ -1636,7 +1639,8 @@ void processFeederCommands() {
     if (e.action != "") entryCount++;
   }
 
-  // Process then delete (separate loop avoids fbdo buffer conflict)
+  // Process at most one valid feed command per poll. Remaining documents stay
+  // queued and are picked up after the current non-blocking feed completes.
   for (int i = 0; i < entryCount; i++) {
     CmdEntry& e = entries[i];
     Serial.printf("[FEEDER CMD] %s id=%s\n",
@@ -1651,6 +1655,7 @@ void processFeederCommands() {
                                            docPath.c_str())) {
       Serial.printf("[FEEDER] Delete cmd failed: %s\n", fbdo.errorReason().c_str());
     }
+    if (e.action == "feed_now") break;
   }
 }
 
@@ -1902,7 +1907,11 @@ void startFeed(String source, float grams) {
                             blockedReason == "empty feed hopper"
                         ? "Skipped - Insufficient feed"
                         : "Feed blocked: " + blockedReason;
-    pushFeederLog(action, "error", "skipped", feederRequestedGrams,
+    const bool insufficient = blockedReason == "insufficient feed" ||
+                              blockedReason == "empty feed hopper";
+    pushFeederLog(action, "error",
+                  insufficient ? "skipped_insufficient" : "blocked",
+                  feederRequestedGrams,
                   estimatedFeedGrams, feedLevelPercent, feedLevelPercent);
     sendFeederStatus();
     if (source == "scheduled" && feederLastScheduleKey.length() > 0 &&
