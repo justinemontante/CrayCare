@@ -1560,10 +1560,10 @@ void loop() {
 // ============================================================
 //  FEEDER MODULE — Servo Auto-Feeder Control
 //  Firestore paths (all Firestore, zero RTDB):
-//    feederCommands/{docId}  -> Flutter pushes, ESP32 polls & deletes
-//    feederStatus/status     -> ESP32 writes every 5s
-//    feederSchedules/{docId} -> Flutter writes, ESP32 reads
-//    feederLogs              -> ESP32 creates (auto-ID)
+//    tanks/{tankId}/feeder_commands/{docId}  -> Flutter pushes, ESP32 polls
+//    tanks/{tankId}/feeder/status            -> ESP32 writes every 5s
+//    tanks/{tankId}/feeder_schedules/{docId} -> Flutter writes, ESP32 reads
+//    tanks/{tankId}/feeder_logs/{docId}      -> ESP32 creates (auto-ID)
 // ============================================================
 
 // ─── Initialize Feeder ───
@@ -1590,7 +1590,8 @@ void initFeeder() {
 }
 
 // ─── Process Commands from Firestore ───
-// Lists feederCommands collection, processes each doc, then deletes it.
+// Lists tanks/{tankId}/feeder_commands, safely acknowledges one command, then
+// starts its non-blocking feed cycle.
 // Reads all docs into local arrays first to avoid fbdo buffer conflicts.
 void processFeederCommands() {
   if (!ensureFirebaseReady()) return;
@@ -1911,7 +1912,7 @@ void startFeed(String source, float grams) {
                         : "Feed blocked: " + blockedReason;
     const bool insufficient = blockedReason == "insufficient feed" ||
                               blockedReason == "empty feed hopper";
-    pushFeederLog(action, "error",
+    pushFeederLog(action, source == "manual" ? "manual" : "auto",
                   insufficient ? "skipped_insufficient" : "blocked",
                   feederRequestedGrams,
                   estimatedFeedGrams, feedLevelPercent, feedLevelPercent);

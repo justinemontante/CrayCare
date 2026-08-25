@@ -302,13 +302,13 @@ class _MovableAiLogoState extends State<MovableAiLogo>
           Row(
             children: [
               _buildStatChip(
-                icon: result.safetyOverride
+                icon: !result.hasModelConfidence
                     ? Icons.health_and_safety_outlined
                     : Icons.verified_rounded,
-                label: result.safetyOverride
+                label: !result.hasModelConfidence
                     ? 'Assessment basis'
                     : 'Model confidence',
-                value: result.safetyOverride
+                value: !result.hasModelConfidence
                     ? result.assessmentBasis
                     : '${result.confidence}%',
                 color: result.color,

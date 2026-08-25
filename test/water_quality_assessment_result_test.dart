@@ -35,5 +35,20 @@ void main() {
       expect(result.safetyOverride, isTrue);
       expect(result.assessmentBasis, 'Safety Rule');
     });
+
+    test('does not present deterministic fallback as ML confidence', () {
+      final result = WaterQualityAssessmentResult.fromMap({
+        'level': 'Moderate',
+        'model_level': 'Moderate',
+        'rule_level': 'Moderate',
+        'safety_override': false,
+        'source': 'Rule-based fallback',
+        'confidence': 0,
+        'timestamp': DateTime.utc(2026, 8, 25).toIso8601String(),
+      });
+
+      expect(result.assessmentBasis, 'Rule-Based Fallback');
+      expect(result.hasModelConfidence, isFalse);
+    });
   });
 }

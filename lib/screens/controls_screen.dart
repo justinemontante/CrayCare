@@ -270,41 +270,71 @@ class ControlsScreenState extends State<ControlsScreen> {
   Map<String, String> _actuatorRuntimeLabels = {};
   Timer? _runtimeTimer;
 
-  bool get _canFeed {
-    if (!FeederService.instance.isOnline) return false;
+  String get _feedSafetyIssue {
+    if (!FeederService.instance.isOnline) return 'Feeder is offline';
     final svc = SensorService.instance;
     final ranges = SettingsService.instance.currentRanges;
-    if (svc.turbidityAir) return false;
-    final turbMax = ranges['turb']?['max'] ?? 999.0;
-    final turb = svc.getLatestValue('turb');
-    if (turb > turbMax) return false;
-    if (!svc.hasSensorData('feedlevel')) return false;
-    if (svc.getLatestValue('feedlevel') <= 0) return false;
-    return true;
-  }
+    if (svc.turbidityAir) return 'Turbidity sensor is in air';
 
-  String get _feedBlockedReason {
-    final svc = SensorService.instance;
-    if (svc.turbidityAir) return 'Feed blocked: turbidity sensor in air';
-    final ranges = SettingsService.instance.currentRanges;
+    for (final entry in const {
+      'temp': 'temperature',
+      'do': 'dissolved oxygen',
+      'ph': 'pH',
+      'turb': 'turbidity',
+    }.entries) {
+      if (!svc.hasFreshData(entry.key)) {
+        return 'Waiting for fresh ${entry.value} data';
+      }
+    }
+
+    final temp = svc.getLatestValue('temp');
+    final tempMin = ranges['temp']?['min'] ?? 0.0;
+    final tempMax = ranges['temp']?['max'] ?? 50.0;
+    if (temp < tempMin || temp > tempMax) {
+      return 'Temperature outside range (${temp.toStringAsFixed(1)}°C)';
+    }
+
+    final dissolvedOxygen = svc.getLatestValue('do');
+    final doMin = ranges['do']?['min'] ?? 0.0;
+    if (dissolvedOxygen < doMin) {
+      return 'Dissolved oxygen too low (${dissolvedOxygen.toStringAsFixed(1)} mg/L)';
+    }
+
+    final ph = svc.getLatestValue('ph');
+    final phMin = ranges['ph']?['min'] ?? 0.0;
+    final phMax = ranges['ph']?['max'] ?? 14.0;
+    if (ph < phMin || ph > phMax) {
+      return 'pH outside range (${ph.toStringAsFixed(2)})';
+    }
+
     final turbMax = ranges['turb']?['max'] ?? 999.0;
     final turb = svc.getLatestValue('turb');
     if (turb > turbMax) {
-      return 'Feed blocked: turbidity too high (${turb.toStringAsFixed(0)} > ${turbMax.toStringAsFixed(0)} NTU)';
+      return 'Turbidity too high (${turb.toStringAsFixed(0)} NTU)';
     }
-    if (!svc.hasSensorData('feedlevel')) {
-      return 'Feed blocked: waiting for the feed-level sensor';
-    }
-    if (svc.getLatestValue('feedlevel') <= 0) {
-      return 'Feed blocked: hopper is empty';
-    }
+
+    if (!svc.hasFreshData('feedlevel')) return 'Waiting for feed-level data';
+    if (svc.getLatestValue('feedlevel') <= 0) return 'Hopper is empty';
     return '';
+  }
+
+  bool get _canFeed => _feedSafetyIssue.isEmpty;
+
+  String get _feedBlockedReason {
+    final issue = _feedSafetyIssue;
+    return issue.isEmpty ? '' : 'Feed blocked: $issue';
   }
 
   Future<void> _feedNow({double? grams}) async {
     final svc = FeederService.instance;
-    if (!svc.isOnline) {
+    if (!_canFeed) {
       setState(() => _feedState = _FeedState.failed);
+      final reason = _feedBlockedReason;
+      if (mounted && reason.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(reason), backgroundColor: AppColors.critical),
+        );
+      }
       _feedTimer?.cancel();
       _feedTimer = Timer(const Duration(seconds: 3), () {
         if (mounted) setState(() => _feedState = _FeedState.hidden);

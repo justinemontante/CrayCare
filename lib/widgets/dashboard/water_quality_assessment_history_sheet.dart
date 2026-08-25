@@ -257,8 +257,8 @@ class _WaterQualityAssessmentHistorySheet extends StatelessWidget {
                                     Text(
                                       item.level == 'Insufficient'
                                           ? item.problem
-                                          : item.safetyOverride
-                                          ? 'Safety rule · Driver: ${item.driverLabel}'
+                                          : !item.hasModelConfidence
+                                          ? '${item.assessmentBasis} · Driver: ${item.driverLabel}'
                                           : '${item.confidence}% confidence · Driver: ${item.driverLabel}',
                                       style: TextStyle(
                                         fontSize: 11,

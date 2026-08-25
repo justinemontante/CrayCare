@@ -337,7 +337,9 @@ def assess_water_quality(df, bundle, recs):
             confidence = round(float(probabilities[final_class]) * 100)
     else:
         level = rule_level
-        confidence = 85
+        # A deterministic fallback has no learned-model probability. Exposing
+        # an arbitrary confidence here would be misleading in the app/report.
+        confidence = 0
     driver, driver_hazard, details = _current_driver_details(df.iloc[-1])
     rec = recs.get(driver, recs["overall"])
     action = rec.get("critical_action" if level == "Critical" else "action", rec["action"])

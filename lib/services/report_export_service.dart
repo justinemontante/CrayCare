@@ -147,12 +147,7 @@ class ReportExportService {
     if (harvests.isNotEmpty) {
       buf.writeln(_row(['Harvest Records']));
       buf.writeln(
-        _row([
-          'Date',
-          'Harvested Count',
-          'Total Weight (kg)',
-          'ABW (g)',
-        ]),
+        _row(['Date', 'Harvested Count', 'Total Weight (kg)', 'ABW (g)']),
       );
       for (final h in harvests) {
         buf.writeln(
@@ -209,7 +204,7 @@ class ReportExportService {
           _fmtDateTime(h.timestamp.toLocal()),
           h.level,
           h.assessmentBasis,
-          h.safetyOverride ? '' : h.confidence,
+          h.hasModelConfidence ? h.confidence : '',
           h.driverLabel,
           h.driverValue?.toStringAsFixed(2) ?? '',
           h.driverUnit,
@@ -224,7 +219,7 @@ class ReportExportService {
     buf.writeln(_row(['Latest Water Quality Assessment Detail']));
     buf.writeln(_row(['Level', latest.level]));
     buf.writeln(_row(['Assessment Basis', latest.assessmentBasis]));
-    if (!latest.safetyOverride) {
+    if (latest.hasModelConfidence) {
       buf.writeln(_row(['Confidence (%)', latest.confidence]));
     }
     buf.writeln(_row(['Primary Driver', latest.driverLabel]));
@@ -445,7 +440,7 @@ class ReportExportService {
             _fmtDateTime(h.timestamp.toLocal()),
             h.level,
             h.assessmentBasis,
-            h.safetyOverride ? '' : '${h.confidence}',
+            h.hasModelConfidence ? '${h.confidence}' : '',
             _pdfSafe(h.driverLabel),
             _pdfSafe(h.problem),
             _pdfSafe(h.action),
@@ -531,7 +526,7 @@ class ReportExportService {
               data: [
                 ['Level', history.first.level],
                 ['Assessment Basis', history.first.assessmentBasis],
-                if (!history.first.safetyOverride)
+                if (history.first.hasModelConfidence)
                   ['Confidence (%)', '${history.first.confidence}'],
                 ['Primary Driver', _pdfSafe(history.first.driverLabel)],
                 ['Insight', _pdfSafe(history.first.insight)],

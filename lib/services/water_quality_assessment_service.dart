@@ -27,6 +27,7 @@ class WaterQualityAssessmentResult {
   final String modelLevel;
   final String ruleLevel;
   final bool safetyOverride;
+  final String source;
   final int confidence;
   final String driver;
   final String problem;
@@ -44,6 +45,7 @@ class WaterQualityAssessmentResult {
     required this.modelLevel,
     required this.ruleLevel,
     required this.safetyOverride,
+    required this.source,
     required this.confidence,
     required this.driver,
     required this.problem,
@@ -68,6 +70,7 @@ class WaterQualityAssessmentResult {
         data['rule_level'] ?? data['level'],
       ),
       safetyOverride: data['safety_override'] as bool? ?? false,
+      source: data['source'] as String? ?? 'ML Model (legacy assessment)',
       confidence: (data['confidence'] as num?)?.toInt() ?? 0,
       driver: data['driver'] as String? ?? 'N/A',
       problem: data['problem'] as String? ?? '',
@@ -86,7 +89,22 @@ class WaterQualityAssessmentResult {
   }
 
   bool get hasData => level != 'Insufficient';
-  String get assessmentBasis => safetyOverride ? 'Safety Rule' : 'ML Model';
+  bool get hasModelConfidence {
+    final normalizedSource = source.trim().toLowerCase();
+    return hasData &&
+        !safetyOverride &&
+        !normalizedSource.contains('rule-based') &&
+        !normalizedSource.contains('insufficient');
+  }
+
+  String get assessmentBasis {
+    if (!hasData) return 'Insufficient Data';
+    if (safetyOverride) return 'Safety Rule';
+    if (source.toLowerCase().contains('rule-based')) {
+      return 'Rule-Based Fallback';
+    }
+    return 'ML Model';
+  }
 
   Color get color {
     switch (level) {

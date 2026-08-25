@@ -248,6 +248,7 @@ Table machine_learning_assessments {
   model_level varchar [note: 'Raw ML class: Good | Moderate | Poor | Critical']
   rule_level varchar [note: 'Deterministic rolling-risk safety floor']
   safety_override boolean [default: false]
+  source varchar [note: 'Model version | Rule-based fallback | Insufficient data']
   confidence int
   driver varchar [note: 'DO | pH | temp | turbidity | waterLevel | overall']
   driver_label varchar

@@ -172,6 +172,7 @@ def _analyze_tank(tank_id: str) -> None:
             "action": "Continue collecting data. The first Water Quality Assessment will be available after about one hour.",
             "concerns": [],
             "secondary_concerns": [],
+            "source": "Insufficient data",
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     else:

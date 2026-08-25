@@ -171,14 +171,14 @@ class WaterQualityAssessmentCard extends StatelessWidget {
                       const SizedBox(width: 10),
                       Expanded(
                         child: _summaryTile(
-                          label: result!.safetyOverride
+                          label: !result!.hasModelConfidence
                               ? 'Assessment Basis'
                               : 'Confidence',
-                          value: result.safetyOverride
+                          value: !result.hasModelConfidence
                               ? result.assessmentBasis
                               : '$confidence%',
                           color: AppColors.primary,
-                          icon: result.safetyOverride
+                          icon: !result.hasModelConfidence
                               ? Icons.health_and_safety_outlined
                               : Icons.analytics_outlined,
                         ),

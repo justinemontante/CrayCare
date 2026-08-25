@@ -203,6 +203,7 @@
           "model_level (Good|Moderate|Poor|Critical|Insufficient)",
           "rule_level (Good|Moderate|Poor|Critical|Insufficient)",
           "safety_override (bool)",
+          "source (model version|Rule-based fallback|Insufficient data)",
           "confidence (0-100)",
           "driver",
           "driver_label",

@@ -167,6 +167,7 @@ tanks/{tank_id}
     model_level: "Good" | "Moderate" | "Poor" | "Critical" | "Insufficient"
     rule_level: "Good" | "Moderate" | "Poor" | "Critical" | "Insufficient"
     safety_override: boolean
+    source: string
     confidence: number
     driver, driver_label, driver_value, driver_unit
     driver_min, driver_max

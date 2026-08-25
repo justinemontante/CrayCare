@@ -1303,11 +1303,15 @@ class FeederTab extends StatelessWidget {
                                             width: 8,
                                             height: 8,
                                             decoration: BoxDecoration(
-                                              color: l.type == 'auto'
-                                                  ? AppColors.primary
-                                                  : l.type == 'error' ||
-                                                        l.status == 'skipped'
+                                              color:
+                                                  l.status ==
+                                                          'skipped_insufficient' ||
+                                                      l.status == 'blocked' ||
+                                                      l.status == 'failed' ||
+                                                      l.type == 'error'
                                                   ? AppColors.critical
+                                                  : l.type == 'auto'
+                                                  ? AppColors.primary
                                                   : AppColors.warning,
                                               shape: BoxShape.circle,
                                             ),

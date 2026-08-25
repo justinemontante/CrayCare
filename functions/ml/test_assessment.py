@@ -121,6 +121,12 @@ class WaterQualityAssessmentTests(unittest.TestCase):
         self.assertEqual(result["level"], "Critical")
         self.assertTrue(result["safety_override"])
 
+    def test_rule_fallback_has_no_fake_model_confidence(self):
+        frame = _sensor_frame(dissolved_oxygen=4.0)
+        result = assess_water_quality(frame, None, self.recommendations)
+        self.assertEqual(result["source"], "Rule-based fallback")
+        self.assertEqual(result["confidence"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
