@@ -1646,16 +1646,18 @@ void processFeederCommands() {
     Serial.printf("[FEEDER CMD] %s id=%s\n",
                   e.action.c_str(), e.docId.c_str());
 
-    if (e.action == "feed_now") {
-      startFeed("manual", e.grams);
-    }
-
     String docPath = "tanks/" + currentTankId + "/feeder_commands/" + e.docId;
+    // Acknowledge/delete first. If deletion fails, do not dispense: leaving the
+    // command queued lets the next poll retry without risking a duplicate feed.
     if (!Firebase.Firestore.deleteDocument(&fbdo, FIREBASE_PROJECT_ID, "",
                                            docPath.c_str())) {
       Serial.printf("[FEEDER] Delete cmd failed: %s\n", fbdo.errorReason().c_str());
+      continue;
     }
-    if (e.action == "feed_now") break;
+    if (e.action == "feed_now") {
+      startFeed("manual", e.grams);
+      break;
+    }
   }
 }
 
