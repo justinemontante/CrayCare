@@ -320,12 +320,14 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
               )
             : labelTimes[i];
         final bucketEnd = switch (range) {
-          '24h' => i == labelTimes.length - 1
-              ? historyEnd.add(const Duration(microseconds: 1))
-              : bucketStart.add(const Duration(minutes: 10)),
-          '7d' => i == labelTimes.length - 1
-              ? historyEnd.add(const Duration(microseconds: 1))
-              : bucketStart.add(const Duration(hours: 1)),
+          '24h' =>
+            i == labelTimes.length - 1
+                ? historyEnd.add(const Duration(microseconds: 1))
+                : bucketStart.add(const Duration(minutes: 10)),
+          '7d' =>
+            i == labelTimes.length - 1
+                ? historyEnd.add(const Duration(microseconds: 1))
+                : bucketStart.add(const Duration(hours: 1)),
           _ => bucketStart.add(const Duration(days: 1)),
         };
 
@@ -336,7 +338,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
         for (int j = 0; j < records.length; j++) {
           final timestamp = parsedTs[j];
-          if (timestamp.isBefore(bucketStart) || !timestamp.isBefore(bucketEnd)) {
+          if (timestamp.isBefore(bucketStart) ||
+              !timestamp.isBefore(bucketEnd)) {
             continue;
           }
 
@@ -431,10 +434,6 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
   List<String> _getLabels(String key, String range) {
     return _labels[range == 'live' ? '$key-live' : range] ?? [];
-  }
-
-  double _calc(List<double> data, double Function(List<double>) fn) {
-    return data.isEmpty ? 0.0 : fn(data);
   }
 
   @override

@@ -10,19 +10,68 @@ import '../models/notification_item.dart';
 Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
   debugPrint('[FCM] Background msg: ${message.messageId}');
   if (message.notification != null) {
-    debugPrint('[FCM] Notification payload present, system will handle display.');
+    debugPrint(
+      '[FCM] Notification payload present, system will handle display.',
+    );
     return;
   }
   try {
     final localNotif = FlutterLocalNotificationsPlugin();
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-    await localNotif.initialize(const InitializationSettings(android: androidSettings));
-    final manager = localNotif.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    const androidSettings = AndroidInitializationSettings(
+      '@mipmap/ic_launcher',
+    );
+    await localNotif.initialize(
+      const InitializationSettings(android: androidSettings),
+    );
+    final manager = localNotif
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     if (manager != null) {
-      await manager.createNotificationChannel(const AndroidNotificationChannel('craycare_alerts_sound_vibrate','CrayCare Alerts (Sound & Vibrate)',description:'Alerts with sound and vibration enabled',importance:Importance.high,playSound:true,enableVibration:true));
-      await manager.createNotificationChannel(AndroidNotificationChannel('craycare_alerts_sound_only','CrayCare Alerts (Sound Only)',description:'Alerts with sound only',importance:Importance.high,playSound:true,enableVibration:false,vibrationPattern:Int64List(0)));
-      await manager.createNotificationChannel(const AndroidNotificationChannel('craycare_alerts_vibrate_only','CrayCare Alerts (Vibration Only)',description:'Alerts with vibration only',importance:Importance.high,playSound:false,enableVibration:true,sound:null));
-      await manager.createNotificationChannel(AndroidNotificationChannel('craycare_alerts_silent','CrayCare Alerts (Silent)',description:'Silent alerts',importance:Importance.low,playSound:false,enableVibration:false,sound:null,vibrationPattern:Int64List(0)));
+      await manager.createNotificationChannel(
+        const AndroidNotificationChannel(
+          'craycare_alerts_sound_vibrate',
+          'CrayCare Alerts (Sound & Vibrate)',
+          description: 'Alerts with sound and vibration enabled',
+          importance: Importance.high,
+          playSound: true,
+          enableVibration: true,
+        ),
+      );
+      await manager.createNotificationChannel(
+        AndroidNotificationChannel(
+          'craycare_alerts_sound_only',
+          'CrayCare Alerts (Sound Only)',
+          description: 'Alerts with sound only',
+          importance: Importance.high,
+          playSound: true,
+          enableVibration: false,
+          vibrationPattern: Int64List(0),
+        ),
+      );
+      await manager.createNotificationChannel(
+        const AndroidNotificationChannel(
+          'craycare_alerts_vibrate_only',
+          'CrayCare Alerts (Vibration Only)',
+          description: 'Alerts with vibration only',
+          importance: Importance.high,
+          playSound: false,
+          enableVibration: true,
+          sound: null,
+        ),
+      );
+      await manager.createNotificationChannel(
+        AndroidNotificationChannel(
+          'craycare_alerts_silent',
+          'CrayCare Alerts (Silent)',
+          description: 'Silent alerts',
+          importance: Importance.low,
+          playSound: false,
+          enableVibration: false,
+          sound: null,
+          vibrationPattern: Int64List(0),
+        ),
+      );
     }
     final data = message.data;
     final isFeeding = data['feeding'] == 'true';
@@ -30,11 +79,22 @@ Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
     final isCritical = data['critical'] == 'true';
     final isWarning = !isCritical && data['warning'] == 'true';
     final isOperational = data['operational'] == 'true';
-    if (!isCritical && !isFeeding && !isSampling && !isWarning && !isOperational) return;
+    if (!isCritical &&
+        !isFeeding &&
+        !isSampling &&
+        !isWarning &&
+        !isOperational) {
+      return;
+    }
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
-        final prefsDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).collection('notification_settings').doc('preferences').get();
+        final prefsDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .collection('notification_settings')
+            .doc('preferences')
+            .get();
         if (prefsDoc.exists && prefsDoc.data() != null) {
           final map = prefsDoc.data()!;
           if (isCritical && map['critical'] == false) return;
@@ -45,17 +105,45 @@ Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
           }
         }
       }
-    } catch (e) { debugPrint('[FCM] Error reading preferences in background: $e'); }
+    } catch (e) {
+      debugPrint('[FCM] Error reading preferences in background: $e');
+    }
     final playSound = data['sound'] != 'false';
     final vibrate = data['vibration'] != 'false';
-    final title = data['title'] ?? message.notification?.title ?? 'CrayCare Alert';
-    final body = data['body'] ?? message.notification?.body ?? data['message'] ?? '';
+    final title =
+        data['title'] ?? message.notification?.title ?? 'CrayCare Alert';
+    final body =
+        data['body'] ?? message.notification?.body ?? data['message'] ?? '';
     String targetChannelId = 'craycare_alerts_silent';
-    if (playSound && vibrate) targetChannelId = 'craycare_alerts_sound_vibrate';
-    else if (playSound) targetChannelId = 'craycare_alerts_sound_only';
-    else if (vibrate) targetChannelId = 'craycare_alerts_vibrate_only';
-    await localNotif.show(DateTime.now().millisecondsSinceEpoch ~/ 1000,title,body,NotificationDetails(android:AndroidNotificationDetails(targetChannelId,'CrayCare Alert',importance:playSound || vibrate ? Importance.high : Importance.low,priority:Priority.high,playSound:playSound,enableVibration:vibrate,vibrationPattern:!vibrate ? Int64List(0) : null,sound:!playSound ? null : const RawResourceAndroidNotificationSound('default'))));
-  } catch (e) { debugPrint('[FCM] Background notification error: $e'); }
+    if (playSound && vibrate) {
+      targetChannelId = 'craycare_alerts_sound_vibrate';
+    } else if (playSound) {
+      targetChannelId = 'craycare_alerts_sound_only';
+    } else if (vibrate) {
+      targetChannelId = 'craycare_alerts_vibrate_only';
+    }
+    await localNotif.show(
+      DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      title,
+      body,
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          targetChannelId,
+          'CrayCare Alert',
+          importance: playSound || vibrate ? Importance.high : Importance.low,
+          priority: Priority.high,
+          playSound: playSound,
+          enableVibration: vibrate,
+          vibrationPattern: !vibrate ? Int64List(0) : null,
+          sound: !playSound
+              ? null
+              : const RawResourceAndroidNotificationSound('default'),
+        ),
+      ),
+    );
+  } catch (e) {
+    debugPrint('[FCM] Background notification error: $e');
+  }
 }
 
 class NotificationService extends ChangeNotifier {
@@ -70,14 +158,18 @@ class NotificationService extends ChangeNotifier {
   bool _notifFeeding = true;
   bool _notifSampling = true;
   String? _userRole;
-  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _profileFirestoreSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
+  _profileFirestoreSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _notifSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _prefsSub;
-  final FlutterLocalNotificationsPlugin _localNotifications = FlutterLocalNotificationsPlugin();
+  final FlutterLocalNotificationsPlugin _localNotifications =
+      FlutterLocalNotificationsPlugin();
   StreamSubscription? _tokenSub;
 
-  Iterable<NotificationItem> get _visibleNotifications => _notifications.where((n) => n.notif_type != 'device_auto');
-  List<NotificationItem> get notifications => List.unmodifiable(_visibleNotifications);
+  Iterable<NotificationItem> get _visibleNotifications =>
+      _notifications.where((n) => n.notif_type != 'device_auto');
+  List<NotificationItem> get notifications =>
+      List.unmodifiable(_visibleNotifications);
 
   bool unreadStatus(String id) {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
@@ -88,12 +180,18 @@ class NotificationService extends ChangeNotifier {
 
   int get unreadCount {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-    return uid.isEmpty ? 0 : _visibleNotifications.where((n) => n.isUnreadBy(uid)).length;
+    return uid.isEmpty
+        ? 0
+        : _visibleNotifications.where((n) => n.isUnreadBy(uid)).length;
   }
-  int get criticalCount => _visibleNotifications.where((n) => n.notif_type == 'critical').length;
-  List<NotificationItem> get todayNotifications => _visibleNotifications.where((n) => _isToday(n.created_at)).toList();
+
+  int get criticalCount =>
+      _visibleNotifications.where((n) => n.notif_type == 'critical').length;
+  List<NotificationItem> get todayNotifications =>
+      _visibleNotifications.where((n) => _isToday(n.created_at)).toList();
   int get todayCount => todayNotifications.length;
-  int get reminderCount => _visibleNotifications.where((n) => n.notif_type == 'reminder').length;
+  int get reminderCount =>
+      _visibleNotifications.where((n) => n.notif_type == 'reminder').length;
 
   void init() {
     if (_initialized) return;
@@ -112,10 +210,16 @@ class NotificationService extends ChangeNotifier {
   }
 
   Future<void> _removeCurrentDeviceToken(User user, String token) async {
-    final userRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
+    final userRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid);
     final snap = await userRef.get();
-    final updates = <String, dynamic>{'fcmTokens': FieldValue.arrayRemove([token])};
-    if (snap.data()?['fcmToken'] == token) updates['fcmToken'] = FieldValue.delete();
+    final updates = <String, dynamic>{
+      'fcmTokens': FieldValue.arrayRemove([token]),
+    };
+    if (snap.data()?['fcmToken'] == token) {
+      updates['fcmToken'] = FieldValue.delete();
+    }
     await userRef.update(updates);
   }
 
@@ -123,51 +227,112 @@ class NotificationService extends ChangeNotifier {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
     _profileFirestoreSub?.cancel();
-    _profileFirestoreSub = FirebaseFirestore.instance.collection('users').doc(user.uid).snapshots().listen((doc) async {
-      if (!doc.exists || doc.data() == null) return;
-      final profile = doc.data()!;
-      _userRole = profile['role'] as String?;
-      if (_userRole == 'admin') {
-        _notifSub?.cancel();
-        _prefsSub?.cancel();
-        _notifications.clear();
-        try {
-          final token = await FirebaseMessaging.instance.getToken();
-          if (token != null) await _removeCurrentDeviceToken(user, token);
-        } catch (e, stack) { debugPrint('[Notif] FCM token cleanup error: $e\n$stack'); }
-        notifyListeners();
-      } else {
-        _listenFirebase();
-        _loadUserPrefs();
-        try {
-          final token = await FirebaseMessaging.instance.getToken();
-          if (token != null) await _saveToken(token);
-        } catch (e, stack) { debugPrint('[Notif] token error: $e\n$stack'); }
-      }
-    });
+    _profileFirestoreSub = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .snapshots()
+        .listen((doc) async {
+          if (!doc.exists || doc.data() == null) return;
+          final profile = doc.data()!;
+          _userRole = profile['role'] as String?;
+          if (_userRole == 'admin') {
+            _notifSub?.cancel();
+            _prefsSub?.cancel();
+            _notifications.clear();
+            try {
+              final token = await FirebaseMessaging.instance.getToken();
+              if (token != null) await _removeCurrentDeviceToken(user, token);
+            } catch (e, stack) {
+              debugPrint('[Notif] FCM token cleanup error: $e\n$stack');
+            }
+            notifyListeners();
+          } else {
+            _listenFirebase();
+            _loadUserPrefs();
+            try {
+              final token = await FirebaseMessaging.instance.getToken();
+              if (token != null) await _saveToken(token);
+            } catch (e, stack) {
+              debugPrint('[Notif] token error: $e\n$stack');
+            }
+          }
+        });
   }
 
   Future<void> initFCM() async {
     try {
-      const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-      await _localNotifications.initialize(const InitializationSettings(android: androidSettings));
-      final manager = _localNotifications.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+      const androidSettings = AndroidInitializationSettings(
+        '@mipmap/ic_launcher',
+      );
+      await _localNotifications.initialize(
+        const InitializationSettings(android: androidSettings),
+      );
+      final manager = _localNotifications
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
       if (manager != null) {
-        await manager.createNotificationChannel(const AndroidNotificationChannel('craycare_alerts_sound_vibrate','CrayCare Alerts (Sound & Vibrate)',description:'Alerts with sound and vibration enabled',importance:Importance.high,playSound:true,enableVibration:true));
-        await manager.createNotificationChannel(AndroidNotificationChannel('craycare_alerts_sound_only','CrayCare Alerts (Sound Only)',description:'Alerts with sound only',importance:Importance.high,playSound:true,enableVibration:false,vibrationPattern:Int64List(0)));
-        await manager.createNotificationChannel(const AndroidNotificationChannel('craycare_alerts_vibrate_only','CrayCare Alerts (Vibration Only)',description:'Alerts with vibration only',importance:Importance.high,playSound:false,enableVibration:true,sound:null));
-        await manager.createNotificationChannel(AndroidNotificationChannel('craycare_alerts_silent','CrayCare Alerts (Silent)',description:'Silent alerts',importance:Importance.low,playSound:false,enableVibration:false,sound:null,vibrationPattern:Int64List(0)));
+        await manager.createNotificationChannel(
+          const AndroidNotificationChannel(
+            'craycare_alerts_sound_vibrate',
+            'CrayCare Alerts (Sound & Vibrate)',
+            description: 'Alerts with sound and vibration enabled',
+            importance: Importance.high,
+            playSound: true,
+            enableVibration: true,
+          ),
+        );
+        await manager.createNotificationChannel(
+          AndroidNotificationChannel(
+            'craycare_alerts_sound_only',
+            'CrayCare Alerts (Sound Only)',
+            description: 'Alerts with sound only',
+            importance: Importance.high,
+            playSound: true,
+            enableVibration: false,
+            vibrationPattern: Int64List(0),
+          ),
+        );
+        await manager.createNotificationChannel(
+          const AndroidNotificationChannel(
+            'craycare_alerts_vibrate_only',
+            'CrayCare Alerts (Vibration Only)',
+            description: 'Alerts with vibration only',
+            importance: Importance.high,
+            playSound: false,
+            enableVibration: true,
+            sound: null,
+          ),
+        );
+        await manager.createNotificationChannel(
+          AndroidNotificationChannel(
+            'craycare_alerts_silent',
+            'CrayCare Alerts (Silent)',
+            description: 'Silent alerts',
+            importance: Importance.low,
+            playSound: false,
+            enableVibration: false,
+            sound: null,
+            vibrationPattern: Int64List(0),
+          ),
+        );
         await manager.requestNotificationsPermission();
       }
       final messaging = FirebaseMessaging.instance;
-      await messaging.requestPermission(alert:true,badge:true,sound:true);
-      await messaging.setForegroundNotificationPresentationOptions(alert:false,badge:false,sound:false);
+      await messaging.requestPermission(alert: true, badge: true, sound: true);
+      await messaging.setForegroundNotificationPresentationOptions(
+        alert: false,
+        badge: false,
+        sound: false,
+      );
       final token = await messaging.getToken();
       if (token != null) await _saveToken(token);
       _tokenSub = messaging.onTokenRefresh.listen(_saveToken);
       FirebaseMessaging.onMessage.listen(_onForegroundMessage);
       debugPrint('[NotificationService] FCM initialized');
-    } catch (e) { debugPrint('[NotificationService] FCM init error: $e'); }
+    } catch (e) {
+      debugPrint('[NotificationService] FCM init error: $e');
+    }
   }
 
   Future<void> _saveToken(String token) async {
@@ -178,8 +343,12 @@ class NotificationService extends ChangeNotifier {
         await _removeCurrentDeviceToken(user, token);
         return;
       }
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({'fcmTokens':FieldValue.arrayUnion([token])},SetOptions(merge:true));
-    } catch (e) { debugPrint('[NotificationService] Token save error: $e'); }
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+        'fcmTokens': FieldValue.arrayUnion([token]),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('[NotificationService] Token save error: $e');
+    }
   }
 
   Future<void> _onForegroundMessage(RemoteMessage message) async {
@@ -189,7 +358,13 @@ class NotificationService extends ChangeNotifier {
     final isCritical = data['critical'] == 'true';
     final isWarning = !isCritical && data['warning'] == 'true';
     final isOperational = data['operational'] == 'true';
-    if (!isCritical && !isFeeding && !isSampling && !isWarning && !isOperational) return;
+    if (!isCritical &&
+        !isFeeding &&
+        !isSampling &&
+        !isWarning &&
+        !isOperational) {
+      return;
+    }
     if (isCritical && !_notifCritical) return;
     if (!isCritical) {
       if (isFeeding && !_notifFeeding) return;
@@ -198,15 +373,41 @@ class NotificationService extends ChangeNotifier {
     }
     final playSound = data['sound'] != 'false' && _notifSound;
     final vibrate = data['vibration'] != 'false' && _notifVibration;
-    final title = data['title'] ?? message.notification?.title ?? 'CrayCare Alert';
-    final body = data['body'] ?? message.notification?.body ?? data['message'] ?? '';
+    final title =
+        data['title'] ?? message.notification?.title ?? 'CrayCare Alert';
+    final body =
+        data['body'] ?? message.notification?.body ?? data['message'] ?? '';
     String channelId = 'craycare_alerts_silent';
-    if (playSound && vibrate) channelId = 'craycare_alerts_sound_vibrate';
-    else if (playSound) channelId = 'craycare_alerts_sound_only';
-    else if (vibrate) channelId = 'craycare_alerts_vibrate_only';
+    if (playSound && vibrate) {
+      channelId = 'craycare_alerts_sound_vibrate';
+    } else if (playSound) {
+      channelId = 'craycare_alerts_sound_only';
+    } else if (vibrate) {
+      channelId = 'craycare_alerts_vibrate_only';
+    }
     try {
-      await _localNotifications.show(DateTime.now().millisecondsSinceEpoch ~/ 1000,title,body,NotificationDetails(android:AndroidNotificationDetails(channelId,'CrayCare Alert',importance:playSound || vibrate ? Importance.high : Importance.low,priority:Priority.high,playSound:playSound,enableVibration:vibrate,vibrationPattern:!vibrate ? Int64List(0) : null,sound:!playSound ? null : const RawResourceAndroidNotificationSound('default'))));
-    } catch (e) { debugPrint('[NotificationService] Foreground notification error: $e'); }
+      await _localNotifications.show(
+        DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        title,
+        body,
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            channelId,
+            'CrayCare Alert',
+            importance: playSound || vibrate ? Importance.high : Importance.low,
+            priority: Priority.high,
+            playSound: playSound,
+            enableVibration: vibrate,
+            vibrationPattern: !vibrate ? Int64List(0) : null,
+            sound: !playSound
+                ? null
+                : const RawResourceAndroidNotificationSound('default'),
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('[NotificationService] Foreground notification error: $e');
+    }
   }
 
   @override
@@ -222,17 +423,23 @@ class NotificationService extends ChangeNotifier {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
     _prefsSub?.cancel();
-    _prefsSub = FirebaseFirestore.instance.collection('users').doc(user.uid).collection('notification_settings').doc('preferences').snapshots().listen((doc) {
-      if (!doc.exists || doc.data() == null) return;
-      final map = doc.data()!;
-      _notifSound = map['sound'] as bool? ?? true;
-      _notifVibration = map['vibration'] as bool? ?? true;
-      _notifCritical = map['critical'] as bool? ?? true;
-      _notifWarning = map['warning'] as bool? ?? true;
-      _notifFeeding = map['feeding'] as bool? ?? true;
-      _notifSampling = map['sampling'] as bool? ?? true;
-      notifyListeners();
-    });
+    _prefsSub = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('notification_settings')
+        .doc('preferences')
+        .snapshots()
+        .listen((doc) {
+          if (!doc.exists || doc.data() == null) return;
+          final map = doc.data()!;
+          _notifSound = map['sound'] as bool? ?? true;
+          _notifVibration = map['vibration'] as bool? ?? true;
+          _notifCritical = map['critical'] as bool? ?? true;
+          _notifWarning = map['warning'] as bool? ?? true;
+          _notifFeeding = map['feeding'] as bool? ?? true;
+          _notifSampling = map['sampling'] as bool? ?? true;
+          notifyListeners();
+        });
   }
 
   void _cancelSubscriptions() {
@@ -246,54 +453,67 @@ class NotificationService extends ChangeNotifier {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (uid.isEmpty) return;
     _notifSub?.cancel();
-    _notifSub = FirebaseFirestore.instance.collection('notifications').where('uid',isEqualTo:uid).orderBy('created_at',descending:true).limit(100).snapshots().listen((snap) {
-      for (final change in snap.docChanges) {
-        final doc = change.doc;
-        final data = doc.data();
-        if (data == null) continue;
-        final key = doc.id;
-        final isReadRaw = data['is_read'] as bool? ?? false;
-        if (change.type == DocumentChangeType.added) {
-          if (_notifications.any((n) => n.id == key)) continue;
-          final tsData = data['created_at'];
-          DateTime createdDt;
-          if (tsData is Timestamp) createdDt = tsData.toDate();
-          else if (tsData is int) createdDt = DateTime.fromMillisecondsSinceEpoch(tsData);
-          else createdDt = DateTime.now();
-          _notifications.add(NotificationItem(id:key,notif_type:data['notif_type'] ?? 'operational',title:data['title'] ?? '',body:data['body'] ?? '',created_at:createdDt,is_read:isReadRaw));
-        } else if (change.type == DocumentChangeType.modified) {
-          final idx = _notifications.indexWhere((n) => n.id == key);
-          if (idx != -1) _notifications[idx].is_read = isReadRaw;
-        } else if (change.type == DocumentChangeType.removed) {
-          _notifications.removeWhere((n) => n.id == key);
-        }
-      }
-      _notifications.sort((a,b) => b.created_at.compareTo(a.created_at));
-      notifyListeners();
-    });
-  }
-
-  void _addNotification({required String type,required String title,required String message,required DateTime timestamp,String? documentId}) {
-    if (_userRole == 'admin') return;
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-    if (uid.isEmpty) return;
-    final docRef = FirebaseFirestore.instance.collection('notifications').doc(documentId);
-    if (_notifications.any((n) => n.id == docRef.id)) return;
-    final notif = NotificationItem(id:docRef.id,notif_type:type,title:title,body:message,created_at:timestamp,is_read:false);
-    _notifications.insert(0,notif);
-    notifyListeners();
-    docRef.set({'uid':uid,'notif_type':notif.notif_type,'title':notif.title,'body':notif.body,'created_at':FieldValue.serverTimestamp(),'is_read':false}).catchError((e){debugPrint('[NotificationService] Failed to save: $e');});
+    _notifSub = FirebaseFirestore.instance
+        .collection('notifications')
+        .where('uid', isEqualTo: uid)
+        .orderBy('created_at', descending: true)
+        .limit(100)
+        .snapshots()
+        .listen((snap) {
+          for (final change in snap.docChanges) {
+            final doc = change.doc;
+            final data = doc.data();
+            if (data == null) continue;
+            final key = doc.id;
+            final isReadRaw = data['is_read'] as bool? ?? false;
+            if (change.type == DocumentChangeType.added) {
+              if (_notifications.any((n) => n.id == key)) continue;
+              final tsData = data['created_at'];
+              DateTime createdDt;
+              if (tsData is Timestamp) {
+                createdDt = tsData.toDate();
+              } else if (tsData is int) {
+                createdDt = DateTime.fromMillisecondsSinceEpoch(tsData);
+              } else {
+                createdDt = DateTime.now();
+              }
+              _notifications.add(
+                NotificationItem(
+                  id: key,
+                  notif_type: data['notif_type'] ?? 'operational',
+                  title: data['title'] ?? '',
+                  body: data['body'] ?? '',
+                  created_at: createdDt,
+                  is_read: isReadRaw,
+                ),
+              );
+            } else if (change.type == DocumentChangeType.modified) {
+              final idx = _notifications.indexWhere((n) => n.id == key);
+              if (idx != -1) _notifications[idx].is_read = isReadRaw;
+            } else if (change.type == DocumentChangeType.removed) {
+              _notifications.removeWhere((n) => n.id == key);
+            }
+          }
+          _notifications.sort((a, b) => b.created_at.compareTo(a.created_at));
+          notifyListeners();
+        });
   }
 
   void markAllRead() {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (uid.isEmpty) return;
     final visible = _visibleNotifications.toList();
-    for (final n in visible) { n.is_read = true; }
+    for (final n in visible) {
+      n.is_read = true;
+    }
     notifyListeners();
     final fs = FirebaseFirestore.instance;
     for (final n in visible) {
-      fs.collection('notifications').doc(n.id).update({'is_read':true}).catchError((_){ });
+      fs
+          .collection('notifications')
+          .doc(n.id)
+          .update({'is_read': true})
+          .catchError((_) {});
     }
   }
 
@@ -304,7 +524,11 @@ class NotificationService extends ChangeNotifier {
       if (n.id == id) {
         n.is_read = true;
         notifyListeners();
-        FirebaseFirestore.instance.collection('notifications').doc(id).update({'is_read':true}).catchError((_){ });
+        FirebaseFirestore.instance
+            .collection('notifications')
+            .doc(id)
+            .update({'is_read': true})
+            .catchError((_) {});
         return;
       }
     }
@@ -316,19 +540,28 @@ class NotificationService extends ChangeNotifier {
     notifyListeners();
     if (uid.isEmpty) return;
     try {
-      final snap = await FirebaseFirestore.instance.collection('notifications').where('uid',isEqualTo:uid).get();
+      final snap = await FirebaseFirestore.instance
+          .collection('notifications')
+          .where('uid', isEqualTo: uid)
+          .get();
       final batch = FirebaseFirestore.instance.batch();
-      for (final doc in snap.docs) { batch.delete(doc.reference); }
+      for (final doc in snap.docs) {
+        batch.delete(doc.reference);
+      }
       await batch.commit();
-    } catch (e) { debugPrint('[NotificationService] Failed to clear Firebase: $e'); }
+    } catch (e) {
+      debugPrint('[NotificationService] Failed to clear Firebase: $e');
+    }
   }
 
-  static const _manilaOffset = Duration(hours:8);
+  static const _manilaOffset = Duration(hours: 8);
   DateTime _manilaNow() => DateTime.now().toUtc().add(_manilaOffset);
   DateTime _toManila(DateTime dt) => dt.toUtc().add(_manilaOffset);
   bool _isToday(DateTime dt) {
     final now = _manilaNow();
     final value = _toManila(dt);
-    return value.year == now.year && value.month == now.month && value.day == now.day;
+    return value.year == now.year &&
+        value.month == now.month &&
+        value.day == now.day;
   }
 }

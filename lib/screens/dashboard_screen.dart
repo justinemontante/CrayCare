@@ -1732,8 +1732,9 @@ class _DashboardScreenState extends State<DashboardScreen>
           s.id != null &&
           log.scheduleKey == s.id &&
           log.scheduleTime == scheduleTimeStr &&
-          log.date == todayStr)
+          log.date == todayStr) {
         return 'missed';
+      }
     }
     final minutes = feederScheduleMinutes(s);
     final h = minutes ~/ 60;

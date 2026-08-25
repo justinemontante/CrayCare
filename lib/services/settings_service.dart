@@ -132,8 +132,9 @@ class SettingsService extends ChangeNotifier {
                       orElse: () => const MapEntry('', ''),
                     )
                     .key;
-                if (shortKey.isEmpty || !_ranges.containsKey(shortKey))
+                if (shortKey.isEmpty || !_ranges.containsKey(shortKey)) {
                   continue;
+                }
                 final data = doc.data();
                 final min = (data['min_value'] as num?)?.toDouble();
                 final max = (data['max_value'] as num?)?.toDouble();
@@ -147,8 +148,8 @@ class SettingsService extends ChangeNotifier {
                   _ranges[shortKey] = {
                     'min': min,
                     'max': max,
-                    if (critical != null) 'critical': critical,
-                    if (capacity != null) 'capacity_grams': capacity,
+                    'critical': ?critical,
+                    'capacity_grams': ?capacity,
                   };
                   changed = true;
                 }
@@ -216,8 +217,8 @@ class SettingsService extends ChangeNotifier {
           _ranges[shortKey] = {
             'min': min,
             'max': max,
-            if (critical != null) 'critical': critical,
-            if (capacity != null) 'capacity_grams': capacity,
+            'critical': ?critical,
+            'capacity_grams': ?capacity,
           };
           anyApplied = true;
         }
