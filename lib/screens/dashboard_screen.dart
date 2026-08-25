@@ -6,6 +6,7 @@ import '../widgets/section_label.dart';
 import '../services/sensor_service.dart';
 import '../services/settings_service.dart';
 import '../services/tank_service.dart';
+import '../services/feeder_service.dart';
 import '../models/control_types.dart';
 import '../models/crayfish_batch.dart';
 
@@ -538,6 +539,9 @@ class _DashboardScreenState extends State<DashboardScreen>
     final min = range['min'] ?? 0.0;
     final max = range['max'] ?? 999.0;
     final unit = _getUnit(key);
+    if (key == 'feedlevel') {
+      return 'Ideal: > ${min.toStringAsFixed(0)}%';
+    }
     if (max >= 999) return 'Ideal: > ${min.toStringAsFixed(1)}$unit';
     return 'Ideal: ${min.toStringAsFixed(1)} \u2013 ${_formatMax(max)}$unit';
   }
@@ -545,7 +549,12 @@ class _DashboardScreenState extends State<DashboardScreen>
   String _getStatus(String key) {
     final ss = SensorService.instance;
     if (!ss.hasSensorData(key)) return 'No reading';
-    return ss.getZone(key);
+    final zone = ss.getZone(key);
+    if (key == 'feedlevel') {
+      if (zone == 'OPTIMAL') return 'NORMAL';
+      if (zone == 'WARNING') return 'LOW';
+    }
+    return zone;
   }
 
   Color _getStatusColor(String key) {
@@ -724,7 +733,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                     ? ss.getLatestValue('feedlevel').toStringAsFixed(0)
                     : '--',
                 unit: '%',
-                ideal: 'Normal >20% • Low 11–20% • Critical 1–10%',
+                ideal: _getIdealText('feedlevel'),
                 iconPath: 'assets/images/FeedingImage.png',
                 status: _getStatus('feedlevel'),
                 statusColor: _getStatusColor('feedlevel'),
@@ -1396,6 +1405,16 @@ class _DashboardScreenState extends State<DashboardScreen>
   Widget _buildFeedingScheduleCard() {
     final schedules = FeedState.schedules.value;
     final now = _manilaNow();
+    final sensorService = SensorService.instance;
+    final hasFeedLevel = sensorService.hasSensorData('feedlevel');
+    final feedLevel = hasFeedLevel
+        ? sensorService.getLatestValue('feedlevel')
+        : null;
+    final estimatedFeed = sensorService.estimatedFeedGrams;
+    final feedStatus = _getStatus('feedlevel');
+    final feedStatusColor = _getStatusColor('feedlevel');
+    final consumptionToday = FeederService.instance.consumptionTodayGrams;
+    final completedToday = FeederService.instance.completedFeedingsToday;
 
     final sorted = List<ScheduleItem>.from(schedules)
       ..sort(
@@ -1478,7 +1497,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               Icon(Icons.bubble_chart, size: 18, color: AppColors.primary),
               const SizedBox(width: 6),
               const Text(
-                'Feeding Schedule',
+                'Automatic Feeder',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
@@ -1510,6 +1529,37 @@ class _DashboardScreenState extends State<DashboardScreen>
                       ),
                     ],
                   ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildFeederSummaryTile(
+                  icon: Icons.inventory_2_outlined,
+                  label: 'FEED LEVEL',
+                  value: feedLevel == null
+                      ? '--'
+                      : '${feedLevel.toStringAsFixed(0)}%',
+                  detail: feedLevel == null
+                      ? 'No reading'
+                      : estimatedFeed == null
+                      ? feedStatus
+                      : '$feedStatus • ~${estimatedFeed.toStringAsFixed(0)} g',
+                  color: feedStatusColor,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _buildFeederSummaryTile(
+                  icon: Icons.scale_outlined,
+                  label: 'CONSUMPTION TODAY',
+                  value: '${consumptionToday.toStringAsFixed(0)} g',
+                  detail:
+                      '$completedToday completed feeding${completedToday == 1 ? '' : 's'}',
+                  color: AppColors.primary,
                 ),
               ),
             ],
@@ -1691,6 +1741,78 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
+  Widget _buildFeederSummaryTile({
+    required IconData icon,
+    required String label,
+    required String value,
+    required String detail,
+    required Color color,
+  }) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 82),
+      padding: const EdgeInsets.all(11),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.16)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(9),
+            ),
+            child: Icon(icon, size: 16, color: color),
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 7.5,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.35,
+                    color: AppColors.darkWith(0.5),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w900,
+                    color: color,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  detail,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 8.5,
+                    height: 1.2,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.darkWith(0.55),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   String _logDateString(DateTime date) {
     const months = [
       'Jan',
@@ -1815,7 +1937,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       default:
         icon = Icons.trending_flat;
         color = AppColors.dark.withValues(alpha: 0.5);
-        label = status == 'OPTIMAL' ? 'Stable' : '';
+        label = status == 'OPTIMAL' || status == 'NORMAL' ? 'Stable' : '';
         break;
     }
 
@@ -1891,26 +2013,57 @@ class _DashboardScreenState extends State<DashboardScreen>
       criticalRangeText = 'N/A';
     }
 
-    final legends = [
-      _LegendItem(
-        'Optimal',
-        optimalRangeText,
-        'Stable and healthy environment.',
-        AppColors.success,
-      ),
-      _LegendItem(
-        'Warning',
-        warningRangeText,
-        'Approaching threshold. Action recommended.',
-        AppColors.warning,
-      ),
-      _LegendItem(
-        'Critical',
-        criticalRangeText,
-        'Dangerous levels. Immediate attention required.',
-        AppColors.critical,
-      ),
-    ];
+    final List<_LegendItem> legends;
+    if (sensorKey == 'feedlevel') {
+      final critical = (range['critical'] ?? 10.0).toDouble();
+      legends = [
+        _LegendItem(
+          'Normal',
+          '> ${rMin.toStringAsFixed(0)}%',
+          'Enough feed is available in the hopper.',
+          AppColors.success,
+        ),
+        _LegendItem(
+          'Low',
+          '> ${critical.toStringAsFixed(0)}% to ${rMin.toStringAsFixed(0)}%',
+          'Refill is recommended soon.',
+          AppColors.warning,
+        ),
+        _LegendItem(
+          'Critical',
+          '> 0% to ${critical.toStringAsFixed(0)}%',
+          'Refill soon. Feeding may continue only when enough grams remain.',
+          AppColors.critical,
+        ),
+        const _LegendItem(
+          'Empty',
+          '0%',
+          'Feeding is blocked until the hopper is refilled.',
+          AppColors.critical,
+        ),
+      ];
+    } else {
+      legends = [
+        _LegendItem(
+          'Optimal',
+          optimalRangeText,
+          'Stable and healthy environment.',
+          AppColors.success,
+        ),
+        _LegendItem(
+          'Warning',
+          warningRangeText,
+          'Approaching threshold. Action recommended.',
+          AppColors.warning,
+        ),
+        _LegendItem(
+          'Critical',
+          criticalRangeText,
+          'Dangerous levels. Immediate attention required.',
+          AppColors.critical,
+        ),
+      ];
+    }
 
     showModalBottomSheet(
       context: context,

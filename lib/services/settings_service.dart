@@ -141,10 +141,15 @@ class SettingsService extends ChangeNotifier {
                 final critical = (data['critical_value'] as num?)?.toDouble();
                 final capacity = (data['hopper_capacity_grams'] as num?)
                     ?.toDouble();
+                final current = _ranges[shortKey];
+                final feedConfigChanged = shortKey == 'feedlevel' &&
+                    (current?['critical'] != critical ||
+                        current?['capacity_grams'] != capacity);
                 if (min != null &&
                     max != null &&
-                    (_ranges[shortKey]?['min'] != min ||
-                        _ranges[shortKey]?['max'] != max)) {
+                    (current?['min'] != min ||
+                        current?['max'] != max ||
+                        feedConfigChanged)) {
                   _ranges[shortKey] = {
                     'min': min,
                     'max': max,

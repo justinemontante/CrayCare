@@ -188,12 +188,22 @@ class DatabaseService {
       'dissolved_oxygen': {'min': 5.0, 'max': 9.0},
       'turbidity': {'min': 0.0, 'max': 25.0},
       'water_level': {'min': 15.0, 'max': 20.0},
+      'feed_level': {
+        'min': 20.0,
+        'max': 100.0,
+        'critical': 10.0,
+        'capacity_grams': 1000.0,
+      },
     };
     for (final entry in defaults.entries) {
       final sensorRef = ref.collection('sensors').doc(entry.key);
       batch.set(sensorRef, {
         'min_value': entry.value['min'],
         'max_value': entry.value['max'],
+        if (entry.key == 'feed_level') ...{
+          'critical_value': entry.value['critical'],
+          'hopper_capacity_grams': entry.value['capacity_grams'],
+        },
         'updated_at': FieldValue.serverTimestamp(),
       });
     }
@@ -259,7 +269,13 @@ class DatabaseService {
       'feedlevel': 'feed_level',
     };
     final batch = _db.batch();
-    for (final entry in currentRanges.entries) {
+    final entries = changedKey == null
+        ? currentRanges.entries
+        : currentRanges.entries.where((entry) => entry.key == changedKey);
+    if (changedKey != null && entries.isEmpty) {
+      throw ArgumentError('Unknown sensor threshold: $changedKey');
+    }
+    for (final entry in entries) {
       final sensorDoc = sensorDocFor[entry.key];
       if (sensorDoc == null) continue;
       final sensorRef = tankRef.collection('sensors').doc(sensorDoc);

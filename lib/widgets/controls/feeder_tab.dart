@@ -14,7 +14,7 @@ class FeederTab extends StatelessWidget {
   final List<ScheduleItem> schedules;
   final TextEditingController timeCtl;
   final VoidCallback onFeedNow;
-  final void Function(double? grams, String days) onAddSchedule;
+  final Future<bool> Function(double? grams, String days) onAddSchedule;
   final void Function(int index) onDeleteSchedule;
   final void Function(int index, ScheduleItem item) onEditSchedule;
   final void Function(int index, bool enabled) onToggleSchedule;
@@ -210,12 +210,15 @@ class FeederTab extends StatelessWidget {
                     color: AppColors.dark,
                   ),
                 ),
-                GestureDetector(
-                  onTap: () => _showScheduleModal(ctx),
-                  child: Container(
+                Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () => _showScheduleModal(ctx),
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 5,
+                      horizontal: 12,
+                      vertical: 9,
                     ),
                     decoration: BoxDecoration(
                       color: AppColors.primary.withValues(alpha: 0.1),
@@ -235,6 +238,7 @@ class FeederTab extends StatelessWidget {
                           ),
                         ),
                       ],
+                    ),
                     ),
                   ),
                 ),
@@ -1453,6 +1457,7 @@ class FeederTab extends StatelessWidget {
             existing.days[i] == '1')
           i,
     };
+    var isSaving = false;
 
     showModalBottomSheet(
       context: ctx,
@@ -1662,9 +1667,9 @@ class FeederTab extends StatelessWidget {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: gramsError != null || selectedDays.isEmpty
+                      onPressed: gramsError != null || selectedDays.isEmpty || isSaving
                           ? null
-                          : () {
+                          : () async {
                               final h = selectedTime.hour;
                               final m = selectedTime.minute;
                               final ampm = h >= 12 ? 'PM' : 'AM';
@@ -1719,11 +1724,18 @@ class FeederTab extends StatelessWidget {
                                     days: daysMask,
                                   ),
                                 );
+                                if (sheetCtx.mounted) Navigator.pop(sheetCtx);
                               } else {
                                 timeCtl.text = '$timeStr:$ampm';
-                                onAddSchedule(grams, daysMask);
+                                setSheetState(() => isSaving = true);
+                                final saved = await onAddSchedule(grams, daysMask);
+                                if (!sheetCtx.mounted) return;
+                                if (!saved) {
+                                  setSheetState(() => isSaving = false);
+                                  return;
+                                }
+                                Navigator.pop(sheetCtx);
                               }
-                              Navigator.pop(sheetCtx);
                             },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
@@ -1736,13 +1748,22 @@ class FeederTab extends StatelessWidget {
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                      child: Text(
-                        isEdit ? 'Save' : 'Add',
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
+                      child: isSaving
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Text(
+                              isEdit ? 'Save' : 'Add',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                     ),
                   ),
                 ],

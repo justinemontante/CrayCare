@@ -425,6 +425,9 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
 
   void _showFeedLevelEditor() {
     final config = SettingsService.instance.currentRanges['feedlevel']!;
+    final previousCritical = config['critical'] ?? 10.0;
+    final previousLow = config['min'] ?? 20.0;
+    final previousCapacity = config['capacity_grams'] ?? 1000.0;
     final criticalCtrl = TextEditingController(
       text: (config['critical'] ?? 10).toStringAsFixed(0),
     );
@@ -438,14 +441,30 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+        titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+        contentPadding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
+        actionsPadding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.inventory_2_outlined, color: AppColors.primary),
-            SizedBox(width: 10),
-            Expanded(
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(
+                Icons.inventory_2_outlined,
+                size: 21,
+                color: AppColors.primary,
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
               child: Text(
                 'Feed Level Settings',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
@@ -484,46 +503,95 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
           ],
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final critical = double.tryParse(criticalCtrl.text.trim());
-              final low = double.tryParse(lowCtrl.text.trim());
-              final capacity = double.tryParse(capacityCtrl.text.trim());
-              if (critical == null ||
-                  low == null ||
-                  capacity == null ||
-                  critical < 0 ||
-                  critical >= low ||
-                  low > 50 ||
-                  capacity < 100 ||
-                  capacity > 50000) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text(
-                      'Use Critical < Low ≤ 50%, and capacity 100–50,000 g.',
+          SizedBox(
+            width: double.infinity,
+            child: Row(
+              children: [
+                Expanded(
+                  child: SizedBox(
+                    height: 46,
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.darkWith(0.65),
+                        side: BorderSide(color: AppColors.darkWith(0.12)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text(
+                        'Cancel',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
                     ),
                   ),
-                );
-                return;
-              }
-              await SettingsService.instance.updateFeedLevelConfig(
-                critical: critical,
-                low: low,
-                capacityGrams: capacity,
-              );
-              if (!ctx.mounted) return;
-              Navigator.pop(ctx);
-              await _saveConfigToFirebase(changedKey: 'feedlevel');
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              foregroundColor: Colors.white,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: SizedBox(
+                    height: 46,
+                    child: ElevatedButton.icon(
+                      onPressed: () async {
+                        final critical = double.tryParse(
+                          criticalCtrl.text.trim(),
+                        );
+                        final low = double.tryParse(lowCtrl.text.trim());
+                        final capacity = double.tryParse(
+                          capacityCtrl.text.trim(),
+                        );
+                        if (critical == null ||
+                            low == null ||
+                            capacity == null ||
+                            critical < 0 ||
+                            critical >= low ||
+                            low > 50 ||
+                            capacity < 100 ||
+                            capacity > 50000) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Use Critical < Low ≤ 50%, and capacity 100–50,000 g.',
+                              ),
+                            ),
+                          );
+                          return;
+                        }
+                        await SettingsService.instance.updateFeedLevelConfig(
+                          critical: critical,
+                          low: low,
+                          capacityGrams: capacity,
+                        );
+                        if (!ctx.mounted) return;
+                        Navigator.pop(ctx);
+                        final saved = await _saveConfigToFirebase(
+                          changedKey: 'feedlevel',
+                        );
+                        if (!saved) {
+                          await SettingsService.instance.updateFeedLevelConfig(
+                            critical: previousCritical,
+                            low: previousLow,
+                            capacityGrams: previousCapacity,
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.check_rounded, size: 18),
+                      label: const Text(
+                        'Update',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
-            child: const Text('Update'),
           ),
         ],
       ),

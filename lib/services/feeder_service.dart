@@ -479,7 +479,11 @@ class FeederService extends ChangeNotifier {
     String days = '1111111',
   }) async {
     final tankDoc = _tankDoc();
-    if (tankDoc == null) return;
+    if (tankDoc == null) {
+      throw StateError(
+        'No tank is connected to this account. Ask the admin to assign the hardware first.',
+      );
+    }
     final requested = ScheduleItem(time, ampm, grams: grams, days: days);
     _throwIfScheduleConflicts(requested);
     try {
@@ -507,6 +511,7 @@ class FeederService extends ChangeNotifier {
       );
     } catch (e) {
       debugPrint('[FeederService] addSchedule error: $e');
+      rethrow;
     }
     notifyListeners();
   }

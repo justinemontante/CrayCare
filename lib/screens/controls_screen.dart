@@ -12,6 +12,7 @@ import '../services/settings_service.dart';
 import '../services/esp_service.dart';
 import '../services/actuator_log_service.dart';
 import '../services/database_service.dart';
+import '../utils/snackbar_helper.dart';
 
 class ControlsScreen extends StatefulWidget {
   const ControlsScreen({super.key});
@@ -567,8 +568,8 @@ class ControlsScreenState extends State<ControlsScreen> {
     return '$h12:$m $ampm';
   }
 
-  Future<void> _addSchedule({double? grams, String days = '1111111'}) async {
-    if (_timeCtl.text.isEmpty) return;
+  Future<bool> _addSchedule({double? grams, String days = '1111111'}) async {
+    if (_timeCtl.text.isEmpty) return false;
     final formatted = _formatTimeInput(_timeCtl.text);
     final isPM = formatted.contains('PM');
     final hStr = formatted.split(':')[0];
@@ -582,8 +583,23 @@ class ControlsScreenState extends State<ControlsScreen> {
         days: days,
       );
       _timeCtl.clear();
+      if (mounted) {
+        showBeautifulSnackbar(context, 'Feeding schedule added.', true);
+      }
+      return true;
     } on FeederScheduleConflictException catch (error) {
       _showScheduleConflict(error);
+      return false;
+    } catch (error) {
+      if (mounted) {
+        showBeautifulSnackbar(
+          context,
+          error.toString().replaceFirst('Exception: ', ''),
+          false,
+          title: 'Schedule not added',
+        );
+      }
+      return false;
     }
   }
 
@@ -663,7 +679,7 @@ class ControlsScreenState extends State<ControlsScreen> {
                       timeCtl: _timeCtl,
                       onFeedNow: _showFeedNowDialog,
                       onAddSchedule: (grams, days) =>
-                          unawaited(_addSchedule(grams: grams, days: days)),
+                          _addSchedule(grams: grams, days: days),
                       onDeleteSchedule: (index) =>
                           unawaited(_deleteSchedule(index)),
                       onEditSchedule: (index, item) =>
