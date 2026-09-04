@@ -158,6 +158,7 @@ FirebaseConfig config;
 bool firebaseReady = false;
 bool firebaseStarted = false;
 bool cloudBootstrapComplete = false;
+unsigned long lastFirebaseAuthReportMs = 0;
 unsigned long lastFirebaseSendTime = 0;
 unsigned long lastHistorySendTime = 0;
 unsigned long lastFlushTime = 0;
@@ -918,6 +919,21 @@ void connectFirebase() {
   firebaseReady = false;
 }
 
+void printFirebaseAuthStatus() {
+  if (!firebaseStarted) {
+    Serial.println("[FIREBASE] Not started; waiting for Wi-Fi.");
+    return;
+  }
+  TokenInfo info = Firebase.authTokenInfo();
+  Serial.printf("[FIREBASE] auth=%s | token=%s | Wi-Fi=%s\n",
+                getTokenStatus(info), getTokenType(info),
+                WiFi.status() == WL_CONNECTED ? "connected" : "offline");
+  if (info.error.code != 0) {
+    Serial.printf("[FIREBASE] error code=%d message=%s\n",
+                  info.error.code, info.error.message.c_str());
+  }
+}
+
 // Read a float from a Firestore document already loaded into `doc`.
 // jsonPath is the full dotted path, e.g. "fields/turbidityVClear/doubleValue".
 bool readConfigFloatPath(FirebaseJson& doc, const char* jsonPath,
@@ -1651,10 +1667,7 @@ void loop() {
     if (cmd == "CAL_HELP" || cmd == "cal help") printCalibrationHelp();
     if (cmd == "WIFI_HELP" || cmd == "wifi help") printWifiHelp();
     if (cmd == "FIREBASE_STATUS" || cmd == "firebase status") {
-      Serial.printf("[FIREBASE] started=%s ready=%s | Wi-Fi=%s\n",
-                    firebaseStarted ? "yes" : "no",
-                    firebaseReady ? "yes" : "no",
-                    WiFi.status() == WL_CONNECTED ? "connected" : "offline");
+      printFirebaseAuthStatus();
     }
     if (cmd == "RESET_WIFI") {
       prefs.begin("wifiprof", false);
@@ -1851,6 +1864,11 @@ void loop() {
   // Start Firebase only after Wi-Fi exists. Never block serial commands while
   // offline or while email/password authentication is still in progress.
   if (networkAvailable && !firebaseStarted) connectFirebase();
+  if (networkAvailable && firebaseStarted && !cloudBootstrapComplete &&
+      now - lastFirebaseAuthReportMs >= 10000UL) {
+    lastFirebaseAuthReportMs = now;
+    printFirebaseAuthStatus();
+  }
   if (networkAvailable && firebaseStarted && !cloudBootstrapComplete &&
       ensureFirebaseReady()) {
     firebaseReady = true;
