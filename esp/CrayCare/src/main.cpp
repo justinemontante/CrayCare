@@ -157,9 +157,9 @@ FirebaseConfig config;
 
 bool firebaseReady = false;
 bool firebaseStarted = false;
-volatile bool firebaseBeginComplete = false;
-volatile bool firebaseBeginTaskRunning = false;
 unsigned long firebaseBeginStartedMs = 0;
+unsigned long lastFirebaseAuthAttemptMs = 0;
+constexpr unsigned long FIREBASE_AUTH_RETRY_INTERVAL_MS = 60000UL;
 bool cloudBootstrapComplete = false;
 unsigned long lastFirebaseAuthReportMs = 0;
 unsigned long lastFirebaseSendTime = 0;
@@ -921,16 +921,6 @@ void firebaseTokenStatusCallback(TokenInfo info) {
   }
 }
 
-void firebaseBeginTask(void* parameter) {
-  Firebase.begin(&config, &auth);
-  Firebase.setDoubleDigits(2);
-  firebaseBeginComplete = true;
-  firebaseBeginTaskRunning = false;
-  Serial.printf("[FIREBASE] Initialization returned after %lu ms.\n",
-                millis() - firebaseBeginStartedMs);
-  vTaskDelete(nullptr);
-}
-
 void connectFirebase() {
   if (firebaseStarted || WiFi.status() != WL_CONNECTED) return;
 
@@ -945,28 +935,19 @@ void connectFirebase() {
 
   Firebase.reconnectWiFi(true);
   firebaseStarted = true;
-  firebaseBeginComplete = false;
-  firebaseBeginTaskRunning = true;
   firebaseBeginStartedMs = millis();
   firebaseReady = false;
-  Serial.println("[FIREBASE] Starting device authentication in background...");
-  BaseType_t created = xTaskCreatePinnedToCore(
-      firebaseBeginTask, "firebase-auth", 12288, nullptr, 1, nullptr, 0);
-  if (created != pdPASS) {
-    firebaseBeginTaskRunning = false;
-    firebaseStarted = false;
-    Serial.println("[FIREBASE] ERROR: could not create authentication task.");
-  }
+  Serial.println("[FIREBASE] Starting device authentication...");
+  Firebase.begin(&config, &auth);
+  Firebase.setDoubleDigits(2);
+  lastFirebaseAuthAttemptMs = millis();
+  Serial.printf("[FIREBASE] Initial attempt returned after %lu ms; retries are limited to once per minute.\n",
+                lastFirebaseAuthAttemptMs - firebaseBeginStartedMs);
 }
 
 void printFirebaseAuthStatus() {
   if (!firebaseStarted) {
     Serial.println("[FIREBASE] Not started; waiting for Wi-Fi.");
-    return;
-  }
-  if (!firebaseBeginComplete) {
-    Serial.printf("[FIREBASE] Authentication request is still running (%lu s); serial commands remain available.\n",
-                  (millis() - firebaseBeginStartedMs) / 1000UL);
     return;
   }
   TokenInfo info = Firebase.authTokenInfo();
@@ -1129,6 +1110,14 @@ String getHardwareId() {
 //  FIREBASE READY CHECK — Re-auth if token expired
 // ============================================================
 bool ensureFirebaseReady() {
+  // A failed email/password sign-in can otherwise be retried by every cloud
+  // call in loop(), quickly triggering Identity Toolkit rate limiting.
+  if (!Firebase.authenticated() &&
+      millis() - lastFirebaseAuthAttemptMs < FIREBASE_AUTH_RETRY_INTERVAL_MS) {
+    firebaseReady = false;
+    return false;
+  }
+  if (!Firebase.authenticated()) lastFirebaseAuthAttemptMs = millis();
   if (Firebase.ready()) {
     firebaseReady = true;
     return true;
@@ -1914,8 +1903,7 @@ void loop() {
     lastFirebaseAuthReportMs = now;
     printFirebaseAuthStatus();
   }
-  if (networkAvailable && firebaseStarted && firebaseBeginComplete &&
-      !cloudBootstrapComplete &&
+  if (networkAvailable && firebaseStarted && !cloudBootstrapComplete &&
       ensureFirebaseReady()) {
     firebaseReady = true;
     fetchTankId();
