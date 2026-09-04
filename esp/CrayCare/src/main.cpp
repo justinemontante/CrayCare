@@ -157,6 +157,9 @@ FirebaseConfig config;
 
 bool firebaseReady = false;
 bool firebaseStarted = false;
+volatile bool firebaseBeginComplete = false;
+volatile bool firebaseBeginTaskRunning = false;
+unsigned long firebaseBeginStartedMs = 0;
 bool cloudBootstrapComplete = false;
 unsigned long lastFirebaseAuthReportMs = 0;
 unsigned long lastFirebaseSendTime = 0;
@@ -899,29 +902,71 @@ void initTime() {
   Serial.println(" skipped");
 }
 
+void firebaseTokenStatusCallback(TokenInfo info) {
+  static int lastStatus = -1;
+  static int lastError = 0;
+  static unsigned long lastReportMs = 0;
+  const unsigned long now = millis();
+  if ((int)info.status == lastStatus && info.error.code == lastError &&
+      now - lastReportMs < 10000UL) return;
+
+  lastStatus = (int)info.status;
+  lastError = info.error.code;
+  lastReportMs = now;
+  Serial.printf("[FIREBASE] auth=%s | token=%s\n",
+                getTokenStatus(info), getTokenType(info));
+  if (info.error.code != 0) {
+    Serial.printf("[FIREBASE] error code=%d message=%s\n",
+                  info.error.code, info.error.message.c_str());
+  }
+}
+
+void firebaseBeginTask(void* parameter) {
+  Firebase.begin(&config, &auth);
+  Firebase.setDoubleDigits(2);
+  firebaseBeginComplete = true;
+  firebaseBeginTaskRunning = false;
+  Serial.printf("[FIREBASE] Initialization returned after %lu ms.\n",
+                millis() - firebaseBeginStartedMs);
+  vTaskDelete(nullptr);
+}
+
 void connectFirebase() {
   if (firebaseStarted || WiFi.status() != WL_CONNECTED) return;
 
   config.api_key = FIREBASE_API_KEY;
   config.database_url = FIREBASE_DATABASE_URL;
-  // TokenHelper's callback prints every retry and can flood the Serial Monitor.
-  // Cloud errors remain available through each Firestore operation's error text.
-  config.token_status_callback = nullptr;
+  // This callback is throttled above so authentication progress stays visible
+  // without flooding the Serial Monitor on repeated retries.
+  config.token_status_callback = firebaseTokenStatusCallback;
 
   auth.user.email = SECRETS_FIREBASE_USER_EMAIL;
   auth.user.password = SECRETS_FIREBASE_USER_PASSWORD;
 
   Firebase.reconnectWiFi(true);
-  Serial.println("[FIREBASE] Starting device authentication in background...");
-  Firebase.begin(&config, &auth);
-  Firebase.setDoubleDigits(2);
   firebaseStarted = true;
+  firebaseBeginComplete = false;
+  firebaseBeginTaskRunning = true;
+  firebaseBeginStartedMs = millis();
   firebaseReady = false;
+  Serial.println("[FIREBASE] Starting device authentication in background...");
+  BaseType_t created = xTaskCreatePinnedToCore(
+      firebaseBeginTask, "firebase-auth", 12288, nullptr, 1, nullptr, 0);
+  if (created != pdPASS) {
+    firebaseBeginTaskRunning = false;
+    firebaseStarted = false;
+    Serial.println("[FIREBASE] ERROR: could not create authentication task.");
+  }
 }
 
 void printFirebaseAuthStatus() {
   if (!firebaseStarted) {
     Serial.println("[FIREBASE] Not started; waiting for Wi-Fi.");
+    return;
+  }
+  if (!firebaseBeginComplete) {
+    Serial.printf("[FIREBASE] Authentication request is still running (%lu s); serial commands remain available.\n",
+                  (millis() - firebaseBeginStartedMs) / 1000UL);
     return;
   }
   TokenInfo info = Firebase.authTokenInfo();
@@ -1869,7 +1914,8 @@ void loop() {
     lastFirebaseAuthReportMs = now;
     printFirebaseAuthStatus();
   }
-  if (networkAvailable && firebaseStarted && !cloudBootstrapComplete &&
+  if (networkAvailable && firebaseStarted && firebaseBeginComplete &&
+      !cloudBootstrapComplete &&
       ensureFirebaseReady()) {
     firebaseReady = true;
     fetchTankId();
