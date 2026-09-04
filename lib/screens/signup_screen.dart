@@ -5,6 +5,7 @@ import '../widgets/gradient_button.dart';
 import 'verify_screen.dart';
 import 'main_shell.dart';
 import '../services/auth_service.dart';
+import '../utils/smooth_page_route.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -46,48 +47,25 @@ class _SignupScreenState extends State<SignupScreen> {
       await _authService.signUp(
         _nameController.text.trim(),
         _emailController.text.trim(),
-        _passwordController.text.trim(),
+        _passwordController.text,
       );
 
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const VerifyScreen()),
+        smoothPageRoute((_) => const VerifyScreen()),
       );
     } catch (e) {
-      final errorMsg = e.toString().replaceAll('Exception: ', '');
-
-      if (errorMsg.contains('email-already-in-use') ||
-          errorMsg.contains('already-in-use') ||
-          errorMsg.contains('already in use')) {
-        // Subukan mag-sign in — baka hindi pa verified
-        try {
-          await _authService.signIn(
-            _emailController.text.trim(),
-            _passwordController.text.trim(),
-          );
-        } catch (e, stack) {
-          debugPrint('[Signup] sign-in check: $e\n$stack');
-        }
-
-        final user = FirebaseAuth.instance.currentUser;
-        if (user != null && !user.emailVerified) {
-          if (!mounted) return;
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const VerifyScreen()),
-          );
-          return;
-        }
-
+      if (e is FirebaseAuthException && e.code == 'email-already-in-use') {
         if (!mounted) return;
         setState(() {
-          _emailError = 'This email is already registered. Try signing in instead.';
+          _emailError =
+              'This email is already registered. Try signing in instead.';
           _autovalidateMode = AutovalidateMode.onUserInteraction;
         });
         _formKey.currentState!.validate();
       } else {
-        _showErrorSnackBar(errorMsg);
+        _showErrorSnackBar(authErrorMessage(e));
       }
     } finally {
       if (mounted) setState(() => _isEmailLoading = false);
@@ -108,11 +86,15 @@ class _SignupScreenState extends State<SignupScreen> {
         if (!mounted) return;
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => const MainShell()),
+          smoothPageRoute(
+            (_) => MainShell(
+              initialProfile: _authService.lastAuthenticatedProfile,
+            ),
+          ),
         );
       }
     } catch (e) {
-      _showErrorSnackBar(e.toString().replaceAll('Exception: ', ''));
+      _showErrorSnackBar(authErrorMessage(e));
     } finally {
       if (mounted) setState(() => _isGoogleLoading = false);
     }
@@ -288,7 +270,7 @@ class _SignupScreenState extends State<SignupScreen> {
                               return 'Email is required';
                             }
                             if (!RegExp(
-                              r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
+                              r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
                             ).hasMatch(value.trim())) {
                               return 'Please enter a valid email address';
                             }
@@ -336,10 +318,10 @@ class _SignupScreenState extends State<SignupScreen> {
                                 ),
                               ),
                           validator: (value) {
-                            if (value == null || value.trim().isEmpty) {
+                            if (value == null || value.isEmpty) {
                               return 'Password is required';
                             }
-                            if (value.trim().length < 6) {
+                            if (value.length < 6) {
                               return 'Password must be at least 6 characters';
                             }
                             return null;

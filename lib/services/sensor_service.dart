@@ -28,6 +28,8 @@ class SensorService extends ChangeNotifier {
     }
   }
 
+  Future<void> refresh() => _initFirebaseListener();
+
   static const List<String> sensorKeys = [
     'temp',
     'ph',
@@ -265,17 +267,7 @@ class SensorService extends ChangeNotifier {
         notifyListeners();
         return;
       }
-      resolvedTankId = profileData?['tank_id'] as String?;
-      if (resolvedTankId == null || resolvedTankId.isEmpty) {
-        resolvedTankId = uid;
-        try {
-          await profileDoc.reference.set({
-            'tank_id': uid,
-          }, SetOptions(merge: true));
-        } catch (e, stack) {
-          debugPrint('[Sensor] hardware init error: $e\n$stack');
-        }
-      }
+      resolvedTankId = uid;
     } catch (e) {
       debugPrint('[SensorService] Failed to resolve tank_id: $e');
       resolvedTankId = uid;
@@ -756,7 +748,7 @@ class SensorService extends ChangeNotifier {
             .get();
         final data = profileDoc.data();
         if (data?['role'] != 'admin') {
-          tankId = data?['tank_id'] as String? ?? uid;
+          tankId = uid;
           _resetForTankChange(tankId);
           _tankId = tankId;
         }

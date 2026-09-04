@@ -1,0 +1,39 @@
+{
+  "overall": {
+    "normal": "Continue routine monitoring. Safety decisions must still follow the configured sensor thresholds and direct tank inspection.",
+    "verify": "Verify the latest readings using calibrated instruments and inspect the tank before changing feeding, aeration, or water-management routines."
+  },
+  "DO": {
+    "decreasing": "Inspect aerator operation, airflow, circulation, recent feeding, and accumulated organic waste. Confirm dissolved oxygen with a calibrated meter before intervention.",
+    "increasing": "Check whether aeration, circulation, photosynthetic activity, or sensor bubbles explain the unusual increase. Verify the probe placement and calibration.",
+    "stable": "Inspect and recalibrate the dissolved-oxygen probe if it remains unusually unchanged across consecutive readings.",
+    "verify": "Verify dissolved oxygen with a calibrated meter and inspect aeration."
+  },
+  "turbidity": {
+    "increasing": "Inspect filtration, uneaten feed, suspended waste, and recent maintenance activity. Confirm the reading before performing any water-management action.",
+    "decreasing": "Check whether filtration, settling, cleaning, or a recent water change explains the unusual decrease and confirm sensor cleanliness.",
+    "stable": "Inspect the turbidity sensor for fouling or a stuck reading and compare it with a manual sample.",
+    "verify": "Inspect filtration and verify turbidity manually."
+  },
+  "pH": {
+    "increasing": "Verify pH using a calibrated test, inspect recent water additions and biological activity, and avoid rapid chemical correction based on one reading.",
+    "decreasing": "Verify pH using a calibrated test and review recent water changes, organic loading, and source-water condition before corrective action.",
+    "stable": "Check the pH probe for drift, fouling, or a stuck value and recalibrate when needed.",
+    "verify": "Verify pH with a calibrated test before adjustment."
+  },
+  "temp": {
+    "increasing": "Inspect shading, room and water temperature, pump heat, and circulation. Confirm the sensor reading before changing the system.",
+    "decreasing": "Inspect ambient conditions, incoming water, circulation, and sensor placement. Confirm the reading with a second thermometer.",
+    "stable": "Check whether the temperature sensor is stuck by comparing it with a calibrated thermometer.",
+    "verify": "Confirm temperature using a calibrated thermometer."
+  },
+  "waterLevel": {
+    "increasing": "Inspect the inlet, recent refill or rainfall, overflow path, and level-sensor placement before changing water flow.",
+    "decreasing": "Inspect for leakage, evaporation, pump routing, and level-sensor placement before refilling.",
+    "stable": "Check the level sensor for obstruction or a stuck reading and verify the physical water depth.",
+    "verify": "Measure the physical water depth and inspect the level sensor."
+  },
+  "combined_do_turbidity": {
+    "action": "Inspect aeration, circulation, filtration, uneaten feed, and accumulated waste. Confirm both readings manually; use the separate safety thresholds for any immediate actuator decision."
+  }
+}

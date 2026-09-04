@@ -234,9 +234,9 @@ class OverviewTab extends StatelessWidget {
               const SizedBox(height: 6),
               Row(
                 children: [
-                  Expanded(child: _buildMetricCard(Image.asset('assets/images/TotalWeight.png', width: 20, height: 20), 'Initial Total Sample Weight', '${service.initialTotalWeight.toStringAsFixed(0)} g', 'ABW: ${service.initialWeight.toStringAsFixed(1)} g', onTap: () => _showMetricDetail(context, 'Initial Total Sample Weight', '${service.initialTotalWeight.toStringAsFixed(0)} g', 'Average Body Weight (ABW): ${service.initialWeight.toStringAsFixed(1)} g', 'assets/images/TotalWeight.png', 'Total weight of ${service.sampleCount} samples taken during initialization. Average Body Weight (ABW): ${service.initialWeight.toStringAsFixed(1)} g. This is the baseline for growth monitoring.', Icons.monitor_weight_rounded))),
+                  Expanded(child: _buildMetricCard(Image.asset('assets/images/TotalWeight.png', width: 20, height: 20), 'Initial Sample Weight', '${service.initialTotalWeight.toStringAsFixed(0)} g', 'ABW: ${service.initialWeight.toStringAsFixed(1)} g', onTap: () => _showMetricDetail(context, 'Initial Total Sample Weight', '${service.initialTotalWeight.toStringAsFixed(0)} g', 'Average Body Weight (ABW): ${service.initialWeight.toStringAsFixed(1)} g', 'assets/images/TotalWeight.png', 'Total weight of ${service.sampleCount} samples taken during initialization. Average Body Weight (ABW): ${service.initialWeight.toStringAsFixed(1)} g. This is the baseline for growth monitoring.', Icons.monitor_weight_rounded))),
                   const SizedBox(width: 6),
-                  Expanded(child: _buildMetricCard(Image.asset('assets/images/TotalLength.png', width: 20, height: 20), 'Initial Total Sample Length', '${service.initialTotalLength.toStringAsFixed(0)} cm', 'ABL: ${service.initialLength.toStringAsFixed(1)} cm', onTap: () => _showMetricDetail(context, 'Initial Total Sample Length', '${service.initialTotalLength.toStringAsFixed(0)} cm', 'Average Body Length (ABL): ${service.initialLength.toStringAsFixed(1)} cm', 'assets/images/TotalLength.png', 'Total length of ${service.sampleCount} samples taken during initialization. Average Body Length (ABL): ${service.initialLength.toStringAsFixed(1)} cm. This is the baseline for growth monitoring.', Icons.straighten_rounded))),
+                  Expanded(child: _buildMetricCard(Image.asset('assets/images/TotalLength.png', width: 20, height: 20), 'Initial Sample Length', '${service.initialTotalLength.toStringAsFixed(0)} cm', 'ABL: ${service.initialLength.toStringAsFixed(1)} cm', onTap: () => _showMetricDetail(context, 'Initial Total Sample Length', '${service.initialTotalLength.toStringAsFixed(0)} cm', 'Average Body Length (ABL): ${service.initialLength.toStringAsFixed(1)} cm', 'assets/images/TotalLength.png', 'Total length of ${service.sampleCount} samples taken during initialization. Average Body Length (ABL): ${service.initialLength.toStringAsFixed(1)} cm. This is the baseline for growth monitoring.', Icons.straighten_rounded))),
                 ],
               ),
               const SizedBox(height: 6),
@@ -408,7 +408,7 @@ class OverviewTab extends StatelessWidget {
             ),
             child: iconWidget,
           ),
-          const SizedBox(width: 2),
+          const SizedBox(width: 6),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -543,7 +543,12 @@ class OverviewTab extends StatelessWidget {
   }
 
   Widget _buildActionButtons(BuildContext context) {
-    final canEditSetup = TankService.instance.samplingHistory.isEmpty;
+    final tank = TankService.instance;
+    final hasWeeklySampling =
+        tank.samplingHistory.any((entry) => !entry.isBaseline);
+    final canEditSetup = !hasWeeklySampling &&
+        tank.mortalityHistory.isEmpty &&
+        tank.harvestRecords.isEmpty;
     return Column(
       children: [
         Row(
@@ -562,9 +567,16 @@ class OverviewTab extends StatelessWidget {
                 'Edit Setup',
                 canEditSetup ? Icons.edit_rounded : Icons.lock_outline,
                 canEditSetup ? AppColors.primary : Colors.grey.shade400,
-                canEditSetup ? onShowEditModal : () {
-                  showBeautifulSnackbar(context, 'Cannot edit after first sampling', false, title: 'Notice');
-                },
+                canEditSetup
+                    ? onShowEditModal
+                    : () {
+                        showBeautifulSnackbar(
+                          context,
+                          'Initialization cannot be edited after weekly sampling, mortality, or harvest records exist.',
+                          false,
+                          title: 'Setup Locked',
+                        );
+                      },
               ),
             ),
             const SizedBox(width: 8),

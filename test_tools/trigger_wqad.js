@@ -32,7 +32,7 @@ async function seedHistory() {
 
   const batch = db.batch();
   const now = Date.now();
-  for (let i = 5; i >= 0; i--) {
+  for (let i = 11; i >= 0; i--) {
     const captured = now - i * 10 * 60 * 1000;
     const dateKey = manilaDateKey(captured);
     const ref = db.collection('tanks').doc(tankId)
@@ -48,8 +48,8 @@ async function seedHistory() {
     });
   }
   await batch.commit();
-  console.log(`✅ Seeded six complete 10-minute records for tank ${tankId}.`);
-  console.log('The production Water Quality Assessment function is hourly; wait for the next scheduler run, then run check_water_quality_assessment.js.');
+  console.log(`✅ Seeded twelve complete 10-minute records for tank ${tankId}.`);
+  console.log('The production WQAD function is hourly; wait for the next scheduler run, then run check_water_quality_anomaly_detection.js.');
 }
 
 seedHistory().catch(error => { console.error(error); process.exit(1); });

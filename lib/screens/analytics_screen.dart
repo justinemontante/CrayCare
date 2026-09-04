@@ -33,11 +33,14 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   late final ScrollController _scrollController;
 
   bool _isLoading = false;
-  bool _isFetching = false; // guard against overlapping Firestore fetches
+  final Set<String> _fetchingRanges = <String>{};
+  int _filterRequestId = 0;
+  bool get _isFetching => _fetchingRanges.isNotEmpty;
   final Map<String, DateTime> _lastFetchedAt = {}; // range → when last fetched
   static const _historyRefreshInterval = Duration(minutes: 10);
   Timer? _autoRefreshTimer;
   Timer? _liveTimer;
+  bool _isTabActive = false;
 
   bool get _showCritical => _activeFilter != 'live' && _activeFilter == '24h';
 
@@ -61,6 +64,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
   void _startLiveTimer() {
     _liveTimer?.cancel();
+    if (!_isTabActive) return;
     _liveTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (mounted && _activeFilter == 'live') {
         _generateLive();
@@ -100,6 +104,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
   Future<void> _maybeAutoRefreshHistory() async {
     if (!mounted) return;
+    if (!_isTabActive) return;
     if (!_activeRangeIncludesToday) return;
     if (_isFetching) return; // another fetch is already in flight
     // Skip if we fetched this range recently (ESP writes every 10 min)
@@ -148,7 +153,39 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   void _onSettingsChanged() {
-    if (mounted) setState(() {});
+    if (mounted && _isTabActive) setState(() {});
+  }
+
+  void setTabActive(bool active) {
+    if (_isTabActive == active) return;
+    _isTabActive = active;
+    if (!active) {
+      _liveTimer?.cancel();
+      return;
+    }
+    if (_activeFilter == 'live') {
+      _generateLive();
+      _startLiveTimer();
+    } else if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _retryActiveRange() async {
+    final range = _activeFilter;
+    if (range == 'live' || _isFetching) return;
+    final requestId = ++_filterRequestId;
+    setState(() {
+      _isLoading = true;
+      _historyLoadFailed.remove(range);
+    });
+    await _generateData(range);
+    if (!mounted ||
+        requestId != _filterRequestId ||
+        _activeFilter != range) {
+      return;
+    }
+    setState(() => _isLoading = false);
   }
 
   static const Map<String, Map<String, String>> _historyFieldMap = {
@@ -172,23 +209,9 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       _generateLive();
       return;
     }
-    if (_isFetching) return;
-    _isFetching = true;
+    if (_fetchingRanges.contains(range)) return;
+    _fetchingRanges.add(range);
     _historyLoadFailed.remove(range);
-
-    int pts;
-    if (range == '24h') {
-      pts = 144; // 10-minute buckets × 24 hours
-    } else if (range == '7d') {
-      pts = 168; // hourly buckets × 7 days
-    } else if (range == '30d') {
-      pts = 30; // daily buckets
-    } else if (range == 'custom') {
-      pts = _customEndDate.difference(_customStartDate).inDays + 1;
-      pts = pts.clamp(1, 365).toInt();
-    } else {
-      pts = 10;
-    }
 
     final now = DateTime.now();
     late DateTime historyStart;
@@ -209,7 +232,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
         _customStartDate.month,
         _customStartDate.day,
       );
-      historyEnd = DateTime(
+      final selectedEnd = DateTime(
         _customEndDate.year,
         _customEndDate.month,
         _customEndDate.day,
@@ -218,6 +241,30 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
         59,
         999,
       );
+      historyEnd = selectedEnd.isAfter(now) ? now : selectedEnd;
+    }
+
+    var customGranularity = 'daily';
+    late final int pts;
+    if (range == '24h') {
+      pts = 144; // 10-minute buckets × 24 hours
+    } else if (range == '7d') {
+      pts = 168; // hourly buckets × 7 days
+    } else if (range == '30d') {
+      pts = 30; // daily buckets
+    } else if (range == 'custom') {
+      final span = historyEnd.difference(historyStart);
+      if (span <= const Duration(days: 1)) {
+        customGranularity = '10m';
+        pts = max(1, (span.inMilliseconds / 600000).ceil());
+      } else if (span <= const Duration(days: 7)) {
+        customGranularity = 'hourly';
+        pts = max(1, (span.inMilliseconds / 3600000).ceil());
+      } else {
+        pts = historyEnd.difference(historyStart).inDays + 1;
+      }
+    } else {
+      pts = 10;
     }
 
     List<Map<String, dynamic>> records;
@@ -247,7 +294,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       debugPrint('[Analytics] Failed to load $range history: $e');
       return;
     } finally {
-      _isFetching = false;
+      _fetchingRanges.remove(range);
     }
 
     if (records.isEmpty || pts == 0) {
@@ -270,7 +317,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     final parsedTs = records.map(_recordTime).toList();
     late final List<DateTime> labelTimes;
 
-    if (range == '24h') {
+    if (range == '24h' || (range == 'custom' && customGranularity == '10m')) {
       labelTimes = List<DateTime>.generate(
         pts,
         (i) => historyStart.add(Duration(minutes: i * 10)),
@@ -280,7 +327,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
         final ampm = d.hour >= 12 ? 'PM' : 'AM';
         return '${d.month}/${d.day} $h:${d.minute.toString().padLeft(2, '0')} $ampm';
       }).toList();
-    } else if (range == '7d') {
+    } else if (range == '7d' ||
+        (range == 'custom' && customGranularity == 'hourly')) {
       labelTimes = List<DateTime>.generate(
         pts,
         (i) => historyStart.add(Duration(hours: i)),
@@ -312,19 +360,22 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       final maxima = List<double>.filled(labelTimes.length, double.nan);
 
       for (int i = 0; i < labelTimes.length; i++) {
-        final bucketStart = range == '30d' || range == 'custom'
+        final usesDailyBuckets =
+            range == '30d' ||
+            (range == 'custom' && customGranularity == 'daily');
+        final bucketStart = usesDailyBuckets
             ? DateTime(
                 labelTimes[i].year,
                 labelTimes[i].month,
                 labelTimes[i].day,
               )
             : labelTimes[i];
-        final bucketEnd = switch (range) {
-          '24h' =>
+        final bucketEnd = switch ((range, customGranularity)) {
+          ('24h', _) || ('custom', '10m') =>
             i == labelTimes.length - 1
                 ? historyEnd.add(const Duration(microseconds: 1))
                 : bucketStart.add(const Duration(minutes: 10)),
-          '7d' =>
+          ('7d', _) || ('custom', 'hourly') =>
             i == labelTimes.length - 1
                 ? historyEnd.add(const Duration(microseconds: 1))
                 : bucketStart.add(const Duration(hours: 1)),
@@ -455,9 +506,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                     activeFilter: _activeFilter,
                     showCustom: _showCustom,
                     onFilterChanged: (val) async {
-                      if (_isFetching) {
-                        return; // don't stack requests on rapid taps
-                      }
+                      final requestId = ++_filterRequestId;
                       setState(() {
                         _activeFilter = val;
                         _showCustom = false;
@@ -471,24 +520,63 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                         _liveTimer?.cancel();
                         await _generateData(val);
                       }
-                      if (mounted) setState(() => _isLoading = false);
+                      if (mounted &&
+                          requestId == _filterRequestId &&
+                          _activeFilter == val) {
+                        setState(() => _isLoading = false);
+                      }
                     },
                     onToggleCustom: () {
                       setState(() => _showCustom = !_showCustom);
                     },
                   ),
                 ),
-                if (_showCustom)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: _buildCustomDateRow(),
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                  alignment: Alignment.topCenter,
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 180),
+                    switchInCurve: Curves.easeOutCubic,
+                    switchOutCurve: Curves.easeInCubic,
+                    transitionBuilder: (child, animation) => FadeTransition(
+                      opacity: animation,
+                      child: SizeTransition(
+                        sizeFactor: animation,
+                        alignment: Alignment.topCenter,
+                        child: child,
+                      ),
+                    ),
+                    child: _showCustom
+                        ? Padding(
+                            key: const ValueKey('custom-date-row'),
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            child: _buildCustomDateRow(),
+                          )
+                        : const SizedBox(key: ValueKey('custom-date-hidden')),
                   ),
+                ),
                 const SizedBox(height: 10),
-                if (_isLoading)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 40),
-                    child: Center(child: CircularProgressIndicator()),
-                  ),
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 160),
+                  child: _isLoading
+                      ? const Padding(
+                          key: ValueKey('analytics-loading'),
+                          padding: EdgeInsets.fromLTRB(12, 0, 12, 8),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.all(Radius.circular(4)),
+                            child: LinearProgressIndicator(
+                              minHeight: 3,
+                              color: AppColors.primary,
+                              backgroundColor: Color(0xFFE7F5F5),
+                            ),
+                          ),
+                        )
+                      : const SizedBox(
+                          key: ValueKey('analytics-loaded'),
+                          height: 11,
+                        ),
+                ),
                 if (!_isLoading &&
                     _activeFilter != 'live' &&
                     _historyLoadFailed.contains(_activeFilter))
@@ -507,18 +595,41 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                           color: AppColors.warning.withValues(alpha: 0.25),
                         ),
                       ),
-                      child: const Text(
-                        'Could not refresh history. Check your connection and try again.',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.dark,
-                        ),
+                      child: Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Could not refresh history. Check your connection and try again.',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.dark,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          TextButton(
+                            onPressed: _retryActiveRange,
+                            style: TextButton.styleFrom(
+                              foregroundColor: AppColors.primary,
+                              minimumSize: const Size(0, 34),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                              ),
+                            ),
+                            child: const Text(
+                              'Try Again',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
-                if (!_isLoading)
-                  Padding(
+                Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -768,13 +879,18 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
               onTapUp: (_) => setState(() => _isApplyPressed = false),
               onTapCancel: () => setState(() => _isApplyPressed = false),
               onTap: () async {
+                final requestId = ++_filterRequestId;
                 setState(() {
                   _activeFilter = 'custom';
                   _selectedIndices.clear();
                   _isLoading = true;
                 });
                 await _generateData('custom');
-                if (mounted) setState(() => _isLoading = false);
+                if (mounted &&
+                    requestId == _filterRequestId &&
+                    _activeFilter == 'custom') {
+                  setState(() => _isLoading = false);
+                }
               },
               child: Ink(
                 padding: const EdgeInsets.symmetric(

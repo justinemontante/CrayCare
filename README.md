@@ -8,7 +8,7 @@ IoT-based smart aquaculture monitoring system for crayfish farming.
 |---|---|
 | Mobile app | Flutter (Android/iOS/Web) |
 | Backend | Firebase (Auth, Firestore, Cloud Functions, FCM, Storage) |
-| ML | Python Cloud Function (Machine Learning-Based Water Quality Assessment using XGBoost) |
+| ML | Python Cloud Function (unsupervised Machine Learning-Based Water Quality Anomaly Detection using Isolation Forest) |
 | Hardware | ESP32 (ESP-IDF/Arduino via PlatformIO) with temp, pH, DO, turbidity, water-level sensors + auto-feeder + pump + 2 aerators |
 
 ## Architecture
@@ -18,27 +18,26 @@ ESP32 (anonymous device session)
   → writes sensorIngestion/current (+ 10-minute history)
       → Cloud Function routes to tanks/{tankId}/sensor_readings/latest + history
           → Flutter app reads live/analytics data
-          → hourly Python Water Quality Assessment analyzes ≥6 complete history windows
-              → tanks/{tankId}/machine_learning_assessments/current → dashboard + AI insights
+          → hourly Python WQAD analyzes 12 complete ten-minute history windows
+              → tanks/{tankId}/water_quality_anomaly_detections/current → dashboard + AI insights
 ```
 
-### Machine Learning-Based Water Quality Assessment
+### Machine Learning-Based Water Quality Anomaly Detection
 
-The Water Quality Assessment combines pH, temperature, dissolved oxygen,
-turbidity, water level, and their recent trends to determine the overall water
-condition, identify emerging risks, and generate insights and recommendations.
-A machine-learning model is used as part of the Water Quality Assessment to
-determine the overall water condition. Immediate actuator
-control remains threshold-based; the ML feature provides the broader trend-aware
-assessment and early warning.
+WQAD learns the usual combined behavior of pH, temperature, dissolved oxygen,
+turbidity, water level, and their recent trends. It returns `Normal`, `Unusual`,
+or `Insufficient`, ranks the main contributing sensors, and generates a
+verification-focused insight and recommendation. It does not classify biological
+safety and does not use sensor-threshold labels. Immediate alerts and actuator
+control remain in the separate threshold-based safety layer.
 
 ### Android Live Tank Status Widget
 
 The resizable Android home-screen widget shows the ESP32 online state, latest
-Water Quality Assessment and primary concern, all five live sensor values with
+Water Quality Anomaly Detection and primary concern, all five live sensor values with
 their individual threshold status, the next enabled feeding time, and the last
 refresh time. The Flutter app pushes a cached snapshot to the native widget
-whenever sensor, assessment, feeder, connectivity, or threshold data changes.
+whenever sensor, anomaly-detection, feeder, connectivity, or threshold data changes.
 Tapping the widget opens CrayCare. After installing a build containing the
 feature, add it from the Android launcher widget picker as **CrayCare**.
 
@@ -56,6 +55,7 @@ clock and uninterrupted power during the outage.
 ## Firestore schema and audits
 
 - [`docs/FIRESTORE_STRUCTURE_ACTUAL.md`](docs/FIRESTORE_STRUCTURE_ACTUAL.md)
+- [`docs/craycare_erd.dbml`](docs/craycare_erd.dbml) — normalized 3NF SQL logical ERD for thesis documentation
 - [`docs/DATABASE_INTEGRATION_AUDIT.md`](docs/DATABASE_INTEGRATION_AUDIT.md)
 - [`docs/CODEBASE_REGRESSION_AUDIT.md`](docs/CODEBASE_REGRESSION_AUDIT.md)
 

@@ -75,7 +75,7 @@ class SettingsService extends ChangeNotifier {
     final data = doc.data();
     // Admins do NOT own a tank — never resolve (or create) a tank for them.
     if (data?['role'] == 'admin') return null;
-    _tankId = data?['tank_id'] as String? ?? uid;
+    _tankId = uid;
     return _tankId;
   }
 
@@ -142,7 +142,8 @@ class SettingsService extends ChangeNotifier {
                 final capacity = (data['hopper_capacity_grams'] as num?)
                     ?.toDouble();
                 final current = _ranges[shortKey];
-                final feedConfigChanged = shortKey == 'feedlevel' &&
+                final feedConfigChanged =
+                    shortKey == 'feedlevel' &&
                     (current?['critical'] != critical ||
                         current?['capacity_grams'] != capacity);
                 if (min != null &&
@@ -184,6 +185,19 @@ class SettingsService extends ChangeNotifier {
       if (user == null) return;
       final tankId = await _resolveTankId(user.uid);
       if (tankId == null) return;
+
+      final tank = await FirebaseFirestore.instance
+          .collection('tanks')
+          .doc(tankId)
+          .get();
+      if (!tank.exists ||
+          tank.data()?['owner_uid'] != user.uid ||
+          tank.data()?['is_initialized'] != true) {
+        // Registration intentionally has no tank. Keep local defaults and let
+        // the realtime listener pick up sensor documents after Tank Setup.
+        notifyListeners();
+        return;
+      }
 
       // Start only from defaults + this tank's own local cache.
       _resetRangesToDefaults();
@@ -275,6 +289,16 @@ class SettingsService extends ChangeNotifier {
       final tankId = await _resolveTankId(user.uid);
       if (tankId == null) return;
 
+      final tank = await FirebaseFirestore.instance
+          .collection('tanks')
+          .doc(tankId)
+          .get();
+      if (!tank.exists ||
+          tank.data()?['owner_uid'] != user.uid ||
+          tank.data()?['is_initialized'] != true) {
+        return;
+      }
+
       final tankRef = FirebaseFirestore.instance
           .collection('tanks')
           .doc(tankId);
@@ -338,6 +362,12 @@ class SettingsService extends ChangeNotifier {
       final tankRef = FirebaseFirestore.instance
           .collection('tanks')
           .doc(tankId);
+      final tank = await tankRef.get();
+      if (!tank.exists ||
+          tank.data()?['owner_uid'] != user.uid ||
+          tank.data()?['is_initialized'] != true) {
+        return;
+      }
       final batch = FirebaseFirestore.instance.batch();
       for (final e in defaultRanges.entries) {
         final longKey = _longKeyFor[e.key];

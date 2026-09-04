@@ -9,7 +9,7 @@ import 'connectivity_service.dart';
 import 'feeder_service.dart';
 import 'sensor_service.dart';
 import 'settings_service.dart';
-import 'water_quality_assessment_service.dart';
+import 'water_quality_anomaly_detection_service.dart';
 
 /// Keeps the Android home-screen widget synchronized with CrayCare's existing
 /// realtime services. The native widget reads this compact cached snapshot, so
@@ -33,7 +33,7 @@ class HomeWidgetService {
 
     SensorService.instance.addListener(_scheduleSync);
     SettingsService.instance.addListener(_scheduleSync);
-    WaterQualityAssessmentService.instance.addListener(_scheduleSync);
+    WaterQualityAnomalyDetectionService.instance.addListener(_scheduleSync);
     FeederService.instance.addListener(_scheduleSync);
     ConnectivityService.instance.addListener(_scheduleSync);
     _authSub = FirebaseAuth.instance.authStateChanges().listen((_) {
@@ -53,14 +53,14 @@ class HomeWidgetService {
   Future<void> _writeSnapshot() async {
     final user = FirebaseAuth.instance.currentUser;
     final sensors = SensorService.instance;
-    final assessment = WaterQualityAssessmentService.instance.result;
+    final anomaly = WaterQualityAnomalyDetectionService.instance.result;
     final snapshot = <String, Object>{};
 
     if (user == null) {
       snapshot.addAll({
         'widget_signed_in': false,
         'widget_online': false,
-        'widget_wqa': 'SIGN IN REQUIRED',
+        'widget_wqad': 'SIGN IN REQUIRED',
         'widget_concern': 'Open CrayCare to sign in',
         'widget_temperature_value': '--',
         'widget_temperature_status': 'UNKNOWN',
@@ -84,30 +84,20 @@ class HomeWidgetService {
 
     snapshot['widget_signed_in'] = true;
     snapshot['widget_online'] = sensors.isEspOnline;
-    snapshot['widget_wqa'] = assessment?.hasData == true
-        ? assessment!.level.toUpperCase()
+    snapshot['widget_wqad'] = anomaly?.hasData == true
+        ? anomaly!.status.toUpperCase()
         : 'WAITING';
-    snapshot['widget_concern'] = assessment?.hasData == true
-        ? _formatConcern(assessment!)
-        : 'Collecting assessment history';
+    snapshot['widget_concern'] = anomaly?.hasData == true
+        ? _formatConcern(anomaly!)
+        : anomaly?.source == 'Stale sensor history'
+        ? 'Sensor history is stale; check connectivity'
+        : 'Collecting anomaly baseline';
 
     _writeSensor(snapshot, 'temp', 'temperature', '°C', decimals: 1);
     _writeSensor(snapshot, 'ph', 'ph', '', decimals: 2);
-    _writeSensor(
-      snapshot,
-      'do',
-      'dissolved_oxygen',
-      'mg/L',
-      decimals: 1,
-    );
+    _writeSensor(snapshot, 'do', 'dissolved_oxygen', 'mg/L', decimals: 1);
     _writeSensor(snapshot, 'turb', 'turbidity', 'NTU', decimals: 1);
-    _writeSensor(
-      snapshot,
-      'waterlevel',
-      'water_level',
-      'cm',
-      decimals: 1,
-    );
+    _writeSensor(snapshot, 'waterlevel', 'water_level', 'cm', decimals: 1);
 
     final now = manilaWallClock();
     final feeder = FeederService.instance;
@@ -156,8 +146,9 @@ class HomeWidgetService {
         : zone;
   }
 
-  String _formatConcern(WaterQualityAssessmentResult assessment) {
-    if (assessment.driver == 'overall') return 'All parameters stable';
+  String _formatConcern(WaterQualityAnomalyDetectionResult anomaly) {
+    if (!anomaly.isAnomaly) return 'Combined sensor pattern is normal';
+    if (anomaly.driver == 'overall') return 'Unusual combined pattern';
     const sensorKey = {
       'temp': 'temp',
       'pH': 'ph',
@@ -165,16 +156,16 @@ class HomeWidgetService {
       'turbidity': 'turb',
       'waterLevel': 'waterlevel',
     };
-    final key = sensorKey[assessment.driver];
-    if (key == null) return assessment.driverLabel;
+    final key = sensorKey[anomaly.driver];
+    if (key == null) return anomaly.driverLabel;
     final trend = SensorService.instance.getTrendRate(key);
     final threshold = switch (key) {
       'ph' => 0.01,
       'turb' => 0.10,
       _ => 0.03,
     };
-    if (trend.abs() < threshold) return assessment.driverLabel;
-    return '${assessment.driverLabel} ${trend < 0 ? 'decreasing' : 'increasing'}';
+    if (trend.abs() < threshold) return anomaly.driverLabel;
+    return '${anomaly.driverLabel} ${trend < 0 ? 'decreasing' : 'increasing'}';
   }
 
   String _formatFeedOccurrence(DateTime value, DateTime now) {
@@ -229,7 +220,7 @@ class HomeWidgetService {
     _authSub?.cancel();
     SensorService.instance.removeListener(_scheduleSync);
     SettingsService.instance.removeListener(_scheduleSync);
-    WaterQualityAssessmentService.instance.removeListener(_scheduleSync);
+    WaterQualityAnomalyDetectionService.instance.removeListener(_scheduleSync);
     FeederService.instance.removeListener(_scheduleSync);
     ConnectivityService.instance.removeListener(_scheduleSync);
     _initialized = false;

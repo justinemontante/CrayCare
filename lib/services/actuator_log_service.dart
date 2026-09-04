@@ -84,7 +84,7 @@ class ActuatorLogService extends ChangeNotifier {
         notifyListeners();
         return;
       }
-      final tankId = profile?['tank_id'] as String? ?? uid;
+      final tankId = uid;
       await _startTankListeners(uid, tankId);
     } catch (e) {
       debugPrint('[ActuatorLogService] Listener setup error: $e');

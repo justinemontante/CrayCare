@@ -8,12 +8,18 @@ class NotifSettings extends StatefulWidget {
   final bool notifWarning;
   final bool notifFeeding;
   final bool notifSampling;
+  final bool notifOperational;
+  final String notificationPermissionStatus;
+  final bool notificationPermissionAllowed;
+  final bool notificationPermissionBusy;
+  final VoidCallback onNotificationPermissionAction;
   final ValueChanged<bool?> onNotifSoundChanged;
   final ValueChanged<bool?> onNotifVibrationChanged;
   final ValueChanged<bool?> onNotifCriticalChanged;
   final ValueChanged<bool?> onNotifWarningChanged;
   final ValueChanged<bool?> onNotifFeedingChanged;
   final ValueChanged<bool?> onNotifSamplingChanged;
+  final ValueChanged<bool?> onNotifOperationalChanged;
 
   const NotifSettings({
     super.key,
@@ -23,12 +29,18 @@ class NotifSettings extends StatefulWidget {
     required this.notifWarning,
     required this.notifFeeding,
     required this.notifSampling,
+    required this.notifOperational,
+    required this.notificationPermissionStatus,
+    required this.notificationPermissionAllowed,
+    required this.notificationPermissionBusy,
+    required this.onNotificationPermissionAction,
     required this.onNotifSoundChanged,
     required this.onNotifVibrationChanged,
     required this.onNotifCriticalChanged,
     required this.onNotifWarningChanged,
     required this.onNotifFeedingChanged,
     required this.onNotifSamplingChanged,
+    required this.onNotifOperationalChanged,
   });
 
   @override
@@ -42,6 +54,7 @@ class _NotifSettingsState extends State<NotifSettings> {
   late bool _notifWarning;
   late bool _notifFeeding;
   late bool _notifSampling;
+  late bool _notifOperational;
 
   @override
   void initState() {
@@ -62,21 +75,22 @@ class _NotifSettingsState extends State<NotifSettings> {
     _notifWarning = widget.notifWarning;
     _notifFeeding = widget.notifFeeding;
     _notifSampling = widget.notifSampling;
+    _notifOperational = widget.notifOperational;
   }
 
   @override
   Widget build(BuildContext context) {
     return ColoredBox(
       color: Colors.white,
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 28),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _buildIntroCard(),
-            const SizedBox(height: 24),
+            const SizedBox(height: 14),
             _buildSectionLabel(Icons.settings_outlined, 'GENERAL'),
-            const SizedBox(height: 10),
+            const SizedBox(height: 7),
             _buildToggleGroup([
               _NotifItem(
                 label: 'Notification Sound',
@@ -101,9 +115,12 @@ class _NotifSettingsState extends State<NotifSettings> {
                 },
               ),
             ]),
-            const SizedBox(height: 24),
-            _buildSectionLabel(Icons.notifications_active_outlined, 'ALERTS & REMINDERS'),
-            const SizedBox(height: 10),
+            const SizedBox(height: 16),
+            _buildSectionLabel(
+              Icons.notifications_active_outlined,
+              'ALERTS & REMINDERS',
+            ),
+            const SizedBox(height: 7),
             _buildToggleGroup([
               _NotifItem(
                 label: 'Critical Alerts',
@@ -149,6 +166,17 @@ class _NotifSettingsState extends State<NotifSettings> {
                   widget.onNotifSamplingChanged(value);
                 },
               ),
+              _NotifItem(
+                label: 'Automatic System Updates',
+                subtitle: 'Pump, aerator, and sensor recovery updates',
+                icon: Icons.settings_suggest_rounded,
+                color: AppColors.normal,
+                value: _notifOperational,
+                onChanged: (value) {
+                  setState(() => _notifOperational = value ?? true);
+                  widget.onNotifOperationalChanged(value);
+                },
+              ),
             ]),
           ],
         ),
@@ -164,60 +192,76 @@ class _NotifSettingsState extends State<NotifSettings> {
       _notifWarning,
       _notifFeeding,
       _notifSampling,
+      _notifOperational,
     ].where((enabled) => enabled).length;
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.primary.withValues(alpha: 0.10)),
         boxShadow: [
           BoxShadow(
             color: AppColors.darkWith(0.055),
-            blurRadius: 16,
-            offset: const Offset(0, 5),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
           ),
         ],
       ),
       child: Row(
         children: [
           Container(
-            width: 48,
-            height: 48,
+            width: 42,
+            height: 42,
             decoration: BoxDecoration(
               color: AppColors.primary.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(15),
+              borderRadius: BorderRadius.circular(12),
             ),
-            child: const Icon(Icons.notifications_none_rounded, color: AppColors.primary, size: 25),
+            child: const Icon(
+              Icons.notifications_none_rounded,
+              color: AppColors.primary,
+              size: 22,
+            ),
           ),
-          const SizedBox(width: 13),
+          const SizedBox(width: 11),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
                   'Stay informed',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppColors.dark),
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.dark,
+                  ),
                 ),
-                const SizedBox(height: 3),
+                const SizedBox(height: 2),
                 Text(
-                  '$enabledCount of 6 notification options enabled',
-                  style: const TextStyle(fontSize: 10.5, color: AppColors.subtitleText),
+                  '$enabledCount of 7 notification options enabled',
+                  style: const TextStyle(
+                    fontSize: 9.5,
+                    color: AppColors.subtitleText,
+                  ),
                 ),
               ],
             ),
           ),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
             decoration: BoxDecoration(
               color: AppColors.success.withValues(alpha: 0.09),
               borderRadius: BorderRadius.circular(9),
             ),
             child: Text(
-              '$enabledCount/6 ON',
-              style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: AppColors.success),
+              '$enabledCount/7 ON',
+              style: const TextStyle(
+              fontSize: 8.5,
+                fontWeight: FontWeight.w800,
+                color: AppColors.success,
+              ),
             ),
           ),
         ],
@@ -228,19 +272,24 @@ class _NotifSettingsState extends State<NotifSettings> {
   Widget _buildSectionLabel(IconData icon, String label) {
     return Row(
       children: [
-        Icon(icon, size: 18, color: AppColors.primary),
-        const SizedBox(width: 8),
+        Icon(icon, size: 16, color: AppColors.primary),
+        const SizedBox(width: 7),
         Text(
           label,
           style: const TextStyle(
-            fontSize: 12,
+            fontSize: 11,
             fontWeight: FontWeight.w800,
             color: AppColors.primary,
             letterSpacing: 0.35,
           ),
         ),
-        const SizedBox(width: 12),
-        Expanded(child: Container(height: 1, color: AppColors.primary.withValues(alpha: 0.14))),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Container(
+            height: 1,
+            color: AppColors.primary.withValues(alpha: 0.14),
+          ),
+        ),
       ],
     );
   }
@@ -249,15 +298,8 @@ class _NotifSettingsState extends State<NotifSettings> {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.darkWith(0.05)),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.darkWith(0.045),
-            blurRadius: 14,
-            offset: const Offset(0, 4),
-          ),
-        ],
       ),
       child: Column(
         children: List.generate(items.length, (index) {
@@ -266,8 +308,12 @@ class _NotifSettingsState extends State<NotifSettings> {
               _buildToggleRow(items[index]),
               if (index < items.length - 1)
                 Padding(
-                  padding: const EdgeInsets.only(left: 68, right: 16),
-                  child: Divider(height: 1, thickness: 1, color: AppColors.darkWith(0.06)),
+                  padding: const EdgeInsets.only(left: 58, right: 12),
+                  child: Divider(
+                    height: 1,
+                    thickness: 1,
+                    color: AppColors.darkWith(0.06),
+                  ),
                 ),
             ],
           );
@@ -279,21 +325,21 @@ class _NotifSettingsState extends State<NotifSettings> {
   Widget _buildToggleRow(_NotifItem item) {
     return InkWell(
       onTap: () => item.onChanged(!item.value),
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(16),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+        padding: const EdgeInsets.fromLTRB(11, 8, 8, 8),
         child: Row(
           children: [
             Container(
-              width: 42,
-              height: 42,
+              width: 38,
+              height: 38,
               decoration: BoxDecoration(
                 color: item.color.withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(13),
+                borderRadius: BorderRadius.circular(11),
               ),
-              child: Icon(item.icon, size: 21, color: item.color),
+              child: Icon(item.icon, size: 19, color: item.color),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -301,28 +347,35 @@ class _NotifSettingsState extends State<NotifSettings> {
                   Text(
                     item.label,
                     style: const TextStyle(
-                      fontSize: 12.5,
+                      fontSize: 12,
                       fontWeight: FontWeight.w800,
                       color: AppColors.dark,
                     ),
                   ),
-                  const SizedBox(height: 3),
+                  const SizedBox(height: 1),
                   Text(
                     item.subtitle,
-                    style: const TextStyle(fontSize: 9.5, color: AppColors.subtitleText),
+                    style: const TextStyle(
+                      fontSize: 9.2,
+                      color: AppColors.subtitleText,
+                    ),
                   ),
                 ],
               ),
             ),
-            Transform.scale(
-              scale: 0.76,
-              child: Switch(
-                value: item.value,
-                onChanged: item.onChanged,
-                activeThumbColor: AppColors.primary,
-                activeTrackColor: AppColors.primaryWith(0.24),
-                inactiveThumbColor: Colors.white,
-                inactiveTrackColor: AppColors.darkWith(0.12),
+            SizedBox(
+              width: 42,
+              height: 30,
+              child: FittedBox(
+                fit: BoxFit.contain,
+                child: Switch(
+                  value: item.value,
+                  onChanged: item.onChanged,
+                  activeThumbColor: AppColors.primary,
+                  activeTrackColor: AppColors.primaryWith(0.24),
+                  inactiveThumbColor: Colors.white,
+                  inactiveTrackColor: AppColors.darkWith(0.12),
+                ),
               ),
             ),
           ],

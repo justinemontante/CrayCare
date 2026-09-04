@@ -76,14 +76,14 @@ class CrayCareWidgetProvider : AppWidgetProvider() {
                 if (online) Color.parseColor("#168B82") else Color.parseColor("#DC3545"),
             )
 
-            val assessment = prefs.getString("widget_wqa", "WAITING") ?: "WAITING"
-            views.setTextViewText(R.id.widget_assessment, assessment)
-            views.setTextColor(R.id.widget_assessment, statusColor(assessment))
+            val anomalyStatus = prefs.getString("widget_wqad", "WAITING") ?: "WAITING"
+            views.setTextViewText(R.id.widget_anomaly_status, anomalyStatus)
+            views.setTextColor(R.id.widget_anomaly_status, statusColor(anomalyStatus))
             views.setTextViewText(
                 R.id.widget_concern,
                 prefs.getString(
                     "widget_concern",
-                    if (signedIn) "Collecting assessment history" else "Open CrayCare to sign in",
+                    if (signedIn) "Learning the tank's usual pattern" else "Open CrayCare to sign in",
                 ),
             )
 
@@ -144,7 +144,7 @@ class CrayCareWidgetProvider : AppWidgetProvider() {
 
         private fun statusColor(status: String): Int = when (status.uppercase()) {
             "NORMAL", "GOOD" -> Color.parseColor("#168B82")
-            "WARNING", "MODERATE" -> Color.parseColor("#D48806")
+            "UNUSUAL", "WARNING", "MODERATE" -> Color.parseColor("#D48806")
             "CRITICAL", "POOR" -> Color.parseColor("#DC3545")
             else -> Color.parseColor("#7A8A94")
         }

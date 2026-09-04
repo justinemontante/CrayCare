@@ -23,43 +23,13 @@ class SamplingTab extends StatelessWidget {
           if (!TankService.instance.isInitialized)
             _buildEmptyState()
           else ...[
-            _buildSectionHeader(),
-            const SizedBox(height: 8),
             NextSamplingPanel(),
-            const SizedBox(height: 12),
-            GrowthOverviewPanel(),
             const SizedBox(height: 12),
             SamplingFormPanel(),
             const SizedBox(height: 12),
+            GrowthOverviewPanel(),
+            const SizedBox(height: 12),
           ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSectionHeader() {
-    return Padding(
-      padding: const EdgeInsets.only(left: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Record Sampling',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w900,
-              color: AppColors.dark,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            'Weigh & measure to compute ABW and ABL.',
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w500,
-              color: AppColors.dark.withValues(alpha: 0.5),
-            ),
-          ),
         ],
       ),
     );
@@ -73,7 +43,13 @@ class SamplingTab extends StatelessWidget {
         color: const Color(0xFFFCFCFC),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: AppColors.darkWith(0.08)),
-        boxShadow: AppShadows.card,
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.darkWith(0.025),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -129,12 +105,11 @@ class NextSamplingPanel extends StatelessWidget {
     // Current culture day (date-based; setup day = Day 0, next calendar day
     // = Day 1 even if stocking was late at night).
     final currentDay = service.daysInCulture;
-    // Week number shown is the NEXT weekly sampling to be recorded. The
-    // initial baseline at stocking doesn't count as Week 1. So before the
-    // first weekly sample this reads "Week 1", after it "Week 2", etc.
+    // Session number is based on completed weekly records. Calling this a
+    // session avoids showing an incorrect culture week when one was missed.
     final completedWeekly =
         service.samplingHistory.where((e) => !e.isBaseline).length;
-    final nextWeekNum = completedWeekly + 1;
+    final nextSessionNum = completedWeekly + 1;
 
     return Container(
       width: double.infinity,
@@ -143,7 +118,13 @@ class NextSamplingPanel extends StatelessWidget {
         color: const Color(0xFFFCFCFC),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: AppColors.darkWith(0.08)),
-        boxShadow: AppShadows.card,
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.darkWith(0.025),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -176,7 +157,7 @@ class NextSamplingPanel extends StatelessWidget {
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
-                  'Week $nextWeekNum',
+                  'Session $nextSessionNum',
                   style: const TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.w800,
@@ -495,7 +476,13 @@ class GrowthOverviewPanel extends StatelessWidget {
         color: const Color(0xFFFCFCFC),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: AppColors.darkWith(0.08)),
-        boxShadow: AppShadows.card,
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.darkWith(0.025),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -966,9 +953,8 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
     final history = TankService.instance.samplingHistory
         .where((entry) => !entry.isBaseline)
         .toList();
-    // Sample size stays FIXED for the whole batch (consistency standard).
-    // It always mirrors the batch's initial sample count, never the last
-    // record — so week-over-week ABW/ABL comparisons stay apples-to-apples.
+    // Keep one planned sample size for the entire batch so every weekly
+    // sampling session follows the same collection method.
     final fixedSampleSize = TankService.instance.sampleCount;
     _countController.text = fixedSampleSize.toString();
     if (history.isNotEmpty) {
@@ -1097,12 +1083,15 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
   }
 
   void _revalidateCount() {
-    // Sample count is fixed for the whole batch — validate the fixed size
-    // against the live count (it can never exceed the crayfish in the tank).
     final count = TankService.instance.sampleCount;
-    final maxSample = TankService.instance.inTankCount;
-    if (count > 0 && maxSample > 0 && count > maxSample) {
-      setState(() => _countError = 'Sample size ($count) exceeds live count ($maxSample)');
+    final inTankCount = TankService.instance.inTankCount;
+    if (count <= 0) {
+      setState(() => _countError = 'No sample size was set for this batch');
+    } else if (inTankCount < count) {
+      setState(
+        () => _countError =
+            'Needs $count crayfish, but only $inTankCount remain in the tank',
+      );
     } else {
       setState(() => _countError = null);
     }
@@ -1126,45 +1115,19 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
     {
       final wasEditing = _isEditing;
       final service = TankService.instance;
-      final history = service.samplingHistory;
-
-      // Sample count is FIXED for the whole batch — always use the batch's
-      // initial sample count so every weekly ABW/ABL comparison is fair.
       final count = service.sampleCount;
       if (count <= 0) {
         showBeautifulSnackbar(
           context,
-          'No sample size set. Please complete the initial setup first.',
+          'No sample size was set for this batch.',
           false,
         );
         return;
       }
-
-      // Get previous values to compare against (average-based, so the check
-      // stays valid even if the fixed sample size changes between batches).
-      final lastEntry = (wasEditing && history.length > 1)
-          ? history[history.length - 2]
-          : (history.isNotEmpty ? history.last : null);
-
-      final lastAbw = lastEntry != null ? lastEntry.abw : service.initialWeight;
-      final lastAbl = lastEntry != null ? lastEntry.avgLength : service.initialLength;
-
-      final newAbw = weight / count;
-      final newAbl = length / count;
-
-      final List<String> errors = [];
-      if (newAbw < lastAbw) {
-        errors.add('ABW must be at least ${lastAbw.toStringAsFixed(2)} g (${lastAbw.toStringAsFixed(2)}g avg per crayfish)');
-      }
-      if (newAbl < lastAbl) {
-        errors.add('ABL must be at least ${lastAbl.toStringAsFixed(2)} cm');
-      }
-
-      if (errors.isNotEmpty) {
-        final errorMsg = 'Sample ${errors.join(' and ')}';
+      if (service.inTankCount < count) {
         showBeautifulSnackbar(
           context,
-          errorMsg,
+          'Sampling needs $count crayfish, but only ${service.inTankCount} remain in the tank.',
           false,
         );
         return;
@@ -1218,6 +1181,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
       return;
     }
     setState(() {
+      _countController.text = TankService.instance.sampleCount.toString();
       _isRecorded = false;
       _isEditing = true;
     });
@@ -1238,10 +1202,19 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFFCFCFC),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.darkWith(0.08)),
-        boxShadow: AppShadows.card,
+        border: Border.all(
+          color: AppColors.primary.withValues(alpha: 0.2),
+          width: 1.2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withValues(alpha: 0.07),
+            blurRadius: 14,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1293,28 +1266,25 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
             ],
           ),
           const SizedBox(height: 12),
-          const SizedBox(height: 12),
+          _buildInputCard(
+            Image.asset(
+              'assets/images/SampleCount.png',
+              width: 20,
+              height: 20,
+            ),
+            'Sample Size',
+            'Fixed for all sampling sessions in this batch',
+            '10',
+            _countController,
+            enabled: false,
+            hasError: _countError != null,
+            onChanged: _revalidateCount,
+            subtitleBottomSpacing: 8,
+          ),
+          const SizedBox(height: 8),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: _buildInputCard(
-                  Image.asset(
-                    'assets/images/SampleCount.png',
-                    width: 20,
-                    height: 20,
-                  ),
-                  'Sample Size',
-                  'Crayfish sampled',
-                  '10',
-                  _countController,
-                  enabled: false,
-                  hasError: _countError != null,
-                  onChanged: _revalidateCount,
-                  subtitleBottomSpacing: 20,
-                ),
-              ),
-              const SizedBox(width: 8),
               Expanded(
                 child: _buildInputCard(
                   Image.asset(
@@ -1323,7 +1293,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
                     height: 20,
                   ),
                   'Sample Weight',
-                  'Weight of samples',
+                  'Total weight (g)',
                   '150',
                   _weightController,
                   enabled: (!_isRecorded && canSample) || _isEditing,
@@ -1338,7 +1308,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
                     height: 20,
                   ),
                   'Sample Length',
-                  'Length of samples',
+                  'Total length (cm)',
                   '60',
                   _lengthController,
                   enabled: (!_isRecorded && canSample) || _isEditing,

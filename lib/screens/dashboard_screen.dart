@@ -25,15 +25,16 @@ class DashboardScreen extends StatefulWidget {
   });
 
   @override
-  State<DashboardScreen> createState() => _DashboardScreenState();
+  State<DashboardScreen> createState() => DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen>
+class DashboardScreenState extends State<DashboardScreen>
     with SingleTickerProviderStateMixin {
   final ScrollController _quickActionsController = ScrollController();
   Timer? _countdownTimer;
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
+  bool _isTabActive = true;
 
   @override
   void initState() {
@@ -52,8 +53,19 @@ class _DashboardScreenState extends State<DashboardScreen>
     FeedState.feederLogs.addListener(_refreshUI);
     _refreshUI();
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() {});
+      if (mounted && _isTabActive) setState(() {});
     });
+  }
+
+  void setTabActive(bool active) {
+    if (_isTabActive == active) return;
+    _isTabActive = active;
+    if (active) {
+      _pulseController.repeat(reverse: true);
+      if (mounted) setState(() {});
+    } else {
+      _pulseController.stop();
+    }
   }
 
   @override
@@ -70,7 +82,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   void _refreshUI() {
-    if (!mounted) return;
+    if (!mounted || !_isTabActive) return;
     setState(() {});
   }
 
@@ -317,9 +329,9 @@ class _DashboardScreenState extends State<DashboardScreen>
     final IconData bannerIcon;
     final tankService = TankService.instance;
     if (!tankService.isInitialized) {
-      // Owner has a tank but hasn't set it up yet — clearer than
-      // "no tank assigned" and it updates in real time if the tank doc
-      // is deleted (TankService resets on tank deletion).
+      // A registered owner may not have a tank document until first setup.
+      // TankService also returns here for an existing tank with no active
+      // initialized grow-out batch.
       message =
           'Tank not set up yet — initialize your grow-out batch to start seeing sensor data.';
       bannerIcon = Icons.info_outline_rounded;
@@ -338,7 +350,7 @@ class _DashboardScreenState extends State<DashboardScreen>
           'Syncing $n offline reading${n == 1 ? '' : 's'} captured during the outage…';
       bannerIcon = Icons.sync_rounded;
     } else {
-      message = 'ESP32 Offline — No live sensor updates';
+      message = 'Sensors offline — waiting for new readings';
       bannerIcon = Icons.wifi_off_rounded;
     }
 
@@ -346,7 +358,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     return Container(
       margin: const EdgeInsets.fromLTRB(14, 3, 14, 2),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
         color: isErrorState ? const Color(0xFFFFF3F0) : const Color(0xFFFFF8E1),
         borderRadius: BorderRadius.circular(10),
@@ -369,6 +381,8 @@ class _DashboardScreenState extends State<DashboardScreen>
           Expanded(
             child: Text(
               message,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w500,
@@ -742,6 +756,14 @@ class _DashboardScreenState extends State<DashboardScreen>
                 hasData: ss.hasSensorData('feedlevel'),
                 sensorKey: 'feedlevel',
                 rawValue: ss.getLatestValue('feedlevel'),
+                onTap: () => _showGaugeDetail(
+                  context,
+                  sensorKey: 'feedlevel',
+                  title: 'Feed Level',
+                  unit: '%',
+                  ideal: _getIdealText('feedlevel'),
+                  iconPath: 'assets/images/FeedingImage.png',
+                ),
               ),
             ),
           ],
@@ -1449,7 +1471,8 @@ class _DashboardScreenState extends State<DashboardScreen>
     final nextOccurrence = nextEnabledFeeding(
       sorted,
       now,
-      skipToday: (schedule) => statuses[schedule] == 'completed',
+      skipToday: (schedule) =>
+          const ['completed', 'skipped', 'failed'].contains(statuses[schedule]),
     );
     final nextFeed = nextOccurrence?.schedule;
     final nextFeedAt = nextOccurrence?.at;
@@ -1477,7 +1500,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       if (dh > 0) parts.add('${dh}h');
       parts.add('${dm}m');
       parts.add('${ds}s');
-      nextLabel = '${_feedingDayLabel(nextFeedAt, now)} • ${parts.join(' ')}';
+      nextLabel = '${_feedingDayLabel(nextFeedAt, now)}\n${parts.join(' ')}';
     }
 
     return Container(
@@ -1555,8 +1578,8 @@ class _DashboardScreenState extends State<DashboardScreen>
               Expanded(
                 child: _buildFeederSummaryTile(
                   icon: Icons.scale_outlined,
-                  label: 'CONSUMPTION TODAY',
-                  value: '${consumptionToday.toStringAsFixed(0)} g',
+                  label: 'CONSUMPTION\nTODAY',
+                  value: '~${consumptionToday.toStringAsFixed(0)} g',
                   detail:
                       '$completedToday completed feeding${completedToday == 1 ? '' : 's'}',
                   color: AppColors.primary,
@@ -1658,6 +1681,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                     const SizedBox(height: 2),
                     Text(
                       nextLabel,
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
                       style: const TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w500,
@@ -1775,10 +1800,11 @@ class _DashboardScreenState extends State<DashboardScreen>
               children: [
                 Text(
                   label,
-                  maxLines: 1,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 7.5,
+                    height: 1.1,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 0.35,
                     color: AppColors.darkWith(0.5),
@@ -1834,21 +1860,10 @@ class _DashboardScreenState extends State<DashboardScreen>
   String _scheduleStatus(ScheduleItem s, DateTime now) {
     if (!s.enabled) return 'disabled';
     if (!feederScheduleRunsOnDate(s, now)) return 'off_today';
-    if (s.isDone) return 'completed';
+    final outcome = feederRecordedOutcome(s, now, FeedState.feederLogs.value);
+    if (outcome != null) return outcome;
     final scheduleTimeStr = '${s.time} ${s.ampm}';
     final todayStr = _logDateString(now);
-    for (final log in FeedState.feederLogs.value) {
-      final action = log.action.toLowerCase();
-      final isConfirmedSchedule =
-          log.type == 'auto' &&
-          (action.contains('dispensed feed (scheduled)') ||
-              action.contains('auto feed dispensed'));
-      if (isConfirmedSchedule &&
-          log.time == scheduleTimeStr &&
-          log.date == todayStr) {
-        return 'completed';
-      }
-    }
     for (final log in FeedState.feederLogs.value) {
       if (log.type == 'missed' &&
           s.id != null &&
@@ -2084,7 +2099,9 @@ class _DashboardScreenState extends State<DashboardScreen>
             final value = ss.getLatestValue(sensorKey);
             final status = _getStatus(sensorKey);
             final statusColor = _getStatusColor(sensorKey);
-            final formattedValue = !hasData ? '--' : value.toStringAsFixed(2);
+            final formattedValue = !hasData
+                ? '--'
+                : value.toStringAsFixed(sensorKey == 'feedlevel' ? 0 : 2);
 
             return SafeArea(
               child: SingleChildScrollView(
@@ -2105,31 +2122,32 @@ class _DashboardScreenState extends State<DashboardScreen>
                               color: AppColors.dark,
                             ),
                           ),
-                          GestureDetector(
-                            onTap: () {
-                              Navigator.pop(ctx);
-                              widget.onViewGraph?.call(sensorKey);
-                            },
-                            child: const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  'View Live Graph',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
+                          if (sensorKey != 'feedlevel')
+                            GestureDetector(
+                              onTap: () {
+                                Navigator.pop(ctx);
+                                widget.onViewGraph?.call(sensorKey);
+                              },
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    'View Live Graph',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.primary,
+                                    ),
+                                  ),
+                                  SizedBox(width: 3),
+                                  Icon(
+                                    Icons.chevron_right,
+                                    size: 11,
                                     color: AppColors.primary,
                                   ),
-                                ),
-                                SizedBox(width: 3),
-                                Icon(
-                                  Icons.chevron_right,
-                                  size: 11,
-                                  color: AppColors.primary,
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
-                          ),
                         ],
                       ),
                       const SizedBox(height: 8),

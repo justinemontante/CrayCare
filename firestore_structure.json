@@ -1,13 +1,12 @@
 {
   "users": {
     "_id": "uid",
-    "_description": "User profile. Subcollections: notification_settings/preferences and notif_markers. FCM device tokens live in users/{uid}.fcmTokens. Only self or admin can read; profile mutations are constrained by Firestore rules.",
+    "_description": "User profile. Tank ownership is not duplicated here; the canonical relationship is tanks/{tankId}.owner_uid. Subcollections: notification_settings/preferences and notif_markers. FCM device tokens live in users/{uid}.fcmTokens.",
     "fields": [
       "full_name (string)",
       "email (string)",
       "role (owner|admin)",
       "status (active|disabled)",
-      "tank_id (= uid by default; source of tank ownership)",
       "photo_url (string/data URL, optional)",
       "photoUrl (legacy alias, removed on canonical writes)",
       "fcmTokens (array<string>, one token per logged-in device)",
@@ -24,6 +23,7 @@
       "warning (bool)",
       "feeding (bool)",
       "sampling (bool)",
+      "operational (bool)",
       "updated_at (Timestamp)"
     ]
   },
@@ -36,7 +36,7 @@
     ]
   },
   "hardware_system/currentOwner": {
-    "_description": "Single source of truth for the one physical hardware package. A valid assignment is either uid/tank_id both null, or an active owner whose profile tank_id exactly matches.",
+    "_description": "Current assignment for the one physical hardware package. A valid assignment is either uid/tank_id both null, or an active owner whose canonical tanks/{tankId}.owner_uid value matches uid.",
     "fields": [
       "uid (string|null)",
       "tank_id (string|null)",
@@ -46,7 +46,7 @@
   },
   "tanks": {
     "_id": "tank_id (owner uid by default)",
-    "_description": "Owner tank root. Sensor, actuator, feeder, Water Quality Assessment, and production data are nested below it.",
+    "_description": "Owner tank root. Sensor, actuator, feeder, Water Quality Anomaly Detection, and production data are nested below it.",
     "fields": [
       "owner_uid (string)",
       "current_batch_id (string)",
@@ -100,6 +100,8 @@
           "pH_min, pH_max, pH_avg (when valid samples exist)",
           "DO_min, DO_max, DO_avg (when valid samples exist)",
           "waterLevel_min, waterLevel_max, waterLevel_avg (when valid samples exist)",
+          "feed_level (double, percent, when available)",
+          "estimated_feed_grams (double, derived estimate, when available)",
           "recorded_at (Timestamp)"
         ]
       },
@@ -194,28 +196,31 @@
           "issued_at (Timestamp)"
         ]
       },
-      "machine_learning_assessments/{assessmentId}": {
-        "_description": "Water Quality Assessment documents. `current` is the live alias; timestamp-named documents provide history. Written by the Python Cloud Function via Admin SDK.",
+      "water_quality_anomaly_detections/{detectionId}": {
+        "_description": "Machine Learning-Based Water Quality Anomaly Detection (WQAD) documents. `current` is the live alias; timestamp-named documents provide history. The unsupervised model learns the tank's usual multivariate sensor patterns without threshold-derived labels. Written by the Python Cloud Function via Admin SDK.",
         "fields": [
-          "uid",
-          "tank_id",
-          "level (Good|Moderate|Poor|Critical|Insufficient)",
-          "model_level (Good|Moderate|Poor|Critical|Insufficient)",
-          "rule_level (Good|Moderate|Poor|Critical|Insufficient)",
-          "safety_override (bool)",
-          "source (model version|Rule-based fallback|Insufficient data)",
-          "confidence (0-100)",
-          "driver",
-          "driver_label",
-          "driver_value",
-          "driver_unit",
-          "driver_min",
-          "driver_max",
-          "problem",
-          "insight",
-          "action",
-          "concerns (array)",
-          "secondary_concerns (array)",
+          "uid (owner uid)",
+          "tank_id (string)",
+          "status (Normal|Unusual|Insufficient)",
+          "is_anomaly (bool)",
+          "anomaly_score (0-100 percentile relative to learned reference patterns; not a safety score)",
+          "source (model version|Model unavailable|Insufficient data|Stale sensor history)",
+          "model_algorithm (IsolationForest|Not applied)",
+          "model_version (string)",
+          "training_data_origin (string; prototype or field data provenance)",
+          "training_label_origin (none_unsupervised)",
+          "model_feature_count (int)",
+          "analysis_window_minutes (int, currently 120)",
+          "data_status (ready|insufficient|stale)",
+          "source_recorded_at (ISO-8601 string|null)",
+          "source_age_seconds (int|null)",
+          "driver (temp|pH|DO|turbidity|waterLevel|overall|N/A)",
+          "driver_label (string)",
+          "driver_value (double|null)",
+          "driver_unit (string)",
+          "contributors (array of sensor, label, value, unit, direction, contribution_score)",
+          "insight (string)",
+          "recommendation (string)",
           "ts_epoch (epoch seconds)",
           "timestamp (ISO-8601 string)"
         ]
@@ -314,6 +319,8 @@
       "DO_min/DO_max/DO_avg (when valid samples exist)",
       "pH_min/pH_max/pH_avg (when valid samples exist)",
       "waterLevel_min/waterLevel_max/waterLevel_avg (when valid samples exist)",
+      "feed_level (double percent, when enabled and valid)",
+      "estimated_feed_grams (double estimate, when enabled and valid)",
       "captured_at_ms (int epoch-ms when NTP is synced)"
     ]
   }

@@ -1,202 +1,127 @@
-"""CrayCare — Water Quality Assessment Model Dataset Generator
-==============================================================
+"""Generate a reproducible bootstrap dataset for CrayCare WQAD.
 
-Generates `sensor_dataset.csv` — a synthetic 90-day time-series of pond
-sensor readings at 10-minute intervals (~12,960 rows).
-
-*** SYNTHETIC DATA — NOT REAL SENSOR READINGS ***
-All thresholds used to define fault events are derived from official agency
-standards (DENR DAO 2016-08, DA-BFAR, FAO TP-458, Boyd & Tucker 1998).
-See agency_standards.py for full citations.
-
-Class distribution target (approximate):
-  0 — Good     ~45%   (all parameters within optimal/good range)
-  1 — Moderate ~28%   (minor deviations, single parameter drifting)
-  2 — Poor     ~15%   (one or more parameters in fair/poor zone)
-  3 — Critical ~12%   (any parameter in critical zone)
-
-Usage:
-  python generate_dataset.py
-  -> writes sensor_dataset.csv in the same directory
+The generated data are synthetic and are only for integration testing and
+prototype validation. Event labels are never supplied to Isolation Forest;
+they are retained solely to measure detection performance on the holdout.
+Replace this dataset with calibrated, real Cherax RAS history before final
+field validation or deployment claims.
 """
+
+from datetime import datetime, timedelta, timezone
+import os
 
 import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta
 
-np.random.seed(42)
+SEED = 42
+N_DAYS = 90
+INTERVAL_MINUTES = 10
+TRAIN_DAYS = 60
+ROWS = N_DAYS * 24 * (60 // INTERVAL_MINUTES)
+START = datetime(2026, 1, 1, tzinfo=timezone.utc)
+rng = np.random.default_rng(SEED)
 
-# ── Simulation parameters ──────────────────────────────────────────────────────
-N_DAYS = 90           # longer = better temporal coverage across all fault types
-INTERVAL_MIN = 10     # reading interval (minutes)
-ROWS = int((N_DAYS * 24 * 60) / INTERVAL_MIN)
-START = datetime(2025, 10, 1)   # Dry-season start (relevant for PH temp/DO dynamics)
-
-# Agency-aligned baseline operating conditions (midpoint of optimal range)
-BASELINES = {
-    "temp":       26.0,   # °C — optimal 24–28 (DA-BFAR, FAO)
-    "pH":          7.6,   # — optimal 7.0–8.0 (FAO/HOLDICH)
-    "DO":          6.8,   # mg/L — well above 5.0 minimum (DENR/DA-BFAR)
-    "turbidity":  12.0,   # NTU — below 25 NTU good threshold (DENR/FAO)
-    "waterLevel": 18.0,   # cm — target depth for trapond (safe range 15–20 cm)
-}
-
-# Diurnal amplitudes (natural daily swing for tropical pond)
-AMPLITUDES = {
-    "temp":       1.8,    # driven by solar radiation
-    "pH":         0.35,   # photosynthesis drives pH up during day
-    "DO":         1.3,    # DO inversely correlated with temp (peaks dawn)
-    "turbidity":  2.0,    # slight morning/evening elevation from fish activity
-    "waterLevel": 0.15,   # small natural surface-level variation
-}
-
-# Noise standard deviations
-NOISE_SD = {
-    "temp":       0.20,
-    "pH":         0.07,
-    "DO":         0.25,
-    "turbidity":  1.00,
-    "waterLevel": 0.12,
-}
-
-# DO is inversely correlated with temp (phase shift of 12 h)
-DO_PHASE = 12.0
+t_hours = np.arange(ROWS) * INTERVAL_MINUTES / 60.0
+day_cycle = 2 * np.pi * t_hours / 24.0
+slow_cycle = 2 * np.pi * t_hours / (24.0 * 14.0)
 
 
-# ── Helper: diurnal sine + cumulative drift + noise ────────────────────────────
-def diurnal(t, base, amp, sd, phase=0.0):
-    daily = amp * np.sin(2 * np.pi * (t + phase) / 24.0)
-    drift = np.cumsum(np.random.normal(0, sd * 0.10, len(t)))
-    noise = np.random.normal(0, sd, len(t))
-    return base + daily + drift + noise
+def smooth_noise(scale):
+    raw = rng.normal(0.0, scale, ROWS)
+    return pd.Series(raw).rolling(5, min_periods=1, center=True).mean().to_numpy()
 
 
-# ── Time axis (hours since start) ─────────────────────────────────────────────
-t = (np.arange(ROWS) * INTERVAL_MIN) / 60.0
+# Correlated, physically plausible operating profile. These values describe a
+# sample tank; they are not WQAD decision thresholds.
+temp = 26.4 + 1.25 * np.sin(day_cycle - 1.1) + 0.35 * np.sin(slow_cycle) + smooth_noise(0.18)
+ph = 7.55 + 0.22 * np.sin(day_cycle - 0.4) + 0.05 * (temp - 26.4) + smooth_noise(0.045)
+do = 6.45 - 0.46 * (temp - 26.4) + 0.34 * np.sin(day_cycle + 1.8) + smooth_noise(0.16)
+turbidity = 10.8 + 0.55 * np.sin(day_cycle + 0.5) + smooth_noise(0.55)
+# A repeatable two-day drawdown/refill cycle prevents the reference period from
+# drifting into a permanently different distribution than the holdout period.
+refill_cycle = (t_hours % 48.0) / 48.0
+water_level = 18.25 - 0.55 * refill_cycle + 0.08 * np.sin(day_cycle) + smooth_noise(0.045)
 
-# Base signals
-signals = {
-    "temp":       diurnal(t, BASELINES["temp"],       AMPLITUDES["temp"],       NOISE_SD["temp"]),
-    "pH":         diurnal(t, BASELINES["pH"],         AMPLITUDES["pH"],         NOISE_SD["pH"]),
-    "DO":         diurnal(t, BASELINES["DO"],         AMPLITUDES["DO"],         NOISE_SD["DO"],  phase=DO_PHASE),
-    "turbidity":  np.clip(diurnal(t, BASELINES["turbidity"],  AMPLITUDES["turbidity"],  NOISE_SD["turbidity"]), 0.5, None),
-    "waterLevel": diurnal(t, BASELINES["waterLevel"], AMPLITUDES["waterLevel"], NOISE_SD["waterLevel"]),
-}
-
-
-# ── Fault injection ────────────────────────────────────────────────────────────
-def inject(arr, start, length, delta):
-    """Apply a smooth bell-shaped perturbation of magnitude `delta` over `length` ticks."""
-    end = min(start + length, len(arr))
-    seg = np.arange(end - start)
-    shape = np.sin(np.pi * seg / max(len(seg), 1))
-    arr[start:end] += delta * shape
-    return arr
+signals = {"temp": temp, "pH": ph, "DO": do, "turbidity": turbidity, "waterLevel": water_level}
+event_type = np.full(ROWS, "normal", dtype=object)
+is_anomaly = np.zeros(ROWS, dtype=int)
 
 
-# Fault definitions — magnitudes derived from agency threshold gaps:
-# e.g., aerator failure drops DO from baseline 6.8 to ~1.5 (below 2.0 critical)
-FAULT_KINDS = [
-    # (name, deltas_dict, duration_range_ticks)
-    # Aerator failure: DO crashes, temp rises slightly (DENR/FAO: DO < 2 critical)
-    ("aerator_fail",  {"DO": -5.5,  "temp": +1.5,  "turbidity": +8.0},  (42, 108)),
-    # pH acid crash: e.g., after heavy rain + acid soil runoff (DENR: < 6.5 alarm)
-    ("pH_acid_crash", {"pH": -2.5,  "DO": -0.8},                         (30, 80)),
-    # pH alkaline spike: algae bloom (DENR: > 8.5 alarm)
-    ("pH_algae_spike",{"pH": +1.6,  "DO": +1.5,  "turbidity": +15.0},   (36, 90)),
-    # Heat spike: high ambient temp (DA-BFAR: > 30 warning, > 35 critical)
-    ("heat_spike",    {"temp": +7.0, "DO": -2.5},                         (36, 96)),
-    # Overfeeding: turbidity spikes, DO drops (DENR: turbidity >50 alert)
-    ("overfeeding",   {"turbidity": +55.0, "DO": -2.0, "pH": -0.4},      (30, 72)),
-    # Water level low: evaporation / pump failure (FAO/Boyd)
-    ("water_low",     {"waterLevel": -12.0},                              (36, 120)),
-    # Water level high: heavy rain / inlet failure
-    ("water_high",    {"waterLevel": +10.0},                              (36, 72)),
-    # Cold snap (sub-optimal temp; HOLDICH: < 20 warning, < 15 critical)
-    ("cold_snap",     {"temp": -9.0, "DO": +1.0},                         (36, 96)),
+def inject_event(name, start, duration, changes):
+    end = min(start + duration, ROWS)
+    n = end - start
+    # Plateau with smooth entry/exit avoids unrealistic one-tick rectangles.
+    ramp = max(2, min(12, n // 5))
+    shape = np.ones(n)
+    shape[:ramp] = np.linspace(0.08, 1.0, ramp)
+    shape[-ramp:] = np.linspace(1.0, 0.08, ramp)
+    for sensor, delta in changes.items():
+        signals[sensor][start:end] += delta * shape
+    event_type[start:end] = name
+    is_anomaly[start:end] = 1
+
+
+# Holdout-only operational anomalies. Their names—not sensor thresholds—form
+# evaluation ground truth. The model never receives either label column.
+holdout_start = TRAIN_DAYS * 24 * (60 // INTERVAL_MINUTES)
+event_specs = [
+    ("aeration_disruption", 2, 6, {"DO": -2.1, "turbidity": 3.5, "temp": 0.5}),
+    ("filter_loading", 6, 8, {"turbidity": 18.0, "DO": -0.8}),
+    ("acidic_source_water", 10, 5, {"pH": -1.05, "waterLevel": 1.1}),
+    ("thermal_excursion", 14, 7, {"temp": 4.2, "DO": -1.35}),
+    ("possible_leak", 18, 10, {"waterLevel": -4.0}),
+    ("alkaline_drift", 22, 7, {"pH": 1.15, "DO": 0.55}),
+    ("organic_load_event", 26, 8, {"turbidity": 24.0, "DO": -1.8, "pH": -0.35}),
 ]
+for name, day_offset, duration_hours, changes in event_specs:
+    start = holdout_start + day_offset * 24 * (60 // INTERVAL_MINUTES) + 8 * (60 // INTERVAL_MINUTES)
+    inject_event(name, start, duration_hours * (60 // INTERVAL_MINUTES), changes)
 
-# Repeat each fault kind multiple times across the timeline so every CV fold
-# sees at least one occurrence — prevents fold starvation of minority classes.
-N_REPEATS = 5
-events = []
-for k_idx, (kind, deltas, dur_range) in enumerate(FAULT_KINDS):
-    segment = ROWS // N_REPEATS
-    stagger = int(segment / (len(FAULT_KINDS) + 1) * (k_idx + 1))
-    for i in range(N_REPEATS):
-        jitter = int(np.random.randint(-200, 200))
-        start = int(np.clip(segment * i + stagger + jitter, 50, ROWS - 200))
-        length = int(np.random.randint(*dur_range))
-        events.append((kind, deltas, start, length))
+# A separate sensor-stuck event is expressed as flat data rather than a value
+# crossing a biological boundary.
+stuck_start = holdout_start + 24 * 24 * (60 // INTERVAL_MINUTES)
+stuck_duration = 7 * (60 // INTERVAL_MINUTES)
+signals["DO"][stuck_start:stuck_start + stuck_duration] = signals["DO"][stuck_start]
+event_type[stuck_start:stuck_start + stuck_duration] = "do_sensor_stuck"
+is_anomaly[stuck_start:stuck_start + stuck_duration] = 1
 
-for kind, deltas, s, ln in events:
-    for sensor, delta in deltas.items():
-        signals[sensor] = inject(signals[sensor], s, ln, delta)
-
-# ── Clip to physically plausible bounds ───────────────────────────────────────
-# Bounds are wider than agency thresholds to preserve the full label range
-signals["temp"]       = np.clip(signals["temp"],       10.0,  42.0)
-signals["DO"]         = np.clip(signals["DO"],           0.2,  13.0)
-signals["pH"]         = np.clip(signals["pH"],           3.5,  10.5)
-signals["turbidity"]  = np.clip(signals["turbidity"],    0.3, 160.0)
-signals["waterLevel"] = np.clip(signals["waterLevel"],  0.0, 30.0)
+physical_bounds = {
+    "temp": (8.0, 42.0), "pH": (3.0, 11.0), "DO": (0.0, 15.0),
+    "turbidity": (0.0, 200.0), "waterLevel": (0.0, 35.0),
+}
+for sensor, (low, high) in physical_bounds.items():
+    signals[sensor] = np.clip(signals[sensor], low, high)
 
 
-# ── Build min/max spread around avg ───────────────────────────────────────────
-def spread(avg, jitter_sd, spike_prob=0.025, spike_mag=None, clip_lo=None, clip_hi=None):
-    """Simulate a 10-minute window min/max around an average reading."""
-    n = len(avg)
-    spread_ = np.abs(np.random.normal(jitter_sd, jitter_sd * 0.4, n))
-    lo = avg - spread_
-    hi = avg + spread_
-    # Occasional sensor spike on max side (fouling, bubbles, etc.)
-    if spike_mag:
-        spikes = (np.random.random(n) < spike_prob) * np.random.uniform(spike_mag * 0.3, spike_mag, n)
-        hi += spikes
-    if clip_lo is not None:
-        lo = np.clip(lo, clip_lo, None)
-    if clip_hi is not None:
-        hi = np.clip(hi, None, clip_hi)
-    # Guarantee lo ≤ avg ≤ hi
-    lo = np.minimum(lo, avg)
-    hi = np.maximum(hi, avg)
-    return lo, hi
+def window_triplet(sensor, spread_scale):
+    avg = signals[sensor]
+    spread = np.abs(rng.normal(spread_scale, spread_scale * 0.25, ROWS))
+    low = avg - spread
+    high = avg + spread
+    if sensor == "DO":
+        low[stuck_start:stuck_start + stuck_duration] = avg[stuck_start:stuck_start + stuck_duration]
+        high[stuck_start:stuck_start + stuck_duration] = avg[stuck_start:stuck_start + stuck_duration]
+    bound_low, bound_high = physical_bounds[sensor]
+    return np.clip(low, bound_low, bound_high), avg, np.clip(high, bound_low, bound_high)
 
 
-temp_lo, temp_hi = spread(signals["temp"],       0.15, spike_mag=1.0,   clip_lo=10,   clip_hi=42)
-do_lo,   do_hi   = spread(signals["DO"],         0.20, spike_mag=None,   clip_lo=0.1,  clip_hi=13)
-ph_lo,   ph_hi   = spread(signals["pH"],         0.05, spike_mag=None,   clip_lo=3.5,  clip_hi=10.5)
-turb_lo, turb_hi = spread(signals["turbidity"],  0.80, spike_mag=20.0,  clip_lo=0.1,  clip_hi=160)
-wl_lo,   wl_hi   = spread(signals["waterLevel"], 0.30, spike_mag=1.0,   clip_lo=0,    clip_hi=30)
+data = {
+    "timestamp": [START + timedelta(minutes=i * INTERVAL_MINUTES) for i in range(ROWS)],
+    "is_injected_anomaly": is_anomaly,
+    "event_type": event_type,
+}
+for sensor, scale in {"temp": 0.10, "pH": 0.025, "DO": 0.09, "turbidity": 0.35, "waterLevel": 0.04}.items():
+    low, avg, high = window_triplet(sensor, scale)
+    data[f"{sensor}_avg"] = avg
+    data[f"{sensor}_min"] = low
+    data[f"{sensor}_max"] = high
 
-# ── Assemble DataFrame ────────────────────────────────────────────────────────
-df = pd.DataFrame({
-    "timestamp":      [START + timedelta(minutes=INTERVAL_MIN * i) for i in range(ROWS)],
-    "temp_avg":       signals["temp"],
-    "temp_min":       temp_lo,
-    "temp_max":       temp_hi,
-    "pH_avg":         signals["pH"],
-    "pH_min":         ph_lo,
-    "pH_max":         ph_hi,
-    "DO_avg":         signals["DO"],
-    "DO_min":         do_lo,
-    "DO_max":         do_hi,
-    "turbidity_avg":  signals["turbidity"],
-    "turbidity_min":  turb_lo,
-    "turbidity_max":  turb_hi,
-    "waterLevel_avg": signals["waterLevel"],
-    "waterLevel_min": wl_lo,
-    "waterLevel_max": wl_hi,
-}).round(3)
-
-import os
-_DIR = os.path.dirname(os.path.abspath(__file__))
-out_path = os.path.join(_DIR, "sensor_dataset.csv")
-df.to_csv(out_path, index=False)
-print(f"Wrote sensor_dataset.csv — {len(df):,} rows × {len(df.columns)} columns")
-print(f"Date range: {df['timestamp'].min()} → {df['timestamp'].max()}")
-print(f"Fault events injected: {len(events)} ({len(FAULT_KINDS)} fault types × {N_REPEATS} repeats)")
-print("\nSignal summary (avg column):")
-for s in ["temp", "pH", "DO", "turbidity", "waterLevel"]:
-    col = signals[s]
-    print(f"  {s:12s}: min={col.min():.2f}  mean={col.mean():.2f}  max={col.max():.2f}")
+df = pd.DataFrame(data)
+numeric_columns = df.select_dtypes(include=["number"]).columns
+df[numeric_columns] = df[numeric_columns].round(4)
+output_path = os.path.join(os.path.dirname(__file__), "sensor_dataset.csv")
+df.to_csv(output_path, index=False)
+print(f"Wrote {output_path}")
+print(f"Rows: {len(df):,}; training profile: first {TRAIN_DAYS} days; holdout: {N_DAYS - TRAIN_DAYS} days")
+print(f"Injected holdout anomaly rows: {int(df['is_injected_anomaly'].sum()):,}")
+print("Synthetic bootstrap data only — replace with real Cherax RAS history for field validation.")

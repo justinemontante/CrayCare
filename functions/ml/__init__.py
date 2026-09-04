@@ -1,8 +1,6 @@
-"""CrayCare Machine Learning-Based Water Quality Assessment module.
+"""CrayCare Machine Learning-Based Water Quality Anomaly Detection.
 
-The Water Quality Assessment uses an XGBoost model to determine
-the overall condition (Good / Moderate / Poor / Critical), analyze recent trends,
-identify emerging risks, and provide insights and recommendations. See features.py
-for the feature-engineering pipeline and agency_standards.py for the
-DENR/DA-BFAR/FAO threshold rationale.
+The deployed Isolation Forest learns multivariate patterns from sensor history
+without threshold-generated training labels. Safety thresholds and automatic
+actuator decisions remain separate from this advisory ML module.
 """

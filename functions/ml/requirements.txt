@@ -1,9 +1,7 @@
 firebase-functions>=0.5,<1
 firebase-admin>=6,<7
-# Pin the model serializer/runtime pair; the Water Quality Assessment model
-# artifact (wqa_model.joblib) was regenerated with 3.4.0.
-xgboost==3.4.0
-pandas>=2.2,<4
-numpy>=2,<3
-scikit-learn>=1.6,<2
-joblib>=1.5,<2
+# Pin the serializer/runtime family used by the Isolation Forest artifact.
+pandas==3.0.3
+numpy==2.5.1
+scikit-learn==1.9.0
+joblib==1.5.3

@@ -3,6 +3,15 @@ import 'package:flutter/foundation.dart';
 const manilaUtcOffset = Duration(hours: 8);
 const defaultFeederGrams = 20.0;
 
+/// Matches the fixed-cycle production firmware; never silently round a dose up.
+String? validateFeederGrams(double? grams) {
+  final amount = grams ?? defaultFeederGrams;
+  if (!amount.isFinite || amount < 20 || amount > 200 || amount % 20 != 0) {
+    return 'Use 20–200 g in steps of 20 g (estimated per servo cycle).';
+  }
+  return null;
+}
+
 /// Returns Manila calendar fields in a non-UTC [DateTime]. Schedule helpers
 /// compare wall-clock fields, so preserving `isUtc` after adding eight hours
 /// would shift comparisons by another eight hours.
@@ -32,6 +41,8 @@ class ScheduleItem {
   /// a newly-created, edited, or re-enabled schedule from being treated as a
   /// missed occurrence earlier on the same day.
   final DateTime? effectiveAt;
+  final String? lastOutcome;
+  final DateTime? lastOccurrenceAt;
 
   /// Day-of-week mask, Sunday first: "1111111" = every day,
   /// "1010100" = Sun/Tue/Thu only. Each char is '1' (on) or '0' (off).
@@ -46,7 +57,71 @@ class ScheduleItem {
     this.days = '1111111',
     this.id,
     this.effectiveAt,
+    this.lastOutcome,
+    this.lastOccurrenceAt,
   });
+}
+
+/// Date-scoped terminal outcome. Legacy isDone alone is not proof of dispensing.
+String? feederOutcomeOnDate(ScheduleItem schedule, DateTime date) {
+  final instant = schedule.lastOccurrenceAt;
+  if (instant == null) return null;
+  final at = manilaWallClock(instant);
+  if (at.year != date.year ||
+      at.month != date.month ||
+      at.day != date.day ||
+      at.hour * 60 + at.minute != feederScheduleMinutes(schedule) ||
+      !feederScheduleWasEffectiveAt(schedule, at)) {
+    return null;
+  }
+  return switch (schedule.lastOutcome) {
+    'completed' => 'completed',
+    'skipped_insufficient' || 'blocked' => 'skipped',
+    'failed' => 'failed',
+    _ => null,
+  };
+}
+
+/// Prefer explicit, occurrence-linked device outcomes over inferred missed logs.
+String? feederRecordedOutcome(
+  ScheduleItem schedule,
+  DateTime date,
+  Iterable<LogEntry> logs,
+) {
+  final stored = feederOutcomeOnDate(schedule, date);
+  if (stored != null) return stored;
+  for (final log in logs) {
+    if (log.timestamp <= 0 || log.type != 'auto') continue;
+    final at = manilaWallClock(
+      DateTime.fromMillisecondsSinceEpoch(
+        log.occurrenceTimestamp ?? log.timestamp,
+        isUtc: true,
+      ),
+    );
+    if (at.year != date.year || at.month != date.month || at.day != date.day) {
+      continue;
+    }
+    if (!feederScheduleWasEffectiveAt(schedule, at)) continue;
+    final time = '${schedule.time} ${schedule.ampm}';
+    if (log.scheduleKey != null) {
+      if (log.scheduleKey != schedule.id || log.scheduleTime != time) continue;
+    } else if (log.time != time) {
+      continue;
+    }
+    final outcome = switch (log.status) {
+      'completed' => 'completed',
+      'skipped_insufficient' || 'blocked' => 'skipped',
+      'failed' => 'failed',
+      _ => null,
+    };
+    if (outcome != null) return outcome;
+    if (log.status == null &&
+        (log.action.toLowerCase().contains('dispensed feed (scheduled)') ||
+            log.action.toLowerCase().contains('auto feed dispensed'))) {
+      return 'completed';
+    }
+  }
+  return null;
 }
 
 const feederDayNames = [
@@ -150,6 +225,10 @@ DateTime? nextFeederScheduleOccurrence(
     final date = today.add(Duration(days: dayOffset));
     if (!feederScheduleRunsOnDate(schedule, date)) continue;
     final candidate = DateTime(date.year, date.month, date.day, hour, minute);
+    if (!feederScheduleWasEffectiveAt(schedule, candidate) ||
+        feederOutcomeOnDate(schedule, date) != null) {
+      continue;
+    }
     if (!candidate.isBefore(now)) return candidate;
   }
   return null;
@@ -185,6 +264,7 @@ ScheduledFeedOccurrence? nextEnabledFeeding(
 }
 
 class LogEntry {
+  final String? commandId;
   final String action;
   final String type;
   final String time;
@@ -194,6 +274,8 @@ class LogEntry {
   final String? scheduleTime;
   final String? status;
   final double? requestedGrams;
+  final double? estimatedDispensedGrams;
+  final int? occurrenceTimestamp;
   final double? estimatedAvailableGrams;
   final double? feedLevelBefore;
   final double? feedLevelAfter;
@@ -205,15 +287,37 @@ class LogEntry {
     this.time,
     this.date, {
     this.timestamp = 0,
+    this.commandId,
     this.scheduleKey,
     this.scheduleTime,
     this.status,
     this.requestedGrams,
+    this.estimatedDispensedGrams,
+    this.occurrenceTimestamp,
     this.estimatedAvailableGrams,
     this.feedLevelBefore,
     this.feedLevelAfter,
     this.levelChangeDetected,
   });
+}
+
+/// Only a response for this exact request can finish a manual progress panel.
+String? manualFeedingOutcome({
+  required String? commandId,
+  required String? statusCommandId,
+  required String status,
+  required Iterable<LogEntry> logs,
+}) {
+  if (commandId == null || commandId.isEmpty) return null;
+  const terminal = {'completed', 'blocked', 'skipped_insufficient', 'failed'};
+  for (final log in logs) {
+    if (log.commandId == commandId && terminal.contains(log.status)) {
+      return log.status;
+    }
+  }
+  return statusCommandId == commandId && terminal.contains(status)
+      ? status
+      : null;
 }
 
 class FeedState {

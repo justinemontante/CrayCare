@@ -1,13 +1,13 @@
-import 'dart:convert'; // Para ma-decode ang base64 image
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
+import '../../utils/snackbar_helper.dart';
 
-class ProfileEditForm extends StatelessWidget {
+class ProfileEditForm extends StatefulWidget {
   final TextEditingController nameCtrl;
   final TextEditingController emailCtrl;
-  final VoidCallback onSave;
+  final Future<void> Function() onSave;
   final VoidCallback? onTapCamera; // Para pag pindot sa camera icon
-  final String? photoUrl; // URL ng profile picture para sa preview
+  final ImageProvider<Object>? photoImage;
 
   const ProfileEditForm({
     super.key,
@@ -15,27 +15,36 @@ class ProfileEditForm extends StatelessWidget {
     required this.emailCtrl,
     required this.onSave,
     this.onTapCamera,
-    this.photoUrl,
+    this.photoImage,
   });
 
-  ImageProvider<Object>? _photoImageProvider(String? photoUrl) {
-    if (photoUrl == null || photoUrl.isEmpty) return null;
+  @override
+  State<ProfileEditForm> createState() => _ProfileEditFormState();
+}
 
-    final uri = Uri.tryParse(photoUrl);
-    if (uri != null && (uri.scheme == 'http' || uri.scheme == 'https')) {
-      return NetworkImage(photoUrl);
-    }
+class _ProfileEditFormState extends State<ProfileEditForm> {
+  bool _isSaving = false;
 
+  Future<void> _save() async {
+    if (_isSaving) return;
+    setState(() => _isSaving = true);
     try {
-      return MemoryImage(base64Decode(photoUrl.split(',').last));
-    } on FormatException {
-      return null;
+      await widget.onSave();
+    } catch (e) {
+      if (!mounted) return;
+      showBeautifulSnackbar(
+        context,
+        e.toString().replaceFirst('Exception: ', ''),
+        false,
+      );
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final photoImage = _photoImageProvider(photoUrl);
+    final photoImage = widget.photoImage;
 
     return Container(
       color: Colors.white,
@@ -60,7 +69,7 @@ class ProfileEditForm extends StatelessWidget {
               children: [
                 GestureDetector(
                   onTap:
-                      onTapCamera, // Clickable na — pindutin para magpalit ng picture
+                      _isSaving ? null : widget.onTapCamera,
                   child: Stack(
                     alignment: Alignment.bottomRight,
                     children: [
@@ -107,14 +116,18 @@ class ProfileEditForm extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 24),
-                _buildField('Full Name', nameCtrl),
+                _buildField('Full Name', widget.nameCtrl),
                 const SizedBox(height: 16),
-                _buildField('Email Address', emailCtrl, enabled: false),
+                _buildField(
+                  'Email Address',
+                  widget.emailCtrl,
+                  enabled: false,
+                ),
                 const SizedBox(height: 24),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: onSave,
+                    onPressed: _isSaving ? null : _save,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       foregroundColor: Colors.white,
@@ -124,11 +137,15 @@ class ProfileEditForm extends StatelessWidget {
                         borderRadius: BorderRadius.circular(14),
                       ),
                     ),
-                    child: const Text(
-                      'Save Changes',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w900,
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 160),
+                      child: Text(
+                        _isSaving ? 'Saving…' : 'Save Changes',
+                        key: ValueKey(_isSaving),
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w900,
+                        ),
                       ),
                     ),
                   ),

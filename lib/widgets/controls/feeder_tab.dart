@@ -16,7 +16,7 @@ class FeederTab extends StatelessWidget {
   final VoidCallback onFeedNow;
   final Future<bool> Function(double? grams, String days) onAddSchedule;
   final void Function(int index) onDeleteSchedule;
-  final void Function(int index, ScheduleItem item) onEditSchedule;
+  final Future<bool> Function(int index, ScheduleItem item) onEditSchedule;
   final void Function(int index, bool enabled) onToggleSchedule;
   final List<LogEntry> feederLogs;
   final Set<String> fedToday;
@@ -102,15 +102,17 @@ class FeederTab extends StatelessWidget {
                     children: [
                       Row(
                         children: [
-                          const Text(
-                            'Automatic Feeder',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.dark,
+                          const Expanded(
+                            child: Text(
+                              'Automatic Feeder',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.dark,
+                              ),
                             ),
                           ),
-                          const Spacer(),
+                          const SizedBox(width: 8),
                           GestureDetector(
                             onTap: () => _showFeederLog(ctx),
                             child: Container(
@@ -216,29 +218,29 @@ class FeederTab extends StatelessWidget {
                     onTap: () => _showScheduleModal(ctx),
                     borderRadius: BorderRadius.circular(10),
                     child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 9,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.add, size: 10, color: AppColors.primary),
-                        SizedBox(width: 4),
-                        Text(
-                          'Add Schedule',
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.primary,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 9,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.add, size: 10, color: AppColors.primary),
+                          SizedBox(width: 4),
+                          Text(
+                            'Add Schedule',
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.primary,
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -416,7 +418,7 @@ class FeederTab extends StatelessWidget {
                 child: _inventoryMetric(
                   Icons.scale_outlined,
                   'Consumption Today',
-                  '${consumptionTodayGrams.toStringAsFixed(0)} g',
+                  '~${consumptionTodayGrams.toStringAsFixed(0)} g',
                   '$completedFeedingsToday completed',
                   AppColors.primary,
                 ),
@@ -603,7 +605,11 @@ class FeederTab extends StatelessWidget {
         final nextOccurrence = nextEnabledFeeding(
           schedules,
           now,
-          skipToday: (schedule) => statuses[schedule] == 'completed',
+          skipToday: (schedule) => const [
+            'completed',
+            'skipped',
+            'failed',
+          ].contains(statuses[schedule]),
         );
         final next = nextOccurrence?.schedule;
         final nextAt = nextOccurrence?.at;
@@ -728,20 +734,10 @@ class FeederTab extends StatelessWidget {
     // Not active today → show as "off today" (not due).
     final now = _manilaNow();
     if (!feederScheduleRunsOnDate(s, now)) return 'off_today';
-    if (s.isDone) return 'completed';
-    final key = '${s.time}_${s.ampm}';
-    if (fedToday.contains(key)) return 'completed';
+    final outcome = feederRecordedOutcome(s, now, feederLogs);
+    if (outcome != null) return outcome;
     final scheduleTimeStr = '${s.time} ${s.ampm}';
     final todayStr = _logDateString();
-    for (final log in feederLogs) {
-      final a = log.action.toLowerCase();
-      if ((a.contains('dispensed feed (scheduled)') ||
-              a.contains('auto feed dispensed')) &&
-          log.time == scheduleTimeStr &&
-          log.date == todayStr) {
-        return 'completed';
-      }
-    }
     for (final log in feederLogs) {
       if (log.type == 'missed' &&
           s.id != null &&
@@ -970,10 +966,16 @@ class FeederTab extends StatelessWidget {
         statusIcon = Icons.hourglass_bottom;
         break;
       case 'missed':
+      case 'skipped':
+      case 'failed':
         bgColor = AppColors.darkWith(0.06);
         borderColor = AppColors.darkWith(0.15);
         dotColor = AppColors.darkWith(0.4);
-        statusLabel = 'Missed';
+        statusLabel = status == 'skipped'
+            ? 'Skipped'
+            : status == 'failed'
+            ? 'Failed'
+            : 'Missed';
         statusIcon = Icons.error_outline;
         break;
       case 'off_today':
@@ -1474,8 +1476,8 @@ class FeederTab extends StatelessWidget {
               final v = double.tryParse(gramsCtl.text);
               if (v == null) {
                 gramsError = 'Enter a valid number';
-              } else if (v <= 0) {
-                gramsError = 'Grams must be greater than 0';
+              } else {
+                gramsError = validateFeederGrams(v);
               }
             }
 
@@ -1565,7 +1567,7 @@ class FeederTab extends StatelessWidget {
                     onChanged: (_) => setSheetState(() {}),
                     decoration: InputDecoration(
                       labelText: 'Grams (optional)',
-                      hintText: 'e.g. 50',
+                      hintText: '20, 40, 60 … 200 (default: 20)',
                       suffixText: 'g',
                       errorText: gramsError,
                       enabledBorder: OutlineInputBorder(
@@ -1667,7 +1669,8 @@ class FeederTab extends StatelessWidget {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: gramsError != null || selectedDays.isEmpty || isSaving
+                      onPressed:
+                          gramsError != null || selectedDays.isEmpty || isSaving
                           ? null
                           : () async {
                               final h = selectedTime.hour;
@@ -1686,6 +1689,7 @@ class FeederTab extends StatelessWidget {
                               final requested = ScheduleItem(
                                 timeStr,
                                 ampm,
+                                enabled: existing?.enabled ?? true,
                                 grams: grams,
                                 days: daysMask,
                               );
@@ -1715,20 +1719,30 @@ class FeederTab extends StatelessWidget {
                                 return;
                               }
                               if (isEdit) {
-                                onEditSchedule(
+                                setSheetState(() => isSaving = true);
+                                final saved = await onEditSchedule(
                                   index!,
                                   ScheduleItem(
                                     timeStr,
                                     ampm,
+                                    enabled: existing.enabled,
                                     grams: grams,
                                     days: daysMask,
                                   ),
                                 );
-                                if (sheetCtx.mounted) Navigator.pop(sheetCtx);
+                                if (!sheetCtx.mounted) return;
+                                if (!saved) {
+                                  setSheetState(() => isSaving = false);
+                                  return;
+                                }
+                                Navigator.pop(sheetCtx);
                               } else {
                                 timeCtl.text = '$timeStr:$ampm';
                                 setSheetState(() => isSaving = true);
-                                final saved = await onAddSchedule(grams, daysMask);
+                                final saved = await onAddSchedule(
+                                  grams,
+                                  daysMask,
+                                );
                                 if (!sheetCtx.mounted) return;
                                 if (!saved) {
                                   setSheetState(() => isSaving = false);

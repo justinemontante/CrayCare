@@ -13,16 +13,22 @@
         "y": 12
       },
       {
+        "name": "user_device_tokens",
+        "schemaName": "public",
+        "x": 540,
+        "y": 20
+      },
+      {
         "name": "notification_settings",
         "schemaName": "public",
         "x": 475.01025390625,
         "y": 53
       },
       {
-        "name": "hardware_assignments",
+        "name": "notification_markers",
         "schemaName": "public",
-        "x": 1071.8671875,
-        "y": 12
+        "x": 1580,
+        "y": 20
       },
       {
         "name": "tanks",
@@ -31,10 +37,28 @@
         "y": 387
       },
       {
+        "name": "hardware_assignments",
+        "schemaName": "public",
+        "x": 1071.8671875,
+        "y": 12
+      },
+      {
+        "name": "notifications",
+        "schemaName": "public",
+        "x": 475.01025390625,
+        "y": 817
+      },
+      {
         "name": "sensor_thresholds",
         "schemaName": "public",
         "x": 1071.8671875,
         "y": 520
+      },
+      {
+        "name": "sensor_readings_history",
+        "schemaName": "public",
+        "x": 1071.8671875,
+        "y": 1124
       },
       {
         "name": "sensor_readings",
@@ -43,10 +67,16 @@
         "y": 790
       },
       {
-        "name": "sensor_readings_history",
+        "name": "sensor_daily_summaries",
         "schemaName": "public",
-        "x": 1071.8671875,
-        "y": 1124
+        "x": 1060,
+        "y": 800
+      },
+      {
+        "name": "sensor_ingestion",
+        "schemaName": "public",
+        "x": 1580,
+        "y": 800
       },
       {
         "name": "actuators",
@@ -73,16 +103,40 @@
         "y": 2588
       },
       {
-        "name": "feeder_logs",
+        "name": "feeder_schedule_days",
         "schemaName": "public",
-        "x": 1071.8671875,
-        "y": 2986
+        "x": 20,
+        "y": 1580
       },
       {
         "name": "feeder_commands",
         "schemaName": "public",
         "x": 1071.8671875,
         "y": 250
+      },
+      {
+        "name": "feeder_logs",
+        "schemaName": "public",
+        "x": 1071.8671875,
+        "y": 2986
+      },
+      {
+        "name": "feeder_notification_receipts",
+        "schemaName": "public",
+        "x": 1580,
+        "y": 1580
+      },
+      {
+        "name": "water_quality_anomaly_detections",
+        "schemaName": "public",
+        "x": 12,
+        "y": 4632
+      },
+      {
+        "name": "water_quality_anomaly_contributors",
+        "schemaName": "public",
+        "x": 540,
+        "y": 1970
       },
       {
         "name": "batches",
@@ -107,18 +161,6 @@
         "schemaName": "public",
         "x": 1617.169921875,
         "y": 712
-      },
-      {
-        "name": "notifications",
-        "schemaName": "public",
-        "x": 475.01025390625,
-        "y": 817
-      },
-      {
-        "name": "machine_learning_assessments",
-        "schemaName": "public",
-        "x": 12,
-        "y": 4632
       }
     ],
     "tableGroupCollapseStates": [],
@@ -464,12 +506,13 @@
         "secondFieldNames": [
           "tank_id"
         ],
-        "secondTableName": "machine_learning_assessments",
+        "secondTableName": "water_quality_anomaly_detections",
         "secondSchemaName": "public",
         "secondRelation": "*",
         "checkPoints": []
       }
-    ]
+    ],
+    "relationships": []
   },
   "views": {}
 }

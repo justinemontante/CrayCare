@@ -17,8 +17,8 @@ import 'services/notification_service.dart';
 import 'services/connectivity_service.dart';
 import 'services/feeder_service.dart';
 import 'services/tank_service.dart';
-import 'services/database_service.dart';
-import 'services/water_quality_assessment_service.dart';
+import 'services/auth_service.dart';
+import 'services/water_quality_anomaly_detection_service.dart';
 import 'services/home_widget_service.dart';
 import 'utils/smooth_page_route.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -148,7 +148,7 @@ class _SplashScreenState extends State<SplashScreen>
     TankService.instance.init();
     _advanceProgress();
     _advanceProgress();
-    WaterQualityAssessmentService.instance.init();
+    WaterQualityAnomalyDetectionService.instance.init();
     HomeWidgetService.instance.init();
     _advanceProgress();
 
@@ -187,29 +187,10 @@ class _SplashScreenState extends State<SplashScreen>
           Map<String, dynamic>? initialProfile;
           if (isOnline) {
             try {
-              initialProfile = await DatabaseService.instance.getUserProfile(
-                freshUser.uid,
-              );
-              if (initialProfile != null &&
-                  initialProfile['status'] == 'disabled') {
-                try {
-                  final token = await FirebaseMessaging.instance.getToken();
-                  final updates = <String, dynamic>{
-                    'fcmToken': FieldValue.delete(),
-                  };
-                  if (token != null && token.isNotEmpty) {
-                    updates['fcmTokens'] = FieldValue.arrayRemove([token]);
-                  }
-                  await FirebaseFirestore.instance
-                      .collection('users')
-                      .doc(freshUser.uid)
-                      .update(updates);
-                } catch (tokenCleanupError) {
-                  debugPrint(
-                    '[Splash] Disabled-user FCM cleanup error: $tokenCleanupError',
-                  );
-                }
-                await FirebaseAuth.instance.signOut();
+              initialProfile = await AuthService().prepareCurrentUser();
+            } catch (e, stack) {
+              debugPrint('[Splash] prepare profile error: $e\n$stack');
+              if (e is FirebaseAuthException && e.code == 'user-disabled') {
                 if (!mounted) return;
                 Navigator.pushReplacement(
                   context,
@@ -217,8 +198,6 @@ class _SplashScreenState extends State<SplashScreen>
                 );
                 return;
               }
-            } catch (e, stack) {
-              debugPrint('[Splash] getProfile error: $e\n$stack');
             }
           }
 

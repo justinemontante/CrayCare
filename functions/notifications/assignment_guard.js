@@ -14,13 +14,16 @@ async function isEligibleAssignment(data) {
   const tankId = typeof data.tank_id === "string" ? data.tank_id.trim() : "";
   if (!uid || !tankId) return false;
 
-  const userSnap = await firestoreDb.collection("users").doc(uid).get();
-  if (!userSnap.exists) return false;
+  const [userSnap, tankSnap] = await Promise.all([
+    firestoreDb.collection("users").doc(uid).get(),
+    firestoreDb.collection("tanks").doc(tankId).get(),
+  ]);
+  if (!userSnap.exists || !tankSnap.exists) return false;
   const user = userSnap.data() || {};
+  const tank = tankSnap.data() || {};
   const role = normalized(user.role || "owner");
   const status = normalized(user.status || "active");
-  const userTankId = typeof user.tank_id === "string" ? user.tank_id.trim() : "";
-  return role === "owner" && status === "active" && userTankId === tankId;
+  return role === "owner" && status === "active" && tank.owner_uid === uid;
 }
 
 async function clearMatchingAssignment(uid, tankId) {
@@ -53,8 +56,7 @@ exports.onUserAssignmentEligibilityChange = functions.region("asia-southeast1").
     const status = normalized(after.status || "active");
     if (role === "owner" && status === "active") return null;
 
-    const tankId = typeof after.tank_id === "string" ? after.tank_id : "";
-    await clearMatchingAssignment(context.params.uid, tankId);
+    await clearMatchingAssignment(context.params.uid, context.params.uid);
     return null;
   });
 

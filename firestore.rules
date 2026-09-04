@@ -12,7 +12,8 @@ service cloud.firestore {
     }
     function isTankOwner(tankId) {
       return isSignedIn() &&
-        myProfile().tank_id == tankId &&
+        exists(/databases/$(database)/documents/tanks/$(tankId)) &&
+        get(/databases/$(database)/documents/tanks/$(tankId)).data.owner_uid == request.auth.uid &&
         myProfile().get('status', 'active') == 'active';
     }
     function canBackfillLegacyProfile(uid) {
@@ -24,15 +25,15 @@ service cloud.firestore {
         request.resource.data.status == resource.data.get('status', 'active') &&
         request.resource.data.status == 'active';
     }
-    function canClaimInitialTank(uid) {
-      return isSignedIn() && request.auth.uid == uid &&
-        (resource.data.get('tank_id', null) == null || resource.data.tank_id == '') &&
-        request.resource.data.tank_id == request.auth.uid &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['tank_id']);
-    }
     function canCreateOwnInitialTank(tankId) {
       return isSignedIn() && request.auth.uid == tankId &&
         request.resource.data.owner_uid == request.auth.uid;
+    }
+    function canAccessOwnCanonicalTank(tankId) {
+      return isSignedIn() && request.auth.uid == tankId &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        myProfile().role == 'owner' &&
+        myProfile().get('status', 'active') == 'active';
     }
     function isSafeThreshold(sensorName) {
       let min = request.resource.data.min_value;
@@ -71,9 +72,10 @@ service cloud.firestore {
         uid is string && uid.size() > 0 &&
         tankId is string && tankId.size() > 0 &&
         exists(/databases/$(database)/documents/users/$(uid)) &&
+        exists(/databases/$(database)/documents/tanks/$(tankId)) &&
         get(/databases/$(database)/documents/users/$(uid)).data.role == 'owner' &&
         get(/databases/$(database)/documents/users/$(uid)).data.get('status', 'active') == 'active' &&
-        get(/databases/$(database)/documents/users/$(uid)).data.tank_id == tankId
+        get(/databases/$(database)/documents/tanks/$(tankId)).data.owner_uid == uid
       );
     }
 
@@ -83,21 +85,23 @@ service cloud.firestore {
       allow create: if (isAdmin() && request.resource.data.role == 'owner') || (
         isSignedIn() && request.auth.uid == uid &&
         request.resource.data.role == 'owner' &&
-        request.resource.data.status == 'active' &&
-        request.resource.data.tank_id == request.auth.uid
+        request.resource.data.status == 'active'
       );
       allow update: if (isAdmin() &&
           request.resource.data.role == resource.data.role) ||
-        canClaimInitialTank(uid) ||
         canBackfillLegacyProfile(uid) || (
           isSignedIn() && request.auth.uid == uid &&
           request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['full_name', 'email', 'photo_url', 'photoUrl', 'fcmTokens', 'fcmToken'])
+            .hasOnly(['full_name', 'email', 'photo_url', 'photoUrl', 'fcmTokens', 'fcmToken', 'tank_id']) &&
+          (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['tank_id']) ||
+            !request.resource.data.keys().hasAny(['tank_id']))
         );
       allow delete: if isAdmin();
 
       match /notification_settings/{doc} {
-        allow read, write: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+        allow read, write: if isSignedIn() &&
+          request.auth.uid == uid &&
+          get(/databases/$(database)/documents/users/$(uid)).data.role == 'owner';
       }
       match /notif_markers/{key} {
         allow read, write: if isSignedIn() && (request.auth.uid == uid || isAdmin());
@@ -112,34 +116,37 @@ service cloud.firestore {
     }
 
     match /tanks/{tankId} {
-      allow read: if isTankOwner(tankId) || isAdmin();
+      // An active owner must be able to check whether tanks/{uid} exists
+      // before first-time provisioning. Keep collection listing admin-only.
+      allow get: if isTankOwner(tankId) || isAdmin() || canAccessOwnCanonicalTank(tankId);
+      allow list: if isAdmin();
       allow create: if isTankOwner(tankId) || isAdmin() || canCreateOwnInitialTank(tankId);
       allow update: if isTankOwner(tankId) || isAdmin();
       allow delete: if isAdmin();
 
       match /sensor_readings/{doc} {
-        allow read: if isTankOwner(tankId);
+        allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId);
         allow create, update, delete: if false;
       }
       match /sensor_readings_history/{dateStr} {
         // Parent day documents are server-maintained daily summaries. Owners
         // may read them for long-range Analytics, but clients can never write.
-        allow read: if isTankOwner(tankId);
+        allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId);
         allow create, update, delete: if false;
 
         match /entries/{entryId} {
-          allow read: if isTankOwner(tankId);
+          allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId);
           allow create, update, delete: if false;
         }
       }
       match /sensors/{sensorName} {
-        allow read: if isTankOwner(tankId) || isAssignedEsp(tankId);
+        allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId) || isAssignedEsp(tankId);
         allow create: if isAdmin() || (isTankOwner(tankId) && isSafeThreshold(sensorName));
         allow update: if isTankOwner(tankId) && isSafeThreshold(sensorName);
         allow delete: if false;
       }
       match /actuators/{actuatorId} {
-        allow read: if isTankOwner(tankId) || isAssignedEsp(tankId);
+        allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId) || isAssignedEsp(tankId);
         allow create: if isTankOwner(tankId) || isAdmin();
         allow update: if ownerChangesOnlyControlMode(tankId) ||
           (isAssignedEsp(tankId) && request.resource.data.diff(resource.data)
@@ -147,18 +154,18 @@ service cloud.firestore {
         allow delete: if false;
       }
       match /actuator_logs/{logId} {
-        allow read: if isTankOwner(tankId);
+        allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId);
         allow create: if isTankOwner(tankId) || isAssignedEsp(tankId);
         allow update, delete: if false;
       }
       match /feeder/{doc} {
-        allow read: if isTankOwner(tankId) || isAssignedEsp(tankId);
+        allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId) || isAssignedEsp(tankId);
         allow create: if isTankOwner(tankId) || isAdmin() || isAssignedEsp(tankId);
         allow update: if isAssignedEsp(tankId);
         allow delete: if false;
       }
       match /feeder_schedules/{scheduleId} {
-        allow read: if isTankOwner(tankId) || isAssignedEsp(tankId);
+        allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId) || isAssignedEsp(tankId);
         allow create, delete: if isTankOwner(tankId);
         allow update: if isTankOwner(tankId) ||
           (isAssignedEsp(tankId) &&
@@ -167,30 +174,38 @@ service cloud.firestore {
       }
       match /feeder_commands/{commandId} {
         allow create: if isTankOwner(tankId);
-        allow read, delete: if isTankOwner(tankId) || isAssignedEsp(tankId);
+        allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId) || isAssignedEsp(tankId);
+        allow delete: if isTankOwner(tankId) || isAssignedEsp(tankId);
         allow update: if false;
       }
       match /feeder_logs/{logId} {
-        allow read: if isTankOwner(tankId);
+        allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId);
         allow create: if isTankOwner(tankId) || isAssignedEsp(tankId);
-        allow update, delete: if isTankOwner(tankId);
+        // Feeding history is an append-only audit trail. Confirmed device
+        // outcomes and owner-created schedule audit entries cannot be changed
+        // or erased after the first successful write.
+        allow update, delete: if false;
       }
 
-      match /machine_learning_assessments/{docId} {
-        allow read: if isTankOwner(tankId);
+      match /water_quality_anomaly_detections/{docId} {
+        allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId);
         allow create, update, delete: if false;
       }
 
       match /batches/{batchId} {
-        allow read, write: if isTankOwner(tankId);
+        allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId);
+        allow write: if isTankOwner(tankId);
         match /sampling_records/{docId} {
-          allow read, write: if isTankOwner(tankId);
+          allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId);
+          allow write: if isTankOwner(tankId);
         }
         match /mortality_records/{docId} {
-          allow read, write: if isTankOwner(tankId);
+          allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId);
+          allow write: if isTankOwner(tankId);
         }
         match /harvest_records/{docId} {
-          allow read, write: if isTankOwner(tankId);
+          allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId);
+          allow write: if isTankOwner(tankId);
         }
       }
     }

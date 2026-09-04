@@ -2,7 +2,7 @@
 
 Flutter + Firebase smart-aquaculture app for crayfish farming. The system
 monitors water conditions from ESP32 sensors, controls actuators and feeding,
-and produces an hourly Machine Learning-Based Water Quality Assessment.
+and produces an hourly Machine Learning-Based Water Quality Anomaly Detection.
 
 ## Stack
 
@@ -10,7 +10,7 @@ and produces an hourly Machine Learning-Based Water Quality Assessment.
 |---|---|
 | Mobile | Flutter (Android/iOS/Web) |
 | Backend | Firebase Auth, Firestore, Cloud Functions, FCM, Storage |
-| Assessment | Python 3.12 + XGBoost |
+| WQAD | Python 3.12 + scikit-learn Isolation Forest |
 | Hardware | ESP32 with pH, DO, temperature, turbidity, and water-level sensors |
 | Repository | `justinemontante/CrayCare`, branch `main` |
 
@@ -22,62 +22,64 @@ ESP32
   → notification Cloud Functions route readings to the assigned tank
   → tanks/{tankId}/sensor_readings/latest
   → tanks/{tankId}/sensor_readings_history/{date}/entries/{id}
-  → hourly Python run_hourly_wqa
-  → Machine Learning-Based Water Quality Assessment
-  → tanks/{tankId}/machine_learning_assessments/current + timestamped history
-  → WaterQualityAssessmentService
+  → hourly Python run_hourly_wqad
+  → Machine Learning-Based Water Quality Anomaly Detection
+  → tanks/{tankId}/water_quality_anomaly_detections/current + timestamped history
+  → WaterQualityAnomalyDetectionService
   → dashboard card, history, reports, and CrayAI insights
 ```
 
-## Water Quality Assessment
+## Water Quality Anomaly Detection
 
-The assessment combines five sensor parameters and their recent temporal
-features to determine one of four public conditions:
+WQAD learns the usual combined pattern of five water sensors and their recent
+temporal features without class labels. It returns `Normal`, `Unusual`, or
+`Insufficient`, together with an anomaly percentile, ranked contributors, an
+insight, and a verification-focused recommendation. The statistical anomaly
+boundary is not a biological safety threshold. Immediate alerts and actuator
+decisions remain in the separate sensor-threshold layer.
 
-- Good
-- Moderate
-- Poor
-- Critical
-
-The model artifact is `functions/ml/wqa_model.joblib`. The internal numeric
-hazard score is used only for training targets and the deterministic safety
-floor; it is not written as a public assessment result.
+The model artifact is `functions/ml/wqad_model.joblib`. Its provenance is stored
+with every result so the synthetic bootstrap artifact cannot be mistaken for a
+field-validated Cherax model.
 
 Important files:
 
 | File | Role |
 |---|---|
 | `functions/ml/generate_dataset.py` | Generates the synthetic development dataset |
-| `functions/ml/train_model.py` | Trains and saves the WQA model artifact |
-| `functions/ml/features.py` | Builds 45 temporal features and the safety floor |
-| `functions/ml/assessment_interpreter.py` | Produces concerns, insights, and recommendations |
-| `functions/ml/main.py` | Exports the hourly `run_hourly_wqa` Cloud Function |
-| `functions/ml/predict.py` | Runs a local end-to-end assessment preview |
-| `functions/ml/test_assessment.py` | Assessment label and safety regression tests |
+| `functions/ml/train_model.py` | Trains and saves the WQAD model artifact |
+| `functions/ml/anomaly_features.py` | Builds 52 multivariate and temporal features and runs anomaly inference |
+| `functions/ml/anomaly_interpreter.py` | Produces insights and verification-focused recommendations |
+| `functions/ml/main.py` | Exports the hourly `run_hourly_wqad` Cloud Function |
+| `functions/ml/predict.py` | Runs a local end-to-end WQAD preview |
+| `functions/ml/test_anomaly_detection.py` | Unsupervised-contract and detection tests |
+| `functions/ml/test_anomaly_window.py` | Freshness and continuous-history tests |
 
-At least six complete 10-minute records are required. Missing sensor values are
+Twelve complete 10-minute records are required. Missing sensor values are
 rejected rather than converted to physically meaningful zeroes.
 
 ## Flutter integration
 
-- Service/result: `lib/services/water_quality_assessment_service.dart`
-- Dashboard card: `lib/widgets/dashboard/water_quality_assessment_card.dart`
+- Service/result: `lib/services/water_quality_anomaly_detection_service.dart`
+- Dashboard card: `lib/widgets/dashboard/water_quality_anomaly_detection_card.dart`
 - History/export sheet:
-  `lib/widgets/dashboard/water_quality_assessment_history_sheet.dart`
+  `lib/widgets/dashboard/water_quality_anomaly_detection_history_sheet.dart`
 - AI insight sheet: `lib/widgets/analytics/movable_ai_logo.dart`
 
-Legacy Firestore `Low` and `High` values are normalized to `Good` and `Poor`
-when read, so old assessment history remains usable.
+WQAD reads only the `Normal`, `Unusual`, and `Insufficient` result contract from
+`water_quality_anomaly_detections`. Retired classification documents are not
+treated as current anomaly-detection results.
 
 ## Naming rule
 
-Use **WQA — Water Quality Assessment** everywhere. Do not restore retired
+Use **WQAD — Water Quality Anomaly Detection** everywhere. Do not restore retired
 earlier module names.
 
 ## Current limitations
 
-- The assessment model is prototype-validated on synthetic, formula-labeled
-  data; it is not yet field-validated biological ground truth.
+- The WQAD model is bootstrap-tested on synthetic operating patterns and
+  holdout events; event labels are evaluation-only. It is not yet field-validated
+  using actual calibrated Cherax RAS history.
 - Sensor calibration and physical hardware verification remain required before
   unsupervised production operation.
 - Node.js 20 notification functions must be migrated before runtime

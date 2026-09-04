@@ -1,10 +1,27 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
 
-class LogoutSheet extends StatelessWidget {
-  final VoidCallback onLogout;
+class LogoutSheet extends StatefulWidget {
+  final Future<void> Function() onLogout;
 
   const LogoutSheet({super.key, required this.onLogout});
+
+  @override
+  State<LogoutSheet> createState() => _LogoutSheetState();
+}
+
+class _LogoutSheetState extends State<LogoutSheet> {
+  bool _isLoggingOut = false;
+
+  Future<void> _logout() async {
+    if (_isLoggingOut) return;
+    setState(() => _isLoggingOut = true);
+    try {
+      await widget.onLogout();
+    } finally {
+      if (mounted) setState(() => _isLoggingOut = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -40,7 +57,7 @@ class LogoutSheet extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: onLogout,
+                onPressed: _isLoggingOut ? null : _logout,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.critical,
                   foregroundColor: Colors.white,
@@ -49,18 +66,24 @@ class LogoutSheet extends StatelessWidget {
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                child: const Text(
-                  'Yes, Logout',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 160),
+                  child: Text(
+                    _isLoggingOut ? 'Logging out…' : 'Yes, Logout',
+                    key: ValueKey(_isLoggingOut),
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
               ),
             ),
             const SizedBox(height: 8),
             TextButton(
-              onPressed: () => Navigator.of(context).pop(),
+              onPressed: _isLoggingOut
+                  ? null
+                  : () => Navigator.of(context).pop(),
               child: const Text(
                 'Cancel',
                 style: TextStyle(

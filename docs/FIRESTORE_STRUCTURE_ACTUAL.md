@@ -3,6 +3,11 @@
 > Base sa aktwal na code (`lib/services/*.dart`, `functions/*`, `esp/*`, `firestore.rules`).
 > ✓ = active · 🗑️ = legacy/leftover (hindi na ginagamit o lumang schema)
 
+> **Important:** Ito ang aktwal na NoSQL/Firestore structure. May ilang cached at
+> duplicated fields para sa mabilis na real-time reads, offline support, at security
+> checks. Ang hiwalay na `craycare_erd.dbml` ang normalized 3NF SQL logical ERD;
+> hindi kailangang magkapareho ang physical NoSQL documents at SQL tables.
+
 ---
 
 ## 1. USERS
@@ -13,14 +18,13 @@
 | email | string | |
 | role | string | `owner` \| `admin` |
 | status | string | `active` \| `disabled` |
-| tank_id | string | = uid by default; source of tank ownership |
 | photo_url / photoUrl | string | `photo_url` canonical; `photoUrl` legacy alias |
 | fcmTokens | array<string> | One token per logged-in device |
 | fcmToken | string | Legacy single-token compatibility only |
 | created_at | timestamp | |
 
 ### `users/{uid}/notification_settings/preferences` ✓
-`sound`, `vibration`, `critical`, `warning`, `feeding`, `sampling`, `updated_at`
+`sound`, `vibration`, `critical`, `warning`, `feeding`, `sampling`, `operational`, `updated_at`
 
 ### `users/{uid}/notif_markers/{key}` ✓
 `markerKey`, `value`, `updated_at` — server-side idempotency markers for scheduled reminders/checks.
@@ -31,13 +35,15 @@
 ### `hardware_system/currentOwner` ✓
 `uid`, `tank_id`, `assigned_by`, `assigned_at`
 
-A valid assignment is either `uid == null && tank_id == null`, or an **active owner** whose profile `tank_id` exactly matches the assignment. Admin user-management clears the assignment atomically when the assigned owner is disabled. Firestore rules reject invalid client assignments, and Cloud Functions also clear invalid Console/Admin-SDK assignments.
+A valid assignment is either `uid == null && tank_id == null`, or an **active owner** whose canonical `tanks/{tankId}.owner_uid` matches `uid`. Admin user-management clears the assignment atomically when the assigned owner is disabled. Firestore rules reject invalid client assignments, and Cloud Functions also clear invalid Console/Admin-SDK assignments.
 
 ---
 
 ## 3. TANKS — ang core ng buong system ✓
 ### `tanks/{tankId}` ✓
 `owner_uid`, `current_batch_id`, `stocking_date`, `last_sample_date`, `sample_count`, `initial_population`, `initial_total_sample_weight`, `initial_total_sample_length`, `is_initialized`, `created_at`
+
+`owner_uid` is the only ownership source of truth. The user profile does not duplicate a `tank_id`. Registration creates only the owner profile and notification preferences; the first submitted Tank Setup creates `tanks/{uid}` and its sensor, actuator, and feeder defaults. Under the one-owner/one-tank design, the tank document ID is the owner's Firebase UID.
 
 ### `tanks/{tankId}/sensor_readings/latest` ✓
 `temperature`, `ph_level`, `dissolved_oxygen`, `turbidity`, `turbidity_air`, `water_level`, `feed_level`, `estimated_feed_grams`, optional `buffered_entries`, `recorded_at`.
@@ -71,23 +77,35 @@ Feeder status flow: `checking_feed_level` → `dispensing` → `completed`, with
 
 `effective_at_ms` records when a schedule becomes effective after creation, edit, or re-enable, preventing an occurrence earlier than that instant from being incorrectly marked as missed.
 
+`last_outcome` (`completed`, `skipped_insufficient`, `blocked`, `failed`) and `last_occurrence_at` (UTC epoch ms) are reconciled by `onFeederLogCreate`. `isDone` remains a legacy compatibility field, true only for a completed outcome; the app does not infer completion from this flag alone or reset it at startup. Late backfills cannot overwrite newer occurrences or edited configurations. App reads all schedules; ESP fetches every 20-document page before replacing its cache.
+
+Fixed-cycle firmware accepts 20–200 g in multiples of 20 g; null means the default 20 g. Other amounts are rejected, not silently rounded or clamped. Actual output requires hardware calibration.
+
 ### `tanks/{tankId}/feeder_logs/{logId}` ✓
 Canonical fields: `action`, `type`, `logged_at`. ESP outcome logs additionally store `status`, `requested_grams`, `estimated_available_grams`, `feed_level_before`, `feed_level_after`, and `level_change_detected`.
 
 The before/after level change is supporting evidence only—not proof that the exact requested mass was dispensed. Completed logs alone contribute to Consumption Today.
+
+New device outcome logs include `occurrence_at`, `amount_basis: servo_cycle_estimate`, and (for completed cycles) `estimated_dispensed_grams`. Scheduled outcomes also include `schedule_key` and `schedule_time`. Status is `completed`, `skipped_insufficient`, `blocked`, or `failed`. Consumption Today is an estimated total from all completed logs in the Manila day, independent of the 50-entry history preview.
+
+Feeder logs are append-only under Firestore security rules: the assigned ESP or tank owner may create an authorized log, but client updates and deletes are denied after creation.
+
+ESP persists an execution reservation before dispensing and writes logs to a LittleFS outbox. Document ids combine hardware id and a persisted event sequence; retries do not create duplicate records. Interrupted execution is reported as `failed`, never automatically replayed. Queued logs retain their original tank and timestamps. Logs belonging to a previous tank remain on-device rather than being misattributed to a newly assigned owner; uploading them requires that tank to be assigned again (or an authorized recovery workflow).
 
 Missed-schedule logs may additionally contain `schedule_key` and `schedule_time`. `trigger_type` is no longer written by the active runtime. The app accepts legacy Firestore `Timestamp`, `DateTime`, ISO-string, Unix-seconds, and Unix-milliseconds forms of `logged_at`, while new writes use Unix epoch milliseconds.
 
 ### `tanks/{tankId}/feeder_commands/{commandId}` ✓
 `command_type`, `grams`, `issued_by`, `issued_at`
 
-### `tanks/{tankId}/machine_learning_assessments/current` ✓
-**Written hourly by the Python Water Quality Assessment Cloud Function** (Admin SDK). The app reads it with snapshot listeners.
-`uid`, `tank_id`, `level` (`Good`|`Moderate`|`Poor`|`Critical`|`Insufficient`), `model_level`, `rule_level`, `safety_override`, `source`, `confidence`, `driver`, `driver_label`, `driver_value`, `driver_unit`, `driver_min`, `driver_max`, `problem`, `insight`, `action`, `concerns`, `secondary_concerns`, `ts_epoch`, `timestamp` (ISO-8601 string). `source` distinguishes the trained model, deterministic fallback, and insufficient-data results so the UI/report never presents rule output as ML confidence. Legacy `Low` and `High` history values are normalized by the app to `Good` and `Poor`.
+### `tanks/{tankId}/water_quality_anomaly_detections/current` ✓
+**Written hourly by the Python Water Quality Anomaly Detection Cloud Function** (Admin SDK). The app reads it with snapshot listeners.
+`uid`, `tank_id`, `status` (`Normal`|`Unusual`|`Insufficient`), `is_anomaly`, `anomaly_score`, `source`, `model_algorithm`, `model_version`, `training_data_origin`, `training_label_origin`, `model_feature_count`, `analysis_window_minutes`, `data_status`, `source_recorded_at`, `source_age_seconds`, `driver`, `driver_label`, `driver_value`, `driver_unit`, `contributors`, `insight`, `recommendation`, `ts_epoch`, and `timestamp` (ISO-8601 string). The deployed model is recorded as `IsolationForest`. It is unsupervised and does not use threshold-derived training labels. Prototype metadata remains visible until the artifact is retrained and validated using calibrated field data from the actual tank.
 
-Hourly history uses `tanks/{tankId}/machine_learning_assessments/{YYYYMMDDTHHMMSS}` with the same assessment schema. ML rejects incomplete, negative-sentinel, non-finite, or internally inconsistent min/avg/max history rows before inference.
+Hourly history uses `tanks/{tankId}/water_quality_anomaly_detections/{YYYYMMDDTHHMMSS}` with the same anomaly-detection schema. ML rejects incomplete, negative-sentinel, non-finite, or internally inconsistent min/avg/max history rows before inference.
 
-There is no public Water Quality Assessment numeric score. At least six complete 10-minute records are required internally before a Water Quality Assessment can be produced.
+The anomaly score is a 0–100 percentile showing how unusual the latest pattern is relative to reference behavior; it is not a water-safety score. Twelve complete 10-minute records are required before a detection can be produced.
+
+`data_status` (`ready`, `insufficient`, `stale`), `source_recorded_at` (nullable ISO-8601), and `source_age_seconds` distinguish source freshness from processing time. Inference requires twelve contiguous readings at ten-minute cadence (±2 minutes). A newest source reading older than 20 minutes yields `status: Insufficient`, `data_status: stale`; no current pattern is inferred from old readings.
 
 ---
 
@@ -117,6 +135,8 @@ New feeder outcome logs with `status == completed` or `status == skipped_insuffi
 ---
 
 ## 6. ESP STAGING ✓
+Both live and history payloads include `source_tank_id`, `source_owner_uid`, `source_assignment_at_ms` and `captured_at_ms`. Routing requires the capture assignment to match `hardware_system/currentOwner` (assignment timestamp truncated to milliseconds). Reassignment resets the aggregate window. Historical payloads with missing/mismatched binding remain in staging with `routing_status: quarantined` and `routing_reason`; they are not assigned to the new owner. Out-of-order live events cannot replace a newer reading.
+
 ### `sensorIngestion/current` ✓
 5-second live ESP staging snapshot: `hardwareId`, live sensor values including `feed_level` and `estimated_feed_grams`, `turbidity_air`, and `buffered_entries`. Cloud Functions route the latest snapshot to the active tank.
 
@@ -133,13 +153,20 @@ New feeder outcome logs with `status == completed` or `status == skipped_insuffi
 | `sensorReadingsHistory/{uid}` | Replaced by nested tank history |
 | `feederSchedules`, `feederLogs`, `feederCommands`, `feederStatus`, `feederDispatched` | Legacy flat versions |
 | `deviceModes`, `deviceLogs` | Replaced by nested actuator data |
-| `healthRisk/{tankId}`, `tanks/{id}/health_risk/current`, root `mlPredictions`, `tanks/{id}/ml_predictions` | Replaced by `tanks/{id}/machine_learning_assessments` |
+| `healthRisk/{tankId}`, `tanks/{id}/health_risk/current`, root `mlPredictions`, `tanks/{id}/ml_predictions` | Replaced by `tanks/{id}/water_quality_anomaly_detections` |
 | flat production collections | Replaced by nested batch structure |
 
 ---
 
 ## 🔐 Security rules summary
-- Water Quality Assessments: owner read only; Admin SDK writer only.
+- Water Quality Anomaly Detections: owner read only; Admin SDK writer only.
 - Active owner/admin access checks require `status == active`.
-- `hardware_system/currentOwner` client writes are valid only for an active owner whose profile `tank_id` matches, or a fully unassigned null/null state.
+- `hardware_system/currentOwner` client writes are valid only for an active owner whose tank document has a matching `owner_uid`, or a fully unassigned null/null state.
 - ESP staging/assigned-device access currently identifies ESP sessions through Firebase Anonymous Auth. Before production deployment, bind ESP authorization to a provisioned device identity/custom claim instead of treating every anonymous session as trusted hardware.
+
+## Feeder request confirmation and push receipts
+
+- `tanks/{tankId}/feeder_commands/{commandId}` adds `expires_at` (Timestamp). ESP rejects commands older than 60 seconds by `issued_at`, or past the app's `expires_at`, including offline writes committed late. Legacy commands without `expires_at` still use the server-issued 60-second limit.
+- `tanks/{tankId}/feeder/status` adds `command_id` and `status_reason`. `feeder_logs` adds optional `command_id`. Manual UI outcomes must match that request, not a different feed's count increment. An app timeout is unconfirmed, not an authoritative failure log.
+- ESP writes a durable interrupted intent before command acknowledgement or schedule reservation. Reboot recovery reserves the intent's minute and never retries the physical dose. Terminal logs are persisted before cloud status updates.
+- `tanks/{tankId}/feeder_notification_receipts/{logId}` contains `uid`, `push_attempt_claimed_at`. Admin SDK creates it atomically with the deterministic inbox entry before the FCM attempt. Duplicate events do not resend or reset read state. A crash after the claim can lose the push attempt; the inbox remains. This is at-most-once, not guaranteed delivery. Receipts are server-only under existing default-deny rules.

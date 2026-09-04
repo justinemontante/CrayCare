@@ -6,6 +6,7 @@ class ChangePasswordForm extends StatefulWidget {
   final TextEditingController newPwCtrl;
   final TextEditingController confirmPwCtrl;
   final Future<void> Function() onChangePassword;
+  final bool isCreatingPassword;
 
   const ChangePasswordForm({
     super.key,
@@ -13,6 +14,7 @@ class ChangePasswordForm extends StatefulWidget {
     required this.newPwCtrl,
     required this.confirmPwCtrl,
     required this.onChangePassword,
+    this.isCreatingPassword = false,
   });
 
   @override
@@ -23,17 +25,22 @@ class _ChangePasswordFormState extends State<ChangePasswordForm> {
   bool _currentVisible = false;
   bool _newVisible = false;
   bool _confirmVisible = false;
+  bool _isSubmitting = false;
   String? _currentPwError;
 
   @override
   void initState() {
     super.initState();
     widget.currentPwCtrl.addListener(_clearError);
+    widget.newPwCtrl.addListener(_clearError);
+    widget.confirmPwCtrl.addListener(_clearError);
   }
 
   @override
   void dispose() {
     widget.currentPwCtrl.removeListener(_clearError);
+    widget.newPwCtrl.removeListener(_clearError);
+    widget.confirmPwCtrl.removeListener(_clearError);
     super.dispose();
   }
 
@@ -48,7 +55,9 @@ class _ChangePasswordFormState extends State<ChangePasswordForm> {
     final newPw = widget.newPwCtrl.text;
     final confirmPw = widget.confirmPwCtrl.text;
 
-    if (currentPw.isEmpty || newPw.isEmpty || confirmPw.isEmpty) {
+    if ((!widget.isCreatingPassword && currentPw.isEmpty) ||
+        newPw.isEmpty ||
+        confirmPw.isEmpty) {
       setState(() => _currentPwError = 'Please fill in all fields.');
       return;
     }
@@ -63,19 +72,35 @@ class _ChangePasswordFormState extends State<ChangePasswordForm> {
       return;
     }
 
+    setState(() => _isSubmitting = true);
     try {
       await widget.onChangePassword();
     } on Exception catch (e) {
+      if (!mounted) return;
       final msg = e.toString();
-      if (msg.contains('incorrect') || msg.contains('wrong-password') || msg.contains('invalid-credential') || msg.contains('wrong password')) {
+      if (msg.contains('incorrect') ||
+          msg.contains('wrong-password') ||
+          msg.contains('invalid-credential') ||
+          msg.contains('wrong password')) {
         setState(() => _currentPwError = 'Current password is incorrect.');
       } else if (msg.contains('weak-password')) {
         setState(() => _currentPwError = 'New password is too weak.');
       } else if (msg.contains('too-many-requests')) {
-        setState(() => _currentPwError = 'Too many attempts. Please wait a few minutes.');
+        setState(
+          () => _currentPwError =
+              'Too many attempts. Please wait a few minutes.',
+        );
+      } else if (msg.contains('email-already-in-use') ||
+          msg.contains('credential-already-in-use')) {
+        setState(
+          () => _currentPwError =
+              'This email is already linked to another account.',
+        );
       } else {
         setState(() => _currentPwError = msg.replaceFirst('Exception: ', ''));
       }
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
     }
   }
 
@@ -109,8 +134,10 @@ class _ChangePasswordFormState extends State<ChangePasswordForm> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Your password must be at least 8 characters long.',
+                  Text(
+                    widget.isCreatingPassword
+                        ? 'Create a password to also sign in using your email address.'
+                        : 'Your password must be at least 8 characters long.',
                     style: TextStyle(
                       fontSize: 11,
                       color: AppColors.dark,
@@ -118,35 +145,42 @@ class _ChangePasswordFormState extends State<ChangePasswordForm> {
                     ),
                   ),
                   const SizedBox(height: 20),
-                  _buildField(
-                    'Current Password',
-                    widget.currentPwCtrl,
-                    obscure: !_currentVisible,
-                    onToggle: () => setState(() => _currentVisible = !_currentVisible),
-                    visible: _currentVisible,
-                    errorText: _currentPwError,
-                  ),
-                  const SizedBox(height: 16),
+                  if (!widget.isCreatingPassword) ...[
+                    _buildField(
+                      'Current Password',
+                      widget.currentPwCtrl,
+                      obscure: !_currentVisible,
+                      onToggle: () =>
+                          setState(() => _currentVisible = !_currentVisible),
+                      visible: _currentVisible,
+                      errorText: _currentPwError,
+                    ),
+                    const SizedBox(height: 16),
+                  ],
                   _buildField(
                     'New Password',
                     widget.newPwCtrl,
                     obscure: !_newVisible,
                     onToggle: () => setState(() => _newVisible = !_newVisible),
                     visible: _newVisible,
+                    errorText: widget.isCreatingPassword
+                        ? _currentPwError
+                        : null,
                   ),
                   const SizedBox(height: 16),
                   _buildField(
                     'Confirm New Password',
                     widget.confirmPwCtrl,
                     obscure: !_confirmVisible,
-                    onToggle: () => setState(() => _confirmVisible = !_confirmVisible),
+                    onToggle: () =>
+                        setState(() => _confirmVisible = !_confirmVisible),
                     visible: _confirmVisible,
                   ),
                   const SizedBox(height: 24),
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: _onSubmit,
+                      onPressed: _isSubmitting ? null : _onSubmit,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
                         foregroundColor: Colors.white,
@@ -156,11 +190,21 @@ class _ChangePasswordFormState extends State<ChangePasswordForm> {
                           borderRadius: BorderRadius.circular(14),
                         ),
                       ),
-                      child: const Text(
-                        'Update Password',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w900,
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 160),
+                        child: Text(
+                          _isSubmitting
+                              ? (widget.isCreatingPassword
+                                    ? 'Creating…'
+                                    : 'Updating…')
+                              : (widget.isCreatingPassword
+                                    ? 'Create Password'
+                                    : 'Update Password'),
+                          key: ValueKey(_isSubmitting),
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w900,
+                          ),
                         ),
                       ),
                     ),

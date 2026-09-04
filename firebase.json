@@ -25,6 +25,11 @@
         ".venv",
         "__pycache__",
         "*.pyc",
+        "sensor_dataset.csv",
+        "generate_dataset.py",
+        "train_model.py",
+        "predict.py",
+        "test_*.py",
         "firebase-debug.log",
         "firestore-debug.log",
         "ui-debug.log"

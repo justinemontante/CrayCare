@@ -7,7 +7,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 
-import 'water_quality_assessment_service.dart';
+import 'water_quality_anomaly_detection_service.dart';
 import 'tank_service.dart';
 
 /// Builds CSV and PDF reports from the in-memory grow-out and water-quality
@@ -165,22 +165,22 @@ class ReportExportService {
     return buf.toString();
   }
 
-  // ── Machine Learning-Based Water Quality Assessment CSV ────────────────
-  String buildWaterQualityAssessmentCsv() {
-    final assessmentService = WaterQualityAssessmentService.instance;
+  // ── Machine Learning-Based Water Quality Anomaly Detection CSV ────────────────
+  String buildWaterQualityAnomalyDetectionCsv() {
+    final anomalyService = WaterQualityAnomalyDetectionService.instance;
     final buf = StringBuffer();
 
     buf.writeln(
-      'CrayCare Machine Learning-Based Water Quality Assessment Report',
+      'CrayCare Machine Learning-Based Water Quality Anomaly Detection Report',
     );
     buf.writeln('Generated,${_fmtDateTime(DateTime.now())}');
     buf.writeln();
 
-    final history = assessmentService.history;
+    final history = anomalyService.history;
     if (history.isEmpty) {
       buf.writeln(
-        'No Water Quality Assessment history yet. The first Water Quality Assessment appears '
-        'after about one hour of sensor data.',
+        'No Water Quality Anomaly Detection history yet. The first Water Quality Anomaly Detection appears '
+        'after two hours of continuous sensor data.',
       );
       return buf.toString();
     }
@@ -188,43 +188,41 @@ class ReportExportService {
     buf.writeln(
       _row([
         'Timestamp',
-        'Level',
-        'Assessment Basis',
-        'Confidence (%)',
-        'Driver',
+        'Pattern Status',
+        'Model Basis',
+        'Anomaly Score (0-100)',
+        'Main Contributor',
         'Driver Value',
         'Unit',
-        'Problem',
-        'Action',
+        'Insight',
+        'Suggested Action',
       ]),
     );
     for (final h in history) {
       buf.writeln(
         _row([
           _fmtDateTime(h.timestamp.toLocal()),
-          h.level,
-          h.assessmentBasis,
-          h.hasModelConfidence ? h.confidence : '',
+          h.status,
+          h.modelBasis,
+          h.anomalyScore.toStringAsFixed(1),
           h.driverLabel,
           h.driverValue?.toStringAsFixed(2) ?? '',
           h.driverUnit,
-          h.problem,
-          h.action,
+          h.insight,
+          h.recommendation,
         ]),
       );
     }
     buf.writeln();
 
     final latest = history.first;
-    buf.writeln(_row(['Latest Water Quality Assessment Detail']));
-    buf.writeln(_row(['Level', latest.level]));
-    buf.writeln(_row(['Assessment Basis', latest.assessmentBasis]));
-    if (latest.hasModelConfidence) {
-      buf.writeln(_row(['Confidence (%)', latest.confidence]));
-    }
-    buf.writeln(_row(['Primary Driver', latest.driverLabel]));
+    buf.writeln(_row(['Latest Water Quality Anomaly Detection Detail']));
+    buf.writeln(_row(['Pattern Status', latest.status]));
+    buf.writeln(_row(['Model Basis', latest.modelBasis]));
+    buf.writeln(_row(['Anomaly Score', latest.anomalyScore.toStringAsFixed(1)]));
+    buf.writeln(_row(['Main Contributor', latest.driverLabel]));
     buf.writeln(_row(['Insight', latest.insight]));
-    buf.writeln(_row(['Recommended Action', latest.action]));
+    buf.writeln(_row(['Suggested Action', latest.recommendation]));
 
     return buf.toString();
   }
@@ -428,22 +426,22 @@ class ReportExportService {
     return doc.save();
   }
 
-  // ── Machine Learning-Based Water Quality Assessment PDF ────────────────
-  Future<Uint8List> buildWaterQualityAssessmentPdf() async {
-    final assessmentService = WaterQualityAssessmentService.instance;
-    final history = assessmentService.history;
+  // ── Machine Learning-Based Water Quality Anomaly Detection PDF ────────────────
+  Future<Uint8List> buildWaterQualityAnomalyDetectionPdf() async {
+    final anomalyService = WaterQualityAnomalyDetectionService.instance;
+    final history = anomalyService.history;
     final doc = pw.Document();
 
     final rows = history
         .map(
           (h) => [
             _fmtDateTime(h.timestamp.toLocal()),
-            h.level,
-            h.assessmentBasis,
-            h.hasModelConfidence ? '${h.confidence}' : '',
+            h.status,
+            h.modelBasis,
+            h.anomalyScore.toStringAsFixed(1),
             _pdfSafe(h.driverLabel),
-            _pdfSafe(h.problem),
-            _pdfSafe(h.action),
+            _pdfSafe(h.insight),
+            _pdfSafe(h.recommendation),
           ],
         )
         .toList();
@@ -453,7 +451,7 @@ class ReportExportService {
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.all(36),
         header: (context) => pw.Text(
-          'CrayCare Machine Learning-Based Water Quality Assessment Report',
+          'CrayCare Machine Learning-Based Water Quality Anomaly Detection Report',
           style: pw.TextStyle(
             fontSize: 18,
             fontWeight: pw.FontWeight.bold,
@@ -470,12 +468,12 @@ class ReportExportService {
         build: (context) => [
           if (history.isEmpty)
             pw.Text(
-              'No Water Quality Assessment history yet. The first Water Quality Assessment appears after about one hour of sensor data.',
+              'No Water Quality Anomaly Detection history yet. Two hours of continuous sensor data are required for the first result.',
               style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
             )
           else ...[
             pw.Text(
-              'Water Quality Assessment History',
+              'Water Quality Anomaly Detection History',
               style: pw.TextStyle(
                 fontSize: 13,
                 fontWeight: pw.FontWeight.bold,
@@ -486,12 +484,12 @@ class ReportExportService {
             pw.TableHelper.fromTextArray(
               headers: [
                 'Timestamp',
-                'Level',
+                'Status',
                 'Basis',
-                'Conf %',
-                'Driver',
-                'Problem',
-                'Action',
+                'Score',
+                'Contributor',
+                'Insight',
+                'Suggested Action',
               ],
               headerStyle: pw.TextStyle(
                 fontWeight: pw.FontWeight.bold,
@@ -504,7 +502,7 @@ class ReportExportService {
             ),
             pw.SizedBox(height: 20),
             pw.Text(
-              'Latest Water Quality Assessment Detail',
+              'Latest Water Quality Anomaly Detection Detail',
               style: pw.TextStyle(
                 fontSize: 13,
                 fontWeight: pw.FontWeight.bold,
@@ -524,13 +522,12 @@ class ReportExportService {
               headerAlignment: pw.Alignment.centerLeft,
               border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
               data: [
-                ['Level', history.first.level],
-                ['Assessment Basis', history.first.assessmentBasis],
-                if (history.first.hasModelConfidence)
-                  ['Confidence (%)', '${history.first.confidence}'],
-                ['Primary Driver', _pdfSafe(history.first.driverLabel)],
+                ['Pattern Status', history.first.status],
+                ['Model Basis', history.first.modelBasis],
+                ['Anomaly Score', history.first.anomalyScore.toStringAsFixed(1)],
+                ['Main Contributor', _pdfSafe(history.first.driverLabel)],
                 ['Insight', _pdfSafe(history.first.insight)],
-                ['Recommended Action', _pdfSafe(history.first.action)],
+                ['Suggested Action', _pdfSafe(history.first.recommendation)],
               ],
             ),
           ],
@@ -565,21 +562,21 @@ class ReportExportService {
     await _writeAndShare(name, 'application/pdf', await buildGrowthPdf());
   }
 
-  Future<void> shareWaterQualityAssessmentCsv() async {
-    final name = 'craycare_water_quality_assessment_${_stamp()}.csv';
+  Future<void> shareWaterQualityAnomalyDetectionCsv() async {
+    final name = 'craycare_water_quality_anomaly_detection_${_stamp()}.csv';
     await _writeAndShare(
       name,
       'text/csv',
-      utf8.encode(buildWaterQualityAssessmentCsv()),
+      utf8.encode(buildWaterQualityAnomalyDetectionCsv()),
     );
   }
 
-  Future<void> shareWaterQualityAssessmentPdf() async {
-    final name = 'craycare_water_quality_assessment_${_stamp()}.pdf';
+  Future<void> shareWaterQualityAnomalyDetectionPdf() async {
+    final name = 'craycare_water_quality_anomaly_detection_${_stamp()}.pdf';
     await _writeAndShare(
       name,
       'application/pdf',
-      await buildWaterQualityAssessmentPdf(),
+      await buildWaterQualityAnomalyDetectionPdf(),
     );
   }
 }

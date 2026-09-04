@@ -20,6 +20,7 @@ class FilterSelector extends StatefulWidget {
 }
 
 class _FilterSelectorState extends State<FilterSelector> {
+
   @override
   Widget build(BuildContext context) {
     final filters = [
@@ -38,56 +39,70 @@ class _FilterSelectorState extends State<FilterSelector> {
       ),
       child: Row(
         children: filters.map((f) {
-          final isActive = f.$2 == 'custom'
-              ? widget.showCustom
+          final isActive = widget.showCustom
+              ? f.$2 == 'custom'
               : widget.activeFilter == f.$2;
+          const animationDuration = Duration.zero;
 
           return Expanded(
-            child: GestureDetector(
-              onTap: () {
-                if (f.$2 == 'custom') {
-                  widget.onToggleCustom();
-                } else {
-                  widget.onFilterChanged(f.$2);
-                }
-              },
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                decoration: BoxDecoration(
-                  color: isActive ? Colors.white : Colors.transparent,
-                  borderRadius: BorderRadius.circular(11),
-                  boxShadow: isActive
-                      ? [
-                          BoxShadow(
-                            color: AppColors.primaryWith(0.12),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ]
-                      : null,
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      f.$3,
-                      size: 12,
-                      color: isActive
-                          ? AppColors.primary
-                          : AppColors.darkWith(0.45),
-                    ),
-                    const SizedBox(width: 5),
-                    Text(
-                      f.$1,
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        color: isActive
-                            ? AppColors.primary
-                            : AppColors.darkWith(0.45),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(11),
+                onTap: () {
+                  if (f.$2 == 'custom') {
+                    widget.onToggleCustom();
+                  } else {
+                    widget.onFilterChanged(f.$2);
+                  }
+                },
+                child: AnimatedContainer(
+                  duration: animationDuration,
+                  curve: Curves.easeOutCubic,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  decoration: BoxDecoration(
+                    color: isActive ? Colors.white : Colors.transparent,
+                    borderRadius: BorderRadius.circular(11),
+                    boxShadow: isActive
+                        ? [
+                            BoxShadow(
+                              color: AppColors.primaryWith(0.12),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      TweenAnimationBuilder<Color?>(
+                        tween: ColorTween(
+                          end: isActive
+                              ? AppColors.primary
+                              : AppColors.darkWith(0.45),
+                        ),
+                        duration: animationDuration,
+                        builder: (context, color, _) =>
+                            Icon(f.$3, size: 12, color: color),
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 5),
+                      AnimatedDefaultTextStyle(
+                        duration: animationDuration,
+                        curve: Curves.easeOutCubic,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: isActive
+                              ? FontWeight.w700
+                              : FontWeight.w600,
+                          color: isActive
+                              ? AppColors.primary
+                              : AppColors.darkWith(0.45),
+                        ),
+                        child: Text(f.$1),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),

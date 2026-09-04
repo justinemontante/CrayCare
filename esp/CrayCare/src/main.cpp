@@ -52,6 +52,7 @@
 #include <time.h>
 #include <stdlib.h>    // atoll()
 #include <LittleFS.h>  // offline store-and-forward buffer (data partition)
+#include <vector>
 #include "addons/TokenHelper.h"
 #include "addons/RTDBHelper.h"
 #include "secrets.h"   // Firebase credentials — gitignored (see secrets.h.example)
@@ -79,6 +80,31 @@ String pass;
 // Hardware ID derived from MAC address on first use (see getHardwareId())
 String hardwareId = "";
 String currentTankId = "";
+String currentOwnerUid;
+long long currentAssignmentAtMs = 0;
+
+// Firestore timestamps are UTC RFC3339; do not parse them with the Manila TZ.
+long long firestoreTimestampMillis(const String& value) {
+  int year, month, day, hour, minute, second;
+  if (!value.endsWith("Z") || sscanf(value.c_str(), "%d-%d-%dT%d:%d:%d", &year, &month, &day, &hour, &minute, &second) != 6) return 0;
+  if (year < 2020 || year > 2099 || month < 1 || month > 12 || hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59) return 0;
+  const int monthDays[] = {31,28,31,30,31,30,31,31,30,31,30,31};
+  const bool leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+  if (day < 1 || day > monthDays[month-1] + (month == 2 && leap ? 1 : 0)) return 0;
+  const int y = year - (month <= 2 ? 1 : 0);
+  const int era = y / 400;
+  const int yoe = y - era * 400;
+  const int doy = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1;
+  const long long days = era * 146097LL + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719468;
+  int millisPart = 0;
+  const int dot = value.indexOf('.');
+  if (dot >= 0) {
+    String fraction = value.substring(dot + 1, value.length() - 1);
+    while (fraction.length() < 3) fraction += '0';
+    millisPart = fraction.substring(0, 3).toInt();
+  }
+  return (days * 86400 + hour * 3600 + minute * 60 + second) * 1000 + millisPart;
+}
 
 #define FIREBASE_SEND_INTERVAL_MS 5000
 #define HISTORY_SEND_INTERVAL_MS 600000  // 10 minutes; matches the documented schema
@@ -92,24 +118,32 @@ String currentTankId = "";
 #define FEEDER_SCHEDULE_SYNC_MS 10000
 #define FEEDER_SCHEDULE_CHECK_MS 1000
 #define FEEDER_SERVO_PULSE_WIDTH 2000   // microseconds for full rotation
-#define FEEDER_MAX_SCHEDULES 20
+#define FEEDER_SCHEDULE_PAGE_SIZE 20
 
 // Resolve tank_id from hardware_system/currentOwner (used for subcollection paths)
 extern FirebaseData fbdo;
 bool ensureFirebaseReady();
+void applyTankAssignment(const String& tankId, const String& ownerUid = "", long long assignedAtMs = 0);
 void fetchTankId() {
   if (!ensureFirebaseReady()) return;
   // Read hardware_system/currentOwner to get tank_id for subcollection paths
   if (!Firebase.Firestore.getDocument(&fbdo, FIREBASE_PROJECT_ID, "",
         "hardware_system/currentOwner")) {
+    if (fbdo.httpCode() == 404) applyTankAssignment("");
     return;
   }
   FirebaseJson resp;
   resp.setJsonData(fbdo.payload());
   FirebaseJsonData d;
-  if (resp.get(d, "fields/tank_id/stringValue")) {
-    currentTankId = d.stringValue;
+  String assignedTank;
+  String assignedOwner;
+  if (resp.get(d, "fields/tank_id/stringValue")) assignedTank = d.stringValue;
+  if (resp.get(d, "fields/uid/stringValue")) assignedOwner = d.stringValue;
+  long long assignedAtMs = 0;
+  if (resp.get(d, "fields/assigned_at/timestampValue") || resp.get(d, "updateTime")) {
+    assignedAtMs = firestoreTimestampMillis(d.stringValue);
   }
+  applyTankAssignment(assignedOwner.length() > 0 ? assignedTank : "", assignedOwner, assignedAtMs);
   Serial.printf("[ESP] Resolved tank_id = %s\n", currentTankId.c_str());
 }
 
@@ -284,9 +318,22 @@ String feederStatus = "idle";
 String feederFeedSource = "";          // "manual" or "scheduled"
 String feederLastScheduleKey = "";     // doc id of the schedule that triggered the latest scheduled feed
 int feederDispenseCount = 0;              // total feeds dispensed since boot
-float feederRequestedGrams = 20.0f;   // calibrated estimate; 20 g per servo cycle
+float feederRequestedGrams = 20.0f;   // nominal estimate; verify 20 g/cycle on hardware
 float feederFeedLevelBefore = -1.0f;
 float feederAvailableBefore = -1.0f;
+bool feederInitialized = false;
+unsigned long feederLastScheduledMinute = 0;
+unsigned long feederLastCompletedEpoch = 0;
+float feederLastCompletedGrams = 0;
+unsigned long feederEventSequence = 0;
+unsigned long feederOccurrenceEpoch = 0;
+String feederEventTank;
+String feederEventKey;
+String feederCommandId;
+String feederStatusReason;
+String feederScheduleTime;
+bool feederWritingIntent = false;
+bool feederConfigReady = false;
 
 // Firestore integerValue is textual. Avoid 32-bit unsigned-long overflow
 // when sending epoch milliseconds from the ESP32.
@@ -320,10 +367,11 @@ struct FeedSchedule {
   bool enabled;
   float grams;
   String days;   // day-of-week mask "1111111" (Sunday first, '1'=active)
+  unsigned long effectiveEpoch = 0;
 };
 
 int feederScheduleCount = 0;
-FeedSchedule feederSchedules[FEEDER_MAX_SCHEDULES];
+std::vector<FeedSchedule> feederSchedules;
 
 unsigned long lastFeederCmdCheckMs = 0;
 unsigned long lastFeederStatusMs = 0;
@@ -722,8 +770,15 @@ void connectFirebase() {
 bool readConfigFloatPath(FirebaseJson& doc, const char* jsonPath,
                          float& target, float minValue, float maxValue) {
   FirebaseJsonData d;
-  if (!doc.get(d, jsonPath)) return false;
-  float value = d.floatValue;
+  float value;
+  if (doc.get(d, jsonPath)) {
+    value = d.floatValue;
+  } else {
+    String integerPath = jsonPath;
+    integerPath.replace("/doubleValue", "/integerValue");
+    if (!doc.get(d, integerPath)) return false;
+    value = d.stringValue.toFloat();
+  }
   if (!isfinite(value) || value < minValue || value > maxValue) {
     Serial.printf("[CONFIG SKIP] %s invalid value: %.3f\n", jsonPath, value);
     return false;
@@ -818,13 +873,16 @@ void syncConfigFromFirebase() {
     return;
   }
 
-  bool changed = false;
-  changed |= syncTankRange("temperature",       tempCriticalLow,       tempCriticalHigh,       0.0,   50.0);
-  changed |= syncTankRange("turbidity",         turbNtuMin,            turbNtuMax,             0.0, 1000.0);
-  changed |= syncTankRange("dissolved_oxygen",  doCriticalLow,         doCriticalHigh,          0.0,   30.0);
-  changed |= syncTankRange("ph_level",          phCriticalLow,         phCriticalHigh,          0.0,   14.0);
-  changed |= syncTankRange("water_level",       waterLevelCriticalLow, waterLevelCriticalHigh,  0.0,  300.0);
-  changed |= syncFeedLevelConfig();
+  bool changed = true;
+  changed &= syncTankRange("temperature",       tempCriticalLow,       tempCriticalHigh,       0.0,   50.0);
+  changed &= syncTankRange("turbidity",         turbNtuMin,            turbNtuMax,             0.0, 1000.0);
+  changed &= syncTankRange("dissolved_oxygen",  doCriticalLow,         doCriticalHigh,          0.0,   30.0);
+  changed &= syncTankRange("ph_level",          phCriticalLow,         phCriticalHigh,          0.0,   14.0);
+  changed &= syncTankRange("water_level",       waterLevelCriticalLow, waterLevelCriticalHigh,  0.0,  300.0);
+  changed &= syncFeedLevelConfig();
+  // Keep a known-good same-tank configuration through temporary outages, but
+  // require a complete fresh sync after startup or assignment changes.
+  if (changed) feederConfigReady = true;
 
   if (changed) {
     Serial.printf("[CONFIG] Tank %s | Temp %.1f-%.1f | Turb %.0f-%.0f | DO %.1f-%.1f | pH %.1f-%.1f | Water %.1f-%.1fcm\n",
@@ -878,6 +936,12 @@ bool ensureFirebaseReady() {
 void buildFirestorePayload(FirebaseJson &json, bool includeTimestamp) {
   String hwId = getHardwareId();
   json.set("fields/hardwareId/stringValue", hwId);
+  json.set("fields/source_tank_id/stringValue", currentTankId);
+  json.set("fields/source_owner_uid/stringValue", currentOwnerUid);
+  json.set("fields/source_assignment_at_ms/integerValue", String(currentAssignmentAtMs));
+  time_t capturedAt;
+  time(&capturedAt);
+  json.set("fields/captured_at_ms/integerValue", epochMillisString(capturedAt));
 
   if (!includeTimestamp) {
     // ── 5-sec LIVE payload: current smoothed values (dashboard display). ──
@@ -1290,16 +1354,17 @@ void syncFeederSchedules();
 void loadCachedFeederSchedules();
 void saveCachedFeederSchedules();
 void loadFeederState();
-void saveFeederState();
+bool saveFeederState();
 void checkScheduledFeed();
-void startFeed(String source, float grams = 20.0f);
+void startFeed(String source, float grams = 20.0f, String commandId = "", long long issuedAtMs = 0, long long expiresAtMs = 0);
 void processFeederTick();
 void pushFeederLog(String action, String type, String status = "",
                    float requestedGrams = -1.0f,
                    float availableGrams = -1.0f,
                    float levelBefore = -1.0f,
                    float levelAfter = -1.0f);
-void markScheduledFeedDone();
+bool flushOneFeederLog();
+void recoverFeederLogs();
 
 // ─── Actuator forward declarations ───
 void initActuators();
@@ -1354,6 +1419,12 @@ void setup() {
 //  LOOP
 // ============================================================
 void loop() {
+  // Motor timing must never wait behind a blocking cloud/sensor operation.
+  if (feederRunState != FEEDER_IDLE) {
+    processFeederTick();
+    delay(1);
+    return;
+  }
   unsigned long now = millis();
 
   // ─── Serial Commands ───
@@ -1370,6 +1441,7 @@ void loop() {
     }
     if (cmd == "FEED") {
       startFeed("manual");
+      if (feederRunState != FEEDER_IDLE) return;
     }
     if (cmd.startsWith("tankheight ")) {
       const float v = cmd.substring(11).toFloat();
@@ -1477,11 +1549,18 @@ void loop() {
   }
 
   // ─── Feeder ───
+  // Observe assignment changes before consuming commands or running a plan.
+  if (now - lastConfigSyncTime >= CONFIG_SYNC_INTERVAL_MS) {
+    lastConfigSyncTime = now;
+    syncConfigFromFirebase();
+    now = millis();
+  }
   // Cloud commands/status/schedule refresh need network. Already-synced
   // schedules continue to execute locally below while offline.
   if (networkAvailable && now - lastFeederCmdCheckMs >= FEEDER_CMD_INTERVAL_MS) {
     lastFeederCmdCheckMs = now;
     processFeederCommands();
+    if (feederRunState != FEEDER_IDLE) return;
   }
 
   if (networkAvailable && now - lastFeederStatusMs >= FEEDER_STATUS_INTERVAL_MS) {
@@ -1497,6 +1576,7 @@ void loop() {
   if (now - lastFeederScheduleCheckMs >= FEEDER_SCHEDULE_CHECK_MS) {
     lastFeederScheduleCheckMs = now;
     checkScheduledFeed();
+    if (feederRunState != FEEDER_IDLE) return;
   }
 
   // ─── Feeder state machine tick ───
@@ -1509,11 +1589,6 @@ void loop() {
   }
 
   // ─── Sensors ───
-
-  if (now - lastConfigSyncTime >= CONFIG_SYNC_INTERVAL_MS) {
-    lastConfigSyncTime = now;
-    syncConfigFromFirebase();
-  }
 
   if (now - lastPollTime >= SENSOR_POLL_MS) {
     lastPollTime = now;
@@ -1545,6 +1620,7 @@ void loop() {
   // 5-sec + 10-min writes are never starved. Oldest entry goes first.
   if (now - lastFlushTime >= FLUSH_INTERVAL_MS) {
     lastFlushTime = now;
+    if (networkAvailable && littlefsMounted && ensureFirebaseReady()) flushOneFeederLog();
     if (networkAvailable && littlefsMounted && countBufferedEntries() > 0) {
       if (ensureFirebaseReady()) {
         if (flushOneBufferedEntry()) {
@@ -1581,6 +1657,8 @@ void initFeeder() {
   feederIsRunning = false;
   feederRunState = FEEDER_IDLE;
   feederCurrentCycle = 0;
+  feederInitialized = true;
+  recoverFeederLogs();
 
   // Park the servo closed. Do NOT perform a full sweep at boot: a 90° sweep
   // drops a fraction of feed every time the ESP resets (which also happens on
@@ -1614,6 +1692,8 @@ void processFeederCommands() {
     String docId;
     String action;
     float grams;
+    long long issuedAtMs = 0;
+    long long expiresAtMs = 0;
   };
   CmdEntry entries[20];
   int entryCount = 0;
@@ -1635,7 +1715,8 @@ void processFeederCommands() {
     if (response.get(d, base + "command_type/stringValue")) e.action = d.stringValue;
     if (response.get(d, base + "grams/doubleValue")) e.grams = d.doubleValue;
     else if (response.get(d, base + "grams/integerValue")) e.grams = d.stringValue.toFloat();
-    e.grams = constrain(e.grams, 1.0f, 200.0f);
+    if (response.get(d, base + "issued_at/timestampValue")) e.issuedAtMs = firestoreTimestampMillis(d.stringValue);
+    if (response.get(d, base + "expires_at/timestampValue")) e.expiresAtMs = firestoreTimestampMillis(d.stringValue);
 
     if (e.action != "") entryCount++;
   }
@@ -1647,16 +1728,8 @@ void processFeederCommands() {
     Serial.printf("[FEEDER CMD] %s id=%s\n",
                   e.action.c_str(), e.docId.c_str());
 
-    String docPath = "tanks/" + currentTankId + "/feeder_commands/" + e.docId;
-    // Acknowledge/delete first. If deletion fails, do not dispense: leaving the
-    // command queued lets the next poll retry without risking a duplicate feed.
-    if (!Firebase.Firestore.deleteDocument(&fbdo, FIREBASE_PROJECT_ID, "",
-                                           docPath.c_str())) {
-      Serial.printf("[FEEDER] Delete cmd failed: %s\n", fbdo.errorReason().c_str());
-      continue;
-    }
     if (e.action == "feed_now") {
-      startFeed("manual", e.grams);
+      startFeed("manual", e.grams, e.docId, e.issuedAtMs, e.expiresAtMs);
       break;
     }
   }
@@ -1675,15 +1748,17 @@ void sendFeederStatus() {
   FirebaseJson json;
   // Match FeederService's canonical status fields and keep the heartbeat fresh.
   json.set("fields/status/stringValue", feederStatus);
+  json.set("fields/command_id/stringValue", feederCommandId);
+  json.set("fields/status_reason/stringValue", feederStatusReason);
   json.set("fields/dispenseCount/integerValue", String(feederDispenseCount));
   json.set("fields/lastSeen/integerValue", nowMs);
-  if (feederLastFeedEpoch > 0) {
-    json.set("fields/last_dispensed_at/integerValue", epochMillisString((time_t)feederLastFeedEpoch));
+  if (feederLastCompletedEpoch > 0) {
+    json.set("fields/last_dispensed_at/integerValue", epochMillisString((time_t)feederLastCompletedEpoch));
   } else {
     json.set("fields/last_dispensed_at/nullValue", "NULL_VALUE");
   }
   json.set("fields/last_dispensed_grams/doubleValue",
-           (feederIsRunning || feederLastFeedEpoch > 0) ? String(feederRequestedGrams, 1) : "0.0");
+           String(feederLastCompletedGrams, 1));
   if (feedLevelSensorOK) {
     json.set("fields/feed_level/doubleValue", feedLevelPercent);
     json.set("fields/estimated_feed_grams/doubleValue", estimatedFeedGrams);
@@ -1692,7 +1767,7 @@ void sendFeederStatus() {
   String statusDoc = "tanks/" + currentTankId + "/feeder/status";
   if (!Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "",
         statusDoc.c_str(), json.raw(),
-        "status,dispenseCount,lastSeen,last_dispensed_at,last_dispensed_grams,feed_level,estimated_feed_grams")) {
+        "status,command_id,status_reason,dispenseCount,lastSeen,last_dispensed_at,last_dispensed_grams,feed_level,estimated_feed_grams")) {
     if (fbdo.httpConnected()) {
       Serial.printf("[FEEDER STATUS ERROR] %s\n", fbdo.errorReason().c_str());
     }
@@ -1700,28 +1775,44 @@ void sendFeederStatus() {
 }
 
 void saveCachedFeederSchedules() {
-  prefs.begin("feedsched", false);
-  prefs.putInt("count", feederScheduleCount);
+  if (!prefs.begin("feedsched", false)) return;
+  // Invalidate BEFORE changing the owner or any entries. A reset mid-write
+  // must not expose another owner's or a partially written schedule cache.
+  if (prefs.putInt("count", 0) != sizeof(int32_t)) { prefs.end(); return; }
+  bool saved = prefs.putString("tank", currentTankId) == currentTankId.length();
+  saved &= prefs.putLong64("assignment", currentAssignmentAtMs) == sizeof(int64_t);
   for (int i = 0; i < feederScheduleCount; i++) {
-    prefs.putInt(("h" + String(i)).c_str(), feederSchedules[i].hour24);
-    prefs.putInt(("m" + String(i)).c_str(), feederSchedules[i].minute);
-    prefs.putBool(("e" + String(i)).c_str(), feederSchedules[i].enabled);
-    prefs.putFloat(("g" + String(i)).c_str(), feederSchedules[i].grams);
-    prefs.putString(("d" + String(i)).c_str(), feederSchedules[i].days);
+    saved &= prefs.putInt(("h" + String(i)).c_str(), feederSchedules[i].hour24) == sizeof(int32_t);
+    saved &= prefs.putInt(("m" + String(i)).c_str(), feederSchedules[i].minute) == sizeof(int32_t);
+    saved &= prefs.putBool(("e" + String(i)).c_str(), feederSchedules[i].enabled) == sizeof(uint8_t);
+    saved &= prefs.putFloat(("g" + String(i)).c_str(), feederSchedules[i].grams) == sizeof(float);
+    saved &= prefs.putString(("d" + String(i)).c_str(), feederSchedules[i].days) == feederSchedules[i].days.length();
+    saved &= prefs.putString(("k" + String(i)).c_str(), feederSchedules[i].key) == feederSchedules[i].key.length();
+    saved &= prefs.putULong(("t" + String(i)).c_str(), feederSchedules[i].effectiveEpoch) == sizeof(uint32_t);
   }
+  if (saved) prefs.putInt("count", feederScheduleCount);
   prefs.end();
 }
 
 void loadCachedFeederSchedules() {
   prefs.begin("feedsched", true);
-  feederScheduleCount = constrain(prefs.getInt("count", 0), 0, FEEDER_MAX_SCHEDULES);
+  if (currentTankId.isEmpty() || prefs.getString("tank", "") != currentTankId ||
+      prefs.getLong64("assignment", 0) != currentAssignmentAtMs) {
+    prefs.end();
+    feederSchedules.clear();
+    feederScheduleCount = 0;
+    return;
+  }
+  feederScheduleCount = max(0, prefs.getInt("count", 0));
+  feederSchedules.resize(feederScheduleCount);
   for (int i = 0; i < feederScheduleCount; i++) {
-    feederSchedules[i].key = "cached_" + String(i);
+    feederSchedules[i].key = prefs.getString(("k" + String(i)).c_str(), "");
     feederSchedules[i].hour24 = prefs.getInt(("h" + String(i)).c_str(), 6);
     feederSchedules[i].minute = prefs.getInt(("m" + String(i)).c_str(), 0);
     feederSchedules[i].enabled = prefs.getBool(("e" + String(i)).c_str(), true);
     feederSchedules[i].grams = prefs.getFloat(("g" + String(i)).c_str(), 20.0f);
     feederSchedules[i].days = prefs.getString(("d" + String(i)).c_str(), "1111111");
+    feederSchedules[i].effectiveEpoch = prefs.getULong(("t" + String(i)).c_str(), 0);
   }
   prefs.end();
   if (feederScheduleCount > 0) {
@@ -1732,15 +1823,27 @@ void loadCachedFeederSchedules() {
 
 // Persist the lifetime dispense count separately from schedule cache so the
 // "feeds completed" count the app reads from feeder/status survives reboots.
-void saveFeederState() {
-  prefs.begin("feederstate", false);
+bool saveFeederState() {
+  if (!prefs.begin("feederstate", false)) return false;
   prefs.putInt("dispenseCount", feederDispenseCount);
+  prefs.putString("tank", currentTankId);
+  const bool minuteSaved = prefs.putULong("lastSchedMin", feederLastScheduledMinute) == sizeof(uint32_t);
+  prefs.putULong("lastComplete", feederLastCompletedEpoch);
+  prefs.putFloat("lastGrams", feederLastCompletedGrams);
+  const bool sequenceSaved = prefs.putULong("eventSeq", feederEventSequence) == sizeof(uint32_t);
   prefs.end();
+  return minuteSaved && sequenceSaved;
 }
 
 void loadFeederState() {
   prefs.begin("feederstate", true);
-  feederDispenseCount = prefs.getInt("dispenseCount", 0);
+  feederEventSequence = prefs.getULong("eventSeq", 0);
+  feederLastScheduledMinute = prefs.getULong("lastSchedMin", 0);
+  if (prefs.getString("tank", "") == currentTankId && !currentTankId.isEmpty()) {
+    feederDispenseCount = prefs.getInt("dispenseCount", 0);
+    feederLastCompletedEpoch = prefs.getULong("lastComplete", 0);
+    feederLastCompletedGrams = prefs.getFloat("lastGrams", 0);
+  }
   prefs.end();
   if (feederDispenseCount > 0) {
     Serial.printf("[FEEDER] Restored dispense count: %d\n", feederDispenseCount);
@@ -1748,14 +1851,17 @@ void loadFeederState() {
 }
 
 // ─── Sync Schedules from Firestore ───
-// Reads all docs in tanks/{tankId}/feeder_schedules (max FEEDER_MAX_SCHEDULES).
+// Fetch every page, then replace the cache. No silent 20-item cutoff.
 void syncFeederSchedules() {
   if (!ensureFirebaseReady()) return;
   if (currentTankId.length() == 0) return;   // no tank assigned -> nothing to sync
 
   String schedCol = "tanks/" + currentTankId + "/feeder_schedules";
+  std::vector<FeedSchedule> synced;
+  String pageToken;
+  do {
   if (!Firebase.Firestore.listDocuments(&fbdo, FIREBASE_PROJECT_ID, "",
-        schedCol.c_str(), FEEDER_MAX_SCHEDULES, "", "", "", false)) {
+        schedCol.c_str(), FEEDER_SCHEDULE_PAGE_SIZE, pageToken.c_str(), "timeValue", "", false)) {
     // Keep the last valid in-memory/NVS schedule set on transient failures.
     Serial.printf("[FEEDER] Schedule sync failed; retaining %d cached schedule(s)\n",
                   feederScheduleCount);
@@ -1766,9 +1872,9 @@ void syncFeederSchedules() {
   response.setJsonData(fbdo.payload());
   FirebaseJsonData d;
 
-  feederScheduleCount = 0;
-
-  for (int i = 0; i < FEEDER_MAX_SCHEDULES; i++) {
+  pageToken = "";
+  if (response.get(d, "nextPageToken")) pageToken = d.stringValue;
+  for (int i = 0; i < FEEDER_SCHEDULE_PAGE_SIZE; i++) {
     String namePath = String("documents/[") + i + "]/name";
     if (!response.get(d, namePath)) break;
 
@@ -1776,7 +1882,7 @@ void syncFeederSchedules() {
     int lastSlash  = docName.lastIndexOf('/');
     String docId   = (lastSlash >= 0) ? docName.substring(lastSlash + 1) : docName;
 
-    FeedSchedule& s = feederSchedules[feederScheduleCount];
+    FeedSchedule s;
     s.key = docId;
 
     String base    = String("documents/[") + i + "]/fields/";
@@ -1822,19 +1928,36 @@ void syncFeederSchedules() {
     s.grams = 20.0f;
     if (response.get(d, base + "grams/doubleValue")) s.grams = d.doubleValue;
     else if (response.get(d, base + "grams/integerValue")) s.grams = d.stringValue.toFloat();
-    s.grams = constrain(s.grams, 1.0f, 200.0f);
+    if (response.get(d, base + "effective_at_ms/integerValue")) {
+      s.effectiveEpoch = (unsigned long)(atoll(d.stringValue.c_str()) / 1000LL);
+    }
 
     s.days = "1111111";
     if (response.get(d, base + "days/stringValue")) s.days = d.stringValue;
 
-    feederScheduleCount++;
+    synced.push_back(s);
   }
+  } while (pageToken.length() > 0);
+  bool unchanged = synced.size() == feederSchedules.size();
+  for (size_t i = 0; unchanged && i < synced.size(); ++i) {
+    const FeedSchedule& a = synced[i];
+    const FeedSchedule& b = feederSchedules[i];
+    unchanged = a.key == b.key && a.hour24 == b.hour24 && a.minute == b.minute &&
+        a.enabled == b.enabled && a.grams == b.grams && a.days == b.days && a.effectiveEpoch == b.effectiveEpoch;
+  }
+  if (unchanged) return; // Avoid rewriting NVS on every poll.
+  feederSchedules.swap(synced);
+  feederScheduleCount = feederSchedules.size();
 
   saveCachedFeederSchedules();
   Serial.printf("[FEEDER] Synced %d schedules from Firestore\n", feederScheduleCount);
 }
 
 bool canFeedSafely(String &reason, float requiredGrams) {
+  if (!feederConfigReady) {
+    reason = "tank sensor settings have not finished syncing";
+    return false;
+  }
   if (!tempSensorOK || !doSensorOK || !phSensorOK || !turbiditySensorOK) {
     reason = "required water-quality sensor unavailable";
     return false;
@@ -1852,10 +1975,11 @@ bool canFeedSafely(String &reason, float requiredGrams) {
 
 // ─── Check if it's time for a scheduled feed ───
 void checkScheduledFeed() {
-  if (!feederAutoMode || feederScheduleCount == 0) return;
+  if (currentTankId.isEmpty() || !feederAutoMode || feederScheduleCount == 0 || feederRunState != FEEDER_IDLE) return;
 
   time_t now;
   time(&now);
+  if (now < 1700000000) return;
   struct tm* timeinfo = localtime(&now);
   int currentMin = timeinfo->tm_hour * 60 + timeinfo->tm_min;
   // tm_wday is already Sunday-first: 0=Sunday..6=Saturday.
@@ -1873,31 +1997,100 @@ void checkScheduledFeed() {
     if (schedMin == currentMin) {
       // Check we haven't already fired this minute
       unsigned long nowEpoch = (unsigned long)now;
-      if (nowEpoch - feederLastFeedEpoch >= 60) {
+      if (nowEpoch / 60 > feederLastScheduledMinute && s.effectiveEpoch <= nowEpoch - nowEpoch % 60) {
         Serial.printf("[FEEDER] Scheduled feed at %02d:%02d (%.1fg)\n",
                       s.hour24, s.minute, s.grams);
-        // Remember which schedule fired so DONE can mark isDone=true after the
-        // servo physically completes (the schedule key is the Firestore doc id).
+        // Preserve occurrence identity in the durable device outcome log.
         feederLastScheduleKey = s.key;
+        const int hour12 = s.hour24 % 12 == 0 ? 12 : s.hour24 % 12;
+        feederScheduleTime = String(hour12) + ":" + (s.minute < 10 ? "0" : "") + String(s.minute) + (s.hour24 >= 12 ? " PM" : " AM");
         startFeed("scheduled", s.grams);
+        return;
       }
     }
   }
 }
 
 // ─── Start Feed — kicks off non-blocking state machine ───
-void startFeed(String source, float grams) {
+void startFeed(String source, float grams, String commandId, long long issuedAtMs, long long expiresAtMs) {
   if (feederRunState != FEEDER_IDLE) {
     Serial.println("[FEEDER] Already running, skipping");
     return;
   }
-  feederRequestedGrams = constrain(grams, 1.0f, 200.0f);
+  if (currentTankId.isEmpty()) return;
+  time_t startedAt;
+  time(&startedAt);
+  if (startedAt < 1700000000 || !littlefsMounted) return;
+  // A durable command intent is a tombstone until the queued command has
+  // been acknowledged. Never restart its motor operation after a reset.
+  if (!commandId.isEmpty()) {
+    const String base = "/feedlogs/cmd_" + commandId;
+    if (LittleFS.exists(base + ".pending") || LittleFS.exists(base + ".json")) {
+      flushOneFeederLog();
+      return;
+    }
+  }
+  feederCommandId = commandId;
+  feederStatusReason = "";
+  feederRequestedGrams = grams;
+  feederFeedSource = source;
+  feederEventTank = currentTankId;
+  feederOccurrenceEpoch = source == "scheduled" ? startedAt - startedAt % 60 : startedAt;
+  if (source != "scheduled") {
+    feederLastScheduleKey = "";
+    feederScheduleTime = "";
+  }
+  ++feederEventSequence;
+  feederEventKey = commandId.isEmpty() ? String(feederEventSequence) : "cmd_" + commandId;
+  // Persist sequence identity first, but do not reserve the scheduled minute
+  // until its interrupted/failed outcome is durable.
+  if (!saveFeederState()) {
+    feederStatus = "blocked";
+    Serial.println("[FEEDER] Cannot reserve execution; refusing to dispense");
+    return;
+  }
+  feederWritingIntent = true;
+  pushFeederLog("Feed interrupted - execution could not be confirmed", source == "scheduled" ? "auto" : "manual",
+                "failed", grams, -1, -1, -1);
+  feederWritingIntent = false;
+  if (!LittleFS.exists("/feedlogs/" + feederEventKey + ".pending")) {
+    feederStatus = "blocked";
+    feederStatusReason = "Cannot persist feed request";
+    sendFeederStatus();
+    return;
+  }
+  if (source == "scheduled") {
+    feederLastScheduledMinute = startedAt / 60;
+    if (!saveFeederState()) return; // Recovery retains and reserves the intent.
+  }
+  if (!commandId.isEmpty()) {
+    const String path = "tanks/" + currentTankId + "/feeder_commands/" + commandId;
+    if (!Firebase.Firestore.deleteDocument(&fbdo, FIREBASE_PROJECT_ID, "", path.c_str())) {
+      // An ambiguous acknowledgement must never actuate. The outbox retries
+      // deletion before it can upload/remove this durable failed outcome.
+      feederStatus = "blocked";
+      feederStatusReason = "Command acknowledgement not confirmed";
+      sendFeederStatus();
+      return;
+    }
+  }
   feederStatus = "checking_feed_level";
   readFeedLevelSensor();
   sendFeederStatus();
 
   String blockedReason;
-  if (!canFeedSafely(blockedReason, feederRequestedGrams)) {
+  time_t checkedAt;
+  time(&checkedAt);
+  if (!commandId.isEmpty() && (issuedAtMs <= 0 || issuedAtMs > (long long)checkedAt * 1000 + 5000 ||
+                              (long long)checkedAt * 1000 - issuedAtMs > 60000 ||
+                              (expiresAtMs > 0 && (long long)checkedAt * 1000 >= expiresAtMs))) {
+    blockedReason = "Feed Now request expired or has an invalid timestamp";
+  }
+  if (!isfinite(grams) || grams < 20 || grams > 200 || fabsf(grams / 20.0f - roundf(grams / 20.0f)) > 0.0001f) {
+    blockedReason = "unsupported amount; use 20-200 g in steps of 20 g";
+  }
+  if (blockedReason.length() > 0 || !canFeedSafely(blockedReason, feederRequestedGrams)) {
+    feederStatusReason = blockedReason;
     Serial.printf("[FEEDER] BLOCKED: %s\n", blockedReason.c_str());
     time_t blockedAt;
     time(&blockedAt);
@@ -1917,17 +2110,28 @@ void startFeed(String source, float grams) {
                   feederRequestedGrams,
                   estimatedFeedGrams, feedLevelPercent, feedLevelPercent);
     sendFeederStatus();
-    if (source == "scheduled" && feederLastScheduleKey.length() > 0 &&
-        !feederLastScheduleKey.startsWith("cached_")) {
-      markScheduledFeedDone();
-    }
     feederLastScheduleKey = "";
     return;
   }
 
   feederFeedLevelBefore = feedLevelPercent;
   feederAvailableBefore = estimatedFeedGrams;
-  feederMaxCycles = constrain((int)ceil(feederRequestedGrams / 20.0f), 1, 10);
+  feederMaxCycles = (int)roundf(feederRequestedGrams / 20.0f);
+
+  // Announce readiness while the servo is still parked, then recheck expiry
+  // after this potentially blocking call before opening the gate.
+  feederStatus = "dispensing";
+  sendFeederStatus();
+  time(&checkedAt);
+  if (!commandId.isEmpty() && ((long long)checkedAt * 1000 - issuedAtMs > 60000 ||
+      (expiresAtMs > 0 && (long long)checkedAt * 1000 >= expiresAtMs))) {
+    feederStatus = "blocked";
+    feederStatusReason = "Feed Now request expired before dispensing";
+    pushFeederLog(feederStatusReason, "manual", "blocked", grams,
+                  feederAvailableBefore, feederFeedLevelBefore, feederFeedLevelBefore);
+    sendFeederStatus();
+    return;
+  }
 
   time_t now;
   time(&now);
@@ -1940,8 +2144,7 @@ void startFeed(String source, float grams) {
   feederStartMs = millis();
   feederStepMs = feederStartMs;
 
-  // Immediately notify Flutter that servo is starting
-  sendFeederStatus();
+  // No blocking cloud call between the expiry check and the motor tick.
   Serial.printf("[FEEDER] Start feed (source=%s)\n", source.c_str());
 }
 
@@ -2000,6 +2203,10 @@ void processFeederTick() {
       // Update feed count and persist it so a reboot doesn't reset the total
       // the app displays as "feeds completed".
       feederDispenseCount++;
+      time_t completedAt;
+      time(&completedAt);
+      feederLastCompletedEpoch = completedAt;
+      feederLastCompletedGrams = feederRequestedGrams;
       saveFeederState();
 
       feederIsRunning = false;
@@ -2011,7 +2218,6 @@ void processFeederTick() {
       readFeedLevelSensor();
       const float levelAfter = feedLevelSensorOK ? feedLevelPercent : -1.0f;
       // Push final status + log
-      sendFeederStatus();
       pushFeederLog(
         feederFeedSource == "scheduled"
           ? "Dispensed feed (Scheduled)"
@@ -2023,16 +2229,12 @@ void processFeederTick() {
         feederFeedLevelBefore,
         levelAfter
       );
-      // Let the app mark this schedule as completed for today. The nightly
-      // reset (FeederService on a new Manila day) flips it back to false.
-      if (feederFeedSource == "scheduled" && feederLastScheduleKey.length() > 0
-          && !feederLastScheduleKey.startsWith("cached_")) {
-        markScheduledFeedDone();
-      }
+      sendFeederStatus();
+      // The log trigger updates the date-scoped outcome, including backfills.
 
       feederFeedSource = "";
       feederLastScheduleKey = "";
-      feederStatus = "idle";
+      // Keep the terminal confirmation until the next request starts.
       Serial.println("[FEEDER] Feed complete");
       break;
     }
@@ -2043,37 +2245,12 @@ void processFeederTick() {
   }
 }
 
-// ─── Mark the schedule that just fired as done for today ───
-// Updates only isDone on the originating schedule doc. Flutter resets it to
-// false when the Manila day rolls over; the ESP never needs to clear it.
-void markScheduledFeedDone() {
-  if (!ensureFirebaseReady()) return;
-  if (currentTankId.length() == 0 || feederLastScheduleKey.length() == 0) return;
-
-  FirebaseJson json;
-  json.set("fields/isDone/booleanValue", "true");
-
-  String docPath = "tanks/" + currentTankId
-                 + "/feeder_schedules/" + feederLastScheduleKey;
-  if (!Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "",
-        docPath.c_str(), json.raw(), "isDone")) {
-    if (fbdo.httpConnected()) {
-      Serial.printf("[FEEDER] markScheduleDone ERROR: %s\n",
-                    fbdo.errorReason().c_str());
-    }
-  } else {
-    Serial.printf("[FEEDER] Schedule %s marked done\n",
-                  feederLastScheduleKey.c_str());
-  }
-}
-
 // ─── Push Feeding Log to Firestore ───
-// Creates a new auto-ID document in tanks/{tankId}/feeder_logs.
+// Write locally first. A deterministic ID makes retries safe after reconnect.
 void pushFeederLog(String action, String type, String status,
                    float requestedGrams, float availableGrams,
                    float levelBefore, float levelAfter) {
-  if (!ensureFirebaseReady()) return;
-  if (currentTankId.length() == 0) return;   // no tank assigned -> nothing to log
+  if (!littlefsMounted || feederEventTank.isEmpty()) return;
 
   time_t now;
   time(&now);
@@ -2082,9 +2259,17 @@ void pushFeederLog(String action, String type, String status,
   FirebaseJson json;
   json.set("fields/action/stringValue",    action);
   json.set("fields/type/stringValue",      type);
+  if (!feederCommandId.isEmpty()) json.set("fields/command_id/stringValue", feederCommandId);
   json.set("fields/logged_at/integerValue", String(epochMs));
+  json.set("fields/occurrence_at/integerValue", epochMillisString(feederOccurrenceEpoch));
+  if (feederLastScheduleKey.length() > 0) {
+    json.set("fields/schedule_key/stringValue", feederLastScheduleKey);
+    json.set("fields/schedule_time/stringValue", feederScheduleTime);
+  }
+  json.set("fields/amount_basis/stringValue", "servo_cycle_estimate");
+  if (status == "completed") json.set("fields/estimated_dispensed_grams/doubleValue", String(requestedGrams, 1));
   if (status.length() > 0) json.set("fields/status/stringValue", status);
-  if (requestedGrams >= 0.0f) {
+  if (isfinite(requestedGrams) && requestedGrams >= 0.0f) {
     json.set("fields/requested_grams/doubleValue", String(requestedGrams, 1));
   }
   if (availableGrams >= 0.0f) {
@@ -2097,19 +2282,125 @@ void pushFeederLog(String action, String type, String status,
     json.set("fields/feed_level_after/doubleValue", String(levelAfter, 1));
     json.set("fields/level_change_detected/booleanValue",
              levelBefore >= 0.0f && levelBefore - levelAfter >= 0.5f);
-    if (levelBefore >= 0.0f && levelBefore - levelAfter < 0.5f) {
+    if (status == "completed" && levelBefore >= 0.0f && levelBefore - levelAfter < 0.5f) {
       json.set("fields/verification_note/stringValue",
                "Possible dispense failure: no detectable feed-level change");
     }
   }
 
-  String logCollection = "tanks/" + currentTankId + "/feeder_logs";
-  if (Firebase.Firestore.createDocument(&fbdo, FIREBASE_PROJECT_ID, "",
-        logCollection.c_str(), "", json.raw(), "")) {
-    Serial.printf("[FEEDER LOG] %s\n", action.c_str());
-  } else if (fbdo.httpConnected()) {
-    Serial.printf("[FEEDER LOG ERROR] %s\n", fbdo.errorReason().c_str());
+  FirebaseJson envelope;
+  envelope.set("tank", feederEventTank);
+  envelope.set("id", hardwareId + "_" + feederEventKey);
+  envelope.set("command_id", feederCommandId);
+  envelope.set("scheduled_minute", type == "auto" ? feederOccurrenceEpoch / 60 : 0);
+  envelope.set("payload", String(json.raw()));
+  LittleFS.mkdir("/feedlogs");
+  const String base = "/feedlogs/" + feederEventKey;
+  const String temp = base + ".tmp";
+  const String target = base + (feederWritingIntent ? ".pending" : ".json");
+  File file = LittleFS.open(temp, "w");
+  if (!file) return;
+  const String serialized = envelope.raw();
+  const size_t written = file.print(serialized);
+  file.flush();
+  file.close();
+  if (written != serialized.length() || !LittleFS.rename(temp, target)) {
+    Serial.println("[FEEDER LOG] Local write failed; pending intent retained");
+    return;
   }
+  if (!feederWritingIntent) LittleFS.remove(base + ".pending");
+}
+
+void recoverFeederLogs() {
+  if (!littlefsMounted) return;
+  LittleFS.mkdir("/feedlogs");
+  File dir = LittleFS.open("/feedlogs");
+  std::vector<String> pending;
+  for (File file = dir.openNextFile(); file; file = dir.openNextFile()) {
+    String path = file.path();
+    if (path.endsWith(".pending")) pending.push_back(path);
+    file.close();
+  }
+  dir.close();
+  for (const String& path : pending) {
+    File intent = LittleFS.open(path, "r");
+    if (!intent) continue;
+    FirebaseJson envelope;
+    envelope.setJsonData(intent.readString());
+    intent.close();
+    FirebaseJsonData field;
+    if (envelope.get(field, "scheduled_minute")) {
+      const unsigned long reserved = field.intValue;
+      if (reserved > 0 && reserved >= feederLastScheduledMinute) {
+        feederLastScheduledMinute = reserved;
+        if (!saveFeederState()) continue;
+      }
+    }
+    const String target = path.substring(0, path.length() - 8) + ".json";
+    // Completion may already be durable if reset happened just before cleanup.
+    if (LittleFS.exists(target)) LittleFS.remove(path);
+    else LittleFS.rename(path, target);
+  }
+}
+
+bool flushOneFeederLog() {
+  if (!littlefsMounted || currentTankId.isEmpty()) return false;
+  recoverFeederLogs(); // Idle only: finalize any intent whose completion write failed.
+  File dir = LittleFS.open("/feedlogs");
+  if (!dir) return false;
+  for (File file = dir.openNextFile(); file; file = dir.openNextFile()) {
+    const String path = file.path();
+    if (!path.endsWith(".json")) { file.close(); continue; }
+    FirebaseJson envelope;
+    envelope.setJsonData(file.readString());
+    file.close();
+    FirebaseJsonData field;
+    if (!envelope.get(field, "tank") || field.stringValue != currentTankId) continue;
+    if (!envelope.get(field, "id")) continue;
+    const String id = field.stringValue;
+    if (envelope.get(field, "command_id") && !field.stringValue.isEmpty()) {
+      const String commandPath = "tanks/" + currentTankId + "/feeder_commands/" + field.stringValue;
+      const bool acknowledged = Firebase.Firestore.deleteDocument(&fbdo, FIREBASE_PROJECT_ID, "", commandPath.c_str());
+      if (!acknowledged && fbdo.httpCode() != 404) { dir.close(); return false; }
+    }
+    if (!envelope.get(field, "payload")) continue;
+    const String payload = field.stringValue;
+    const String collection = "tanks/" + currentTankId + "/feeder_logs";
+    const bool uploaded = Firebase.Firestore.createDocument(&fbdo, FIREBASE_PROJECT_ID, "",
+        collection.c_str(), id.c_str(), payload.c_str(), "");
+    const bool duplicate = fbdo.httpCode() == 409;
+    dir.close();
+    if (uploaded || duplicate) return LittleFS.remove(path);
+    return false;
+  }
+  dir.close();
+  return true;
+}
+
+void applyTankAssignment(const String& tankId, const String& ownerUid, long long assignedAtMs) {
+  if (tankId == currentTankId && ownerUid == currentOwnerUid && assignedAtMs == currentAssignmentAtMs) return;
+  currentTankId = tankId;
+  currentOwnerUid = ownerUid;
+  currentAssignmentAtMs = assignedAtMs;
+  resetWindowAggregates(); // A 10-minute window must never span two assignments.
+  feederConfigReady = false;
+  if (!feederInitialized) return;
+  // Loop defers cloud work until the servo is parked. Revoke the cached plan;
+  // never carry a previous owner's schedules/counters into the next account.
+  feederSchedules.clear();
+  feederScheduleCount = 0;
+  feederLastScheduleKey = "";
+  feederScheduleTime = "";
+  feederDispenseCount = 0;
+  feederLastCompletedEpoch = 0;
+  feederLastCompletedGrams = 0;
+  feederStatus = "idle";
+  saveCachedFeederSchedules();
+  saveFeederState();
+  for (int i = 0; i < 3; ++i) actuators[i].controlMode = "";
+  // Hold life-support relays at their last state until valid replacement
+  // settings arrive; an assignment change must not blindly cut off aeration.
+  lastFeederScheduleSyncMs = 0;
 }
 
 // ============================================================
@@ -2303,6 +2594,7 @@ void syncActuatorsFromFirestore() {
     if (readActuatorMode(i, mode)) {
       actuators[i].controlMode = mode;
     }
+    if (actuators[i].controlMode.isEmpty()) continue;
     applyActuatorDevice(i);
   }
 }

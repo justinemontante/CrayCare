@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
-import '../../services/water_quality_assessment_service.dart';
+import '../../services/water_quality_anomaly_detection_service.dart';
 
 class MovableAiLogo extends StatefulWidget {
   const MovableAiLogo({super.key});
@@ -57,9 +57,9 @@ class _MovableAiLogoState extends State<MovableAiLogo>
           ],
         ),
         child: ListenableBuilder(
-          listenable: WaterQualityAssessmentService.instance,
+          listenable: WaterQualityAnomalyDetectionService.instance,
           builder: (context, _) {
-            final assessmentService = WaterQualityAssessmentService.instance;
+            final anomalyService = WaterQualityAnomalyDetectionService.instance;
 
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -126,40 +126,34 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                 ),
                 const SizedBox(height: 16),
                 Expanded(
-                  child: assessmentService.loading
+                  child: anomalyService.loading
                       ? _buildStateMessage(
                           icon: null,
                           loading: true,
                           message: 'CrayAI is analyzing your tank data...',
                         )
-                      : !assessmentService.hasData
+                      : !anomalyService.hasData
                       ? _buildStateMessage(
                           icon: Icons.cloud_off_rounded,
                           loading: false,
                           message:
-                              'CrayAI is building your tank profile. About 1 hour of sensor history is needed for the first Water Quality Assessment.',
+                              'CrayAI is building your tank profile. Two hours of continuous sensor history are needed for the first anomaly result.',
                         )
                       : ListView(
                           padding: const EdgeInsets.only(bottom: 24),
                           children: [
-                            _buildWaterQualityAssessmentCard(
-                              assessmentService.result!,
+                            _buildWaterQualityAnomalyDetectionCard(
+                              anomalyService.result!,
                             ),
                             const SizedBox(height: 16),
-                            _buildDetailCard(
-                              label: 'Problem',
-                              text: assessmentService.result!.problem,
-                              icon: Icons.warning_amber_rounded,
-                              color: assessmentService.result!.color,
-                            ),
-                            if (assessmentService
+                            if (anomalyService
                                 .result!
                                 .insight
                                 .isNotEmpty) ...[
                               const SizedBox(height: 12),
                               _buildDetailCard(
                                 label: 'Insight',
-                                text: assessmentService.result!.insight,
+                                text: anomalyService.result!.insight,
                                 icon: Icons.science_outlined,
                                 color: AppColors.primary,
                               ),
@@ -167,7 +161,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                             const SizedBox(height: 12),
                             _buildDetailCard(
                               label: 'Recommendation',
-                              text: assessmentService.result!.action,
+                              text: anomalyService.result!.recommendation,
                               icon: Icons.lightbulb_outline,
                               color: AppColors.warningDark,
                             ),
@@ -226,7 +220,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
     );
   }
 
-  Widget _buildWaterQualityAssessmentCard(WaterQualityAssessmentResult result) {
+  Widget _buildWaterQualityAnomalyDetectionCard(WaterQualityAnomalyDetectionResult result) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -254,7 +248,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(
-                  _iconForLevel(result.level),
+                  _iconForStatus(result.status),
                   size: 28,
                   color: result.color,
                 ),
@@ -265,7 +259,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Water Quality Assessment',
+                      'Water Quality Anomaly Detection',
                       style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w600,
@@ -284,7 +278,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
-                        result.level.toUpperCase(),
+                        result.status.toUpperCase(),
                         style: const TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w800,
@@ -302,21 +296,15 @@ class _MovableAiLogoState extends State<MovableAiLogo>
           Row(
             children: [
               _buildStatChip(
-                icon: !result.hasModelConfidence
-                    ? Icons.health_and_safety_outlined
-                    : Icons.verified_rounded,
-                label: !result.hasModelConfidence
-                    ? 'Assessment basis'
-                    : 'Model confidence',
-                value: !result.hasModelConfidence
-                    ? result.assessmentBasis
-                    : '${result.confidence}%',
+                icon: Icons.analytics_outlined,
+                label: 'Anomaly score',
+                value: '${result.anomalyScore.toStringAsFixed(1)}/100',
                 color: result.color,
               ),
               const SizedBox(width: 10),
               _buildStatChip(
                 icon: Icons.trending_up,
-                label: 'Primary concern',
+                label: 'Main contributor',
                 value: result.driverLabel,
                 color: result.color,
               ),
@@ -346,14 +334,6 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                       ),
                     ),
                   ),
-                  if (result.driverMin != null || result.driverMax != null)
-                    Text(
-                      'Ideal: ${result.driverMin?.toStringAsFixed(1) ?? '—'} – ${result.driverMax?.toStringAsFixed(1) ?? '—'} ${result.driverUnit}',
-                      style: TextStyle(
-                        fontSize: 9,
-                        color: AppColors.darkWith(0.5),
-                      ),
-                    ),
                 ],
               ),
             ),
@@ -481,16 +461,12 @@ class _MovableAiLogoState extends State<MovableAiLogo>
     );
   }
 
-  IconData _iconForLevel(String level) {
-    switch (level) {
-      case 'Good':
+  IconData _iconForStatus(String status) {
+    switch (status) {
+      case 'Normal':
         return Icons.check_circle_outline;
-      case 'Moderate':
-        return Icons.info_outline;
-      case 'Poor':
+      case 'Unusual':
         return Icons.warning_amber_outlined;
-      case 'Critical':
-        return Icons.gpp_bad_outlined;
       default:
         return Icons.help_outline;
     }

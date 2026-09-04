@@ -17,7 +17,17 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   List<NotificationItem> get _filtered {
     final all = NotificationService.instance.notifications;
     if (_activeFilter == 'all') return all;
-    return all.where((n) => n.notif_type == _activeFilter).toList();
+    return all.where((n) => _categoryFor(n) == _activeFilter).toList();
+  }
+
+  String _categoryFor(NotificationItem notification) {
+    // Feeder failures intentionally retain warning severity for their color and
+    // icon, but belong with all other feeder outcomes in the Feeding filter.
+    if (notification.notif_type == 'feeding' ||
+        notification.id.startsWith('feeder_')) {
+      return 'feeding';
+    }
+    return notification.notif_type;
   }
 
   @override
@@ -97,36 +107,65 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Widget _buildFilterRow() {
-    final filters = [('all', 'All'), ('critical', 'Critical'), ('warning', 'Warning'), ('operational', 'Operational'), ('reminder', 'Reminders')];
+    final filters = [
+      ('all', 'All'),
+      ('critical', 'Critical'),
+      ('warning', 'Warnings'),
+      ('feeding', 'Feeding'),
+      ('reminder', 'Reminders'),
+      ('operational', 'System'),
+    ];
     return Container(
+      height: 48,
       margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
       padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(color: AppColors.dark.withValues(alpha: 0.02), borderRadius: BorderRadius.circular(14)),
-      child: Row(
-        children: [
-          ...List.generate(filters.length, (i) {
-            final isActive = _activeFilter == filters[i].$1;
-            final flex = i == 0 ? 3 : (i == 3 ? 6 : 5);
-            return Expanded(
-              flex: flex,
-              child: GestureDetector(
-                onTap: () => _selectFilter(filters[i].$1),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  decoration: BoxDecoration(
-                    color: isActive ? Colors.white : Colors.transparent,
-                    borderRadius: BorderRadius.circular(10),
-                    boxShadow: isActive ? [BoxShadow(color: AppColors.dark.withValues(alpha: 0.04), blurRadius: 6, offset: const Offset(0, 1))] : null,
-                  ),
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(filters[i].$2, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: isActive ? AppColors.primary : AppColors.dark.withValues(alpha: 0.45))),
+      decoration: BoxDecoration(
+        color: AppColors.dark.withValues(alpha: 0.02),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: filters.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 2),
+        itemBuilder: (context, index) {
+          final filter = filters[index];
+          final isActive = _activeFilter == filter.$1;
+          return Semantics(
+            selected: isActive,
+            button: true,
+            label: '${filter.$2} notifications',
+            child: GestureDetector(
+              onTap: () => _selectFilter(filter.$1),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: isActive ? Colors.white : Colors.transparent,
+                  borderRadius: BorderRadius.circular(10),
+                  boxShadow: isActive
+                      ? [
+                          BoxShadow(
+                            color: AppColors.dark.withValues(alpha: 0.04),
+                            blurRadius: 6,
+                            offset: const Offset(0, 1),
+                          ),
+                        ]
+                      : null,
+                ),
+                child: Text(
+                  filter.$2,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: isActive
+                        ? AppColors.primary
+                        : AppColors.dark.withValues(alpha: 0.45),
                   ),
                 ),
               ),
-            );
-          }),
-        ],
+            ),
+          );
+        },
       ),
     );
   }
@@ -279,6 +318,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     switch (type) {
       case 'critical': return AppColors.critical;
       case 'warning': return AppColors.warning;
+      case 'feeding': return AppColors.primary;
       case 'operational': return AppColors.normal;
       case 'reminder': return AppColors.warningDark;
       default: return AppColors.normal;
@@ -289,6 +329,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     switch (type) {
       case 'critical': return Icons.warning_rounded;
       case 'warning': return Icons.info_outline;
+      case 'feeding': return Icons.set_meal_rounded;
       case 'operational': return Icons.check_circle_outline;
       case 'reminder': return Icons.notifications_outlined;
       default: return Icons.circle;

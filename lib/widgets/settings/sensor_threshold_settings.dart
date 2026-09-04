@@ -73,6 +73,8 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
     ),
   };
 
+  // Prevent overlapping writes without rebuilding or shifting the page behind
+  // the open editor/success dialog.
   bool _saving = false;
 
   // Safety limits — mirror firestore.rules isSafeThreshold(). The app
@@ -109,20 +111,27 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
 
   /// Returns a human-readable error message if any current range is outside
   /// the safe bounds, or null when everything is valid.
-  String? _validateRanges() {
+  String? _validateRanges({String? changedKey}) {
     final ranges = SettingsService.instance.currentRanges;
     for (final entry in ranges.entries) {
       final key = entry.key;
+      if (changedKey != null && key != changedKey) continue;
       final bounds = _safeBounds[key];
       if (bounds == null) continue;
       final min = entry.value['min'];
       final max = entry.value['max'];
       if (min == null || max == null) continue;
+      if (!min.isFinite || !max.isFinite) {
+        return 'Thresholds must be finite numbers.';
+      }
       final unit = _safeUnits[key] ?? '';
       final label = sensorMeta[key]?.label ?? key;
       if (key == 'feedlevel') {
         final critical = entry.value['critical'] ?? 10.0;
         final capacity = entry.value['capacity_grams'] ?? 1000.0;
+        if (!critical.isFinite || !capacity.isFinite) {
+          return 'Feed Level values must be finite numbers.';
+        }
         if (critical < 0 || critical >= min) {
           return 'Feed Level: critical threshold must be below the low threshold.';
         }
@@ -165,67 +174,86 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFF22c55e).withValues(alpha: 0.15),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.check_circle_rounded,
-                color: Color(0xFF22c55e),
-                size: 50,
-              ),
+      builder: (ctx) => _buildSuccessDialog(ctx, message),
+    );
+  }
+
+  void _replaceEditorWithSuccess<T>(
+    BuildContext editorContext,
+    String message,
+    T result,
+  ) {
+    Navigator.of(editorContext).pushReplacement<void, T>(
+      DialogRoute<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => _buildSuccessDialog(ctx, message),
+      ),
+      result: result,
+    );
+  }
+
+  Widget _buildSuccessDialog(BuildContext dialogContext, String message) {
+    return AlertDialog(
+      backgroundColor: Colors.white,
+      surfaceTintColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFF22c55e).withValues(alpha: 0.15),
+              shape: BoxShape.circle,
             ),
-            const SizedBox(height: 20),
-            const Text(
-              'Updated Successfully!',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w900,
-                color: AppColors.dark,
-              ),
+            child: const Icon(
+              Icons.check_circle_rounded,
+              color: Color(0xFF22c55e),
+              size: 50,
             ),
-            const SizedBox(height: 8),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 12,
-                color: AppColors.dark.withValues(alpha: 0.6),
-                height: 1.4,
-              ),
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            'Updated Successfully!',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+              color: AppColors.dark,
             ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () => Navigator.pop(ctx),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                  elevation: 0,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12,
+              color: AppColors.dark.withValues(alpha: 0.6),
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 24),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Text(
-                  'Done',
-                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
-                ),
+              ),
+              child: const Text(
+                'Done',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -236,7 +264,7 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
   }) async {
     // Block unsafe values client-side before hitting Firestore (which also
     // enforces the same bounds in rules).
-    final validationError = _validateRanges();
+    final validationError = _validateRanges(changedKey: changedKey);
     if (validationError != null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -246,14 +274,13 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
       );
       return false;
     }
-    if (mounted) setState(() => _saving = true);
+    _saving = true;
     try {
       await DatabaseService.instance.saveSensorThresholds(
         currentRanges: SettingsService.instance.currentRanges,
         changedKey: changedKey,
       );
       if (!mounted) return true;
-      setState(() => _saving = false);
       if (showMessage) {
         _showSuccessModal(
           changedKey != null ? 'Threshold updated!' : 'Thresholds saved!',
@@ -262,7 +289,6 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
       return true;
     } catch (e) {
       if (mounted) {
-        setState(() => _saving = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to save to Firebase: $e'),
@@ -271,6 +297,8 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
         );
       }
       return false;
+    } finally {
+      _saving = false;
     }
   }
 
@@ -279,7 +307,7 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
     return max.toStringAsFixed(1);
   }
 
-  void _showRangeEditor(
+  Future<void> _showRangeEditor(
     String sensorKey,
     String label,
     String unit,
@@ -287,15 +315,14 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
     double currentMax,
   ) {
     if (sensorKey == 'feedlevel') {
-      _showFeedLevelEditor();
-      return;
+      return _showFeedLevelEditor();
     }
     final minCtrl = TextEditingController(text: currentMin.toStringAsFixed(1));
     final maxCtrl = TextEditingController(
       text: currentMax >= 999 ? '' : currentMax.toStringAsFixed(1),
     );
 
-    showDialog(
+    return showDialog<({double min, double max})>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: Colors.white,
@@ -359,7 +386,7 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
             ),
           ),
           ElevatedButton(
-            onPressed: () async {
+            onPressed: () {
               final min = double.tryParse(minCtrl.text.trim()) ?? currentMin;
               final max =
                   double.tryParse(maxCtrl.text.trim()) ??
@@ -388,18 +415,10 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
                 return;
               }
 
-              await SettingsService.instance.updateRange(sensorKey, min, max);
-              if (!ctx.mounted) return;
-              Navigator.pop(ctx);
-              if (mounted) setState(() {});
-              final saved = await _saveConfigToFirebase(changedKey: sensorKey);
-              if (!saved) {
-                await SettingsService.instance.updateRange(
-                  sensorKey,
-                  currentMin,
-                  currentMax,
-                );
-              }
+              _replaceEditorWithSuccess(ctx, 'Threshold updated!', (
+                min: min,
+                max: max,
+              ));
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
@@ -417,13 +436,32 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
           ),
         ],
       ),
-    ).whenComplete(() {
+    ).then((result) async {
       minCtrl.dispose();
       maxCtrl.dispose();
+      if (result == null || !mounted) return;
+
+      await SettingsService.instance.updateRange(
+        sensorKey,
+        result.min,
+        result.max,
+      );
+      if (!mounted) return;
+      final saved = await _saveConfigToFirebase(
+        changedKey: sensorKey,
+        showMessage: false,
+      );
+      if (!saved) {
+        await SettingsService.instance.updateRange(
+          sensorKey,
+          currentMin,
+          currentMax,
+        );
+      }
     });
   }
 
-  void _showFeedLevelEditor() {
+  Future<void> _showFeedLevelEditor() {
     final config = SettingsService.instance.currentRanges['feedlevel']!;
     final previousCritical = config['critical'] ?? 10.0;
     final previousLow = config['min'] ?? 20.0;
@@ -438,7 +476,7 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
       text: (config['capacity_grams'] ?? 1000).toStringAsFixed(0),
     );
 
-    showDialog<void>(
+    return showDialog<({double critical, double low, double capacity})>(
       context: context,
       builder: (ctx) => AlertDialog(
         insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
@@ -503,102 +541,88 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
           ],
         ),
         actions: [
-          SizedBox(
-            width: double.infinity,
-            child: Row(
-              children: [
-                Expanded(
-                  child: SizedBox(
-                    height: 46,
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.darkWith(0.65),
-                        side: BorderSide(color: AppColors.darkWith(0.12)),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: const Text(
-                        'Cancel',
-                        style: TextStyle(fontWeight: FontWeight.w700),
-                      ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(
+              'Cancel',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: AppColors.darkWith(0.4),
+              ),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final critical = double.tryParse(criticalCtrl.text.trim());
+              final low = double.tryParse(lowCtrl.text.trim());
+              final capacity = double.tryParse(capacityCtrl.text.trim());
+              if (critical == null ||
+                  low == null ||
+                  capacity == null ||
+                  !critical.isFinite ||
+                  !low.isFinite ||
+                  !capacity.isFinite ||
+                  critical < 0 ||
+                  critical >= low ||
+                  low < 1 ||
+                  low > 50 ||
+                  capacity < 100 ||
+                  capacity > 50000) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Use Critical < Low ≤ 50%, and capacity 100–50,000 g.',
                     ),
                   ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: SizedBox(
-                    height: 46,
-                    child: ElevatedButton.icon(
-                      onPressed: () async {
-                        final critical = double.tryParse(
-                          criticalCtrl.text.trim(),
-                        );
-                        final low = double.tryParse(lowCtrl.text.trim());
-                        final capacity = double.tryParse(
-                          capacityCtrl.text.trim(),
-                        );
-                        if (critical == null ||
-                            low == null ||
-                            capacity == null ||
-                            critical < 0 ||
-                            critical >= low ||
-                            low > 50 ||
-                            capacity < 100 ||
-                            capacity > 50000) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Use Critical < Low ≤ 50%, and capacity 100–50,000 g.',
-                              ),
-                            ),
-                          );
-                          return;
-                        }
-                        await SettingsService.instance.updateFeedLevelConfig(
-                          critical: critical,
-                          low: low,
-                          capacityGrams: capacity,
-                        );
-                        if (!ctx.mounted) return;
-                        Navigator.pop(ctx);
-                        final saved = await _saveConfigToFirebase(
-                          changedKey: 'feedlevel',
-                        );
-                        if (!saved) {
-                          await SettingsService.instance.updateFeedLevelConfig(
-                            critical: previousCritical,
-                            low: previousLow,
-                            capacityGrams: previousCapacity,
-                          );
-                        }
-                      },
-                      icon: const Icon(Icons.check_rounded, size: 18),
-                      label: const Text(
-                        'Update',
-                        style: TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+                );
+                return;
+              }
+              _replaceEditorWithSuccess(ctx, 'Feed Level thresholds updated!', (
+                critical: critical,
+                low: low,
+                capacity: capacity,
+              ));
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            child: const Text(
+              'Update',
+              style: TextStyle(fontWeight: FontWeight.w800),
             ),
           ),
         ],
       ),
-    ).whenComplete(() {
+    ).then((result) async {
       criticalCtrl.dispose();
       lowCtrl.dispose();
       capacityCtrl.dispose();
+      if (result == null || !mounted) return;
+
+      await SettingsService.instance.updateFeedLevelConfig(
+        critical: result.critical,
+        low: result.low,
+        capacityGrams: result.capacity,
+      );
+      if (!mounted) return;
+      final saved = await _saveConfigToFirebase(
+        changedKey: 'feedlevel',
+        showMessage: false,
+      );
+      if (!saved) {
+        await SettingsService.instance.updateFeedLevelConfig(
+          critical: previousCritical,
+          low: previousLow,
+          capacityGrams: previousCapacity,
+        );
+      }
     });
   }
 
@@ -753,28 +777,6 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (_saving)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Row(
-                children: [
-                  const SizedBox(
-                    width: 12,
-                    height: 12,
-                    child: CircularProgressIndicator(strokeWidth: 1.5),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Syncing to Firebase...',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.darkWith(0.5),
-                    ),
-                  ),
-                ],
-              ),
-            ),
           const SizedBox(height: 8),
           Padding(
             padding: const EdgeInsets.only(left: 4),

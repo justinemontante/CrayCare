@@ -96,7 +96,7 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       await _authService.signIn(
         _emailController.text.trim(),
-        _passwordController.text.trim(),
+        _passwordController.text,
       );
 
       _saveCredentials();
@@ -110,14 +110,13 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       );
     } catch (e) {
-      final msg = e.toString().replaceAll('Exception: ', '');
-      final lower = msg.toLowerCase();
-      if (msg.contains('disabled')) {
+      final code = e is FirebaseAuthException ? e.code : '';
+      if (code == 'user-disabled') {
         setState(() {
-          _loginError = msg;
+          _loginError = authErrorMessage(e);
           _autovalidateMode = AutovalidateMode.onUserInteraction;
         });
-      } else if (lower.contains('verify')) {
+      } else if (code == 'email-not-verified') {
         // User exists but hasn't verified their email yet — send them to
         // the VerifyScreen instead of showing a misleading error.
         setState(() => _loginError = null);
@@ -154,162 +153,168 @@ class _LoginScreenState extends State<LoginScreen> {
         );
       }
     } catch (e) {
-      _showErrorSnackBar(e.toString().replaceAll('Exception: ', ''));
+      _showErrorSnackBar(authErrorMessage(e));
     } finally {
       if (mounted) setState(() => _isGoogleLoading = false);
     }
   }
 
   // PASSWORD RESET DIRECTLY
-  void _forgotPassword() {
+  void _forgotPassword() async {
     final emailCtl = TextEditingController(text: _emailController.text.trim());
     final formKey = GlobalKey<FormState>();
 
-    showDialog(
+    await showDialog<void>(
       context: context,
+      barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          contentPadding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
-          content: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.1),
-                    shape: BoxShape.circle,
+        builder: (ctx, setDialogState) => PopScope(
+          canPop: !_isResetLoading,
+          child: AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            contentPadding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
+            content: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.lock_outline_rounded,
+                      color: AppColors.primary,
+                      size: 28,
+                    ),
                   ),
-                  child: const Icon(
-                    Icons.lock_outline_rounded,
-                    color: AppColors.primary,
-                    size: 28,
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Reset Password',
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
                   ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Enter your email and we\'ll send you a password reset link.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 13, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 20),
+                  TextFormField(
+                    controller: emailCtl,
+                    keyboardType: TextInputType.emailAddress,
+                    enabled: !_isResetLoading,
+                    decoration: InputDecoration(
+                      hintText: 'Email address',
+                      filled: true,
+                      fillColor: AppColors.whiteWith(0.8),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    validator: (val) {
+                      if (val == null || val.trim().isEmpty) {
+                        return 'Email is required';
+                      }
+                      if (!RegExp(
+                        r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
+                      ).hasMatch(val.trim())) {
+                        return 'Enter a valid email';
+                      }
+                      return null;
+                    },
+                  ),
+                ],
+              ),
+            ),
+            actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
+            actions: [
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _isResetLoading
+                      ? null
+                      : () async {
+                          if (!formKey.currentState!.validate()) return;
+                          setState(() => _isResetLoading = true);
+                          setDialogState(() {});
+                          try {
+                            final resetEmail = emailCtl.text.trim();
+                            await _authService.sendPasswordResetEmail(
+                              resetEmail,
+                            );
+                            if (!mounted || !ctx.mounted) return;
+                            setState(() => _isResetLoading = false);
+                            setDialogState(() {});
+                            Navigator.pop(ctx);
+                            _showSuccessSnackBar(
+                              'If an account exists for $resetEmail, a password reset link has been sent.',
+                            );
+                          } catch (e) {
+                            if (!mounted || !ctx.mounted) return;
+                            setState(() => _isResetLoading = false);
+                            setDialogState(() {});
+                            _showErrorSnackBar(authErrorMessage(e));
+                          }
+                        },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor: AppColors.primary.withValues(
+                      alpha: 0.4,
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: _isResetLoading
+                      ? const Text(
+                          'Sending...',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text(
+                          'Send Reset Link',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                 ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Reset Password',
-                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Enter your email and we\'ll send you a password reset link.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 13, color: Colors.grey),
-                ),
-                const SizedBox(height: 20),
-                TextFormField(
-                  controller: emailCtl,
-                  keyboardType: TextInputType.emailAddress,
-                  enabled: !_isResetLoading,
-                  decoration: InputDecoration(
-                    hintText: 'Email address',
-                    filled: true,
-                    fillColor: AppColors.whiteWith(0.8),
-                    border: OutlineInputBorder(
+              ),
+              const SizedBox(height: 6),
+              SizedBox(
+                width: double.infinity,
+                child: TextButton(
+                  onPressed: _isResetLoading ? null : () => Navigator.pop(ctx),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.darkWith(0.5),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  validator: (val) {
-                    if (val == null || val.trim().isEmpty) {
-                      return 'Email is required';
-                    }
-                    if (!RegExp(
-                      r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
-                    ).hasMatch(val.trim())) {
-                      return 'Enter a valid email';
-                    }
-                    return null;
-                  },
+                  child: const Text(
+                    'Cancel',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-          actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
-          actions: [
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _isResetLoading
-                    ? null
-                    : () async {
-                        if (!formKey.currentState!.validate()) return;
-                        setState(() => _isResetLoading = true);
-                        setDialogState(() {});
-                        try {
-                          await FirebaseAuth.instance.sendPasswordResetEmail(
-                            email: emailCtl.text.trim(),
-                          );
-                          if (!ctx.mounted) return;
-                          Navigator.pop(ctx);
-                          setState(() => _isResetLoading = false);
-                          _showSuccessSnackBar(
-                            'Password reset link sent to ${emailCtl.text.trim()}!',
-                          );
-                        } catch (e) {
-                          setState(() => _isResetLoading = false);
-                          setDialogState(() {});
-                          _showErrorSnackBar(
-                            e.toString().replaceAll('Exception: ', ''),
-                          );
-                        }
-                      },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                  disabledBackgroundColor: AppColors.primary.withValues(
-                    alpha: 0.4,
-                  ),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  elevation: 0,
-                ),
-                child: _isResetLoading
-                    ? const Text(
-                        'Sending...',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Text(
-                        'Send Reset Link',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-              ),
-            ),
-            const SizedBox(height: 6),
-            SizedBox(
-              width: double.infinity,
-              child: TextButton(
-                onPressed: _isResetLoading ? null : () => Navigator.pop(ctx),
-                style: TextButton.styleFrom(
-                  foregroundColor: AppColors.darkWith(0.5),
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: const Text(
-                  'Cancel',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                ),
-              ),
-            ),
-          ],
         ),
       ),
     );
+    emailCtl.dispose();
   }
 
   void _showErrorSnackBar(String message) {
@@ -471,7 +476,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 return 'Email is required';
                               }
                               if (!RegExp(
-                                r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
+                                r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
                               ).hasMatch(value.trim())) {
                                 return 'Please enter a valid email address';
                               }
@@ -529,7 +534,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ),
                                 ),
                             validator: (value) {
-                              if (value == null || value.trim().isEmpty) {
+                              if (value == null || value.isEmpty) {
                                 return 'Password is required';
                               }
                               return null;

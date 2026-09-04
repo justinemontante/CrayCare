@@ -21,10 +21,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 /// Each device adds its own token with arrayUnion; the Cloud Function reads
 /// the array and pushes to every device of that account.
 ///
-/// NOTE: tank_id is generated once per user at signup and stored on the
-/// user's profile (users/{uid}.tank_id). We keep tank_id == uid for
-/// simplicity (1 user = 1 tank), but ALWAYS read/write tank_id explicitly
-/// instead of assuming uid, so the two can diverge later if needed.
+/// Tank ownership has one source of truth: tanks/{tank_id}.owner_uid.
+/// Under the current one-owner/one-tank rule, a newly provisioned tank uses
+/// the owner's Firebase UID as its document id. users/{uid} does not duplicate
+/// the tank_id relationship.
 class DatabaseService {
   static final DatabaseService instance = DatabaseService._();
   DatabaseService._();
@@ -40,9 +40,9 @@ class DatabaseService {
 
   // ─── User Profile ──────────────────────────────────────────────────
 
-  /// Creates/updates a user's profile. On first creation (no role/status
-  /// passed in as an update-only call) this also provisions the user's
-  /// tank, per the "1 User = 1 Tank" rule.
+  /// Creates/updates a user's profile. Registration does not create a tank;
+  /// owner tank resources are provisioned only when initial Tank Setup is
+  /// submitted.
   Future<void> saveUserProfile({
     required String uid,
     required String name,
@@ -60,8 +60,11 @@ class DatabaseService {
     try {
       final existing = await userRef.get();
       final isNewUser = !existing.exists;
-      final effectiveRole =
-          role ?? existing.data()?['role'] as String? ?? 'owner';
+      final rawRole = role ?? existing.data()?['role']?.toString() ?? 'owner';
+      final normalizedRole = rawRole.trim().toLowerCase();
+      // Keep the persisted role contract canonical. Some early profiles used
+      // "Owner"/"user", which caused exact role checks to skip owner setup.
+      final effectiveRole = normalizedRole == 'admin' ? 'admin' : 'owner';
 
       final data = <String, dynamic>{
         'full_name': name,
@@ -75,17 +78,21 @@ class DatabaseService {
         data['photoUrl'] = FieldValue.delete();
       }
       if (status != null) data['status'] = status;
+      // One-time cleanup for profiles created by the older duplicated schema.
+      // New profiles never contain tank_id; ownership lives in tanks.owner_uid.
+      if (existing.data()?.containsKey('tank_id') == true) {
+        data['tank_id'] = FieldValue.delete();
+      }
       if (isNewUser) {
         data['status'] ??= 'active';
         data['created_at'] = FieldValue.serverTimestamp();
       }
 
-      // Only 'owner' accounts get a tank; admins don't own a tank.
-      if (isNewUser && effectiveRole == 'owner') {
-        final tankId = uid; // tank_id == uid (1 user = 1 tank)
-        data['tank_id'] = tankId;
+      // Owner resources are idempotently repaired on authentication too. This
+      // keeps account-level preferences available before Tank Setup without
+      // creating phantom tank/device records for registered-only accounts.
+      if (effectiveRole == 'owner') {
         await userRef.set(data, SetOptions(merge: true));
-        await _createTankIfMissing(tankId, ownerUid: uid);
         await _createDefaultNotificationSettings(uid);
       } else {
         await userRef.set(data, SetOptions(merge: true));
@@ -123,6 +130,7 @@ class DatabaseService {
       'warning': true,
       'feeding': true,
       'sampling': true,
+      'operational': true,
       'updated_at': FieldValue.serverTimestamp(),
     });
   }
@@ -134,8 +142,13 @@ class DatabaseService {
     required bool critical,
     required bool feeding,
     required bool sampling,
+    required bool operational,
     bool warning = true,
   }) async {
+    final profile = await getUserProfile(uid);
+    if (profile?['role']?.toString().trim().toLowerCase() != 'owner') {
+      return;
+    }
     await _db
         .collection('users')
         .doc(uid)
@@ -148,11 +161,16 @@ class DatabaseService {
           'warning': warning,
           'feeding': feeding,
           'sampling': sampling,
+          'operational': operational,
           'updated_at': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
   }
 
   Future<Map<String, dynamic>?> getNotificationPrefs(String uid) async {
+    final profile = await getUserProfile(uid);
+    if (profile?['role']?.toString().trim().toLowerCase() != 'owner') {
+      return null;
+    }
     final doc = await _db
         .collection('users')
         .doc(uid)
@@ -165,21 +183,29 @@ class DatabaseService {
 
   // ─── Tank ──────────────────────────────────────────────────────────
 
-  Future<void> _createTankIfMissing(String tankId, {String? ownerUid}) async {
+  /// Creates the canonical tank and device defaults for the first Tank Setup.
+  /// This must not be called during registration or ordinary authentication.
+  Future<void> ensureOwnerTankProvisioned(
+    String tankId, {
+    String? ownerUid,
+  }) async {
     final ref = _db.collection('tanks').doc(tankId);
     final existing = await ref.get();
-    if (existing.exists) return;
-
-    // Provision parent + all required subdocuments atomically. Previously the
-    // parent was written first; if the later seed batch failed, retries saw an
-    // existing parent and permanently skipped missing sensors/actuators.
-    final batch = _db.batch();
-    batch.set(ref, {
-      'owner_uid': ownerUid ?? tankId,
-      'current_batch_id': '',
-      'is_initialized': false,
-      'created_at': FieldValue.serverTimestamp(),
-    });
+    final canonicalOwnerUid = ownerUid ?? tankId;
+    if (existing.exists) {
+      if (existing.data()?['owner_uid'] != canonicalOwnerUid) {
+        throw StateError('Tank $tankId belongs to a different owner.');
+      }
+    } else {
+      // Create the ownership record first. Child-document rules then verify
+      // this single canonical relationship when defaults are seeded.
+      await ref.set({
+        'owner_uid': canonicalOwnerUid,
+        'current_batch_id': '',
+        'is_initialized': false,
+        'created_at': FieldValue.serverTimestamp(),
+      });
+    }
 
     // Seed default sensor thresholds.
     const defaults = {
@@ -195,8 +221,26 @@ class DatabaseService {
         'capacity_grams': 1000.0,
       },
     };
-    for (final entry in defaults.entries) {
-      final sensorRef = ref.collection('sensors').doc(entry.key);
+    final sensorRefs = defaults.keys
+        .map((name) => ref.collection('sensors').doc(name))
+        .toList();
+    final actuatorRefs = [
+      'pump',
+      'aerator1',
+      'aerator2',
+    ].map((name) => ref.collection('actuators').doc(name)).toList();
+    final feederRef = ref.collection('feeder').doc('status');
+    final existingDefaults = await Future.wait([
+      ...sensorRefs.map((item) => item.get()),
+      ...actuatorRefs.map((item) => item.get()),
+      feederRef.get(),
+    ]);
+    final batch = _db.batch();
+    var writeCount = 0;
+    for (var index = 0; index < defaults.length; index++) {
+      if (existingDefaults[index].exists) continue;
+      final entry = defaults.entries.elementAt(index);
+      final sensorRef = sensorRefs[index];
       batch.set(sensorRef, {
         'min_value': entry.value['min'],
         'max_value': entry.value['max'],
@@ -206,25 +250,31 @@ class DatabaseService {
         },
         'updated_at': FieldValue.serverTimestamp(),
       });
+      writeCount++;
     }
     // Seed default actuators (off, manual-off state).
     // last_changed is seeded as integer epoch-ms (0 = never changed) to keep
     // the field type consistent with ESP32 writes.
-    for (final type in ['pump', 'aerator1', 'aerator2']) {
-      final actuatorRef = ref.collection('actuators').doc(type);
+    for (var index = 0; index < actuatorRefs.length; index++) {
+      if (existingDefaults[defaults.length + index].exists) continue;
+      final actuatorRef = actuatorRefs[index];
       batch.set(actuatorRef, {
         'control_mode': 'off',
         'current_state': 'off',
         'last_changed': 0,
       });
+      writeCount++;
     }
     // Seed feeder status doc.
-    batch.set(ref.collection('feeder').doc('status'), {
-      'status': 'idle',
-      'last_dispensed_at': null,
-      'last_dispensed_grams': 0.0,
-    });
-    await batch.commit();
+    if (!existingDefaults.last.exists) {
+      batch.set(feederRef, {
+        'status': 'idle',
+        'last_dispensed_at': null,
+        'last_dispensed_grams': 0.0,
+      });
+      writeCount++;
+    }
+    if (writeCount > 0) await batch.commit();
   }
 
   Future<Map<String, dynamic>?> getTank(String tankId) async {
@@ -236,10 +286,13 @@ class DatabaseService {
   Stream<DocumentSnapshot<Map<String, dynamic>>> tankStream(String tankId) =>
       _db.collection('tanks').doc(tankId).snapshots();
 
-  /// Convenience: resolves a user's tank_id from their profile.
+  /// Resolves the tank owned by [uid]. The direct document lookup is the
+  /// canonical one-owner/one-tank path; owner_uid is still verified so a
+  /// malformed document cannot be treated as the user's tank.
   Future<String?> getTankIdForUser(String uid) async {
-    final profile = await getUserProfile(uid);
-    return profile?['tank_id'] as String?;
+    final tank = await _db.collection('tanks').doc(uid).get();
+    if (!tank.exists || tank.data()?['owner_uid'] != uid) return null;
+    return tank.id;
   }
 
   // ─── Sensor Thresholds (tanks/{tank_id}/sensors/{sensorName}) ─────
@@ -257,7 +310,10 @@ class DatabaseService {
       throw Exception('Only the tank owner can change sensor thresholds.');
     }
 
-    final tankId = profile?['tank_id'] as String? ?? user.uid;
+    final tankId = await getTankIdForUser(user.uid);
+    if (tankId == null) {
+      throw StateError('Initialize your tank before changing thresholds.');
+    }
     final tankRef = _db.collection('tanks').doc(tankId);
 
     const sensorDocFor = {
@@ -310,8 +366,10 @@ class DatabaseService {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    final profile = await getUserProfile(user.uid);
-    final tankId = profile?['tank_id'] as String? ?? user.uid;
+    final tankId = await getTankIdForUser(user.uid);
+    if (tankId == null) {
+      throw StateError('Initialize your tank before controlling actuators.');
+    }
 
     final tankRef = _db.collection('tanks').doc(tankId);
 
@@ -332,8 +390,8 @@ class DatabaseService {
   // Reassigning is instant; the previous owner's tank data is preserved.
 
   /// Returns the UID of the currently assigned hardware owner, or null.
-  /// Legacy/currentOwner documents that only have tank_id are resolved back
-  /// to the matching owner profile so the Admin UI does not show unassigned.
+  /// Legacy/currentOwner documents that only have tank_id are resolved from
+  /// the canonical tanks/{tankId}.owner_uid relationship.
   Future<String?> getCurrentOwnerUid() async {
     final doc = await _db
         .collection('hardware_system')
@@ -348,13 +406,8 @@ class DatabaseService {
     final tankId = data['tank_id'] as String?;
     if (tankId == null || tankId.isEmpty) return null;
 
-    final users = await _db
-        .collection('users')
-        .where('tank_id', isEqualTo: tankId)
-        .limit(1)
-        .get();
-    if (users.docs.isEmpty) return null;
-    return users.docs.first.id;
+    final tank = await _db.collection('tanks').doc(tankId).get();
+    return tank.data()?['owner_uid'] as String?;
   }
 
   /// Returns the tank_id currently receiving hardware data, or null.
@@ -386,8 +439,7 @@ class DatabaseService {
         return hasUid || !hasTank;
       });
 
-  /// Assigns the hardware to [ownerUid]. Fetches the user's tank_id first,
-  /// then writes BOTH uid and tank_id to hardware_system/currentOwner.
+  /// Assigns the hardware to [ownerUid] using the tank ownership record.
   Future<void> setCurrentOwner(String ownerUid) async {
     if (ownerUid.isEmpty) throw ArgumentError('ownerUid cannot be empty');
 
@@ -405,18 +457,17 @@ class DatabaseService {
     if (status == 'disabled') {
       throw Exception('Enable this owner account before assigning hardware.');
     }
-    var tankId = profile['tank_id'] as String?;
-
-    // Edge case: user has no tank yet (e.g. legacy account) — provision one.
-    if (tankId == null || tankId.isEmpty) {
-      tankId = ownerUid;
-      // Persist the owner-to-tank link before provisioning the tank. This
-      // keeps the user profile and Firestore ownership rule in sync even for
-      // legacy accounts that were created before tank provisioning existed.
-      await _db.collection('users').doc(ownerUid).set({
-        'tank_id': tankId,
-      }, SetOptions(merge: true));
-      await _createTankIfMissing(tankId, ownerUid: ownerUid);
+    final tankId = await getTankIdForUser(ownerUid);
+    if (tankId == null) {
+      throw Exception(
+        'This owner must complete Tank Setup before hardware can be linked.',
+      );
+    }
+    final tank = await _db.collection('tanks').doc(tankId).get();
+    if (tank.data()?['is_initialized'] != true) {
+      throw Exception(
+        'This owner must initialize an active tank before hardware can be linked.',
+      );
     }
 
     try {
@@ -472,16 +523,13 @@ class DatabaseService {
         throw Exception('User $uid does not exist.');
       }
       final assignmentSnap = await transaction.get(ownerRef);
-      final userTankId = userSnap.data()!['tank_id'] as String?;
       final assignment = assignmentSnap.data();
       final assignedUid = assignment?['uid'] as String?;
       final assignedTankId = assignment?['tank_id'] as String?;
       final isAssignedOwner =
           assignedUid == uid ||
           ((assignedUid == null || assignedUid.isEmpty) &&
-              userTankId != null &&
-              userTankId.isNotEmpty &&
-              assignedTankId == userTankId);
+              assignedTankId == uid);
 
       transaction.set(userRef, {
         'status': normalizedStatus,

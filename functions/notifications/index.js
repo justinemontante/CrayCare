@@ -3,6 +3,7 @@ const admin = require("firebase-admin");
 admin.initializeApp();
 
 const firestoreDb = admin.firestore();
+const {sensorRouteDecision} = require('./sensor_routing');
 
 const SENSOR_MAP = {
   temperature: "temp",
@@ -160,7 +161,9 @@ async function getCurrentHardwareOwner() {
   if (!snap.exists) return null;
   const data = snap.data() || {};
   if (!data.uid || !data.tank_id) return null;
-  return { uid: data.uid, tankId: data.tank_id };
+  const assignedAt = data.assigned_at || snap.updateTime;
+  const assignedAtMs = assignedAt && typeof assignedAt.toMillis === 'function' ? Math.floor(assignedAt.toMillis()) : NaN;
+  return { uid: data.uid, tankId: data.tank_id, assignedAtMs };
 }
 
 function normalizeSensorReading(raw) {
@@ -294,7 +297,7 @@ async function notifySensorChanges(ownerUid, stateChanges) {
     ? "critical"
     : alertType === "warning"
       ? "warning"
-      : null;
+      : "operational";
   await sendPush(ownerUid, {
     notification: { title, body: bodyForPush },
     data: {
@@ -313,10 +316,20 @@ exports.onSensorIngestionWrite = functions.region("asia-southeast1").firestore
   .onWrite(async (change) => {
     if (!change.after.exists) return null;
     const owner = await getCurrentHardwareOwner();
-    if (!owner) return null;
-    await firestoreDb.collection("tanks").doc(owner.tankId)
-      .collection("sensor_readings").doc("latest")
-      .set(normalizeSensorReading(change.after.data()));
+    const raw = change.after.data();
+    const route = sensorRouteDecision(raw, owner);
+    if (!route.tankId) {
+      functions.logger.warn('Latest sensor reading not routed:', route.reason);
+      return null;
+    }
+    const latest = firestoreDb.collection("tanks").doc(route.tankId)
+      .collection("sensor_readings").doc("latest");
+    await firestoreDb.runTransaction(async tx => {
+      const previous = await tx.get(latest);
+      const recorded = previous.exists ? previous.data().recorded_at : null;
+      if (recorded && typeof recorded.toMillis === 'function' && recorded.toMillis() > route.capturedAtMs) return;
+      tx.set(latest, normalizeSensorReading(raw));
+    });
     return null;
   });
 
@@ -324,33 +337,51 @@ exports.onSensorIngestionHistoryCreate = functions.region("asia-southeast1").fir
   .document("sensorIngestion/current/history/{docId}")
   .onCreate(async (snap, context) => {
     const owner = await getCurrentHardwareOwner();
-    if (!owner) return null;
-    const capMs = Number(snap.data().captured_at_ms);
-    const recorded = Number.isFinite(capMs) && capMs > TRUSTED_EPOCH_MS
-      ? new Date(capMs)
-      : new Date();
+    const route = sensorRouteDecision(snap.data(), owner);
+    if (!route.tankId) {
+      // Keep the original staged payload; never guess who owned old readings.
+      await snap.ref.set({routing_status: 'quarantined', routing_reason: route.reason}, {merge: true});
+      return null;
+    }
+    const recorded = new Date(route.capturedAtMs);
     const manilaTime = new Date(recorded.getTime() + MANILA_OFFSET_MS);
     const dateKey = [
       manilaTime.getUTCFullYear(),
       String(manilaTime.getUTCMonth() + 1).padStart(2, "0"),
       String(manilaTime.getUTCDate()).padStart(2, "0"),
     ].join("-");
-    await firestoreDb.collection("tanks").doc(owner.tankId)
+    await firestoreDb.collection("tanks").doc(route.tankId)
       .collection("sensor_readings_history").doc(dateKey)
       .collection("entries").doc(context.params.docId)
       .set(normalizeSensorReading(snap.data()));
     return null;
   });
 
-exports.onFeederLogCreate = functions.region("asia-southeast1").firestore
+const { TERMINAL_OUTCOMES, scheduleOutcomePatch } = require("./feeder_outcome");
+const { deliverFeederNotificationOnce } = require("./feeder_delivery");
+
+exports.onFeederLogCreate = functions.runWith({failurePolicy: true}).region("asia-southeast1").firestore
   .document("tanks/{tankId}/feeder_logs/{logId}")
   .onCreate(async (snap, context) => {
     const data = snap.data() || {};
     const status = String(data.status || "").trim().toLowerCase();
-    if (status !== "completed" && status !== "skipped_insufficient") return null;
+    if (!TERMINAL_OUTCOMES.has(status)) return null;
 
     try {
       const { tankId, logId } = context.params;
+      if (data.type === "auto" && typeof data.schedule_key === "string" &&
+          data.schedule_key.length > 0 && !data.schedule_key.includes("/")) {
+        const scheduleRef = firestoreDb.collection("tanks").doc(tankId)
+          .collection("feeder_schedules").doc(data.schedule_key);
+        await firestoreDb.runTransaction(async (transaction) => {
+          const schedule = await transaction.get(scheduleRef);
+          if (!schedule.exists) return; // Do not resurrect a deleted schedule.
+          const patch = scheduleOutcomePatch(schedule.data(), data);
+          if (patch) transaction.update(scheduleRef, patch);
+        });
+      }
+      // Status reconciliation is independent of notification preferences.
+      if (status !== "completed" && status !== "skipped_insufficient") return null;
       const tankSnap = await firestoreDb.collection("tanks").doc(tankId).get();
       const ownerUid = tankSnap.exists ? (tankSnap.data() || {}).owner_uid : null;
       if (!ownerUid) return null;
@@ -371,7 +402,7 @@ exports.onFeederLogCreate = functions.region("asia-southeast1").firestore
       let body;
       if (status === "completed") {
         title = "Feeding Completed";
-        body = `${source} completed successfully (${requestedText}).`;
+        body = `${source} cycle completed (estimated ${requestedText}).`;
       } else {
         title = "Feeding Skipped";
         const availableText = Number.isFinite(available)
@@ -380,13 +411,12 @@ exports.onFeederLogCreate = functions.region("asia-southeast1").firestore
         body = `${source} was skipped: insufficient feed (${availableText}; ${requestedText} required). Refill the hopper.`;
       }
 
-      await writeNotification(ownerUid, {
-        docId: `feeder_${tankId}_${logId}`,
+      await deliverFeederNotificationOnce({
+        db: firestoreDb, tankId, logId, uid: ownerUid,
         type: status === "completed" ? "feeding" : "warning",
-        title,
-        message: body,
-      });
-      await sendPush(ownerUid, {
+        title, body,
+        timestamp: () => admin.firestore.FieldValue.serverTimestamp(),
+        send: () => sendPush(ownerUid, {
         notification: { title, body },
         data: {
           feeding: "true",
@@ -394,9 +424,11 @@ exports.onFeederLogCreate = functions.region("asia-southeast1").firestore
           tankId,
           logId,
         },
-      }, "feeding");
+        }, "feeding"),
+      });
     } catch (e) {
       functions.logger.error("onFeederLogCreate error:", e.message);
+      throw e;
     }
     return null;
   });
@@ -604,11 +636,9 @@ async function getSamplingDue(notifTarget) {
   const now = Date.now();
   let lastSampleTs = null;
   try {
-    const profile = await firestoreDb.collection("users").doc(notifTarget).get();
-    const tankId = profile.exists ? (profile.data() || {}).tank_id : null;
-    if (!tankId) return null;
+    const tankId = notifTarget;
     const tankSnap = await firestoreDb.collection("tanks").doc(tankId).get();
-    if (!tankSnap.exists) return null;
+    if (!tankSnap.exists || (tankSnap.data() || {}).owner_uid !== notifTarget) return null;
     const config = tankSnap.data() || {};
     if (config.is_initialized !== true) return null;
 
@@ -715,6 +745,6 @@ exports.onAutoActuatorLogCreate = functions.region("asia-southeast1").firestore
     await sendPush(ownerUid, {
       notification: { title, body },
       data: { operational: "true", critical: "false" },
-    });
+    }, "operational");
     return null;
   });

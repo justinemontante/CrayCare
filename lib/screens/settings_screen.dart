@@ -1,10 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import '../theme/app_colors.dart';
 import 'login_screen.dart';
-import '../services/settings_service.dart';
 import '../widgets/settings/settings_menu.dart';
 import '../widgets/settings/profile_edit_form.dart';
 import '../widgets/settings/change_password_form.dart';
@@ -14,22 +15,33 @@ import '../widgets/settings/logout_sheet.dart';
 import '../services/database_service.dart';
 import '../services/storage_service.dart'; // Para sa pag-pick ng profile picture
 import '../services/auth_service.dart';
+import '../services/notification_service.dart';
+import '../utils/snackbar_helper.dart';
 
 class SettingsScreen extends StatefulWidget {
   final String? initialPhotoUrl;
+  final ImageProvider<Object>? initialPhotoImage;
 
-  const SettingsScreen({super.key, this.initialPhotoUrl});
+  const SettingsScreen({
+    super.key,
+    this.initialPhotoUrl,
+    this.initialPhotoImage,
+  });
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class _SettingsScreenState extends State<SettingsScreen>
+    with WidgetsBindingObserver {
   int _currentPage = 0;
   String _profileName = 'Loading...';
   String _profileEmail = 'Loading...';
   String? _photoUrl; // Canonical users/{uid}.photo_url from Firestore
+  ImageProvider<Object>? _photoImage;
   bool _isAdmin = false;
+  bool _roleResolved = false;
+  bool _hasPasswordProvider = false;
 
   final _nameCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
@@ -43,40 +55,66 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _notifFeeding = true;
   bool _notifSampling = true;
   bool _notifWarning = true;
+  bool _notifOperational = true;
+  AuthorizationStatus _notificationPermission =
+      AuthorizationStatus.notDetermined;
+  bool _notificationPermissionBusy = false;
   Timer? _notifSaveDebounce;
 
   @override
   void initState() {
     super.initState();
-    SettingsService.instance.addListener(_onSettingsChange);
+    WidgetsBinding.instance.addObserver(this);
+    _photoUrl = widget.initialPhotoUrl;
+    _photoImage =
+        widget.initialPhotoImage ?? _decodePhoto(widget.initialPhotoUrl);
     _loadUserData();
+    unawaited(_refreshNotificationPermission());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_refreshNotificationPermission());
+    }
   }
 
   Future<void> _loadUserData() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
+      _hasPasswordProvider = user.providerData.any(
+        (provider) => provider.providerId == 'password',
+      );
       final profile = await DatabaseService.instance.getUserProfile(user.uid);
       if (profile != null && mounted) {
+        final normalizedRole = profile['role']?.toString().trim().toLowerCase();
         setState(() {
-          _profileName = (profile['full_name'] as String?) ??
+          _profileName =
+              (profile['full_name'] as String?) ??
               (profile['displayName'] as String?) ??
               user.displayName ??
               'CrayCare User';
-          _profileEmail = (profile['email'] as String?) ?? user.email ?? 'No email linked';
-          _isAdmin = profile['role'] == 'admin';
+          _profileEmail =
+              (profile['email'] as String?) ?? user.email ?? 'No email linked';
+          _isAdmin = normalizedRole == 'admin';
+          _roleResolved = true;
         });
       } else if (mounted) {
         setState(() {
           _profileName = user.displayName ?? 'CrayCare User';
           _profileEmail = user.email ?? 'No email linked';
+          _isAdmin = false;
+          _roleResolved = true;
         });
       }
-      if (widget.initialPhotoUrl != null) {
-        setState(() => _photoUrl = widget.initialPhotoUrl);
-      } else {
+      if (widget.initialPhotoUrl == null) {
         _loadPhotoFromFirestore(user.uid);
       }
-      final notifPrefs = await DatabaseService.instance.getNotificationPrefs(user.uid);
+      final isOwner =
+          profile?['role']?.toString().trim().toLowerCase() == 'owner';
+      final notifPrefs = isOwner
+          ? await DatabaseService.instance.getNotificationPrefs(user.uid)
+          : null;
       if (notifPrefs != null && mounted) {
         setState(() {
           _notifSound = notifPrefs['sound'] as bool? ?? true;
@@ -85,6 +123,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _notifFeeding = notifPrefs['feeding'] as bool? ?? true;
           _notifSampling = notifPrefs['sampling'] as bool? ?? true;
           _notifWarning = notifPrefs['warning'] as bool? ?? true;
+          _notifOperational = notifPrefs['operational'] as bool? ?? true;
         });
       }
     }
@@ -94,16 +133,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final data = await DatabaseService.instance.getUserProfile(uid);
     final photo = data?['photo_url'] ?? data?['photoUrl'];
     if (photo is String && mounted) {
-      setState(() => _photoUrl = photo);
+      _setPhoto(photo);
     }
+  }
+
+  ImageProvider<Object>? _decodePhoto(String? value) {
+    if (value == null || value.isEmpty) return null;
+    final uri = Uri.tryParse(value);
+    if (uri != null && (uri.scheme == 'http' || uri.scheme == 'https')) {
+      return NetworkImage(value);
+    }
+    try {
+      return MemoryImage(base64Decode(value.split(',').last));
+    } on FormatException {
+      return null;
+    }
+  }
+
+  void _setPhoto(String value) {
+    if (value == _photoUrl && _photoImage != null) return;
+    final image = _decodePhoto(value);
+    if (!mounted) return;
+    setState(() {
+      _photoUrl = value;
+      _photoImage = image;
+    });
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     final hasPendingNotifSave = _notifSaveDebounce?.isActive ?? false;
     _notifSaveDebounce?.cancel();
-    if (hasPendingNotifSave) unawaited(_saveNotifPrefs());
-    SettingsService.instance.removeListener(_onSettingsChange);
+    if (hasPendingNotifSave && _roleResolved && !_isAdmin) {
+      unawaited(_saveNotifPrefs());
+    }
     _nameCtrl.dispose();
     _emailCtrl.dispose();
     _currentPwCtrl.dispose();
@@ -112,9 +176,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.dispose();
   }
 
-  void _onSettingsChange() => setState(() {});
+  Future<void> _refreshNotificationPermission() async {
+    try {
+      final status = await NotificationService.instance
+          .notificationAuthorizationStatus();
+      if (mounted) setState(() => _notificationPermission = status);
+    } catch (e) {
+      debugPrint('[Settings] Notification permission status error: $e');
+    }
+  }
+
+  Future<void> _handleNotificationPermissionAction() async {
+    if (_notificationPermissionBusy) return;
+    setState(() => _notificationPermissionBusy = true);
+    try {
+      if (_notificationPermission == AuthorizationStatus.notDetermined) {
+        await NotificationService.instance.requestNotificationPermission();
+        await _refreshNotificationPermission();
+      } else {
+        final opened = await NotificationService.instance
+            .openNotificationSettings();
+        if (!opened && mounted) {
+          showBeautifulSnackbar(
+            context,
+            'Could not open phone notification settings.',
+            false,
+          );
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _notificationPermissionBusy = false);
+    }
+  }
 
   Future<void> _saveNotifPrefs() async {
+    if (!_roleResolved || _isAdmin) return;
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
     await DatabaseService.instance.saveNotificationPrefs(
@@ -124,11 +220,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       critical: _notifCritical,
       feeding: _notifFeeding,
       sampling: _notifSampling,
+      operational: _notifOperational,
       warning: _notifWarning,
     );
   }
 
   void _scheduleNotifPrefsSave() {
+    if (!_roleResolved || _isAdmin) return;
     _notifSaveDebounce?.cancel();
     _notifSaveDebounce = Timer(
       const Duration(milliseconds: 450),
@@ -137,21 +235,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _goTo(int page) {
-    if (_isAdmin && page == 4) return; // Admin can't access sensor thresholds
-    _nameCtrl.text = _profileName;
-    _emailCtrl.text = _profileEmail;
+    if ((!_roleResolved || _isAdmin) && (page == 3 || page == 4)) return;
+    if (page == 1) {
+      _nameCtrl.text = _profileName;
+      _emailCtrl.text = _profileEmail;
+    }
     setState(() => _currentPage = page);
   }
 
   void _back() {
     if (_currentPage == 0) {
-      Navigator.of(context).pop(_photoUrl); // Ibalik ang photoUrl para iwas reload
+      Navigator.of(
+        context,
+      ).pop(_photoUrl); // Ibalik ang photoUrl para iwas reload
     } else {
       setState(() => _currentPage = 0);
     }
   }
 
-  void _showSuccessModal({String message = 'Your profile name has been saved!'}) {
+  void _showSuccessModal({
+    String message = 'Your profile name has been saved!',
+  }) {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -237,42 +341,52 @@ class _SettingsScreenState extends State<SettingsScreen> {
           photoUrl: url,
         );
         // I-update agad ang preview sa avatar
-        setState(() => _photoUrl = url);
+        _setPhoto(url);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Profile picture updated!')),
-          );
+          showBeautifulSnackbar(context, 'Profile picture updated.', true);
         }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
+        showBeautifulSnackbar(
+          context,
+          e.toString().replaceFirst('Exception: ', ''),
+          false,
         );
       }
     }
   }
 
-  void _saveProfile() async {
+  Future<void> _saveProfile() async {
     final user = FirebaseAuth.instance.currentUser;
-    if (user != null &&
-        _nameCtrl.text.isNotEmpty &&
-        _nameCtrl.text != _profileName) {
-      await user.updateDisplayName(_nameCtrl.text);
-      // Masesave din sa Realtime Database for permanent record
-      await DatabaseService.instance.saveUserProfile(
-        uid: user.uid,
-        name: _nameCtrl.text,
-        email: user.email ?? '',
-      );
+    final previousName = _profileName;
+    final nextName = _nameCtrl.text.trim();
+
+    if (nextName.isEmpty) {
+      throw Exception('Full name cannot be empty.');
     }
 
-    setState(() {
-      _profileName = _nameCtrl.text.isNotEmpty ? _nameCtrl.text : _profileName;
-    });
+    if (user == null) {
+      throw Exception('No user logged in.');
+    }
 
-    if (mounted) {
+    if (nextName == previousName) {
+      _back();
+      return;
+    }
+
+    try {
+      await user.updateDisplayName(nextName);
+      await DatabaseService.instance.saveUserProfile(
+        uid: user.uid,
+        name: nextName,
+        email: user.email ?? '',
+      );
+      if (!mounted) return;
+      setState(() => _profileName = nextName);
       _showSuccessModal();
+    } catch (e) {
+      throw Exception('Could not save profile changes: $e');
     }
   }
 
@@ -282,18 +396,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
       throw Exception('No user logged in.');
     }
 
-    await AuthService().changePassword(
-      email: user!.email!,
-      currentPassword: _currentPwCtrl.text,
-      newPassword: _newPwCtrl.text,
-    );
+    final wasCreatingPassword = !_hasPasswordProvider;
+    if (!wasCreatingPassword) {
+      await AuthService().changePassword(
+        email: user!.email!,
+        currentPassword: _currentPwCtrl.text,
+        newPassword: _newPwCtrl.text,
+      );
+    } else {
+      await AuthService().createPasswordForCurrentUser(
+        email: user!.email!,
+        newPassword: _newPwCtrl.text,
+      );
+      await user.reload();
+      if (mounted) {
+        setState(() => _hasPasswordProvider = true);
+      }
+    }
 
     _currentPwCtrl.clear();
     _newPwCtrl.clear();
     _confirmPwCtrl.clear();
 
     if (mounted) {
-      _showSuccessModal(message: 'Your password has been changed successfully!');
+      _showSuccessModal(
+        message: wasCreatingPassword
+            ? 'Your password has been created successfully! You can now sign in using Google or your email and password.'
+            : 'Your password has been changed successfully!',
+      );
     }
   }
 
@@ -317,9 +447,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             );
           } catch (e) {
             if (!ctx.mounted || !mounted) return;
-            ScaffoldMessenger.of(
+            showBeautifulSnackbar(
               ctx,
-            ).showSnackBar(SnackBar(content: Text('Error logging out: $e')));
+              'Could not log out: ${e.toString().replaceFirst('Exception: ', '')}',
+              false,
+            );
           }
         },
       ),
@@ -331,7 +463,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       case 1:
         return 'Edit Profile';
       case 2:
-        return 'Change Password';
+        return _hasPasswordProvider ? 'Change Password' : 'Create Password';
       case 3:
         return 'Notifications';
       case 4:
@@ -355,13 +487,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _buildHeader(),
           Expanded(
             child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 200),
-              switchInCurve: Curves.easeIn,
-              switchOutCurve: Curves.easeOut,
+              duration: const Duration(milliseconds: 180),
+              reverseDuration: const Duration(milliseconds: 120),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              transitionBuilder: (child, animation) {
+                final slide = Tween<Offset>(
+                  begin: const Offset(0.025, 0),
+                  end: Offset.zero,
+                ).animate(animation);
+                return FadeTransition(
+                  opacity: animation,
+                  child: SlideTransition(position: slide, child: child),
+                );
+              },
               layoutBuilder: (child, List<Widget> previousChildren) {
                 return Stack(
                   alignment: Alignment.topCenter,
-                  children: [...previousChildren, ...?child != null ? [child] : null],
+                  children: [
+                    ...previousChildren,
+                    ...?child != null ? [child] : null,
+                  ],
                 );
               },
               child: [
@@ -371,8 +517,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   profileEmail: _profileEmail,
                   onGoTo: _goTo,
                   onLogout: _showLogoutSheet,
-                  photoUrl: _photoUrl,
-                  isAdmin: _isAdmin,
+                  photoImage: _photoImage,
+                  isAdmin: _isAdmin || !_roleResolved,
+                  hasPasswordProvider: _hasPasswordProvider,
                 ),
                 ProfileEditForm(
                   key: const ValueKey('edit-profile'),
@@ -380,7 +527,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   emailCtrl: _emailCtrl,
                   onSave: _saveProfile,
                   onTapCamera: _pickAndUploadPicture,
-                  photoUrl: _photoUrl,
+                  photoImage: _photoImage,
                 ),
                 ChangePasswordForm(
                   key: const ValueKey('change-password'),
@@ -388,6 +535,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   newPwCtrl: _newPwCtrl,
                   confirmPwCtrl: _confirmPwCtrl,
                   onChangePassword: _changePassword,
+                  isCreatingPassword: !_hasPasswordProvider,
                 ),
                 NotifSettings(
                   key: const ValueKey('notifications'),
@@ -397,6 +545,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   notifWarning: _notifWarning,
                   notifFeeding: _notifFeeding,
                   notifSampling: _notifSampling,
+                  notifOperational: _notifOperational,
+                  notificationPermissionStatus:
+                      switch (_notificationPermission) {
+                        AuthorizationStatus.authorized => 'Allowed',
+                        AuthorizationStatus.provisional => 'Allowed',
+                        AuthorizationStatus.denied => 'Blocked',
+                        _ => 'Not enabled',
+                      },
+                  notificationPermissionAllowed:
+                      _notificationPermission ==
+                          AuthorizationStatus.authorized ||
+                      _notificationPermission ==
+                          AuthorizationStatus.provisional,
+                  notificationPermissionBusy: _notificationPermissionBusy,
+                  onNotificationPermissionAction:
+                      _handleNotificationPermissionAction,
                   onNotifSoundChanged: (v) {
                     _notifSound = v ?? true;
                     _scheduleNotifPrefsSave();
@@ -421,8 +585,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _notifSampling = v ?? true;
                     _scheduleNotifPrefsSave();
                   },
+                  onNotifOperationalChanged: (v) {
+                    _notifOperational = v ?? true;
+                    _scheduleNotifPrefsSave();
+                  },
                 ),
-                SensorThresholdSettings(key: const ValueKey('sensor-thresholds')),
+                SensorThresholdSettings(
+                  key: const ValueKey('sensor-thresholds'),
+                ),
               ][_currentPage],
             ),
           ),
@@ -434,9 +604,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildHeader() {
     final Widget header = Container(
       padding: const EdgeInsets.fromLTRB(4, 8, 16, 8),
-      decoration: const BoxDecoration(
-        color: Colors.transparent,
-      ),
+      decoration: const BoxDecoration(color: Colors.transparent),
       child: Row(
         children: [
           IconButton(

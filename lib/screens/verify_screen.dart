@@ -1,11 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 import '../theme/app_colors.dart';
 import '../widgets/gradient_button.dart';
+import '../services/auth_service.dart';
+import '../utils/smooth_page_route.dart';
 import 'main_shell.dart';
-import 'signup_screen.dart';
+import 'login_screen.dart';
 
 class VerifyScreen extends StatefulWidget {
   const VerifyScreen({super.key});
@@ -15,8 +16,9 @@ class VerifyScreen extends StatefulWidget {
 }
 
 class _VerifyScreenState extends State<VerifyScreen> {
-  final User? _currentUser = FirebaseAuth.instance.currentUser;
+  final AuthService _authService = AuthService();
   bool _isLoading = false;
+  bool _isLoggingOut = false;
 
   // COUNTDOWN TIMER VARIABLES
   Timer? _timer;
@@ -36,6 +38,7 @@ class _VerifyScreenState extends State<VerifyScreen> {
   }
 
   void _startTimer() {
+    _timer?.cancel();
     setState(() {
       _isResendEnabled = false;
       _countdownStart = 60;
@@ -68,15 +71,20 @@ class _VerifyScreenState extends State<VerifyScreen> {
 
     setState(() => _isLoading = true);
     try {
-      await _currentUser?.sendEmailVerification();
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        throw FirebaseAuthException(
+          code: 'no-current-user',
+          message: 'Your session has expired. Please sign in again.',
+        );
+      }
+      await user.sendEmailVerification();
       _showSuccessSnackBar(
         'A new verification link has been sent to your email!',
       );
       _startTimer(); // Reset ang cooldown timer
     } catch (e) {
-      _showErrorSnackBar(
-        'Too many requests. Please wait for the timer to finish.',
-      );
+      _showErrorSnackBar(authErrorMessage(e));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -86,13 +94,20 @@ class _VerifyScreenState extends State<VerifyScreen> {
   void _checkEmailVerification() async {
     setState(() => _isLoading = true);
     try {
-      await _currentUser
-          ?.reload(); // I-reload ang Firebase session para makuha ang latest status
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) {
+        throw FirebaseAuthException(
+          code: 'no-current-user',
+          message: 'Your session has expired. Please sign in again.',
+        );
+      }
+      await currentUser.reload();
       final freshUser = FirebaseAuth.instance.currentUser;
 
       if (freshUser != null && freshUser.emailVerified) {
+        final profile = await _authService.prepareCurrentUser();
         if (!mounted) return;
-        _showSuccessModal(); // Ipakita ang Animated Success Modal!
+        _showSuccessModal(profile); // Ipakita ang Animated Success Modal!
       } else {
         if (!mounted) return;
         _showErrorSnackBar(
@@ -100,7 +115,15 @@ class _VerifyScreenState extends State<VerifyScreen> {
         );
       }
     } catch (e) {
-      _showErrorSnackBar(e.toString());
+      if (!mounted) return;
+      _showErrorSnackBar(authErrorMessage(e));
+      if (e is FirebaseAuthException &&
+          (e.code == 'no-current-user' || e.code == 'user-disabled')) {
+        Navigator.pushReplacement(
+          context,
+          smoothPageRoute((_) => const LoginScreen()),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -108,22 +131,24 @@ class _VerifyScreenState extends State<VerifyScreen> {
 
   // LOGOUT (Babalik sa Signup Screen)
   void _logout() async {
+    if (_isLoggingOut) return;
+    _isLoggingOut = true;
     try {
       _timer?.cancel();
-      await GoogleSignIn().signOut();
-      await FirebaseAuth.instance.signOut();
+      await _authService.signOut();
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const SignupScreen()),
+        smoothPageRoute((_) => const LoginScreen()),
       );
     } catch (e) {
-      _showErrorSnackBar('Logout error: $e');
+      _showErrorSnackBar('Logout error: ${authErrorMessage(e)}');
+      _isLoggingOut = false;
     }
   }
 
   // ANIMATED SUCCESS MODAL (Scale + Fade Transition)
-  void _showSuccessModal() {
+  void _showSuccessModal(Map<String, dynamic> profile) {
     showGeneralDialog(
       context: context,
       barrierDismissible: false,
@@ -184,7 +209,9 @@ class _VerifyScreenState extends State<VerifyScreen> {
                         Navigator.pop(context); // Close Modal
                         Navigator.pushReplacement(
                           context,
-                          MaterialPageRoute(builder: (_) => const MainShell()),
+                          smoothPageRoute(
+                            (_) => MainShell(initialProfile: profile),
+                          ),
                         );
                       },
                       style: ElevatedButton.styleFrom(
@@ -224,7 +251,8 @@ class _VerifyScreenState extends State<VerifyScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final emailAddress = _currentUser?.email ?? 'your email';
+    final emailAddress =
+        FirebaseAuth.instance.currentUser?.email ?? 'your email';
 
     return PopScope(
       canPop: false,
@@ -235,203 +263,219 @@ class _VerifyScreenState extends State<VerifyScreen> {
       },
       child: Scaffold(
         body: Container(
-        width: double.infinity,
-        height: double.infinity,
-        decoration: const BoxDecoration(
-          image: DecorationImage(
-            image: AssetImage('assets/images/background.jpg'),
-            fit: BoxFit.cover,
+          width: double.infinity,
+          height: double.infinity,
+          decoration: const BoxDecoration(
+            image: DecorationImage(
+              image: AssetImage('assets/images/background.jpg'),
+              fit: BoxFit.cover,
+            ),
           ),
-        ),
-        child: SafeArea(
-          child: SingleChildScrollView(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(28, 50, 28, 40),
-              child: Column(
-                children: [
-                  SizedBox(
-                    width: 130,
-                    child: Image.asset('assets/images/logo.png'),
-                  ),
-                  const SizedBox(height: 32),
+          child: SafeArea(
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(28, 50, 28, 40),
+                child: Column(
+                  children: [
+                    SizedBox(
+                      width: 130,
+                      child: Image.asset('assets/images/logo.png'),
+                    ),
+                    const SizedBox(height: 32),
 
-                  const Text(
-                    'Verify your email',
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.dark,
+                    const Text(
+                      'Verify your email',
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.dark,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
+                    const SizedBox(height: 12),
 
-                  Text(
-                    'We sent a secure verification link to:',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      color: AppColors.dark.withValues(alpha: 0.6),
+                    Text(
+                      'We sent a secure verification link to:',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.dark.withValues(alpha: 0.6),
+                      ),
                     ),
-                  ),
 
-                  // ✉️ MAGANDANG HORIZONTAL EMAIL BOX KATULAD NG SCREENSHOT
-                  Container(
-                    width: double.infinity,
-                    margin: const EdgeInsets.symmetric(
-                      vertical: 16,
-                      horizontal: 4,
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 14,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.darkWith(
-                        0.04,
-                      ), // Soft grey/blue background
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: AppColors.darkWith(0.05)),
-                    ),
-                    child: Row(
-                      mainAxisAlignment:
-                          MainAxisAlignment.center, // Centered content
-                      children: [
-                        const Icon(
-                          Icons.mail_outline_rounded,
-                          color: AppColors.primary,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 10),
-                        Flexible(
-                          child: Text(
-                            emailAddress,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.dark,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 8),
-                  Text(
-                    'Please check your inbox (and Spam folder)\nand click the link to activate your account.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      color: AppColors.dark.withValues(alpha: 0.7),
-                      height: 1.5,
-                    ),
-                  ),
-                  const SizedBox(height: 32),
-
-                  // I HAVE CLICKED THE LINK BUTTON
-                  GradientButton(
-                    onTap: _isLoading ? () {} : _checkEmailVerification,
-                    child: _isLoading
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              color: Colors.white,
-                              strokeWidth: 2,
-                            ),
-                          )
-                        : const Text(
-                            'I have clicked the link',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white,
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-                  ),
-                  const SizedBox(height: 20),
-                  Column(
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                    // ✉️ MAGANDANG HORIZONTAL EMAIL BOX KATULAD NG SCREENSHOT
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.symmetric(
+                        vertical: 16,
+                        horizontal: 4,
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.darkWith(
+                          0.04,
+                        ), // Soft grey/blue background
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: AppColors.darkWith(0.05)),
+                      ),
+                      child: Row(
+                        mainAxisAlignment:
+                            MainAxisAlignment.center, // Centered content
                         children: [
-                          Text(
-                            "Didn't receive the link? ",
-                            style: TextStyle(fontSize: 13, color: AppColors.dark),
+                          const Icon(
+                            Icons.mail_outline_rounded,
+                            color: AppColors.primary,
+                            size: 20,
                           ),
-                          _isResendEnabled
-                              ? TextButton(
-                                  onPressed: _isLoading ? null : _resendVerificationLink,
-                                  style: TextButton.styleFrom(
-                                    foregroundColor: AppColors.primary,
-                                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                                    minimumSize: Size.zero,
-                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                    visualDensity: VisualDensity.compact,
-                                  ),
-                                  child: _isLoading
-                                      ? const SizedBox(
-                                          width: 14,
-                                          height: 14,
-                                          child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
-                                        )
-                                      : const Text(
-                                          'Resend Link',
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                )
-                              : Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                                  child: Text(
-                                    'Resend in ${_formatTimer(_countdownStart)}',
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w700,
-                                      color: AppColors.dark.withValues(alpha: 0.4),
-                                    ),
-                                  ),
-                                ),
+                          const SizedBox(width: 10),
+                          Flexible(
+                            child: Text(
+                              emailAddress,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.dark,
+                              ),
+                            ),
+                          ),
                         ],
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
+                    ),
 
-                  // BACK TO SIGN UP
-                  GestureDetector(
-                    onTap: _logout,
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                    const SizedBox(height: 8),
+                    Text(
+                      'Please check your inbox (and Spam folder)\nand click the link to activate your account.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.dark.withValues(alpha: 0.7),
+                        height: 1.5,
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+
+                    // I HAVE CLICKED THE LINK BUTTON
+                    GradientButton(
+                      onTap: _isLoading ? () {} : _checkEmailVerification,
+                      child: _isLoading
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2,
+                              ),
+                            )
+                          : const Text(
+                              'I have clicked the link',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                    ),
+                    const SizedBox(height: 20),
+                    Column(
                       children: [
-                        Icon(
-                          Icons.arrow_back_rounded,
-                          size: 14,
-                          color: AppColors.primary,
-                        ),
-                        SizedBox(width: 6),
-                        Text(
-                          'Back to Sign Up',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.primary,
-                          ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              "Didn't receive the link? ",
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: AppColors.dark,
+                              ),
+                            ),
+                            _isResendEnabled
+                                ? TextButton(
+                                    onPressed: _isLoading
+                                        ? null
+                                        : _resendVerificationLink,
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: AppColors.primary,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                      ),
+                                      minimumSize: Size.zero,
+                                      tapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
+                                      visualDensity: VisualDensity.compact,
+                                    ),
+                                    child: _isLoading
+                                        ? const SizedBox(
+                                            width: 14,
+                                            height: 14,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: AppColors.primary,
+                                            ),
+                                          )
+                                        : const Text(
+                                            'Resend Link',
+                                            style: TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                  )
+                                : Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 6,
+                                    ),
+                                    child: Text(
+                                      'Resend in ${_formatTimer(_countdownStart)}',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w700,
+                                        color: AppColors.dark.withValues(
+                                          alpha: 0.4,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                          ],
                         ),
                       ],
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 24),
+
+                    // BACK TO SIGN IN
+                    GestureDetector(
+                      onTap: _logout,
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.arrow_back_rounded,
+                            size: 14,
+                            color: AppColors.primary,
+                          ),
+                          SizedBox(width: 6),
+                          Text(
+                            'Back to Sign In',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
         ),
       ),
-    ),
     );
   }
 }

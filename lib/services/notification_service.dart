@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter/services.dart';
 import '../models/notification_item.dart';
 
 @pragma('vm:entry-point')
@@ -102,6 +103,7 @@ Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
             if (isFeeding && map['feeding'] == false) return;
             if (isSampling && map['sampling'] == false) return;
             if (isWarning && map['warning'] == false) return;
+            if (isOperational && map['operational'] == false) return;
           }
         }
       }
@@ -157,6 +159,7 @@ class NotificationService extends ChangeNotifier {
   bool _notifWarning = true;
   bool _notifFeeding = true;
   bool _notifSampling = true;
+  bool _notifOperational = true;
   String? _userRole;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
   _profileFirestoreSub;
@@ -164,6 +167,9 @@ class NotificationService extends ChangeNotifier {
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _prefsSub;
   final FlutterLocalNotificationsPlugin _localNotifications =
       FlutterLocalNotificationsPlugin();
+  static const MethodChannel _appSettingsChannel = MethodChannel(
+    'com.example.craycare/app_settings',
+  );
   StreamSubscription? _tokenSub;
 
   Iterable<NotificationItem> get _visibleNotifications =>
@@ -197,8 +203,7 @@ class NotificationService extends ChangeNotifier {
     if (_initialized) return;
     _initialized = true;
     if (FirebaseAuth.instance.currentUser != null) {
-      _listenFirebase();
-      _loadUserPrefs();
+      _listenProfile();
     }
     FirebaseAuth.instance.authStateChanges().listen((user) {
       _notifications.clear();
@@ -234,7 +239,7 @@ class NotificationService extends ChangeNotifier {
         .listen((doc) async {
           if (!doc.exists || doc.data() == null) return;
           final profile = doc.data()!;
-          _userRole = profile['role'] as String?;
+          _userRole = profile['role']?.toString().trim().toLowerCase();
           if (_userRole == 'admin') {
             _notifSub?.cancel();
             _prefsSub?.cancel();
@@ -316,10 +321,8 @@ class NotificationService extends ChangeNotifier {
             vibrationPattern: Int64List(0),
           ),
         );
-        await manager.requestNotificationsPermission();
       }
       final messaging = FirebaseMessaging.instance;
-      await messaging.requestPermission(alert: true, badge: true, sound: true);
       await messaging.setForegroundNotificationPresentationOptions(
         alert: false,
         badge: false,
@@ -335,6 +338,46 @@ class NotificationService extends ChangeNotifier {
     }
   }
 
+  Future<AuthorizationStatus> notificationAuthorizationStatus() async {
+    final settings = await FirebaseMessaging.instance.getNotificationSettings();
+    return settings.authorizationStatus;
+  }
+
+  Future<bool> requestNotificationPermission() async {
+    try {
+      final manager = _localNotifications
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
+      await manager?.requestNotificationsPermission();
+
+      final settings = await FirebaseMessaging.instance.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      return settings.authorizationStatus == AuthorizationStatus.authorized ||
+          settings.authorizationStatus == AuthorizationStatus.provisional;
+    } catch (e) {
+      debugPrint('[NotificationService] Permission request error: $e');
+      return false;
+    }
+  }
+
+  Future<bool> openNotificationSettings() async {
+    try {
+      return await _appSettingsChannel.invokeMethod<bool>(
+            'openNotificationSettings',
+          ) ??
+          false;
+    } on PlatformException catch (e) {
+      debugPrint('[NotificationService] Open settings error: $e');
+      return false;
+    } on MissingPluginException {
+      return false;
+    }
+  }
+
   Future<void> _saveToken(String token) async {
     try {
       final user = FirebaseAuth.instance.currentUser;
@@ -343,6 +386,7 @@ class NotificationService extends ChangeNotifier {
         await _removeCurrentDeviceToken(user, token);
         return;
       }
+      if (_userRole != 'owner') return;
       await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
         'fcmTokens': FieldValue.arrayUnion([token]),
       }, SetOptions(merge: true));
@@ -370,6 +414,7 @@ class NotificationService extends ChangeNotifier {
       if (isFeeding && !_notifFeeding) return;
       if (isSampling && !_notifSampling) return;
       if (isWarning && !_notifWarning) return;
+      if (isOperational && !_notifOperational) return;
     }
     final playSound = data['sound'] != 'false' && _notifSound;
     final vibrate = data['vibration'] != 'false' && _notifVibration;
@@ -420,6 +465,7 @@ class NotificationService extends ChangeNotifier {
   }
 
   void _loadUserPrefs() {
+    if (_userRole != 'owner') return;
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
     _prefsSub?.cancel();
@@ -438,6 +484,7 @@ class NotificationService extends ChangeNotifier {
           _notifWarning = map['warning'] as bool? ?? true;
           _notifFeeding = map['feeding'] as bool? ?? true;
           _notifSampling = map['sampling'] as bool? ?? true;
+          _notifOperational = map['operational'] as bool? ?? true;
           notifyListeners();
         });
   }
@@ -450,6 +497,7 @@ class NotificationService extends ChangeNotifier {
   }
 
   void _listenFirebase() {
+    if (_userRole != 'owner') return;
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (uid.isEmpty) return;
     _notifSub?.cancel();

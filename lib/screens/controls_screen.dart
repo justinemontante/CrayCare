@@ -21,7 +21,7 @@ class ControlsScreen extends StatefulWidget {
   State<ControlsScreen> createState() => ControlsScreenState();
 }
 
-enum _FeedState { hidden, dispensing, done, failed }
+enum _FeedState { hidden, waiting, dispensing, done, failed }
 
 class ControlsScreenState extends State<ControlsScreen> {
   // Feeder schedules and the ESP clock are anchored to Asia/Manila. The
@@ -41,11 +41,15 @@ class ControlsScreenState extends State<ControlsScreen> {
   /// "Feed Now" (manual). Scheduled feeds started by the ESP32 leave this
   /// false, so the overlay can tell the two apart without a status field.
   bool _manualFeedInitiated = false;
+  String? _activeCommandId;
+  String _feedNotice =
+      'No confirmation received. Check feeding history before retrying.';
   bool _wasRunning = false;
   int _lastDispenseCount = 0;
   int _dispenseCountAtStart = 0;
   Timer? _feedTimer;
   Timer? _dispenseTimer;
+  bool _isTabActive = false;
   final TextEditingController _timeCtl = TextEditingController();
   final Set<String> _fedToday = {};
   String _lastDateKey = '';
@@ -65,8 +69,31 @@ class ControlsScreenState extends State<ControlsScreen> {
     ActuatorLogService.instance.init();
     _initActuatorModes();
     _runtimeTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() => _computeRuntimeLabels());
+      if (mounted && _isTabActive) {
+        setState(() => _computeRuntimeLabels());
+      }
     });
+  }
+
+  void setTabActive(bool active) {
+    if (_isTabActive == active) return;
+    _isTabActive = active;
+    if (active && mounted) {
+      setState(() => _computeRuntimeLabels());
+    }
+  }
+
+  void _updateState(VoidCallback update) {
+    if (!mounted) return;
+    if (_isTabActive) {
+      setState(update);
+    } else {
+      update();
+    }
+  }
+
+  void _notifyIfActive() {
+    if (mounted && _isTabActive) setState(() {});
   }
 
   void _initActuatorModes() async {
@@ -78,7 +105,8 @@ class ControlsScreenState extends State<ControlsScreen> {
         .collection('users')
         .doc(uid)
         .get();
-    final tankId = profileDoc.data()?['tank_id'] as String? ?? uid;
+    if (profileDoc.data()?['role'] == 'admin') return;
+    final tankId = uid;
 
     _actuatorsSub = FirebaseFirestore.instance
         .collection('tanks')
@@ -95,7 +123,7 @@ class ControlsScreenState extends State<ControlsScreen> {
                 data['mode'] as String? ??
                 'auto';
           }
-          if (mounted) setState(() => _actuatorModes = modes);
+          _updateState(() => _actuatorModes = modes);
         });
   }
 
@@ -144,11 +172,11 @@ class ControlsScreenState extends State<ControlsScreen> {
   }
 
   void _onSensorDataUpdate() {
-    if (mounted) setState(() {});
+    if (mounted && _isTabActive) setState(() {});
   }
 
   void _onEspUpdate() {
-    if (mounted) setState(() {});
+    if (mounted && _isTabActive) setState(() {});
   }
 
   @override
@@ -181,6 +209,46 @@ class ControlsScreenState extends State<ControlsScreen> {
     _checkDateReset();
     final svc = FeederService.instance;
     final isRunning = svc.isRunning;
+    if (_manualFeedInitiated) {
+      final outcome = manualFeedingOutcome(
+        commandId: _activeCommandId,
+        statusCommandId: svc.statusCommandId,
+        status: svc.status,
+        logs: svc.logs,
+      );
+      if (outcome != null &&
+          (_feedState == _FeedState.waiting ||
+              _feedState == _FeedState.dispensing)) {
+        _dispenseTimer?.cancel();
+        _feedState = outcome == 'completed'
+            ? _FeedState.done
+            : _FeedState.failed;
+        _feedNotice = outcome == 'skipped_insufficient'
+            ? 'Skipped: insufficient feed in the hopper.'
+            : outcome == 'blocked'
+            ? (svc.statusCommandId == _activeCommandId &&
+                      svc.statusReason.isNotEmpty
+                  ? 'Blocked: ${svc.statusReason}'
+                  : 'The feeder blocked this request. Check feeding history.')
+            : 'Feeding could not be confirmed. Check feeding history before retrying.';
+        _feedTimer?.cancel();
+        _feedTimer = Timer(const Duration(seconds: 4), () {
+          _updateState(() {
+            _feedState = _FeedState.hidden;
+            _manualFeedInitiated = false;
+            _activeCommandId = null;
+          });
+        });
+      } else if (svc.statusCommandId == _activeCommandId &&
+          isRunning &&
+          _feedState == _FeedState.waiting) {
+        _feedState = _FeedState.dispensing;
+      }
+      _wasRunning = isRunning;
+      _lastDispenseCount = svc.dispenseCount;
+      _notifyIfActive();
+      return;
+    }
 
     // Detect start: isRunning false → true
     if (_wasRunning != isRunning) {
@@ -190,34 +258,32 @@ class ControlsScreenState extends State<ControlsScreen> {
         _dispenseTimer?.cancel();
         _dispenseTimer = Timer(const Duration(seconds: 60), () {
           if (!mounted) return;
-          unawaited(FeederService.instance.logFeedFailure());
+          _feedNotice =
+              'No confirmation received. Check feeding history before retrying.';
           _feedState = _FeedState.failed;
           _feedTimer?.cancel();
           _feedTimer = Timer(const Duration(seconds: 3), () {
-            if (mounted) {
-              setState(() {
-                _feedState = _FeedState.hidden;
-                _manualFeedInitiated = false;
-              });
-            }
+            _updateState(() {
+              _feedState = _FeedState.hidden;
+              _manualFeedInitiated = false;
+            });
           });
-          if (mounted) setState(() {});
+          _notifyIfActive();
         });
       } else {
         _dispenseTimer?.cancel();
         // isRunning went true → false: check if feed actually dispensed
         if (_feedState == _FeedState.dispensing &&
             svc.dispenseCount == _dispenseCountAtStart) {
-          unawaited(FeederService.instance.logFeedFailure());
+          _feedNotice =
+              'Feeding could not be confirmed. Check feeding history before retrying.';
           _feedState = _FeedState.failed;
           _feedTimer?.cancel();
           _feedTimer = Timer(const Duration(seconds: 3), () {
-            if (mounted) {
-              setState(() {
-                _feedState = _FeedState.hidden;
-                _manualFeedInitiated = false;
-              });
-            }
+            _updateState(() {
+              _feedState = _FeedState.hidden;
+              _manualFeedInitiated = false;
+            });
           });
         }
       }
@@ -231,12 +297,10 @@ class ControlsScreenState extends State<ControlsScreen> {
         _feedState = _FeedState.done;
         _feedTimer?.cancel();
         _feedTimer = Timer(const Duration(milliseconds: 1500), () {
-          if (mounted) {
-            setState(() {
-              _feedState = _FeedState.hidden;
-              _manualFeedInitiated = false;
-            });
-          }
+          _updateState(() {
+            _feedState = _FeedState.hidden;
+            _manualFeedInitiated = false;
+          });
         });
       }
       _lastDispenseCount = svc.dispenseCount;
@@ -244,7 +308,7 @@ class ControlsScreenState extends State<ControlsScreen> {
       if (!_manualFeedInitiated) _markNearestScheduleFed();
     }
 
-    if (mounted) setState(() {});
+    _notifyIfActive();
   }
 
   void _markNearestScheduleFed() {
@@ -329,6 +393,7 @@ class ControlsScreenState extends State<ControlsScreen> {
   Future<void> _feedNow({double? grams}) async {
     final svc = FeederService.instance;
     if (!_canFeed) {
+      _feedNotice = _feedBlockedReason;
       setState(() => _feedState = _FeedState.failed);
       final reason = _feedBlockedReason;
       if (mounted && reason.isNotEmpty) {
@@ -361,21 +426,37 @@ class ControlsScreenState extends State<ControlsScreen> {
       return;
     }
     _manualFeedInitiated = true;
+    _feedTimer?.cancel();
+    setState(() => _feedState = _FeedState.waiting);
     _dispenseCountAtStart = svc.dispenseCount;
     _dispenseTimer?.cancel();
     _dispenseTimer = Timer(const Duration(seconds: 60), () {
       if (!mounted) return;
-      unawaited(FeederService.instance.logFeedFailure());
+      _feedNotice =
+          'No confirmation received. Check feeding history before retrying.';
       _feedState = _FeedState.failed;
       _feedTimer?.cancel();
       _feedTimer = Timer(const Duration(seconds: 3), () {
-        if (mounted) setState(() => _feedState = _FeedState.hidden);
+        if (mounted) {
+          setState(() {
+            _feedState = _FeedState.hidden;
+            _manualFeedInitiated = false;
+            _activeCommandId = null;
+          });
+        }
       });
       if (mounted) setState(() {});
     });
-    final queued = await svc.feedNow(grams: grams);
+    final request = svc.feedNow(grams: grams);
+    _activeCommandId = svc.lastQueuedCommandId;
+    final requestId = _activeCommandId;
+    final queued = await request;
+    if (!mounted || _activeCommandId != requestId) return;
     if (!queued) {
       _manualFeedInitiated = false;
+      _activeCommandId = null;
+      _feedNotice =
+          'Could not send the Feed Now command. Check your connection.';
       _dispenseTimer?.cancel();
       if (!mounted) return;
       setState(() => _feedState = _FeedState.failed);
@@ -393,7 +474,7 @@ class ControlsScreenState extends State<ControlsScreen> {
       });
       return;
     }
-    if (mounted) setState(() => _feedState = _FeedState.dispensing);
+    if (mounted) _onFeederUpdate();
   }
 
   void _showFeedNowDialog() {
@@ -413,8 +494,8 @@ class ControlsScreenState extends State<ControlsScreen> {
               final raw = double.tryParse(gramsCtl.text);
               if (raw == null) {
                 gramsError = 'Please enter a valid number';
-              } else if (raw <= 0) {
-                gramsError = 'Grams must be greater than 0';
+              } else {
+                gramsError = validateFeederGrams(raw);
               }
             }
             return Padding(
@@ -468,7 +549,7 @@ class ControlsScreenState extends State<ControlsScreen> {
                           ),
                           SizedBox(height: 2),
                           Text(
-                            'Optional: set grams to dispense',
+                            'Estimated dose · 20 g per cycle',
                             style: TextStyle(
                               fontSize: 10,
                               color: Color(0x80000000),
@@ -487,7 +568,7 @@ class ControlsScreenState extends State<ControlsScreen> {
                     onChanged: (_) => setModalState(() {}),
                     decoration: InputDecoration(
                       labelText: 'Grams (optional)',
-                      hintText: 'e.g. 50',
+                      hintText: '20, 40, 60 … 200 (default: 20)',
                       suffixText: 'g',
                       errorText: gramsError,
                       border: OutlineInputBorder(
@@ -607,7 +688,7 @@ class ControlsScreenState extends State<ControlsScreen> {
     await FeederService.instance.deleteSchedule(index);
   }
 
-  Future<void> _editSchedule(int index, ScheduleItem item) async {
+  Future<bool> _editSchedule(int index, ScheduleItem item) async {
     try {
       await FeederService.instance.editSchedule(
         index,
@@ -618,8 +699,17 @@ class ControlsScreenState extends State<ControlsScreen> {
         clearGrams: item.grams == null,
         days: item.days,
       );
+      return true;
     } on FeederScheduleConflictException catch (error) {
       _showScheduleConflict(error);
+      return false;
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not save schedule: $error')),
+        );
+      }
+      return false;
     }
   }
 
@@ -628,6 +718,12 @@ class ControlsScreenState extends State<ControlsScreen> {
       await FeederService.instance.toggleSchedule(index, enabled);
     } on FeederScheduleConflictException catch (error) {
       _showScheduleConflict(error);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not update schedule: $error')),
+        );
+      }
     }
   }
 
@@ -683,7 +779,7 @@ class ControlsScreenState extends State<ControlsScreen> {
                       onDeleteSchedule: (index) =>
                           unawaited(_deleteSchedule(index)),
                       onEditSchedule: (index, item) =>
-                          unawaited(_editSchedule(index, item)),
+                          _editSchedule(index, item),
                       onToggleSchedule: (index, enabled) =>
                           unawaited(_toggleSchedule(index, enabled)),
                       feederLogs: FeederService.instance.logs,
@@ -739,8 +835,8 @@ class ControlsScreenState extends State<ControlsScreen> {
       Color iconColor,
     ) = switch ((isFailed, isDone, isDispensing, isScheduled)) {
       (true, _, _, _) => (
-        'Feed Failed!',
-        'Feed did not dispense. Check feeder.',
+        'Feeding update',
+        _feedNotice,
         Icons.error_outline_rounded,
         AppColors.critical,
       ),
@@ -769,8 +865,8 @@ class ControlsScreenState extends State<ControlsScreen> {
         AppColors.primary,
       ),
       _ => (
-        'Dispensing...',
-        'Please wait while the feeder is running.',
+        'Waiting for feeder',
+        'Waiting for the feeder to check this request.',
         Icons.schedule,
         AppColors.primary,
       ),

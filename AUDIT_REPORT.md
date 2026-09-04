@@ -147,7 +147,7 @@ Examples:
 - pH is simply `-5.70 * voltage + 21.34`.
 - Water level is linear 0–3.3 V → 0–30 cm.
 
-**Impact:** A disconnected or miswired sensor can still look like a valid measurement and influence alerts, actuators, and the Water Quality Assessment.
+**Impact:** A disconnected or miswired sensor can still look like a valid measurement and influence alerts, actuators, and the Water Quality Anomaly Detection.
 
 ### H4. Feed quantity (`grams`) is accepted by the app but ignored by firmware
 
@@ -173,23 +173,13 @@ Firestore rules contain `ml_predictions` but no `health_risk` rule (`firestore.r
 
 **Impact:** Deployment/debugging instructions are misleading. Anyone implementing from the documentation will target a nonexistent runtime path and trigger model.
 
-### H6. `risk_score` was supposedly removed but is still emitted and consumed
+### H6. Resolved — retired risk-score contract removed
 
-Repository memory explicitly states the score was removed from all runtime layers (`.agents/memory/wqa-rename.md`). The legacy code at audit time still exposed it:
-
-- Emits `risk_score` (`functions/ml/features.py:325-335`)
-- Emits zero score for insufficient data (`functions/ml/main.py:160-174`)
-- Parses it in Flutter (`lib/services/health_risk_service.dart:55`)
-
-**Impact:** The declared Water Quality Assessment contract and legacy API differed. Thesis terminology could regress to a risk-index interpretation.
+The current WQAD pipeline exposes `anomaly_score`, a statistical percentile relative to learned reference patterns. It does not expose the retired hazard/risk score or present the anomaly percentile as a biological safety score.
 
 ### H7. ML missing-value fallback can turn an absent sensor into a severe hazard
 
-`functions/ml/main.py:117-140` defaults absent legacy sensor fields to `0.0`. For DO, a missing reading becomes 0 mg/L, which is a critical oxygen hazard. Missing pH/water values also become physically meaningful zeroes rather than missing data.
-
-**Impact:** Partial sensor history or disabled sensors can generate false Poor/Critical assessments.
-
-**Required fix:** Validate all required fields. Mark assessment `Insufficient` when required sensors are missing/invalid, or use an explicitly trained missing-value strategy with sensor-availability features.
+The current WQAD ingestion validates complete min/average/max triplets for all five water sensors. Missing, non-finite, negative-sentinel, or internally inconsistent rows are rejected. Fewer than twelve continuous records produces `Insufficient`; missing values are never converted into physically meaningful zeroes.
 
 ### H8. Node production dependencies contain known vulnerabilities
 
@@ -239,28 +229,17 @@ Examples:
 - Batch/production summary sections use camelCase field names (`lines 128-139`), while actual app records use snake_case (`tank_service.dart`). A later appendix partially documents snake_case, leaving contradictory definitions in one file.
 - Notification docs mention old aliases in places while runtime uses `notif_type`, `body`, `created_at`, `is_read`.
 
-### M6. Water-level agency reference table contains impossible ordering
+### M6. Resolved — threshold-reference module retired from ML
 
-`functions/ml/agency_standards.py:151-166` states:
+WQAD does not use agency threshold bands as model features or training labels. Immediate safety thresholds remain in the app/firmware configuration layer, separate from the unsupervised model.
 
-- Optimal: 15–20 cm
-- Good: 100–180 cm
-- Fair: 10–25 cm
-- Poor: 50–220 cm
+### M7. Resolved — model runtime is pinned and retrained
 
-These ranges overlap and are not ordered from optimal to poor. Runtime feature code uses 15–20 cm, so the reference table does not match actual scoring.
+The deployed artifact is a newly trained scikit-learn `IsolationForest`. Python, NumPy, pandas, scikit-learn, and joblib versions are pinned in the ML function requirements and the artifact records its model/runtime version.
 
-### M7. Saved XGBoost artifact is pickle/joblib-version sensitive
+### M8. Resolved — WQAD result provenance is explicit
 
-`python functions/ml/predict.py` runs after installing XGBoost 3.x, but XGBoost warns that the serialized model was produced by an older version and recommends exporting via `Booster.save_model()` before loading in a newer version.
-
-**Impact:** A future Cloud Function dependency resolution can break or subtly change model loading. Pin exact tested versions and use XGBoost's stable model format where possible.
-
-### M8. ML `source` field does not match documented enum
-
-Documentation says `source` is `ml`, `rule_based`, or `insufficient_data`. Actual successful predictions use long citation strings from `recommendations.json`; insufficient data uses `System` (`main.py:169`).
-
-**Impact:** Consumers cannot rely on the documented enum to identify inference mode. `analysis_mode` currently carries that information instead.
+`source`, `model_algorithm`, `model_version`, `training_data_origin`, and `training_label_origin` now distinguish model output, unavailable/stale/insufficient states, and prototype-versus-field provenance using the same contract in Python, Flutter, Firestore, ERD, and reports.
 
 ### M9. ESP firmware performs blocking analog sampling in the main control loop
 
@@ -331,5 +310,5 @@ Example local model output was **Moderate, 100% confidence, pH driver** on the f
 - **Current cross-layer consistency:** Major identified mismatches repaired; deployment validation remains
 - **Safe for controlled development demo:** After hardware pin/wiring verification and sensor calibration
 - **Safe for production/unsupervised operation:** No
-- **ML claim maturity:** Prototype Water Quality Assessment model validated on synthetic, formula-derived labels; not field-validated
+- **ML claim maturity:** Prototype Water Quality Anomaly Detection model validated on synthetic, formula-derived labels; not field-validated
 idated

@@ -90,13 +90,7 @@ class FeederService extends ChangeNotifier {
         .get();
     final profile = profileDoc.data();
     if (profile?['role'] == 'admin') return null;
-    var tankId = profile?['tank_id'] as String?;
-    if (tankId == null || tankId.isEmpty) {
-      tankId = uid;
-      // Same safe legacy claim used by SensorService/TankService.
-      await profileDoc.reference.set({'tank_id': uid}, SetOptions(merge: true));
-    }
-    _tankId = tankId;
+    _tankId = uid;
     return _tankId;
   }
 
@@ -107,9 +101,16 @@ class FeederService extends ChangeNotifier {
   StreamSubscription? _statusSub;
   StreamSubscription? _schedulesSub;
   StreamSubscription? _logsSub;
+  StreamSubscription? _todayLogsSub;
+  String _totalsDayKey = '';
+  double _consumptionToday = 0;
+  int _completedToday = 0;
 
   bool _isRunning = false;
   String _status = 'idle';
+  String? _statusCommandId;
+  String _statusReason = '';
+  String? _lastQueuedCommandId;
   int _dispenseCount = 0;
   double? _feedLevelPercent;
   double? _estimatedFeedGrams;
@@ -126,6 +127,9 @@ class FeederService extends ChangeNotifier {
 
   bool get isRunning => _isRunning;
   String get status => _status;
+  String? get statusCommandId => _statusCommandId;
+  String get statusReason => _statusReason;
+  String? get lastQueuedCommandId => _lastQueuedCommandId;
   int get dispenseCount => _dispenseCount;
   double? get feedLevelPercent => _feedLevelPercent;
   double? get estimatedFeedGrams => _estimatedFeedGrams;
@@ -138,33 +142,60 @@ class FeederService extends ChangeNotifier {
   List<ScheduleItem> get schedules => List.unmodifiable(_schedules);
 
   double get consumptionTodayGrams {
-    final now = _manilaNow();
-    return _logs
-        .where((log) {
-          if (log.timestamp <= 0 || log.status != 'completed') return false;
-          final day = DateTime.fromMillisecondsSinceEpoch(
-            log.timestamp,
-            isUtc: true,
-          ).add(_manilaOffset);
-          return day.year == now.year &&
-              day.month == now.month &&
-              day.day == now.day;
-        })
-        .fold(0.0, (total, log) => total + (log.requestedGrams ?? 0.0));
+    return _consumptionToday;
   }
 
   int get completedFeedingsToday {
+    return _completedToday;
+  }
+
+  // Totals must not depend on the 50-entry history preview (which also
+  // contains schedule edits, skipped feeds and other non-consumption events).
+  void _listenTodayTotals() {
+    final tank = _tankDoc();
+    if (tank == null) return;
     final now = _manilaNow();
-    return _logs.where((log) {
-      if (log.timestamp <= 0 || log.status != 'completed') return false;
-      final day = DateTime.fromMillisecondsSinceEpoch(
-        log.timestamp,
-        isUtc: true,
-      ).add(_manilaOffset);
-      return day.year == now.year &&
-          day.month == now.month &&
-          day.day == now.day;
-    }).length;
+    final dayKey = '${now.year}-${now.month}-${now.day}';
+    if (_totalsDayKey == dayKey && _todayLogsSub != null) return;
+    _totalsDayKey = dayKey;
+    _todayLogsSub?.cancel();
+    _consumptionToday = 0;
+    _completedToday = 0;
+    final start = DateTime.utc(
+      now.year,
+      now.month,
+      now.day,
+    ).subtract(_manilaOffset).millisecondsSinceEpoch;
+    _todayLogsSub = tank
+        .collection('feeder_logs')
+        .where('logged_at', isGreaterThanOrEqualTo: start)
+        .where(
+          'logged_at',
+          isLessThan: start + const Duration(days: 1).inMilliseconds,
+        )
+        .snapshots()
+        .listen(
+          (snapshot) {
+            var total = 0.0;
+            var completed = 0;
+            for (final doc in snapshot.docs) {
+              final data = doc.data();
+              if (data['status'] != 'completed') continue;
+              completed++;
+              final grams =
+                  (data['estimated_dispensed_grams'] as num?)?.toDouble() ??
+                  (data['requested_grams'] as num?)?.toDouble() ??
+                  0;
+              if (grams.isFinite && grams >= 0) total += grams;
+            }
+            _consumptionToday = total;
+            _completedToday = completed;
+            notifyListeners();
+          },
+          onError: (Object error) {
+            debugPrint('[FeederService] Today totals failed: $error');
+          },
+        );
   }
 
   void init() {
@@ -202,6 +233,7 @@ class FeederService extends ChangeNotifier {
     _listenStatus();
     _listenSchedules();
     _listenLogs();
+    _listenTodayTotals();
   }
 
   bool canFeedNow() {
@@ -225,6 +257,11 @@ class FeederService extends ChangeNotifier {
     _statusSub?.cancel();
     _schedulesSub?.cancel();
     _logsSub?.cancel();
+    _todayLogsSub?.cancel();
+    _todayLogsSub = null;
+    _totalsDayKey = '';
+    _consumptionToday = 0;
+    _completedToday = 0;
     _statusSub = null;
     _schedulesSub = null;
     _logsSub = null;
@@ -246,6 +283,8 @@ class FeederService extends ChangeNotifier {
               try {
                 final data = snapshot.data()!;
                 _status = data['status'] as String? ?? 'idle';
+                _statusCommandId = data['command_id'] as String?;
+                _statusReason = data['status_reason'] as String? ?? '';
                 _isRunning = _status == 'dispensing';
                 _feedLevelPercent = (data['feed_level'] as num?)?.toDouble();
                 _estimatedFeedGrams = (data['estimated_feed_grams'] as num?)
@@ -282,7 +321,6 @@ class FeederService extends ChangeNotifier {
       _schedulesSub = tankDoc
           .collection('feeder_schedules')
           .orderBy('timeValue')
-          .limit(20)
           .snapshots()
           .listen(
             (snapshot) {
@@ -320,6 +358,14 @@ class FeederService extends ChangeNotifier {
                       days: data['days'] as String? ?? '1111111',
                       id: doc.id,
                       effectiveAt: effectiveAt,
+                      lastOutcome: data['last_outcome'] as String?,
+                      lastOccurrenceAt:
+                          _parseLoggedAtMillis(data['last_occurrence_at']) > 0
+                          ? DateTime.fromMillisecondsSinceEpoch(
+                              _parseLoggedAtMillis(data['last_occurrence_at']),
+                              isUtc: true,
+                            )
+                          : null,
                     ),
                   );
                 }
@@ -378,8 +424,15 @@ class FeederService extends ChangeNotifier {
                         scheduleKey: data['schedule_key'] as String?,
                         scheduleTime: data['schedule_time'] as String?,
                         status: data['status'] as String?,
+                        commandId: data['command_id'] as String?,
                         requestedGrams: (data['requested_grams'] as num?)
                             ?.toDouble(),
+                        estimatedDispensedGrams:
+                            (data['estimated_dispensed_grams'] as num?)
+                                ?.toDouble(),
+                        occurrenceTimestamp: data['occurrence_at'] == null
+                            ? null
+                            : _parseLoggedAtMillis(data['occurrence_at']),
                         estimatedAvailableGrams:
                             (data['estimated_available_grams'] as num?)
                                 ?.toDouble(),
@@ -413,6 +466,8 @@ class FeederService extends ChangeNotifier {
   }
 
   Future<bool> feedNow({double? grams}) async {
+    _lastQueuedCommandId = null;
+    if (validateFeederGrams(grams) != null) return false;
     final tankDoc = _tankDoc();
     if (tankDoc == null) return false;
     final uid = FirebaseAuth.instance.currentUser?.uid;
@@ -423,11 +478,18 @@ class FeederService extends ChangeNotifier {
         'command_type': 'feed_now',
         'issued_by': uid,
         'issued_at': FieldValue.serverTimestamp(),
+        // A queued offline write must not become a fresh motor command when
+        // Firestore finally commits its server timestamp after reconnect.
+        'expires_at': Timestamp.fromDate(
+          DateTime.now().add(const Duration(seconds: 60)),
+        ),
       };
       if (grams != null) {
         cmd['grams'] = grams;
       }
-      await tankDoc.collection('feeder_commands').add(cmd);
+      final ref = tankDoc.collection('feeder_commands').doc();
+      _lastQueuedCommandId = ref.id;
+      await ref.set(cmd);
       // NOTE: do NOT write a feeder_logs entry here.
       // The ESP32 writes the confirmed log after the servo physically completes,
       // which is the reliable source of truth. Writing here too causes duplicates.
@@ -485,6 +547,8 @@ class FeederService extends ChangeNotifier {
       );
     }
     final requested = ScheduleItem(time, ampm, grams: grams, days: days);
+    final doseError = validateFeederGrams(grams);
+    if (doseError != null) throw ArgumentError(doseError);
     _throwIfScheduleConflicts(requested);
     try {
       final parts = time.split(':');
@@ -554,6 +618,8 @@ class FeederService extends ChangeNotifier {
     final timeStr = getScheduleTime(index);
 
     if (enabled) {
+      final doseError = validateFeederGrams(previous.grams);
+      if (doseError != null) throw ArgumentError(doseError);
       _throwIfScheduleConflicts(
         ScheduleItem(
           previous.time,
@@ -609,6 +675,7 @@ class FeederService extends ChangeNotifier {
         FeedState.schedules.value = List.from(_schedules);
         notifyListeners();
       }
+      rethrow;
     }
   }
 
@@ -632,6 +699,8 @@ class FeederService extends ChangeNotifier {
       days: days,
     );
     _throwIfScheduleConflicts(requested, excludingIndex: index);
+    final doseError = validateFeederGrams(grams);
+    if (doseError != null) throw ArgumentError(doseError);
     try {
       final parts = time.split(':');
       final hour = int.tryParse(parts.first) ?? 6;
@@ -662,6 +731,7 @@ class FeederService extends ChangeNotifier {
       );
     } catch (e) {
       debugPrint('[FeederService] editSchedule error: $e');
+      rethrow;
     }
     notifyListeners();
   }
@@ -682,13 +752,18 @@ class FeederService extends ChangeNotifier {
   void _startScheduleTimer() {
     _scheduleTimer?.cancel();
     _scheduleTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      unawaited(_checkSchedules());
+      unawaited(
+        _checkSchedules().catchError((Object error) {
+          debugPrint('[FeederService] Schedule reconciliation failed: $error');
+        }),
+      );
     });
   }
 
   Future<void> _checkSchedules() async {
     final tankDoc = _tankDoc();
     if (tankDoc == null) return;
+    _listenTodayTotals();
     final now = _manilaNow();
     final todayKey = '${now.year}-${now.month}-${now.day}';
     if (_lastCheckDate != todayKey) {
@@ -697,17 +772,13 @@ class FeederService extends ChangeNotifier {
       // isDone values would never be reset after startup.
       if (_scheduleKeys.isEmpty) return;
       _missedLogged.clear();
-      for (final key in _scheduleKeys) {
-        await tankDoc.collection('feeder_schedules').doc(key).update({
-          'isDone': false,
-        });
-      }
+      // Device outcomes carry their occurrence date; never reset them on app startup.
       _lastCheckDate = todayKey;
     }
 
     for (int i = 0; i < _schedules.length; i++) {
       final s = _schedules[i];
-      if (!s.enabled || s.isDone) continue;
+      if (!s.enabled || feederRecordedOutcome(s, now, _logs) != null) continue;
       // Skip schedules that are not active on today's weekday (Sunday-first).
       if (!feederScheduleRunsOnDate(s, now)) continue;
       final key = i < _scheduleKeys.length
@@ -759,15 +830,29 @@ class FeederService extends ChangeNotifier {
         final missedDocId = 'missed_${todayKey}_${key}_$scheduleMinutes'
             .replaceAll('/', '_')
             .replaceAll(RegExp(r'[^\w.\-]'), '_');
-        await tankDoc.collection('feeder_logs').doc(missedDocId).set({
-          'action': 'Feed missed - $reason',
-          'type': 'missed',
-          // Store the real current UTC instant. `now` is only a Manila
-          // wall-clock view used for schedule comparison/date keys.
-          'logged_at': DateTime.now().toUtc().millisecondsSinceEpoch,
-          'schedule_key': key,
-          'schedule_time': expectedTime,
-        }, SetOptions(merge: true));
+        final missedRef = tankDoc.collection('feeder_logs').doc(missedDocId);
+        var alreadyExists = false;
+        try {
+          // Avoid turning an idempotent second attempt into an update now that
+          // feeder history is append-only. A cache miss is not authoritative,
+          // so Firestore rules remain the final concurrency guard.
+          alreadyExists = (await missedRef.get(
+            const GetOptions(source: Source.cache),
+          )).exists;
+        } catch (_) {
+          // No cached snapshot is normal on the first run or while offline.
+        }
+        if (!alreadyExists) {
+          await missedRef.set({
+            'action': 'Feed missed - $reason',
+            'type': 'missed',
+            // Store the real current UTC instant. `now` is only a Manila
+            // wall-clock view used for schedule comparison/date keys.
+            'logged_at': DateTime.now().toUtc().millisecondsSinceEpoch,
+            'schedule_key': key,
+            'schedule_time': expectedTime,
+          });
+        }
         debugPrint('[FeederService] Missed schedule: $key ($reason)');
       }
     }
@@ -775,6 +860,7 @@ class FeederService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _todayLogsSub?.cancel();
     _statusSub?.cancel();
     _schedulesSub?.cancel();
     _logsSub?.cancel();

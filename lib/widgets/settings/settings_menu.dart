@@ -1,12 +1,12 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
 
 class SettingsMenu extends StatelessWidget {
   final String profileName;
   final String profileEmail;
-  final String? photoUrl;
+  final ImageProvider<Object>? photoImage;
   final bool isAdmin;
+  final bool hasPasswordProvider;
   final void Function(int page) onGoTo;
   final VoidCallback onLogout;
 
@@ -14,24 +14,12 @@ class SettingsMenu extends StatelessWidget {
     super.key,
     required this.profileName,
     required this.profileEmail,
-    this.photoUrl,
+    this.photoImage,
     this.isAdmin = false,
+    this.hasPasswordProvider = false,
     required this.onGoTo,
     required this.onLogout,
   });
-
-  ImageProvider<Object>? _photoImageProvider(String? value) {
-    if (value == null || value.isEmpty) return null;
-    final uri = Uri.tryParse(value);
-    if (uri != null && (uri.scheme == 'http' || uri.scheme == 'https')) {
-      return NetworkImage(value);
-    }
-    try {
-      return MemoryImage(base64Decode(value.split(',').last));
-    } on FormatException {
-      return null;
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -54,13 +42,22 @@ class SettingsMenu extends StatelessWidget {
                 color: AppColors.primary,
                 onTap: () => onGoTo(1),
               ),
-              _SettingsItem(
-                label: 'Change Password',
-                subtitle: 'Update your password for security',
-                icon: Icons.lock_outline_rounded,
-                color: AppColors.primary,
-                onTap: () => onGoTo(2),
-              ),
+              if (hasPasswordProvider)
+                _SettingsItem(
+                  label: 'Change Password',
+                  subtitle: 'Update your password for security',
+                  icon: Icons.lock_outline_rounded,
+                  color: AppColors.primary,
+                  onTap: () => onGoTo(2),
+                )
+              else
+                _SettingsItem(
+                  label: 'Create Password',
+                  subtitle: 'Also sign in using your email and password',
+                  icon: Icons.add_moderator_outlined,
+                  color: AppColors.primary,
+                  onTap: () => onGoTo(2),
+                ),
             ]),
             if (!isAdmin) ...[
               const SizedBox(height: 24),
@@ -108,20 +105,14 @@ class SettingsMenu extends StatelessWidget {
   }
 
   Widget _buildProfileCard() {
-    final photoImage = _photoImageProvider(photoUrl);
+    final photoImage = this.photoImage;
     return Container(
       height: 104,
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: AppColors.darkWith(0.06)),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.darkWith(0.08),
-            blurRadius: 18,
-            offset: const Offset(0, 6),
-          ),
-        ],
+        boxShadow: AppShadows.card,
       ),
       clipBehavior: Clip.antiAlias,
       child: Padding(
@@ -256,13 +247,6 @@ class SettingsMenu extends StatelessWidget {
       color: Colors.white,
       borderRadius: BorderRadius.circular(18),
       border: Border.all(color: borderColor ?? AppColors.darkWith(0.05)),
-      boxShadow: [
-        BoxShadow(
-          color: AppColors.darkWith(0.045),
-          blurRadius: 14,
-          offset: const Offset(0, 4),
-        ),
-      ],
     );
   }
 
@@ -312,7 +296,9 @@ class SettingsMenu extends StatelessWidget {
                 ),
               ),
               Icon(
-                Icons.chevron_right_rounded,
+                item.onTap == null
+                    ? Icons.check_circle_outline_rounded
+                    : Icons.chevron_right_rounded,
                 size: 21,
                 color: item.color.withValues(alpha: 0.85),
               ),
@@ -329,13 +315,13 @@ class _SettingsItem {
   final String subtitle;
   final IconData icon;
   final Color color;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   const _SettingsItem({
     required this.label,
     required this.subtitle,
     required this.icon,
     required this.color,
-    required this.onTap,
+    this.onTap,
   });
 }

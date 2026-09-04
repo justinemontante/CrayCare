@@ -4,16 +4,129 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'database_service.dart';
+import '../firebase_options.dart';
+
+String authErrorMessage(Object error) {
+  if (error is FirebaseAuthException) {
+    switch (error.code) {
+      case 'email-already-in-use':
+        return 'This email is already registered. Please sign in instead.';
+      case 'weak-password':
+        return 'Use a stronger password with at least 6 characters.';
+      case 'invalid-email':
+        return 'Please enter a valid email address.';
+      case 'invalid-credential':
+      case 'user-not-found':
+      case 'wrong-password':
+        return 'Incorrect email or password.';
+      case 'email-not-verified':
+        return 'Please verify your email before signing in.';
+      case 'user-disabled':
+        return 'Your account has been disabled. Please contact the administrator.';
+      case 'network-request-failed':
+        return 'Unable to connect. Check your internet connection and try again.';
+      case 'too-many-requests':
+        return 'Too many attempts. Please wait a moment before trying again.';
+      case 'account-exists-with-different-credential':
+        return 'An account already exists with this email. Sign in using its original method.';
+      case 'operation-not-allowed':
+        return 'This sign-in method is currently unavailable.';
+    }
+    if (error.message?.trim().isNotEmpty == true) return error.message!.trim();
+  }
+  return error
+      .toString()
+      .replaceFirst('Exception: ', '')
+      .replaceFirst(RegExp(r'^\[firebase_auth/[^\]]+\]\s*'), '')
+      .trim();
+}
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  final GoogleSignIn _googleSignIn = GoogleSignIn();
+  final GoogleSignIn _googleSignIn = GoogleSignIn(
+    clientId: DefaultFirebaseOptions.currentPlatform.iosClientId,
+  );
   Map<String, dynamic>? _lastAuthenticatedProfile;
 
   Map<String, dynamic>? get lastAuthenticatedProfile =>
       _lastAuthenticatedProfile;
 
   Stream<User?> get user => _auth.authStateChanges();
+
+  bool _isDisabled(Map<String, dynamic>? profile) =>
+      profile?['status']?.toString().trim().toLowerCase() == 'disabled';
+
+  bool _isTransientProvisioningError(Object error) {
+    if (error is! FirebaseException) return false;
+    return const {
+      'aborted',
+      'deadline-exceeded',
+      'permission-denied',
+      'unavailable',
+    }.contains(error.code);
+  }
+
+  /// Authentication state listeners start as soon as Firebase signs a user
+  /// in. Give idempotent profile/tank provisioning a short retry window so a
+  /// first-time account is never forced to press Google sign-in twice because
+  /// another listener briefly observed the account before setup completed.
+  Future<Map<String, dynamic>> _prepareCurrentUserAfterSignIn() async {
+    Object? lastError;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await prepareCurrentUser();
+      } catch (error) {
+        lastError = error;
+        if (!_isTransientProvisioningError(error) || attempt == 2) rethrow;
+        await Future<void>.delayed(Duration(milliseconds: 250 * (attempt + 1)));
+      }
+    }
+    throw lastError!;
+  }
+
+  /// Validates status and idempotently repairs the Firestore profile, tank,
+  /// and notification defaults. Used after every successful authentication
+  /// and after email verification before entering the app.
+  Future<Map<String, dynamic>> prepareCurrentUser() async {
+    final user = _auth.currentUser;
+    if (user == null) {
+      throw FirebaseAuthException(
+        code: 'no-current-user',
+        message: 'Your session has expired. Please sign in again.',
+      );
+    }
+
+    var profile = await DatabaseService.instance.getUserProfile(user.uid);
+    if (_isDisabled(profile)) {
+      await signOut();
+      throw FirebaseAuthException(code: 'user-disabled');
+    }
+
+    await DatabaseService.instance.saveUserProfile(
+      uid: user.uid,
+      name: user.displayName?.trim().isNotEmpty == true
+          ? user.displayName!.trim()
+          : (profile?['full_name']?.toString().trim().isNotEmpty == true
+                ? profile!['full_name'].toString().trim()
+                : 'CrayCare User'),
+      email: user.email ?? profile?['email']?.toString() ?? '',
+      role: profile == null || profile['role'] == null ? 'owner' : null,
+      status: profile == null || profile['status'] == null ? 'active' : null,
+    );
+
+    profile = await DatabaseService.instance.getUserProfile(user.uid);
+    if (_isDisabled(profile)) {
+      await signOut();
+      throw FirebaseAuthException(code: 'user-disabled');
+    }
+
+    _lastAuthenticatedProfile = {
+      ...?profile,
+      'role': profile?['role'] ?? 'owner',
+      'status': profile?['status'] ?? 'active',
+    };
+    return _lastAuthenticatedProfile!;
+  }
 
   Future<User?> signUp(String name, String email, String password) async {
     try {
@@ -26,23 +139,22 @@ class AuthService {
 
       if (user != null) {
         await user.updateDisplayName(name);
+        await _prepareCurrentUserAfterSignIn();
         if (!user.emailVerified) {
-          await user.sendEmailVerification();
+          try {
+            await user.sendEmailVerification();
+          } on FirebaseAuthException catch (e) {
+            // Account/profile creation succeeded. VerifyScreen can safely
+            // resend, so a temporary email-delivery throttle must not turn a
+            // successful signup into a misleading failure.
+            debugPrint('[AuthService] Initial verification email: ${e.code}');
+          }
         }
-        // Every new account defaults to 'owner' — there's no in-app path
-        // to becoming 'admin'. An admin has to set that role directly on
-        // the users/{uid} document in the Firestore console.
-        await DatabaseService.instance.saveUserProfile(
-          uid: user.uid,
-          name: name,
-          email: email,
-          role: 'owner',
-        );
       }
 
       return user;
-    } on FirebaseAuthException catch (e) {
-      throw Exception(e.message);
+    } on FirebaseAuthException {
+      rethrow;
     }
   }
 
@@ -56,45 +168,25 @@ class AuthService {
       User? user = result.user;
 
       if (user != null) {
-        var profile = await DatabaseService.instance.getUserProfile(user.uid);
-        if (profile != null && profile['status'] == 'disabled') {
+        final profile = await DatabaseService.instance.getUserProfile(user.uid);
+        if (_isDisabled(profile)) {
           await signOut();
-          throw Exception(
-            'Your account has been disabled. Please contact the administrator.',
-          );
+          throw FirebaseAuthException(code: 'user-disabled');
         }
 
         if (!user.emailVerified) {
           // Keep this authenticated session alive so VerifyScreen can reload
           // the user and resend the verification email when needed.
-          throw Exception(
-            'Please verify your email first. A verification link was sent to your inbox.',
+          throw FirebaseAuthException(
+            code: 'email-not-verified',
+            message: 'Please verify your email before signing in.',
           );
         }
-
-        // Only backfill if profile doc is missing or lacks role/status.
-        // Never overwrite existing values — admin may have set them.
-        final needsRole = profile == null || profile['role'] == null;
-        final needsStatus = profile == null || profile['status'] == null;
-        if (needsRole || needsStatus) {
-          await DatabaseService.instance.saveUserProfile(
-            uid: user.uid,
-            name: user.displayName ?? 'CrayCare User',
-            email: user.email ?? '',
-            role: needsRole ? 'owner' : null,
-            status: needsStatus ? 'active' : null,
-          );
-        }
-
-        _lastAuthenticatedProfile = {
-          ...?profile,
-          'role': profile?['role'] ?? 'owner',
-          'status': profile?['status'] ?? 'active',
-        };
+        await _prepareCurrentUserAfterSignIn();
       }
       return user;
-    } on FirebaseAuthException catch (e) {
-      throw Exception(e.message);
+    } on FirebaseAuthException {
+      rethrow;
     }
   }
 
@@ -120,46 +212,27 @@ class AuthService {
 
       final user = userCredential.user;
       if (user != null) {
-        var profile = await DatabaseService.instance.getUserProfile(user.uid);
-        if (profile != null && profile['status'] == 'disabled') {
-          await signOut();
-          throw Exception(
-            'Your account has been disabled. Please contact the administrator.',
-          );
-        }
-
-        final isNewUser =
-            userCredential.additionalUserInfo?.isNewUser ?? (profile == null);
-
-        // Only backfill if profile doc is missing or lacks role/status.
-        // Never overwrite existing values — admin may have set them.
-        final needsRole =
-            isNewUser || profile == null || profile['role'] == null;
-        final needsStatus = profile == null || profile['status'] == null;
-        if (needsRole || needsStatus) {
-          await DatabaseService.instance.saveUserProfile(
-            uid: user.uid,
-            name: user.displayName ?? 'Google User',
-            email: user.email ?? '',
-            role: needsRole ? 'owner' : null,
-            status: needsStatus ? 'active' : null,
-          );
-        }
-
-        _lastAuthenticatedProfile = {
-          ...?profile,
-          'role': profile?['role'] ?? 'owner',
-          'status': profile?['status'] ?? 'active',
-        };
+        await _prepareCurrentUserAfterSignIn();
       }
 
       return userCredential.user;
-    } on FirebaseAuthException catch (e) {
-      throw Exception(e.message);
+    } on FirebaseAuthException {
+      if (_auth.currentUser != null) {
+        await _googleSignIn.signOut();
+        await _auth.signOut();
+      }
+      rethrow;
     } catch (e) {
-      throw Exception(e.toString());
+      if (_auth.currentUser != null) {
+        await _googleSignIn.signOut();
+        await _auth.signOut();
+      }
+      rethrow;
     }
   }
+
+  Future<void> sendPasswordResetEmail(String email) =>
+      _auth.sendPasswordResetEmail(email: email.trim());
 
   Future<void> changePassword({
     required String email,
@@ -173,31 +246,52 @@ class AuthService {
       (info) => info.providerId == 'password',
     );
 
-    if (hasEmailProvider) {
-      final credential = EmailAuthProvider.credential(
-        email: email,
-        password: currentPassword,
-      );
-      try {
-        await user.reauthenticateWithCredential(credential);
-      } on FirebaseAuthException catch (e) {
-        if (e.code == 'requires-recent-login') {
-          // Re-issuing the identical reauthentication call fails the same
-          // way again - it isn't a retryable state. Surface a clear error
-          // instead so the caller can prompt the user to log out and back
-          // in before retrying the password change.
-          throw FirebaseAuthException(
-            code: e.code,
-            message:
-                'Your session is too old to change your password. '
-                'Please log out and log back in, then try again.',
-          );
-        }
-        rethrow;
+    if (!hasEmailProvider) {
+      throw Exception('Your password is managed through your Google account.');
+    }
+
+    final credential = EmailAuthProvider.credential(
+      email: email,
+      password: currentPassword,
+    );
+    try {
+      await user.reauthenticateWithCredential(credential);
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'requires-recent-login') {
+        throw FirebaseAuthException(
+          code: e.code,
+          message:
+              'Your session is too old to change your password. '
+              'Please log out and log back in, then try again.',
+        );
       }
+      rethrow;
     }
 
     await user.updatePassword(newPassword);
+  }
+
+  Future<void> createPasswordForCurrentUser({
+    required String email,
+    required String newPassword,
+  }) async {
+    final user = _auth.currentUser;
+    if (user == null) throw Exception('No user logged in.');
+
+    final hasEmailProvider = user.providerData.any(
+      (info) => info.providerId == 'password',
+    );
+    if (hasEmailProvider) {
+      throw Exception(
+        'This account already has a password. Use Change Password instead.',
+      );
+    }
+
+    final credential = EmailAuthProvider.credential(
+      email: email.trim(),
+      password: newPassword,
+    );
+    await user.linkWithCredential(credential);
   }
 
   Future<void> signOut() async {
@@ -209,7 +303,9 @@ class AuthService {
         // receiving push notifications.
         final token = await FirebaseMessaging.instance.getToken();
         if (token != null) {
-          final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
+          final userRef = FirebaseFirestore.instance
+              .collection('users')
+              .doc(uid);
           final snap = await userRef.get();
           final updates = <String, dynamic>{
             'fcmTokens': FieldValue.arrayRemove([token]),
