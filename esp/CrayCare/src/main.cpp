@@ -65,7 +65,7 @@
 //  WIFI SETTINGS — multi-profile, stored in NVS via Preferences
 //  Namespace "wifiprof": count, active, ssid0/pass0 ... ssid4/pass4
 //  First boot: Enter SSID + PASSWORD prompts over Serial Monitor
-//  Add: "wifi add" (prompts) or "wifi set <SSID> <PASS>" (one-line)
+//  Add: "wifi add" (prompts) or "wifi set <SSID>|<PASS>" (one-line)
 //  List: "wifilist"  Switch: "wifi use <n>"  Reset: "RESET_WIFI"
 // ============================================================
 Preferences prefs;
@@ -513,6 +513,9 @@ float smoothedTemp = -127.0;
 float lastValidTemp = -127.0;
 bool tempSensorOK = false;
 uint8_t tempSkipCount = 0;
+// Serial output is opt-in so continuous readings never interfere with commands.
+// Sampling, Firestore uploads, buffering, and automation remain active.
+bool sensorOutputEnabled = false;
 
 float turbidityBuffer[SMOOTH_WINDOW];
 uint8_t turbidityCount = 0;
@@ -1496,6 +1499,51 @@ void readAllSensors() {
   readFeedLevelSensor();
 }
 
+void printSensorReading() {
+  Serial.printf("[SENSOR] Temp: %.1f C | Turb: %.0f NTU (%.3fV) | DO: %.1f mg/L | pH: %.2f | Level: %.1f cm | Feed: %.1f%%\n",
+                smoothedTemp, smoothedTurbidityNTU, turbidityVoltage,
+                dissolvedOxygen, phLevel, waterLevelCm, feedLevelPercent);
+}
+
+void printCalibrationHelp() {
+  Serial.println("\n=== CALIBRATION COMMANDS ===");
+  Serial.println("phcal7                  Save voltage in pH 7 buffer");
+  Serial.println("phcal4                  Save voltage in pH 4 buffer");
+  Serial.println("doread                   Show current DO voltage/value");
+  Serial.println("doclear                  Calibrate DO in air-saturated water");
+  Serial.println("turbclear <VOLTS>        Set clear-water voltage");
+  Serial.println("turbdirty <VOLTS>        Set dirty-water voltage");
+  Serial.println("turbair <VOLTS>          Set out-of-water threshold");
+  Serial.println("tankheight <CM>          Sensor-to-tank-bottom distance");
+  Serial.println("tankdepth <CM>           Maximum water depth");
+  Serial.println("tankcal                  Show tank calibration");
+  Serial.println("raw                      Show one raw reading");
+}
+
+void printSerialHelp() {
+  Serial.println("\n=== SERIAL COMMANDS ===");
+  Serial.println("HELP                     Show this menu");
+  Serial.println("SENSOR_ON                Print readings every 2 seconds");
+  Serial.println("SENSOR_OFF               Stop periodic sensor printing");
+  Serial.println("SENSOR_READ              Take and print one fresh reading");
+  Serial.println("CAL_HELP                 Show calibration commands");
+  Serial.println("WIFI_HELP                Show Wi-Fi commands");
+  Serial.println("FEED                     Start a manual feed");
+  Serial.println("relay status             Show relay states");
+}
+
+void printWifiHelp() {
+  Serial.println("\n=== WI-FI COMMANDS ===");
+  Serial.println("wifi add                 Guided SSID/password entry");
+  Serial.println("wifi set <SSID>|<PASS>   Save in one line (SSID may contain spaces)");
+  Serial.println("wifi list / wifilist     List saved networks");
+  Serial.println("wifi use <INDEX>         Switch saved network");
+  Serial.println("wifi delete <INDEX>      Delete saved network");
+  Serial.println("wifiscan                 Scan nearby networks");
+  Serial.println("wifi status              Show current connection");
+  Serial.println("RESET_WIFI               Erase every saved network");
+}
+
 // ─── Feeder forward declarations ───
 void initFeeder();
 void processFeederCommands();
@@ -1562,6 +1610,7 @@ void setup() {
   Serial.printf("  Tank ID     : %s\n", currentTankId.c_str());
   Serial.printf("  Tank config : tanks/%s/sensors\n", currentTankId.c_str());
   Serial.println("  Turbidity: NTU (calibrated)");
+  Serial.println("  Sensor display: OFF (type HELP for commands)");
   Serial.println("============================================");
 }
 
@@ -1581,6 +1630,23 @@ void loop() {
   if (Serial.available()) {
     String cmd = Serial.readStringUntil('\n');
     cmd.trim();
+    if (cmd == "HELP" || cmd == "help" || cmd == "?") {
+      printSerialHelp();
+    }
+    if (cmd == "SENSOR_ON" || cmd == "sensor on") {
+      sensorOutputEnabled = true;
+      Serial.println("[SENSOR] Periodic display ON");
+    }
+    if (cmd == "SENSOR_OFF" || cmd == "sensor off") {
+      sensorOutputEnabled = false;
+      Serial.println("[SENSOR] Periodic display OFF; sensing and uploads remain active");
+    }
+    if (cmd == "SENSOR_READ" || cmd == "sensor read") {
+      readAllSensors();
+      printSensorReading();
+    }
+    if (cmd == "CAL_HELP" || cmd == "cal help") printCalibrationHelp();
+    if (cmd == "WIFI_HELP" || cmd == "wifi help") printWifiHelp();
     if (cmd == "RESET_WIFI") {
       prefs.begin("wifiprof", false);
       prefs.clear();
@@ -1598,12 +1664,12 @@ void loop() {
     if (cmd.startsWith("wifi set ")) {
       String rest = cmd.substring(9);
       rest.trim();
-      int sp = rest.indexOf(' ');
-      if (sp < 0) {
-        Serial.println("Usage: wifi set <SSID> <PASS>");
+      int separator = rest.indexOf('|');
+      if (separator < 1) {
+        Serial.println("Usage: wifi set <SSID>|<PASS>");
       } else {
-        String s = rest.substring(0, sp);
-        String p = rest.substring(sp + 1);
+        String s = rest.substring(0, separator);
+        String p = rest.substring(separator + 1);
         s.trim(); p.trim();
         int idx = wifiSaveProfile(s, p);
         if (idx < 0) {
@@ -1617,6 +1683,11 @@ void loop() {
     }
     if (cmd == "wifilist" || cmd == "wifi list") {
       wifiListProfiles();
+    }
+    if (cmd == "wifi status") {
+      Serial.printf("[WIFI] %s | SSID: \"%s\" | IP: %s | RSSI: %d dBm\n",
+                    WiFi.status() == WL_CONNECTED ? "connected" : "disconnected",
+                    ssid.c_str(), WiFi.localIP().toString().c_str(), WiFi.RSSI());
     }
     if (cmd.startsWith("wifi use ")) {
       int idx = cmd.substring(9).toInt();
@@ -1818,13 +1889,7 @@ void loop() {
 
     readAllSensors();
 
-    Serial.printf("[OK] Temp: %.1f C | Turb: %.0f NTU (%.3fV) | DO: %.1f | pH: %.2f | Level: %.1f cm\n",
-                  smoothedTemp,
-                  smoothedTurbidityNTU,
-                  turbidityVoltage,
-                  dissolvedOxygen,
-                  phLevel,
-                  waterLevelCm);
+    if (sensorOutputEnabled) printSensorReading();
   }
 
   if (now - lastFirebaseSendTime >= FIREBASE_SEND_INTERVAL_MS) {
