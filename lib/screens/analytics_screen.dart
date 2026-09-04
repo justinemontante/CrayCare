@@ -501,7 +501,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
               children: [
                 _buildHeader(),
                 Padding(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 5),
                   child: FilterSelector(
                     activeFilter: _activeFilter,
                     showCustom: _showCustom,
@@ -556,7 +556,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                         : const SizedBox(key: ValueKey('custom-date-hidden')),
                   ),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 3),
                 AnimatedSwitcher(
                   duration: const Duration(milliseconds: 160),
                   child: _isLoading

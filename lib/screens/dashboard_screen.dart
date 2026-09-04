@@ -332,8 +332,7 @@ class DashboardScreenState extends State<DashboardScreen>
       // A registered owner may not have a tank document until first setup.
       // TankService also returns here for an existing tank with no active
       // initialized grow-out batch.
-      message =
-          'Tank not set up yet — initialize your grow-out batch to start seeing sensor data.';
+      message = 'Tank not set up yet.';
       bannerIcon = Icons.info_outline_rounded;
     } else if (error != null && error.contains('No tank assigned')) {
       message = 'No tank assigned to this account yet.';
