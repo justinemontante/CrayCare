@@ -156,6 +156,8 @@ FirebaseAuth auth;
 FirebaseConfig config;
 
 bool firebaseReady = false;
+bool firebaseStarted = false;
+bool cloudBootstrapComplete = false;
 unsigned long lastFirebaseSendTime = 0;
 unsigned long lastHistorySendTime = 0;
 unsigned long lastFlushTime = 0;
@@ -897,26 +899,23 @@ void initTime() {
 }
 
 void connectFirebase() {
+  if (firebaseStarted || WiFi.status() != WL_CONNECTED) return;
+
   config.api_key = FIREBASE_API_KEY;
   config.database_url = FIREBASE_DATABASE_URL;
-  config.token_status_callback = tokenStatusCallback;
+  // TokenHelper's callback prints every retry and can flood the Serial Monitor.
+  // Cloud errors remain available through each Firestore operation's error text.
+  config.token_status_callback = nullptr;
 
   auth.user.email = SECRETS_FIREBASE_USER_EMAIL;
   auth.user.password = SECRETS_FIREBASE_USER_PASSWORD;
 
   Firebase.reconnectWiFi(true);
-  Serial.print("Signing in to Firebase as the CrayCare device... ");
+  Serial.println("[FIREBASE] Starting device authentication in background...");
   Firebase.begin(&config, &auth);
   Firebase.setDoubleDigits(2);
-
-  // Email/password sign-in is asynchronous. Give the initial token exchange a
-  // short window, then let Firebase.ready() continue refreshing in loop().
-  const unsigned long started = millis();
-  while (!Firebase.ready() && millis() - started < 15000) {
-    delay(100);
-  }
-  firebaseReady = Firebase.ready();
-  Serial.println(firebaseReady ? "OK" : "pending/failed");
+  firebaseStarted = true;
+  firebaseReady = false;
 }
 
 // Read a float from a Firestore document already loaded into `doc`.
@@ -1528,6 +1527,7 @@ void printSerialHelp() {
   Serial.println("SENSOR_READ              Take and print one fresh reading");
   Serial.println("CAL_HELP                 Show calibration commands");
   Serial.println("WIFI_HELP                Show Wi-Fi commands");
+  Serial.println("FIREBASE_STATUS          Show cloud authentication status");
   Serial.println("FEED                     Start a manual feed");
   Serial.println("relay status             Show relay states");
 }
@@ -1594,15 +1594,16 @@ void setup() {
   primeTurbidityBuffer();
 
   connectWiFi();
-  initTime();
-  connectFirebase();
   initOfflineBuffer();  // LittleFS store-and-forward (mounted before loop)
   getHardwareId();  // resolve MAC-based ID after WiFi is up
-  fetchTankId();
-  syncConfigFromFirebase();
   initFeeder();
-  syncFeederSchedules();
   initActuators();
+  if (WiFi.status() == WL_CONNECTED) {
+    initTime();
+    connectFirebase();
+  } else {
+    Serial.println("[CLOUD] Offline startup skipped; serial commands are ready now.");
+  }
 
   Serial.println("============================================");
   Serial.println("  CrayCare Monitor — Firestore Ingestion");
@@ -1647,6 +1648,12 @@ void loop() {
     }
     if (cmd == "CAL_HELP" || cmd == "cal help") printCalibrationHelp();
     if (cmd == "WIFI_HELP" || cmd == "wifi help") printWifiHelp();
+    if (cmd == "FIREBASE_STATUS" || cmd == "firebase status") {
+      Serial.printf("[FIREBASE] started=%s ready=%s | Wi-Fi=%s\n",
+                    firebaseStarted ? "yes" : "no",
+                    firebaseReady ? "yes" : "no",
+                    WiFi.status() == WL_CONNECTED ? "connected" : "offline");
+    }
     if (cmd == "RESET_WIFI") {
       prefs.begin("wifiprof", false);
       prefs.clear();
@@ -1835,6 +1842,20 @@ void loop() {
     lastWifiReconnectTime = now;
     Serial.println("[WIFI] Offline — local sensing/automation continues; reconnecting...");
     WiFi.reconnect();
+  }
+
+  // Start Firebase only after Wi-Fi exists. Never block serial commands while
+  // offline or while email/password authentication is still in progress.
+  if (networkAvailable && !firebaseStarted) connectFirebase();
+  if (networkAvailable && firebaseStarted && !cloudBootstrapComplete &&
+      ensureFirebaseReady()) {
+    firebaseReady = true;
+    fetchTankId();
+    syncConfigFromFirebase();
+    syncFeederSchedules();
+    cloudBootstrapComplete = true;
+    Serial.println("[FIREBASE] Connected; cloud control is active.");
+    now = millis();
   }
 
   // ─── Feeder ───
