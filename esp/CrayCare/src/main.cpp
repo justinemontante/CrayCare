@@ -189,6 +189,7 @@ void initOfflineBuffer() {
 
 size_t countBufferedEntries() {
   if (!littlefsMounted) return 0;
+  if (!LittleFS.exists(BUFFER_PATH)) return 0;
   File f = LittleFS.open(BUFFER_PATH, "r");
   if (!f) return 0;
   size_t n = 0;
@@ -217,6 +218,7 @@ bool bufferDropFirst(const String* ignoredLines, size_t ignoredCount) {
   (void)ignoredLines;
   (void)ignoredCount;
   if (!littlefsMounted) return false;
+  if (!LittleFS.exists(BUFFER_PATH)) return false;
   const char* tempPath = "/buf/history.tmp";
   File src = LittleFS.open(BUFFER_PATH, "r");
   if (!src) return false;
@@ -241,6 +243,7 @@ bool bufferDropFirst(const String* ignoredLines, size_t ignoredCount) {
 // Read all buffered lines into a fixed array (bounded).
 size_t bufferReadAll(String* lines, size_t maxLines) {
   if (!littlefsMounted) return 0;
+  if (!LittleFS.exists(BUFFER_PATH)) return 0;
   File f = LittleFS.open(BUFFER_PATH, "r");
   if (!f) return 0;
   size_t n = 0;
@@ -942,7 +945,7 @@ void connectFirebase() {
     config.signer.tokens.status = token_status_error;
     Serial.println("[FIREBASE] Login rejected; next automatic attempt is in 15 minutes.");
   }
-  Serial.printf("[FIREBASE] Initial attempt returned after %lu ms; retries are limited to once per minute.\n",
+  Serial.printf("[FIREBASE] Initial attempt returned after %lu ms; retries are limited to once per 15 minutes.\n",
                 lastFirebaseAuthAttemptMs - firebaseBeginStartedMs);
 }
 
