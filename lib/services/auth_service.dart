@@ -47,9 +47,11 @@ class AuthService {
     clientId: DefaultFirebaseOptions.currentPlatform.iosClientId,
   );
   Map<String, dynamic>? _lastAuthenticatedProfile;
+  Map<String, dynamic>? _lastAdminBootstrapData;
 
   Map<String, dynamic>? get lastAuthenticatedProfile =>
       _lastAuthenticatedProfile;
+  Map<String, dynamic>? get lastAdminBootstrapData => _lastAdminBootstrapData;
 
   Stream<User?> get user => _auth.authStateChanges();
 
@@ -84,9 +86,9 @@ class AuthService {
     throw lastError!;
   }
 
-  /// Validates status and idempotently repairs the Firestore profile, tank,
-  /// and notification defaults. Used after every successful authentication
-  /// and after email verification before entering the app.
+  /// Validates status and idempotently repairs the Firestore profile and
+  /// notification defaults. Tank resources remain exclusive to Tank Setup.
+  /// Used after authentication and after email verification.
   Future<Map<String, dynamic>> prepareCurrentUser() async {
     final user = _auth.currentUser;
     if (user == null) {
@@ -125,6 +127,10 @@ class AuthService {
       'role': profile?['role'] ?? 'owner',
       'status': profile?['status'] ?? 'active',
     };
+    _lastAdminBootstrapData =
+        _lastAuthenticatedProfile!['role'] == 'admin'
+        ? await DatabaseService.instance.getAdminBootstrapData()
+        : null;
     return _lastAuthenticatedProfile!;
   }
 
@@ -190,13 +196,14 @@ class AuthService {
     }
   }
 
-  Future<User?> signInWithGoogle() async {
+  Future<User?> signInWithGoogle({VoidCallback? onAccountSelected}) async {
     try {
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
 
       if (googleUser == null) {
         return null;
       }
+      onAccountSelected?.call();
 
       final GoogleSignInAuthentication googleAuth =
           await googleUser.authentication;
@@ -296,6 +303,7 @@ class AuthService {
 
   Future<void> signOut() async {
     _lastAuthenticatedProfile = null;
+    _lastAdminBootstrapData = null;
     final uid = _auth.currentUser?.uid;
     if (uid != null) {
       try {

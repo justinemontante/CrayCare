@@ -9,7 +9,9 @@ import '../widgets/section_label.dart';
 import '../utils/snackbar_helper.dart';
 
 class AdminScreen extends StatefulWidget {
-  const AdminScreen({super.key});
+  final Map<String, dynamic>? initialData;
+
+  const AdminScreen({super.key, this.initialData});
 
   @override
   State<AdminScreen> createState() => _AdminScreenState();
@@ -31,7 +33,19 @@ class _AdminScreenState extends State<AdminScreen> {
   @override
   void initState() {
     super.initState();
-    _load();
+    final initialData = widget.initialData;
+    if (initialData != null) {
+      _users = List<Map<String, dynamic>>.from(
+        initialData['users'] as List<dynamic>? ?? const [],
+      );
+      _currentOwnerUid = initialData['current_owner_uid'] as String?;
+      _initializedTanks = Map<String, bool>.from(
+        initialData['initialized_tanks'] as Map? ?? const {},
+      );
+      _loading = false;
+    } else {
+      _load();
+    }
     _listenRealtime();
   }
 
@@ -162,8 +176,9 @@ class _AdminScreenState extends State<AdminScreen> {
   }
 
   Future<void> _load() async {
+    final needsInitialLoad = _users.isEmpty;
     setState(() {
-      _loading = true;
+      _loading = needsInitialLoad;
       _error = null;
     });
     try {
@@ -898,52 +913,67 @@ class _AdminScreenState extends State<AdminScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildGreeting(),
-          if (!_loading && _error == null) ...[
-            _buildStatsBar(),
-            _buildHardwareSection(),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 4),
-              child: SectionLabel(
-                label: 'Users',
-                showLiveData: false,
-                icon: Icons.people_alt_rounded,
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
-              child: _buildUserFilterTabBar(),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 4, 14, 6),
-              child: _buildUserSearchField(),
-            ),
-          ],
           Expanded(
-            child: _loading
-                ? const Center(
-                    child: CircularProgressIndicator(color: AppColors.primary),
-                  )
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 240),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              transitionBuilder: (child, animation) =>
+                  FadeTransition(opacity: animation, child: child),
+              child: _loading
+                ? const SizedBox.expand(key: ValueKey('admin-loading'))
                 : _error != null
                 ? _buildLoadError()
-                : RefreshIndicator(
-                    onRefresh: _load,
-                    color: AppColors.primary,
-                    child: Builder(
-                      builder: (context) {
-                        final users = _filteredUsers();
-                        return ListView(
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          padding: const EdgeInsets.fromLTRB(14, 4, 14, 32),
-                          children: users.isEmpty
-                              ? [_buildNoUsersFound()]
-                              : users.map(_buildUserCard).toList(),
-                        );
-                      },
-                    ),
-                  ),
+                : _buildAdminContent(),
+            ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildAdminContent() {
+    return Column(
+      key: const ValueKey('admin-content'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildStatsBar(),
+        _buildHardwareSection(),
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 4),
+          child: SectionLabel(
+            label: 'Users',
+            showLiveData: false,
+            icon: Icons.people_alt_rounded,
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
+          child: _buildUserFilterTabBar(),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 4, 14, 6),
+          child: _buildUserSearchField(),
+        ),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: _load,
+            color: AppColors.primary,
+            child: Builder(
+              builder: (context) {
+                final users = _filteredUsers();
+                return ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(14, 4, 14, 32),
+                  children: users.isEmpty
+                      ? [_buildNoUsersFound()]
+                      : users.map(_buildUserCard).toList(),
+                );
+              },
+            ),
+          ),
+        ),
+      ],
     );
   }
 

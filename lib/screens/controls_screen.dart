@@ -390,6 +390,149 @@ class ControlsScreenState extends State<ControlsScreen> {
     return issue.isEmpty ? '' : 'Feed blocked: $issue';
   }
 
+  String _manualFeedScheduleLabel(ManualFeedScheduleGuard guard) {
+    final schedule = guard.schedule;
+    final occurrence = guard.occurrence;
+    if (schedule == null || occurrence == null) return 'the nearby schedule';
+    final now = _manilaNow();
+    final today = DateTime(now.year, now.month, now.day);
+    final occurrenceDay = DateTime(
+      occurrence.year,
+      occurrence.month,
+      occurrence.day,
+    );
+    final dayLabel = occurrenceDay == today
+        ? 'today'
+        : occurrenceDay == today.add(const Duration(days: 1))
+        ? 'tomorrow'
+        : occurrenceDay == today.subtract(const Duration(days: 1))
+        ? 'yesterday'
+        : '';
+    return '${schedule.time} ${schedule.ampm} $dayLabel';
+  }
+
+  Future<bool> _confirmManualFeedTiming(ManualFeedScheduleGuard guard) async {
+    final label = _manualFeedScheduleLabel(guard);
+    final blocked = guard.isBlocked;
+    final occurredAlready =
+        guard.occurrence != null && guard.occurrence!.isBefore(_manilaNow());
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: !blocked,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.white,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 28),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: (blocked ? AppColors.critical : AppColors.warning)
+                      .withValues(alpha: 0.11),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(
+                  blocked
+                      ? Icons.schedule_rounded
+                      : Icons.warning_amber_rounded,
+                  color: blocked ? AppColors.critical : AppColors.warningDark,
+                  size: 27,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                blocked
+                    ? 'Scheduled feeding is due'
+                    : occurredAlready
+                    ? 'Feeding may be duplicated'
+                    : 'Feeding times are close',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: AppColors.dark,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                blocked
+                    ? 'Feed Now is temporarily unavailable because an automatic feeding is scheduled at $label.'
+                    : occurredAlready
+                    ? 'An automatic feeding was scheduled at $label. Feeding again may result in duplicate feeding.'
+                    : 'An automatic feeding is scheduled at $label. If you continue, that schedule will still run.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: AppColors.subtitleText,
+                  fontSize: 13,
+                  height: 1.45,
+                ),
+              ),
+              const SizedBox(height: 18),
+              if (blocked)
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(dialogContext, false),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text('Got it'),
+                  ),
+                )
+              else
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(dialogContext, false),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.dark,
+                          side: BorderSide(color: AppColors.faintBorder),
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text('Cancel'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.pop(dialogContext, true),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text('Continue'),
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    return result ?? false;
+  }
+
   Future<void> _feedNow({double? grams}) async {
     final svc = FeederService.instance;
     if (!_canFeed) {
@@ -406,6 +549,26 @@ class ControlsScreenState extends State<ControlsScreen> {
         if (mounted) setState(() => _feedState = _FeedState.hidden);
       });
       return;
+    }
+    final scheduleGuard = manualFeedScheduleGuard(svc.schedules, _manilaNow());
+    if (scheduleGuard.isBlocked) {
+      await _confirmManualFeedTiming(scheduleGuard);
+      return;
+    }
+    var nearScheduleConfirmed = false;
+    if (scheduleGuard.needsConfirmation) {
+      nearScheduleConfirmed = await _confirmManualFeedTiming(scheduleGuard);
+      if (!nearScheduleConfirmed || !mounted) return;
+      // Re-evaluate after the owner responds. The hard one-minute window may
+      // have started while the confirmation dialog was open.
+      final refreshedGuard = manualFeedScheduleGuard(
+        svc.schedules,
+        _manilaNow(),
+      );
+      if (refreshedGuard.isBlocked) {
+        await _confirmManualFeedTiming(refreshedGuard);
+        return;
+      }
     }
     final requiredGrams = grams ?? defaultFeederGrams;
     final availableGrams = SensorService.instance.estimatedFeedGrams;
@@ -447,7 +610,10 @@ class ControlsScreenState extends State<ControlsScreen> {
       });
       if (mounted) setState(() {});
     });
-    final request = svc.feedNow(grams: grams);
+    final request = svc.feedNow(
+      grams: grams,
+      nearScheduleConfirmed: nearScheduleConfirmed,
+    );
     _activeCommandId = svc.lastQueuedCommandId;
     final requestId = _activeCommandId;
     final queued = await request;
@@ -608,6 +774,10 @@ class ControlsScreenState extends State<ControlsScreen> {
                                   ? double.tryParse(gramsCtl.text)
                                   : null;
                               Navigator.pop(sheetCtx);
+                              await Future<void>.delayed(
+                                const Duration(milliseconds: 180),
+                              );
+                              if (!mounted) return;
                               await _feedNow(grams: grams);
                             },
                       style: ElevatedButton.styleFrom(

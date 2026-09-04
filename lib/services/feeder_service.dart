@@ -465,7 +465,10 @@ class FeederService extends ChangeNotifier {
     }
   }
 
-  Future<bool> feedNow({double? grams}) async {
+  Future<bool> feedNow({
+    double? grams,
+    bool nearScheduleConfirmed = false,
+  }) async {
     _lastQueuedCommandId = null;
     if (validateFeederGrams(grams) != null) return false;
     final tankDoc = _tankDoc();
@@ -478,6 +481,7 @@ class FeederService extends ChangeNotifier {
         'command_type': 'feed_now',
         'issued_by': uid,
         'issued_at': FieldValue.serverTimestamp(),
+        'near_schedule_confirmed': nearScheduleConfirmed,
         // A queued offline write must not become a fresh motor command when
         // Firestore finally commits its server timestamp after reconnect.
         'expires_at': Timestamp.fromDate(

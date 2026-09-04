@@ -29,6 +29,7 @@ class ProductionScreenState extends State<ProductionScreen> {
   int _crayfishTab = 0; // 0 = Overview, 1 = Sampling, 2 = Growth
 
   DateTime _lastEdited = DateTime.now();
+  bool _setupModalOpen = false;
 
   void switchToTab(int index) {
     if (index > 2) return;
@@ -48,7 +49,12 @@ class ProductionScreenState extends State<ProductionScreen> {
   }
 
   void _refreshUI() {
-    if (mounted) setState(() => _lastEdited = DateTime.now());
+    // Tank provisioning emits several service updates. Rebuilding the parent
+    // view while its setup route is still mounted can detach inherited modal
+    // dependencies out of order. Apply one refresh after the route closes.
+    if (mounted && !_setupModalOpen) {
+      setState(() => _lastEdited = DateTime.now());
+    }
   }
 
   @override
@@ -533,6 +539,8 @@ class ProductionScreenState extends State<ProductionScreen> {
   }
 
   void _showSetupForm({required bool isEdit}) {
+    if (_setupModalOpen) return;
+    _setupModalOpen = true;
     final batchNameCtrl = TextEditingController(
       text: isEdit ? (TankService.instance.selectedBatch?.batchId ?? '') : '',
     );
@@ -721,8 +729,8 @@ class ProductionScreenState extends State<ProductionScreen> {
                                       editExisting: isEdit,
                                     );
                                   } catch (e) {
-                                    setLocalState(() => isSaving = false);
                                     if (ctx.mounted) {
+                                      setLocalState(() => isSaving = false);
                                       showBeautifulSnackbar(
                                         ctx,
                                         e.toString().replaceFirst('Exception: ', ''),
@@ -785,11 +793,18 @@ class ProductionScreenState extends State<ProductionScreen> {
         );
       },
     ).whenComplete(() {
-      batchNameCtrl.dispose();
-      countCtrl.dispose();
-      sampleCountCtrl.dispose();
-      totalWeightCtrl.dispose();
-      totalLengthCtrl.dispose();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        batchNameCtrl.dispose();
+        countCtrl.dispose();
+        sampleCountCtrl.dispose();
+        totalWeightCtrl.dispose();
+        totalLengthCtrl.dispose();
+        if (!mounted) return;
+        setState(() {
+          _setupModalOpen = false;
+          _lastEdited = DateTime.now();
+        });
+      });
     });
   }
 

@@ -13,6 +13,7 @@ class CrayfishBatchList extends StatelessWidget {
     final service = TankService.instance;
     final activeBatches = service.activeBatches;
     final pastBatches = service.harvestHistory;
+    final hasBatches = activeBatches.isNotEmpty || pastBatches.isNotEmpty;
 
     return Container(
       width: double.infinity,
@@ -23,14 +24,22 @@ class CrayfishBatchList extends StatelessWidget {
         border: Border.all(color: AppColors.darkWith(0.08)),
         boxShadow: AppShadows.card,
       ),
-      child: SingleChildScrollView(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _buildHeader(context, activeBatches, pastBatches),
-          if (activeBatches.isNotEmpty) ...activeBatches.map((b) => _buildActiveBatchCard(context, service, b)),
-          if (pastBatches.isNotEmpty) _buildPastBatchesList(context, pastBatches),
-          if (activeBatches.isEmpty && pastBatches.isEmpty) _buildEmptyState(context),
-        ]),
-      ),
+      child: hasBatches
+          ? SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildHeader(context, activeBatches, pastBatches),
+                  if (activeBatches.isNotEmpty)
+                    ...activeBatches.map(
+                      (b) => _buildActiveBatchCard(context, service, b),
+                    ),
+                  if (pastBatches.isNotEmpty)
+                    _buildPastBatchesList(context, pastBatches),
+                ],
+              ),
+            )
+          : _buildEmptyState(context),
     );
   }
 
@@ -193,27 +202,66 @@ class CrayfishBatchList extends StatelessWidget {
   }
 
   Widget _buildEmptyState(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(0, 4, 0, 16),
-      child: Center(
-        child: Column(children: [
-          Icon(Icons.inbox_rounded, size: 28, color: AppColors.darkWith(0.15)),
-          const SizedBox(height: 6),
-          Text('No batches yet', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.darkWith(0.35))),
-          const SizedBox(height: 2),
-          Text('Initialize a grow-out to start', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: AppColors.darkWith(0.25))),
-          const SizedBox(height: 12),
-          ElevatedButton.icon(
-            onPressed: onNewBatch,
-            icon: const Icon(Icons.add_rounded, size: 14),
-            label: const Text('Initialize Grow-Out', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700)),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary, foregroundColor: Colors.white, elevation: 0,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                color: AppColors.primaryWith(0.1),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Icon(
+                Icons.inventory_2_outlined,
+                size: 34,
+                color: AppColors.primary,
+              ),
             ),
-          ),
-        ]),
+            const SizedBox(height: 18),
+            const Text(
+              'Set Up Your First Tank Batch',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+                color: AppColors.dark,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Enter the initial population and sample measurements to begin tracking this grow-out.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                height: 1.4,
+                color: AppColors.darkWith(0.48),
+              ),
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton.icon(
+              onPressed: onNewBatch,
+              icon: const Icon(Icons.add_rounded, size: 17),
+              label: const Text(
+                'Initialize Tank',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 22,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ]),
       ),
     );
   }

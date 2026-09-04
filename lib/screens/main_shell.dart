@@ -21,8 +21,9 @@ import '../widgets/common/dashboard_skeleton.dart';
 
 class MainShell extends StatefulWidget {
   final Map<String, dynamic>? initialProfile;
+  final Map<String, dynamic>? initialAdminData;
 
-  const MainShell({super.key, this.initialProfile});
+  const MainShell({super.key, this.initialProfile, this.initialAdminData});
 
   @override
   State<MainShell> createState() => _MainShellState();
@@ -277,7 +278,7 @@ class _MainShellState extends State<MainShell> {
                       _buildConnectivityBanner(),
                       Expanded(
                         child: _isAdmin
-                            ? const AdminScreen()
+                            ? AdminScreen(initialData: widget.initialAdminData)
                             : IndexedStack(
                                 index: _currentIndex,
                                 children: _ownerScreens,

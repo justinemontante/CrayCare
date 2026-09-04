@@ -185,9 +185,12 @@ class _SplashScreenState extends State<SplashScreen>
 
         if (freshUser != null && freshUser.emailVerified) {
           Map<String, dynamic>? initialProfile;
+          Map<String, dynamic>? initialAdminData;
           if (isOnline) {
             try {
-              initialProfile = await AuthService().prepareCurrentUser();
+              final authService = AuthService();
+              initialProfile = await authService.prepareCurrentUser();
+              initialAdminData = authService.lastAdminBootstrapData;
             } catch (e, stack) {
               debugPrint('[Splash] prepare profile error: $e\n$stack');
               if (e is FirebaseAuthException && e.code == 'user-disabled') {
@@ -205,7 +208,10 @@ class _SplashScreenState extends State<SplashScreen>
           Navigator.pushReplacement(
             context,
             splashExitPageRoute(
-              (_) => MainShell(initialProfile: initialProfile),
+              (_) => MainShell(
+                initialProfile: initialProfile,
+                initialAdminData: initialAdminData,
+              ),
             ),
           );
         } else if (freshUser != null && !freshUser.emailVerified) {

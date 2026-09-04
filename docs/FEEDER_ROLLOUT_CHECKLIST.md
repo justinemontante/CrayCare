@@ -14,6 +14,7 @@ No Firestore rules/index changes are needed for this patch: device logs use the 
 
 - Use an empty test vessel, not a stocked pond, to verify 20/40/200 g cycle counts and actual dispensed mass; check motor-open timing during network loss.
 - Reboot during a scheduled feed and during the same scheduled minute. Verify the motor does not replay the occurrence and interrupted execution produces `failed` rather than `completed`.
+- With a 6:00 PM schedule, verify Feed Now asks for confirmation at 5:50 PM and 6:05 PM, is blocked from 5:59:00 PM through 6:00:59 PM, and never prevents the 6:00 PM automatic occurrence from running. Also queue a command before the hard window and delay its delivery into that window; the ESP32 must block it.
 - Reboot after durable intent but before reservation/command deletion. Expect one interrupted outcome and no replay. Simulate an ambiguous command-deletion response; the outbox must retain the intent until acknowledgement succeeds or the command is absent.
 - Leave a Feed Now command queued more than 60 seconds, including an app write held offline before server commit. Reconnect and verify no motor movement and a blocked/expired outcome. Check expiry again after a slow status upload.
 - Check manual UI results for empty/insufficient/unsafe/expired requests. A prior or scheduled feed's completion must not finish another manual request; a timeout must say unconfirmed and must not create a false failure record.

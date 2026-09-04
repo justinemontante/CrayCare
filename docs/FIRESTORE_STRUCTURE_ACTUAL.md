@@ -77,6 +77,14 @@ Feeder status flow: `checking_feed_level` → `dispensing` → `completed`, with
 
 `effective_at_ms` records when a schedule becomes effective after creation, edit, or re-enable, preventing an occurrence earlier than that instant from being incorrectly marked as missed.
 
+Manual Feed Now collision protection uses these enabled schedules. The app asks
+for confirmation within 15 minutes before or after an occurrence. Feed Now is
+strictly blocked during the final 60 seconds before the schedule and throughout
+the scheduled minute. The ESP32 repeats the strict check before operating the
+servo, so a stale client or delayed command cannot race an automatic feeding.
+Confirmed warning-window commands store `near_schedule_confirmed: true`; this
+records the owner's decision but never bypasses the strict device-side block.
+
 `last_outcome` (`completed`, `skipped_insufficient`, `blocked`, `failed`) and `last_occurrence_at` (UTC epoch ms) are reconciled by `onFeederLogCreate`. `isDone` remains a legacy compatibility field, true only for a completed outcome; the app does not infer completion from this flag alone or reset it at startup. Late backfills cannot overwrite newer occurrences or edited configurations. App reads all schedules; ESP fetches every 20-document page before replacing its cache.
 
 Fixed-cycle firmware accepts 20–200 g in multiples of 20 g; null means the default 20 g. Other amounts are rejected, not silently rounded or clamped. Actual output requires hardware calibration.
@@ -162,7 +170,7 @@ Both live and history payloads include `source_tank_id`, `source_owner_uid`, `so
 - Water Quality Anomaly Detections: owner read only; Admin SDK writer only.
 - Active owner/admin access checks require `status == active`.
 - `hardware_system/currentOwner` client writes are valid only for an active owner whose tank document has a matching `owner_uid`, or a fully unassigned null/null state.
-- ESP staging/assigned-device access currently identifies ESP sessions through Firebase Anonymous Auth. Before production deployment, bind ESP authorization to a provisioned device identity/custom claim instead of treating every anonymous session as trusted hardware.
+- ESP staging/assigned-device access uses the dedicated Firebase Email/Password service account `esp32@craycare.com`. Firestore rules verify both the password provider and exact authenticated email. Keep its rotated password only in the gitignored device `secrets.h`; a future multi-device production rollout should provision a distinct identity/custom claim per physical device.
 
 ## Feeder request confirmation and push receipts
 

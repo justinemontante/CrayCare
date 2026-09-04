@@ -210,7 +210,11 @@ class _VerifyScreenState extends State<VerifyScreen> {
                         Navigator.pushReplacement(
                           context,
                           smoothPageRoute(
-                            (_) => MainShell(initialProfile: profile),
+                            (_) => MainShell(
+                              initialProfile: profile,
+                              initialAdminData:
+                                  _authService.lastAdminBootstrapData,
+                            ),
                           ),
                         );
                       },

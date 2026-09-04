@@ -503,6 +503,28 @@ class DatabaseService {
     }).toList();
   }
 
+  /// Loads the first admin frame before navigation so the Admin screen does
+  /// not need to expose a second loading state after authentication.
+  Future<Map<String, dynamic>> getAdminBootstrapData() async {
+    final results = await Future.wait<dynamic>([
+      getAllUsers(),
+      getCurrentOwnerUid(),
+      _db.collection('tanks').get(),
+    ]);
+    final tanks = results[2] as QuerySnapshot<Map<String, dynamic>>;
+    final initializedTanks = <String, bool>{};
+    for (final doc in tanks.docs) {
+      final data = doc.data();
+      initializedTanks[doc.id] =
+          data['owner_uid'] == doc.id && data['is_initialized'] == true;
+    }
+    return {
+      'users': results[0],
+      'current_owner_uid': results[1],
+      'initialized_tanks': initializedTanks,
+    };
+  }
+
   Future<void> setUserStatus(String uid, String status) async {
     if (uid.isEmpty) throw ArgumentError('UID cannot be empty');
     final normalizedStatus = status.trim().toLowerCase();

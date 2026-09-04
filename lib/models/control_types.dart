@@ -241,6 +241,85 @@ class ScheduledFeedOccurrence {
   const ScheduledFeedOccurrence(this.schedule, this.at);
 }
 
+enum ManualFeedScheduleGuardLevel { clear, warning, blocked }
+
+class ManualFeedScheduleGuard {
+  final ManualFeedScheduleGuardLevel level;
+  final ScheduleItem? schedule;
+  final DateTime? occurrence;
+
+  const ManualFeedScheduleGuard._(this.level, this.schedule, this.occurrence);
+
+  const ManualFeedScheduleGuard.clear()
+    : this._(ManualFeedScheduleGuardLevel.clear, null, null);
+
+  bool get isBlocked => level == ManualFeedScheduleGuardLevel.blocked;
+  bool get needsConfirmation => level == ManualFeedScheduleGuardLevel.warning;
+}
+
+/// Protects a manual Feed Now request from colliding with an enabled automatic
+/// schedule. The scheduled minute and the final minute before it are blocked;
+/// the surrounding 15-minute window requires owner confirmation.
+ManualFeedScheduleGuard manualFeedScheduleGuard(
+  Iterable<ScheduleItem> schedules,
+  DateTime now, {
+  Duration warningWindow = const Duration(minutes: 15),
+}) {
+  ManualFeedScheduleGuard? nearestWarning;
+  Duration? nearestDistance;
+
+  for (final schedule in schedules) {
+    if (!schedule.enabled) continue;
+    final minutes = feederScheduleMinutes(schedule);
+    for (var dayOffset = -1; dayOffset <= 1; dayOffset++) {
+      final date = DateTime(
+        now.year,
+        now.month,
+        now.day,
+      ).add(Duration(days: dayOffset));
+      if (!feederScheduleRunsOnDate(schedule, date)) continue;
+      final occurrence = DateTime(
+        date.year,
+        date.month,
+        date.day,
+        minutes ~/ 60,
+        minutes % 60,
+      );
+      if (!feederScheduleWasEffectiveAt(schedule, occurrence)) continue;
+
+      final sameScheduledMinute =
+          occurrence.year == now.year &&
+          occurrence.month == now.month &&
+          occurrence.day == now.day &&
+          occurrence.hour == now.hour &&
+          occurrence.minute == now.minute;
+      final untilSchedule = occurrence.difference(now);
+      if (sameScheduledMinute ||
+          (!untilSchedule.isNegative &&
+              untilSchedule <= const Duration(minutes: 1))) {
+        return ManualFeedScheduleGuard._(
+          ManualFeedScheduleGuardLevel.blocked,
+          schedule,
+          occurrence,
+        );
+      }
+
+      final distance = untilSchedule.abs();
+      if (distance <= warningWindow &&
+          (nearestDistance == null || distance < nearestDistance)) {
+        nearestDistance = distance;
+        nearestWarning = ManualFeedScheduleGuard._(
+          ManualFeedScheduleGuardLevel.warning,
+          schedule,
+          occurrence,
+        );
+      }
+    }
+  }
+
+  return nearestWarning ?? const ManualFeedScheduleGuard.clear();
+}
+
 /// Selects the nearest occurrence across any number of schedule times and
 /// repeat-day combinations. Disabled schedules are ignored automatically.
 ScheduledFeedOccurrence? nextEnabledFeeding(

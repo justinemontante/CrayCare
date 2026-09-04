@@ -14,7 +14,7 @@ The generated options still contain a Realtime Database URL, but active app/firm
 ## Canonical data flow
 
 ```text
-ESP32 anonymous device session
+ESP32 dedicated Email/Password device session (`esp32@craycare.com`)
   -> sensorIngestion/current (5-second best-effort live snapshot)
   -> sensorIngestion/current/history/{id} (10-minute durable aggregate)
       -> Node Cloud Functions resolve hardware_system/currentOwner
@@ -49,7 +49,7 @@ Firestore rules were loaded successfully by the Firestore Emulator and exercised
 - Disabled owner immediately loses tank access.
 - Active Admin can manage accounts/hardware and provision missing tank metadata; Admin is denied owner operational data and controls.
 - Owner can change actuator `control_mode` only.
-- Assigned anonymous ESP can report actuator physical state for its assigned tank only.
+- The assigned ESP service account can report actuator physical state for its assigned tank only.
 - ESP cannot access another tank's thresholds/actuators.
 - App users cannot write canonical sensor readings or ML predictions.
 - Anonymous ESP can write the staging ingestion path.
@@ -83,7 +83,7 @@ Firestore rules were loaded successfully by the Firestore Emulator and exercised
 
 ## Remaining production caveat
 
-The ESP currently uses Firebase anonymous authentication. Rules restrict direct tank-device access to the tank in `hardware_system/currentOwner`, but any party able to create an anonymous Firebase session could still attempt to spoof the fixed `sensorIngestion` staging path. Before public production deployment, replace anonymous device identity with one of:
+The ESP uses the dedicated Firebase Email/Password service account `esp32@craycare.com`. Rules restrict direct tank-device access to the tank in `hardware_system/currentOwner` and require that exact authenticated account for the fixed `sensorIngestion` staging path. Before a multi-device public production rollout, replace the shared device identity with one of:
 
 - a custom-auth device token / custom claim issued only to provisioned hardware; or
 - a secured HTTPS ingestion endpoint that validates a per-device credential.

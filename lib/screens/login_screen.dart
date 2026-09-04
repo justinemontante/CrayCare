@@ -106,7 +106,10 @@ class _LoginScreenState extends State<LoginScreen> {
         context,
         smoothPageRoute(
           (_) =>
-              MainShell(initialProfile: _authService.lastAuthenticatedProfile),
+              MainShell(
+                initialProfile: _authService.lastAuthenticatedProfile,
+                initialAdminData: _authService.lastAdminBootstrapData,
+              ),
         ),
       );
     } catch (e) {
@@ -126,8 +129,17 @@ class _LoginScreenState extends State<LoginScreen> {
           smoothPageRoute((_) => const VerifyScreen()),
         );
       } else {
+        final isCredentialError = const {
+          'invalid-credential',
+          'invalid-login-credentials',
+          'user-not-found',
+          'wrong-password',
+          'invalid-email',
+        }.contains(code);
         setState(() {
-          _loginError = 'Incorrect email or password.';
+          _loginError = isCredentialError
+              ? 'Incorrect email or password.'
+              : authErrorMessage(e);
           _autovalidateMode = AutovalidateMode.onUserInteraction;
         });
       }
@@ -138,9 +150,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
   // GOOGLE SIGN IN
   void _signInWithGoogle() async {
-    setState(() => _isGoogleLoading = true);
     try {
-      final user = await _authService.signInWithGoogle();
+      final user = await _authService.signInWithGoogle(
+        onAccountSelected: () {
+          if (mounted) setState(() => _isGoogleLoading = true);
+        },
+      );
       if (user != null) {
         if (!mounted) return;
         Navigator.pushReplacement(
@@ -148,6 +163,7 @@ class _LoginScreenState extends State<LoginScreen> {
           smoothPageRoute(
             (_) => MainShell(
               initialProfile: _authService.lastAuthenticatedProfile,
+              initialAdminData: _authService.lastAdminBootstrapData,
             ),
           ),
         );
@@ -629,7 +645,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             onTap: _anyLoading ? () {} : _signIn,
                             child: _isEmailLoading
                                 ? const Text(
-                                    'Signing in...',
+                                    'Signing in…',
                                     style: TextStyle(
                                       fontSize: 15,
                                       fontWeight: FontWeight.w700,
@@ -712,12 +728,12 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                               ),
                               child: _isGoogleLoading
-                                  ? const SizedBox(
-                                      width: 20,
-                                      height: 20,
-                                      child: CircularProgressIndicator(
+                                  ? const Text(
+                                      'Signing in…',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w700,
                                         color: AppColors.primary,
-                                        strokeWidth: 2.2,
                                       ),
                                     )
                                   : Row(

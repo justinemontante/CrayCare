@@ -74,7 +74,8 @@ String pass;
 //  FIREBASE SETTINGS
 // ============================================================
 // Firebase credentials (FIREBASE_API_KEY, FIREBASE_DATABASE_URL,
-// FIREBASE_PROJECT_ID) are defined in secrets.h (included above).
+// FIREBASE_PROJECT_ID, SECRETS_FIREBASE_USER_EMAIL and
+// SECRETS_FIREBASE_USER_PASSWORD) are defined in the gitignored secrets.h.
 // Sensor snapshots are staged under sensorIngestion and routed by Cloud
 // Functions. Device control/config paths use tanks/{currentTankId}/... directly.
 // Hardware ID derived from MAC address on first use (see getHardwareId())
@@ -749,20 +750,22 @@ void connectFirebase() {
   config.database_url = FIREBASE_DATABASE_URL;
   config.token_status_callback = tokenStatusCallback;
 
+  auth.user.email = SECRETS_FIREBASE_USER_EMAIL;
+  auth.user.password = SECRETS_FIREBASE_USER_PASSWORD;
+
   Firebase.reconnectWiFi(true);
-
-  Serial.print("Signing in to Firebase anonymously... ");
-
-  if (Firebase.signUp(&config, &auth, "", "")) {
-    firebaseReady = true;
-    Serial.println("OK");
-  } else {
-    firebaseReady = false;
-    Serial.printf("FAILED: %s\n", config.signer.signupError.message.c_str());
-  }
-
+  Serial.print("Signing in to Firebase as the CrayCare device... ");
   Firebase.begin(&config, &auth);
   Firebase.setDoubleDigits(2);
+
+  // Email/password sign-in is asynchronous. Give the initial token exchange a
+  // short window, then let Firebase.ready() continue refreshing in loop().
+  const unsigned long started = millis();
+  while (!Firebase.ready() && millis() - started < 15000) {
+    delay(100);
+  }
+  firebaseReady = Firebase.ready();
+  Serial.println(firebaseReady ? "OK" : "pending/failed");
 }
 
 // Read a float from a Firestore document already loaded into `doc`.
@@ -915,15 +918,14 @@ String getHardwareId() {
 //  FIREBASE READY CHECK — Re-auth if token expired
 // ============================================================
 bool ensureFirebaseReady() {
-  if (!firebaseReady) return false;
-  if (Firebase.ready()) return true;
-  Serial.println("[FIREBASE] Token expired, re-authenticating...");
-  if (Firebase.signUp(&config, &auth, "", "")) {
+  if (Firebase.ready()) {
     firebaseReady = true;
-    Serial.println("[FIREBASE] Re-auth OK");
     return true;
   }
-  Serial.printf("[FIREBASE] Re-auth failed: %s\n", config.signer.signupError.message.c_str());
+  // Firebase-ESP-Client refreshes the email/password token automatically.
+  // Do not call signUp here: that API creates accounts and is incorrect for
+  // the already-provisioned esp32@craycare.com service account.
+  firebaseReady = false;
   return false;
 }
 
@@ -1973,6 +1975,44 @@ bool canFeedSafely(String &reason, float requiredGrams) {
   return false;
 }
 
+// Feed Now must never race an automatic occurrence. Block the entire
+// scheduled minute and the final 60 seconds before it. The app provides the
+// wider 15-minute warning; this device-side guard remains authoritative if a
+// stale app, delayed command, or another client bypasses that UI.
+bool manualFeedConflictsWithSchedule(time_t now, String &scheduleLabel) {
+  if (!feederAutoMode || feederScheduleCount == 0 || now < 1700000000) return false;
+
+  struct tm currentTime;
+  localtime_r(&now, &currentTime);
+  for (int dayOffset = 0; dayOffset <= 1; dayOffset++) {
+    for (int i = 0; i < feederScheduleCount; i++) {
+      FeedSchedule& s = feederSchedules[i];
+      if (!s.enabled) continue;
+
+      struct tm candidateTime = currentTime;
+      candidateTime.tm_mday += dayOffset;
+      candidateTime.tm_hour = s.hour24;
+      candidateTime.tm_min = s.minute;
+      candidateTime.tm_sec = 0;
+      const time_t candidate = mktime(&candidateTime);
+      struct tm normalizedCandidate;
+      localtime_r(&candidate, &normalizedCandidate);
+      if (s.days.length() >= 7 && s.days.charAt(normalizedCandidate.tm_wday) != '1') continue;
+      if (s.effectiveEpoch > (unsigned long)candidate) continue;
+
+      const long secondsUntil = (long)difftime(candidate, now);
+      const bool sameMinute = now / 60 == candidate / 60;
+      if (sameMinute || (secondsUntil >= 0 && secondsUntil <= 60)) {
+        const int hour12 = s.hour24 % 12 == 0 ? 12 : s.hour24 % 12;
+        scheduleLabel = String(hour12) + ":" + (s.minute < 10 ? "0" : "") +
+                        String(s.minute) + (s.hour24 >= 12 ? " PM" : " AM");
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 // ─── Check if it's time for a scheduled feed ───
 void checkScheduledFeed() {
   if (currentTankId.isEmpty() || !feederAutoMode || feederScheduleCount == 0 || feederRunState != FEEDER_IDLE) return;
@@ -2088,6 +2128,11 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
   }
   if (!isfinite(grams) || grams < 20 || grams > 200 || fabsf(grams / 20.0f - roundf(grams / 20.0f)) > 0.0001f) {
     blockedReason = "unsupported amount; use 20-200 g in steps of 20 g";
+  }
+  String nearbySchedule;
+  if (blockedReason.length() == 0 && source == "manual" &&
+      manualFeedConflictsWithSchedule(checkedAt, nearbySchedule)) {
+    blockedReason = "automatic feeding is due at " + nearbySchedule;
   }
   if (blockedReason.length() > 0 || !canFeedSafely(blockedReason, feederRequestedGrams)) {
     feederStatusReason = blockedReason;
@@ -2491,7 +2536,7 @@ bool readActuatorMode(int idx, String& modeOut) {
 }
 
 // ─── Write back ACTUAL relay state to Firestore ───
-// Firestore rules allow the anonymous ESP to update ONLY:
+// Firestore rules allow the dedicated esp32@craycare.com account to update ONLY:
 //   current_state + last_changed   (never control_mode)
 void reportActuatorState(int idx, bool forced) {
   if (!ensureFirebaseReady()) return;

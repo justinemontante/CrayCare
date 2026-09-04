@@ -79,9 +79,12 @@ class _SignupScreenState extends State<SignupScreen> {
   }
 
   void _signUpWithGoogle() async {
-    setState(() => _isGoogleLoading = true);
     try {
-      final user = await _authService.signInWithGoogle();
+      final user = await _authService.signInWithGoogle(
+        onAccountSelected: () {
+          if (mounted) setState(() => _isGoogleLoading = true);
+        },
+      );
       if (user != null) {
         if (!mounted) return;
         Navigator.pushReplacement(
@@ -89,6 +92,7 @@ class _SignupScreenState extends State<SignupScreen> {
           smoothPageRoute(
             (_) => MainShell(
               initialProfile: _authService.lastAuthenticatedProfile,
+              initialAdminData: _authService.lastAdminBootstrapData,
             ),
           ),
         );

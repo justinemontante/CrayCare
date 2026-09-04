@@ -128,4 +128,38 @@ void main() {
     );
     expect(feederRecordedOutcome(schedule(), today, [log]), isNull);
   });
+
+  test('manual feeding is blocked during the minute before a schedule', () {
+    final item = ScheduleItem('6:00', 'PM', days: '1111111');
+    final guard = manualFeedScheduleGuard([
+      item,
+    ], DateTime(2026, 9, 4, 17, 59, 15));
+    expect(guard.isBlocked, isTrue);
+  });
+
+  test('manual feeding is blocked throughout the scheduled minute', () {
+    final item = ScheduleItem('6:00', 'PM', days: '1111111');
+    final guard = manualFeedScheduleGuard([
+      item,
+    ], DateTime(2026, 9, 4, 18, 0, 45));
+    expect(guard.isBlocked, isTrue);
+  });
+
+  test('manual feeding needs confirmation within fifteen minutes', () {
+    final item = ScheduleItem('6:00', 'PM', days: '1111111');
+    final guard = manualFeedScheduleGuard([item], DateTime(2026, 9, 4, 17, 50));
+    expect(guard.needsConfirmation, isTrue);
+  });
+
+  test('recent scheduled feeding also requires confirmation', () {
+    final item = ScheduleItem('6:00', 'PM', days: '1111111');
+    final guard = manualFeedScheduleGuard([item], DateTime(2026, 9, 4, 18, 5));
+    expect(guard.needsConfirmation, isTrue);
+  });
+
+  test('manual feeding is clear outside the warning window', () {
+    final item = ScheduleItem('6:00', 'PM', days: '1111111');
+    final guard = manualFeedScheduleGuard([item], DateTime(2026, 9, 4, 17, 40));
+    expect(guard.level, ManualFeedScheduleGuardLevel.clear);
+  });
 }
