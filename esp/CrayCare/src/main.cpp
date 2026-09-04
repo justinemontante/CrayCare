@@ -159,7 +159,8 @@ bool firebaseReady = false;
 bool firebaseStarted = false;
 unsigned long firebaseBeginStartedMs = 0;
 unsigned long lastFirebaseAuthAttemptMs = 0;
-constexpr unsigned long FIREBASE_AUTH_RETRY_INTERVAL_MS = 60000UL;
+volatile bool firebaseAuthAttemptFailed = false;
+constexpr unsigned long FIREBASE_AUTH_RETRY_INTERVAL_MS = 15UL * 60UL * 1000UL;
 bool cloudBootstrapComplete = false;
 unsigned long lastFirebaseAuthReportMs = 0;
 unsigned long lastFirebaseSendTime = 0;
@@ -903,22 +904,17 @@ void initTime() {
 }
 
 void firebaseTokenStatusCallback(TokenInfo info) {
-  static int lastStatus = -1;
-  static int lastError = 0;
-  static unsigned long lastReportMs = 0;
-  const unsigned long now = millis();
-  if ((int)info.status == lastStatus && info.error.code == lastError &&
-      now - lastReportMs < 10000UL) return;
-
-  lastStatus = (int)info.status;
-  lastError = info.error.code;
-  lastReportMs = now;
-  Serial.printf("[FIREBASE] auth=%s | token=%s\n",
-                getTokenStatus(info), getTokenType(info));
   if (info.error.code != 0) {
+    firebaseAuthAttemptFailed = true;
     Serial.printf("[FIREBASE] error code=%d message=%s\n",
                   info.error.code, info.error.message.c_str());
+    // Firebase-ESP-Client 4.4.17 otherwise loops forever on a rejected
+    // email/password login. End this attempt; the main loop retries later.
+    config.signer.tokens.status = token_status_ready;
+    return;
   }
+  Serial.printf("[FIREBASE] auth=%s | token=%s\n",
+                getTokenStatus(info), getTokenType(info));
 }
 
 void connectFirebase() {
@@ -936,11 +932,16 @@ void connectFirebase() {
   Firebase.reconnectWiFi(true);
   firebaseStarted = true;
   firebaseBeginStartedMs = millis();
+  firebaseAuthAttemptFailed = false;
   firebaseReady = false;
   Serial.println("[FIREBASE] Starting device authentication...");
   Firebase.begin(&config, &auth);
   Firebase.setDoubleDigits(2);
   lastFirebaseAuthAttemptMs = millis();
+  if (firebaseAuthAttemptFailed) {
+    config.signer.tokens.status = token_status_error;
+    Serial.println("[FIREBASE] Login rejected; next automatic attempt is in 15 minutes.");
+  }
   Serial.printf("[FIREBASE] Initial attempt returned after %lu ms; retries are limited to once per minute.\n",
                 lastFirebaseAuthAttemptMs - firebaseBeginStartedMs);
 }
@@ -1112,12 +1113,22 @@ String getHardwareId() {
 bool ensureFirebaseReady() {
   // A failed email/password sign-in can otherwise be retried by every cloud
   // call in loop(), quickly triggering Identity Toolkit rate limiting.
-  if (!Firebase.authenticated() &&
-      millis() - lastFirebaseAuthAttemptMs < FIREBASE_AUTH_RETRY_INTERVAL_MS) {
-    firebaseReady = false;
-    return false;
+  if (!Firebase.authenticated()) {
+    if (millis() - lastFirebaseAuthAttemptMs < FIREBASE_AUTH_RETRY_INTERVAL_MS) {
+      firebaseReady = false;
+      return false;
+    }
+    firebaseAuthAttemptFailed = false;
+    Serial.println("[FIREBASE] Retrying device authentication...");
+    Firebase.begin(&config, &auth);
+    lastFirebaseAuthAttemptMs = millis();
+    if (firebaseAuthAttemptFailed) {
+      config.signer.tokens.status = token_status_error;
+      Serial.println("[FIREBASE] Login still rejected; waiting 15 minutes before another retry.");
+      firebaseReady = false;
+      return false;
+    }
   }
-  if (!Firebase.authenticated()) lastFirebaseAuthAttemptMs = millis();
   if (Firebase.ready()) {
     firebaseReady = true;
     return true;
