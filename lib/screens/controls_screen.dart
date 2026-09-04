@@ -1122,7 +1122,7 @@ class ControlsScreenState extends State<ControlsScreen> {
             padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
             child: ConstrainedBox(
               constraints: BoxConstraints(
-                maxHeight: MediaQuery.of(context).size.height * 0.5,
+                maxHeight: MediaQuery.of(ctx).size.height * 0.5,
               ),
               child: SingleChildScrollView(
                 child: Column(

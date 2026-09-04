@@ -1172,7 +1172,7 @@ class ProductionScreenState extends State<ProductionScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (ctx) {
-        final halfHeight = MediaQuery.of(context).size.height * 0.5;
+        final halfHeight = MediaQuery.of(ctx).size.height * 0.5;
         return SizedBox(
           height: halfHeight,
           child: Padding(

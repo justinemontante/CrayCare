@@ -995,8 +995,8 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => Container(
-        height: MediaQuery.of(context).size.height * 0.6,
+      builder: (sheetCtx) => Container(
+        height: MediaQuery.of(sheetCtx).size.height * 0.6,
         decoration: const BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -1882,7 +1882,7 @@ class SamplingHistoryPanel extends StatelessWidget {
       ),
       builder: (ctx) {
         return Container(
-          height: MediaQuery.of(context).size.height * 0.55,
+          height: MediaQuery.of(ctx).size.height * 0.55,
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
           child: Column(
             mainAxisSize: MainAxisSize.min,

@@ -26,6 +26,9 @@ dependencies:
   share_plus: ^10.1.4
   path_provider: ^2.1.5
 
+dependency_overrides:
+  objective_c: 9.1.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

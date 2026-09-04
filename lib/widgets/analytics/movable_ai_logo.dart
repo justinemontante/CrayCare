@@ -35,7 +35,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
   }
 
   Widget _buildAIInsightsSheet(BuildContext ctx) {
-    final sheetHeight = MediaQuery.of(context).size.height * 0.85;
+    final sheetHeight = MediaQuery.of(ctx).size.height * 0.85;
 
     return SafeArea(
       top: false,
