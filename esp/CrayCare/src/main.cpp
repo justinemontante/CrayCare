@@ -1022,7 +1022,7 @@ bool syncFeedLevelConfig() {
 void syncConfigFromFirebase() {
   fetchTankId();
   if (currentTankId.length() == 0) {
-    Serial.println("[CONFIG] No tank assigned; retaining firmware defaults.");
+    if (sensorOutputEnabled) Serial.println("[CONFIG] No tank assigned; retaining firmware defaults.");
     return;
   }
 
@@ -1292,7 +1292,7 @@ void readTemperatureSensor() {
 
   if (rawTemp < MIN_VALID_TEMP || rawTemp > MAX_VALID_TEMP) {
     tempSensorOK = false;
-    Serial.printf("[TEMP SKIP] out of bounds: %.1f\n", rawTemp);
+    if (sensorOutputEnabled) Serial.printf("[TEMP SKIP] out of bounds: %.1f\n", rawTemp);
     return;
   }
 
@@ -1303,7 +1303,7 @@ void readTemperatureSensor() {
 
     if (jump > TEMP_JUMP_MAX) {
       accept = false;
-      Serial.printf("[TEMP SKIP] jump too large: %.2f\n", jump);
+      if (sensorOutputEnabled) Serial.printf("[TEMP SKIP] jump too large: %.2f\n", jump);
     }
   }
 
@@ -1322,7 +1322,7 @@ void readTemperatureSensor() {
     tempSkipCount++;
 
     if (tempSkipCount >= MAX_SKIP_COUNT) {
-      Serial.println("[TEMP] Watchdog override — forcing new baseline.");
+      if (sensorOutputEnabled) Serial.println("[TEMP] Watchdog override — forcing new baseline.");
       lastValidTemp = rawTemp;
       tempSkipCount = 0;
     }
@@ -1338,7 +1338,7 @@ void readTurbiditySensor() {
   if (!tr.valid) {
     turbiditySensorOK = false;
     smoothedTurbidityNTU = 0.0;
-    Serial.printf("[TURB] Air/no water (V=%.3f)\n", voltage);
+    if (sensorOutputEnabled) Serial.printf("[TURB] Air/no water (V=%.3f)\n", voltage);
     return;
   }
 
@@ -1349,7 +1349,7 @@ void readTurbiditySensor() {
 
     if (jump > TURB_NTU_JUMP_MAX) {
       accept = false;
-      Serial.printf("[TURB SKIP] NTU jump too large: %.1f\n", jump);
+      if (sensorOutputEnabled) Serial.printf("[TURB SKIP] NTU jump too large: %.1f\n", jump);
     }
   }
 
@@ -1368,7 +1368,7 @@ void readTurbiditySensor() {
     turbiditySkipCount++;
 
     if (turbiditySkipCount >= MAX_SKIP_COUNT) {
-      Serial.println("[TURB] Watchdog override — forcing new baseline.");
+      if (sensorOutputEnabled) Serial.println("[TURB] Watchdog override — forcing new baseline.");
       lastValidTurbidityNTU = tr.ntu;
       turbiditySkipCount = 0;
     }
@@ -1385,7 +1385,7 @@ void readDissolvedOxygenSensor() {
   if (dissolvedOxygenVoltage < 0.05f || dissolvedOxygenVoltage > 3.25f) {
     dissolvedOxygen = -1.0f;
     doSensorOK = false;
-    Serial.printf("[DO] Invalid/disconnected voltage: %.3fV\n", dissolvedOxygenVoltage);
+    if (sensorOutputEnabled) Serial.printf("[DO] Invalid/disconnected voltage: %.3fV\n", dissolvedOxygenVoltage);
     return;
   }
   dissolvedOxygen = dissolvedOxygenVoltage * doVoltageScale + doVoltageOffset;
@@ -1408,7 +1408,7 @@ void readPHSensor() {
   if (phVoltage < 0.05f || phVoltage > 3.25f) {
     phLevel = -1.0f;
     phSensorOK = false;
-    Serial.printf("[PH] Invalid/disconnected voltage: %.3fV\n", phVoltage);
+    if (sensorOutputEnabled) Serial.printf("[PH] Invalid/disconnected voltage: %.3fV\n", phVoltage);
     return;
   }
   phLevel = phVoltageSlope * phVoltage + phVoltageIntercept;
@@ -1440,7 +1440,7 @@ void readWaterLevelSensor() {
     waterDistanceCm = -1.0;
     waterLevelCm = -1.0;
     waterLevelSensorOK = false;
-    Serial.println("[WATER] HC-SR04 timeout/disconnected");
+    if (sensorOutputEnabled) Serial.println("[WATER] HC-SR04 timeout/disconnected");
     return;
   }
 
@@ -1451,8 +1451,10 @@ void readWaterLevelSensor() {
   if (depth < waterLevelCmMin - 2.0f || depth > waterLevelCmMax + 2.0f) {
     waterLevelCm = -1.0;
     waterLevelSensorOK = false;
-    Serial.printf("[WATER] Invalid echo: distance=%.1fcm depth=%.1fcm\n",
-                  waterDistanceCm, depth);
+    if (sensorOutputEnabled) {
+      Serial.printf("[WATER] Invalid echo: distance=%.1fcm depth=%.1fcm\n",
+                    waterDistanceCm, depth);
+    }
     return;
   }
 
@@ -1840,7 +1842,9 @@ void loop() {
   const bool networkAvailable = WiFi.status() == WL_CONNECTED;
   if (!networkAvailable && now - lastWifiReconnectTime >= 10000UL) {
     lastWifiReconnectTime = now;
-    Serial.println("[WIFI] Offline — local sensing/automation continues; reconnecting...");
+    if (sensorOutputEnabled) {
+      Serial.println("[WIFI] Offline — local sensing/automation continues; reconnecting...");
+    }
     WiFi.reconnect();
   }
 
