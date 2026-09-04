@@ -62,13 +62,16 @@
 #endif
 
 // ============================================================
-//  WIFI SETTINGS — stored in NVS via Preferences
-//  First boot: enter SSID + password over Serial Monitor
-//  Reset: send "RESET_WIFI" via Serial
+//  WIFI SETTINGS — multi-profile, stored in NVS via Preferences
+//  Namespace "wifiprof": count, active, ssid0/pass0 ... ssid4/pass4
+//  First boot: Enter SSID + PASSWORD prompts over Serial Monitor
+//  Add: "wifi add" (prompts) or "wifi set <SSID> <PASS>" (one-line)
+//  List: "wifilist"  Switch: "wifi use <n>"  Reset: "RESET_WIFI"
 // ============================================================
 Preferences prefs;
 String ssid;
 String pass;
+#define WIFI_MAX_PROFILES 5
 
 // ============================================================
 //  FIREBASE SETTINGS
@@ -676,53 +679,198 @@ String getTempZone(float t) {
 // ============================================================
 //  WIFI / FIREBASE
 // ============================================================
-void connectWiFi() {
-  prefs.begin("wifi", true);
-  ssid = prefs.getString("ssid", "");
-  pass = prefs.getString("pass", "");
+int wifiProfileCount() {
+  prefs.begin("wifiprof", true);
+  int n = prefs.getInt("count", 0);
   prefs.end();
+  return constrain(n, 0, WIFI_MAX_PROFILES);
+}
 
-  // First boot — prompt for credentials via Serial
-  if (ssid == "") {
-    Serial.println("\n=== WIFI SETUP ===");
-    Serial.println("Enter SSID:");
-    while (!Serial.available()) delay(100);
-    ssid = Serial.readStringUntil('\n');
-    ssid.trim();
-    Serial.println(">> " + ssid);
-    Serial.println("Enter PASSWORD:");
-    while (!Serial.available()) delay(100);
-    pass = Serial.readStringUntil('\n');
-    pass.trim();
-    prefs.begin("wifi", false);
-    prefs.putString("ssid", ssid);
-    prefs.putString("pass", pass);
+void wifiGetProfile(int idx, String &outSsid, String &outPass) {
+  outSsid = "";
+  outPass = "";
+  if (idx < 0 || idx >= WIFI_MAX_PROFILES) return;
+  prefs.begin("wifiprof", true);
+  outSsid = prefs.getString(("ssid" + String(idx)).c_str(), "");
+  outPass = prefs.getString(("pass" + String(idx)).c_str(), "");
+  prefs.end();
+  outSsid.trim();
+}
+
+int wifiActiveIndex() {
+  prefs.begin("wifiprof", true);
+  int a = prefs.getInt("active", 0);
+  prefs.end();
+  int n = wifiProfileCount();
+  if (n == 0) return 0;
+  return constrain(a, 0, n - 1);
+}
+
+void wifiSetActive(int idx) {
+  prefs.begin("wifiprof", false);
+  prefs.putInt("active", idx);
+  prefs.end();
+}
+
+int wifiFindBySsid(const String &s) {
+  int n = wifiProfileCount();
+  for (int i = 0; i < n; i++) {
+    String eSsid, ePass;
+    wifiGetProfile(i, eSsid, ePass);
+    if (eSsid == s) return i;
+  }
+  return -1;
+}
+
+int wifiSaveProfile(const String &s, const String &p) {
+  if (s.length() == 0 || s.length() > 32 || p.length() > 64) return -1;
+  int idx = wifiFindBySsid(s);
+  if (idx >= 0) {
+    prefs.begin("wifiprof", false);
+    prefs.putString(("pass" + String(idx)).c_str(), p);
+    prefs.putInt("active", idx);
     prefs.end();
-    Serial.println("[SAVED] Restarting...");
-    delay(1500);
-    ESP.restart();
+    return idx;
+  }
+  int n = wifiProfileCount();
+  if (n >= WIFI_MAX_PROFILES) {
+    idx = wifiActiveIndex();
+    prefs.begin("wifiprof", false);
+    prefs.putString(("ssid" + String(idx)).c_str(), s);
+    prefs.putString(("pass" + String(idx)).c_str(), p);
+    prefs.putInt("active", idx);
+    prefs.end();
+    return idx;
+  }
+  prefs.begin("wifiprof", false);
+  prefs.putString(("ssid" + String(n)).c_str(), s);
+  prefs.putString(("pass" + String(n)).c_str(), p);
+  prefs.putInt("count", n + 1);
+  prefs.putInt("active", n);
+  prefs.end();
+  return n;
+}
+
+void wifiMigrateLegacy() {
+  if (wifiProfileCount() > 0) return;
+  prefs.begin("wifi", true);
+  String oldSsid = prefs.getString("ssid", "");
+  String oldPass = prefs.getString("pass", "");
+  prefs.end();
+  oldSsid.trim();
+  if (oldSsid.length() > 0) {
+    prefs.begin("wifiprof", false);
+    prefs.putString("ssid0", oldSsid);
+    prefs.putString("pass0", oldPass);
+    prefs.putInt("count", 1);
+    prefs.putInt("active", 0);
+    prefs.end();
+    Serial.printf("[WIFI] Migrated legacy \"%s\" to slot 0\n", oldSsid.c_str());
+  }
+}
+
+void wifiPromptAndSave() {
+  Serial.println("\n=== WIFI SETUP ===");
+  Serial.println("Enter SSID:");
+  while (!Serial.available()) delay(100);
+  String s = Serial.readStringUntil('\n');
+  s.trim();
+  Serial.println(">> " + s);
+  Serial.println("Enter PASSWORD:");
+  while (!Serial.available()) delay(100);
+  String p = Serial.readStringUntil('\n');
+  p.trim();
+  if (s.length() == 0) {
+    Serial.println("[WIFI] Empty SSID — cancelled");
+    return;
+  }
+  int idx = wifiSaveProfile(s, p);
+  if (idx < 0) {
+    Serial.println("[WIFI] Save failed — check length");
+    return;
+  }
+  ssid = s;
+  pass = p;
+  Serial.printf("[SAVED] Slot %d \"%s\" — restarting...\n", idx, s.c_str());
+  delay(1500);
+  ESP.restart();
+}
+
+bool wifiTryOne(const String &s, const String &p) {
+  WiFi.begin(s.c_str(), p.c_str());
+  Serial.printf("[WIFI] Trying \"%s\"", s.c_str());
+  for (int i = 0; i < 20; i++) {
+    if (WiFi.status() == WL_CONNECTED) break;
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println();
+  return WiFi.status() == WL_CONNECTED;
+}
+
+void wifiListProfiles() {
+  int n = wifiProfileCount();
+  int a = wifiActiveIndex();
+  if (n == 0) {
+    Serial.println("[WIFI] No saved networks — type \"wifi add\"");
+    return;
+  }
+  Serial.printf("[WIFI] %d saved:\n", n);
+  for (int i = 0; i < n; i++) {
+    String eSsid, ePass;
+    wifiGetProfile(i, eSsid, ePass);
+    Serial.printf("  %d: \"%s\"%s\n", i, eSsid.c_str(), (i == a) ? "  *active" : "");
+  }
+}
+
+void wifiScanNetworks() {
+  Serial.println("[WIFI] Scanning...");
+  int n = WiFi.scanNetworks();
+  if (n <= 0) {
+    Serial.printf("[WIFI] No networks found (code=%d)\n", n);
+  } else {
+    Serial.printf("[WIFI] %d found:\n", n);
+    for (int i = 0; i < n; i++) {
+      Serial.printf("  \"%s\" (%d dBm) %s\n", WiFi.SSID(i).c_str(), WiFi.RSSI(i),
+                    WiFi.encryptionType(i) == WIFI_AUTH_OPEN ? "OPEN" : "secure");
+    }
+  }
+  WiFi.scanDelete();
+}
+
+void connectWiFi() {
+  wifiMigrateLegacy();
+  int n = wifiProfileCount();
+
+  if (n == 0) {
+    wifiPromptAndSave();
+    return;
   }
 
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);
-  WiFi.begin(ssid.c_str(), pass.c_str());
+  WiFi.disconnect(true, true);
+  delay(200);
 
-  Serial.print("[WIFI] Connecting");
-
-  int retries = 40;
-  while (WiFi.status() != WL_CONNECTED && retries-- > 0) {
-    delay(500);
-    Serial.print(".");
+  int a = wifiActiveIndex();
+  for (int k = 0; k < n; k++) {
+    int idx = (a + k) % n;
+    String s, p;
+    wifiGetProfile(idx, s, p);
+    if (s.length() == 0) continue;
+    if (wifiTryOne(s, p)) {
+      ssid = s;
+      pass = p;
+      wifiSetActive(idx);
+      Serial.print("Connected! IP: ");
+      Serial.println(WiFi.localIP());
+      return;
+    }
   }
 
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println();
-    Serial.print("Connected! IP: ");
-    Serial.println(WiFi.localIP());
-  } else {
-    Serial.println(" FAILED — check SSID/password or network availability");
-    Serial.println("Type RESET_WIFI to reconfigure");
-  }
+  wifiGetProfile(a, ssid, pass);
+  Serial.println("[WIFI] FAILED — all saved networks unreachable");
+  Serial.println("Commands: wifilist | wifi add | wifi set <SSID> <PASS> | wifi use <n> | wifiscan | RESET_WIFI");
 }
 
 void initTime() {
@@ -1434,12 +1582,85 @@ void loop() {
     String cmd = Serial.readStringUntil('\n');
     cmd.trim();
     if (cmd == "RESET_WIFI") {
+      prefs.begin("wifiprof", false);
+      prefs.clear();
+      prefs.end();
       prefs.begin("wifi", false);
       prefs.clear();
       prefs.end();
-      Serial.println("[WIFI] Credentials erased. Restarting...");
+      Serial.println("[WIFI] All credentials erased. Restarting...");
       delay(1500);
       ESP.restart();
+    }
+    if (cmd == "wifi add") {
+      wifiPromptAndSave();
+    }
+    if (cmd.startsWith("wifi set ")) {
+      String rest = cmd.substring(9);
+      rest.trim();
+      int sp = rest.indexOf(' ');
+      if (sp < 0) {
+        Serial.println("Usage: wifi set <SSID> <PASS>");
+      } else {
+        String s = rest.substring(0, sp);
+        String p = rest.substring(sp + 1);
+        s.trim(); p.trim();
+        int idx = wifiSaveProfile(s, p);
+        if (idx < 0) {
+          Serial.println("[WIFI] Save failed — check SSID/PASS length");
+        } else {
+          Serial.printf("[WIFI] Saved slot %d \"%s\" — restarting...\n", idx, s.c_str());
+          delay(1500);
+          ESP.restart();
+        }
+      }
+    }
+    if (cmd == "wifilist" || cmd == "wifi list") {
+      wifiListProfiles();
+    }
+    if (cmd.startsWith("wifi use ")) {
+      int idx = cmd.substring(9).toInt();
+      int n = wifiProfileCount();
+      if (idx < 0 || idx >= n) {
+        Serial.printf("Usage: wifi use 0-%d (see wifilist)\n", n - 1);
+      } else {
+        wifiSetActive(idx);
+        String s, p;
+        wifiGetProfile(idx, s, p);
+        Serial.printf("[WIFI] Switching to slot %d \"%s\"...\n", idx, s.c_str());
+        delay(500);
+        ESP.restart();
+      }
+    }
+    if (cmd.startsWith("wifi delete ") || cmd.startsWith("wifi del ")) {
+      int sp = cmd.lastIndexOf(' ');
+      int idx = cmd.substring(sp + 1).toInt();
+      int n = wifiProfileCount();
+      if (idx < 0 || idx >= n) {
+        Serial.printf("Usage: wifi delete 0-%d\n", n - 1);
+      } else {
+        prefs.begin("wifiprof", false);
+        for (int i = idx; i < n - 1; i++) {
+          prefs.putString(("ssid" + String(i)).c_str(), prefs.getString(("ssid" + String(i + 1)).c_str(), ""));
+          prefs.putString(("pass" + String(i)).c_str(), prefs.getString(("pass" + String(i + 1)).c_str(), ""));
+        }
+        prefs.remove(("ssid" + String(n - 1)).c_str());
+        prefs.remove(("pass" + String(n - 1)).c_str());
+        prefs.putInt("count", n - 1);
+        if (wifiActiveIndex() >= n - 1) prefs.putInt("active", 0);
+        prefs.end();
+        Serial.printf("[WIFI] Deleted slot %d\n", idx);
+        wifiListProfiles();
+      }
+    }
+    if (cmd == "wifiscan" || cmd == "wifi scan") {
+      wifiScanNetworks();
+    }
+    if (cmd == "wifistatus" || cmd == "wifi status") {
+      Serial.printf("[WIFI] %s | IP=%s | RSSI=%d dBm | SSID=\"%s\"\n",
+                    WiFi.status() == WL_CONNECTED ? "CONNECTED" : "OFFLINE",
+                    WiFi.localIP().toString().c_str(), WiFi.RSSI(), ssid.c_str());
+      wifiListProfiles();
     }
     if (cmd == "FEED") {
       startFeed("manual");

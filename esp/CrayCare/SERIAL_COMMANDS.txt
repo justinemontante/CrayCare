@@ -8,9 +8,32 @@ IMPORTANT
 - HC-SR04 ECHO must be reduced from 5V to 3.3V before GPIO33.
 - Calibration values are stored in ESP32 NVS and survive reboot.
 
-WIFI
+WIFI (up to 5 networks stored in NVS "wifiprof", survives reboot)
+  wifi add
+    Prompt flow: Enter SSID: -> Enter PASSWORD: -> saves + restarts.
+    Safe for SSIDs/passwords with spaces. Re-saving same SSID updates it.
+
+  wifi set <SSID> <PASS>
+    One-line version, e.g. wifi set MyHotspot mypass123 -> saves + restarts.
+
+  wifilist  (alias: wifi list)
+    Shows all saved slots, e.g. 0: "Home" *active / 1: "Hotspot".
+
+  wifi use <n>
+    Switch active network, e.g. wifi use 1 -> restarts and connects there.
+    Boot also auto-fallbacks through all saved slots if active is down.
+
+  wifi delete <n>  (alias: wifi del <n>)
+    Deletes one slot and shifts the rest.
+
+  wifiscan  (alias: wifi scan)
+    Scans nearby networks with RSSI + OPEN/secure.
+
+  wifistatus  (alias: wifi status)
+    Shows CONNECTED/OFFLINE, IP, RSSI, current SSID + saved list.
+
   RESET_WIFI
-    Erases stored Wi-Fi credentials and restarts the ESP32.
+    Erases ALL stored Wi-Fi networks (legacy + multi) and restarts.
 
 FEEDER
   FEED
