@@ -873,7 +873,7 @@ void connectWiFi() {
 
   wifiGetProfile(a, ssid, pass);
   Serial.println("[WIFI] FAILED — all saved networks unreachable");
-  Serial.println("Commands: wifilist | wifi add | wifi set <SSID> <PASS> | wifi use <n> | wifiscan | RESET_WIFI");
+  Serial.println("Commands: WIFI_HELP | wifi set <SSID>|<PASS> | wifi list | wifi use <n> | wifiscan | RESET_WIFI");
 }
 
 void initTime() {
@@ -1683,11 +1683,6 @@ void loop() {
     }
     if (cmd == "wifilist" || cmd == "wifi list") {
       wifiListProfiles();
-    }
-    if (cmd == "wifi status") {
-      Serial.printf("[WIFI] %s | SSID: \"%s\" | IP: %s | RSSI: %d dBm\n",
-                    WiFi.status() == WL_CONNECTED ? "connected" : "disconnected",
-                    ssid.c_str(), WiFi.localIP().toString().c_str(), WiFi.RSSI());
     }
     if (cmd.startsWith("wifi use ")) {
       int idx = cmd.substring(9).toInt();

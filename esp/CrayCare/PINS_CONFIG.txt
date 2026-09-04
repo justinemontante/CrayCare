@@ -78,6 +78,14 @@ LCD display: "W:XXcm" (actual water depth)
   SERIAL COMMANDS
 ============================================
 
+COMMAND MENU / SENSOR DISPLAY
+  HELP / help / ?        Show the main command menu
+  SENSOR_ON              Print readings every 2 seconds
+  SENSOR_OFF             Hide periodic readings (default after boot)
+  SENSOR_READ            Take and print one fresh reading
+  CAL_HELP               Show calibration commands
+  WIFI_HELP              Show Wi-Fi commands
+
 RELAYS
   n1on / n1off         Water Pump ON/OFF       (GPIO 26)
   n2on / n2off         Primary Aerator ON/OFF  (GPIO 27)
@@ -85,18 +93,17 @@ RELAYS
   relay status         Show relay states
 
 FEEDER
-  servopause <ms>      Set servo open pause
-  servocycle           Run one feed cycle
-  feedtime1 <H> <M>    Set slot1 feed time (24h)
-  feedtime2 <H> <M>    Set slot2 feed time (24h)
-  feedtime             Show current schedule
-  schedulesync         Force Firebase sync
+  FEED                  Request one manual feed (default 20 g estimate)
 
-WIFI
-  wifissid <SSID>      Save WiFi SSID
-  wifipass <PASS>      Save WiFi password
-  wifireset            Reset WiFi credentials
-  wifistatus           Show WiFi status
+WIFI (up to 5 profiles saved in NVS)
+  wifi add                 Guided SSID/password entry
+  wifi set <SSID>|<PASS>   Save/update profile; SSID may contain spaces
+  wifi list / wifilist     List profiles; passwords stay hidden
+  wifi use <INDEX>         Switch profile and restart
+  wifi delete <INDEX>      Delete one profile
+  wifi scan / wifiscan     Scan nearby networks
+  wifi status / wifistatus Show connection and saved profiles
+  RESET_WIFI               Erase every saved profile and restart
 
 CALIBRATION
   turbclear <V>        Turbidity 0 NTU voltage
@@ -108,9 +115,5 @@ CALIBRATION
   feedempty            Save current hopper voltage as empty
   feedfull             Save current hopper voltage as full
 
-DEBUG / SYSTEM
-  debugmode [0/1]      Toggle debug mode
-  debugstatus          Show system status
-  restart              Reboot ESP32
-  i2cscan              Scan I2C devices
-  help / ?             Show commands
+DEBUG
+  raw                   Print one raw sensor reading

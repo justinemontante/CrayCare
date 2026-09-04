@@ -8,13 +8,36 @@ IMPORTANT
 - HC-SR04 ECHO must be reduced from 5V to 3.3V before GPIO33.
 - Calibration values are stored in ESP32 NVS and survive reboot.
 
+COMMAND MENU / SENSOR DISPLAY
+  HELP  (aliases: help, ?)
+    Shows the main command menu.
+
+  SENSOR_ON  (alias: sensor on)
+    Prints a complete sensor reading every 2 seconds.
+
+  SENSOR_OFF  (alias: sensor off)
+    Stops periodic sensor printing so commands are easy to type. This is the
+    default after every boot. Sampling, Firestore uploads, buffering, feeder,
+    and actuator automation continue normally.
+
+  SENSOR_READ  (alias: sensor read)
+    Takes and prints one fresh reading without enabling periodic output.
+
+  CAL_HELP  (alias: cal help)
+    Shows calibration commands in the Serial Monitor.
+
+  WIFI_HELP  (alias: wifi help)
+    Shows Wi-Fi commands in the Serial Monitor.
+
 WIFI (up to 5 networks stored in NVS "wifiprof", survives reboot)
   wifi add
     Prompt flow: Enter SSID: -> Enter PASSWORD: -> saves + restarts.
     Safe for SSIDs/passwords with spaces. Re-saving same SSID updates it.
 
-  wifi set <SSID> <PASS>
-    One-line version, e.g. wifi set MyHotspot mypass123 -> saves + restarts.
+  wifi set <SSID>|<PASS>
+    One-line version. The | separates the network name and password, so SSIDs
+    may contain spaces. Example: wifi set Dave Phone Hotspot|mypass123
+    Saves the profile, makes it active, and restarts.
 
   wifilist  (alias: wifi list)
     Shows all saved slots, e.g. 0: "Home" *active / 1: "Hotspot".
