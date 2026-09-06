@@ -61,42 +61,88 @@ def _valid_history_row(row):
     return True
 
 
+def _timestamp_seconds(value):
+    """Normalize Firestore/legacy timestamp representations to Unix seconds."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        normalized = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+        return normalized.timestamp()
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        numeric = float(value)
+        if not math.isfinite(numeric) or numeric <= 0:
+            return None
+        # Legacy exports may contain epoch milliseconds instead of seconds.
+        return numeric / 1000.0 if numeric >= 100_000_000_000 else numeric
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            numeric = float(text)
+        except ValueError:
+            numeric = None
+        if numeric is not None:
+            return _timestamp_seconds(numeric)
+        try:
+            normalized_text = text[:-1] + "+00:00" if text.endswith("Z") else text
+            parsed = datetime.fromisoformat(normalized_text)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.timestamp()
+        except ValueError:
+            return None
+    return None
+
+
 def _fetch_sensor_history(tank_id, hours=24):
     import pandas as pd
     db = _get_db()
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(hours=hours)
+    cutoff_seconds = cutoff.timestamp()
+    latest_allowed_seconds = now.timestamp() + 60.0
     rows = []
     current_day = (cutoff + timedelta(hours=8)).date()
     last_day = (now + timedelta(hours=8)).date()
     while current_day <= last_day:
         date_key = current_day.strftime("%Y-%m-%d")
         try:
+            # Read the bounded daily subcollection and filter timestamps here.
+            # This keeps one malformed/mixed-type legacy timestamp from breaking
+            # the whole query or excluding otherwise valid records for the day.
             docs = (db.collection("tanks").document(tank_id)
                     .collection("sensor_readings_history").document(date_key)
-                    .collection("entries").where("recorded_at", ">=", cutoff).get())
+                    .collection("entries").get())
             for doc in docs:
-                data = doc.to_dict()
-                recorded_at = data.get("recorded_at")
-                if recorded_at is None:
-                    continue
-                temp = data.get("temp_avg", data.get("temperature"))
-                ph = data.get("pH_avg", data.get("ph_level"))
-                dissolved_oxygen = data.get("DO_avg", data.get("dissolved_oxygen"))
-                turbidity = data.get("turbidity_avg", data.get("turbidity"))
-                water_level = data.get("waterLevel_avg", data.get("water_level"))
-                row = {
-                    "timestamp": recorded_at.timestamp(),
-                    "temp_avg": temp, "temp_min": data.get("temp_min", temp), "temp_max": data.get("temp_max", temp),
-                    "pH_avg": ph, "pH_min": data.get("pH_min", ph), "pH_max": data.get("pH_max", ph),
-                    "DO_avg": dissolved_oxygen, "DO_min": data.get("DO_min", dissolved_oxygen), "DO_max": data.get("DO_max", dissolved_oxygen),
-                    "turbidity_avg": turbidity, "turbidity_min": data.get("turbidity_min", turbidity), "turbidity_max": data.get("turbidity_max", turbidity),
-                    "waterLevel_avg": water_level, "waterLevel_min": data.get("waterLevel_min", water_level), "waterLevel_max": data.get("waterLevel_max", water_level),
-                }
-                if _valid_history_row(row):
-                    rows.append(row)
-                else:
-                    print(f"[WQAD] Skipping invalid history document {doc.id}")
+                try:
+                    data = doc.to_dict() or {}
+                    recorded_seconds = _timestamp_seconds(data.get("recorded_at"))
+                    if recorded_seconds is None:
+                        print(f"[WQAD] Skipping history document {doc.id} with invalid timestamp")
+                        continue
+                    if recorded_seconds < cutoff_seconds or recorded_seconds > latest_allowed_seconds:
+                        continue
+
+                    temp = data.get("temp_avg", data.get("temperature"))
+                    ph = data.get("pH_avg", data.get("ph_level"))
+                    dissolved_oxygen = data.get("DO_avg", data.get("dissolved_oxygen"))
+                    turbidity = data.get("turbidity_avg", data.get("turbidity"))
+                    water_level = data.get("waterLevel_avg", data.get("water_level"))
+                    row = {
+                        "timestamp": recorded_seconds,
+                        "temp_avg": temp, "temp_min": data.get("temp_min", temp), "temp_max": data.get("temp_max", temp),
+                        "pH_avg": ph, "pH_min": data.get("pH_min", ph), "pH_max": data.get("pH_max", ph),
+                        "DO_avg": dissolved_oxygen, "DO_min": data.get("DO_min", dissolved_oxygen), "DO_max": data.get("DO_max", dissolved_oxygen),
+                        "turbidity_avg": turbidity, "turbidity_min": data.get("turbidity_min", turbidity), "turbidity_max": data.get("turbidity_max", turbidity),
+                        "waterLevel_avg": water_level, "waterLevel_min": data.get("waterLevel_min", water_level), "waterLevel_max": data.get("waterLevel_max", water_level),
+                    }
+                    if _valid_history_row(row):
+                        rows.append(row)
+                    else:
+                        print(f"[WQAD] Skipping invalid history document {doc.id}")
+                except Exception as error:
+                    print(f"[WQAD] Skipping malformed history document {doc.id}: {error}")
         except Exception as error:
             print(f"[WQAD] History read failed for {tank_id}/{date_key}: {error}")
         current_day += timedelta(days=1)
