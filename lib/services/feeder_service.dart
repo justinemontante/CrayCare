@@ -46,8 +46,9 @@ class FeederService extends ChangeNotifier {
     if (raw is Timestamp) return raw.toDate().toUtc().millisecondsSinceEpoch;
     if (raw is DateTime) return raw.toUtc().millisecondsSinceEpoch;
     if (raw is num) {
-      final value = raw.toInt();
-      if (value <= 0) return 0;
+      final numeric = raw.toDouble();
+      if (!numeric.isFinite || numeric <= 0) return 0;
+      final value = numeric.round();
       // Legacy integrations occasionally stored Unix seconds rather than ms.
       return value < 100000000000 ? value * 1000 : value;
     }
@@ -72,6 +73,7 @@ class FeederService extends ChangeNotifier {
   // which hardcodes MANILA_OFFSET_MS). Mirror that same fixed +8h approach
   // here so both sides agree on "today" and "now".
   static const _manilaOffset = Duration(hours: 8);
+  static const _maxFutureHeartbeatSkew = Duration(seconds: 60);
   DateTime _manilaNow() => manilaWallClock();
 
   bool _initialized = false;
@@ -85,15 +87,22 @@ class FeederService extends ChangeNotifier {
     if (_tankId != null) return _tankId;
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return null;
-    final profileDoc = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(uid)
-        .get();
-    final profile = profileDoc.data();
-    if (FirebaseAuth.instance.currentUser?.uid != uid) return null;
-    if (profile?['role'] == 'admin') return null;
-    _tankId = uid;
-    return _tankId;
+    try {
+      final profileDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get();
+      final profile = profileDoc.data();
+      if (FirebaseAuth.instance.currentUser?.uid != uid) return null;
+      final role = profile?['role']?.toString().trim().toLowerCase();
+      if (role == 'admin') return null;
+      if (!profileDoc.exists || role != 'owner') return null;
+      _tankId = uid;
+      return _tankId;
+    } catch (e) {
+      debugPrint('[FeederService] Failed to resolve tank for $uid: $e');
+      return null;
+    }
   }
 
   DocumentReference<Map<String, dynamic>>? _tankDoc() => _tankId == null
@@ -104,6 +113,7 @@ class FeederService extends ChangeNotifier {
   StreamSubscription? _schedulesSub;
   StreamSubscription? _logsSub;
   StreamSubscription? _todayLogsSub;
+  StreamSubscription<User?>? _authSub;
   String _totalsDayKey = '';
   double _consumptionToday = 0;
   int _completedToday = 0;
@@ -125,6 +135,7 @@ class FeederService extends ChangeNotifier {
   final List<String> _scheduleKeys = [];
 
   Timer? _scheduleTimer;
+  bool _scheduleCheckInProgress = false;
   String _lastCheckDate = '';
   final Set<String> _missedLogged = {};
 
@@ -139,7 +150,10 @@ class FeederService extends ChangeNotifier {
   DateTime get lastSeen => _lastSeen;
   String? get lastError => _lastError;
 
-  bool get isOnline => DateTime.now().difference(_lastSeen).inSeconds < 30;
+  bool get isOnline {
+    final age = DateTime.now().difference(_lastSeen);
+    return !age.isNegative && age < const Duration(seconds: 30);
+  }
 
   List<LogEntry> get logs => List.unmodifiable(_logs);
   List<ScheduleItem> get schedules => List.unmodifiable(_schedules);
@@ -207,13 +221,13 @@ class FeederService extends ChangeNotifier {
     try {
       _startScheduleTimer();
       if (FirebaseAuth.instance.currentUser != null) {
-        _reinitListeners();
+        unawaited(_reinitListeners());
       }
-      FirebaseAuth.instance.authStateChanges().listen((user) {
+      _authSub = FirebaseAuth.instance.authStateChanges().listen((user) {
         if (user != null) {
           _cancelSubscriptions();
           _tankId = null;
-          _reinitListeners();
+          unawaited(_reinitListeners());
         } else {
           _cancelSubscriptions();
           _tankId = null;
@@ -323,11 +337,17 @@ class FeederService extends ChangeNotifier {
                     ?.toDouble();
                 _dispenseCount =
                     (data['dispenseCount'] as num?)?.toInt() ?? _dispenseCount;
-                final seen = data['lastSeen'];
-                if (seen is int && seen > 0) {
-                  _lastSeen = DateTime.fromMillisecondsSinceEpoch(seen);
-                } else if (seen is double && seen > 0) {
-                  _lastSeen = DateTime.fromMillisecondsSinceEpoch(seen.toInt());
+
+                final seenMs = _parseLoggedAtMillis(data['lastSeen']);
+                if (seenMs > 0) {
+                  final parsed = DateTime.fromMillisecondsSinceEpoch(seenMs);
+                  final now = DateTime.now();
+                  final futureSkew = parsed.difference(now);
+                  if (futureSkew > _maxFutureHeartbeatSkew) {
+                    _lastError = 'Feeder heartbeat has an invalid future timestamp.';
+                  } else {
+                    _lastSeen = parsed.isAfter(now) ? now : parsed;
+                  }
                 }
               } catch (e) {
                 debugPrint('[FeederService] Status parse error: $e');
@@ -766,7 +786,7 @@ class FeederService extends ChangeNotifier {
             'timeValue': timeValue,
             'enabled': enabled ?? true,
             'isDone': false,
-            'grams': grams,
+            'grams': clearGrams ? null : grams,
             'days': days,
             'effective_at_ms': DateTime.now().toUtc().millisecondsSinceEpoch,
           });
@@ -798,15 +818,20 @@ class FeederService extends ChangeNotifier {
   void _startScheduleTimer() {
     _scheduleTimer?.cancel();
     _scheduleTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (_scheduleCheckInProgress) return;
+      _scheduleCheckInProgress = true;
       unawaited(
-        _checkSchedules().catchError((Object error) {
-          debugPrint('[FeederService] Schedule reconciliation failed: $error');
-        }),
+        _checkSchedules()
+            .catchError((Object error) {
+              debugPrint('[FeederService] Schedule reconciliation failed: $error');
+            })
+            .whenComplete(() => _scheduleCheckInProgress = false),
       );
     });
   }
 
   Future<void> _checkSchedules() async {
+    final generation = _listenerGeneration;
     final tankDoc = _tankDoc();
     if (tankDoc == null) return;
     _listenTodayTotals();
@@ -823,6 +848,7 @@ class FeederService extends ChangeNotifier {
     }
 
     for (int i = 0; i < _schedules.length; i++) {
+      if (generation != _listenerGeneration) return;
       final s = _schedules[i];
       if (!s.enabled || feederRecordedOutcome(s, now, _logs) != null) continue;
       // Skip schedules that are not active on today's weekday (Sunday-first).
@@ -839,21 +865,7 @@ class FeederService extends ChangeNotifier {
       final occurrenceKey = '$key|$scheduleMinutes';
       if (_missedLogged.contains(occurrenceKey)) continue;
 
-      final months = [
-        'Jan',
-        'Feb',
-        'Mar',
-        'Apr',
-        'May',
-        'Jun',
-        'Jul',
-        'Aug',
-        'Sep',
-        'Oct',
-        'Nov',
-        'Dec',
-      ];
-      final expectedDate = '${months[now.month - 1]} ${now.day}, ${now.year}';
+      final expectedDate = '${_months[now.month - 1]} ${now.day}, ${now.year}';
       final expectedTime = '${s.time} ${s.ampm}';
       final alreadyConfirmed = _logs.any((log) {
         final action = log.action.toLowerCase();
@@ -866,7 +878,6 @@ class FeederService extends ChangeNotifier {
       if (alreadyConfirmed) continue;
 
       if (now.difference(scheduleDt).inMinutes >= 5) {
-        _missedLogged.add(occurrenceKey);
         const reason = 'Awaiting device confirmation';
         // Use a deterministic document ID so an app restart or multiple
         // devices cannot write duplicate "Feed skipped" logs for the same
@@ -877,16 +888,20 @@ class FeederService extends ChangeNotifier {
         final missedRef = tankDoc.collection('feeder_logs').doc(missedDocId);
         var alreadyExists = false;
         try {
-          // Avoid turning an idempotent second attempt into an update now that
-          // feeder history is append-only. A cache miss is not authoritative,
-          // so Firestore rules remain the final concurrency guard.
           alreadyExists = (await missedRef.get(
             const GetOptions(source: Source.cache),
           )).exists;
         } catch (_) {
           // No cached snapshot is normal on the first run or while offline.
         }
-        if (!alreadyExists) {
+        if (generation != _listenerGeneration) return;
+
+        if (alreadyExists) {
+          _missedLogged.add(occurrenceKey);
+          continue;
+        }
+
+        try {
           await missedRef.set({
             'action': reason,
             'type': 'pending_confirmation',
@@ -896,19 +911,30 @@ class FeederService extends ChangeNotifier {
             'schedule_key': key,
             'schedule_time': expectedTime,
           });
+          if (generation != _listenerGeneration) return;
+          _missedLogged.add(occurrenceKey);
+          debugPrint('[FeederService] Missed schedule: $key ($reason)');
+        } catch (e) {
+          // Do not mark the occurrence as handled when the write failed. A
+          // later timer pass may retry after connectivity/permission recovers.
+          debugPrint('[FeederService] Pending confirmation write failed: $e');
         }
-        debugPrint('[FeederService] Missed schedule: $key ($reason)');
       }
     }
   }
 
   @override
   void dispose() {
+    _listenerGeneration++;
     _todayLogsSub?.cancel();
     _statusSub?.cancel();
     _schedulesSub?.cancel();
     _logsSub?.cancel();
+    _authSub?.cancel();
+    _authSub = null;
     _scheduleTimer?.cancel();
+    ConnectivityService.instance.removeOnConnectCallback(_onReconnect);
+    _initialized = false;
     super.dispose();
   }
 }
