@@ -1,14 +1,28 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/services.dart';
+import '../firebase_options.dart';
 import '../models/notification_item.dart';
+import '../utils/prediction_timestamp.dart';
 
 @pragma('vm:entry-point')
 Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
+  // Background FCM callbacks run in a separate isolate on Android. Initialize
+  // Firebase here before touching Auth or Firestore; otherwise notification
+  // preferences can silently fail to load and the handler may use defaults.
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (e) {
+    debugPrint('[FCM] Background Firebase initialization error: $e');
+  }
+
   debugPrint('[FCM] Background msg: ${message.messageId}');
   if (message.notification != null) {
     debugPrint(
@@ -161,6 +175,7 @@ class NotificationService extends ChangeNotifier {
   bool _notifSampling = true;
   bool _notifOperational = true;
   String? _userRole;
+  StreamSubscription<User?>? _authSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
   _profileFirestoreSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _notifSub;
@@ -170,7 +185,8 @@ class NotificationService extends ChangeNotifier {
   static const MethodChannel _appSettingsChannel = MethodChannel(
     'com.example.craycare/app_settings',
   );
-  StreamSubscription? _tokenSub;
+  StreamSubscription<String>? _tokenSub;
+  StreamSubscription<RemoteMessage>? _foregroundMessageSub;
 
   Iterable<NotificationItem> get _visibleNotifications =>
       _notifications.where((n) => n.notif_type != 'device_auto');
@@ -205,7 +221,7 @@ class NotificationService extends ChangeNotifier {
     if (FirebaseAuth.instance.currentUser != null) {
       _listenProfile();
     }
-    FirebaseAuth.instance.authStateChanges().listen((user) {
+    _authSub = FirebaseAuth.instance.authStateChanges().listen((user) {
       _notifications.clear();
       _cancelSubscriptions();
       _userRole = null;
@@ -330,8 +346,12 @@ class NotificationService extends ChangeNotifier {
       );
       final token = await messaging.getToken();
       if (token != null) await _saveToken(token);
+      await _tokenSub?.cancel();
       _tokenSub = messaging.onTokenRefresh.listen(_saveToken);
-      FirebaseMessaging.onMessage.listen(_onForegroundMessage);
+      await _foregroundMessageSub?.cancel();
+      _foregroundMessageSub = FirebaseMessaging.onMessage.listen(
+        _onForegroundMessage,
+      );
       debugPrint('[NotificationService] FCM initialized');
     } catch (e) {
       debugPrint('[NotificationService] FCM init error: $e');
@@ -457,10 +477,16 @@ class NotificationService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _authSub?.cancel();
+    _authSub = null;
     _tokenSub?.cancel();
+    _tokenSub = null;
+    _foregroundMessageSub?.cancel();
+    _foregroundMessageSub = null;
     _notifSub?.cancel();
     _prefsSub?.cancel();
     _profileFirestoreSub?.cancel();
+    _initialized = false;
     super.dispose();
   }
 
@@ -493,6 +519,8 @@ class NotificationService extends ChangeNotifier {
     _notifSub?.cancel();
     _prefsSub?.cancel();
     _profileFirestoreSub?.cancel();
+    _notifSub = null;
+    _prefsSub = null;
     _profileFirestoreSub = null;
   }
 
@@ -516,15 +544,9 @@ class NotificationService extends ChangeNotifier {
             final isReadRaw = data['is_read'] as bool? ?? false;
             if (change.type == DocumentChangeType.added) {
               if (_notifications.any((n) => n.id == key)) continue;
-              final tsData = data['created_at'];
-              DateTime createdDt;
-              if (tsData is Timestamp) {
-                createdDt = tsData.toDate();
-              } else if (tsData is int) {
-                createdDt = DateTime.fromMillisecondsSinceEpoch(tsData);
-              } else {
-                createdDt = DateTime.now();
-              }
+              final createdDt =
+                  parsePredictionTimestamp(data['created_at'])?.toLocal() ??
+                  DateTime.fromMillisecondsSinceEpoch(0);
               _notifications.add(
                 NotificationItem(
                   id: key,
@@ -582,10 +604,8 @@ class NotificationService extends ChangeNotifier {
     }
   }
 
-  void clearAll() async {
+  Future<void> clearAll() async {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-    _notifications.clear();
-    notifyListeners();
     if (uid.isEmpty) return;
     try {
       final snap = await FirebaseFirestore.instance
@@ -597,6 +617,12 @@ class NotificationService extends ChangeNotifier {
         batch.delete(doc.reference);
       }
       await batch.commit();
+      // The snapshot listener will remove server-deleted rows as events arrive.
+      // Clearing here as well keeps the UI responsive after a successful batch,
+      // while a failed batch leaves the current list intact instead of hiding
+      // notifications that still exist on the server.
+      _notifications.removeWhere((n) => snap.docs.any((d) => d.id == n.id));
+      notifyListeners();
     } catch (e) {
       debugPrint('[NotificationService] Failed to clear Firebase: $e');
     }
