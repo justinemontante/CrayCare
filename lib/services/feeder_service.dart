@@ -540,6 +540,10 @@ class FeederService extends ChangeNotifier {
       notifyListeners();
       return true;
     } catch (e) {
+      // The command never reached Firestore, so release the local pending lock
+      // immediately. Keeping it set would falsely block a retry for 60 seconds.
+      _manualRequestPendingUntil = null;
+      _lastQueuedCommandId = null;
       debugPrint('[FeederService] feedNow error: $e');
       notifyListeners();
       return false;
