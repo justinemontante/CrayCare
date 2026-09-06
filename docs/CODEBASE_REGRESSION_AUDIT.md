@@ -2,6 +2,8 @@
 
 **Date:** 2026-08-14
 
+> **Current architecture note (2026-09-06):** The ESP no longer uses anonymous Firebase Authentication. The active production firmware authenticates with the dedicated Firebase Email/Password device service account and Firestore rules require that exact device session. The historical validation results below remain dated 2026-08-14 unless explicitly noted.
+
 ## Scope
 
 Reviewed the current Flutter/Dart application, Firestore integration and rules, Node notification/routing functions, Python Water Quality Anomaly Detection pipeline, ESP32 production firmware, test tools, schemas, indexes, and deployment configuration.
@@ -40,7 +42,7 @@ Reviewed the current Flutter/Dart application, Firestore integration and rules, 
 
 ## Remaining intentional limitations / deployment work
 
-1. **Anonymous ESP identity:** suitable for a controlled thesis/demo, but staging can be attempted by another anonymous client. Public production should use provisioned custom device credentials or a protected HTTPS ingestion API.
+1. **Shared ESP device credential:** the current production firmware uses one dedicated Firebase Email/Password device service account, and rules restrict it to the assigned tank plus ESP staging paths. This is suitable for the current single-hardware thesis deployment, but a multi-device public rollout should use per-device credentials/custom claims or a protected HTTPS ingestion API so one compromised device credential cannot represent every device.
 2. **Synthetic ML training:** the Water Quality Anomaly Detection model is bootstrap-tested with synthetic operating patterns and holdout anomaly events, not yet field-validated using actual Cherax RAS history. Synthetic event labels are used only for offline evaluation and are never supplied to model fitting.
 3. **Estimated feeder grams:** 20 g per servo cycle is an estimate until physically calibrated or measured with a load cell.
 4. **Cold-boot offline time:** cached schedules work during an outage after time synchronization; reliable scheduling after a powered-off cold boot without internet requires an RTC such as DS3231.
