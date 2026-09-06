@@ -12,6 +12,7 @@ class ConnectivityService extends ChangeNotifier {
   StreamSubscription<ConnectivityResult>? _subscription;
   Timer? _verificationTimer;
   bool _verificationInProgress = false;
+  bool _initialized = false;
 
   bool _isOnline = true;
   bool get isOnline => _isOnline;
@@ -19,7 +20,9 @@ class ConnectivityService extends ChangeNotifier {
   final List<VoidCallback> _onConnectCallbacks = [];
 
   void addOnConnectCallback(VoidCallback callback) {
-    _onConnectCallbacks.add(callback);
+    if (!_onConnectCallbacks.contains(callback)) {
+      _onConnectCallbacks.add(callback);
+    }
   }
 
   void removeOnConnectCallback(VoidCallback callback) {
@@ -27,20 +30,29 @@ class ConnectivityService extends ChangeNotifier {
   }
 
   Future<void> init() async {
-    _isOnline = await _checkConnectivity();
-    _subscription = _connectivity.onConnectivityChanged.listen(
-      (ConnectivityResult result) async {
-        await _refreshStatus(networkResult: result);
-      },
-    );
+    if (_initialized) return;
+    _initialized = true;
+    try {
+      _isOnline = await _checkConnectivity();
+      _subscription = _connectivity.onConnectivityChanged.listen(
+        (ConnectivityResult result) async {
+          await _refreshStatus(networkResult: result);
+        },
+      );
 
-    // A Wi-Fi/mobile connection can remain enabled even after its internet
-    // access is lost (for example, when mobile data has no remaining load).
-    // Recheck periodically while the app is running so that state is detected.
-    _verificationTimer = Timer.periodic(
-      const Duration(seconds: 15),
-      (_) => unawaited(_refreshStatus()),
-    );
+      // A Wi-Fi/mobile connection can remain enabled even after its internet
+      // access is lost (for example, when mobile data has no remaining load).
+      // Recheck periodically while the app is running so that state is detected.
+      _verificationTimer = Timer.periodic(
+        const Duration(seconds: 15),
+        (_) => unawaited(_refreshStatus()),
+      );
+    } catch (_) {
+      // Initialization did not complete; allow a later retry instead of
+      // permanently leaving the singleton marked initialized.
+      _initialized = false;
+      rethrow;
+    }
   }
 
   Future<bool> _checkConnectivity() async {
@@ -105,7 +117,11 @@ class ConnectivityService extends ChangeNotifier {
   @override
   void dispose() {
     _subscription?.cancel();
+    _subscription = null;
     _verificationTimer?.cancel();
+    _verificationTimer = null;
+    _verificationInProgress = false;
+    _initialized = false;
     _onConnectCallbacks.clear();
     super.dispose();
   }
