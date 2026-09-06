@@ -81,3 +81,7 @@ __pycache__/
 *.pyc
 venv/
 .venv/
+
+# Local AI / document-review working artifacts
+.codex-current-screen.png
+.codex_doc_review/
