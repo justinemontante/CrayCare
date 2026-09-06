@@ -535,6 +535,10 @@ class ControlsScreenState extends State<ControlsScreen> {
 
   Future<void> _feedNow({double? grams}) async {
     final svc = FeederService.instance;
+    if (svc.isRunning || _feedState == _FeedState.waiting ||
+        _feedState == _FeedState.dispensing) {
+      return;
+    }
     if (!_canFeed) {
       _feedNotice = _feedBlockedReason;
       setState(() => _feedState = _FeedState.failed);
@@ -571,6 +575,7 @@ class ControlsScreenState extends State<ControlsScreen> {
       }
     }
     final requiredGrams = grams ?? defaultFeederGrams;
+    if (svc.isRunning || !mounted) return;
     final availableGrams = SensorService.instance.estimatedFeedGrams;
     if (availableGrams == null || availableGrams + 0.5 < requiredGrams) {
       if (mounted) {
@@ -855,7 +860,17 @@ class ControlsScreenState extends State<ControlsScreen> {
   }
 
   Future<void> _deleteSchedule(int index) async {
-    await FeederService.instance.deleteSchedule(index);
+    try {
+      await FeederService.instance.deleteSchedule(index);
+    } catch (_) {
+      if (!mounted) return;
+      showBeautifulSnackbar(
+        context,
+        'Could not remove the schedule. Please try again.',
+        false,
+        title: 'Schedule not removed',
+      );
+    }
   }
 
   Future<bool> _editSchedule(int index, ScheduleItem item) async {

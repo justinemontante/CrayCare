@@ -309,25 +309,29 @@ class AuthService {
       try {
         // Remove only this device's token so other logged-in devices keep
         // receiving push notifications.
-        final token = await FirebaseMessaging.instance.getToken();
+        final token = await FirebaseMessaging.instance.getToken()
+            .timeout(const Duration(seconds: 3));
         if (token != null) {
           final userRef = FirebaseFirestore.instance
               .collection('users')
               .doc(uid);
-          final snap = await userRef.get();
+          final snap = await userRef.get().timeout(const Duration(seconds: 3));
           final updates = <String, dynamic>{
             'fcmTokens': FieldValue.arrayRemove([token]),
           };
           if (snap.data()?['fcmToken'] == token) {
             updates['fcmToken'] = FieldValue.delete();
           }
-          await userRef.update(updates);
+          await userRef.update(updates).timeout(const Duration(seconds: 3));
         }
       } catch (e) {
         debugPrint('[AuthService] Failed to clear FCM token on signout: $e');
       }
     }
-    await _googleSignIn.signOut();
-    await _auth.signOut();
+    try {
+      await _googleSignIn.signOut().timeout(const Duration(seconds: 3));
+    } finally {
+      await _auth.signOut();
+    }
   }
 }

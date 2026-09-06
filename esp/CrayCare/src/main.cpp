@@ -2493,6 +2493,10 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
   String blockedReason;
   time_t checkedAt;
   time(&checkedAt);
+  if (!commandId.isEmpty() && feederLastCompletedEpoch > 0 &&
+      issuedAtMs <= (long long)feederLastCompletedEpoch * 1000 + 999) {
+    blockedReason = "Another feeding completed after this request was issued; submit a new request";
+  }
   if (!commandId.isEmpty() && (issuedAtMs <= 0 || issuedAtMs > (long long)checkedAt * 1000 + 5000 ||
                               (long long)checkedAt * 1000 - issuedAtMs > 60000 ||
                               (expiresAtMs > 0 && (long long)checkedAt * 1000 >= expiresAtMs))) {
@@ -2550,9 +2554,16 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
     return;
   }
 
-  time_t now;
-  time(&now);
-  feederLastFeedEpoch = (unsigned long)now;
+  // Recheck after the blocking status upload, immediately before activation.
+  if (source == "manual" && manualFeedConflictsWithSchedule(checkedAt, nearbySchedule)) {
+    feederStatus = "blocked";
+    feederStatusReason = "automatic feeding is due at " + nearbySchedule;
+    pushFeederLog(feederStatusReason, "manual", "blocked", grams,
+                  feederAvailableBefore, feederFeedLevelBefore, feederFeedLevelBefore);
+    sendFeederStatus();
+    return;
+  }
+  feederLastFeedEpoch = (unsigned long)checkedAt;
   feederFeedSource = source;
   feederIsRunning = true;
   feederStatus = "dispensing";

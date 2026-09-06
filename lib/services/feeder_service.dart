@@ -79,6 +79,7 @@ class FeederService extends ChangeNotifier {
   /// Resolved tank_id for the signed-in user. Feeder data now lives under
   /// tanks/{tank_id}/feeder, feeder_schedules, feeder_logs, feeder_commands.
   String? _tankId;
+  int _listenerGeneration = 0;
 
   Future<String?> _resolveTankId() async {
     if (_tankId != null) return _tankId;
@@ -89,6 +90,7 @@ class FeederService extends ChangeNotifier {
         .doc(uid)
         .get();
     final profile = profileDoc.data();
+    if (FirebaseAuth.instance.currentUser?.uid != uid) return null;
     if (profile?['role'] == 'admin') return null;
     _tankId = uid;
     return _tankId;
@@ -107,6 +109,7 @@ class FeederService extends ChangeNotifier {
   int _completedToday = 0;
 
   bool _isRunning = false;
+  DateTime? _manualRequestPendingUntil;
   String _status = 'idle';
   String? _statusCommandId;
   String _statusReason = '';
@@ -223,7 +226,9 @@ class FeederService extends ChangeNotifier {
   }
 
   Future<void> _reinitListeners() async {
+    final generation = _listenerGeneration;
     final tankId = await _resolveTankId();
+    if (generation != _listenerGeneration) return;
     if (tankId == null) {
       debugPrint(
         '[FeederService] No tank_id resolved for user; feeder listeners not started.',
@@ -254,6 +259,7 @@ class FeederService extends ChangeNotifier {
   }
 
   void _cancelSubscriptions() {
+    _listenerGeneration++;
     _statusSub?.cancel();
     _schedulesSub?.cancel();
     _logsSub?.cancel();
@@ -265,6 +271,25 @@ class FeederService extends ChangeNotifier {
     _statusSub = null;
     _schedulesSub = null;
     _logsSub = null;
+    _schedules.clear();
+    _scheduleKeys.clear();
+    _logs.clear();
+    _missedLogged.clear();
+    _lastCheckDate = '';
+    _isRunning = false;
+    _status = 'idle';
+    _statusCommandId = null;
+    _statusReason = '';
+    _lastQueuedCommandId = null;
+    _manualRequestPendingUntil = null;
+    _dispenseCount = 0;
+    _feedLevelPercent = null;
+    _estimatedFeedGrams = null;
+    _lastSeen = DateTime.fromMillisecondsSinceEpoch(0);
+    _lastError = null;
+    FeedState.schedules.value = [];
+    FeedState.feederLogs.value = [];
+    notifyListeners();
   }
 
   void _listenStatus() {
@@ -284,8 +309,15 @@ class FeederService extends ChangeNotifier {
                 final data = snapshot.data()!;
                 _status = data['status'] as String? ?? 'idle';
                 _statusCommandId = data['command_id'] as String?;
+                if (_statusCommandId != null &&
+                    _statusCommandId == _lastQueuedCommandId &&
+                    const ['completed', 'blocked', 'failed', 'skipped_insufficient']
+                        .contains(_status)) {
+                  _manualRequestPendingUntil = null;
+                }
                 _statusReason = data['status_reason'] as String? ?? '';
-                _isRunning = _status == 'dispensing';
+                _isRunning = _status == 'dispensing' ||
+                    _status == 'checking_feed_level';
                 _feedLevelPercent = (data['feed_level'] as num?)?.toDouble();
                 _estimatedFeedGrams = (data['estimated_feed_grams'] as num?)
                     ?.toDouble();
@@ -469,11 +501,16 @@ class FeederService extends ChangeNotifier {
     double? grams,
     bool nearScheduleConfirmed = false,
   }) async {
+    if (_isRunning ||
+        (_manualRequestPendingUntil?.isAfter(DateTime.now()) ?? false)) {
+      return false;
+    }
     _lastQueuedCommandId = null;
     if (validateFeederGrams(grams) != null) return false;
     final tankDoc = _tankDoc();
     if (tankDoc == null) return false;
     final uid = FirebaseAuth.instance.currentUser?.uid;
+    _manualRequestPendingUntil = DateTime.now().add(const Duration(seconds: 60));
     try {
       // New structure: tanks/{tank_id}/feeder_commands/{autoId}
       // ESP32 listens here, executes, then deletes the command.
@@ -603,6 +640,7 @@ class FeederService extends ChangeNotifier {
       await _addLogEntry(action: 'Removed schedule at $timeStr', type: 'auto');
     } catch (e) {
       debugPrint('[FeederService] deleteSchedule error: $e');
+      rethrow;
     }
     notifyListeners();
   }
@@ -825,9 +863,7 @@ class FeederService extends ChangeNotifier {
 
       if (now.difference(scheduleDt).inMinutes >= 5) {
         _missedLogged.add(occurrenceKey);
-        final reason = isOnline
-            ? 'No confirmed feeder log received'
-            : 'ESP was offline';
+        const reason = 'Awaiting device confirmation';
         // Use a deterministic document ID so an app restart or multiple
         // devices cannot write duplicate "Feed skipped" logs for the same
         // schedule on the same Manila day.
@@ -848,8 +884,8 @@ class FeederService extends ChangeNotifier {
         }
         if (!alreadyExists) {
           await missedRef.set({
-            'action': 'Feed missed - $reason',
-            'type': 'missed',
+            'action': reason,
+            'type': 'pending_confirmation',
             // Store the real current UTC instant. `now` is only a Manila
             // wall-clock view used for schedule comparison/date keys.
             'logged_at': DateTime.now().toUtc().millisecondsSinceEpoch,

@@ -27,6 +27,8 @@ service cloud.firestore {
     }
     function canCreateOwnInitialTank(tankId) {
       return isSignedIn() && request.auth.uid == tankId &&
+        myProfile().role == 'owner' &&
+        myProfile().get('status', 'active') == 'active' &&
         request.resource.data.owner_uid == request.auth.uid;
     }
     function canAccessOwnCanonicalTank(tankId) {
@@ -122,7 +124,8 @@ service cloud.firestore {
       allow get: if isTankOwner(tankId) || isAdmin() || canAccessOwnCanonicalTank(tankId);
       allow list: if isAdmin();
       allow create: if isTankOwner(tankId) || isAdmin() || canCreateOwnInitialTank(tankId);
-      allow update: if isTankOwner(tankId) || isAdmin();
+      allow update: if isAdmin() || (isTankOwner(tankId) &&
+        request.resource.data.owner_uid == resource.data.owner_uid);
       allow delete: if isAdmin();
 
       match /sensor_readings/{doc} {
@@ -181,7 +184,13 @@ service cloud.firestore {
       }
       match /feeder_logs/{logId} {
         allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId);
-        allow create: if isTankOwner(tankId) || isAssignedEsp(tankId);
+        allow create: if isAssignedEsp(tankId) || (isTankOwner(tankId) &&
+          request.resource.data.keys().hasOnly([
+            'action', 'type', 'logged_at', 'schedule_key', 'schedule_time'
+          ]) &&
+          request.resource.data.type in ['auto', 'error', 'pending_confirmation'] &&
+          request.resource.data.action is string &&
+          request.resource.data.logged_at is int);
         // Feeding history is an append-only audit trail. Confirmed device
         // outcomes and owner-created schedule audit entries cannot be changed
         // or erased after the first successful write.
