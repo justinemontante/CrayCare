@@ -61,7 +61,7 @@ Table hardware_assignments {
 Table notifications {
   notification_id varchar [pk]
   uid varchar [not null, ref: > users.uid]
-  notification_type varchar [not null, note: 'critical | warning | reminder | device_auto | general']
+  notification_type varchar [not null, note: 'critical | warning | feeding | sampling | operational | reminder | device_auto | general']
   title varchar [not null]
   body text [not null]
   is_read boolean [not null, default: false]
@@ -182,7 +182,7 @@ Table actuator_logs {
 Table feeder_status [note: 'Operational current-state projection; one row per tank'] {
   tank_id varchar [pk, ref: - tanks.tank_id]
   command_id varchar
-  status varchar [not null, note: 'idle | checking_feed_level | dispensing | completed | skipped_insufficient | blocked']
+  status varchar [not null, note: 'idle | checking_feed_level | dispensing | completed | skipped_insufficient | blocked | failed']
   status_reason varchar
   dispense_count int [not null, default: 0]
   last_seen timestamp
@@ -221,6 +221,7 @@ Table feeder_commands {
   issued_by varchar [not null, ref: > users.uid]
   issued_at timestamp [not null]
   expires_at timestamp [not null]
+  near_schedule_confirmed boolean [not null, default: false, note: 'Owner acknowledged warning-window proximity; never bypasses device collision block']
   Indexes { (tank_id, command_id) [pk] }
 }
 
@@ -230,8 +231,8 @@ Table feeder_logs {
   command_id varchar
   schedule_id varchar
   action varchar [not null]
-  feeding_type varchar [not null, note: 'auto | manual | missed | error']
-  status varchar [not null, note: 'completed | skipped_insufficient | blocked | failed']
+  feeding_type varchar [not null, note: 'auto | manual | missed | error | pending_confirmation']
+  status varchar [note: 'completed | skipped_insufficient | blocked | failed; null for non-terminal audit entries such as pending_confirmation']
   occurrence_at timestamp
   requested_grams decimal(8,2)
   estimated_dispensed_grams decimal(8,2)
