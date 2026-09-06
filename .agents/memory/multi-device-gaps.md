@@ -1,32 +1,35 @@
 ---
-name: Multi-device isolation (current schema)
-description: The system is designed around ONE physical ESP32 assigned to one farmer via hardware_system/currentOwner
+name: Single-device isolation (current schema)
+description: The system is designed around one physical ESP32 assigned to one owner through hardware_system/currentOwner
 ---
 
 ## Rule
-Do not assume ALL collections are uid-isolated — several are intentionally global
-(single hardware device assumption).
 
-**Why:** CrayCare is designed around one physical ESP32 device assigned to one
-farmer through `hardware_system/currentOwner`. All real-time data lives under
-`tanks/{tankId}/...`, so two users never share a tank.
+CrayCare currently assumes one production ESP32 installation. Operational data
+is scoped under `tanks/{tankId}/...`, while the active hardware assignment is
+stored in `hardware_system/currentOwner`.
 
-## Data isolation by design (current schema)
-| Path | Who can access |
+## Current access model
+
+| Path | Access |
 |---|---|
-| `users/{uid}/...` | Self/admin |
-| `tanks/{tankId}/...` | Owner (tank_id match) / admin / anonymous ESP32 (limited) |
-| `hardware_system/currentOwner` | Read: signed-in; write: admin |
-| `notifications/{id}` | Scoped by `uid` field |
-| `sensorIngestion/...` | ESP write; admin read/delete |
-| `mlPredictions/{id}` | Any signed-in read; admin write |
+| `users/{uid}/...` | Self; admin for account management |
+| `tanks/{tankId}` | Owner of that tank; admin for provisioning metadata |
+| `tanks/{tankId}/sensor_readings/...` | Tank owner only; server writes canonical readings |
+| `tanks/{tankId}/sensors/...` | Tank owner; assigned ESP read; admin may seed/create |
+| `tanks/{tankId}/actuators/...` | Tank owner control-mode request; assigned ESP physical-state update |
+| `tanks/{tankId}/water_quality_anomaly_detections/...` | Tank owner read; backend writes |
+| `hardware_system/currentOwner` | Admin write; admin/ESP read |
+| `sensorIngestion/...` | Authenticated ESP write; admin read/delete |
+| `notifications/{id}` | Scoped by the document `uid` field |
+
+The ESP session is currently recognized by Firebase password authentication for
+`esp32@craycare.com`, and assigned-tank device operations additionally check
+`hardware_system/currentOwner.tank_id`.
 
 ## Known limitation
-- `sensorIngestion/current` is a single fixed doc for the one ESP32. If a second
-  hardware unit is ever added, it needs its own ingestion path — do NOT assume
-  multi-tenant out of the box.
 
-## How to apply
-- Do not add new global collections without scoping under `users/{uid}` or
-  `tanks/{tankId}` unless it is intentionally shared hardware state.
-- Reference: `docs/FIRESTORE_STRUCTURE_ACTUAL.md` (updated 2026-08-01).
+`sensorIngestion/current` is a single fixed staging document and the current ESP
+identity is a shared single-device credential. Adding multiple independent
+hardware units requires per-device identities plus per-device ingestion/assignment
+scoping; do not treat the current design as multi-device production architecture.
