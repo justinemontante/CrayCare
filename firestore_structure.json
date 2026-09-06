@@ -112,8 +112,8 @@
           "ph_level",
           "dissolved_oxygen",
           "turbidity",
-          "water_level"
-          ,"feed_level"
+          "water_level",
+          "feed_level"
         ],
         "fields": [
           "min_value (double)",
@@ -146,9 +146,11 @@
         ]
       },
       "feeder/status": {
-        "_description": "Current feeder status written by the ESP32.",
+        "_description": "Current feeder status written by the ESP32. command_id ties manual outcomes to the originating Feed Now request.",
         "fields": [
-          "status (idle|checking_feed_level|dispensing|completed|skipped_insufficient|blocked)",
+          "command_id (string|null)",
+          "status (idle|checking_feed_level|dispensing|completed|skipped_insufficient|blocked|failed)",
+          "status_reason (string|null)",
           "dispenseCount (int)",
           "lastSeen (int epoch-ms)",
           "last_dispensed_at (int epoch-ms|null)",
@@ -166,34 +168,42 @@
           "grams (double|null)",
           "days (7-char Sunday-first mask)",
           "enabled (bool)",
-          "isDone (bool)",
+          "isDone (bool, legacy compatibility; true only for completed current occurrence)",
           "created_at (Timestamp)",
-          "effective_at_ms (int epoch-ms)"
+          "effective_at_ms (int epoch-ms)",
+          "last_outcome (completed|skipped_insufficient|blocked|failed, optional)",
+          "last_occurrence_at (int epoch-ms, optional)"
         ]
       },
       "feeder_logs/{logId}": {
-        "_description": "Feeding lifecycle/audit logs. Physical completion is confirmed by the ESP; the app can also write schedule/missed/error audit entries.",
+        "_description": "Feeding lifecycle/audit logs. Physical completion is confirmed by the ESP; the app can also write schedule, pending-confirmation, and error audit entries.",
         "fields": [
           "action (string)",
-          "type (auto|manual|missed|error)",
+          "type (auto|manual|missed|error|pending_confirmation)",
           "logged_at (int epoch-ms; legacy Timestamp/ISO values remain readable)",
+          "command_id (string, optional)",
           "schedule_key (string, optional)",
-          "schedule_time (string, optional)"
-          ,"status (completed|skipped_insufficient|failed, optional)"
-          ,"requested_grams (double, optional)"
-          ,"estimated_available_grams (double, optional)"
-          ,"feed_level_before (double, optional)"
-          ,"feed_level_after (double, optional)"
-          ,"level_change_detected (bool, optional; supporting indication only)"
+          "schedule_time (string, optional)",
+          "occurrence_at (int epoch-ms, optional)",
+          "status (completed|skipped_insufficient|blocked|failed, optional)",
+          "requested_grams (double, optional)",
+          "estimated_dispensed_grams (double, optional)",
+          "amount_basis (servo_cycle_estimate, optional)",
+          "estimated_available_grams (double, optional)",
+          "feed_level_before (double, optional)",
+          "feed_level_after (double, optional)",
+          "level_change_detected (bool, optional; supporting indication only)"
         ]
       },
       "feeder_commands/{commandId}": {
-        "_description": "Manual Feed Now commands pending ESP execution. Flutter creates; ESP reads and deletes processed commands.",
+        "_description": "Manual Feed Now commands pending ESP execution. Flutter creates; ESP reads and deletes processed commands. Commands expire so an offline write cannot become a fresh motor command after reconnect.",
         "fields": [
           "command_type (feed_now)",
           "grams (double, optional; firmware default 20.0)",
           "issued_by (uid)",
-          "issued_at (Timestamp)"
+          "issued_at (Timestamp)",
+          "expires_at (Timestamp)",
+          "near_schedule_confirmed (bool)"
         ]
       },
       "water_quality_anomaly_detections/{detectionId}": {
@@ -296,9 +306,13 @@
     ]
   },
   "sensorIngestion/current": {
-    "_description": "Anonymous ESP staging document for the 5-second live snapshot. Cloud Functions route it to the currently assigned tank.",
+    "_description": "Dedicated ESP Email/Password service-account staging document for the 5-second live snapshot. Cloud Functions validate the source assignment and route it to the currently assigned tank.",
     "fields": [
       "hardwareId (string)",
+      "source_tank_id (string)",
+      "source_owner_uid (string)",
+      "source_assignment_at_ms (int epoch-ms)",
+      "captured_at_ms (int epoch-ms when NTP is synced)",
       "temperature (double; -1 sentinel possible when live probe invalid)",
       "turbidity (double)",
       "turbidity_air (bool)",
@@ -311,17 +325,22 @@
     ]
   },
   "sensorIngestion/current/history/{docId}": {
-    "_description": "Anonymous ESP append-only 10-minute aggregate staging entry. Cloud Functions preserve captured_at_ms as recorded_at and route by original Manila date.",
+    "_description": "Dedicated ESP Email/Password service-account append-only 10-minute aggregate staging entry. Cloud Functions preserve captured_at_ms as recorded_at, validate the original assignment binding, and quarantine mismatches rather than attributing them to a new owner.",
     "fields": [
       "hardwareId (string)",
+      "source_tank_id (string)",
+      "source_owner_uid (string)",
+      "source_assignment_at_ms (int epoch-ms)",
+      "captured_at_ms (int epoch-ms when NTP is synced)",
+      "routing_status (string, optional server result)",
+      "routing_reason (string, optional server result)",
       "temp_min/temp_max/temp_avg (when valid samples exist)",
       "turbidity_min/turbidity_max/turbidity_avg (when valid samples exist)",
       "DO_min/DO_max/DO_avg (when valid samples exist)",
       "pH_min/pH_max/pH_avg (when valid samples exist)",
       "waterLevel_min/waterLevel_max/waterLevel_avg (when valid samples exist)",
       "feed_level (double percent, when enabled and valid)",
-      "estimated_feed_grams (double estimate, when enabled and valid)",
-      "captured_at_ms (int epoch-ms when NTP is synced)"
+      "estimated_feed_grams (double estimate, when enabled and valid)"
     ]
   }
 }
