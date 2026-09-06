@@ -57,6 +57,7 @@ class SensorService extends ChangeNotifier {
   Timer? _staleTimer;
   Timer? _periodicCheckTimer;
   static const _staleTimeout = Duration(seconds: 10);
+  static const _maxFutureTimestampSkew = Duration(seconds: 60);
   static const _trendWindow = Duration(seconds: 60);
   static const _minTrendSpan = Duration(seconds: 15);
   bool _hasLiveData = false;
@@ -67,8 +68,11 @@ class SensorService extends ChangeNotifier {
 
   bool get initialDataLoaded => _initialDataLoaded;
   bool get hasLiveData => _hasLiveData;
-  bool get isEspOnline =>
-      _hasLiveData && DateTime.now().difference(_lastUpdated) <= _staleTimeout;
+  bool get isEspOnline {
+    if (!_hasLiveData) return false;
+    final age = DateTime.now().difference(_lastUpdated);
+    return !age.isNegative && age <= _staleTimeout;
+  }
   DateTime get lastUpdated => _lastUpdated;
   String? get lastError => _lastError;
   int get bufferedEntries => _bufferedEntries;
@@ -241,8 +245,8 @@ class SensorService extends ChangeNotifier {
     _staleTimer?.cancel();
     _periodicCheckTimer?.cancel();
     _periodicCheckTimer = Timer.periodic(const Duration(seconds: 2), (_) {
-      if (_hasLiveData &&
-          DateTime.now().difference(_lastUpdated) > _staleTimeout) {
+      final age = DateTime.now().difference(_lastUpdated);
+      if (_hasLiveData && (age.isNegative || age > _staleTimeout)) {
         _markStale();
       }
     });
@@ -325,18 +329,18 @@ class SensorService extends ChangeNotifier {
         data['time'];
     if (rawTs == null) return null;
     if (rawTs is Timestamp) return rawTs.toDate();
-    if (rawTs is int) {
-      if (rawTs < 10000000000) {
-        return DateTime.fromMillisecondsSinceEpoch(rawTs * 1000);
+    if (rawTs is DateTime) return rawTs;
+    if (rawTs is num) {
+      final numeric = rawTs.toDouble();
+      if (!numeric.isFinite || numeric <= 0) return null;
+      final milliseconds = numeric < 100000000000
+          ? (numeric * 1000).round()
+          : numeric.round();
+      try {
+        return DateTime.fromMillisecondsSinceEpoch(milliseconds);
+      } on RangeError {
+        return null;
       }
-      return DateTime.fromMillisecondsSinceEpoch(rawTs);
-    }
-    if (rawTs is double) {
-      final intVal = rawTs.toInt();
-      if (intVal < 10000000000) {
-        return DateTime.fromMillisecondsSinceEpoch(intVal * 1000);
-      }
-      return DateTime.fromMillisecondsSinceEpoch(intVal);
     }
     if (rawTs is String) {
       return DateTime.tryParse(rawTs);
@@ -349,9 +353,29 @@ class SensorService extends ChangeNotifier {
       _initialDataLoaded = true;
     }
 
-    final docTime = _extractTimestamp(data);
     final now = DateTime.now();
-    final readingTime = docTime ?? now;
+    final docTime = _extractTimestamp(data);
+    if (docTime == null) {
+      _lastError = 'Latest sensor reading has no valid timestamp.';
+      debugPrint('[SensorService] Ignoring sensor document with invalid timestamp.');
+      _markStale();
+      return;
+    }
+
+    final futureSkew = docTime.difference(now);
+    if (futureSkew > _maxFutureTimestampSkew) {
+      _lastError = 'Latest sensor reading has an invalid future timestamp.';
+      debugPrint(
+        '[SensorService] Ignoring sensor document ${futureSkew.inSeconds}s in the future.',
+      );
+      _markStale();
+      return;
+    }
+
+    // Small clock skew is tolerated, but freshness must still be measured from
+    // the local receipt time so a slightly-future device clock cannot keep the
+    // ESP falsely online after updates stop.
+    final readingTime = docTime.isAfter(now) ? now : docTime;
     final age = now.difference(readingTime);
 
     if (age > _staleTimeout) {
@@ -480,9 +504,11 @@ class SensorService extends ChangeNotifier {
 
   bool hasSensorData(String key) => _latest.containsKey(key);
 
-  bool hasFreshData(String key) =>
-      _latest.containsKey(key) &&
-      DateTime.now().difference(_lastUpdated) < _staleTimeout;
+  bool hasFreshData(String key) {
+    if (!_latest.containsKey(key)) return false;
+    final age = DateTime.now().difference(_lastUpdated);
+    return !age.isNegative && age < _staleTimeout;
+  }
 
   double getLatestValue(String key) => _latest[key] ?? 0.0;
 
