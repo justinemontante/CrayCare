@@ -1,11 +1,11 @@
 ---
-name: ML pipeline architecture (current schema)
-description: Hourly Machine Learning-Based Water Quality Assessment flow, Firestore paths, output schema, and minimum data
+name: WQAD pipeline architecture (current schema)
+description: Hourly Machine Learning-Based Water Quality Anomaly Detection flow, Firestore paths, output schema, and minimum data
 ---
 
 ## Canonical flow
 
-The Water Quality Assessment runs once per hour in Asia/Manila.
+WQAD runs once per hour in Asia/Manila.
 
 ```text
 ESP32
@@ -14,34 +14,35 @@ ESP32
   → Node Cloud Functions route readings to the assigned tank
   → tanks/{tankId}/sensor_readings/latest
   → tanks/{tankId}/sensor_readings_history/{date}/entries/{id}
-  → Python run_hourly_wqa reads the last 24h
-  → requires at least 6 complete 10-minute records
-  → XGBoost assessment model determines Good/Moderate/Poor/Critical
-  → assessment_interpreter adds concerns, insights, and recommendations
-  → tanks/{tankId}/machine_learning_assessments/current and history
-  → WaterQualityAssessmentService snapshot listeners
+  → Python run_hourly_wqad reads recent history
+  → anomaly_window keeps the current continuous two-hour pattern
+  → requires at least 12 complete ten-minute records
+  → IsolationForest evaluates multivariate rarity
+  → anomaly_interpreter adds ranked contributors, insight, and recommendation
+  → tanks/{tankId}/water_quality_anomaly_detections/current and timestamped history
+  → WaterQualityAnomalyDetectionService snapshot listeners
 ```
 
 ## Output contract
 
-- `level`: Good | Moderate | Poor | Critical | Insufficient
-- `model_level`, `rule_level`, `safety_override`
-- `confidence`: 0–100 when the model is the assessment basis
-- `driver`, `driver_label`, `driver_value`, `driver_unit`, `driver_min`, `driver_max`
-- `problem`, `insight`, `action`
-- `concerns`, `secondary_concerns`
+- `status`: Normal | Unusual | Insufficient
+- `is_anomaly`
+- `anomaly_score`: statistical reference-pattern percentile, not a biological risk score
+- `driver`, `driver_label`, `driver_value`, `driver_unit`
+- `contributors`
+- `insight`, `recommendation`
+- `source`, `data_status`
+- `model_algorithm`, `model_version`, `model_feature_count`
+- `training_data_origin`, `training_label_origin`
+- `analysis_window_minutes`
+- `source_recorded_at`, `source_age_seconds`
 - `ts_epoch`, `timestamp`, `tank_id`, optional `uid`
-- No public numeric hazard score
-
-The ML assessment uses 45 engineered temporal features. The deterministic
-rolling assessment is a safety floor beneath the ML result. An independently
-critical current reading also forces the final condition to Critical.
 
 ## Model
 
-- `functions/ml/wqa_model.joblib`
-- XGBoost multiclass Water Quality Assessment model
-- Synthetic development dataset; not field validation
-- Latest local retraining validation (2026-08-19): 12,960 synthetic rows;
-  time-series CV accuracy 0.955; effective holdout accuracy 0.981;
-  balanced accuracy 0.977
+- `functions/ml/wqad_model.joblib`
+- scikit-learn `IsolationForest`
+- Unsupervised sensor-derived features only
+- Safety thresholds are not ML inputs or labels
+- Bundled training provenance: synthetic bootstrap / integration prototype
+- Field claims require retraining and validation using calibrated real tank history
