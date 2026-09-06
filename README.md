@@ -14,7 +14,7 @@ IoT-based smart aquaculture monitoring system for crayfish farming.
 ## Architecture
 
 ```
-ESP32 (anonymous device session)
+ESP32 (dedicated Firebase Email/Password device service account)
   → writes sensorIngestion/current (+ 10-minute history)
       → Cloud Function routes to tanks/{tankId}/sensor_readings/latest + history
           → Flutter app reads live/analytics data
@@ -82,6 +82,6 @@ cd esp/CrayCare && pio run -e esp32dev_main -t upload
 
 ## Notes
 
-- ESP32 authenticates with Firebase anonymous sign-in (thesis/demo guard).
+- ESP32 authenticates with the dedicated Firebase Email/Password device service account. Firestore rules restrict that session to the currently assigned tank and ESP staging paths. For a future multi-device public deployment, use per-device credentials/custom claims or a protected ingestion endpoint instead of one shared credential.
 - Per-user notification preferences live at `users/{uid}/notification_settings/preferences`.
 - Multiple devices per account: all receive push (FCM tokens stored via arrayUnion).
