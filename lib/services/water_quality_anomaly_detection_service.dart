@@ -64,6 +64,10 @@ class WaterQualityAnomalyDetectionResult {
     Map<String, dynamic> data,
   ) {
     final rawContributors = data['contributors'];
+    final parsedTimestamp =
+        parsePredictionTimestamp(data['timestamp']) ??
+        parsePredictionTimestamp(data['ts_epoch']) ??
+        DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
     return WaterQualityAnomalyDetectionResult(
       status: normalizeWaterQualityAnomalyStatus(data['status']),
       isAnomaly: data['is_anomaly'] as bool? ?? false,
@@ -93,8 +97,7 @@ class WaterQualityAnomalyDetectionResult {
                 .map((item) => Map<String, dynamic>.from(item))
                 .toList(growable: false)
           : const [],
-      timestamp:
-          parsePredictionTimestamp(data['timestamp']) ?? DateTime.now().toUtc(),
+      timestamp: parsedTimestamp,
     );
   }
 
