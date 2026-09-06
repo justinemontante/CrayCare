@@ -22,6 +22,7 @@ class EspService extends ChangeNotifier {
   @override
   void dispose() {
     SensorService.instance.removeListener(_onSensorUpdate);
+    _initialized = false;
     super.dispose();
   }
 }
