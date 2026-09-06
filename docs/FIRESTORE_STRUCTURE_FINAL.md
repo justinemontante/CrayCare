@@ -131,7 +131,9 @@ tanks/{tank_id}
     logged_at: epoch milliseconds
 
   feeder/status
-    status: "idle" | "checking_feed_level" | "dispensing" | "completed" | "skipped_insufficient" | "blocked"
+    command_id: string | null
+    status: "idle" | "checking_feed_level" | "dispensing" | "completed" | "skipped_insufficient" | "blocked" | "failed"
+    status_reason: string | null
     dispenseCount: number
     lastSeen: epoch milliseconds
     last_dispensed_at: epoch milliseconds | null
@@ -157,12 +159,15 @@ tanks/{tank_id}
     grams: number | null
     issued_by: string
     issued_at: Timestamp
+    expires_at: Timestamp
+    near_schedule_confirmed: boolean
 
   feeder_logs/{log_id}
     # Append-only: authorized create + owner read; client update/delete denied
     action: string
-    type: "auto" | "manual" | "missed" | "error"
+    type: "auto" | "manual" | "missed" | "error" | "pending_confirmation"
     logged_at: epoch milliseconds
+    command_id: string | null
     schedule_key: string | null        # originating schedule, also used by missed audit
     schedule_time: string | null
     occurrence_at: epoch milliseconds | null
@@ -204,7 +209,7 @@ tanks/{tank_id}
 
 `effective_at_ms` is reset when a feeding schedule is created, edited, or re-enabled. It prevents an occurrence that happened before that instant from being falsely classified as missed.
 
-The feeder log trigger sets date-scoped schedule outcomes. `isDone` is legacy compatibility only, not proof of success. Feeder history is append-only: authorized clients can create entries, but cannot update or delete an existing log. Offline retries retain the original tank, occurrence timestamp and deterministic log id. Interrupted dispensing is recorded as failed and is not replayed after reboot. Supported doses are 20–200 g, in steps of 20 g; quantities and Consumption Today are servo-cycle estimates, not measured weights. Verify calibration on the actual hardware. App and ESP read all schedule pages.
+The feeder log trigger sets date-scoped schedule outcomes. `isDone` is legacy compatibility only, not proof of success. Feeder history is append-only: authorized clients can create entries, but cannot update or delete an existing log. `pending_confirmation` is a non-terminal audit entry and therefore has no required `status`. Offline retries retain the original tank, occurrence timestamp and deterministic log id. Interrupted dispensing is recorded as failed and is not replayed after reboot. Supported doses are 20–200 g, in steps of 20 g; quantities and Consumption Today are servo-cycle estimates, not measured weights. Verify calibration on the actual hardware. App and ESP read all schedule pages.
 
 Machine Learning-Based Water Quality Anomaly Detection (WQAD) uses an unsupervised `IsolationForest` over multivariate readings, spreads, changes, rolling behavior, and trends. It requires twelve contiguous ten-minute readings (±2-minute cadence tolerance), representing a two-hour window. Source data older than 20 minutes is marked stale/Insufficient. Safety thresholds remain separate: they are neither model features nor training labels. Model metadata clearly identifies the current artifact as a synthetic bootstrap until it is retrained and validated using calibrated field data from the actual tank.
 
@@ -265,21 +270,28 @@ tanks/{tank_id}/batches/{batch_id}
 ESP32
   -> sensorIngestion/current
        hardwareId
+       source_tank_id
+       source_owner_uid
+       source_assignment_at_ms
+       captured_at_ms
        live sensor values
        turbidity_air
        buffered_entries
 
   -> sensorIngestion/current/history/{reading_id}
        hardwareId
-       per-sensor 10-minute min/max/avg (only sensors with valid samples)
+       source_tank_id
+       source_owner_uid
+       source_assignment_at_ms
        captured_at_ms
+       per-sensor 10-minute min/max/avg (only sensors with valid samples)
 
 Cloud Functions read hardware_system/currentOwner
   -> tanks/{tank_id}/sensor_readings/latest
   -> tanks/{tank_id}/sensor_readings_history/{date}/entries/{reading_id}
 ```
 
-`sensorIngestion` is internal system-managed staging data. Invalid 10-minute sensor aggregates are omitted rather than stored as negative sentinels. The routed `recorded_at` preserves the ESP capture time when NTP was valid.
+`sensorIngestion` is internal system-managed staging data written by the dedicated ESP Email/Password service account. Invalid 10-minute sensor aggregates are omitted rather than stored as negative sentinels. The routed `recorded_at` preserves the ESP capture time when NTP was valid.
 
 ## Security note
 
@@ -287,7 +299,7 @@ Cloud Functions read hardware_system/currentOwner
 
 Both sensor staging paths carry `source_tank_id`, `source_owner_uid`, `source_assignment_at_ms`, and `captured_at_ms`. The assignment timestamp is compared at millisecond precision. Functions only route matching capture assignments; old or unbound history stays staged with `routing_status: quarantined` / `routing_reason`. Older live events cannot overwrite newer readings. Coordinate firmware and ingestion-function rollout.
 
-`feeder_commands` adds `expires_at` (Timestamp, app request deadline). Firmware also applies a 60-second limit from the server's `issued_at`; legacy commands without the extra deadline use that server limit. Queued offline app writes cannot restart their deadline on reconnect. Status adds `command_id` / `status_reason`; logs add optional `command_id` for exact request confirmation. Missing confirmation does not create an app-authored failure log.
+`feeder_commands` includes `expires_at` (Timestamp, app request deadline) and `near_schedule_confirmed` (owner warning-window acknowledgement). Firmware also applies a 60-second limit from the server's `issued_at`; legacy commands without the extra deadline use that server limit. Queued offline app writes cannot restart their deadline on reconnect. `near_schedule_confirmed` never bypasses the strict device-side collision block around a scheduled feeding. Status includes `command_id` / `status_reason`; logs add optional `command_id` for exact request confirmation. Missing confirmation does not create an app-authored failure log.
 
 `tanks/{tank_id}/feeder_notification_receipts/{log_id}` stores `uid` and `push_attempt_claimed_at` (Timestamp). This server-only receipt is created in the same transaction as the deterministic inbox document before attempting FCM. Duplicate deliveries do not resend or reset `is_read`. A crash after claiming can suppress the push; the durable inbox remains. No exactly-once FCM guarantee is claimed.
 
