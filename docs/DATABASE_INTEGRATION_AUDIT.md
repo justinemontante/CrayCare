@@ -2,6 +2,8 @@
 
 **Date:** 2026-08-13
 
+> **Current architecture note (2026-09-06):** The active ESP production firmware uses the dedicated Firebase Email/Password device service account. Anonymous ESP authentication is no longer part of the active runtime.
+
 ## Verified project configuration
 
 The Android Firebase configuration, generated Dart Firebase options, `.firebaserc`, and Firebase CLI configuration all target:
@@ -52,7 +54,7 @@ Firestore rules were loaded successfully by the Firestore Emulator and exercised
 - The assigned ESP service account can report actuator physical state for its assigned tank only.
 - ESP cannot access another tank's thresholds/actuators.
 - App users cannot write canonical sensor readings or ML predictions.
-- Anonymous ESP can write the staging ingestion path.
+- Only the dedicated Firebase Email/Password ESP service account can write the staging ingestion path; ordinary app users and anonymous sessions do not satisfy the ESP-session rule.
 - Legacy owner profile can safely backfill missing `role/status` without self-promoting.
 - Owner cannot promote itself to admin.
 - Notification owner can change `is_read`, but cannot rewrite title/body or transfer notification UID.
