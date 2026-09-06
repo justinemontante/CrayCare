@@ -1,26 +1,29 @@
 ---
-name: Water Quality Assessment naming
-description: WQA is the canonical name across every runtime and documentation layer
+name: Water Quality Anomaly Detection naming
+description: WQAD is the canonical name across the current runtime and documentation
 ---
 
 ## Rule
 
-Use **WQA — Water Quality Assessment** for the feature, function, model artifact,
-UI, Firestore output, reports, tests, and documentation. Do not restore retired
-earlier module names.
+Use **WQAD — Machine Learning-Based Water Quality Anomaly Detection** for the
+current ML feature. Do not restore the retired WQA/XGBoost classifier contract.
 
-The four public assessment conditions are Good, Moderate, Poor, and Critical.
-The internal numeric hazard score exists only to generate training targets and
-apply the deterministic safety floor. It is not a public assessment output.
+WQAD is an unsupervised multivariate anomaly detector. It reports `Normal`,
+`Unusual`, or `Insufficient`; it does not classify water quality as
+Good/Moderate/Poor/Critical and it does not expose a biological risk score.
+Immediate safety thresholds remain a separate app/firmware feature.
 
 ## Canonical implementation
 
-- Firebase function: `run_hourly_wqa`
-- Model artifact: `functions/ml/wqa_model.joblib`
-- Flutter service: `WaterQualityAssessmentService`
-- Flutter result: `WaterQualityAssessmentResult`
-- Firestore: `tanks/{tankId}/machine_learning_assessments`
-- UI: `Water Quality Assessment`
+- Firebase function: `run_hourly_wqad`
+- Model artifact: `functions/ml/wqad_model.joblib`
+- Algorithm: `IsolationForest`
+- Flutter service: `WaterQualityAnomalyDetectionService`
+- Flutter result: `WaterQualityAnomalyDetectionResult`
+- Firestore: `tanks/{tankId}/water_quality_anomaly_detections`
+- Current document: `tanks/{tankId}/water_quality_anomaly_detections/current`
+- UI terminology: `Water Quality Anomaly Detection` / `WQAD`
 
-If XGBoost parameters are edited, do not add `use_label_encoder`; it was removed
-from XGBoost 2.x and later.
+The bundled model is a synthetic bootstrap prototype and must not be described
+as field-validated until retrained and prospectively checked against calibrated
+real tank history.
