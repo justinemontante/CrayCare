@@ -68,9 +68,9 @@ Fields: `control_mode`, `current_state`, `last_changed` (epoch milliseconds; `0`
 `actuator_type`, `action`, `type`, `logged_at`. New writes use epoch milliseconds; the app remains tolerant of legacy timestamp representations.
 
 ### `tanks/{tankId}/feeder/status` ✓
-`status`, `dispenseCount`, `lastSeen`, `last_dispensed_at`, `last_dispensed_grams`, `feed_level`, `estimated_feed_grams`.
+`status`, `command_id`, `status_reason`, `dispenseCount`, `lastSeen`, `last_dispensed_at`, `last_dispensed_grams`, `feed_level`, `estimated_feed_grams`.
 
-Feeder status flow: `checking_feed_level` → `dispensing` → `completed`, with `skipped_insufficient` or `blocked` failure paths. A critical percentage alone does not block feeding; the ESP blocks only an empty hopper, unavailable reading, or estimated grams below the requested amount.
+Feeder status flow: `checking_feed_level` → `dispensing` → `completed`, with terminal `skipped_insufficient`, `blocked`, or `failed` outcomes. `command_id` ties a manual outcome to the originating Feed Now request, while `status_reason` explains blocked/failed outcomes when available. A critical percentage alone does not block feeding; the ESP blocks only an empty hopper, unavailable reading, or estimated grams below the requested amount.
 
 ### `tanks/{tankId}/feeder_schedules/{scheduleId}` ✓
 `time`, `ampm`, `timeValue`, `grams`, `days`, `enabled`, `isDone`, `created_at`, `effective_at_ms`
@@ -90,7 +90,7 @@ records the owner's decision but never bypasses the strict device-side block.
 Fixed-cycle firmware accepts 20–200 g in multiples of 20 g; null means the default 20 g. Other amounts are rejected, not silently rounded or clamped. Actual output requires hardware calibration.
 
 ### `tanks/{tankId}/feeder_logs/{logId}` ✓
-Canonical fields: `action`, `type`, `logged_at`. ESP outcome logs additionally store `status`, `requested_grams`, `estimated_available_grams`, `feed_level_before`, `feed_level_after`, and `level_change_detected`.
+Canonical fields: `action`, `type`, `logged_at`. App audit entries may use `type: pending_confirmation`; ESP outcome logs additionally store `status`, `command_id`, `requested_grams`, `estimated_available_grams`, `feed_level_before`, `feed_level_after`, and `level_change_detected`.
 
 The before/after level change is supporting evidence only—not proof that the exact requested mass was dispensed. Completed logs alone contribute to Consumption Today.
 
@@ -103,7 +103,9 @@ ESP persists an execution reservation before dispensing and writes logs to a Lit
 Missed-schedule logs may additionally contain `schedule_key` and `schedule_time`. `trigger_type` is no longer written by the active runtime. The app accepts legacy Firestore `Timestamp`, `DateTime`, ISO-string, Unix-seconds, and Unix-milliseconds forms of `logged_at`, while new writes use Unix epoch milliseconds.
 
 ### `tanks/{tankId}/feeder_commands/{commandId}` ✓
-`command_type`, `grams`, `issued_by`, `issued_at`
+`command_type`, `grams`, `issued_by`, `issued_at`, `expires_at`, `near_schedule_confirmed`
+
+`expires_at` prevents a queued/offline Feed Now write from becoming a fresh physical command after reconnect. `near_schedule_confirmed` records that the owner accepted the warning-window confirmation; it never overrides the ESP's strict collision block around a scheduled feeding occurrence.
 
 ### `tanks/{tankId}/water_quality_anomaly_detections/current` ✓
 **Written hourly by the Python Water Quality Anomaly Detection Cloud Function** (Admin SDK). The app reads it with snapshot listeners.
