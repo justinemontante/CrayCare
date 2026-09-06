@@ -81,28 +81,37 @@ class SettingsService extends ChangeNotifier {
 
   Future<void> init() async {
     if (_initialized) return;
-    _resetRangesToDefaults();
-
-    // Remove the old global cache key. Threshold cache is now tank-scoped so
-    // values from one owner can never seed another owner's tank.
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('sensorRanges');
-
-    await _syncFromFirebase();
+    // Claim initialization before the first await so two callers cannot race
+    // and attach duplicate auth/Firestore listeners.
     _initialized = true;
-    _listenRealtime();
-
-    _authSub?.cancel();
-    _authSub = FirebaseAuth.instance.authStateChanges().listen((user) async {
-      await _sensorsSub?.cancel();
-      _sensorsSub = null;
-      _tankId = null;
+    try {
       _resetRangesToDefaults();
-      notifyListeners();
-      if (user == null) return;
+
+      // Remove the old global cache key. Threshold cache is now tank-scoped so
+      // values from one owner can never seed another owner's tank.
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('sensorRanges');
+
       await _syncFromFirebase();
       _listenRealtime();
-    });
+
+      _authSub?.cancel();
+      _authSub = FirebaseAuth.instance.authStateChanges().listen((user) async {
+        await _sensorsSub?.cancel();
+        _sensorsSub = null;
+        _tankId = null;
+        _resetRangesToDefaults();
+        notifyListeners();
+        if (user == null) return;
+        await _syncFromFirebase();
+        _listenRealtime();
+      });
+    } catch (_) {
+      // Allow a later caller to retry if initialization itself fails before the
+      // service has established its subscriptions.
+      _initialized = false;
+      rethrow;
+    }
   }
 
   // Real-time sync: when thresholds change on another device or in Firebase,
@@ -400,7 +409,10 @@ class SettingsService extends ChangeNotifier {
   @override
   void dispose() {
     _sensorsSub?.cancel();
+    _sensorsSub = null;
     _authSub?.cancel();
+    _authSub = null;
+    _initialized = false;
     super.dispose();
   }
 }
