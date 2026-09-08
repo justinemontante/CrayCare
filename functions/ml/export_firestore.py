@@ -61,6 +61,8 @@ columns = [
 ]
 df = pd.DataFrame(rows, columns=columns)
 if not df.empty:
+    for column in columns[1:]:
+        df[column] = pd.to_numeric(df[column], errors='coerce')
     df = df.dropna(subset=columns)
 
     def valid_aggregate(row):
@@ -80,6 +82,6 @@ if not df.empty:
     df = df[df.apply(valid_aggregate, axis=1)].sort_values("timestamp")
     df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True).dt.tz_localize(None)
 
-out_path = Path(__file__).with_name("sensor_dataset.csv")
+out_path = Path(__file__).with_name("real_sensor_history.csv")
 df.to_csv(out_path, index=False)
 print(f"Exported {len(df):,} complete readings for tank {TANK_ID} -> {out_path}")

@@ -83,5 +83,6 @@ cd esp/CrayCare && pio run -e esp32dev_main -t upload
 ## Notes
 
 - ESP32 authenticates with the dedicated Firebase Email/Password device service account. Firestore rules restrict that session to the currently assigned tank and ESP staging paths. For a future multi-device public deployment, use per-device credentials/custom claims or a protected ingestion endpoint instead of one shared credential.
+- Keep device credentials in the ignored secrets file.
 - Per-user notification preferences live at `users/{uid}/notification_settings/preferences`.
 - Multiple devices per account: all receive push (FCM tokens stored via arrayUnion).

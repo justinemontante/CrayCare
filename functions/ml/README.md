@@ -10,7 +10,7 @@ From this directory, run:
 
 ```powershell
 venv\Scripts\python.exe generate_dataset.py
-venv\Scripts\python.exe train_model.py
+venv\Scripts\python.exe train_model.py --origin synthetic_bootstrap_not_field_validated
 venv\Scripts\python.exe -m unittest discover -p "test_*.py"
 ```
 
@@ -30,3 +30,13 @@ Before final field claims:
 6. Update `training_data_origin` and the model version only after that validation is documented.
 
 The 98th-percentile decision boundary is a statistical rarity cutoff learned from reference anomaly scores. It is not a biological water-quality threshold and must not be used to directly switch pumps or aerators.
+
+## Training from collected history
+
+`export_firestore.py` exports the selected tank to `real_sensor_history.csv`, without overwriting the synthetic dataset. Configure `CRAYCARE_TANK_ID` and application credentials before exporting. Exported timestamps are UTC. Export one tank at a time; do not mix tanks in a single reference history.
+
+```powershell
+venv\Scripts\python.exe train_model.py --dataset real_sensor_history.csv --origin real_field_unvalidated --train-days 40 --output wqad_candidate.joblib
+```
+
+The 40-day reference period is an example, not a required biological duration. Select it before inspecting the later holdout. The pipeline requires a later holdout and at least 100 usable reference rows. It rejects invalid aggregates, sorts and deduplicates timestamps, and restarts the twelve-row warm-up after gaps outside 8–12 minutes, matching inference. No future interpolation is used. It does not require labels to fit real history. Without independent labels it reports the holdout alert fraction, not accuracy, precision, or recall. Synthetic event metrics are explicitly simulation-only. Review candidate models before replacing the deployed artifact; this code update does not retrain or deploy the current artifact.

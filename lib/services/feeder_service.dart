@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/control_types.dart';
 import 'connectivity_service.dart';
@@ -129,6 +130,8 @@ class FeederService extends ChangeNotifier {
   double? _estimatedFeedGrams;
   DateTime _lastSeen = DateTime.fromMillisecondsSinceEpoch(0);
   String? _lastError;
+  String? _lastFeedRequestError;
+  bool _schedulesLoaded = false;
 
   final List<LogEntry> _logs = [];
   final List<ScheduleItem> _schedules = [];
@@ -149,6 +152,9 @@ class FeederService extends ChangeNotifier {
   double? get estimatedFeedGrams => _estimatedFeedGrams;
   DateTime get lastSeen => _lastSeen;
   String? get lastError => _lastError;
+  String? get lastFeedRequestError => _lastFeedRequestError;
+  bool get manualRequestPending =>
+      _manualRequestPendingUntil?.isAfter(DateTime.now()) ?? false;
 
   bool get isOnline {
     final age = DateTime.now().difference(_lastSeen);
@@ -255,14 +261,27 @@ class FeederService extends ChangeNotifier {
     _listenTodayTotals();
   }
 
-  bool canFeedNow() {
-    final ranges = SettingsService.instance.currentRanges;
-    final turbMax = ranges['turb']?['max'] ?? 999.0;
-    final turb = SensorService.instance.getLatestValue('turb');
-    if (SensorService.instance.turbidityAir) return false;
-    if (turb > turbMax) return false;
-    return true;
+  String feedSafetyIssue({double? grams}) {
+    final sensors = SensorService.instance;
+    const keys = ['temp', 'do', 'ph', 'turb', 'feedlevel'];
+    return feederPreflightIssue(
+      internetOnline: ConnectivityService.instance.isOnline,
+      feederOnline: isOnline,
+      busy: _isRunning || manualRequestPending,
+      schedulesLoaded: _schedulesLoaded,
+      turbidityAir: sensors.turbidityAir,
+      values: {for (final key in keys) key: sensors.getLatestValue(key)},
+      freshSensors: {
+        for (final key in keys)
+          if (sensors.hasFreshData(key)) key,
+      },
+      ranges: SettingsService.instance.currentRanges,
+      availableGrams: sensors.estimatedFeedGrams,
+      grams: grams,
+    );
   }
+
+  bool canFeedNow({double? grams}) => feedSafetyIssue(grams: grams).isEmpty;
 
   void _onReconnect() {
     debugPrint('[FeederService] Internet reconnected — refreshing listeners');
@@ -301,6 +320,8 @@ class FeederService extends ChangeNotifier {
     _estimatedFeedGrams = null;
     _lastSeen = DateTime.fromMillisecondsSinceEpoch(0);
     _lastError = null;
+    _lastFeedRequestError = null;
+    _schedulesLoaded = false;
     FeedState.schedules.value = [];
     FeedState.feederLogs.value = [];
     notifyListeners();
@@ -325,13 +346,17 @@ class FeederService extends ChangeNotifier {
                 _statusCommandId = data['command_id'] as String?;
                 if (_statusCommandId != null &&
                     _statusCommandId == _lastQueuedCommandId &&
-                    const ['completed', 'blocked', 'failed', 'skipped_insufficient']
-                        .contains(_status)) {
+                    const [
+                      'completed',
+                      'blocked',
+                      'failed',
+                      'skipped_insufficient',
+                    ].contains(_status)) {
                   _manualRequestPendingUntil = null;
                 }
                 _statusReason = data['status_reason'] as String? ?? '';
-                _isRunning = _status == 'dispensing' ||
-                    _status == 'checking_feed_level';
+                _isRunning =
+                    _status == 'dispensing' || _status == 'checking_feed_level';
                 _feedLevelPercent = (data['feed_level'] as num?)?.toDouble();
                 _estimatedFeedGrams = (data['estimated_feed_grams'] as num?)
                     ?.toDouble();
@@ -344,7 +369,8 @@ class FeederService extends ChangeNotifier {
                   final now = DateTime.now();
                   final futureSkew = parsed.difference(now);
                   if (futureSkew > _maxFutureHeartbeatSkew) {
-                    _lastError = 'Feeder heartbeat has an invalid future timestamp.';
+                    _lastError =
+                        'Feeder heartbeat has an invalid future timestamp.';
                   } else {
                     _lastSeen = parsed.isAfter(now) ? now : parsed;
                   }
@@ -422,13 +448,17 @@ class FeederService extends ChangeNotifier {
                   );
                 }
                 FeedState.schedules.value = List.from(_schedules);
+                _schedulesLoaded = true;
               } catch (e) {
+                _schedulesLoaded = false;
                 debugPrint('[FeederService] Schedules parse error: $e');
               }
               notifyListeners();
             },
             onError: (error) {
+              _schedulesLoaded = false;
               debugPrint('[FeederService] Schedules stream error: $error');
+              notifyListeners();
             },
           );
     } catch (e) {
@@ -521,16 +551,32 @@ class FeederService extends ChangeNotifier {
     double? grams,
     bool nearScheduleConfirmed = false,
   }) async {
-    if (_isRunning ||
-        (_manualRequestPendingUntil?.isAfter(DateTime.now()) ?? false)) {
+    // Recheck after any confirmation dialog, immediately before dispatch.
+    // Callers outside ControlsScreen receive exactly the same protections.
+    final issue = feedSafetyIssue(grams: grams);
+    if (issue.isNotEmpty) {
+      _lastFeedRequestError = issue;
+      return false;
+    }
+    final guard = manualFeedScheduleGuard(_schedules, _manilaNow());
+    if (guard.isBlocked ||
+        (guard.needsConfirmation && !nearScheduleConfirmed)) {
+      _lastFeedRequestError = guard.isBlocked
+          ? 'Scheduled feeding is due. Feed Now is temporarily unavailable.'
+          : 'Confirm the nearby scheduled feeding before using Feed Now.';
       return false;
     }
     _lastQueuedCommandId = null;
-    if (validateFeederGrams(grams) != null) return false;
     final tankDoc = _tankDoc();
-    if (tankDoc == null) return false;
     final uid = FirebaseAuth.instance.currentUser?.uid;
-    _manualRequestPendingUntil = DateTime.now().add(const Duration(seconds: 60));
+    if (tankDoc == null || uid == null || uid != _tankId) {
+      _lastFeedRequestError = 'Sign in to the owner account before feeding.';
+      return false;
+    }
+    _lastFeedRequestError = null;
+    _manualRequestPendingUntil = DateTime.now().add(
+      const Duration(seconds: 60),
+    );
     try {
       // New structure: tanks/{tank_id}/feeder_commands/{autoId}
       // ESP32 listens here, executes, then deletes the command.
@@ -564,6 +610,8 @@ class FeederService extends ChangeNotifier {
       // immediately. Keeping it set would falsely block a retry for 60 seconds.
       _manualRequestPendingUntil = null;
       _lastQueuedCommandId = null;
+      _lastFeedRequestError =
+          'Could not send the Feed Now command. Check your connection.';
       debugPrint('[FeederService] feedNow error: $e');
       notifyListeners();
       return false;
@@ -605,8 +653,7 @@ class FeederService extends ChangeNotifier {
     double? grams,
     String days = '1111111',
   }) async {
-    final tankDoc = _tankDoc();
-    if (tankDoc == null) {
+    if (_tankDoc() == null) {
       throw StateError(
         'No tank is connected to this account. Ask the admin to assign the hardware first.',
       );
@@ -615,33 +662,14 @@ class FeederService extends ChangeNotifier {
     final doseError = validateFeederGrams(grams);
     if (doseError != null) throw ArgumentError(doseError);
     _throwIfScheduleConflicts(requested);
-    try {
-      final parts = time.split(':');
-      final h = int.tryParse(parts[0]) ?? 6;
-      final m = int.tryParse(parts[1]) ?? 0;
-      final hour24 = ampm == 'PM' ? (h == 12 ? 12 : h + 12) : (h == 12 ? 0 : h);
-      final timeValue = hour24 * 60 + m;
-      // tanks/{tank_id}/feeder_schedules/{autoId}
-      await tankDoc.collection('feeder_schedules').add({
-        'time': time,
-        'ampm': ampm,
-        'enabled': true,
-        'isDone': false,
-        'grams': grams,
-        'timeValue': timeValue,
-        'days': days,
-        'created_at': FieldValue.serverTimestamp(),
-        'effective_at_ms': DateTime.now().toUtc().millisecondsSinceEpoch,
-      });
-      final gramsStr = grams != null ? ' (${grams.toStringAsFixed(1)}g)' : '';
-      await _addLogEntry(
-        action: 'Scheduled auto feed at $time $ampm$gramsStr',
-        type: 'auto',
-      );
-    } catch (e) {
-      debugPrint('[FeederService] addSchedule error: $e');
-      rethrow;
-    }
+    await _mutateSchedule({
+      'operation': 'add',
+      'time': time,
+      'ampm': ampm,
+      'grams': grams,
+      'days': days,
+      'enabled': true,
+    }, requested: requested);
     notifyListeners();
   }
 
@@ -653,19 +681,11 @@ class FeederService extends ChangeNotifier {
 
   Future<void> deleteSchedule(int index) async {
     if (index < 0 || index >= _scheduleKeys.length) return;
-    final tankDoc = _tankDoc();
-    if (tankDoc == null) return;
-    final timeStr = getScheduleTime(index);
-    try {
-      await tankDoc
-          .collection('feeder_schedules')
-          .doc(_scheduleKeys[index])
-          .delete();
-      await _addLogEntry(action: 'Removed schedule at $timeStr', type: 'auto');
-    } catch (e) {
-      debugPrint('[FeederService] deleteSchedule error: $e');
-      rethrow;
-    }
+    if (_tankDoc() == null) return;
+    await _mutateSchedule({
+      'operation': 'delete',
+      'scheduleId': _scheduleKeys[index],
+    });
     notifyListeners();
   }
 
@@ -677,11 +697,9 @@ class FeederService extends ChangeNotifier {
         index >= _schedules.length) {
       return;
     }
-    final tankDoc = _tankDoc();
-    if (tankDoc == null) return;
+    if (_tankDoc() == null) return;
     final scheduleKey = _scheduleKeys[index];
     final previous = _schedules[index];
-    final timeStr = getScheduleTime(index);
 
     if (enabled) {
       final doseError = validateFeederGrams(previous.grams);
@@ -718,17 +736,11 @@ class FeederService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await tankDoc.collection('feeder_schedules').doc(scheduleKey).update({
+      await _mutateSchedule({
+        'operation': 'toggle',
+        'scheduleId': scheduleKey,
         'enabled': enabled,
-        'isDone': false,
-        if (enabled) 'effective_at_ms': effectiveNow!.millisecondsSinceEpoch,
-      });
-      await _addLogEntry(
-        action: enabled
-            ? 'Schedule enabled: $timeStr'
-            : 'Schedule disabled: $timeStr',
-        type: 'auto',
-      );
+      }, requested: previous);
     } catch (e) {
       debugPrint('[FeederService] toggleSchedule error: $e');
       // Roll back only if this same schedule has not received a newer toggle
@@ -755,51 +767,67 @@ class FeederService extends ChangeNotifier {
     String days = '1111111',
   }) async {
     if (index < 0 || index >= _scheduleKeys.length) return;
-    final tankDoc = _tankDoc();
-    if (tankDoc == null) return;
+    if (_tankDoc() == null) return;
     final requested = ScheduleItem(
       time,
       ampm,
-      enabled: enabled ?? true,
+      enabled: enabled ?? _schedules[index].enabled,
       grams: grams,
       days: days,
     );
     _throwIfScheduleConflicts(requested, excludingIndex: index);
     final doseError = validateFeederGrams(grams);
     if (doseError != null) throw ArgumentError(doseError);
-    try {
-      final parts = time.split(':');
-      final hour = int.tryParse(parts.first) ?? 6;
-      final minute = parts.length > 1 ? (int.tryParse(parts[1]) ?? 0) : 0;
-      final timeValue =
-          (ampm == 'PM' && hour != 12
-                  ? hour + 12
-                  : (ampm == 'AM' && hour == 12 ? 0 : hour)) *
-              60 +
-          minute;
-      await tankDoc
-          .collection('feeder_schedules')
-          .doc(_scheduleKeys[index])
-          .update({
-            'time': time,
-            'ampm': ampm,
-            'timeValue': timeValue,
-            'enabled': enabled ?? true,
-            'isDone': false,
-            'grams': clearGrams ? null : grams,
-            'days': days,
-            'effective_at_ms': DateTime.now().toUtc().millisecondsSinceEpoch,
-          });
-      final gramsStr = grams != null ? ' (${grams.toStringAsFixed(1)}g)' : '';
-      await _addLogEntry(
-        action: 'Edited schedule to $time $ampm$gramsStr',
-        type: 'auto',
-      );
-    } catch (e) {
-      debugPrint('[FeederService] editSchedule error: $e');
-      rethrow;
-    }
+    await _mutateSchedule({
+      'operation': 'edit',
+      'scheduleId': _scheduleKeys[index],
+      'time': time,
+      'ampm': ampm,
+      'enabled': requested.enabled,
+      'grams': clearGrams ? null : grams,
+      'days': days,
+    }, requested: requested);
     notifyListeners();
+  }
+
+  /// The callable validates against current schedules inside a server
+  /// transaction. The local conflict check only provides immediate feedback.
+  /// All schedule and audit writes commit together, including two-phone edits.
+  Future<void> _mutateSchedule(
+    Map<String, dynamic> payload, {
+    ScheduleItem? requested,
+  }) async {
+    if (!ConnectivityService.instance.isOnline) {
+      throw StateError('Connect to the internet to update feeding schedules.');
+    }
+    try {
+      await FirebaseFunctions.instanceFor(
+        region: 'asia-southeast1',
+      ).httpsCallable('mutateFeederSchedule').call(payload);
+    } on FirebaseFunctionsException catch (error) {
+      final details = error.details;
+      final conflict = details is Map ? details['conflictingSchedule'] : null;
+      if (error.code == 'already-exists' &&
+          requested != null &&
+          conflict is Map) {
+        throw FeederScheduleConflictException(
+          requested,
+          ScheduleItem(
+            conflict['time']?.toString() ?? requested.time,
+            conflict['ampm']?.toString() ?? requested.ampm,
+            days: conflict['days']?.toString() ?? '1111111',
+          ),
+        );
+      }
+      if (error.code == 'unavailable' || error.code == 'deadline-exceeded') {
+        throw StateError(
+          'Could not confirm the schedule update. Check the schedules before retrying.',
+        );
+      }
+      throw StateError(
+        error.message ?? 'Could not update the feeding schedule.',
+      );
+    }
   }
 
   void _throwIfScheduleConflicts(
@@ -823,7 +851,9 @@ class FeederService extends ChangeNotifier {
       unawaited(
         _checkSchedules()
             .catchError((Object error) {
-              debugPrint('[FeederService] Schedule reconciliation failed: $error');
+              debugPrint(
+                '[FeederService] Schedule reconciliation failed: $error',
+              );
             })
             .whenComplete(() => _scheduleCheckInProgress = false),
       );

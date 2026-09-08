@@ -2,6 +2,8 @@
 
 **Audit date:** 2026-08-13
 
+This is a historical audit, not a statement of the current deployment. See [8 September fixes](docs/CODEBASE_FIXES_2026-09-08.md) for current changes, verification and rollout requirements. ESP32 now uses its provisioned device account rather than anonymous authentication.
+
 **Scope:** Flutter application, ESP32 production firmware, Node.js Cloud Functions, Python ML Cloud Function, Firestore rules/indexes, schemas/documentation, dependency manifests, and available tests.
 
 ## Remediation status

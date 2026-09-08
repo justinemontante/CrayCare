@@ -85,3 +85,5 @@ venv/
 # Local AI / document-review working artifacts
 .codex-current-screen.png
 .codex_doc_review/
+functions/ml/real_sensor_history.csv
+functions/ml/wqad_candidate.joblib

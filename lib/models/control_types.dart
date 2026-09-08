@@ -12,6 +12,74 @@ String? validateFeederGrams(double? grams) {
   return null;
 }
 
+/// App preflight shared by the Feed Now button and command dispatcher. The ESP
+/// still checks its current physical sensors immediately before dispensing.
+String feederPreflightIssue({
+  required bool internetOnline,
+  required bool feederOnline,
+  required bool busy,
+  required bool schedulesLoaded,
+  required bool turbidityAir,
+  required Map<String, double> values,
+  required Set<String> freshSensors,
+  required Map<String, Map<String, double>> ranges,
+  required double? availableGrams,
+  double? grams,
+}) {
+  final doseError = validateFeederGrams(grams);
+  if (doseError != null) return doseError;
+  if (!internetOnline) return 'No internet connection';
+  if (busy) return 'A feeding request is already in progress';
+  if (!feederOnline) return 'Feeder is offline';
+  if (!schedulesLoaded) return 'Waiting for feeding schedules';
+  if (turbidityAir) return 'Turbidity sensor is in air';
+  for (final entry in const {
+    'temp': 'temperature',
+    'do': 'dissolved oxygen',
+    'ph': 'pH',
+    'turb': 'turbidity',
+    'feedlevel': 'feed-level',
+  }.entries) {
+    final value = values[entry.key];
+    if (!freshSensors.contains(entry.key) ||
+        value == null ||
+        !value.isFinite ||
+        value < 0) {
+      return 'Waiting for fresh ${entry.value} data';
+    }
+  }
+  final temp = values['temp']!;
+  if (temp < (ranges['temp']?['min'] ?? 0) ||
+      temp > (ranges['temp']?['max'] ?? 50)) {
+    return 'Temperature outside range (${temp.toStringAsFixed(1)}°C)';
+  }
+  final oxygen = values['do']!;
+  if (oxygen < (ranges['do']?['min'] ?? 0)) {
+    return 'Dissolved oxygen too low (${oxygen.toStringAsFixed(1)} mg/L)';
+  }
+  final ph = values['ph']!;
+  if (ph < (ranges['ph']?['min'] ?? 0) || ph > (ranges['ph']?['max'] ?? 14)) {
+    return 'pH outside range (${ph.toStringAsFixed(2)})';
+  }
+  final turbidity = values['turb']!;
+  if (turbidity > (ranges['turb']?['max'] ?? 999)) {
+    return 'Turbidity too high (${turbidity.toStringAsFixed(0)} NTU)';
+  }
+  if (values['feedlevel']! > 100) return 'Waiting for valid feed-level data';
+  if (values['feedlevel']! <= 0) return 'Hopper is empty';
+  if (availableGrams == null ||
+      !availableGrams.isFinite ||
+      availableGrams < 0) {
+    return 'Waiting for an estimated feed amount';
+  }
+  final requiredGrams = grams ?? defaultFeederGrams;
+  if (availableGrams + 0.5 < requiredGrams) {
+    return 'Insufficient feed: ~${availableGrams.toStringAsFixed(0)} g available, '
+        '${requiredGrams.toStringAsFixed(0)} g required.';
+  }
+  return '';
+}
+
 /// Returns Manila calendar fields in a non-UTC [DateTime]. Schedule helpers
 /// compare wall-clock fields, so preserving `isUtc` after adding eight hours
 /// would shift comparisons by another eight hours.

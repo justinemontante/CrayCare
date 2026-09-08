@@ -164,15 +164,16 @@ service cloud.firestore {
       }
       match /feeder/{doc} {
         allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId) || isAssignedEsp(tankId);
-        allow create: if isTankOwner(tankId) || isAdmin() || isAssignedEsp(tankId);
-        allow update: if isAssignedEsp(tankId);
+        allow create: if doc != 'schedule_guard' && (isTankOwner(tankId) || isAdmin() || isAssignedEsp(tankId));
+        allow update: if doc != 'schedule_guard' && isAssignedEsp(tankId);
         allow delete: if false;
       }
       match /feeder_schedules/{scheduleId} {
         allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId) || isAssignedEsp(tankId);
-        allow create, delete: if isTankOwner(tankId);
-        allow update: if isTankOwner(tankId) ||
-          (isAssignedEsp(tankId) &&
+        // The callable serializes owner changes and rejects overlapping days
+        // and times. Direct/offline writes would bypass that shared lock.
+        allow create, delete: if false;
+        allow update: if (isAssignedEsp(tankId) &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isDone']) &&
             request.resource.data.isDone == true);
       }

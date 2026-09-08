@@ -9,6 +9,7 @@ import '../models/control_types.dart';
 import '../services/feeder_service.dart';
 import '../services/sensor_service.dart';
 import '../services/settings_service.dart';
+import '../services/connectivity_service.dart';
 import '../services/esp_service.dart';
 import '../services/actuator_log_service.dart';
 import '../services/database_service.dart';
@@ -64,6 +65,8 @@ class ControlsScreenState extends State<ControlsScreen> {
     _lastDateKey = _todayKey();
     svc.addListener(_onFeederUpdate);
     SensorService.instance.addListener(_onSensorDataUpdate);
+    SettingsService.instance.addListener(_onSensorDataUpdate);
+    ConnectivityService.instance.addListener(_onSensorDataUpdate);
     EspService.instance.addListener(_onEspUpdate);
     EspService.instance.init();
     ActuatorLogService.instance.init();
@@ -183,6 +186,8 @@ class ControlsScreenState extends State<ControlsScreen> {
   void dispose() {
     FeederService.instance.removeListener(_onFeederUpdate);
     SensorService.instance.removeListener(_onSensorDataUpdate);
+    SettingsService.instance.removeListener(_onSensorDataUpdate);
+    ConnectivityService.instance.removeListener(_onSensorDataUpdate);
     EspService.instance.removeListener(_onEspUpdate);
     _actuatorsSub?.cancel();
     _feedTimer?.cancel();
@@ -335,53 +340,7 @@ class ControlsScreenState extends State<ControlsScreen> {
   Map<String, String> _actuatorRuntimeLabels = {};
   Timer? _runtimeTimer;
 
-  String get _feedSafetyIssue {
-    if (!FeederService.instance.isOnline) return 'Feeder is offline';
-    final svc = SensorService.instance;
-    final ranges = SettingsService.instance.currentRanges;
-    if (svc.turbidityAir) return 'Turbidity sensor is in air';
-
-    for (final entry in const {
-      'temp': 'temperature',
-      'do': 'dissolved oxygen',
-      'ph': 'pH',
-      'turb': 'turbidity',
-    }.entries) {
-      if (!svc.hasFreshData(entry.key)) {
-        return 'Waiting for fresh ${entry.value} data';
-      }
-    }
-
-    final temp = svc.getLatestValue('temp');
-    final tempMin = ranges['temp']?['min'] ?? 0.0;
-    final tempMax = ranges['temp']?['max'] ?? 50.0;
-    if (temp < tempMin || temp > tempMax) {
-      return 'Temperature outside range (${temp.toStringAsFixed(1)}°C)';
-    }
-
-    final dissolvedOxygen = svc.getLatestValue('do');
-    final doMin = ranges['do']?['min'] ?? 0.0;
-    if (dissolvedOxygen < doMin) {
-      return 'Dissolved oxygen too low (${dissolvedOxygen.toStringAsFixed(1)} mg/L)';
-    }
-
-    final ph = svc.getLatestValue('ph');
-    final phMin = ranges['ph']?['min'] ?? 0.0;
-    final phMax = ranges['ph']?['max'] ?? 14.0;
-    if (ph < phMin || ph > phMax) {
-      return 'pH outside range (${ph.toStringAsFixed(2)})';
-    }
-
-    final turbMax = ranges['turb']?['max'] ?? 999.0;
-    final turb = svc.getLatestValue('turb');
-    if (turb > turbMax) {
-      return 'Turbidity too high (${turb.toStringAsFixed(0)} NTU)';
-    }
-
-    if (!svc.hasFreshData('feedlevel')) return 'Waiting for feed-level data';
-    if (svc.getLatestValue('feedlevel') <= 0) return 'Hopper is empty';
-    return '';
-  }
+  String get _feedSafetyIssue => FeederService.instance.feedSafetyIssue();
 
   bool get _canFeed => _feedSafetyIssue.isEmpty;
 
@@ -535,14 +494,16 @@ class ControlsScreenState extends State<ControlsScreen> {
 
   Future<void> _feedNow({double? grams}) async {
     final svc = FeederService.instance;
-    if (svc.isRunning || _feedState == _FeedState.waiting ||
+    if (svc.isRunning ||
+        _feedState == _FeedState.waiting ||
         _feedState == _FeedState.dispensing) {
       return;
     }
-    if (!_canFeed) {
-      _feedNotice = _feedBlockedReason;
+    final preflightIssue = svc.feedSafetyIssue(grams: grams);
+    if (preflightIssue.isNotEmpty) {
+      _feedNotice = 'Feed blocked: $preflightIssue';
       setState(() => _feedState = _FeedState.failed);
-      final reason = _feedBlockedReason;
+      final reason = _feedNotice;
       if (mounted && reason.isNotEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(reason), backgroundColor: AppColors.critical),
@@ -574,19 +535,13 @@ class ControlsScreenState extends State<ControlsScreen> {
         return;
       }
     }
-    final requiredGrams = grams ?? defaultFeederGrams;
     if (svc.isRunning || !mounted) return;
-    final availableGrams = SensorService.instance.estimatedFeedGrams;
-    if (availableGrams == null || availableGrams + 0.5 < requiredGrams) {
+    final refreshedIssue = svc.feedSafetyIssue(grams: grams);
+    if (refreshedIssue.isNotEmpty) {
       if (mounted) {
-        final availableText = availableGrams == null
-            ? 'unavailable'
-            : '~${availableGrams.toStringAsFixed(0)} g';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              'Insufficient feed: $availableText available, ${requiredGrams.toStringAsFixed(0)} g required.',
-            ),
+            content: Text('Feed blocked: $refreshedIssue'),
             backgroundColor: AppColors.critical,
           ),
         );
@@ -627,6 +582,7 @@ class ControlsScreenState extends State<ControlsScreen> {
       _manualFeedInitiated = false;
       _activeCommandId = null;
       _feedNotice =
+          svc.lastFeedRequestError ??
           'Could not send the Feed Now command. Check your connection.';
       _dispenseTimer?.cancel();
       if (!mounted) return;

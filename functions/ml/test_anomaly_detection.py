@@ -14,7 +14,7 @@ class WaterQualityAnomalyDetectionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.frame = pd.read_csv(os.path.join(ROOT, "sensor_dataset.csv"), parse_dates=["timestamp"])
-        cls.frame["timestamp"] = cls.frame["timestamp"].astype("int64") / 1e9
+        cls.frame["timestamp"] = pd.to_datetime(cls.frame["timestamp"], utc=True).map(lambda value: value.timestamp())
         cls.bundle = joblib.load(os.path.join(ROOT, "wqad_model.joblib"))
         with open(os.path.join(ROOT, "anomaly_recommendations.json"), encoding="utf-8") as handle:
             cls.recommendations = json.load(handle)

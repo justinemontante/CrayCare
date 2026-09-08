@@ -4,15 +4,9 @@ admin.initializeApp();
 
 const firestoreDb = admin.firestore();
 const {sensorRouteDecision} = require('./sensor_routing');
-
-const SENSOR_MAP = {
-  temperature: "temp",
-  ph_level: "ph",
-  dissolved_oxygen: "do",
-  turbidity: "turb",
-  water_level: "waterlevel",
-  feed_level: "feedlevel",
-};
+const {SENSOR_MAP, sensorStateChanges, thresholdStateChanges} = require("./sensor_alerts");
+const {notificationEventId, deliverNotificationOnce} = require("./notification_delivery");
+const {feedingReminderOccurrence, feedingReminderBody} = require("./feeding_reminder");
 
 const LABELS = {
   temp: "Temperature",
@@ -32,7 +26,6 @@ const UNITS = {
   feedlevel: "%",
 };
 
-const WARNING_MARGIN_FRACTION = 0.1;
 const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
 const TRUSTED_EPOCH_MS = 1577836800000;
 
@@ -45,7 +38,7 @@ function getTokensFromUserData(userData) {
     ? userData.fcmToken.trim()
     : "";
   if (legacyToken && !tokens.includes(legacyToken)) tokens.push(legacyToken);
-  return tokens;
+  return [...new Set(tokens)];
 }
 
 async function getUserPreferences(uid) {
@@ -204,50 +197,6 @@ function normalizeSensorReading(raw) {
   return Object.fromEntries(Object.entries(reading).filter(([, value]) => value !== null));
 }
 
-function sensorState(value, range) {
-  if (!Number.isFinite(Number(value)) || !range) return { state: "unknown" };
-  const val = Number(value);
-  const min = Number(range.min);
-  const max = Number(range.max);
-  if (!Number.isFinite(min) || !Number.isFinite(max) || min >= max) {
-    return { state: "unknown" };
-  }
-  if (val < min) return { state: "critical", dir: "low", threshold: min };
-  if (val > max) return { state: "critical", dir: "high", threshold: max };
-
-  const margin = (max - min) * WARNING_MARGIN_FRACTION;
-  if (val >= min && val < min + margin) {
-    return { state: "warning", dir: "low", threshold: min };
-  }
-  if (val <= max && val > max - margin) {
-    return { state: "warning", dir: "high", threshold: max };
-  }
-  return { state: "normal" };
-}
-
-function feedLevelState(value, range) {
-  const val = Number(value);
-  const low = Number(range && range.min);
-  const critical = Number(range && range.critical);
-  if (!Number.isFinite(val) || !Number.isFinite(low) || !Number.isFinite(critical)) {
-    return { state: "unknown" };
-  }
-  if (val <= 0) return { state: "critical", dir: "empty", threshold: 0 };
-  if (val <= critical) return { state: "critical", dir: "low", threshold: critical };
-  if (val <= low) return { state: "warning", dir: "low", threshold: low };
-  return { state: "normal" };
-}
-
-function stateForSensor(sensorName, value, range) {
-  return sensorName === "feed_level"
-    ? feedLevelState(value, range)
-    : sensorState(value, range);
-}
-
-function stateSignature(state) {
-  return `${state.state}:${state.dir || ""}`;
-}
-
 function sensorMessage(change) {
   const label = LABELS[change.svcKey] || change.svcKey;
   const unit = UNITS[change.svcKey] || "";
@@ -273,7 +222,7 @@ function sensorMessage(change) {
   return `${label} (${change.val.toFixed(1)}${suffix}) ${description} of ${change.threshold}`;
 }
 
-async function notifySensorChanges(ownerUid, stateChanges) {
+async function notifySensorChanges(ownerUid, stateChanges, eventId) {
   if (!ownerUid || stateChanges.length === 0) return;
   const lines = stateChanges.map(sensorMessage);
   const hasCritical = stateChanges.some((c) => c.state === "critical");
@@ -287,18 +236,16 @@ async function notifySensorChanges(ownerUid, stateChanges) {
   const bodyForDb = lines.join("; ");
   const bodyForPush = lines.join("\n");
 
-  await writeNotification(ownerUid, {
-    type: alertType,
-    title,
-    message: bodyForDb,
-  });
-
   const prefsCheck = alertType === "critical"
     ? "critical"
     : alertType === "warning"
       ? "warning"
       : "operational";
-  await sendPush(ownerUid, {
+  await deliverNotificationOnce({
+    db: firestoreDb, id: eventId, uid: ownerUid, type: alertType,
+    title, body: bodyForDb,
+    timestamp: () => admin.firestore.FieldValue.serverTimestamp(),
+    send: () => sendPush(ownerUid, {
     notification: { title, body: bodyForPush },
     data: {
       title,
@@ -308,7 +255,8 @@ async function notifySensorChanges(ownerUid, stateChanges) {
       operational: String(alertType === "operational"),
       alertType,
     },
-  }, prefsCheck);
+    }, prefsCheck),
+  });
 }
 
 exports.onSensorIngestionWrite = functions.region("asia-southeast1").firestore
@@ -433,7 +381,7 @@ exports.onFeederLogCreate = functions.runWith({failurePolicy: true}).region("asi
     return null;
   });
 
-exports.onSensorUpdate = functions.region("asia-southeast1").firestore
+exports.onSensorUpdate = functions.runWith({failurePolicy: true}).region("asia-southeast1").firestore
   .document("tanks/{tankId}/sensor_readings/latest")
   .onWrite(async (change, context) => {
     const afterData = change.after.exists ? change.after.data() : null;
@@ -458,36 +406,17 @@ exports.onSensorUpdate = functions.region("asia-southeast1").firestore
         };
       });
 
-      const stateChanges = [];
-      for (const [field, svcKey] of Object.entries(SENSOR_MAP)) {
-        const newVal = Number(afterData[field]);
-        if (!Number.isFinite(newVal) || !thresholds[field]) continue;
-        const oldRaw = beforeData ? Number(beforeData[field]) : NaN;
-        const current = stateForSensor(field, newVal, thresholds[field]);
-        const previous = Number.isFinite(oldRaw)
-          ? stateForSensor(field, oldRaw, thresholds[field])
-          : { state: "unknown" };
-        if (stateSignature(current) === stateSignature(previous)) continue;
-        if (current.state === "critical" || current.state === "warning") {
-          stateChanges.push({
-            svcKey,
-            val: newVal,
-            threshold: current.threshold,
-            dir: current.dir,
-            state: current.state,
-          });
-        } else if (current.state === "normal" && ["critical", "warning"].includes(previous.state)) {
-          stateChanges.push({ svcKey, val: newVal, state: "resolved" });
-        }
-      }
-      await notifySensorChanges(ownerUid, stateChanges);
+      const stateChanges = sensorStateChanges(beforeData, afterData, thresholds);
+      await notifySensorChanges(ownerUid, stateChanges,
+        notificationEventId("sensor", tankId, context.eventId));
     } catch (e) {
       functions.logger.error("onSensorUpdate error:", e.message);
+      throw e;
     }
     return null;
   });
 
-exports.onSensorThresholdUpdate = functions.region("asia-southeast1").firestore
+exports.onSensorThresholdUpdate = functions.runWith({failurePolicy: true}).region("asia-southeast1").firestore
   .document("tanks/{tankId}/sensors/{sensorName}")
   .onUpdate(async (change, context) => {
     try {
@@ -513,36 +442,20 @@ exports.onSensorThresholdUpdate = functions.region("asia-southeast1").firestore
       const ownerUid = tankSnap.exists ? (tankSnap.data() || {}).owner_uid : null;
       if (!ownerUid || !latestSnap.exists) return null;
 
-      const value = Number((latestSnap.data() || {})[sensorName]);
-      if (!Number.isFinite(value)) return null;
-
-      const previous = stateForSensor(sensorName, value, {
+      const stateChanges = thresholdStateChanges(sensorName, latestSnap.data(), {
         min: before.min_value,
         max: before.max_value,
         critical: before.critical_value,
-      });
-      const current = stateForSensor(sensorName, value, {
+      }, {
         min: after.min_value,
         max: after.max_value,
         critical: after.critical_value,
       });
-      if (stateSignature(previous) === stateSignature(current)) return null;
-
-      const stateChanges = [];
-      if (current.state === "critical" || current.state === "warning") {
-        stateChanges.push({
-          svcKey,
-          val: value,
-          threshold: current.threshold,
-          dir: current.dir,
-          state: current.state,
-        });
-      } else if (current.state === "normal" && ["critical", "warning"].includes(previous.state)) {
-        stateChanges.push({ svcKey, val: value, state: "resolved" });
-      }
-      await notifySensorChanges(ownerUid, stateChanges);
+      await notifySensorChanges(ownerUid, stateChanges,
+        notificationEventId("sensor_threshold", tankId, context.eventId));
     } catch (e) {
       functions.logger.error("onSensorThresholdUpdate error:", e.message);
+      throw e;
     }
     return null;
   });
@@ -554,41 +467,33 @@ exports.processFeeding = functions.region("asia-southeast1").pubsub
       const owner = await getCurrentHardwareOwner();
       if (!owner) return null;
 
-      const now = new Date();
-      const target = new Date(now.getTime() + MANILA_OFFSET_MS + 5 * 60 * 1000);
-      const targetDateKey = `${target.getUTCFullYear()}-${String(target.getUTCMonth() + 1).padStart(2, "0")}-${String(target.getUTCDate()).padStart(2, "0")}`;
-      const targetMinuteOfDay = target.getUTCHours() * 60 + target.getUTCMinutes();
-      const targetDayIdx = target.getUTCDay();
       const tankRef = firestoreDb.collection("tanks").doc(owner.tankId);
       const schedules = await tankRef.collection("feeder_schedules").get();
       const prefs = await getUserPreferences(owner.uid);
 
       for (const schedule of schedules.docs) {
         const data = schedule.data() || {};
-        if (data.enabled === false || data.is_active === false) continue;
-        const timeValue = typeof data.timeValue === "number" ? data.timeValue : null;
-        if (timeValue === null || targetMinuteOfDay !== timeValue) continue;
-
-        if (typeof data.days === "string" && data.days.length >= 7) {
-          if (data.days.charAt(targetDayIdx) !== "1") continue;
-        }
-
-        const markerKey = `feed_${targetDateKey}_${schedule.id}`;
+        const occurrence = feedingReminderOccurrence(data, Date.now());
+        if (!occurrence) continue;
+        const markerKey = `feed_${occurrence.dateKey}_${schedule.id}`;
         if (await readMarker(owner.uid, markerKey)) continue;
         if (prefs.feeding === false) continue;
 
-        const time = data.time || data.feed_time || "";
-        const ampm = data.ampm || "";
-        const body = `Your feeding schedule at ${time} ${ampm} will be dispensed in 5 minutes.`;
-        await writeNotification(owner.uid, {
+        const body = feedingReminderBody(occurrence);
+        await deliverNotificationOnce({
+          db: firestoreDb,
+          id: notificationEventId("feeding_reminder", owner.tankId,
+            `${schedule.id}:${occurrence.occurrenceAtMs}`),
+          uid: owner.uid,
           type: "reminder",
           title: "Feeding Reminder",
-          message: body,
+          body,
+          timestamp: () => admin.firestore.FieldValue.serverTimestamp(),
+          send: () => sendPush(owner.uid, {
+            notification: { title: "Feeding Reminder", body },
+            data: { feeding: "true" },
+          }, "feeding"),
         });
-        await sendPush(owner.uid, {
-          notification: { title: "Feeding Reminder", body },
-          data: { feeding: "true" },
-        }, "feeding");
         await saveMarker(owner.uid, markerKey, Date.now());
       }
     } catch (e) {
@@ -702,7 +607,7 @@ async function writeSamplingNotification(targetUid, daysSince) {
   return { title, body };
 }
 
-exports.onAutoActuatorLogCreate = functions.region("asia-southeast1").firestore
+exports.onAutoActuatorLogCreate = functions.runWith({failurePolicy: true}).region("asia-southeast1").firestore
   .document("tanks/{tankId}/actuator_logs/{logId}")
   .onCreate(async (snap, context) => {
     const data = snap.data() || {};
@@ -736,15 +641,18 @@ exports.onAutoActuatorLogCreate = functions.region("asia-southeast1").firestore
       body = action.replace(/^Switched (?:ON|OFF)(?:\s*\(AUTO\))?\s*[-–—]\s*/, "");
     }
 
-    await writeNotification(ownerUid, {
-      docId: `actuator_${logId}`,
+    await deliverNotificationOnce({
+      db: firestoreDb,
+      id: notificationEventId("actuator", tankId, logId),
+      uid: ownerUid,
       type: "operational",
       title,
-      message: body,
+      body,
+      timestamp: () => admin.firestore.FieldValue.serverTimestamp(),
+      send: () => sendPush(ownerUid, {
+        notification: { title, body },
+        data: { operational: "true", critical: "false" },
+      }, "operational"),
     });
-    await sendPush(ownerUid, {
-      notification: { title, body },
-      data: { operational: "true", critical: "false" },
-    }, "operational");
     return null;
   });
