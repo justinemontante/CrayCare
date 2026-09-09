@@ -8,7 +8,7 @@ Project CrayCare {
 }
 
 Table users {
-  uid varchar [pk, note: 'Firebase Authentication UID']
+  uid varchar [pk, note: 'Unique user identifier']
   full_name varchar [not null]
   email varchar [not null, unique]
   role varchar [not null, note: 'owner | admin']
@@ -17,12 +17,7 @@ Table users {
   created_at timestamp [not null]
 }
 
-Table user_device_tokens {
-  uid varchar [not null, ref: > users.uid]
-  token varchar [not null]
-  registered_at timestamp
-  Indexes { (uid, token) [pk] }
-}
+
 
 Table notification_settings {
   uid varchar [pk, ref: - users.uid]
@@ -36,13 +31,7 @@ Table notification_settings {
   updated_at timestamp
 }
 
-Table notification_markers {
-  uid varchar [not null, ref: > users.uid]
-  marker_key varchar [not null]
-  marker_value text
-  updated_at timestamp
-  Indexes { (uid, marker_key) [pk] }
-}
+
 
 Table tanks {
   tank_id varchar [pk]
@@ -55,7 +44,6 @@ Table hardware_assignments {
   tank_id varchar [not null, unique, ref: - tanks.tank_id]
   assigned_by varchar [not null, ref: > users.uid]
   assigned_at timestamp [not null]
-  Note: 'Firestore uses singleton hardware_system/currentOwner and also stores uid for authorization.'
 }
 
 Table notifications {
@@ -145,17 +133,7 @@ Table sensor_daily_summaries [note: 'Materialized analytics read model generated
   Indexes { (tank_id, date_key) [pk] }
 }
 
-Table sensor_ingestion [note: 'Operational ESP32 staging/quarantine data; outside the strict transactional 3NF core'] {
-  ingestion_id varchar [pk]
-  hardware_id varchar [not null]
-  source_tank_id varchar
-  source_owner_uid varchar
-  source_assignment_at_ms bigint
-  captured_at_ms bigint [not null]
-  routing_status varchar
-  routing_reason varchar
-  payload json [not null]
-}
+
 
 Table actuators {
   tank_id varchar [not null, ref: > tanks.tank_id]
@@ -249,15 +227,9 @@ Table feeder_logs {
   }
 }
 
-Table feeder_notification_receipts {
-  tank_id varchar [not null]
-  log_id varchar [not null]
-  push_attempt_claimed_at timestamp [not null]
-  Indexes { (tank_id, log_id) [pk] }
-}
+
 
 Ref: feeder_schedule_days.(tank_id, schedule_id) > feeder_schedules.(tank_id, schedule_id)
-Ref: feeder_notification_receipts.(tank_id, log_id) - feeder_logs.(tank_id, log_id)
 
 Table water_quality_anomaly_detections {
   tank_id varchar [not null, ref: > tanks.tank_id]

@@ -160,7 +160,7 @@ class _MovableAiLogoState extends State<MovableAiLogo>
                             ],
                             const SizedBox(height: 12),
                             _buildDetailCard(
-                              label: 'Recommendation',
+                              label: 'Suggested checks',
                               text: anomalyService.result!.recommendation,
                               icon: Icons.lightbulb_outline,
                               color: AppColors.warningDark,

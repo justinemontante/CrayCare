@@ -108,7 +108,13 @@ class _SplashScreenState extends State<SplashScreen>
     _advanceProgress();
     if (!mounted) return;
 
-    FirebaseFirestore.instance.settings = Settings(persistenceEnabled: true);
+    // Must be set before any Firestore use; guard so a late call can
+    // never crash startup (throws if the instance was already touched).
+    try {
+      FirebaseFirestore.instance.settings = const Settings(
+        persistenceEnabled: true,
+      );
+    } catch (_) {}
     _advanceProgress();
     FirebaseMessaging.onBackgroundMessage(firebaseBackgroundMessageHandler);
 
@@ -169,7 +175,7 @@ class _SplashScreenState extends State<SplashScreen>
 
         final freshUser = FirebaseAuth.instance.currentUser;
 
-        if (freshUser != null && freshUser.emailVerified) {
+        if (freshUser != null) {
           Map<String, dynamic>? initialProfile;
           Map<String, dynamic>? initialAdminData;
           if (isOnline) {
@@ -191,6 +197,7 @@ class _SplashScreenState extends State<SplashScreen>
           }
 
           if (!mounted) return;
+          if (freshUser.emailVerified) {
           Navigator.pushReplacement(
             context,
             splashExitPageRoute(
@@ -200,12 +207,12 @@ class _SplashScreenState extends State<SplashScreen>
               ),
             ),
           );
-        } else if (freshUser != null && !freshUser.emailVerified) {
-          if (!mounted) return;
+        } else {
           Navigator.pushReplacement(
             context,
             splashExitPageRoute((_) => const VerifyScreen()),
           );
+          }
         } else {
           if (!mounted) return;
           Navigator.pushReplacement(

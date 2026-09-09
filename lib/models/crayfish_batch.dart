@@ -1,3 +1,5 @@
+import '../utils/prediction_timestamp.dart';
+
 class CrayfishHarvestRecord {
   final String id;
   final String batchId;
@@ -91,8 +93,8 @@ class CrayfishBatch {
     'sample_count': sampleCount,
     'initial_total_weight': initialTotalWeight,
     'initial_total_length': initialTotalLength,
-    if (archivedSampling != null) 'archivedSampling': archivedSampling,
-    if (archivedMortality != null) 'archivedMortality': archivedMortality,
+    if (archivedSampling != null) 'archived_sampling': archivedSampling,
+    if (archivedMortality != null) 'archived_mortality': archivedMortality,
   };
 
   factory CrayfishBatch.fromJson(Map<String, dynamic> json) {
@@ -102,7 +104,7 @@ class CrayfishBatch {
       if (v is Map) return v.map<String, dynamic>((k, v) => MapEntry('$k', v));
       return null;
     }
-    final rawSampling = safeMap(json['archivedSampling']);
+    final rawSampling = safeMap(json['archived_sampling']) ?? safeMap(json['archivedSampling']);
     final initialAbw = (json['initial_abw'] as num?)?.toDouble() ?? 0.0;
     final initialAbl = (json['initial_abl'] as num?)?.toDouble() ?? 0.0;
 
@@ -133,9 +135,7 @@ class CrayfishBatch {
       stockingDate: DateTime.fromMillisecondsSinceEpoch(
         (json['stocking_date'] as num?)?.toInt() ?? 0,
       ),
-      harvestDate: json['harvest_date'] != null
-          ? DateTime.fromMillisecondsSinceEpoch((json['harvest_date'] as num).toInt())
-          : null,
+      harvestDate: parsePredictionTimestamp(json['harvest_date']),
       initialCount: (json['initial_count'] as num?)?.toInt() ?? 0,
       harvestCount: (json['harvest_count'] as num?)?.toInt() ?? 0,
       totalMortality: (json['total_mortality'] as num?)?.toInt() ?? 0,
@@ -149,7 +149,7 @@ class CrayfishBatch {
       initialTotalWeight: initialTotalWeight,
       initialTotalLength: initialTotalLength,
       archivedSampling: rawSampling,
-      archivedMortality: safeMap(json['archivedMortality']),
+      archivedMortality: safeMap(json['archived_mortality']) ?? safeMap(json['archivedMortality']),
     );
   }
 }

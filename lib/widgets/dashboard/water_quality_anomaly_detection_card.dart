@@ -161,7 +161,7 @@ class WaterQualityAnomalyDetectionCard extends StatelessWidget {
                       const SizedBox(height: 10),
                       _DetailRow(
                         icon: Icons.fact_check_outlined,
-                        label: 'Suggested action',
+                        label: 'Suggested checks',
                         text: result.recommendation,
                         color: AppColors.success,
                       ),

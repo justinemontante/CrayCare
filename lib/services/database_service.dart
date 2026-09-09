@@ -305,7 +305,7 @@ class DatabaseService {
     if (user == null) return;
 
     final profile = await getUserProfile(user.uid);
-    final role = profile?['role'] as String?;
+    final role = profile?['role']?.toString().trim().toLowerCase();
     if (role == 'admin') {
       throw Exception('Only the tank owner can change sensor thresholds.');
     }

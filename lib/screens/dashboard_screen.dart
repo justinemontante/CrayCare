@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../theme/app_colors.dart';
 import '../widgets/section_label.dart';
 import '../services/sensor_service.dart';
@@ -35,6 +36,8 @@ class DashboardScreenState extends State<DashboardScreen>
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
   bool _isTabActive = true;
+  String? _profileFirstName;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _profileSub;
 
   @override
   void initState() {
@@ -52,6 +55,7 @@ class DashboardScreenState extends State<DashboardScreen>
     FeedState.schedules.addListener(_refreshUI);
     FeedState.feederLogs.addListener(_refreshUI);
     _refreshUI();
+    _listenToProfileName();
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted && _isTabActive) setState(() {});
     });
@@ -68,8 +72,25 @@ class DashboardScreenState extends State<DashboardScreen>
     }
   }
 
+  void _listenToProfileName() {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || uid.isEmpty) return;
+    _profileSub?.cancel();
+    _profileSub = FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .snapshots()
+        .listen((doc) {
+      final name = doc.data()?['full_name']?.toString().trim();
+      if (name != null && name.isNotEmpty && mounted && _isTabActive) {
+        setState(() => _profileFirstName = name.split(' ').first);
+      }
+    });
+  }
+
   @override
   void dispose() {
+    _profileSub?.cancel();
     _quickActionsController.dispose();
     SensorService.instance.removeListener(_refreshUI);
     SettingsService.instance.removeListener(_refreshUI);
@@ -89,7 +110,12 @@ class DashboardScreenState extends State<DashboardScreen>
   DateTime _manilaNow() => manilaWallClock();
 
   // Returns the first name of the signed-in user.
+  // Prefers the canonical users.full_name profile (live), falls back to
+  // FirebaseAuth.displayName, then 'Farmer'.
   String _getFirstName() {
+    if (_profileFirstName != null && _profileFirstName!.isNotEmpty) {
+      return _profileFirstName!;
+    }
     final user = FirebaseAuth.instance.currentUser;
     if (user != null &&
         user.displayName != null &&

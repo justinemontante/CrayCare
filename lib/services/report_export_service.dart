@@ -75,6 +75,49 @@ class ReportExportService {
       .replaceAll('\u00A0', ' '); // nbsp
 
   // ── Grow-out (production) CSV ──────────────────────────────────────────
+  static const growthColumns = <String>[
+    'Week',
+    'Date',
+    'Sample Size',
+    'Avg Length (cm)',
+    'Avg Weight (g)',
+    'Sample Total Length (cm)',
+    'Sample Total Weight (g)',
+    'Est. Biomass (g)',
+    'In-Tank Count',
+  ];
+
+  /// One shared table for both export formats. Weeks reflect elapsed calendar
+  /// days since stocking, so a missed sampling week does not renumber history.
+  static List<List<String>> growthRows(
+    List<SamplingEntry> samples,
+    DateTime stockingDate,
+  ) {
+    final ordered = List<SamplingEntry>.of(samples)
+      ..sort((a, b) => a.date.compareTo(b.date));
+    final start = DateTime.utc(
+      stockingDate.year,
+      stockingDate.month,
+      stockingDate.day,
+    );
+    return ordered.map((s) {
+      final day = DateTime.utc(s.date.year, s.date.month, s.date.day);
+      final days = day.difference(start).inDays;
+      final week = (days < 0 ? 0 : days) ~/ 7;
+      return <String>[
+        s.isBaseline ? 'Baseline' : 'Week $week',
+        _fmtDate(s.date),
+        '${s.sampleSize}',
+        s.avgLength.toStringAsFixed(2),
+        s.abw.toStringAsFixed(2),
+        s.totalLength.toStringAsFixed(2),
+        s.totalWeight.toStringAsFixed(2),
+        s.biomass.toStringAsFixed(2),
+        '${s.liveCount}',
+      ];
+    }).toList();
+  }
+
   String buildGrowthCsv() {
     final t = TankService.instance;
     final buf = StringBuffer();
@@ -89,7 +132,8 @@ class ReportExportService {
     buf.writeln(_row(['Initial Population', t.initialCount]));
     buf.writeln(_row(['Initial ABW (g)', t.initialWeight.toStringAsFixed(2)]));
     buf.writeln(_row(['Initial ABL (cm)', t.initialLength.toStringAsFixed(2)]));
-    buf.writeln(_row(['Live Count', t.liveCount]));
+    buf.writeln(_row(['Surviving Count (including harvested)', t.liveCount]));
+    buf.writeln(_row(['Current In-Tank Count', t.inTankCount]));
     buf.writeln(_row(['Total Mortality', t.totalMortalityFromHistory]));
     buf.writeln(_row(['Total Harvested', t.totalHarvested]));
     buf.writeln(_row(['Survival Rate (%)', t.survivalRate.toStringAsFixed(2)]));
@@ -98,37 +142,9 @@ class ReportExportService {
     final samples = t.samplingHistory;
     if (samples.isNotEmpty) {
       buf.writeln(_row(['Sampling Records']));
-      buf.writeln(
-        _row([
-          'Week',
-          'Date',
-          'ABW (g)',
-          'ABL (cm)',
-          'Sample Size',
-          'Total Weight (g)',
-          'Total Length (cm)',
-          'Biomass (g)',
-          'Live Count',
-        ]),
-      );
-      var weeklyNumber = 0;
-      for (final s in samples) {
-        final weekLabel = s.isBaseline
-            ? 'Week 0 (Baseline)'
-            : 'Week ${++weeklyNumber}';
-        buf.writeln(
-          _row([
-            weekLabel,
-            _fmtDate(s.date),
-            s.abw.toStringAsFixed(2),
-            s.avgLength.toStringAsFixed(2),
-            s.sampleSize,
-            s.totalWeight.toStringAsFixed(2),
-            s.totalLength.toStringAsFixed(2),
-            s.biomass.toStringAsFixed(2),
-            s.liveCount,
-          ]),
-        );
+      buf.write(_row(growthColumns));
+      for (final row in growthRows(samples, t.stockingDate)) {
+        buf.write(_row(row));
       }
       buf.writeln();
     }
@@ -162,6 +178,12 @@ class ReportExportService {
       buf.writeln();
     }
 
+    buf.write(_row(['Notes',
+      'Weeks are elapsed 7-day calendar intervals from stocking. Length and weight totals refer to the sample. '
+      'Average body weight = sample total weight / sample size; average body length = sample total length / sample size. '
+      'Estimated biomass = sample average body weight x in-tank count at sampling. '
+      'Survival rate = (initial population - recorded mortality) / initial population x 100; harvested crayfish are included among survivors. '
+      'This report contains the selected batch records only.']));
     return buf.toString();
   }
 
@@ -195,7 +217,7 @@ class ReportExportService {
         'Driver Value',
         'Unit',
         'Insight',
-        'Suggested Action',
+        'Suggested Checks',
       ]),
     );
     for (final h in history) {
@@ -219,10 +241,12 @@ class ReportExportService {
     buf.writeln(_row(['Latest Water Quality Anomaly Detection Detail']));
     buf.writeln(_row(['Pattern Status', latest.status]));
     buf.writeln(_row(['Model Basis', latest.modelBasis]));
-    buf.writeln(_row(['Anomaly Score', latest.anomalyScore.toStringAsFixed(1)]));
+    buf.writeln(
+      _row(['Anomaly Score', latest.anomalyScore.toStringAsFixed(1)]),
+    );
     buf.writeln(_row(['Main Contributor', latest.driverLabel]));
     buf.writeln(_row(['Insight', latest.insight]));
-    buf.writeln(_row(['Suggested Action', latest.recommendation]));
+    buf.writeln(_row(['Suggested Checks', latest.recommendation]));
 
     return buf.toString();
   }
@@ -250,22 +274,7 @@ class ReportExportService {
     final mortality = t.mortalityHistory;
     final harvests = t.harvestRecords;
 
-    final samplingRows = <List<String>>[];
-    var weeklyNumber = 0;
-    for (final s in samples) {
-      final weekLabel = s.isBaseline
-          ? 'Week 0 (Baseline)'
-          : 'Week ${++weeklyNumber}';
-      samplingRows.add([
-        weekLabel,
-        _fmtDate(s.date),
-        s.abw.toStringAsFixed(2),
-        s.avgLength.toStringAsFixed(2),
-        '${s.sampleSize}',
-        s.totalWeight.toStringAsFixed(2),
-        s.biomass.toStringAsFixed(2),
-      ]);
-    }
+    final samplingRows = growthRows(samples, t.stockingDate);
 
     final mortalityRows = mortality
         .map((m) => [_fmtDate(m.date), '${m.count}'])
@@ -284,7 +293,7 @@ class ReportExportService {
 
     doc.addPage(
       pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
+        pageFormat: PdfPageFormat.a4.landscape,
         margin: const pw.EdgeInsets.all(36),
         header: (context) => pw.Text(
           'CrayCare Grow-Out Report',
@@ -325,7 +334,8 @@ class ReportExportService {
             ['Initial Population', '${t.initialCount}'],
             ['Initial ABW (g)', t.initialWeight.toStringAsFixed(2)],
             ['Initial ABL (cm)', t.initialLength.toStringAsFixed(2)],
-            ['Live Count', '${t.liveCount}'],
+            ['Surviving Count (including harvested)', '${t.liveCount}'],
+            ['Current In-Tank Count', '${t.inTankCount}'],
             ['Total Mortality', '${t.totalMortalityFromHistory}'],
             ['Total Harvested', '${t.totalHarvested}'],
             ['Survival Rate (%)', t.survivalRate.toStringAsFixed(2)],
@@ -347,24 +357,36 @@ class ReportExportService {
             )
           else
             pw.TableHelper.fromTextArray(
-              headers: [
-                'Week',
-                'Date',
-                'ABW (g)',
-                'ABL (cm)',
-                'Sample',
-                'Total W (g)',
-                'Biomass (g)',
-              ],
+              headers: growthColumns,
               headerStyle: pw.TextStyle(
+                fontSize: 9,
                 fontWeight: pw.FontWeight.bold,
                 color: PdfColors.white,
               ),
               headerDecoration: const pw.BoxDecoration(color: _careColor),
-              cellStyle: const pw.TextStyle(fontSize: 8),
+              cellStyle: const pw.TextStyle(fontSize: 9),
+              cellPadding: const pw.EdgeInsets.symmetric(
+                horizontal: 6,
+                vertical: 8,
+              ),
+              cellAlignment: pw.Alignment.center,
+              headerAlignment: pw.Alignment.center,
+              oddRowDecoration: const pw.BoxDecoration(
+                color: PdfColors.grey100,
+              ),
               border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
               data: samplingRows,
             ),
+          pw.SizedBox(height: 6),
+          pw.Text(
+            'Weeks are counted from the stocking date in 7-day calendar intervals. '
+            'Length and weight totals refer to the sample. Average body weight = sample total weight / sample size; '
+            'average body length = sample total length / sample size. '
+            'Estimated biomass = sample average body weight x in-tank count at sampling. '
+            'Survival rate = (initial population - recorded mortality) / initial population x 100; '
+            'harvested crayfish are included among survivors. This report contains the selected batch records only.',
+            style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
+          ),
           pw.SizedBox(height: 20),
           pw.Text(
             'Mortality Records',
@@ -489,7 +511,7 @@ class ReportExportService {
                 'Score',
                 'Contributor',
                 'Insight',
-                'Suggested Action',
+                'Suggested Checks',
               ],
               headerStyle: pw.TextStyle(
                 fontWeight: pw.FontWeight.bold,
@@ -524,10 +546,13 @@ class ReportExportService {
               data: [
                 ['Pattern Status', history.first.status],
                 ['Model Basis', history.first.modelBasis],
-                ['Anomaly Score', history.first.anomalyScore.toStringAsFixed(1)],
+                [
+                  'Anomaly Score',
+                  history.first.anomalyScore.toStringAsFixed(1),
+                ],
                 ['Main Contributor', _pdfSafe(history.first.driverLabel)],
                 ['Insight', _pdfSafe(history.first.insight)],
-                ['Suggested Action', _pdfSafe(history.first.recommendation)],
+                ['Suggested Checks', _pdfSafe(history.first.recommendation)],
               ],
             ),
           ],

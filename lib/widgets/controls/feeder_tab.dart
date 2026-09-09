@@ -169,6 +169,7 @@ class FeederTab extends StatelessWidget {
                               'skipped_insufficient' =>
                                 'Skipped • Insufficient Feed',
                               'blocked' => 'Feed Blocked',
+                              'failed' => 'Feed Failed',
                               _ =>
                                 schedules.isEmpty
                                     ? 'Auto Mode • No Schedules'
@@ -180,8 +181,9 @@ class FeederTab extends StatelessWidget {
                               fontSize: 9,
                               fontWeight: FontWeight.w600,
                               color:
-                                  feederStatus == 'skipped_insufficient' ||
-                                      feederStatus == 'blocked'
+                                   feederStatus == 'skipped_insufficient' ||
+                                       feederStatus == 'blocked' ||
+                                       feederStatus == 'failed'
                                   ? AppColors.critical
                                   : hasEnabledSchedules
                                   ? AppColors.success
@@ -739,7 +741,7 @@ class FeederTab extends StatelessWidget {
     final scheduleTimeStr = '${s.time} ${s.ampm}';
     final todayStr = _logDateString();
     for (final log in feederLogs) {
-      if (log.type == 'missed' &&
+      if ((log.type == 'missed' || log.type == 'pending_confirmation') &&
           s.id != null &&
           log.scheduleKey == s.id &&
           log.scheduleTime == scheduleTimeStr &&

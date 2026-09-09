@@ -190,7 +190,7 @@ class WaterQualityAnomalyDetectionService extends ChangeNotifier {
         return;
       }
       final profileData = profile.data();
-      if (profileData?['role'] == 'admin') {
+      if (profileData?['role']?.toString().trim().toLowerCase() == 'admin') {
         _result = null;
         _history = [];
         _loading = false;

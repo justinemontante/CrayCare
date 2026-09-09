@@ -43,9 +43,20 @@ String authErrorMessage(Object error) {
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  final GoogleSignIn _googleSignIn = GoogleSignIn(
-    clientId: DefaultFirebaseOptions.currentPlatform.iosClientId,
-  );
+  // clientId is iOS-only; passing it on Android breaks Google sign-in.
+  // Android uses the default config (google-services.json), web uses meta.
+  static GoogleSignIn _buildGoogleSignIn() {
+    if (!kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.iOS ||
+            defaultTargetPlatform == TargetPlatform.macOS)) {
+      return GoogleSignIn(
+        clientId: DefaultFirebaseOptions.currentPlatform.iosClientId,
+      );
+    }
+    return GoogleSignIn();
+  }
+
+  final GoogleSignIn _googleSignIn = _buildGoogleSignIn();
   Map<String, dynamic>? _lastAuthenticatedProfile;
   Map<String, dynamic>? _lastAdminBootstrapData;
 
@@ -128,7 +139,7 @@ class AuthService {
       'status': profile?['status'] ?? 'active',
     };
     _lastAdminBootstrapData =
-        _lastAuthenticatedProfile!['role'] == 'admin'
+        _lastAuthenticatedProfile!['role']?.toString().trim().toLowerCase() == 'admin'
         ? await DatabaseService.instance.getAdminBootstrapData()
         : null;
     return _lastAuthenticatedProfile!;

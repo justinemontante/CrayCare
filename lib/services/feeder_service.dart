@@ -196,6 +196,7 @@ class FeederService extends ChangeNotifier {
           'logged_at',
           isLessThan: start + const Duration(days: 1).inMilliseconds,
         )
+        .orderBy('logged_at')
         .snapshots()
         .listen(
           (snapshot) {

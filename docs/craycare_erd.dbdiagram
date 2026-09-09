@@ -13,22 +13,10 @@
         "y": 12
       },
       {
-        "name": "user_device_tokens",
-        "schemaName": "public",
-        "x": 540,
-        "y": 20
-      },
-      {
         "name": "notification_settings",
         "schemaName": "public",
         "x": 475.01025390625,
         "y": 53
-      },
-      {
-        "name": "notification_markers",
-        "schemaName": "public",
-        "x": 1580,
-        "y": 20
       },
       {
         "name": "tanks",
@@ -73,12 +61,6 @@
         "y": 800
       },
       {
-        "name": "sensor_ingestion",
-        "schemaName": "public",
-        "x": 1580,
-        "y": 800
-      },
-      {
         "name": "actuators",
         "schemaName": "public",
         "x": 1071.8671875,
@@ -119,12 +101,6 @@
         "schemaName": "public",
         "x": 1071.8671875,
         "y": 2986
-      },
-      {
-        "name": "feeder_notification_receipts",
-        "schemaName": "public",
-        "x": 1580,
-        "y": 1580
       },
       {
         "name": "water_quality_anomaly_detections",

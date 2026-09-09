@@ -2807,6 +2807,18 @@ bool flushOneFeederLog() {
 
 void applyTankAssignment(const String& tankId, const String& ownerUid, long long assignedAtMs) {
   if (tankId == currentTankId && ownerUid == currentOwnerUid && assignedAtMs == currentAssignmentAtMs) return;
+  const bool hadAssignment = currentTankId.length() > 0 && currentOwnerUid.length() > 0;
+  const bool hasAssignment = tankId.length() > 0 && ownerUid.length() > 0;
+  if (hadAssignment || hasAssignment) {
+    if (!hasAssignment) {
+      Serial.println("[ASSIGNMENT] Hardware is now unassigned; sensor data will remain staged until an owner is assigned.");
+    } else if (hadAssignment && (tankId != currentTankId || ownerUid != currentOwnerUid)) {
+      Serial.printf("[ASSIGNMENT] Hardware owner changed (%s -> %s); refreshing tank configuration and clearing old cached schedules.\n",
+                    currentOwnerUid.c_str(), ownerUid.c_str());
+    } else {
+      Serial.printf("[ASSIGNMENT] Assignment metadata refreshed for tank %s.\n", tankId.c_str());
+    }
+  }
   currentTankId = tankId;
   currentOwnerUid = ownerUid;
   currentAssignmentAtMs = assignedAtMs;

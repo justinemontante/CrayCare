@@ -1,6 +1,7 @@
 """Validate source freshness and cadence before running row-based ML features."""
 
 import math
+from numbers import Real
 
 
 def anomaly_window(frame, now_epoch):
@@ -11,10 +12,17 @@ def anomaly_window(frame, now_epoch):
     """
     if frame.empty or "timestamp" not in frame:
         return frame.iloc[:0], "insufficient", None
-    rows = frame[frame["timestamp"].apply(
-        lambda value: isinstance(value, (int, float)) and math.isfinite(value)
-        and value <= now_epoch + 60
-    )].sort_values("timestamp").copy()
+    # DataFrame columns commonly contain numpy integer/float scalars.  Those
+    # are ``Real`` values even though they are not instances of Python's
+    # built-in ``int``/``float`` classes; rejecting them would make every
+    # valid exported history row look like missing data.
+    def usable_timestamp(value):
+        if not isinstance(value, Real):
+            return False
+        numeric = float(value)
+        return math.isfinite(numeric) and numeric <= now_epoch + 60
+
+    rows = frame[frame["timestamp"].apply(usable_timestamp)].sort_values("timestamp").copy()
     if rows.empty:
         return rows, "insufficient", None
     # Two legitimate readings straddling a bucket boundary can be 598 seconds

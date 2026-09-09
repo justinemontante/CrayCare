@@ -74,7 +74,7 @@ class SettingsService extends ChangeNotifier {
         .get();
     final data = doc.data();
     // Admins do NOT own a tank — never resolve (or create) a tank for them.
-    if (data?['role'] == 'admin') return null;
+    if (data?['role']?.toString().trim().toLowerCase() == 'admin') return null;
     _tankId = uid;
     return _tankId;
   }

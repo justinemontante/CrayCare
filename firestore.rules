@@ -125,7 +125,13 @@ service cloud.firestore {
       allow list: if isAdmin();
       allow create: if isTankOwner(tankId) || isAdmin() || canCreateOwnInitialTank(tankId);
       allow update: if isAdmin() || (isTankOwner(tankId) &&
-        request.resource.data.owner_uid == resource.data.owner_uid);
+        request.resource.data.owner_uid == resource.data.owner_uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'owner_uid', 'is_initialized', 'stocking_date', 'sample_count',
+          'current_batch_id', 'initial_population',
+          'initial_total_sample_weight', 'initial_total_sample_length',
+          'last_sample_date'
+        ]));
       allow delete: if isAdmin();
 
       match /sensor_readings/{doc} {
@@ -146,7 +152,7 @@ service cloud.firestore {
       match /sensors/{sensorName} {
         allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId) || isAssignedEsp(tankId);
         allow create: if isAdmin() || (isTankOwner(tankId) && isSafeThreshold(sensorName));
-        allow update: if isTankOwner(tankId) && isSafeThreshold(sensorName);
+        allow update: if isAdmin() || (isTankOwner(tankId) && isSafeThreshold(sensorName));
         allow delete: if false;
       }
       match /actuators/{actuatorId} {
@@ -159,7 +165,10 @@ service cloud.firestore {
       }
       match /actuator_logs/{logId} {
         allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId);
-        allow create: if isTankOwner(tankId) || isAssignedEsp(tankId);
+        // Owner audit entries must NOT impersonate device events: any
+        // action containing "(AUTO)" is ESP-only to keep push + audit clean.
+        allow create: if isAssignedEsp(tankId) || (isTankOwner(tankId) &&
+          !(request.resource.data.get('action', '') matches '.*\\(AUTO\\).*'));
         allow update, delete: if false;
       }
       match /feeder/{doc} {
@@ -178,7 +187,24 @@ service cloud.firestore {
             request.resource.data.isDone == true);
       }
       match /feeder_commands/{commandId} {
-        allow create: if isTankOwner(tankId);
+        // Validate manual feed requests so a stale/offline write cannot
+        // become a live motor command: type fixed, grams bounded, expiry
+        // required and near-future, issuer must match the owner.
+        allow create: if isTankOwner(tankId) &&
+          request.resource.data.keys().hasOnly([
+            'command_type', 'grams', 'issued_by', 'issued_at',
+            'expires_at', 'near_schedule_confirmed'
+          ]) &&
+          request.resource.data.command_type == 'feed_now' &&
+          request.resource.data.grams is number &&
+          request.resource.data.grams >= 1.0 &&
+          request.resource.data.grams <= 5000.0 &&
+          request.resource.data.issued_by == request.auth.uid &&
+          request.resource.data.issued_at is timestamp &&
+          request.resource.data.expires_at is timestamp &&
+          request.resource.data.expires_at > request.resource.data.issued_at &&
+          request.resource.data.expires_at <= request.resource.data.issued_at + duration.value(5, 'm') &&
+          request.resource.data.near_schedule_confirmed is bool;
         allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId) || isAssignedEsp(tankId);
         allow delete: if isTankOwner(tankId) || isAssignedEsp(tankId);
         allow update: if false;
@@ -189,7 +215,7 @@ service cloud.firestore {
           request.resource.data.keys().hasOnly([
             'action', 'type', 'logged_at', 'schedule_key', 'schedule_time'
           ]) &&
-          request.resource.data.type in ['auto', 'error', 'pending_confirmation'] &&
+          request.resource.data.type in ['auto', 'manual', 'missed', 'error', 'pending_confirmation'] &&
           request.resource.data.action is string &&
           request.resource.data.logged_at is int);
         // Feeding history is an append-only audit trail. Confirmed device
@@ -222,8 +248,12 @@ service cloud.firestore {
     }
 
     match /notifications/{docId} {
+      // Notifications are server-created (Admin SDK bypasses rules).
+      // Client create is disabled so a compromised client cannot squat a
+      // deterministic inbox ID and suppress a real push (deliver-once
+      // checks existence before sending).
       allow read: if isSignedIn() && resource.data.uid == request.auth.uid;
-      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+      allow create: if false;
       allow update: if isSignedIn() &&
         resource.data.uid == request.auth.uid &&
         request.resource.data.uid == request.auth.uid &&

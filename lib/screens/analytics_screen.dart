@@ -354,7 +354,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     }
 
     for (final key in SensorService.sensorKeys) {
-      final fields = _historyFieldMap[key]!;
+      final fields = _historyFieldMap[key];
+      if (fields == null) continue;
       final averages = List<double>.filled(labelTimes.length, double.nan);
       final minima = List<double>.filled(labelTimes.length, double.nan);
       final maxima = List<double>.filled(labelTimes.length, double.nan);
@@ -1314,10 +1315,11 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     setState(() {});
     await _generateData('24h');
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final key = _chartCardKeys[chartKey];
-      if (key?.currentContext == null) return;
+      if (!mounted) return;
+      final ctx = _chartCardKeys[chartKey]?.currentContext;
+      if (ctx == null) return;
       Scrollable.ensureVisible(
-        key!.currentContext!,
+        ctx,
         alignment: 0.5,
         duration: const Duration(milliseconds: 400),
         curve: Curves.easeInOut,

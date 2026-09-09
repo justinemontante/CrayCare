@@ -356,7 +356,7 @@ class TankService extends ChangeNotifier {
     _listenFirebase();
   }
 
-  void init() async {
+  Future<void> init() async {
     final initialUid = FirebaseAuth.instance.currentUser?.uid ?? '';
     debugPrint('[TankService] init() currentUser.uid="$initialUid"');
     if (initialUid.isNotEmpty) {
@@ -410,16 +410,16 @@ class TankService extends ChangeNotifier {
         return;
       }
       final data = doc.data() ?? <String, dynamic>{};
-      _initialCount = (data['initial_population'] as int?) ?? 0;
+      _initialCount = (data['initial_population'] as num?)?.toInt() ?? 0;
       // Mortality/harvest totals are derived from the batch + record
       // listeners (SUM over records), not stored on the tank doc.
       _mortality = 0;
       _totalHarvested = 0;
       _stockingDate = DateTime.fromMillisecondsSinceEpoch(
-        (data['stocking_date'] as int?) ??
+        (data['stocking_date'] as num?)?.toInt() ??
             DateTime.now().millisecondsSinceEpoch,
       );
-      _sampleCount = (data['sample_count'] as int?) ?? 0;
+      _sampleCount = (data['sample_count'] as num?)?.toInt() ?? 0;
       _totalSampleWeight =
           (data['initial_total_sample_weight'] as num?)?.toDouble() ?? 0.0;
       _totalSampleLength =
@@ -431,7 +431,7 @@ class TankService extends ChangeNotifier {
           ? _totalSampleLength / _sampleCount
           : 0.0;
       _lastSampleDate = DateTime.fromMillisecondsSinceEpoch(
-        (data['last_sample_date'] as int?) ??
+        (data['last_sample_date'] as num?)?.toInt() ??
             _stockingDate.millisecondsSinceEpoch,
       );
       final rawBatchId = data['current_batch_id'] as String?;

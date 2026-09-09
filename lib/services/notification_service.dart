@@ -406,7 +406,8 @@ class NotificationService extends ChangeNotifier {
         await _removeCurrentDeviceToken(user, token);
         return;
       }
-      if (_userRole != 'owner') return;
+      // Save for owner AND unknown/null role (fresh-login race).
+      // Admin cleanup happens on next role sync if needed.
       await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
         'fcmTokens': FieldValue.arrayUnion([token]),
       }, SetOptions(merge: true));

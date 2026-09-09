@@ -143,7 +143,7 @@ class _MainShellState extends State<MainShell> {
   void _applyProfile(Map<String, dynamic> data) {
     final photo = data['photo_url'] ?? data['photoUrl'];
     if (photo is String) _setPhoto(photo);
-    _isAdmin = data['role'] == 'admin';
+    _isAdmin = data['role']?.toString().trim().toLowerCase() == 'admin';
     if (_isAdmin && _currentIndex > 0) _currentIndex = 0;
   }
 

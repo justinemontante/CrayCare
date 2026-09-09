@@ -264,7 +264,7 @@ class SensorService extends ChangeNotifier {
         return;
       }
       final profileData = profileDoc.data();
-      if (profileData?['role'] == 'admin') {
+      if (profileData?['role']?.toString().trim().toLowerCase() == 'admin') {
         _resetForTankChange(null);
         _tankId = null;
         _lastError = 'Admin accounts have no tank.';

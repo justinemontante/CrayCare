@@ -80,7 +80,7 @@ class ActuatorLogService extends ChangeNotifier {
       final profile = profileDoc.data();
       // Admins do not own operational tank data and Firestore rules deny these
       // reads, so do not create noisy listeners for an admin account.
-      if (profile?['role'] == 'admin') {
+      if (profile?['role']?.toString().trim().toLowerCase() == 'admin') {
         notifyListeners();
         return;
       }

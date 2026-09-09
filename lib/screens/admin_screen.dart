@@ -306,7 +306,7 @@ class _AdminScreenState extends State<AdminScreen> {
     final email = user['email'] as String? ?? '';
     final role = (user['role'] as String?) ?? 'owner';
     final status = (user['status'] as String?) ?? 'active';
-    final isAdmin = role == 'admin';
+    final isAdmin = role.trim().toLowerCase() == 'admin';
     final hasInitializedTank = _initializedTanks[uid] == true;
     final initials = name
         .split(' ')
@@ -1525,7 +1525,7 @@ class _AdminScreenState extends State<AdminScreen> {
     final status = (user['status'] as String?) ?? 'active';
     final isDisabled = status == 'disabled';
     final isDeviceOwner = _currentOwnerUid == uid;
-    final isAdmin = role == 'admin';
+    final isAdmin = role.trim().toLowerCase() == 'admin';
     final photoImage = _photoImageProvider(
       (user['photo_url'] ?? user['photoUrl']) as String?,
     );

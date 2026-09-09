@@ -11,13 +11,18 @@ def interpret_anomaly(is_anomaly, anomaly_score, contributors, recommendations):
     secondary = contributors[1] if len(contributors) > 1 else None
     if not is_anomaly:
         return {
-            "insight": "The latest combined sensor pattern is consistent with the behaviour learned from the tank's reference history.",
+            "insight": "The latest combined sensor pattern is consistent with the model reference data. This does not establish that all readings are within the configured safety limits.",
             "recommendation": recommendations["overall"]["normal"],
         }
 
-    primary_phrase = f"{primary['label']} is {primary['direction']}"
+    def trend_phrase(item):
+        if item['direction'] == 'stable':
+            return f"{item['label']} has little net change over the recent 30-minute window"
+        return f"{item['label']} is {item['direction']} over the recent 30-minute window"
+
+    primary_phrase = trend_phrase(primary)
     if secondary and secondary["contribution_score"] >= primary["contribution_score"] * 0.55:
-        pattern = f"{primary_phrase} while {secondary['label']} is {secondary['direction']}"
+        pattern = f"{primary_phrase}, while {trend_phrase(secondary)}"
     else:
         pattern = primary_phrase
     by_sensor = {item["sensor"]: item for item in contributors}
@@ -29,9 +34,9 @@ def interpret_anomaly(is_anomaly, anomaly_score, contributors, recommendations):
         recommendation = sensor_rec.get(primary["direction"], sensor_rec.get("verify"))
     return {
         "insight": (
-            f"An unusual multivariate water pattern was detected (anomaly score {anomaly_score:.1f}/100): "
-            f"{pattern}. This means the combination differs from the learned tank baseline; "
-            "it does not by itself prove an unsafe condition."
+            f"An unusual combined sensor pattern was detected: {pattern}. "
+            "The combination differs from the model reference data. "
+            "These observations do not establish the cause or prove an unsafe condition."
         ),
         "recommendation": recommendation,
     }

@@ -99,7 +99,7 @@ class ControlsScreenState extends State<ControlsScreen> {
     if (mounted && _isTabActive) setState(() {});
   }
 
-  void _initActuatorModes() async {
+  Future<void> _initActuatorModes() async {
     // actuator modes/{actuatorId} migrated to tanks/{tank_id}/actuators/{actuatorId},
     // with the mode stored under 'control_mode' instead of 'mode'.
     final uid = FirebaseAuth.instance.currentUser?.uid;
@@ -108,7 +108,7 @@ class ControlsScreenState extends State<ControlsScreen> {
         .collection('users')
         .doc(uid)
         .get();
-    if (profileDoc.data()?['role'] == 'admin') return;
+    if (profileDoc.data()?['role']?.toString().trim().toLowerCase() == 'admin') return;
     final tankId = uid;
 
     _actuatorsSub = FirebaseFirestore.instance

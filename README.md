@@ -52,12 +52,10 @@ are not buffered. A cold power-up with no network cannot know correct wall-clock
 time without an external RTC, so time-based schedules require a previously synced
 clock and uninterrupted power during the outage.
 
-## Firestore schema and audits
+## Firestore schema
 
 - [`docs/FIRESTORE_STRUCTURE_ACTUAL.md`](docs/FIRESTORE_STRUCTURE_ACTUAL.md)
 - [`docs/craycare_erd.dbml`](docs/craycare_erd.dbml) — normalized 3NF SQL logical ERD for thesis documentation
-- [`docs/DATABASE_INTEGRATION_AUDIT.md`](docs/DATABASE_INTEGRATION_AUDIT.md)
-- [`docs/CODEBASE_REGRESSION_AUDIT.md`](docs/CODEBASE_REGRESSION_AUDIT.md)
 
 ## ESP32 Firmware
 

@@ -85,10 +85,9 @@ def _contributors(latest, bundle):
             z_values.append(abs((float(latest.get(name, 0.0)) - center) / scale))
         contribution = float(np.mean(sorted(z_values, reverse=True)[:3]))
         trend = float(latest.get(f"{sensor}_trend30m", 0.0))
-        deviation = float(latest.get(f"{sensor}_baseline_deviation", 0.0))
-        direction_value = trend if abs(trend) > 1e-9 else deviation
-        direction = "increasing" if direction_value > 0 else (
-            "decreasing" if direction_value < 0 else "stable"
+        # Baseline deviation describes relative level, not temporal direction.
+        direction = "increasing" if trend > 1e-9 else (
+            "decreasing" if trend < -1e-9 else "stable"
         )
         contributions.append({
             "sensor": sensor, "label": SENSOR_LABELS[sensor],
