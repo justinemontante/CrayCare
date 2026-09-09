@@ -192,7 +192,8 @@
           "estimated_available_grams (double, optional)",
           "feed_level_before (double, optional)",
           "feed_level_after (double, optional)",
-          "level_change_detected (bool, optional; supporting indication only)"
+          "level_change_detected (bool, optional; supporting indication only)",
+          "verification_note (string, optional)"
         ]
       },
       "feeder_commands/{commandId}": {
