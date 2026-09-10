@@ -31,16 +31,10 @@ Table notification_settings [note: 'Persisted at users/{uid}/notification_settin
   updated_at timestamp
 }
 
-Table tanks [note: 'Persisted at tanks/{tankId}; stocking/last-sample dates are integer epoch-ms in Firestore'] {
+Table tanks [note: 'Persisted at tanks/{tankId}; stores tank ownership, setup state, and the active-batch pointer only'] {
   tank_id varchar [pk]
   owner_uid varchar [not null, unique, ref: - users.uid]
   current_batch_id varchar [note: 'ID of the active batch doc under tanks/{tankId}/batches (tank pointer)']
-  stocking_date date
-  last_sample_date date
-  sample_count int
-  initial_total_sample_weight decimal(10,2)
-  initial_total_sample_length decimal(10,2)
-  initial_population int
   is_initialized boolean [not null, default: false]
   created_at timestamp [not null]
 }

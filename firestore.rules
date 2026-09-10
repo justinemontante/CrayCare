@@ -127,10 +127,7 @@ service cloud.firestore {
       allow update: if isAdmin() || (isTankOwner(tankId) &&
         request.resource.data.owner_uid == resource.data.owner_uid &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'owner_uid', 'is_initialized', 'stocking_date', 'sample_count',
-          'current_batch_id', 'initial_population',
-          'initial_total_sample_weight', 'initial_total_sample_length',
-          'last_sample_date'
+          'owner_uid', 'is_initialized', 'current_batch_id'
         ]));
       allow delete: if isAdmin();
 

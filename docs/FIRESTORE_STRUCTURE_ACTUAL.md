@@ -41,9 +41,9 @@ A valid assignment is either `uid == null && tank_id == null`, or an **active ow
 
 ## 3. TANKS — ang core ng buong system ✓
 ### `tanks/{tankId}` ✓
-`owner_uid`, `current_batch_id`, `stocking_date`, `last_sample_date`, `sample_count`, `initial_population`, `initial_total_sample_weight`, `initial_total_sample_length`, `is_initialized`, `created_at`
+`owner_uid`, `current_batch_id`, `is_initialized`, `created_at`
 
-`owner_uid` is the only ownership source of truth. The user profile does not duplicate a `tank_id`. Registration creates only the owner profile and notification preferences; the first submitted Tank Setup creates `tanks/{uid}` and its sensor, actuator, and feeder defaults. Under the one-owner/one-tank design, the tank document ID is the owner's Firebase UID.
+`owner_uid` is the only ownership source of truth. The user profile does not duplicate a `tank_id`. Culture and sampling facts are stored under the selected batch rather than duplicated on the tank document. Registration creates only the owner profile and notification preferences; the first submitted Tank Setup creates `tanks/{uid}` and its sensor, actuator, feeder, and initial batch records. Under the one-owner/one-tank design, the tank document ID is the owner's Firebase UID.
 
 ### `tanks/{tankId}/sensor_readings/latest` ✓
 `temperature`, `ph_level`, `dissolved_oxygen`, `turbidity`, `turbidity_air`, `water_level`, `feed_level`, `estimated_feed_grams`, optional `buffered_entries`, `recorded_at`.

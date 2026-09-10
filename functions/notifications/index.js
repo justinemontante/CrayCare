@@ -549,17 +549,20 @@ async function getSamplingDue(notifTarget) {
 
     const currentBatchId = config.current_batch_id || "";
     if (currentBatchId) {
-      const weekly = await firestoreDb.collection("tanks").doc(tankId)
-        .collection("batches").doc(currentBatchId)
+      const batchRef = firestoreDb.collection("tanks").doc(tankId)
+        .collection("batches").doc(currentBatchId);
+      const [batchSnap, weekly] = await Promise.all([
+        batchRef.get(),
+        batchRef
         .collection("sampling_records")
         .where("is_baseline", "==", false)
         .orderBy("sampling_date", "desc")
         .limit(1)
-        .get();
+        .get(),
+      ]);
       if (!weekly.empty) lastSampleTs = weekly.docs[0].data().sampling_date || null;
-      else lastSampleTs = config.stocking_date || null;
+      else if (batchSnap.exists) lastSampleTs = (batchSnap.data() || {}).stocking_date || null;
     }
-    if (!lastSampleTs) lastSampleTs = config.stocking_date || null;
   } catch (e) {
     functions.logger.error(`getSamplingDue error for ${notifTarget}:`, e.message);
     return null;

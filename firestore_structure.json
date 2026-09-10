@@ -50,12 +50,6 @@
     "fields": [
       "owner_uid (string)",
       "current_batch_id (string)",
-      "stocking_date (int epoch-ms, when initialized)",
-      "last_sample_date (int epoch-ms, when available)",
-      "sample_count (int)",
-      "initial_total_sample_weight (double)",
-      "initial_total_sample_length (double)",
-      "initial_population (int)",
       "is_initialized (bool)",
       "created_at (Timestamp)"
     ],

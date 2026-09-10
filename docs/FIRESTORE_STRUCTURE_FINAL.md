@@ -73,12 +73,6 @@ hardware or write tank operations.
 tanks/{tank_id}
   owner_uid: string
   current_batch_id: string
-  initial_population: number
-  stocking_date: epoch milliseconds
-  last_sample_date: epoch milliseconds
-  sample_count: number
-  initial_total_sample_weight: number
-  initial_total_sample_length: number
   is_initialized: boolean
   created_at: Timestamp
 
