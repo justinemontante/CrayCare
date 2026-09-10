@@ -86,7 +86,6 @@ bundle = {
     "model": model,
     "features": list(X_train.columns),
     "algorithm": "IsolationForest",
-    "model_version": f"wqad-isolation-forest-{args.origin}-sklearn-{sklearn.__version__}",
     "trained_at_utc": pd.Timestamp.now(tz="UTC").isoformat(),
     "training_rows": len(X_train),
     "training_data_origin": args.origin,

@@ -27,7 +27,7 @@ Before final field claims:
 3. Select a stable reference period that represents normal tank operation.
 4. Retrain the same unsupervised pipeline using that reference history.
 5. Validate alerts prospectively and record farmer or aquaculture-review outcomes without converting sensor safety thresholds into ML class labels.
-6. Update `training_data_origin` and the model version only after that validation is documented.
+6. Update `training_data_origin` only after that validation is documented.
 
 The 98th-percentile decision boundary is a statistical rarity cutoff learned from reference anomaly scores. It is not a biological water-quality threshold and must not be used to directly switch pumps or aerators.
 

@@ -241,7 +241,7 @@ The deployed artifact is a newly trained scikit-learn `IsolationForest`. Python,
 
 ### M8. Resolved — WQAD result provenance is explicit
 
-`source`, `model_algorithm`, `model_version`, `training_data_origin`, and `training_label_origin` now distinguish model output, unavailable/stale/insufficient states, and prototype-versus-field provenance using the same contract in Python, Flutter, Firestore, ERD, and reports.
+`source`, `model_algorithm`, `training_data_origin`, and `training_label_origin` now distinguish model output, unavailable/stale/insufficient states, and prototype-versus-field provenance using the same contract in Python, Flutter, Firestore, ERD, and reports.
 
 ### M9. ESP firmware performs blocking analog sampling in the main control loop
 

@@ -264,7 +264,6 @@ Table water_quality_anomaly_detections [note: 'WQAD results at tanks/{tankId}/wa
   anomaly_score decimal(5,2)
   source varchar [not null]
   model_algorithm varchar [not null, note: 'IsolationForest | Not applied']
-  model_version varchar
   training_data_origin varchar
   training_label_origin varchar [note: 'none_unsupervised']
   model_feature_count int

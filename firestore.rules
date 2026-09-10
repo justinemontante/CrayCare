@@ -168,7 +168,7 @@ service cloud.firestore {
         // Owner audit entries must NOT impersonate device events: any
         // action containing "(AUTO)" is ESP-only to keep push + audit clean.
         allow create: if isAssignedEsp(tankId) || (isTankOwner(tankId) &&
-          !(request.resource.data.get('action', '') matches '.*\\(AUTO\\).*'));
+          !request.resource.data.get('action', '').matches('.*\\(AUTO\\).*'));
         allow update, delete: if false;
       }
       match /feeder/{doc} {

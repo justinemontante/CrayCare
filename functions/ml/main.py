@@ -172,7 +172,6 @@ def _insufficient_result(data_status):
         ),
         "source": "Stale sensor history" if stale else "Insufficient data",
         "model_algorithm": "Not applied",
-        "model_version": "",
         "training_data_origin": "none",
         "training_label_origin": "none_unsupervised",
         "model_feature_count": 0,

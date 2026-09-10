@@ -25,7 +25,6 @@ class WaterQualityAnomalyDetectionResult {
   final double anomalyScore;
   final String source;
   final String modelAlgorithm;
-  final String modelVersion;
   final String trainingDataOrigin;
   final String trainingLabelOrigin;
   final int modelFeatureCount;
@@ -45,7 +44,6 @@ class WaterQualityAnomalyDetectionResult {
     required this.anomalyScore,
     required this.source,
     required this.modelAlgorithm,
-    required this.modelVersion,
     required this.trainingDataOrigin,
     required this.trainingLabelOrigin,
     required this.modelFeatureCount,
@@ -74,7 +72,6 @@ class WaterQualityAnomalyDetectionResult {
       anomalyScore: (data['anomaly_score'] as num?)?.toDouble() ?? 0,
       source: data['source'] as String? ?? 'WQAD model',
       modelAlgorithm: data['model_algorithm'] as String? ?? 'Unknown',
-      modelVersion: data['model_version'] as String? ?? '',
       trainingDataOrigin: data['training_data_origin'] as String? ?? 'unknown',
       trainingLabelOrigin:
           data['training_label_origin'] as String? ?? 'none_unsupervised',

@@ -32,7 +32,7 @@ ESP32
 - `contributors`
 - `insight`, `recommendation`
 - `source`, `data_status`
-- `model_algorithm`, `model_version`, `model_feature_count`
+- `model_algorithm`, `model_feature_count`
 - `training_data_origin`, `training_label_origin`
 - `analysis_window_minutes`
 - `source_recorded_at`, `source_age_seconds`

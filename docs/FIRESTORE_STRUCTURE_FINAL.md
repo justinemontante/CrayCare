@@ -189,7 +189,6 @@ tanks/{tank_id}
     anomaly_score: number # reference-pattern percentile, not a safety score
     source: string
     model_algorithm: "IsolationForest" | "Not applied"
-    model_version: string
     training_data_origin: string
     training_label_origin: "none_unsupervised"
     model_feature_count: number
