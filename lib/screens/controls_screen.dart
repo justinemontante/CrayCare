@@ -767,7 +767,7 @@ class ControlsScreenState extends State<ControlsScreen> {
           },
         );
       },
-    );
+    ).whenComplete(gramsCtl.dispose);
   }
 
   String _formatTimeInput(String val) {

@@ -193,8 +193,7 @@ tanks/{tank_id}
     driver, driver_label, driver_value, driver_unit
     contributors: array # ranked sensor contributions and directions
     insight, recommendation
-    ts_epoch: epoch seconds
-    timestamp: ISO-8601 string
+    processed_at: Timestamp
 
   water_quality_anomaly_detections/{YYYYMMDDTHHMMSS}
     # Same anomaly-detection schema as `current`; retained as hourly history.

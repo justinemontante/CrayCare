@@ -84,7 +84,10 @@ async function mutateSchedule({db, uid, input, timestamp, deleteField, now = Dat
     const tankSnap = await tx.get(tank);
     const user = profileSnap.exists ? profileSnap.data() : {};
     const tankData = tankSnap.exists ? tankSnap.data() : {};
-    if (user.role !== "owner" || (user.status || "active") !== "active" || tankData.owner_uid !== uid) {
+    // Normalize like the app: legacy profiles may store "Owner"/whitespace.
+    const role = String(user.role || "owner").trim().toLowerCase();
+    const status = String(user.status || "active").trim().toLowerCase();
+    if (role !== "owner" || status !== "active" || tankData.owner_uid !== uid) {
       throw new ScheduleMutationError("permission-denied", "Only the active tank owner can change schedules.");
     }
     if (tankData.is_initialized !== true) {

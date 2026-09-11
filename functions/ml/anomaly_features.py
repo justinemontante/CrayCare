@@ -11,11 +11,17 @@ from datetime import datetime, timezone
 
 SENSORS = ["temp", "pH", "DO", "turbidity", "waterLevel"]
 SENSOR_LABELS = {
-    "temp": "Temperature", "pH": "pH Level", "DO": "Dissolved Oxygen",
-    "turbidity": "Turbidity", "waterLevel": "Water Level",
+    "temp": "Temperature",
+    "pH": "pH Level",
+    "DO": "Dissolved Oxygen",
+    "turbidity": "Turbidity",
+    "waterLevel": "Water Level",
 }
 SENSOR_UNITS = {
-    "temp": "°C", "pH": "", "DO": "mg/L", "turbidity": "NTU",
+    "temp": "°C",
+    "pH": "",
+    "DO": "mg/L",
+    "turbidity": "NTU",
     "waterLevel": "cm",
 }
 
@@ -74,8 +80,11 @@ def _contributors(latest, bundle):
     contributions = []
     for sensor in SENSORS:
         names = [
-            f"{sensor}_avg", f"{sensor}_spread", f"{sensor}_delta",
-            f"{sensor}_trend30m", f"{sensor}_trend1h",
+            f"{sensor}_avg",
+            f"{sensor}_spread",
+            f"{sensor}_delta",
+            f"{sensor}_trend30m",
+            f"{sensor}_trend1h",
             f"{sensor}_baseline_deviation",
         ]
         z_values = []
@@ -85,29 +94,39 @@ def _contributors(latest, bundle):
             z_values.append(abs((float(latest.get(name, 0.0)) - center) / scale))
         contribution = float(np.mean(sorted(z_values, reverse=True)[:3]))
         trend = float(latest.get(f"{sensor}_trend30m", 0.0))
-        # Baseline deviation describes relative level, not temporal direction.
-        direction = "increasing" if trend > 1e-9 else (
-            "decreasing" if trend < -1e-9 else "stable"
+        direction = (
+            "increasing"
+            if trend > 1e-9
+            else ("decreasing" if trend < -1e-9 else "stable")
         )
-        contributions.append({
-            "sensor": sensor, "label": SENSOR_LABELS[sensor],
-            "unit": SENSOR_UNITS[sensor],
-            "value": round(float(latest.get(f"{sensor}_avg", 0.0)), 3),
-            "direction": direction,
-            "contribution_score": round(contribution, 3),
-        })
-    return sorted(contributions, key=lambda item: item["contribution_score"], reverse=True)
+        contributions.append(
+            {
+                "sensor": sensor,
+                "label": SENSOR_LABELS[sensor],
+                "unit": SENSOR_UNITS[sensor],
+                "value": round(float(latest.get(f"{sensor}_avg", 0.0)), 3),
+                "direction": direction,
+                "contribution_score": round(contribution, 3),
+            }
+        )
+    return sorted(
+        contributions, key=lambda item: item["contribution_score"], reverse=True
+    )
 
 
 def detect_water_quality_anomaly(df, bundle, recommendations):
     """Return a WQAD result for the latest complete sensor window."""
     if bundle is None:
         return {
-            "status": "Insufficient", "is_anomaly": False, "anomaly_score": 0.0,
-            "driver": "N/A", "driver_label": "Model unavailable",
+            "status": "Insufficient",
+            "is_anomaly": False,
+            "anomaly_score": 0.0,
+            "driver": "N/A",
+            "driver_label": "Model unavailable",
             "insight": "The anomaly-detection model is not available.",
             "recommendation": "Deploy a trained WQAD model before interpreting sensor patterns.",
-            "contributors": [], "source": "Model unavailable",
+            "contributors": [],
+            "source": "Model unavailable",
         }
 
     features = build_anomaly_features(df)
@@ -123,13 +142,18 @@ def detect_water_quality_anomaly(df, bundle, recommendations):
     contributors = _contributors(latest.iloc[0], bundle)
 
     from anomaly_interpreter import interpret_anomaly
-    interpreted = interpret_anomaly(is_anomaly, anomaly_score, contributors, recommendations)
+
+    interpreted = interpret_anomaly(
+        is_anomaly, anomaly_score, contributors, recommendations
+    )
     return {
         "status": "Unusual" if is_anomaly else "Normal",
         "is_anomaly": is_anomaly,
         "anomaly_score": anomaly_score,
         "driver": contributors[0]["sensor"] if contributors else "overall",
-        "driver_label": contributors[0]["label"] if contributors else "Combined water pattern",
+        "driver_label": contributors[0]["label"]
+        if contributors
+        else "Combined water pattern",
         "driver_value": contributors[0]["value"] if contributors else None,
         "driver_unit": contributors[0]["unit"] if contributors else "",
         "contributors": contributors[:3],
@@ -141,5 +165,5 @@ def detect_water_quality_anomaly(df, bundle, recommendations):
         "training_label_origin": "none_unsupervised",
         "model_feature_count": len(expected),
         "analysis_window_minutes": bundle.get("analysis_window_minutes", 120),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "processed_at": datetime.now(timezone.utc),
     }

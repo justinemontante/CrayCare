@@ -26,7 +26,6 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isResetLoading = false;
 
   String? _loginError;
-  String? _emailResetError;
 
   // Global keys for the form and email field
   final _formKey = GlobalKey<FormState>();
@@ -475,10 +474,8 @@ class _LoginScreenState extends State<LoginScreen> {
                             enabled: !_anyLoading,
                             keyboardType: TextInputType.emailAddress,
                             onChanged: (val) {
-                              if (_emailResetError != null ||
-                                  _loginError != null) {
+                              if (_loginError != null) {
                                 setState(() {
-                                  _emailResetError = null;
                                   _loginError = null;
                                 });
                                 _emailKey.currentState!.validate();
@@ -495,9 +492,6 @@ class _LoginScreenState extends State<LoginScreen> {
                                 r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
                               ).hasMatch(value.trim())) {
                                 return 'Please enter a valid email address';
-                              }
-                              if (_emailResetError != null) {
-                                return _emailResetError;
                               }
                               return null;
                             },
@@ -776,7 +770,6 @@ class _LoginScreenState extends State<LoginScreen> {
                                         _formKey.currentState?.reset();
                                         setState(() {
                                           _loginError = null;
-                                          _emailResetError = null;
                                           _autovalidateMode =
                                               AutovalidateMode.disabled;
                                         });

@@ -502,11 +502,6 @@ exports.processFeeding = functions.region("asia-southeast1").pubsub
     return null;
   });
 
-function isSamplingReminderHour() {
-  const manilaHour = new Date(Date.now() + MANILA_OFFSET_MS).getUTCHours();
-  return manilaHour === 8 || manilaHour === 14;
-}
-
 function sameManilaDay(aMs, bMs) {
   const a = new Date(aMs + MANILA_OFFSET_MS);
   const b = new Date(bMs + MANILA_OFFSET_MS);
@@ -519,31 +514,41 @@ exports.processSampling = functions.region("asia-southeast1").pubsub
   .schedule("every 1 minutes")
   .onRun(async () => {
     try {
-      if (!isSamplingReminderHour()) return null;
-      const owner = await getCurrentHardwareOwner();
-      if (!owner) return null;
-      const due = await getSamplingDue(owner.uid);
-      if (!due) return null;
-      const payload = await writeSamplingNotification(owner.uid, due.daysSince);
-      if (payload) {
-        await sendPush(owner.uid, {
-          notification: { title: payload.title, body: payload.body },
-          data: { sampling: "true" },
-        }, "sampling");
-      }
+      // Sampling is a production-record reminder, not a hardware event.
+      // Evaluate every active tank so a missing/reassigned ESP can never
+      // suppress a due owner's in-app or push notification.
+      const tanks = await firestoreDb.collection("tanks")
+        .where("is_initialized", "==", true)
+        .get();
+      await Promise.allSettled(tanks.docs.map(async (tankSnap) => {
+        const config = tankSnap.data() || {};
+        const ownerUid = typeof config.owner_uid === "string"
+          ? config.owner_uid.trim()
+          : "";
+        if (!ownerUid) return;
+
+        const due = await getSamplingDue(tankSnap.id, ownerUid);
+        if (!due) return;
+        const payload = await writeSamplingNotification(ownerUid, due.daysSince);
+        if (payload) {
+          await sendPush(ownerUid, {
+            notification: { title: payload.title, body: payload.body },
+            data: { sampling: "true" },
+          }, "sampling");
+        }
+      }));
     } catch (e) {
       functions.logger.error("processSampling error:", e.message);
     }
     return null;
   });
 
-async function getSamplingDue(notifTarget) {
+async function getSamplingDue(tankId, ownerUid) {
   const now = Date.now();
   let lastSampleTs = null;
   try {
-    const tankId = notifTarget;
     const tankSnap = await firestoreDb.collection("tanks").doc(tankId).get();
-    if (!tankSnap.exists || (tankSnap.data() || {}).owner_uid !== notifTarget) return null;
+    if (!tankSnap.exists || (tankSnap.data() || {}).owner_uid !== ownerUid) return null;
     const config = tankSnap.data() || {};
     if (config.is_initialized !== true) return null;
 
@@ -564,7 +569,7 @@ async function getSamplingDue(notifTarget) {
       else if (batchSnap.exists) lastSampleTs = (batchSnap.data() || {}).stocking_date || null;
     }
   } catch (e) {
-    functions.logger.error(`getSamplingDue error for ${notifTarget}:`, e.message);
+    functions.logger.error(`getSamplingDue error for ${tankId}:`, e.message);
     return null;
   }
 
@@ -587,7 +592,13 @@ async function writeSamplingNotification(targetUid, daysSince) {
     return null;
   }
 
-  const manilaHour = new Date(nowMs + MANILA_OFFSET_MS).getUTCHours();
+  const manilaNow = new Date(nowMs + MANILA_OFFSET_MS);
+  const manilaHour = manilaNow.getUTCHours();
+  // Primary slots are 8:00 and 14:00 Manila. Before 8 AM we skip WITHOUT
+  // saving the marker, so the first run at/after 8 AM sends — and any missed
+  // or failed 8 AM/2 PM run is caught up by a later run the same day.
+  if (manilaHour < 8) return null;
+  const dateKey = manilaNow.toISOString().slice(0, 10);
   const isMorning = manilaHour === 8;
   let title = "Crayfish Sampling Reminder";
   let body;
@@ -601,7 +612,11 @@ async function writeSamplingNotification(targetUid, daysSince) {
     title = "Sampling Overdue";
   }
 
+  // Deterministic per-user daily ID: if the marker write below ever fails,
+  // the next run overwrites this same doc instead of creating a duplicate.
+  // Safe from client squatting — clients cannot create inbox docs (rules).
   await writeNotification(targetUid, {
+    docId: `sampling_${targetUid}_${dateKey}`,
     type: "reminder",
     title,
     message: body,

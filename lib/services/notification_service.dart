@@ -188,8 +188,7 @@ class NotificationService extends ChangeNotifier {
   StreamSubscription<String>? _tokenSub;
   StreamSubscription<RemoteMessage>? _foregroundMessageSub;
 
-  Iterable<NotificationItem> get _visibleNotifications =>
-      _notifications.where((n) => n.notif_type != 'device_auto');
+  Iterable<NotificationItem> get _visibleNotifications => _notifications;
   List<NotificationItem> get notifications =>
       List.unmodifiable(_visibleNotifications);
 
@@ -197,14 +196,14 @@ class NotificationService extends ChangeNotifier {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (uid.isEmpty) return false;
     final idx = _notifications.indexWhere((n) => n.id == id);
-    return idx != -1 && _notifications[idx].isUnreadBy(uid);
+    return idx != -1 && _notifications[idx].isUnread;
   }
 
   int get unreadCount {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     return uid.isEmpty
         ? 0
-        : _visibleNotifications.where((n) => n.isUnreadBy(uid)).length;
+        : _visibleNotifications.where((n) => n.isUnread).length;
   }
 
   int get criticalCount =>

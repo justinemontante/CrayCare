@@ -225,8 +225,7 @@
           "contributors (array of sensor, label, value, unit, direction, contribution_score)",
           "insight (string)",
           "recommendation (string)",
-          "ts_epoch (epoch seconds)",
-          "timestamp (ISO-8601 string)"
+          "processed_at (Timestamp)"
         ]
       }
     }

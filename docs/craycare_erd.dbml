@@ -72,7 +72,6 @@ Table sensor_thresholds [note: 'Persisted at tanks/{tankId}/sensors/{sensorName}
 Table sensor_readings_history [note: '10-minute window aggregate rows stored at tanks/{tankId}/sensor_readings_history/{YYYY-MM-DD}/entries/{docId}; entry ID is the doc ID'] {
   tank_id varchar [not null, ref: > tanks.tank_id]
   reading_id varchar [not null, note: 'Document ID; not a stored field']
-  date_key varchar [not null, note: 'YYYY-MM-DD in Asia/Manila; parent document key']
   temp_min decimal(6,2)
   temp_max decimal(6,2)
   temp_avg decimal(6,2)
@@ -249,7 +248,7 @@ Table feeder_logs [note: 'Feeding lifecycle/audit logs at tanks/{tankId}/feeder_
 
 Ref: feeder_schedule_days.(tank_id, schedule_id) > feeder_schedules.(tank_id, schedule_id)
 
-Table water_quality_anomaly_detections [note: 'WQAD results at tanks/{tankId}/water_quality_anomaly_detections/{detectionId}; current is the live alias and timestamp-named docs form history. timestamp/ts_epoch are the processing times'] {
+Table water_quality_anomaly_detections [note: 'WQAD results at tanks/{tankId}/water_quality_anomaly_detections/{detectionId}; current is the live alias and timestamp-named docs form history. processed_at is the processing time'] {
   tank_id varchar [not null, ref: > tanks.tank_id]
   uid varchar [note: 'Owner UID attached by the Cloud Function']
   detection_id varchar [not null, note: 'Document ID (current or YYYYMMDDTHHMMSS); not a stored field']
@@ -271,12 +270,11 @@ Table water_quality_anomaly_detections [note: 'WQAD results at tanks/{tankId}/wa
   driver_unit varchar
   insight text [not null]
   recommendation text [not null]
-  timestamp timestamp [not null, note: 'ISO-8601 UTC string in Firestore']
-  ts_epoch int [note: 'Processing time as integer epoch-seconds (ESP-friendly)']
+  processed_at timestamp [not null, note: 'Firestore Timestamp; app orders history by it']
   contributors text [note: 'Firestore array of {sensor, label, value, unit, direction, contribution_score}; normalized into water_quality_anomaly_contributors']
   Indexes {
     (tank_id, detection_id) [pk]
-    (tank_id, timestamp)
+    (tank_id, processed_at)
   }
   Note: 'Unsupervised model; safety thresholds remain separate and are not training labels.'
 }

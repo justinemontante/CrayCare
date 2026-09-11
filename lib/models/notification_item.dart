@@ -17,5 +17,5 @@ class NotificationItem {
     this.is_read = false,
   });
 
-  bool isUnreadBy(String uid) => !is_read;
+  bool get isUnread => !is_read;
 }

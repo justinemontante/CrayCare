@@ -58,7 +58,7 @@ class WaterQualityAnomalyDetectionCard extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Water Quality Anomaly Detection',
+                          'Water Quality Analysis',
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w800,
@@ -67,7 +67,7 @@ class WaterQualityAnomalyDetectionCard extends StatelessWidget {
                         ),
                         SizedBox(height: 2),
                         Text(
-                          'Cray AI · Unsupervised machine learning',
+                          'Unsupervised machine-learning analysis',
                           style: TextStyle(
                             fontSize: 9.5,
                             color: AppColors.subtitleText,
@@ -135,6 +135,10 @@ class WaterQualityAnomalyDetectionCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 10),
+                if (result.contributors.isNotEmpty) ...[
+                  _DirectionSummary(contributors: result.contributors),
+                  const SizedBox(height: 10),
+                ],
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(12),
@@ -210,6 +214,80 @@ class WaterQualityAnomalyDetectionCard extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _DirectionSummary extends StatelessWidget {
+  final List<Map<String, dynamic>> contributors;
+
+  const _DirectionSummary({required this.contributors});
+
+  @override
+  Widget build(BuildContext context) {
+    final visible = contributors
+        .where((item) => item['direction']?.toString().isNotEmpty == true)
+        .take(3)
+        .toList(growable: false);
+    if (visible.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Key sensor directions',
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: AppColors.darkText,
+          ),
+        ),
+        const SizedBox(height: 7),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: visible.map((item) {
+            final label = item['label']?.toString() ?? 'Sensor';
+            final direction = item['direction']?.toString() ?? 'stable';
+            final isIncreasing = direction == 'increasing';
+            final isDecreasing = direction == 'decreasing';
+            final color = isIncreasing
+                ? AppColors.warningDark
+                : isDecreasing
+                ? AppColors.primary
+                : AppColors.mutedText;
+            final icon = isIncreasing
+                ? Icons.arrow_upward_rounded
+                : isDecreasing
+                ? Icons.arrow_downward_rounded
+                : Icons.remove_rounded;
+            final directionLabel = direction[0].toUpperCase() + direction.substring(1);
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.09),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: color.withValues(alpha: 0.18)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 13, color: color),
+                  const SizedBox(width: 4),
+                  Text(
+                    '$label: $directionLabel',
+                    style: TextStyle(
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w700,
+                      color: color,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }).toList(growable: false),
+        ),
+      ],
     );
   }
 }

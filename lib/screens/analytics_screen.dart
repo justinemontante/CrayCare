@@ -7,7 +7,6 @@ import '../services/settings_service.dart';
 import '../services/sensor_service.dart';
 import '../widgets/analytics/analytics_charts.dart';
 import '../widgets/analytics/filter_selector.dart';
-import '../widgets/analytics/movable_ai_logo.dart';
 
 class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
@@ -688,7 +687,6 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
             ),
           ),
         ),
-        const MovableAiLogo(),
       ],
     );
   }

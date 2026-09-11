@@ -19,11 +19,13 @@ def _get_db():
     global _db
     if _db is None:
         import firebase_admin
+
         try:
             firebase_admin.get_app()
         except ValueError:
             firebase_admin.initialize_app()
         from firebase_admin import firestore
+
         _db = firestore.client()
     return _db
 
@@ -35,6 +37,7 @@ def _load_wqad():
             _recommendations = json.load(handle)
     if _bundle is None:
         import joblib
+
         try:
             _bundle = joblib.load(_MODEL_PATH)
         except Exception as error:
@@ -44,6 +47,7 @@ def _load_wqad():
 
 def _run_water_quality_anomaly_detection(frame):
     from anomaly_features import detect_water_quality_anomaly
+
     bundle, recommendations = _load_wqad()
     return detect_water_quality_anomaly(frame, bundle, recommendations)
 
@@ -52,8 +56,13 @@ def _valid_history_row(row):
     for sensor in ("temp", "pH", "DO", "turbidity", "waterLevel"):
         keys = (f"{sensor}_min", f"{sensor}_avg", f"{sensor}_max")
         values = [row.get(key) for key in keys]
-        if any(value is None or not isinstance(value, (int, float))
-               or not math.isfinite(float(value)) or float(value) < 0 for value in values):
+        if any(
+            value is None
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or float(value) < 0
+            for value in values
+        ):
             return False
         minimum, average, maximum = map(float, values)
         if not minimum <= average <= maximum:
@@ -66,7 +75,9 @@ def _timestamp_seconds(value):
     if value is None:
         return None
     if isinstance(value, datetime):
-        normalized = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+        normalized = (
+            value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+        )
         return normalized.timestamp()
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         numeric = float(value)
@@ -97,6 +108,7 @@ def _timestamp_seconds(value):
 
 def _fetch_sensor_history(tank_id, hours=24):
     import pandas as pd
+
     db = _get_db()
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(hours=hours)
@@ -111,17 +123,27 @@ def _fetch_sensor_history(tank_id, hours=24):
             # Read the bounded daily subcollection and filter timestamps here.
             # This keeps one malformed/mixed-type legacy timestamp from breaking
             # the whole query or excluding otherwise valid records for the day.
-            docs = (db.collection("tanks").document(tank_id)
-                    .collection("sensor_readings_history").document(date_key)
-                    .collection("entries").get())
+            docs = (
+                db.collection("tanks")
+                .document(tank_id)
+                .collection("sensor_readings_history")
+                .document(date_key)
+                .collection("entries")
+                .get()
+            )
             for doc in docs:
                 try:
                     data = doc.to_dict() or {}
                     recorded_seconds = _timestamp_seconds(data.get("recorded_at"))
                     if recorded_seconds is None:
-                        print(f"[WQAD] Skipping history document {doc.id} with invalid timestamp")
+                        print(
+                            f"[WQAD] Skipping history document {doc.id} with invalid timestamp"
+                        )
                         continue
-                    if recorded_seconds < cutoff_seconds or recorded_seconds > latest_allowed_seconds:
+                    if (
+                        recorded_seconds < cutoff_seconds
+                        or recorded_seconds > latest_allowed_seconds
+                    ):
                         continue
 
                     temp = data.get("temp_avg", data.get("temperature"))
@@ -131,18 +153,30 @@ def _fetch_sensor_history(tank_id, hours=24):
                     water_level = data.get("waterLevel_avg", data.get("water_level"))
                     row = {
                         "timestamp": recorded_seconds,
-                        "temp_avg": temp, "temp_min": data.get("temp_min", temp), "temp_max": data.get("temp_max", temp),
-                        "pH_avg": ph, "pH_min": data.get("pH_min", ph), "pH_max": data.get("pH_max", ph),
-                        "DO_avg": dissolved_oxygen, "DO_min": data.get("DO_min", dissolved_oxygen), "DO_max": data.get("DO_max", dissolved_oxygen),
-                        "turbidity_avg": turbidity, "turbidity_min": data.get("turbidity_min", turbidity), "turbidity_max": data.get("turbidity_max", turbidity),
-                        "waterLevel_avg": water_level, "waterLevel_min": data.get("waterLevel_min", water_level), "waterLevel_max": data.get("waterLevel_max", water_level),
+                        "temp_avg": temp,
+                        "temp_min": data.get("temp_min", temp),
+                        "temp_max": data.get("temp_max", temp),
+                        "pH_avg": ph,
+                        "pH_min": data.get("pH_min", ph),
+                        "pH_max": data.get("pH_max", ph),
+                        "DO_avg": dissolved_oxygen,
+                        "DO_min": data.get("DO_min", dissolved_oxygen),
+                        "DO_max": data.get("DO_max", dissolved_oxygen),
+                        "turbidity_avg": turbidity,
+                        "turbidity_min": data.get("turbidity_min", turbidity),
+                        "turbidity_max": data.get("turbidity_max", turbidity),
+                        "waterLevel_avg": water_level,
+                        "waterLevel_min": data.get("waterLevel_min", water_level),
+                        "waterLevel_max": data.get("waterLevel_max", water_level),
                     }
                     if _valid_history_row(row):
                         rows.append(row)
                     else:
                         print(f"[WQAD] Skipping invalid history document {doc.id}")
                 except Exception as error:
-                    print(f"[WQAD] Skipping malformed history document {doc.id}: {error}")
+                    print(
+                        f"[WQAD] Skipping malformed history document {doc.id}: {error}"
+                    )
         except Exception as error:
             print(f"[WQAD] History read failed for {tank_id}/{date_key}: {error}")
         current_day += timedelta(days=1)
@@ -156,19 +190,21 @@ def _insufficient_result(data_status):
         "is_anomaly": False,
         "anomaly_score": 0.0,
         "driver": "N/A",
-        "driver_label": "Sensor history is stale" if stale else "Collecting sensor history",
+        "driver_label": "Sensor history is stale"
+        if stale
+        else "Collecting sensor history",
         "driver_value": None,
         "driver_unit": "",
         "contributors": [],
         "insight": (
             "The latest sensor record is over 20 minutes old."
-            if stale else
-            "At least twelve continuous 10-minute readings are required to establish the current two-hour pattern."
+            if stale
+            else "At least twelve continuous 10-minute readings are required to establish the current two-hour pattern."
         ),
         "recommendation": (
             "Check ESP32 connectivity and wait for fresh, continuous sensor history."
-            if stale else
-            "Continue collecting calibrated sensor data."
+            if stale
+            else "Continue collecting calibrated sensor data."
         ),
         "source": "Stale sensor history" if stale else "Insufficient data",
         "model_algorithm": "Not applied",
@@ -176,23 +212,32 @@ def _insufficient_result(data_status):
         "training_label_origin": "none_unsupervised",
         "model_feature_count": 0,
         "analysis_window_minutes": 120,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
 def _analyze_tank(tank_id):
     db = _get_db()
     tank_snapshot = db.collection("tanks").document(tank_id).get()
-    owner_uid = (tank_snapshot.to_dict() or {}).get("owner_uid", "") if tank_snapshot.exists else ""
+    owner_uid = (
+        (tank_snapshot.to_dict() or {}).get("owner_uid", "")
+        if tank_snapshot.exists
+        else ""
+    )
     frame = _fetch_sensor_history(tank_id)
     from anomaly_window import anomaly_window
+
     now = datetime.now(timezone.utc)
     frame, data_status, source_at = anomaly_window(frame, now.timestamp())
-    result = (_run_water_quality_anomaly_detection(frame)
-              if data_status == "ready" else _insufficient_result(data_status))
+    result = (
+        _run_water_quality_anomaly_detection(frame)
+        if data_status == "ready"
+        else _insufficient_result(data_status)
+    )
     result["data_status"] = data_status
     result["source_recorded_at"] = (
-        datetime.fromtimestamp(source_at, timezone.utc).isoformat() if source_at is not None else None
+        datetime.fromtimestamp(source_at, timezone.utc).isoformat()
+        if source_at is not None
+        else None
     )
     result["source_age_seconds"] = (
         max(0, int(now.timestamp() - source_at)) if source_at is not None else None
@@ -200,13 +245,45 @@ def _analyze_tank(tank_id):
     result["tank_id"] = tank_id
     if owner_uid:
         result["uid"] = owner_uid
-    result["ts_epoch"] = int(now.timestamp())
+    result["processed_at"] = now
 
-    collection = (db.collection("tanks").document(tank_id)
-                  .collection("water_quality_anomaly_detections"))
-    collection.document("current").set(result)
-    collection.document(now.strftime("%Y%m%dT%H%M%S")).set(result)
-    print(f"[WQAD] Tank {tank_id}: {result['status']} (score={result['anomaly_score']}, driver={result['driver']})")
+    collection = (
+        db.collection("tanks")
+        .document(tank_id)
+        .collection("water_quality_anomaly_detections")
+    )
+    batch = db.batch()
+    batch.set(collection.document("current"), result)
+    batch.set(collection.document(now.strftime("%Y%m%dT%H%M%S")), result)
+    batch.commit()
+    print(
+        f"[WQAD] Tank {tank_id}: {result['status']} (score={result['anomaly_score']}, driver={result['driver']})"
+    )
+    _prune_history(db, tank_id, now)
+
+
+def _prune_history(db, tank_id, now, retain_days=30, max_deletes=100):
+    """Cap hourly history growth: delete timestamp-named docs older than
+    retain_days. The `current` alias is never touched. Failures are logged
+    only so pruning can never break detection."""
+    try:
+        cutoff = (now - timedelta(days=retain_days)).strftime("%Y%m%dT%H%M%S")
+        collection = (
+            db.collection("tanks")
+            .document(tank_id)
+            .collection("water_quality_anomaly_detections")
+        )
+        deleted = 0
+        for doc in collection.list_documents():
+            if deleted >= max_deletes:
+                break
+            if doc.id != "current" and doc.id < cutoff:
+                doc.delete()
+                deleted += 1
+        if deleted:
+            print(f"[WQAD] Pruned {deleted} history docs for {tank_id}.")
+    except Exception as error:
+        print(f"[WQAD] History prune failed for {tank_id}: {error}")
 
 
 @scheduler_fn.on_schedule(
@@ -231,9 +308,11 @@ def run_hourly_wqad(event) -> None:
     user = user_snapshot.to_dict() or {}
     tank_snapshot = db.collection("tanks").document(str(tank_id)).get()
     tank = tank_snapshot.to_dict() if tank_snapshot.exists else {}
-    if (str(user.get("role", "owner")).lower() != "owner"
-            or str(user.get("status", "active")).lower() != "active"
-            or str(tank.get("owner_uid", "")) != str(uid)):
+    if (
+        str(user.get("role", "owner")).lower() != "owner"
+        or str(user.get("status", "active")).lower() != "active"
+        or str(tank.get("owner_uid", "")) != str(uid)
+    ):
         print("[WQAD] Assignment is not an active owner/tank pair; skipped.")
         return
     _analyze_tank(str(tank_id))

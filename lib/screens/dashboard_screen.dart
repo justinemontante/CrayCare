@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../theme/app_colors.dart';
 import '../widgets/section_label.dart';
+import '../widgets/dashboard/water_quality_anomaly_detection_card.dart';
 import '../services/sensor_service.dart';
 import '../services/settings_service.dart';
 import '../services/tank_service.dart';
@@ -219,6 +220,16 @@ class DashboardScreenState extends State<DashboardScreen>
                     ),
                   ),
                   _buildPhysicalParameterRow(context),
+                  const SizedBox(height: 12),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 4),
+                    child: SectionLabel(
+                      label: 'Water Quality Analysis',
+                      showLiveData: false,
+                      icon: Icons.psychology_alt_outlined,
+                    ),
+                  ),
+                  const WaterQualityAnomalyDetectionCard(),
                   const SizedBox(height: 12),
                   _buildQuickActionsHeader(),
                   _buildQuickActions(),
@@ -442,11 +453,7 @@ class DashboardScreenState extends State<DashboardScreen>
                   iconPath: 'assets/images/temperature.png',
                   status: _getStatus('temp'),
                   statusColor: _getStatusColor('temp'),
-                  trend: ss.getTrend('temp'),
-                  trendRate: ss.getTrendRate('temp'),
                   hasData: ss.hasSensorData('temp'),
-                  sensorKey: 'temp',
-                  rawValue: ss.getLatestValue('temp'),
                   onTap: () => _showGaugeDetail(
                     context,
                     sensorKey: 'temp',
@@ -469,11 +476,7 @@ class DashboardScreenState extends State<DashboardScreen>
                   iconPath: 'assets/images/pH.png',
                   status: _getStatus('ph'),
                   statusColor: _getStatusColor('ph'),
-                  trend: ss.getTrend('ph'),
-                  trendRate: ss.getTrendRate('ph'),
                   hasData: ss.hasSensorData('ph'),
-                  sensorKey: 'ph',
-                  rawValue: ss.getLatestValue('ph'),
                   onTap: () => _showGaugeDetail(
                     context,
                     sensorKey: 'ph',
@@ -500,11 +503,7 @@ class DashboardScreenState extends State<DashboardScreen>
                   iconPath: 'assets/images/DO.png',
                   status: _getStatus('do'),
                   statusColor: _getStatusColor('do'),
-                  trend: ss.getTrend('do'),
-                  trendRate: ss.getTrendRate('do'),
                   hasData: ss.hasSensorData('do'),
-                  sensorKey: 'do',
-                  rawValue: ss.getLatestValue('do'),
                   onTap: () => _showGaugeDetail(
                     context,
                     sensorKey: 'do',
@@ -527,11 +526,7 @@ class DashboardScreenState extends State<DashboardScreen>
                   iconPath: 'assets/images/Turbidity.png',
                   status: _getStatus('turb'),
                   statusColor: _getStatusColor('turb'),
-                  trend: ss.getTrend('turb'),
-                  trendRate: ss.getTrendRate('turb'),
                   hasData: ss.hasSensorData('turb'),
-                  sensorKey: 'turb',
-                  rawValue: ss.getLatestValue('turb'),
                   onTap: () => _showGaugeDetail(
                     context,
                     sensorKey: 'turb',
@@ -606,90 +601,6 @@ class DashboardScreenState extends State<DashboardScreen>
     return AppColors.darkWith(0.4);
   }
 
-  /// Rising is beneficial for DO (more oxygen) and for water level while it is
-  /// still BELOW the safe maximum (filling toward normal). Once water level is
-  /// at/above max, rising means approaching overflow, so it is no longer good.
-  bool _risingIsGood(String key, double value) {
-    if (key == 'do') return true;
-    if (key == 'waterlevel') {
-      final ranges = SettingsService.instance.currentRanges;
-      final max = ranges[key]?['max'] ?? 999.0;
-      return value < max;
-    }
-    return false;
-  }
-
-  /// Falling is beneficial for turbidity (clearer water) and for water level
-  /// while it is still ABOVE the safe minimum (draining back from overflow).
-  /// Below min, falling means the tank is getting too shallow.
-  bool _fallingIsGood(String key, double value) {
-    if (key == 'turb') return true;
-    if (key == 'waterlevel') {
-      final ranges = SettingsService.instance.currentRanges;
-      final min = ranges[key]?['min'] ?? 0.0;
-      return value > min;
-    }
-    return false;
-  }
-
-  Color _getTrendColor(
-    String key,
-    double value,
-    String trend,
-    double rate,
-    String status,
-  ) {
-    // Sensors with a clear preferred direction — collapse the 3 identical branches into one.
-    if (_risingIsGood(key, value) || _fallingIsGood(key, value)) {
-      final bool goodDir = _risingIsGood(key, value)
-          ? (trend == 'rising' || trend == 'rising_fast')
-          : (trend == 'falling' || trend == 'falling_fast');
-      final bool badDir = _risingIsGood(key, value)
-          ? (trend == 'falling' || trend == 'falling_fast')
-          : (trend == 'rising' || trend == 'rising_fast');
-      if (goodDir) return AppColors.success;
-      if (badDir) {
-        return status == 'CRITICAL' || status == 'WARNING'
-            ? AppColors.critical
-            : AppColors.warning;
-      }
-      return AppColors.dark.withValues(alpha: 0.4);
-    }
-
-    if (status == 'OPTIMAL' || trend == 'stable' || rate == 0) {
-      switch (trend) {
-        case 'rising_fast':
-        case 'falling_fast':
-          return AppColors.critical;
-        case 'rising':
-        case 'falling':
-          return AppColors.warning;
-        default:
-          return AppColors.dark.withValues(alpha: 0.4);
-      }
-    }
-
-    final ranges = SettingsService.instance.currentRanges;
-    final range = ranges[key];
-    if (range == null) return AppColors.warning;
-    final min = range['min'] ?? 0.0;
-    final max = range['max'] ?? 999.0;
-
-    final bool improving;
-    if (value < min) {
-      improving = rate > 0;
-    } else if (value > max && max < 999.0) {
-      improving = rate < 0;
-    } else {
-      final mid = (min + (max < 999 ? max : min * 2)) / 2;
-      improving = rate > 0 ? value < mid : value > mid;
-    }
-
-    if (improving) return AppColors.success;
-    if (status == 'CRITICAL') return AppColors.critical;
-    return AppColors.warning;
-  }
-
   Widget _buildGaugeCard({
     required String title,
     required String value,
@@ -698,20 +609,9 @@ class DashboardScreenState extends State<DashboardScreen>
     required String iconPath,
     required String status,
     required Color statusColor,
-    required String trend,
-    required double trendRate,
     required bool hasData,
-    required String sensorKey,
-    required double rawValue,
     VoidCallback? onTap,
   }) {
-    final trendColor = _getTrendColor(
-      sensorKey,
-      rawValue,
-      trend,
-      trendRate,
-      status,
-    );
     return _GaugeCard(
       title: title,
       value: value,
@@ -720,12 +620,7 @@ class DashboardScreenState extends State<DashboardScreen>
       iconPath: iconPath,
       status: status,
       statusColor: statusColor,
-      trend: trend,
-      trendRate: trendRate,
-      trendColor: trendColor,
       hasData: hasData,
-      sensorKey: sensorKey,
-      rawValue: rawValue,
       onTap: onTap,
     );
   }
@@ -749,11 +644,7 @@ class DashboardScreenState extends State<DashboardScreen>
                 iconPath: 'assets/images/waterLevel.png',
                 status: _getStatus('waterlevel'),
                 statusColor: _getStatusColor('waterlevel'),
-                trend: ss.getTrend('waterlevel'),
-                trendRate: ss.getTrendRate('waterlevel'),
                 hasData: ss.hasSensorData('waterlevel'),
-                sensorKey: 'waterlevel',
-                rawValue: ss.getLatestValue('waterlevel'),
                 onTap: () => _showGaugeDetail(
                   context,
                   sensorKey: 'waterlevel',
@@ -776,11 +667,7 @@ class DashboardScreenState extends State<DashboardScreen>
                 iconPath: 'assets/images/FeedingImage.png',
                 status: _getStatus('feedlevel'),
                 statusColor: _getStatusColor('feedlevel'),
-                trend: ss.getTrend('feedlevel'),
-                trendRate: ss.getTrendRate('feedlevel'),
                 hasData: ss.hasSensorData('feedlevel'),
-                sensorKey: 'feedlevel',
-                rawValue: ss.getLatestValue('feedlevel'),
                 onTap: () => _showGaugeDetail(
                   context,
                   sensorKey: 'feedlevel',
@@ -1925,82 +1812,6 @@ class DashboardScreenState extends State<DashboardScreen>
     return weekdays[target.weekday - 1];
   }
 
-  Widget _buildModalTrendIndicator(
-    String trend,
-    double rate,
-    String status, {
-    String? sensorKey,
-    double? value,
-  }) {
-    final v = value ?? 0.0;
-    final risingIsGood = sensorKey != null && _risingIsGood(sensorKey, v);
-    final fallingIsGood = sensorKey != null && _fallingIsGood(sensorKey, v);
-    final isBadStatus = status == 'CRITICAL' || status == 'WARNING';
-
-    Color goodColor() => AppColors.success;
-    Color badColor() => isBadStatus ? AppColors.critical : AppColors.warning;
-
-    IconData icon;
-    Color color;
-    String label;
-
-    switch (trend) {
-      case 'rising_fast':
-        icon = Icons.keyboard_double_arrow_up;
-        label = 'Rising Fast';
-        color = risingIsGood
-            ? goodColor()
-            : (fallingIsGood ? badColor() : AppColors.critical);
-        break;
-      case 'rising':
-        icon = Icons.arrow_upward;
-        label = 'Rising';
-        color = risingIsGood
-            ? goodColor()
-            : (fallingIsGood ? badColor() : AppColors.warning);
-        break;
-      case 'falling_fast':
-        icon = Icons.keyboard_double_arrow_down;
-        label = 'Falling Fast';
-        color = fallingIsGood
-            ? goodColor()
-            : (risingIsGood ? badColor() : AppColors.critical);
-        break;
-      case 'falling':
-        icon = Icons.arrow_downward;
-        label = 'Falling';
-        color = fallingIsGood
-            ? goodColor()
-            : (risingIsGood ? badColor() : AppColors.warning);
-        break;
-      case 'stable':
-      default:
-        icon = Icons.trending_flat;
-        color = AppColors.dark.withValues(alpha: 0.5);
-        label = status == 'OPTIMAL' || status == 'NORMAL' ? 'Stable' : '';
-        break;
-    }
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Icon(icon, size: 14, color: color),
-        if (label.isNotEmpty) ...[
-          const SizedBox(width: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              color: color,
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-
   void _showGaugeDetail(
     BuildContext context, {
     required String sensorKey,
@@ -2260,16 +2071,6 @@ class DashboardScreenState extends State<DashboardScreen>
                                 ),
                               ],
                             ),
-                            if (hasData) ...[
-                              const SizedBox(height: 6),
-                              _buildModalTrendIndicator(
-                                ss.getTrend(sensorKey),
-                                ss.getTrendRate(sensorKey),
-                                status,
-                                sensorKey: sensorKey,
-                                value: value,
-                              ),
-                            ],
                           ],
                         ),
                       ),
@@ -2421,12 +2222,7 @@ class _GaugeCard extends StatefulWidget {
   final String iconPath;
   final String status;
   final Color statusColor;
-  final String trend;
-  final double trendRate;
-  final Color trendColor;
   final bool hasData;
-  final String sensorKey;
-  final double rawValue;
   final VoidCallback? onTap;
 
   const _GaugeCard({
@@ -2437,12 +2233,7 @@ class _GaugeCard extends StatefulWidget {
     required this.iconPath,
     required this.status,
     required this.statusColor,
-    required this.trend,
-    required this.trendRate,
-    required this.trendColor,
     required this.hasData,
-    required this.sensorKey,
-    required this.rawValue,
     this.onTap,
   });
 
@@ -2452,55 +2243,6 @@ class _GaugeCard extends StatefulWidget {
 
 class _GaugeCardState extends State<_GaugeCard> {
   bool _isPressed = false;
-
-  Widget _buildTrendIndicator() {
-    IconData icon;
-    String label;
-    final color = widget.trendColor;
-
-    switch (widget.trend) {
-      case 'rising_fast':
-        icon = Icons.keyboard_double_arrow_up;
-        label = 'Rising Fast';
-        break;
-      case 'rising':
-        icon = Icons.arrow_upward;
-        label = 'Rising';
-        break;
-      case 'falling_fast':
-        icon = Icons.keyboard_double_arrow_down;
-        label = 'Falling Fast';
-        break;
-      case 'falling':
-        icon = Icons.arrow_downward;
-        label = 'Falling';
-        break;
-      case 'stable':
-      default:
-        icon = Icons.trending_flat;
-        label = widget.status == 'OPTIMAL' ? 'Stable' : '';
-        break;
-    }
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Icon(icon, size: 12, color: color),
-        if (label.isNotEmpty) ...[
-          const SizedBox(width: 2),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 9,
-              fontWeight: FontWeight.w700,
-              color: color,
-            ),
-          ),
-        ],
-      ],
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -2583,8 +2325,6 @@ class _GaugeCardState extends State<_GaugeCard> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 2),
-                if (widget.hasData) _buildTrendIndicator(),
                 Container(
                   margin: const EdgeInsets.symmetric(vertical: 8),
                   padding: const EdgeInsets.symmetric(

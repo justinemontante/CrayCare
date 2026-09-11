@@ -159,6 +159,8 @@ class SensorService extends ChangeNotifier {
     return 'OPTIMAL';
   }
 
+  /// Used by the home-screen anomaly summary. Dashboard cards deliberately do
+  /// not render this value as an increasing/decreasing indicator.
   double getTrendRate(String key) {
     final values = _history[key];
     final times = _historyTimes[key];
@@ -175,7 +177,6 @@ class SensorService extends ChangeNotifier {
     while (start < times.length - 1 && times[start].isBefore(cutoff)) {
       start++;
     }
-
     final recentValues = values.sublist(start);
     final recentTimes = times.sublist(start);
     if (recentValues.length < 4) return 0.0;
@@ -189,7 +190,6 @@ class SensorService extends ChangeNotifier {
         .toList();
     final meanX = xs.reduce((a, b) => a + b) / xs.length;
     final meanY = recentValues.reduce((a, b) => a + b) / recentValues.length;
-
     var numerator = 0.0;
     var denominator = 0.0;
     for (var i = 0; i < xs.length; i++) {
@@ -199,42 +199,6 @@ class SensorService extends ChangeNotifier {
     }
     if (denominator <= 0) return 0.0;
     return numerator / denominator;
-  }
-
-  String getTrend(String key) {
-    final rate = getTrendRate(key);
-
-    double stableThreshold;
-    double fastThreshold;
-    switch (key) {
-      case 'temp':
-        stableThreshold = 0.10;
-        fastThreshold = 0.50;
-        break;
-      case 'ph':
-        stableThreshold = 0.03;
-        fastThreshold = 0.15;
-        break;
-      case 'do':
-        stableThreshold = 0.10;
-        fastThreshold = 0.50;
-        break;
-      case 'turb':
-        stableThreshold = 1.00;
-        fastThreshold = 5.00;
-        break;
-      case 'waterlevel':
-        stableThreshold = 0.50;
-        fastThreshold = 2.00;
-        break;
-      default:
-        stableThreshold = 0.10;
-        fastThreshold = 0.50;
-    }
-
-    if (rate.abs() < stableThreshold) return 'stable';
-    if (rate > 0) return rate >= fastThreshold ? 'rising_fast' : 'rising';
-    return rate <= -fastThreshold ? 'falling_fast' : 'falling';
   }
 
   Future<void> _initFirebaseListener() async {

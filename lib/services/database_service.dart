@@ -31,13 +31,6 @@ class DatabaseService {
 
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  static Map<String, dynamic> convertMap(dynamic value) {
-    if (value is Map) {
-      return value.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
-    }
-    return {};
-  }
-
   // ─── User Profile ──────────────────────────────────────────────────
 
   /// Creates/updates a user's profile. Registration does not create a tank;

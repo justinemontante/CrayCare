@@ -63,6 +63,7 @@ class WaterQualityAnomalyDetectionResult {
   ) {
     final rawContributors = data['contributors'];
     final parsedTimestamp =
+        parsePredictionTimestamp(data['processed_at']) ??
         parsePredictionTimestamp(data['timestamp']) ??
         parsePredictionTimestamp(data['ts_epoch']) ??
         DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
@@ -219,7 +220,7 @@ class WaterQualityAnomalyDetectionService extends ChangeNotifier {
       );
 
       _historySub = collection
-          .orderBy('ts_epoch', descending: true)
+          .orderBy('processed_at', descending: true)
           .limit(31)
           .snapshots()
           .listen(

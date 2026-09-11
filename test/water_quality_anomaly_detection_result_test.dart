@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:craycare/services/water_quality_anomaly_detection_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -32,7 +33,6 @@ void main() {
       expect(result.usesPrototypeData, isTrue);
       expect(result.recommendation, isNotEmpty);
     });
-
     test('does not expose former threshold assessment labels', () {
       final result = WaterQualityAnomalyDetectionResult.fromMap({
         'status': 'Good',
@@ -40,6 +40,24 @@ void main() {
       });
       expect(result.status, 'Insufficient');
       expect(result.hasData, isFalse);
+    });
+
+    test('prefers processed_at Timestamp with legacy fallbacks', () {
+      final stamped = WaterQualityAnomalyDetectionResult.fromMap({
+        'status': 'Normal',
+        'is_anomaly': false,
+        'processed_at': Timestamp.fromDate(DateTime.utc(2026, 9, 6, 8)),
+        'timestamp': '2026-09-03T00:00:00Z',
+        'ts_epoch': 1725619200,
+      });
+      expect(stamped.timestamp, DateTime.utc(2026, 9, 6, 8));
+
+      final legacy = WaterQualityAnomalyDetectionResult.fromMap({
+        'status': 'Normal',
+        'is_anomaly': false,
+        'ts_epoch': 1725619200,
+      });
+      expect(legacy.timestamp.year, 2024);
     });
   });
 }

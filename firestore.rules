@@ -96,6 +96,9 @@ service cloud.firestore {
           isSignedIn() && request.auth.uid == uid &&
           request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['full_name', 'email', 'photo_url', 'photoUrl', 'fcmTokens', 'fcmToken', 'tank_id']) &&
+          // NOTE: `tank_id` is legacy. This clause is delete-only on purpose:
+          // a client may remove the field but never set it (ownership lives
+          // in tanks/{tankId}.owner_uid).
           (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['tank_id']) ||
             !request.resource.data.keys().hasAny(['tank_id']))
         );
@@ -112,7 +115,12 @@ service cloud.firestore {
     }
 
     match /hardware_system/{doc} {
-      allow read: if isAdmin() || isEspSession();
+      // The assigned owner may read the assignment (no cross-owner leak:
+      // only the uid recorded on the doc itself can read it). This removes
+      // the app's tankId==uid assumption for future multi-tank use.
+      allow read: if isAdmin() || isEspSession() || (isSignedIn() &&
+        get(/databases/$(database)/documents/hardware_system/currentOwner)
+          .data.get('uid', '') == request.auth.uid);
       allow create, update: if isAdmin() &&
         (doc != 'currentOwner' || isValidHardwareAssignment());
       allow delete: if isAdmin();

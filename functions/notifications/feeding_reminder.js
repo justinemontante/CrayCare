@@ -8,8 +8,8 @@ const REMINDER_WINDOW_MS = 5 * 60 * 1000;
 // delayed scheduler tick and a schedule added inside the reminder window, while
 // never promising that a past occurrence will be dispensed.
 function feedingReminderOccurrence(schedule, nowMs) {
-  if (schedule.enabled === false || schedule.is_active === false ||
-      !Number.isFinite(nowMs)) return null;
+  // The schedule contract uses `enabled`; there is no `is_active` field.
+  if (schedule.enabled === false || !Number.isFinite(nowMs)) return null;
   const minute = schedule.timeValue;
   if (!Number.isInteger(minute) || minute < 0 || minute >= 1440) return null;
   const days = schedule.days ?? "1111111";

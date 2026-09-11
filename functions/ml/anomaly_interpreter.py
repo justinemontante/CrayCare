@@ -16,7 +16,7 @@ def interpret_anomaly(is_anomaly, anomaly_score, contributors, recommendations):
         }
 
     def trend_phrase(item):
-        if item['direction'] == 'stable':
+        if item["direction"] == "stable":
             return f"{item['label']} has little net change over the recent 30-minute window"
         return f"{item['label']} is {item['direction']} over the recent 30-minute window"
 

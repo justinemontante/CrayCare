@@ -801,10 +801,39 @@ class FeederService extends ChangeNotifier {
     if (!ConnectivityService.instance.isOnline) {
       throw StateError('Connect to the internet to update feeding schedules.');
     }
+    // The callable rejects token-less calls as unauthenticated. Guard the
+    // session here and force a token refresh so a stale/expired token can
+    // never silently drop auth on delete/toggle.
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      throw StateError(
+        'Your session expired. Sign in again to update feeding schedules.',
+      );
+    }
+    try {
+      await user.getIdToken(true);
+    } catch (_) {
+      throw StateError(
+        'Could not refresh your session. Check your connection and sign in again.',
+      );
+    }
+    // Send the ID token explicitly as well: if the auth context is ever
+    // stripped in transit, the server verifies this token directly instead
+    // of rejecting the call as unauthenticated.
+    late final String idToken;
+    try {
+      final token = await user.getIdToken();
+      if (token == null || token.isEmpty) throw StateError('empty token');
+      idToken = token;
+    } catch (_) {
+      throw StateError(
+        'Could not refresh your session. Check your connection and sign in again.',
+      );
+    }
     try {
       await FirebaseFunctions.instanceFor(
         region: 'asia-southeast1',
-      ).httpsCallable('mutateFeederSchedule').call(payload);
+      ).httpsCallable('mutateFeederSchedule').call({...payload, 'idToken': idToken});
     } on FirebaseFunctionsException catch (error) {
       final details = error.details;
       final conflict = details is Map ? details['conflictingSchedule'] : null;

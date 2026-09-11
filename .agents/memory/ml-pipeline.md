@@ -36,7 +36,7 @@ ESP32
 - `training_data_origin`, `training_label_origin`
 - `analysis_window_minutes`
 - `source_recorded_at`, `source_age_seconds`
-- `ts_epoch`, `timestamp`, `tank_id`, optional `uid`
+- `processed_at` (Timestamp), `tank_id`, optional `uid`
 
 ## Model
 

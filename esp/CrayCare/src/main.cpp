@@ -1853,17 +1853,41 @@ void loop() {
         Serial.printf("[CAL] DO air calibration saved: scale=%.4f\n", doVoltageScale);
       }
     }
+    // Turbidity calibration must keep VClear > VDirty > VAirMax within the
+    // 0-3.3V ADC range; otherwise the NTU map inverts or divides by zero
+    // and pins readings at 0/1000. Rejected values are never saved.
     if (cmd.startsWith("turbclear ")) {
-      turbidityVClear = cmd.substring(10).toFloat();
-      saveSensorCalibrations();
+      const float v = cmd.substring(10).toFloat();
+      if (v <= 0.0f || v > 3.3f || v <= turbidityVDirty) {
+        Serial.printf("[CAL] turbclear rejected: need 0 < V <= 3.3 and V > VDirty (%.3fV), got %.3fV\n",
+                      turbidityVDirty, v);
+      } else {
+        turbidityVClear = v;
+        saveSensorCalibrations();
+        Serial.printf("[CAL] turbclear saved: %.3fV\n", v);
+      }
     }
     if (cmd.startsWith("turbdirty ")) {
-      turbidityVDirty = cmd.substring(10).toFloat();
-      saveSensorCalibrations();
+      const float v = cmd.substring(10).toFloat();
+      if (v <= 0.0f || v > 3.3f || v >= turbidityVClear || v <= turbidityVAirMax) {
+        Serial.printf("[CAL] turbdirty rejected: need VAir (%.3fV) < V < VClear (%.3fV), got %.3fV\n",
+                      turbidityVAirMax, turbidityVClear, v);
+      } else {
+        turbidityVDirty = v;
+        saveSensorCalibrations();
+        Serial.printf("[CAL] turbdirty saved: %.3fV\n", v);
+      }
     }
     if (cmd.startsWith("turbair ")) {
-      turbidityVAirMax = cmd.substring(8).toFloat();
-      saveSensorCalibrations();
+      const float v = cmd.substring(8).toFloat();
+      if (v <= 0.0f || v > 3.3f || v >= turbidityVDirty) {
+        Serial.printf("[CAL] turbair rejected: need 0 < V < VDirty (%.3fV), got %.3fV\n",
+                      turbidityVDirty, v);
+      } else {
+        turbidityVAirMax = v;
+        saveSensorCalibrations();
+        Serial.printf("[CAL] turbair saved: %.3fV\n", v);
+      }
     }
     if (cmd == "feedempty") {
       feedLevelEmptyVoltage = readAnalogVoltage(FEED_LEVEL_PIN);
