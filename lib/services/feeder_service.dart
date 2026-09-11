@@ -843,7 +843,13 @@ class FeederService extends ChangeNotifier {
         // replaying it cannot double-create or double-delete a schedule.
         final String refreshed;
         try {
-          refreshed = await user.getIdToken(true);
+          // Typed as String?: firebase_auth declares getIdToken() as
+          // Future<String?> in some versions and Future<String> in others, and
+          // Dart has no `?? throw`. Reading it through a nullable local then
+          // null-checking compiles cleanly against both.
+          final String? token = await user.getIdToken(true);
+          if (token == null) throw StateError('empty token');
+          refreshed = token;
         } catch (_) {
           throw StateError(
             'Could not refresh your session. Check your connection and sign in again.',
