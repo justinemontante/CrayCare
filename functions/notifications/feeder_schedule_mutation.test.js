@@ -131,21 +131,16 @@ test('toggle off only flips enabled; toggle on re-validates and re-anchors to no
   assert.deepEqual(h.store[key].last_occurrence_at, {__delete: true});
 });
 
-/**
- * Known asymmetry, pinned so a change is deliberate: the app renders a stored
- * row with `days: data['days'] ?? '1111111'`, but enabling re-validates the raw
- * document, so a row written before day-of-week selection exists cannot be
- * switched on. `overlaps()` already tolerates the same row.
- */
-test('a stored row with no days field cannot be enabled, only disabled', async () => {
+test('legacy schedule rows are normalized when enabled', async () => {
   const h = makeHarness();
-  h.addScheduleDoc('legacy-1', {time: '5:00', ampm: 'AM', grams: 20, enabled: false, timeValue: 300});
-  assert.equal(await codeOf(() => call(h, {operation: 'toggle', scheduleId: 'legacy-1', enabled: true})), 'invalid-argument');
-  await call(h, {operation: 'toggle', scheduleId: 'legacy-1', enabled: false});
-  assert.equal(h.store[`${tankPrefix}/feeder_schedules/legacy-1`].enabled, false);
-  // The same row becomes enabling once the field is materialized.
-  h.addScheduleDoc('legacy-2', {time: '5:00', ampm: 'PM', grams: 20, enabled: false, timeValue: 780, days: '1111111'});
-  assert.equal((await call(h, {operation: 'toggle', scheduleId: 'legacy-2', enabled: true})).scheduleId, 'legacy-2');
+  h.addScheduleDoc('legacy-1', {time: '5:00', ampm: 'AM', enabled: false, timeValue: 300});
+  const result = await call(h, {operation: 'toggle', scheduleId: 'legacy-1', enabled: true});
+  assert.equal(result.scheduleId, 'legacy-1');
+  const stored = h.store[`${tankPrefix}/feeder_schedules/legacy-1`];
+  assert.equal(stored.enabled, true);
+  assert.equal(stored.days, '1111111');
+  assert.equal(stored.grams, 20);
+  assert.equal(stored.timeValue, 300);
 });
 
 test('delete of an already-removed schedule is idempotent', async () => {
@@ -175,7 +170,7 @@ test('scheduleFields enforces the time shape and the 20-200 g fixed cycle', () =
   assert.equal(scheduleFields({time: '12:00', ampm: 'AM', days: '1111111'}).timeValue, 0);
   assert.equal(scheduleFields({time: '12:30', ampm: 'PM', days: '1111111'}).timeValue, 750);
   assert.equal(scheduleFields({time: '07:30', ampm: 'AM', days: '1111111'}).time, '7:30');
-  assert.equal(scheduleFields({time: '7:30', ampm: 'AM', days: '1111111'}).grams, null);
+  assert.equal(scheduleFields({time: '7:30', ampm: 'AM', days: '1111111'}).grams, 20);
   const bad = [
     {time: '0:30', ampm: 'AM', days: '1111111'},
     {time: '13:30', ampm: 'PM', days: '1111111'},
