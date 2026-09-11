@@ -20,9 +20,12 @@ function scheduleFields(data) {
   if (typeof data.days !== "string" || !/^[01]{7}$/.test(data.days) || !data.days.includes("1")) {
     throw new ScheduleMutationError("invalid-argument", "Select at least one repeat day.");
   }
-  const grams = data.grams == null ? null : data.grams;
-  if (grams !== null && (typeof grams !== "number" || !Number.isFinite(grams) ||
-      grams < 20 || grams > 200 || grams % 20 !== 0)) {
+  // The UI and ESP both use one servo cycle (20 g) when no amount is entered.
+  // Persist the same canonical default instead of storing null, so every reader
+  // sees one consistent schedule dose.
+  const grams = data.grams == null ? 20 : data.grams;
+  if (typeof grams !== "number" || !Number.isFinite(grams) ||
+      grams < 20 || grams > 200 || grams % 20 !== 0) {
     throw new ScheduleMutationError("invalid-argument", "Use 20–200 g in steps of 20 g.");
   }
   if (data.enabled !== undefined && typeof data.enabled !== "boolean") {
@@ -100,9 +103,16 @@ async function mutateSchedule({db, uid, input, timestamp, deleteField, now = Dat
       throw new ScheduleMutationError("not-found", "This schedule was removed. Refresh your schedules.");
     }
     const previous = oldDoc ? oldDoc.data() : null;
-    const desired = requested || (operation === "toggle" ? {...previous, enabled: input.enabled} : null);
+    const desired = requested || (operation === "toggle" ? {
+      ...previous,
+      // Older schedule rows may predate repeat-day and explicit grams fields.
+      // Use the same defaults the app/ESP already display and execute.
+      days: previous.days || "1111111",
+      grams: previous.grams == null ? 20 : previous.grams,
+      enabled: input.enabled,
+    } : null);
     if (operation === "toggle" && input.enabled) {
-      // Validate legacy entries before enabling them on the physical feeder.
+      // Validate and normalize legacy entries before enabling them on hardware.
       Object.assign(desired, scheduleFields(desired));
     }
     if (desired && (operation !== "toggle" || input.enabled)) {
