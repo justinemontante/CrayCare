@@ -802,25 +802,17 @@ class FeederService extends ChangeNotifier {
       throw StateError('Connect to the internet to update feeding schedules.');
     }
     // The callable rejects token-less calls as unauthenticated. Guard the
-    // session here and force a token refresh so a stale/expired token can
-    // never silently drop auth on delete/toggle.
+    // session here, then obtain ONE token and use it both as the call
+    // credential and as the explicit payload fallback. Refreshing first and
+    // reading a second time could hand the server a stale cached token, which
+    // the callable would then reject as unauthenticated.
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       throw StateError(
         'Your session expired. Sign in again to update feeding schedules.',
       );
     }
-    try {
-      await user.getIdToken(true);
-    } catch (_) {
-      throw StateError(
-        'Could not refresh your session. Check your connection and sign in again.',
-      );
-    }
-    // Send the ID token explicitly as well: if the auth context is ever
-    // stripped in transit, the server verifies this token directly instead
-    // of rejecting the call as unauthenticated.
-    late final String idToken;
+    final String idToken;
     try {
       final token = await user.getIdToken();
       if (token == null || token.isEmpty) throw StateError('empty token');
@@ -830,10 +822,40 @@ class FeederService extends ChangeNotifier {
         'Could not refresh your session. Check your connection and sign in again.',
       );
     }
-    try {
+
+    // Sending the ID token in the payload too covers the case where the auth
+    // context is stripped in transit: the server verifies it directly instead
+    // of rejecting the call as unauthenticated.
+    Future<void> invoke(String token) async {
       await FirebaseFunctions.instanceFor(
         region: 'asia-southeast1',
-      ).httpsCallable('mutateFeederSchedule').call({...payload, 'idToken': idToken});
+      ).httpsCallable('mutateFeederSchedule').call({...payload, 'idToken': token});
+    }
+
+    try {
+      try {
+        await invoke(idToken);
+      } on FirebaseFunctionsException catch (error) {
+        if (error.code != 'unauthenticated') rethrow;
+        // A cold/restarting function instance can drop the auth context, and
+        // a token that has just expired is rejected outright. Force a mint and
+        // retry once: a rejected call never reached the transaction, so
+        // replaying it cannot double-create or double-delete a schedule.
+        final String refreshed;
+        try {
+          refreshed = await user.getIdToken(true);
+        } catch (_) {
+          throw StateError(
+            'Could not refresh your session. Check your connection and sign in again.',
+          );
+        }
+        if (refreshed.isEmpty) {
+          throw StateError(
+            'Your session expired. Sign in again to update feeding schedules.',
+          );
+        }
+        await invoke(refreshed);
+      }
     } on FirebaseFunctionsException catch (error) {
       final details = error.details;
       final conflict = details is Map ? details['conflictingSchedule'] : null;
@@ -852,6 +874,19 @@ class FeederService extends ChangeNotifier {
       if (error.code == 'unavailable' || error.code == 'deadline-exceeded') {
         throw StateError(
           'Could not confirm the schedule update. Check the schedules before retrying.',
+        );
+      }
+      if (error.code == 'not-found') {
+        // Rules deny direct schedule writes, so an unreachable callable means
+        // the backend has not been deployed yet, not that the user is wrong.
+        throw StateError(
+          'The feeding-schedule service is not available yet. '
+          'Deploy the Cloud Functions and try again.',
+        );
+      }
+      if (error.code == 'unauthenticated') {
+        throw StateError(
+          'Your session was not accepted. Sign out, sign in again, then retry.',
         );
       }
       throw StateError(

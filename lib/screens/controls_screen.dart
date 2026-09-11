@@ -806,7 +806,7 @@ class ControlsScreenState extends State<ControlsScreen> {
       if (mounted) {
         showBeautifulSnackbar(
           context,
-          error.toString().replaceFirst('Exception: ', ''),
+          _scheduleErrorText(error),
           false,
           title: 'Schedule not added',
         );
@@ -847,7 +847,7 @@ class ControlsScreenState extends State<ControlsScreen> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not save schedule: $error')),
+          SnackBar(content: Text('Could not save schedule: ${_scheduleErrorText(error)}')),
         );
       }
       return false;
@@ -862,10 +862,21 @@ class ControlsScreenState extends State<ControlsScreen> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not update schedule: $error')),
+          SnackBar(content: Text('Could not update schedule: ${_scheduleErrorText(error)}')),
         );
       }
     }
+  }
+
+  /// Service failures surface as `StateError`/`ArgumentError`, whose
+  /// [Object.toString] prefixes the human message with "Bad state: " /
+  /// "Invalid argument: ". Show only the message the service wrote.
+  static String _scheduleErrorText(Object error) {
+    final text = error.toString();
+    for (final prefix in ['Bad state: ', 'Exception: ', 'Invalid argument: ']) {
+      if (text.startsWith(prefix)) return text.substring(prefix.length);
+    }
+    return text;
   }
 
   void _showScheduleConflict(FeederScheduleConflictException error) {
