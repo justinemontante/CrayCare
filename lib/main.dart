@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'theme/app_theme.dart';
@@ -99,12 +101,19 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _initServices() async {
-    await _withTimeout(
-      () => Firebase.initializeApp(
+    await _withTimeout(() async {
+      await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
-      ),
-      10000,
-    );
+      );
+      // Callable Cloud Functions can be protected by Firebase App Check.
+      // Without a provider the SDK sends a placeholder token and protected
+      // calls are rejected before our function code can authenticate the user.
+      await FirebaseAppCheck.instance.activate(
+        androidProvider: kDebugMode
+            ? AndroidProvider.debug
+            : AndroidProvider.playIntegrity,
+      );
+    }, 10000);
     _advanceProgress();
     if (!mounted) return;
 
