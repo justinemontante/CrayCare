@@ -184,6 +184,7 @@ void initOfflineBuffer() {
     return;
   }
   littlefsMounted = true;
+  LittleFS.mkdir("/buf");  // parent dir must exist or appends can never create the file
   Serial.printf("[BUF] LittleFS ready, buffered: %u\n", (unsigned)countBufferedEntries());
 }
 
@@ -314,16 +315,8 @@ unsigned long lastWifiReconnectTime = 0;
 #define SERVO_PULSE_MIN 500
 #define SERVO_PULSE_MAX 2500
 
-int _servoAngleToDuty(int angle) {
-  angle = constrain(angle, 0, 180);
-  int pulseWidth = map(angle, 0, 180, SERVO_PULSE_MIN, SERVO_PULSE_MAX);
-  // duty = pulseWidth / period(20000µs) * maxDuty(65535)
-  return (int)((float)pulseWidth / 20000.0f * 65535.0f);
-}
-
-void _setServoAngle(int angle) {
-  ledcWrite(SERVO_LEDC_CHANNEL, _servoAngleToDuty(angle));
-}
+// (Gate servo helper setGateAngle() lives with the GATE defines below;
+// it maps 0-180 degrees to GATE_PULSE_MIN/MAX_US on SERVO_LEDC_CHANNEL.)
 
 bool feederAutoMode = true;
 unsigned long feederLastFeedEpoch = 0;
@@ -362,15 +355,14 @@ String epochMillisString(time_t seconds) {
 // Non-blocking feeder state machine
 enum FeederRunState {
   FEEDER_IDLE,
-  FEEDER_FORWARD,
-  FEEDER_PAUSE_F,
-  FEEDER_BACKWARD,
-  FEEDER_PAUSE_B,
+  FEEDER_PRE_BLOW,   // blower warm-up lead before the first actuation
+  FEEDER_FORWARD,    // gate opens to GATE_OPEN_ANGLE
+  FEEDER_PAUSE_F,    // gate holds, then closes and the cycle advances
   FEEDER_DONE
 };
 FeederRunState feederRunState = FEEDER_IDLE;
 int feederCurrentCycle = 0;
-int feederMaxCycles = 1;               // number of back-and-forth sweeps
+int feederMaxCycles = 1;               // 1 g actuations: cycles = round(grams / gateGramsPerAct)
 unsigned long feederStepMs = 0;
 unsigned long feederStartMs = 0;
 
@@ -439,8 +431,56 @@ unsigned long lastActuatorSyncMs = 0;
 #define WATER_LEVEL_ECHO_PIN 33
 #define FEED_LEVEL_PIN 39  // ADC1 input-only pin (VN), safe while Wi-Fi is active
 
-// Feeder
-#define FEEDER_SERVO_PIN 13
+// Feeder gate — SG90 180-degree servo on GPIO5, the ONLY servo.
+// Each open/close actuation drops gateGramsPerAct grams (NVS, default 1 g);
+// feed grams from the app decide the actuation count (5 g = 5 actuations).
+// (GPIO5 has an internal pull-up through reset, and a servo signal line
+// never pulls it low, so boot strapping is safe. GPIO25 door servo and
+// GPIO13 scatter output are both retired.)
+#define GATE_SERVO_PIN 5
+#define GATE_MAX_ANGLE 180
+#define GATE_PULSE_MIN_US 500
+#define GATE_PULSE_MAX_US 2500
+#define GATE_OPEN_ANGLE_DFLT 90    // starting point — tune on bench, store via GATE_ANGLE
+#define GATE_HOLD_MS_DFLT 800      // starting point — tune on bench, store via GATE_MS
+float gateGramsPerAct = 1.0f;      // grams per actuation (NVS "gateGrams")
+int gateOpenAngle = GATE_OPEN_ANGLE_DFLT;  // NVS "gateAngle"
+int gateHoldMs = GATE_HOLD_MS_DFLT;        // NVS "gateHold"
+int gateAngleNow = 0;
+
+int _servoPulseToDuty(int pulseUs) {
+  pulseUs = constrain(pulseUs, 500, 2600);
+  return (int)((float)pulseUs / 20000.0f * 65535.0f);
+}
+
+void setGateAngle(int angle) {
+  angle = constrain(angle, 0, GATE_MAX_ANGLE);
+  int pulseUs = map(angle, 0, GATE_MAX_ANGLE,
+                    GATE_PULSE_MIN_US, GATE_PULSE_MAX_US);
+  ledcWrite(SERVO_LEDC_CHANNEL, _servoPulseToDuty(pulseUs));
+  gateAngleNow = angle;
+  Serial.printf("[GATE] Position=%d degrees | pulse=%d us\n", angle, pulseUs);
+}
+
+// SD card (SPI mode) — primary offline buffer when the internet is down;
+// LittleFS remains the fallback when no card is present.
+#define SD_SPI_SCK_PIN 18
+#define SD_SPI_MISO_PIN 19
+#define SD_SPI_MOSI_PIN 23
+#define SD_SPI_CS_PIN 15  // was 5; moved so it never collides with the gate servo.
+// GPIO15 (MTDO) needs HIGH at boot — SD CS idles HIGH via pull-up, so safe.
+
+// Blower (relay module, ACTIVE-LOW like the main relays).
+// Runs 5 s ahead of every feed (manual, cloud, scheduled) to warm up,
+// stays ON through dispensing, then auto-OFF at DONE unless manually ON.
+// Future app ID (reserved, not synced yet): "blower".
+#define BLOWER_PIN 16
+#define BLOWER_PRE_SEC 5              // warm-up lead before every feed
+#define BLOWER_POST_SEC 0             // tail after DONE (0 = off immediately)
+#define BLOWER_MAX_ON_MS (15UL * 60UL * 1000UL)  // safety timeout for manual runs
+bool blowerOn = false;
+bool blowerAutoHeld = false;          // true only when auto logic turned it ON
+unsigned long blowerOnSinceMs = 0;
 
 // Actuator pins are defined with the ACTUATOR STATE block above.
 
@@ -626,6 +666,9 @@ void saveSensorCalibrations() {
   prefs.putFloat("turbAir", turbidityVAirMax);
   prefs.putFloat("feedEmpty", feedLevelEmptyVoltage);
   prefs.putFloat("feedFull", feedLevelFullVoltage);
+  prefs.putFloat("gateGrams", gateGramsPerAct);
+  prefs.putInt("gateAngle", gateOpenAngle);
+  prefs.putInt("gateHold", gateHoldMs);
   prefs.end();
 }
 
@@ -642,6 +685,11 @@ void loadSensorCalibrations() {
   turbidityVAirMax = prefs.getFloat("turbAir", turbidityVAirMax);
   feedLevelEmptyVoltage = prefs.getFloat("feedEmpty", feedLevelEmptyVoltage);
   feedLevelFullVoltage = prefs.getFloat("feedFull", feedLevelFullVoltage);
+  gateGramsPerAct = prefs.getFloat("gateGrams", gateGramsPerAct);
+  if (!isfinite(gateGramsPerAct) || gateGramsPerAct < 0.1f || gateGramsPerAct > 50.0f)
+    gateGramsPerAct = 1.0f;
+  gateOpenAngle = constrain(prefs.getInt("gateAngle", gateOpenAngle), 10, GATE_MAX_ANGLE);
+  gateHoldMs = constrain(prefs.getInt("gateHold", gateHoldMs), 100, 5000);
   prefs.end();
 }
 
@@ -1594,7 +1642,13 @@ void printSerialHelp() {
   Serial.println("CAL_HELP                 Show calibration commands");
   Serial.println("WIFI_HELP                Show Wi-Fi commands");
   Serial.println("FIREBASE_STATUS          Show cloud authentication status");
-  Serial.println("FEED                     Start a manual feed");
+  Serial.println("FEED                     Start a manual feed (1-200 g)");
+  Serial.println("GATE_TEST                One gate actuation (GPIO5 SG90)");
+  Serial.println("GATECAL                  10 actuations for weighing");
+  Serial.println("GATE_GRAMS <g>           Grams per actuation (NVS)");
+  Serial.println("GATE_ANGLE <10-180>      Gate open angle (NVS)");
+  Serial.println("GATE_MS <100-5000>       Gate hold ms (NVS)");
+  Serial.println("n4on / n4off             Blower ON/OFF (GPIO16)");
   Serial.println("relay status             Show relay states");
 }
 
@@ -1612,6 +1666,10 @@ void printWifiHelp() {
 
 // ─── Feeder forward declarations ───
 void initFeeder();
+void initBlower();
+void setBlower(bool on, bool autoHeld);
+void blowerAutoOff();
+void blowerSafetyTick();
 void processFeederCommands();
 void sendFeederStatus();
 void syncFeederSchedules();
@@ -1664,6 +1722,7 @@ void setup() {
   getHardwareId();  // resolve MAC-based ID after WiFi is up
   initFeeder();
   initActuators();
+  initBlower();
   if (WiFi.status() == WL_CONNECTED) {
     initTime();
     connectFirebase();
@@ -1802,6 +1861,64 @@ void loop() {
       startFeed("manual");
       if (feederRunState != FEEDER_IDLE) return;
     }
+    if (cmd == "GATE_TEST" || cmd == "gate test") {
+      if (feederRunState != FEEDER_IDLE) {
+        Serial.println("[GATE] Feeder busy — try after the feed finishes");
+      } else {
+        Serial.printf("[GATE] Test: one actuation 0 -> %d -> 0\n", gateOpenAngle);
+        setGateAngle(gateOpenAngle);
+        delay(gateHoldMs);
+        setGateAngle(0);
+        delay(300);
+        Serial.println("[GATE] Test complete");
+      }
+    }
+    if (cmd == "GATECAL" || cmd == "gatecal") {
+      if (feederRunState != FEEDER_IDLE) {
+        Serial.println("[GATE] Feeder busy — try after the feed finishes");
+      } else {
+        Serial.println("[GATE] Calibration: 10 actuations — catch and weigh the output,");
+        Serial.println("[GATE] then store per-gram value with GATE_GRAMS <total_g/10>");
+        for (int i = 0; i < 10; i++) {
+          setGateAngle(gateOpenAngle);
+          delay(gateHoldMs);
+          setGateAngle(0);
+          delay(300);
+          Serial.printf("[GATE] Actuation %d/10\n", i + 1);
+        }
+        Serial.println("[GATE] Done — weigh total and run GATE_GRAMS <g_per_actuation>");
+      }
+    }
+    if (cmd.startsWith("GATE_GRAMS ") || cmd.startsWith("gate_grams ")) {
+      float v = cmd.substring(cmd.lastIndexOf(' ') + 1).toFloat();
+      if (!isfinite(v) || v < 0.1f || v > 50.0f) {
+        Serial.println("Usage: GATE_GRAMS <0.1-50>  (grams dropped per actuation)");
+      } else {
+        gateGramsPerAct = v;
+        saveSensorCalibrations();
+        Serial.printf("[GATE] %.2f g/actuation saved\n", gateGramsPerAct);
+      }
+    }
+    if (cmd.startsWith("GATE_ANGLE ") || cmd.startsWith("gate_angle ")) {
+      int v = cmd.substring(cmd.lastIndexOf(' ') + 1).toInt();
+      if (v < 10 || v > GATE_MAX_ANGLE) {
+        Serial.println("Usage: GATE_ANGLE <10-180>");
+      } else {
+        gateOpenAngle = v;
+        saveSensorCalibrations();
+        Serial.printf("[GATE] Open angle %d saved\n", gateOpenAngle);
+      }
+    }
+    if (cmd.startsWith("GATE_MS ") || cmd.startsWith("gate_ms ")) {
+      int v = cmd.substring(cmd.lastIndexOf(' ') + 1).toInt();
+      if (v < 100 || v > 5000) {
+        Serial.println("Usage: GATE_MS <100-5000>");
+      } else {
+        gateHoldMs = v;
+        saveSensorCalibrations();
+        Serial.printf("[GATE] Hold %d ms saved\n", gateHoldMs);
+      }
+    }
     if (cmd.startsWith("tankheight ")) {
       const float v = cmd.substring(11).toFloat();
       if (v > 5.0f && v < 400.0f) {
@@ -1912,6 +2029,9 @@ void loop() {
     if (cmd == "n2off") { setActuatorRelay(1, false); reportActuatorState(1, true); }
     if (cmd == "n3on")  { setActuatorRelay(2, true);  reportActuatorState(2, true); }
     if (cmd == "n3off") { setActuatorRelay(2, false); reportActuatorState(2, true); }
+    if (cmd == "n4on" || cmd == "n4off") {
+      setBlower(cmd == "n4on", false);
+    }
     if (cmd == "relay status" || cmd == "relaystatus") {
       for (int i = 0; i < 3; i++) {
         Serial.printf("  %s (GPIO %d): %s | mode=%s\n",
@@ -1919,6 +2039,8 @@ void loop() {
                       actuators[i].relayOn ? "ON" : "OFF",
                       actuators[i].controlMode.c_str());
       }
+      Serial.printf("  Blower (GPIO %d): %s%s\n", BLOWER_PIN, blowerOn ? "ON" : "OFF",
+                    blowerAutoHeld ? " (auto)" : "");
     }
   }
 
@@ -1986,6 +2108,9 @@ void loop() {
   // ─── Feeder state machine tick ───
   processFeederTick();
 
+  // ─── Blower manual-run safety timeout ───
+  blowerSafetyTick();
+
   // ─── Actuators (pump + aerators) ───
   if (now - lastActuatorSyncMs >= ACTUATOR_SYNC_INTERVAL_MS) {
     lastActuatorSyncMs = now;
@@ -2050,19 +2175,19 @@ void initFeeder() {
   // reset to 0 after an ESP reboot.
   loadFeederState();
   ledcSetup(SERVO_LEDC_CHANNEL, SERVO_LEDC_FREQ, SERVO_LEDC_RESOLUTION);
-  ledcAttachPin(FEEDER_SERVO_PIN, SERVO_LEDC_CHANNEL);
-  _setServoAngle(0);
+  ledcAttachPin(GATE_SERVO_PIN, SERVO_LEDC_CHANNEL);
+  setGateAngle(0);
   feederIsRunning = false;
   feederRunState = FEEDER_IDLE;
   feederCurrentCycle = 0;
   feederInitialized = true;
   recoverFeederLogs();
 
-  // Park the servo closed. Do NOT perform a full sweep at boot: a 90° sweep
-  // drops a fraction of feed every time the ESP resets (which also happens on
-  // Wi-Fi drops / power flickers). If a physical hardware self-test is
-  // needed, add a serial command gated behind a build flag instead.
-  Serial.println("[FEEDER] Servo initialized at closed position (0°)");
+  // Park the gate closed. Do NOT actuate at boot: every swing drops feed,
+  // and resets also happen on Wi-Fi drops / power flickers. Use GATE_TEST
+  // for a physical hardware self-test instead.
+  Serial.printf("[GATE] SG90 gate parked closed at 0 degrees on GPIO %d (%.1f g/actuation)\n",
+                GATE_SERVO_PIN, gateGramsPerAct);
 }
 
 // ─── Process Commands from Firestore ───
@@ -2526,8 +2651,8 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
                               (expiresAtMs > 0 && (long long)checkedAt * 1000 >= expiresAtMs))) {
     blockedReason = "Feed Now request expired or has an invalid timestamp";
   }
-  if (!isfinite(grams) || grams < 20 || grams > 200 || fabsf(grams / 20.0f - roundf(grams / 20.0f)) > 0.0001f) {
-    blockedReason = "unsupported amount; use 20-200 g in steps of 20 g";
+  if (!isfinite(grams) || grams < 1 || grams > 200) {
+    blockedReason = "unsupported amount; use 1-200 g";
   }
   String nearbySchedule;
   if (blockedReason.length() == 0 && source == "manual" &&
@@ -2561,7 +2686,8 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
 
   feederFeedLevelBefore = feedLevelPercent;
   feederAvailableBefore = estimatedFeedGrams;
-  feederMaxCycles = (int)roundf(feederRequestedGrams / 20.0f);
+  // 1 g actuations: 5 g from the app = 5 gate swings.
+  feederMaxCycles = max(1, (int)roundf(feederRequestedGrams / gateGramsPerAct));
 
   // Announce readiness while the servo is still parked, then recheck expiry
   // after this potentially blocking call before opening the gate.
@@ -2592,12 +2718,15 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
   feederIsRunning = true;
   feederStatus = "dispensing";
   feederCurrentCycle = 0;
-  feederRunState = FEEDER_FORWARD;
+  feederRunState = FEEDER_PRE_BLOW;
   feederStartMs = millis();
   feederStepMs = feederStartMs;
 
+  // Blower warms up first on every feed (manual, cloud, scheduled).
+  setBlower(true, true);
   // No blocking cloud call between the expiry check and the motor tick.
-  Serial.printf("[FEEDER] Start feed (source=%s)\n", source.c_str());
+  Serial.printf("[FEEDER] Start feed (source=%s, %.1fg = %d actuations)\n",
+                source.c_str(), feederRequestedGrams, feederMaxCycles);
 }
 
 // ─── Non-blocking feeder tick — call every loop() ───
@@ -2608,40 +2737,32 @@ void processFeederTick() {
 
   switch (feederRunState) {
 
-    case FEEDER_FORWARD:
-      _setServoAngle(180);
-      feederStepMs = now;
-      feederRunState = FEEDER_PAUSE_F;
-      Serial.printf("[FEEDER] Forward  %d/%d\n",
-        feederCurrentCycle + 1, feederMaxCycles);
-      break;
-
-    case FEEDER_PAUSE_F:
-      if (now - feederStepMs >= 400) {  // hold open, food dispenses
-        _setServoAngle(0);
+    case FEEDER_PRE_BLOW:
+      // Blower was switched auto-ON at startFeed; wait out the warm-up lead.
+      if (now - feederStepMs >= (unsigned long)BLOWER_PRE_SEC * 1000UL) {
+        feederRunState = FEEDER_FORWARD;
         feederStepMs = now;
-        feederRunState = FEEDER_BACKWARD;
       }
       break;
 
-    case FEEDER_BACKWARD:
-      _setServoAngle(0);
+    case FEEDER_FORWARD:
+      setGateAngle(gateOpenAngle);
       feederStepMs = now;
-      feederRunState = FEEDER_PAUSE_B;
-      Serial.printf("[FEEDER] Backward %d/%d\n",
-        feederCurrentCycle + 1, feederMaxCycles);
+      feederRunState = FEEDER_PAUSE_F;
+      Serial.printf("[FEEDER] Gate open %d/%d (%.1fg)\n",
+        feederCurrentCycle + 1, feederMaxCycles, gateGramsPerAct);
       break;
 
-    case FEEDER_PAUSE_B:
-      if (now - feederStepMs >= 150) {  // brief pause at closed
+    case FEEDER_PAUSE_F:
+      if (now - feederStepMs >= (unsigned long)gateHoldMs) {
+        setGateAngle(0);
+        feederStepMs = now;
         feederCurrentCycle++;
         if (feederCurrentCycle >= feederMaxCycles) {
           feederRunState = FEEDER_DONE;
-          feederStepMs = now;
         } else {
-          // Start next cycle
+          // Next 1 g actuation
           feederRunState = FEEDER_FORWARD;
-          feederStepMs = now;
         }
       }
       break;
@@ -2650,7 +2771,8 @@ void processFeederTick() {
       // Keep isRunning=true for at least 1s so Flutter reliably catches the transition
       if (now - feederStartMs < 1000) break;
 
-      _setServoAngle(0);
+      setGateAngle(0);
+      blowerAutoOff();
 
       // Update feed count and persist it so a reboot doesn't reset the total
       // the app displays as "feeds completed".
@@ -2900,6 +3022,46 @@ void setActuatorRelay(int idx, bool on) {
   a.lastChangeMs = millis();
   a.cloudReported = false;
   Serial.printf("[ACT] %s -> %s\n", a.label, on ? "ON" : "OFF");
+}
+
+// ─── Blower (GPIO16, ACTIVE-LOW relay) ───
+// Serial-only for now; future app ID "blower" is reserved.
+// Auto logic only ever switches OFF what it switched ON (blowerAutoHeld);
+// a manually-started blower is never touched by the feed cycle.
+void initBlower() {
+  pinMode(BLOWER_PIN, OUTPUT);
+  digitalWrite(BLOWER_PIN, HIGH);   // HIGH = relay OFF
+  blowerOn = false;
+  blowerAutoHeld = false;
+  Serial.println("[BLOWER] GPIO16 initialized OFF");
+}
+
+void setBlower(bool on, bool autoHeld) {
+  if (blowerOn == on) {
+    if (on && autoHeld) blowerAutoHeld = true;
+    return;
+  }
+  blowerOn = on;
+  digitalWrite(BLOWER_PIN, on ? LOW : HIGH);
+  if (on) {
+    blowerOnSinceMs = millis();
+    if (autoHeld) blowerAutoHeld = true;
+  } else {
+    blowerAutoHeld = false;
+  }
+  Serial.printf("[BLOWER] -> %s%s\n", on ? "ON" : "OFF", autoHeld ? " (auto)" : " (manual)");
+}
+
+void blowerAutoOff() {
+  if (blowerOn && blowerAutoHeld) setBlower(false, true);
+}
+
+// Safety timeout for manual runs — call every loop().
+void blowerSafetyTick() {
+  if (blowerOn && !blowerAutoHeld && millis() - blowerOnSinceMs >= BLOWER_MAX_ON_MS) {
+    setBlower(false, false);
+    Serial.println("[BLOWER] Manual safety timeout — OFF");
+  }
 }
 
 // ─── AUTO rule per device (only used when control_mode == "auto") ───

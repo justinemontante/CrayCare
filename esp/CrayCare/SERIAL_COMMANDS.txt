@@ -58,11 +58,39 @@ WIFI (up to 5 networks stored in NVS "wifiprof", survives reboot)
   RESET_WIFI
     Erases ALL stored Wi-Fi networks (legacy + multi) and restarts.
 
-FEEDER
+FEEDER (SG90 gate on GPIO5 — the only servo, 1 g per actuation)
   FEED
-    Requests one manual feed using the default 20 g estimate. Feeding is blocked
-    when required water-quality sensors are unavailable/outside safe ranges, or
-    when the feed-level estimate is empty or below the requested grams.
+    Requests one manual feed, 1-200 g (default 20 g). Actuations =
+    round(grams / gateGramsPerAct), so 5 g = 5 gate swings. The blower
+    always warms up 5 s first and stays ON through dispensing. Feeding is
+    blocked when required water-quality sensors are unavailable/outside safe
+    ranges, or when the feed-level estimate is empty or below the requested
+    grams.
+
+  GATE_TEST  (alias: gate test)
+    One gate actuation 0 -> open angle -> 0. Refused while a feed runs.
+
+  GATECAL  (alias: gatecal)
+    Runs 10 actuations for weighing. Catch the output, weigh it, then store
+    the per-actuation value with GATE_GRAMS <total/10>.
+
+  GATE_GRAMS <0.1-50>  (alias: gate_grams)
+    Grams dropped per actuation, saved to NVS (default 1.0).
+
+  GATE_ANGLE <10-180>  (alias: gate_angle)
+    Gate open angle in degrees, saved to NVS (default 90).
+
+  GATE_MS <100-5000>  (alias: gate_ms)
+    Gate hold time in ms, saved to NVS (default 800).
+
+BLOWER (GPIO16 relay, active-LOW)
+  n4on / n4off
+    Manual blower control (15-minute safety timeout). A manually-started
+    blower is never switched by the feed cycle.
+  Auto warm-up
+    Every feed (manual, cloud, scheduled) starts with 5 s of blower,
+    which stays ON through dispensing and auto-switches OFF at DONE —
+    unless it was manually started.
 
 SENSOR CALIBRATION
   feedempty
@@ -118,7 +146,9 @@ RELAYS — LOCAL TEST
   n1on / n1off       Water pump, GPIO26
   n2on / n2off       Primary aerator, GPIO27
   n3on / n3off       Secondary aerator, GPIO14
+  n4on / n4off       Blower, GPIO16 (15-min manual safety timeout)
   relay status       Shows physical relay states and cloud control modes
+                     (plus blower state)
 
 NOTES
 - Local relay test state can be replaced by the next Firestore control sync.

@@ -11,7 +11,17 @@ RELAYS (Active LOW = LOW turns ON)
 │   26   │ PIN_A1│ Water Pump           │ DEV_A1 = "pump"          │
 │   27   │ PIN_A2│ Primary Aerator      │ DEV_A2 = "aerator1"      │
 │   14   │ PIN_P │ Secondary Aerator     │ DEV_P  = "aerator2"      │
+│   16   │       │ Blower               │ serial n4, feed pre-run  │
 └────────┴───────┴──────────────────────┴──────────────────────────┘
+
+BLOWER (GPIO16, active-LOW relay module)
+  - Wiring: GPIO16 -> relay IN, common GND, blower on its own supply.
+    Relay module must trigger on 3.3V logic. Initializes OFF at boot.
+  - Warm-up: auto-ON 5 s before EVERY feed (manual, cloud, scheduled),
+    stays ON through dispensing, auto-OFF at DONE — unless manually ON
+    via n4on, which the feed cycle never overrides.
+  - Manual: n4on / n4off (15-minute safety timeout). Future app ID
+    (reserved): "blower".
 
 SENSORS
 ┌────────┬───────┬──────────────────────┬──────────────────────────┐
@@ -32,8 +42,35 @@ OTHER PERIPHERALS
 ├────────┼───────┼──────────────────────┼──────────────────────────┤
 │   21   │ SDA   │ LCD I2C              │ 16x2 LCD                 │
 │   22   │ SCL   │ LCD I2C              │ Address: 0x27 or 0x3F    │
-│   13   │       │ Servo (Feeder)       │ PWM control              │
+│    5   │       │ Gate servo SG90 180  │ PWM, LEDC ch 0, 1 g/act  │
+│   25   │       │ SPARE (ex-door)      │ do not use yet           │
+│   18   │       │ SD card SCK (VSPI)   │ Keep SPI wires < 20 cm   │
+│   19   │       │ SD card MISO (VSPI)  │ Keep SPI wires < 20 cm   │
+│   23   │       │ SD card MOSI (VSPI)  │ Keep SPI wires < 20 cm   │
+│   15   │       │ SD card CS (future)  │ Idles HIGH (pull-up)     │
 └────────┴───────┴──────────────────────┴──────────────────────────┘
+
+FEEDER GATE — SG90 180-DEGREE SERVO ON GPIO5 (LEDC ch 0, ONLY servo)
+  - One open/close actuation drops gateGramsPerAct grams (NVS, default
+    1.0 g). Feed grams from the app decide the count: 5 g = 5 actuations.
+  - Motion per actuation: 0 -> GATE_OPEN_ANGLE (default 90) -> hold
+    GATE_HOLD_MS (default 800 ms) -> 0. Tune on bench, store permanently.
+  - Calibration: GATECAL runs 10 actuations — catch, weigh, then
+    GATE_GRAMS <total/10>. Adjust GATE_ANGLE / GATE_MS until 1 actuation
+    lands near 1 g. Test a single swing with GATE_TEST.
+  - Parks at 0 on boot and after FEEDER_DONE. Never actuates at boot.
+  - GPIO25 door servo retired (spare). GPIO13 retired (dead output).
+  - Power from separate 5V supply with common GND + ~470 uF cap on
+    the servo rail. Never power servos from the ESP 5V pin.
+
+SD CARD (offline storage, syncs when internet returns)
+  - SPI mode: SCK 18 / MISO 19 / MOSI 23 / CS 15. Pins reserved in
+    firmware (SD_SPI_*); full SD driver is still pending — LittleFS
+    /buf/history.jsonl remains the active offline buffer.
+  - Module VCC to 5V (onboard regulator), signals at 3.3V, common GND.
+    Format card as FAT32 when the driver lands.
+  - GPIO15 (MTDO) needs HIGH at boot — SD CS idles HIGH through its
+    pull-up, so this assignment is safe.
 
 NOTE: GPIO39 is an ADC1 input-only pin and remains usable while Wi-Fi is active.
 The default analog calibration is 0.50V empty and 2.80V full. Run `feedempty`
@@ -90,10 +127,19 @@ RELAYS
   n1on / n1off         Water Pump ON/OFF       (GPIO 26)
   n2on / n2off         Primary Aerator ON/OFF  (GPIO 27)
   n3on / n3off         Secondary Aerator ON/OFF(GPIO 14)
+  n4on / n4off         Blower ON/OFF           (GPIO 16)
   relay status         Show relay states
 
-FEEDER
-  FEED                  Request one manual feed (default 20 g estimate)
+FEEDER (SG90 gate on GPIO5, 1 g per actuation)
+  FEED                  Request one manual feed (1-200 g, default 20 g)
+  GATE_TEST             One gate actuation 0 -> angle -> 0
+  GATECAL               10 actuations for weighing
+  GATE_GRAMS <g>        Grams per actuation, saved to NVS
+  GATE_ANGLE <10-180>   Gate open angle, saved to NVS
+  GATE_MS <100-5000>    Gate hold ms, saved to NVS
+BLOWER
+  Blower auto-runs 5 s before every feed, stays ON through dispensing,
+  auto-OFF at DONE unless manually ON. Manual: n4on / n4off.
 
 WIFI (up to 5 profiles saved in NVS)
   wifi add                 Guided SSID/password entry
