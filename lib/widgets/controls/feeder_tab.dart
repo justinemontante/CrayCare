@@ -181,8 +181,8 @@ class FeederTab extends StatelessWidget {
                               fontSize: 9,
                               fontWeight: FontWeight.w600,
                               color:
-                                   feederStatus == 'skipped_insufficient' ||
-                                       feederStatus == 'blocked' ||
+                                  feederStatus == 'skipped_insufficient' ||
+                                      feederStatus == 'blocked' ||
                                        feederStatus == 'failed'
                                   ? AppColors.critical
                                   : hasEnabledSchedules

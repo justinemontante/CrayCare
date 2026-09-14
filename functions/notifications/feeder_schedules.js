@@ -4,7 +4,15 @@ const functions = require("firebase-functions/v1");
 const admin = require("firebase-admin");
 const {mutateSchedule, ScheduleMutationError} = require("./feeder_schedule_mutation");
 
-exports.mutateFeederSchedule = functions.region("asia-southeast1").https.onCall(async (data, context) => {
+// App Check is intentionally NOT enforced here. Auth is verified via the
+// Firebase Auth ID token (context.auth with explicit idToken fallback below).
+// Enforcing App Check would reject flutter-run debug builds before this code
+// runs unless a debug token is registered in the console ("unauthenticated"
+// with no function log). Keep enforcement off so owners are never blocked.
+// Firebase callable clients authenticate in the callable handler, rather than
+// using Google Cloud IAM credentials. Allow requests to reach that handler;
+// verified Firebase identity and transactional owner checks still guard writes.
+exports.mutateFeederSchedule = functions.runWith({enforceAppCheck: false, invoker: "public"}).region("asia-southeast1").https.onCall(async (data, context) => {
   try {
     let uid = context.auth && context.auth.uid;
     let tokenAuth = false;

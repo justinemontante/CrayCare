@@ -24,10 +24,6 @@ class WaterQualityAnomalyDetectionResult {
   final bool isAnomaly;
   final double anomalyScore;
   final String source;
-  final String modelAlgorithm;
-  final String trainingDataOrigin;
-  final String trainingLabelOrigin;
-  final int modelFeatureCount;
   final int analysisWindowMinutes;
   final String driver;
   final String driverLabel;
@@ -43,10 +39,6 @@ class WaterQualityAnomalyDetectionResult {
     required this.isAnomaly,
     required this.anomalyScore,
     required this.source,
-    required this.modelAlgorithm,
-    required this.trainingDataOrigin,
-    required this.trainingLabelOrigin,
-    required this.modelFeatureCount,
     required this.analysisWindowMinutes,
     required this.driver,
     required this.driverLabel,
@@ -62,6 +54,10 @@ class WaterQualityAnomalyDetectionResult {
     Map<String, dynamic> data,
   ) {
     final rawContributors = data['contributors'];
+    final rawPrimaryDriver = data['primary_driver'];
+    final primaryDriver = rawPrimaryDriver is Map
+        ? Map<String, dynamic>.from(rawPrimaryDriver)
+        : const <String, dynamic>{};
     final parsedTimestamp =
         parsePredictionTimestamp(data['processed_at']) ??
         parsePredictionTimestamp(data['timestamp']) ??
@@ -72,19 +68,23 @@ class WaterQualityAnomalyDetectionResult {
       isAnomaly: data['is_anomaly'] as bool? ?? false,
       anomalyScore: (data['anomaly_score'] as num?)?.toDouble() ?? 0,
       source: data['source'] as String? ?? 'WQAD model',
-      modelAlgorithm: data['model_algorithm'] as String? ?? 'Unknown',
-      trainingDataOrigin: data['training_data_origin'] as String? ?? 'unknown',
-      trainingLabelOrigin:
-          data['training_label_origin'] as String? ?? 'none_unsupervised',
-      modelFeatureCount: (data['model_feature_count'] as num?)?.toInt() ?? 0,
       analysisWindowMinutes:
           (data['analysis_window_minutes'] as num?)?.toInt() ?? 120,
-      driver: data['driver'] as String? ?? 'N/A',
+      driver:
+          data['driver'] as String? ??
+          primaryDriver['sensor'] as String? ??
+          'N/A',
       driverLabel:
           data['driver_label'] as String? ??
+          primaryDriver['label'] as String? ??
           (data['driver'] as String? ?? 'Combined water pattern'),
-      driverValue: (data['driver_value'] as num?)?.toDouble(),
-      driverUnit: data['driver_unit'] as String? ?? '',
+      driverValue:
+          (data['driver_value'] as num?)?.toDouble() ??
+          (primaryDriver['value'] as num?)?.toDouble(),
+      driverUnit:
+          data['driver_unit'] as String? ??
+          primaryDriver['unit'] as String? ??
+          '',
       insight: data['insight'] as String? ?? '',
       recommendation:
           data['recommendation'] as String? ??
@@ -100,12 +100,12 @@ class WaterQualityAnomalyDetectionResult {
   }
 
   bool get hasData => status != 'Insufficient';
-  bool get usesPrototypeData => trainingDataOrigin.contains('synthetic');
+  // The currently deployed model uses synthetic bootstrap data.
+  bool get usesPrototypeData => true;
 
   String get modelBasis {
     if (!hasData) return 'Insufficient Data';
-    if (modelAlgorithm == 'IsolationForest') return 'Isolation Forest ML';
-    return 'Unsupervised ML';
+    return 'Isolation Forest ML';
   }
 
   Color get color {
@@ -138,6 +138,7 @@ class WaterQualityAnomalyDetectionService extends ChangeNotifier {
   StreamSubscription<User?>? _authSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _currentSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _historySub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _legacyHistorySub;
 
   WaterQualityAnomalyDetectionResult? get result => _result;
   List<WaterQualityAnomalyDetectionResult> get history =>
@@ -158,8 +159,10 @@ class WaterQualityAnomalyDetectionService extends ChangeNotifier {
     final generation = ++_listenGeneration;
     _currentSub?.cancel();
     _historySub?.cancel();
+    _legacyHistorySub?.cancel();
     _currentSub = null;
     _historySub = null;
+    _legacyHistorySub = null;
     if (user == null) {
       _result = null;
       _history = [];
@@ -200,45 +203,83 @@ class WaterQualityAnomalyDetectionService extends ChangeNotifier {
           .collection('tanks')
           .doc(tankId)
           .collection('water_quality_anomaly_detections');
+      final historyCollection = FirebaseFirestore.instance
+          .collection('tanks')
+          .doc(tankId)
+          .collection('water_quality_anomaly_detection_history');
       if (generation != _listenGeneration) return;
 
-      _currentSub = collection.doc('current').snapshots().listen(
-        (snapshot) {
-          if (generation != _listenGeneration) return;
-          _result = snapshot.exists && snapshot.data() != null
-              ? WaterQualityAnomalyDetectionResult.fromMap(snapshot.data()!)
-              : null;
-          _loading = false;
-          notifyListeners();
-        },
-        onError: (Object error) {
-          if (generation != _listenGeneration) return;
-          debugPrint('[WQAD] Current stream error: $error');
-          _loading = false;
-          notifyListeners();
-        },
-      );
+      _currentSub = collection
+          .doc('current')
+          .snapshots()
+          .listen(
+            (snapshot) {
+              if (generation != _listenGeneration) return;
+              _result = snapshot.exists && snapshot.data() != null
+                  ? WaterQualityAnomalyDetectionResult.fromMap(snapshot.data()!)
+                  : null;
+              _loading = false;
+              notifyListeners();
+            },
+            onError: (Object error) {
+              if (generation != _listenGeneration) return;
+              debugPrint('[WQAD] Current stream error: $error');
+              _loading = false;
+              notifyListeners();
+            },
+          );
 
-      _historySub = collection
+      var newHistory = <WaterQualityAnomalyDetectionResult>[];
+      var legacyHistory = <WaterQualityAnomalyDetectionResult>[];
+      void publishHistory() {
+        final byTimestamp = <int, WaterQualityAnomalyDetectionResult>{};
+        for (final item in [...newHistory, ...legacyHistory]) {
+          byTimestamp[item.timestamp.millisecondsSinceEpoch] = item;
+        }
+        final combined = byTimestamp.values.toList()
+          ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+        _history = combined.take(30).toList(growable: false);
+        notifyListeners();
+      }
+
+      _historySub = historyCollection
+          .orderBy('processed_at', descending: true)
+          .limit(30)
+          .snapshots()
+          .listen(
+            (snapshot) {
+              if (generation != _listenGeneration) return;
+              newHistory = snapshot.docs
+                  .where((doc) => doc.data().isNotEmpty)
+                  .map(
+                    (doc) =>
+                        WaterQualityAnomalyDetectionResult.fromMap(doc.data()),
+                  )
+                  .toList(growable: false);
+              publishHistory();
+            },
+            onError: (Object error) =>
+                debugPrint('[WQAD] History stream error: $error'),
+          );
+      // Keep already-written hourly records visible during the path transition.
+      _legacyHistorySub = collection
           .orderBy('processed_at', descending: true)
           .limit(31)
           .snapshots()
           .listen(
             (snapshot) {
               if (generation != _listenGeneration) return;
-              _history = snapshot.docs
-                  .where((doc) => doc.id != 'current' && doc.data().isNotEmpty)
-                  .take(30)
+              legacyHistory = snapshot.docs
+                  .where((doc) => doc.id != 'current')
                   .map(
-                    (doc) => WaterQualityAnomalyDetectionResult.fromMap(
-                      doc.data(),
-                    ),
+                    (doc) =>
+                        WaterQualityAnomalyDetectionResult.fromMap(doc.data()),
                   )
                   .toList(growable: false);
-              notifyListeners();
+              publishHistory();
             },
             onError: (Object error) =>
-                debugPrint('[WQAD] History stream error: $error'),
+                debugPrint('[WQAD] Legacy history stream error: $error'),
           );
     } catch (error) {
       if (generation != _listenGeneration) return;
@@ -254,6 +295,7 @@ class WaterQualityAnomalyDetectionService extends ChangeNotifier {
     _authSub?.cancel();
     _currentSub?.cancel();
     _historySub?.cancel();
+    _legacyHistorySub?.cancel();
     ConnectivityService.instance.removeOnConnectCallback(_onReconnect);
     _initialized = false;
     super.dispose();

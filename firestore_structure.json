@@ -1,6 +1,14 @@
 {
+  "_document_id_conventions": {
+    "users_and_tanks": "Firebase Authentication UID of the owner; document IDs are not duplicated as stored uid or tank_id fields.",
+    "batches": "CR-YYYYMMDD-###; intentionally duplicated in the batch_id field.",
+    "sampling_records": "baseline for the initial record; Firestore Auto-ID for later records.",
+    "auto_id_collections": "mortality_records, harvest_records, feeder_schedules, feeder_commands, and actuator_logs.",
+    "feeder_logs": "Firestore Auto-ID for app audit entries or durable firmware event ID for ESP32 outcome entries.",
+    "fixed_or_time_keyed": "currentOwner, latest, status, current; WQAD history uses YYYYMMDDTHHMMSS."
+  },
   "users": {
-    "_id": "uid",
+    "_id": "Firestore document ID: Firebase Authentication UID (not a stored field)",
     "_description": "User profile. Tank ownership is not duplicated here; the canonical relationship is tanks/{tankId}.owner_uid. Subcollections: notification_settings/preferences and notif_markers. FCM device tokens live in users/{uid}.fcmTokens.",
     "fields": [
       "full_name (string)",
@@ -45,7 +53,7 @@
     ]
   },
   "tanks": {
-    "_id": "tank_id (owner uid by default)",
+    "_id": "Firestore document ID: owner Firebase Authentication UID (not a stored field)",
     "_description": "Owner tank root. Sensor, actuator, feeder, Water Quality Anomaly Detection, and production data are nested below it.",
     "fields": [
       "owner_uid (string)",
@@ -64,7 +72,7 @@
           "turbidity_air (bool, when present)",
           "water_level (double, cm, when present)",
           "feed_level (double, percent, when present)",
-          "estimated_feed_grams (double, derived estimate)",
+          "estimated_feed_grams (double, when present)",
           "buffered_entries (int, optional offline-backlog count)",
           "recorded_at (Timestamp)"
         ]
@@ -94,8 +102,7 @@
           "pH_min, pH_max, pH_avg (when valid samples exist)",
           "DO_min, DO_max, DO_avg (when valid samples exist)",
           "waterLevel_min, waterLevel_max, waterLevel_avg (when valid samples exist)",
-          "feed_level (double, percent, when available)",
-          "estimated_feed_grams (double, derived estimate, when available)",
+          "feed_level, estimated_feed_grams (when available)",
           "recorded_at (Timestamp)"
         ]
       },
@@ -112,8 +119,8 @@
         "fields": [
           "min_value (double)",
           "max_value (double)",
-          "critical_value (double, feed_level only)",
-          "hopper_capacity_grams (double, feed_level only)",
+          "critical_value (double, feed-level document only)",
+          "hopper_capacity_grams (double, feed-level document only)",
           "updated_at (Timestamp)"
         ]
       },
@@ -127,7 +134,7 @@
         "fields": [
           "control_mode (on|off|auto)",
           "current_state (on|off)",
-          "last_changed (int epoch-ms; 0 means never changed)"
+          "last_changed (Timestamp|null; legacy int epoch-ms may exist)"
         ]
       },
       "actuator_logs/{logId}": {
@@ -136,21 +143,21 @@
           "actuator_type (pump|aerator1|aerator2)",
           "action (string)",
           "type (on|off|auto or source label)",
-          "logged_at (int epoch-ms; legacy Timestamp/ISO values remain readable by the app)"
+          "logged_at (Firestore Timestamp; legacy timestamp/epoch values remain readable by the app)"
         ]
       },
       "feeder/status": {
         "_description": "Current feeder status written by the ESP32. command_id ties manual outcomes to the originating Feed Now request.",
         "fields": [
           "command_id (string|null)",
-          "status (idle|checking_feed_level|dispensing|completed|skipped_insufficient|blocked|failed)",
+          "status (idle|checking_feed_level|dispensing|completed|blocked|skipped_insufficient|failed)",
           "status_reason (string|null)",
           "dispenseCount (int)",
-          "lastSeen (int epoch-ms)",
-          "last_dispensed_at (int epoch-ms|null)",
+          "lastSeen (Timestamp; legacy int epoch-ms remains readable)",
+          "last_dispensed_at (Timestamp|null)",
           "last_dispensed_grams (double)",
-          "feed_level (double, percent)",
-          "estimated_feed_grams (double)"
+          "feed_level (double, percent|null)",
+          "estimated_feed_grams (double|null)"
         ]
       },
       "feeder_schedules/{scheduleId}": {
@@ -165,8 +172,8 @@
           "isDone (bool, legacy compatibility; true only for completed current occurrence)",
           "created_at (Timestamp)",
           "effective_at_ms (int epoch-ms)",
-          "last_outcome (completed|skipped_insufficient|blocked|failed, optional)",
-          "last_occurrence_at (int epoch-ms, optional)"
+          "last_outcome (completed|blocked|skipped_insufficient|failed, optional)",
+          "last_occurrence_at (Timestamp, optional; legacy int epoch-ms remains readable)"
         ]
       },
       "feeder_logs/{logId}": {
@@ -174,20 +181,19 @@
         "fields": [
           "action (string)",
           "type (auto|manual|missed|error|pending_confirmation)",
-          "logged_at (int epoch-ms; legacy Timestamp/ISO values remain readable)",
+          "logged_at (Firestore Timestamp; legacy timestamp/epoch values remain readable)",
           "command_id (string, optional)",
           "schedule_key (string, optional)",
           "schedule_time (string, optional)",
-          "occurrence_at (int epoch-ms, optional)",
-          "status (completed|skipped_insufficient|blocked|failed, optional)",
+          "occurrence_at (Firestore Timestamp, optional)",
+          "status (completed|blocked|skipped_insufficient|failed, optional)",
           "requested_grams (double, optional)",
           "estimated_dispensed_grams (double, optional)",
-          "amount_basis (servo_cycle_estimate, optional)",
           "estimated_available_grams (double, optional)",
           "feed_level_before (double, optional)",
           "feed_level_after (double, optional)",
-          "level_change_detected (bool, optional; supporting indication only)",
-          "verification_note (string, optional)"
+          "level_change_detected (bool, optional)",
+          "amount_basis (servo_cycle_estimate, optional)"
         ]
       },
       "feeder_commands/{commandId}": {
@@ -210,14 +216,11 @@
           "is_anomaly (bool)",
           "anomaly_score (0-100 percentile relative to learned reference patterns; not a safety score)",
           "source (WQAD model|Model unavailable|Insufficient data|Stale sensor history)",
-          "model_algorithm (IsolationForest|Not applied)",
-          "training_data_origin (string; prototype or field data provenance)",
-          "training_label_origin (none_unsupervised)",
-          "model_feature_count (int)",
           "analysis_window_minutes (int, currently 120)",
           "data_status (ready|insufficient|stale)",
-          "source_recorded_at (ISO-8601 string|null)",
+          "source_recorded_at (Timestamp|null)",
           "source_age_seconds (int|null)",
+          "primary_driver (object|null: sensor, label, value, unit, direction, contribution_score)",
           "driver (temp|pH|DO|turbidity|waterLevel|overall|N/A)",
           "driver_label (string)",
           "driver_value (double|null)",
@@ -228,6 +231,11 @@
           "processed_at (Timestamp)"
         ]
       }
+      ,
+      "water_quality_anomaly_detection_history/{detectionId}": {
+        "_description": "Hourly WQAD history records using the same payload as water_quality_anomaly_detections/current. New writes go here; legacy timestamp-named documents in the current-alias collection remain readable during transition.",
+        "fields": ["same fields as tanks/{tankId}/water_quality_anomaly_detections/current"]
+      }
     }
   },
   "tanks/{tankId}/batches/{batchId}": {
@@ -235,43 +243,50 @@
     "fields": [
       "batch_id",
       "batch_status (active|harvested|superseded)",
-      "stocking_date (int epoch-ms)",
-      "harvest_date (int epoch-ms|null)",
+      "stocking_date (Timestamp)",
+      "harvest_date (Timestamp|null)",
+      "ended_at (Timestamp|null, set when superseded without harvest)",
       "initial_count",
       "current_count",
       "harvest_count",
       "total_mortality",
       "harvest_weight_grams",
-      "initial_abw",
-      "initial_abl",
-      "final_abw",
-      "final_abl",
-      "days_in_culture",
       "sample_count",
       "initial_total_weight",
       "initial_total_length",
       "created_at (Timestamp)"
-    ]
+    ],
+    "_derived_not_stored": {
+      "initial_abw": "initial_total_weight / sample_count; computed in the app",
+      "initial_abl": "initial_total_length / sample_count; computed in the app",
+      "final_abw": "Computed from total_weight / sample_size in the latest sampling record for the batch",
+      "final_abl": "Computed from total_length / sample_size in the latest sampling record for the batch",
+      "days_in_culture": "Calendar-day difference from stocking_date to today for active batches, or to harvest_date / ended_at for completed or superseded batches; computed in the app and not stored",
+      "legacy_read_behavior": "Older batch documents may contain average fields; raw totals and sampling records take precedence when available."
+    }
   },
   "tanks/{tankId}/batches/{batchId}/sampling_records/{recordId}": {
     "_description": "Sampling records nested under their batch.",
     "fields": [
-      "sampling_date (int epoch-ms)",
-      "avg_body_weight",
-      "avg_body_length",
+      "sampling_date (Timestamp)",
       "sample_size",
       "total_weight",
       "total_length",
-      "biomass",
       "live_count",
       "is_baseline",
       "created_at (Timestamp)"
-    ]
+    ],
+    "_derived_not_stored": {
+      "avg_body_weight": "total_weight / sample_size; computed in the app",
+      "avg_body_length": "total_length / sample_size; computed in the app",
+      "biomass": "live_count * (total_weight / sample_size); computed in the app",
+      "legacy_read_behavior": "Older records may still contain average and biomass fields; app derives values from raw source fields and deletes legacy computed fields when a record is edited."
+    }
   },
   "tanks/{tankId}/batches/{batchId}/mortality_records/{recordId}": {
     "_description": "Mortality records nested under their batch.",
     "fields": [
-      "mortality_date (int epoch-ms)",
+      "mortality_date (Timestamp)",
       "mortality_count",
       "created_at (Timestamp)"
     ]
@@ -280,12 +295,15 @@
     "_description": "Harvest records nested under their batch.",
     "fields": [
       "batch_id",
-      "harvest_date (int epoch-ms)",
+      "harvest_date (Timestamp)",
       "harvest_count",
       "total_weight_kg",
-      "abw_grams",
       "created_at (Timestamp)"
-    ]
+    ],
+    "_derived_not_stored": {
+      "abw_grams": "total_weight_kg * 1000 / harvest_count; computed in the app",
+      "legacy_read_behavior": "Legacy abw_grams is ignored; editing an old harvest record deletes it."
+    }
   },
   "notifications/{notifId}": {
     "_description": "Root notification collection scoped by uid. Deterministic IDs are used where one physical event must map to one notification record across multiple devices.",
@@ -312,8 +330,6 @@
       "dissolved_oxygen (double, when enabled)",
       "ph_level (double, when enabled)",
       "water_level (double cm, when enabled)",
-      "feed_level (double percent, when enabled)",
-      "estimated_feed_grams (double estimate)",
       "buffered_entries (int)"
     ]
   },
@@ -331,9 +347,7 @@
       "turbidity_min/turbidity_max/turbidity_avg (when valid samples exist)",
       "DO_min/DO_max/DO_avg (when valid samples exist)",
       "pH_min/pH_max/pH_avg (when valid samples exist)",
-      "waterLevel_min/waterLevel_max/waterLevel_avg (when valid samples exist)",
-      "feed_level (double percent, when enabled and valid)",
-      "estimated_feed_grams (double estimate, when enabled and valid)"
+      "waterLevel_min/waterLevel_max/waterLevel_avg (when valid samples exist)"
     ]
   }
 }

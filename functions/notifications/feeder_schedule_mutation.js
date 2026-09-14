@@ -146,7 +146,7 @@ async function mutateSchedule({db, uid, input, timestamp, deleteField, now = Dat
     }
     const oldRevision = guardSnap.exists ? guardSnap.data().revision : 0;
     tx.set(guard, {revision: (Number.isSafeInteger(oldRevision) ? oldRevision : 0) + 1, updated_at: timestamp()});
-    tx.create(audit, {action, type: "auto", logged_at: nowMs});
+    tx.create(audit, {action, type: "auto", logged_at: timestamp()});
     return {scheduleId: scheduleRef.id};
   });
 }

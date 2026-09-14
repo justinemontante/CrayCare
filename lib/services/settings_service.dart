@@ -163,8 +163,8 @@ class SettingsService extends ChangeNotifier {
                   _ranges[shortKey] = {
                     'min': min,
                     'max': max,
-                    'critical': ?critical,
-                    'capacity_grams': ?capacity,
+                    if (critical != null) 'critical': critical,
+                    if (capacity != null) 'capacity_grams': capacity,
                   };
                   changed = true;
                 }
@@ -245,8 +245,8 @@ class SettingsService extends ChangeNotifier {
           _ranges[shortKey] = {
             'min': min,
             'max': max,
-            'critical': ?critical,
-            'capacity_grams': ?capacity,
+            if (critical != null) 'critical': critical,
+            if (capacity != null) 'capacity_grams': capacity,
           };
           anyApplied = true;
         }
@@ -333,7 +333,14 @@ class SettingsService extends ChangeNotifier {
 
   Future<void> updateRange(String sensorKey, double min, double max) async {
     if (!_ranges.containsKey(sensorKey)) return;
-    _ranges[sensorKey] = {'min': min, 'max': max};
+    _ranges[sensorKey] = {
+      'min': min,
+      'max': max,
+      if (sensorKey == 'feedlevel') ...{
+        'critical': _ranges[sensorKey]?['critical'] ?? 10.0,
+        'capacity_grams': _ranges[sensorKey]?['capacity_grams'] ?? 1000.0,
+      },
+    };
     notifyListeners();
     // SensorThresholdSettings performs the canonical Firestore write; this
     // stores only the current tank's offline copy.

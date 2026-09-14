@@ -39,9 +39,8 @@ class FeederService extends ChangeNotifier {
   static String _formatDate(DateTime dt) =>
       '${_months[dt.month - 1]} ${dt.day}, ${dt.year}';
 
-  /// Accepts the canonical epoch-ms feeder timestamp plus legacy Firestore
-  /// Timestamp/DateTime/ISO-string values so one old log cannot break the
-  /// entire realtime feeder-log snapshot.
+  /// Accepts canonical Firestore Timestamps plus legacy epoch-ms, DateTime,
+  /// ISO-string, and epoch-second values during the migration.
   static int _parseLoggedAtMillis(dynamic raw) {
     if (raw == null) return 0;
     if (raw is Timestamp) return raw.toDate().toUtc().millisecondsSinceEpoch;
@@ -114,6 +113,9 @@ class FeederService extends ChangeNotifier {
   StreamSubscription? _schedulesSub;
   StreamSubscription? _logsSub;
   StreamSubscription? _todayLogsSub;
+  StreamSubscription? _legacyTodayLogsSub;
+  final Map<String, Map<String, dynamic>> _todayTimestampLogDocs = {};
+  final Map<String, Map<String, dynamic>> _legacyTodayLogDocs = {};
   StreamSubscription<User?>? _authSub;
   String _totalsDayKey = '';
   double _consumptionToday = 0;
@@ -179,47 +181,82 @@ class FeederService extends ChangeNotifier {
     if (tank == null) return;
     final now = _manilaNow();
     final dayKey = '${now.year}-${now.month}-${now.day}';
-    if (_totalsDayKey == dayKey && _todayLogsSub != null) return;
+    if (_totalsDayKey == dayKey &&
+        _todayLogsSub != null &&
+        _legacyTodayLogsSub != null) {
+      return;
+    }
     _totalsDayKey = dayKey;
     _todayLogsSub?.cancel();
+    _legacyTodayLogsSub?.cancel();
+    _todayTimestampLogDocs.clear();
+    _legacyTodayLogDocs.clear();
     _consumptionToday = 0;
     _completedToday = 0;
     final start = DateTime.utc(
       now.year,
       now.month,
       now.day,
-    ).subtract(_manilaOffset).millisecondsSinceEpoch;
-    _todayLogsSub = tank
-        .collection('feeder_logs')
-        .where('logged_at', isGreaterThanOrEqualTo: start)
-        .where(
-          'logged_at',
-          isLessThan: start + const Duration(days: 1).inMilliseconds,
-        )
+    ).subtract(_manilaOffset);
+    final end = start.add(const Duration(days: 1));
+    final logs = tank.collection('feeder_logs');
+    _todayLogsSub = logs
+        .where('logged_at', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+        .where('logged_at', isLessThan: Timestamp.fromDate(end))
         .orderBy('logged_at')
         .snapshots()
         .listen(
           (snapshot) {
-            var total = 0.0;
-            var completed = 0;
-            for (final doc in snapshot.docs) {
-              final data = doc.data();
-              if (data['status'] != 'completed') continue;
-              completed++;
-              final grams =
-                  (data['estimated_dispensed_grams'] as num?)?.toDouble() ??
-                  (data['requested_grams'] as num?)?.toDouble() ??
-                  0;
-              if (grams.isFinite && grams >= 0) total += grams;
-            }
-            _consumptionToday = total;
-            _completedToday = completed;
-            notifyListeners();
+            _todayTimestampLogDocs
+              ..clear()
+              ..addEntries(
+                snapshot.docs.map((doc) => MapEntry(doc.id, doc.data())),
+              );
+            _recalculateTodayTotals();
           },
           onError: (Object error) {
-            debugPrint('[FeederService] Today totals failed: $error');
+            debugPrint('[FeederService] Today Timestamp totals failed: $error');
           },
         );
+    // Read legacy integer-epoch records during the gradual ESP32/app rollout.
+    final startMs = start.millisecondsSinceEpoch;
+    final endMs = end.millisecondsSinceEpoch;
+    _legacyTodayLogsSub = logs
+        .where('logged_at', isGreaterThanOrEqualTo: startMs)
+        .where('logged_at', isLessThan: endMs)
+        .orderBy('logged_at')
+        .snapshots()
+        .listen(
+          (snapshot) {
+            _legacyTodayLogDocs
+              ..clear()
+              ..addEntries(
+                snapshot.docs.map((doc) => MapEntry(doc.id, doc.data())),
+              );
+            _recalculateTodayTotals();
+          },
+          onError: (Object error) {
+            debugPrint('[FeederService] Legacy today totals failed: $error');
+          },
+        );
+  }
+
+  void _recalculateTodayTotals() {
+    final todayDocs = {..._legacyTodayLogDocs, ..._todayTimestampLogDocs};
+    var total = 0.0;
+    var completed = 0;
+    for (final data in todayDocs.values) {
+      if (data['status'] != 'completed') continue;
+      completed++;
+      final grams =
+          (data['estimated_dispensed_grams'] as num?)?.toDouble() ??
+          (data['requested_grams'] as num?)?.toDouble() ??
+          0;
+      if (grams.isFinite && grams >= 0) total += grams;
+    }
+    _consumptionToday = total;
+    _completedToday = completed;
+    notifyListeners();
   }
 
   void init() {
@@ -298,7 +335,11 @@ class FeederService extends ChangeNotifier {
     _schedulesSub?.cancel();
     _logsSub?.cancel();
     _todayLogsSub?.cancel();
+    _legacyTodayLogsSub?.cancel();
     _todayLogsSub = null;
+    _legacyTodayLogsSub = null;
+    _todayTimestampLogDocs.clear();
+    _legacyTodayLogDocs.clear();
     _totalsDayKey = '';
     _consumptionToday = 0;
     _completedToday = 0;
@@ -349,9 +390,9 @@ class FeederService extends ChangeNotifier {
                     _statusCommandId == _lastQueuedCommandId &&
                     const [
                       'completed',
+                      'skipped_insufficient',
                       'blocked',
                       'failed',
-                      'skipped_insufficient',
                     ].contains(_status)) {
                   _manualRequestPendingUntil = null;
                 }
@@ -359,8 +400,8 @@ class FeederService extends ChangeNotifier {
                 _isRunning =
                     _status == 'dispensing' || _status == 'checking_feed_level';
                 _feedLevelPercent = (data['feed_level'] as num?)?.toDouble();
-                _estimatedFeedGrams = (data['estimated_feed_grams'] as num?)
-                    ?.toDouble();
+                _estimatedFeedGrams =
+                    (data['estimated_feed_grams'] as num?)?.toDouble();
                 _dispenseCount =
                     (data['dispenseCount'] as num?)?.toInt() ?? _dispenseCount;
 
@@ -519,10 +560,10 @@ class FeederService extends ChangeNotifier {
                         estimatedAvailableGrams:
                             (data['estimated_available_grams'] as num?)
                                 ?.toDouble(),
-                        feedLevelBefore: (data['feed_level_before'] as num?)
-                            ?.toDouble(),
-                        feedLevelAfter: (data['feed_level_after'] as num?)
-                            ?.toDouble(),
+                        feedLevelBefore:
+                            (data['feed_level_before'] as num?)?.toDouble(),
+                        feedLevelAfter:
+                            (data['feed_level_after'] as num?)?.toDouble(),
                         levelChangeDetected:
                             data['level_change_detected'] as bool?,
                       ),
@@ -592,9 +633,9 @@ class FeederService extends ChangeNotifier {
           DateTime.now().add(const Duration(seconds: 60)),
         ),
       };
-      if (grams != null) {
-        cmd['grams'] = grams;
-      }
+      // Rules require grams on every command; the empty field means the
+      // default one-servo-cycle dose. Never omit it or the write is denied.
+      cmd['grams'] = grams ?? defaultFeederGrams;
       final ref = tankDoc.collection('feeder_commands').doc();
       _lastQueuedCommandId = ref.id;
       await ref.set(cmd);
@@ -632,16 +673,15 @@ class FeederService extends ChangeNotifier {
     try {
       // tanks/{tank_id}/feeder_logs/{autoId}
       //
-      // Store a true Unix epoch (UTC milliseconds) so it matches what the
-      // ESP32 writes and can be rendered/ordered correctly anywhere. The
-      // Manila wall-clock conversion is applied only when formatting.
+      // Use Firestore's native Timestamp for event time. The Manila wall-clock
+      // conversion is applied only when formatting.
       // `type` is the source of truth for how the feed was initiated:
       //   auto/missed → clock-driven (scheduled)
       //   error/manual → user-initiated or failure
       await tankDoc.collection('feeder_logs').add({
         'action': action,
         'type': type,
-        'logged_at': DateTime.now().toUtc().millisecondsSinceEpoch,
+        'logged_at': FieldValue.serverTimestamp(),
       });
     } catch (e) {
       debugPrint('[FeederService] addLogEntry error: $e');
@@ -801,11 +841,8 @@ class FeederService extends ChangeNotifier {
     if (!ConnectivityService.instance.isOnline) {
       throw StateError('Connect to the internet to update feeding schedules.');
     }
-    // The callable rejects token-less calls as unauthenticated. Guard the
-    // session here, then obtain ONE token and use it both as the call
-    // credential and as the explicit payload fallback. Refreshing first and
-    // reading a second time could hand the server a stale cached token, which
-    // the callable would then reject as unauthenticated.
+    // Use the cached token for the normal fast path. If the server rejects it
+    // as unauthenticated, retry once with a freshly minted token below.
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       throw StateError(
@@ -819,7 +856,7 @@ class FeederService extends ChangeNotifier {
       idToken = token;
     } catch (_) {
       throw StateError(
-        'Could not refresh your session. Check your connection and sign in again.',
+        'Could not read your session. Check your connection and sign in again.',
       );
     }
 
@@ -827,9 +864,9 @@ class FeederService extends ChangeNotifier {
     // context is stripped in transit: the server verifies it directly instead
     // of rejecting the call as unauthenticated.
     Future<void> invoke(String token) async {
-      await FirebaseFunctions.instanceFor(
-        region: 'asia-southeast1',
-      ).httpsCallable('mutateFeederSchedule').call({...payload, 'idToken': token});
+      await FirebaseFunctions.instanceFor(region: 'asia-southeast1')
+          .httpsCallable('mutateFeederSchedule')
+          .call({...payload, 'idToken': token});
     }
 
     try {
@@ -837,10 +874,8 @@ class FeederService extends ChangeNotifier {
         await invoke(idToken);
       } on FirebaseFunctionsException catch (error) {
         if (error.code != 'unauthenticated') rethrow;
-        // A cold/restarting function instance can drop the auth context, and
-        // a token that has just expired is rejected outright. Force a mint and
-        // retry once: a rejected call never reached the transaction, so
-        // replaying it cannot double-create or double-delete a schedule.
+        // The cached token may have expired or been revoked. Force a refresh
+        // and retry once; the rejected request did not mutate the schedule.
         final String refreshed;
         try {
           // Typed as String?: firebase_auth declares getIdToken() as
@@ -863,6 +898,10 @@ class FeederService extends ChangeNotifier {
         await invoke(refreshed);
       }
     } on FirebaseFunctionsException catch (error) {
+      debugPrint(
+        '[FeederService] mutate failed code=${error.code} '
+        'message=${error.message} details=${error.details}',
+      );
       final details = error.details;
       final conflict = details is Map ? details['conflictingSchedule'] : null;
       if (error.code == 'already-exists' &&
@@ -891,12 +930,20 @@ class FeederService extends ChangeNotifier {
         );
       }
       if (error.code == 'unauthenticated') {
+        debugPrint('[FeederService] mutate rejected as unauthenticated.');
         throw StateError(
           'Your session was not accepted. Sign out, sign in again, then retry.',
         );
       }
+      if (error.code == 'permission-denied' ||
+          error.code == 'failed-precondition' ||
+          error.code == 'invalid-argument') {
+        throw StateError(
+          '[${error.code}] ${error.message ?? 'Could not update the feeding schedule.'}',
+        );
+      }
       throw StateError(
-        error.message ?? 'Could not update the feeding schedule.',
+        '[${error.code}] ${error.message ?? 'Could not update the feeding schedule.'}',
       );
     }
   }
@@ -1008,7 +1055,7 @@ class FeederService extends ChangeNotifier {
             'type': 'pending_confirmation',
             // Store the real current UTC instant. `now` is only a Manila
             // wall-clock view used for schedule comparison/date keys.
-            'logged_at': DateTime.now().toUtc().millisecondsSinceEpoch,
+            'logged_at': FieldValue.serverTimestamp(),
             'schedule_key': key,
             'schedule_time': expectedTime,
           });
@@ -1028,6 +1075,7 @@ class FeederService extends ChangeNotifier {
   void dispose() {
     _listenerGeneration++;
     _todayLogsSub?.cancel();
+    _legacyTodayLogsSub?.cancel();
     _statusSub?.cancel();
     _schedulesSub?.cancel();
     _logsSub?.cancel();

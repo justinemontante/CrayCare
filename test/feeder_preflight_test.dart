@@ -24,6 +24,7 @@ void main() {
       'do': {'min': 5},
       'ph': {'min': 6, 'max': 8},
       'turb': {'max': 50},
+      'feedlevel': {'min': 20, 'max': 100, 'critical': 10},
     },
     availableGrams: available,
     grams: grams,

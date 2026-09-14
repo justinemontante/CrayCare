@@ -195,6 +195,7 @@ def _insufficient_result(data_status):
         else "Collecting sensor history",
         "driver_value": None,
         "driver_unit": "",
+        "primary_driver": None,
         "contributors": [],
         "insight": (
             "The latest sensor record is over 20 minutes old."
@@ -207,10 +208,6 @@ def _insufficient_result(data_status):
             else "Continue collecting calibrated sensor data."
         ),
         "source": "Stale sensor history" if stale else "Insufficient data",
-        "model_algorithm": "Not applied",
-        "training_data_origin": "none",
-        "training_label_origin": "none_unsupervised",
-        "model_feature_count": 0,
         "analysis_window_minutes": 120,
     }
 
@@ -235,7 +232,7 @@ def _analyze_tank(tank_id):
     )
     result["data_status"] = data_status
     result["source_recorded_at"] = (
-        datetime.fromtimestamp(source_at, timezone.utc).isoformat()
+        datetime.fromtimestamp(source_at, timezone.utc)
         if source_at is not None
         else None
     )
@@ -254,7 +251,12 @@ def _analyze_tank(tank_id):
     )
     batch = db.batch()
     batch.set(collection.document("current"), result)
-    batch.set(collection.document(now.strftime("%Y%m%dT%H%M%S")), result)
+    history = (
+        db.collection("tanks")
+        .document(tank_id)
+        .collection("water_quality_anomaly_detection_history")
+    )
+    batch.set(history.document(now.strftime("%Y%m%dT%H%M%S")), result)
     batch.commit()
     print(
         f"[WQAD] Tank {tank_id}: {result['status']} (score={result['anomaly_score']}, driver={result['driver']})"
@@ -263,23 +265,28 @@ def _analyze_tank(tank_id):
 
 
 def _prune_history(db, tank_id, now, retain_days=30, max_deletes=100):
-    """Cap hourly history growth: delete timestamp-named docs older than
-    retain_days. The `current` alias is never touched. Failures are logged
-    only so pruning can never break detection."""
+    """Cap hourly history growth in the new and legacy paths.
+
+    The `current` alias is never touched. Failures are logged only so pruning
+    can never break detection.
+    """
     try:
         cutoff = (now - timedelta(days=retain_days)).strftime("%Y%m%dT%H%M%S")
-        collection = (
-            db.collection("tanks")
-            .document(tank_id)
-            .collection("water_quality_anomaly_detections")
-        )
+        tank = db.collection("tanks").document(tank_id)
+        collections = [
+            tank.collection("water_quality_anomaly_detection_history"),
+            tank.collection("water_quality_anomaly_detections"),
+        ]
         deleted = 0
-        for doc in collection.list_documents():
+        for collection in collections:
             if deleted >= max_deletes:
                 break
-            if doc.id != "current" and doc.id < cutoff:
-                doc.delete()
-                deleted += 1
+            for doc in collection.list_documents():
+                if deleted >= max_deletes:
+                    break
+                if doc.id != "current" and doc.id < cutoff:
+                    doc.delete()
+                    deleted += 1
         if deleted:
             print(f"[WQAD] Pruned {deleted} history docs for {tank_id}.")
     except Exception as error:

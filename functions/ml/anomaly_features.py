@@ -123,6 +123,7 @@ def detect_water_quality_anomaly(df, bundle, recommendations):
             "anomaly_score": 0.0,
             "driver": "N/A",
             "driver_label": "Model unavailable",
+            "primary_driver": None,
             "insight": "The anomaly-detection model is not available.",
             "recommendation": "Deploy a trained WQAD model before interpreting sensor patterns.",
             "contributors": [],
@@ -146,24 +147,22 @@ def detect_water_quality_anomaly(df, bundle, recommendations):
     interpreted = interpret_anomaly(
         is_anomaly, anomaly_score, contributors, recommendations
     )
+    primary_driver = contributors[0] if contributors else None
     return {
         "status": "Unusual" if is_anomaly else "Normal",
         "is_anomaly": is_anomaly,
         "anomaly_score": anomaly_score,
-        "driver": contributors[0]["sensor"] if contributors else "overall",
-        "driver_label": contributors[0]["label"]
-        if contributors
+        "driver": primary_driver["sensor"] if primary_driver else "overall",
+        "driver_label": primary_driver["label"]
+        if primary_driver
         else "Combined water pattern",
-        "driver_value": contributors[0]["value"] if contributors else None,
-        "driver_unit": contributors[0]["unit"] if contributors else "",
+        "driver_value": primary_driver["value"] if primary_driver else None,
+        "driver_unit": primary_driver["unit"] if primary_driver else "",
+        "primary_driver": primary_driver,
         "contributors": contributors[:3],
         "insight": interpreted["insight"],
         "recommendation": interpreted["recommendation"],
         "source": "WQAD model",
-        "model_algorithm": bundle.get("algorithm", "IsolationForest"),
-        "training_data_origin": bundle.get("training_data_origin", "unknown"),
-        "training_label_origin": "none_unsupervised",
-        "model_feature_count": len(expected),
         "analysis_window_minutes": bundle.get("analysis_window_minutes", 120),
         "processed_at": datetime.now(timezone.utc),
     }

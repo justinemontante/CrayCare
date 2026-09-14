@@ -29,6 +29,23 @@ const UNITS = {
 const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
 const TRUSTED_EPOCH_MS = 1577836800000;
 
+function parseTimestampMillis(value) {
+  if (value && typeof value.toMillis === "function") return value.toMillis();
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "number") {
+    return Number.isFinite(value) && Math.abs(value) < 100000000000
+      ? Math.round(value * 1000)
+      : value;
+  }
+  if (typeof value === "string") {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return parseTimestampMillis(numeric);
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : NaN;
+  }
+  return NaN;
+}
+
 function getTokensFromUserData(userData) {
   const tokens = [];
   if (Array.isArray(userData.fcmTokens)) {
@@ -561,12 +578,23 @@ async function getSamplingDue(tankId, ownerUid) {
         batchRef
         .collection("sampling_records")
         .where("is_baseline", "==", false)
-        .orderBy("sampling_date", "desc")
-        .limit(1)
         .get(),
       ]);
-      if (!weekly.empty) lastSampleTs = weekly.docs[0].data().sampling_date || null;
-      else if (batchSnap.exists) lastSampleTs = (batchSnap.data() || {}).stocking_date || null;
+      // During the Timestamp migration, old records may still contain epoch
+      // milliseconds. Compare normalized instants in application code so the
+      // reminder remains correct while both representations coexist.
+      let latestSampleMs = -1;
+      for (const doc of weekly.docs) {
+        const raw = doc.data().sampling_date;
+        const ms = parseTimestampMillis(raw);
+        if (Number.isFinite(ms) && ms > latestSampleMs) {
+          latestSampleMs = ms;
+          lastSampleTs = raw;
+        }
+      }
+      if (!lastSampleTs && batchSnap.exists) {
+        lastSampleTs = (batchSnap.data() || {}).stocking_date || null;
+      }
     }
   } catch (e) {
     functions.logger.error(`getSamplingDue error for ${tankId}:`, e.message);
@@ -574,7 +602,7 @@ async function getSamplingDue(tankId, ownerUid) {
   }
 
   if (!lastSampleTs) return null;
-  const anchorMs = lastSampleTs.toMillis ? lastSampleTs.toMillis() : Number(lastSampleTs);
+  const anchorMs = parseTimestampMillis(lastSampleTs);
   if (!Number.isFinite(anchorMs)) return null;
   const mn = new Date(now + MANILA_OFFSET_MS);
   const an = new Date(anchorMs + MANILA_OFFSET_MS);

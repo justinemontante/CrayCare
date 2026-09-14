@@ -1,4 +1,9 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../utils/prediction_timestamp.dart';
+
+DateTime _readProductionDate(dynamic value) =>
+    parsePredictionTimestamp(value)?.toLocal() ??
+    DateTime.fromMillisecondsSinceEpoch(0);
 
 class CrayfishHarvestRecord {
   final String id;
@@ -6,7 +11,8 @@ class CrayfishHarvestRecord {
   final DateTime date;
   final int harvestedCount;
   final double totalWeightKg;
-  final double abwGrams;
+  double get abwGrams =>
+      harvestedCount > 0 ? totalWeightKg * 1000 / harvestedCount : 0.0;
 
   CrayfishHarvestRecord({
     required this.id,
@@ -14,24 +20,24 @@ class CrayfishHarvestRecord {
     required this.date,
     required this.harvestedCount,
     required this.totalWeightKg,
-    required this.abwGrams,
   });
 
   Map<String, dynamic> toJson() => {
     'batch_id': batchId,
-    'harvest_date': date.millisecondsSinceEpoch,
+    'harvest_date': Timestamp.fromDate(date.toUtc()),
     'harvest_count': harvestedCount,
     'total_weight_kg': totalWeightKg,
-    'abw_grams': abwGrams,
   };
 
-  factory CrayfishHarvestRecord.fromJson(String id, Map<String, dynamic> json) => CrayfishHarvestRecord(
+  factory CrayfishHarvestRecord.fromJson(
+    String id,
+    Map<String, dynamic> json,
+  ) => CrayfishHarvestRecord(
     id: id,
     batchId: json['batch_id'] as String? ?? '',
-    date: DateTime.fromMillisecondsSinceEpoch((json['harvest_date'] as num?)?.toInt() ?? 0),
+    date: _readProductionDate(json['harvest_date']),
     harvestedCount: (json['harvest_count'] as num?)?.toInt() ?? 0,
     totalWeightKg: (json['total_weight_kg'] as num?)?.toDouble() ?? 0,
-    abwGrams: (json['abw_grams'] as num?)?.toDouble() ?? 0,
   );
 }
 
@@ -40,6 +46,7 @@ class CrayfishBatch {
   final String status;
   final DateTime stockingDate;
   final DateTime? harvestDate;
+  final DateTime? endedAt;
   final int initialCount;
   final int harvestCount;
   final int totalMortality;
@@ -48,7 +55,6 @@ class CrayfishBatch {
   final double initialAbl;
   final double finalAbw;
   final double finalAbl;
-  final int daysInCulture;
   final int sampleCount;
   final double initialTotalWeight;
   final double initialTotalLength;
@@ -60,6 +66,7 @@ class CrayfishBatch {
     this.status = 'harvested',
     required this.stockingDate,
     this.harvestDate,
+    this.endedAt,
     this.initialCount = 0,
     this.harvestCount = 0,
     this.totalMortality = 0,
@@ -68,7 +75,6 @@ class CrayfishBatch {
     this.initialAbl = 0,
     this.finalAbw = 0,
     this.finalAbl = 0,
-    this.daysInCulture = 0,
     this.sampleCount = 0,
     this.initialTotalWeight = 0,
     this.initialTotalLength = 0,
@@ -79,17 +85,15 @@ class CrayfishBatch {
   Map<String, dynamic> toJson() => {
     'batch_id': batchId,
     'batch_status': status,
-    'stocking_date': stockingDate.millisecondsSinceEpoch,
-    'harvest_date': harvestDate?.millisecondsSinceEpoch,
+    'stocking_date': Timestamp.fromDate(stockingDate.toUtc()),
+    'harvest_date': harvestDate == null
+        ? null
+        : Timestamp.fromDate(harvestDate!.toUtc()),
+    if (endedAt != null) 'ended_at': Timestamp.fromDate(endedAt!.toUtc()),
     'initial_count': initialCount,
     'harvest_count': harvestCount,
     'total_mortality': totalMortality,
     'harvest_weight_grams': harvestWeightGrams,
-    'initial_abw': initialAbw,
-    'initial_abl': initialAbl,
-    'final_abw': finalAbw,
-    'final_abl': finalAbl,
-    'days_in_culture': daysInCulture,
     'sample_count': sampleCount,
     'initial_total_weight': initialTotalWeight,
     'initial_total_length': initialTotalLength,
@@ -104,52 +108,113 @@ class CrayfishBatch {
       if (v is Map) return v.map<String, dynamic>((k, v) => MapEntry('$k', v));
       return null;
     }
-    final rawSampling = safeMap(json['archived_sampling']) ?? safeMap(json['archivedSampling']);
-    final initialAbw = (json['initial_abw'] as num?)?.toDouble() ?? 0.0;
-    final initialAbl = (json['initial_abl'] as num?)?.toDouble() ?? 0.0;
+
+    final rawSampling =
+        safeMap(json['archived_sampling']) ?? safeMap(json['archivedSampling']);
+    final legacyInitialAbw = (json['initial_abw'] as num?)?.toDouble();
+    final legacyInitialAbl = (json['initial_abl'] as num?)?.toDouble();
 
     int fallbackSampleCount = 0;
     if (rawSampling != null && rawSampling.isNotEmpty) {
-      final sortedEntries = rawSampling.values.map((v) {
-        if (v is Map) {
-          return v.map<String, dynamic>((k, val) => MapEntry(k.toString(), val));
-        }
-        return <String, dynamic>{};
-      }).toList()..sort((a, b) {
-        final da = a['sampling_date'] as num? ?? 0;
-        final db = b['sampling_date'] as num? ?? 0;
-        return da.compareTo(db);
-      });
+      final sortedEntries =
+          rawSampling.values.map((v) {
+            if (v is Map) {
+              return v.map<String, dynamic>(
+                (k, val) => MapEntry(k.toString(), val),
+              );
+            }
+            return <String, dynamic>{};
+          }).toList()..sort((a, b) {
+            final da = _readProductionDate(a['sampling_date']);
+            final db = _readProductionDate(b['sampling_date']);
+            return da.compareTo(db);
+          });
       if (sortedEntries.isNotEmpty) {
-        fallbackSampleCount = (sortedEntries.first['sample_size'] as num?)?.toInt() ?? 0;
+        fallbackSampleCount =
+            (sortedEntries.first['sample_size'] as num?)?.toInt() ?? 0;
       }
     }
 
-    final sampleCount = (json['sample_count'] as num?)?.toInt() ?? fallbackSampleCount;
-    final initialTotalWeight = (json['initial_total_weight'] as num?)?.toDouble() ?? (initialAbw * sampleCount);
-    final initialTotalLength = (json['initial_total_length'] as num?)?.toDouble() ?? (initialAbl * sampleCount);
+    final sampleCount =
+        (json['sample_count'] as num?)?.toInt() ?? fallbackSampleCount;
+    final initialTotalWeight =
+        (json['initial_total_weight'] as num?)?.toDouble() ??
+        ((legacyInitialAbw ?? 0) * sampleCount);
+    final initialTotalLength =
+        (json['initial_total_length'] as num?)?.toDouble() ??
+        ((legacyInitialAbl ?? 0) * sampleCount);
+    final initialAbw = sampleCount > 0 && initialTotalWeight > 0
+        ? initialTotalWeight / sampleCount
+        : legacyInitialAbw ?? 0.0;
+    final initialAbl = sampleCount > 0 && initialTotalLength > 0
+        ? initialTotalLength / sampleCount
+        : legacyInitialAbl ?? 0.0;
 
     return CrayfishBatch(
       batchId: json['batch_id'] as String? ?? 'Unknown',
       status: json['batch_status'] as String? ?? 'harvested',
-      stockingDate: DateTime.fromMillisecondsSinceEpoch(
-        (json['stocking_date'] as num?)?.toInt() ?? 0,
-      ),
-      harvestDate: parsePredictionTimestamp(json['harvest_date']),
+      stockingDate: _readProductionDate(json['stocking_date']),
+      harvestDate: json['harvest_date'] == null
+          ? null
+          : _readProductionDate(json['harvest_date']),
+      endedAt: json['ended_at'] == null
+          ? null
+          : _readProductionDate(json['ended_at']),
       initialCount: (json['initial_count'] as num?)?.toInt() ?? 0,
       harvestCount: (json['harvest_count'] as num?)?.toInt() ?? 0,
       totalMortality: (json['total_mortality'] as num?)?.toInt() ?? 0,
       harvestWeightGrams: (json['harvest_weight_grams'] as num?)?.toDouble(),
       initialAbw: initialAbw,
       initialAbl: initialAbl,
+      // Read legacy snapshots for compatibility. TankService hydrates these
+      // values from the latest sampling record whenever source records exist.
       finalAbw: (json['final_abw'] as num?)?.toDouble() ?? 0,
       finalAbl: (json['final_abl'] as num?)?.toDouble() ?? 0,
-      daysInCulture: (json['days_in_culture'] as num?)?.toInt() ?? 0,
       sampleCount: sampleCount,
       initialTotalWeight: initialTotalWeight,
       initialTotalLength: initialTotalLength,
       archivedSampling: rawSampling,
-      archivedMortality: safeMap(json['archived_mortality']) ?? safeMap(json['archivedMortality']),
+      archivedMortality:
+          safeMap(json['archived_mortality']) ??
+          safeMap(json['archivedMortality']),
     );
   }
+
+  /// Calendar days elapsed since stocking, recalculated whenever the model is
+  /// read. Completed batches stop at their harvest date; active batches use
+  /// today's local calendar date.
+  int get daysInCulture {
+    final end = harvestDate ?? endedAt ?? DateTime.now();
+    final startDay = DateTime(
+      stockingDate.year,
+      stockingDate.month,
+      stockingDate.day,
+    );
+    final endDay = DateTime(end.year, end.month, end.day);
+    return endDay.difference(startDay).inDays.clamp(0, 1000000).toInt();
+  }
+
+  CrayfishBatch withFinalSamplingAverages({
+    required double abw,
+    required double abl,
+  }) => CrayfishBatch(
+    batchId: batchId,
+    status: status,
+    stockingDate: stockingDate,
+    harvestDate: harvestDate,
+    endedAt: endedAt,
+    initialCount: initialCount,
+    harvestCount: harvestCount,
+    totalMortality: totalMortality,
+    harvestWeightGrams: harvestWeightGrams,
+    initialAbw: initialAbw,
+    initialAbl: initialAbl,
+    finalAbw: abw,
+    finalAbl: abl,
+    sampleCount: sampleCount,
+    initialTotalWeight: initialTotalWeight,
+    initialTotalLength: initialTotalLength,
+    archivedSampling: archivedSampling,
+    archivedMortality: archivedMortality,
+  );
 }

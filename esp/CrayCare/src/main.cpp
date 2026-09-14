@@ -359,6 +359,20 @@ String epochMillisString(time_t seconds) {
   return String(buffer);
 }
 
+// Firestore REST represents a Timestamp with an RFC 3339 timestampValue.
+// Keep epoch milliseconds only for explicit ESP protocol fields such as
+// capture/assignment metadata that are compared by the ingestion functions.
+String firestoreTimestampString(time_t seconds) {
+  if (seconds < 1700000000) return "";
+  struct tm utc;
+  if (gmtime_r(&seconds, &utc) == nullptr) return "";
+  char buffer[25];
+  snprintf(buffer, sizeof(buffer), "%04d-%02d-%02dT%02d:%02d:%02dZ",
+           utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday,
+           utc.tm_hour, utc.tm_min, utc.tm_sec);
+  return String(buffer);
+}
+
 // Non-blocking feeder state machine
 enum FeederRunState {
   FEEDER_IDLE,
@@ -397,7 +411,7 @@ unsigned long lastFeederScheduleCheckMs = 0;
 //  Firestore source of truth: tanks/{tankId}/actuators/{deviceId}
 //    control_mode : "on" | "off" | "auto"   (written by Flutter app)
 //    current_state: "on" | "off"            (actual relay state — ESP writes back)
-//    last_changed : Timestamp               (app) / epoch-ms int (ESP report)
+//    last_changed : Firestore Timestamp (or null before the first device report)
 // ============================================================
 // Actuator pins — relays are ACTIVE-LOW (digitalWrite LOW = relay ON).
 // Firestore IDs match the Flutter app (lib/services/actuator_log_service.dart):
@@ -474,13 +488,12 @@ float phCriticalHigh = 8.5;
 float waterLevelCriticalLow = 15.0;
 float waterLevelCriticalHigh = 20.0;
 
-float feedLevelLowThreshold = 20.0;
-float feedLevelCriticalThreshold = 10.0;
-float hopperCapacityGrams = 1000.0;
-// Calibrate these two voltages with an empty and a full hopper. Both sensor
-// orientations are supported because the percentage formula uses their span.
-float feedLevelEmptyVoltage = 0.50;
-float feedLevelFullVoltage = 2.80;
+float feedLevelLowThreshold = 20.0f;
+float feedLevelCriticalThreshold = 10.0f;
+float hopperCapacityGrams = 1000.0f;
+float feedLevelEmptyVoltage = 0.50f;
+float feedLevelFullVoltage = 2.80f;
+
 
 float doVoltageScale = 4.0;
 float doVoltageOffset = 0.0;
@@ -581,10 +594,11 @@ float waterLevelCm = -1.0;
 float waterDistanceCm = -1.0;
 bool waterLevelSensorOK = false;
 
-float feedLevelPercent = -1.0;
-float estimatedFeedGrams = -1.0;
-float feedLevelVoltage = 0.0;
+float feedLevelPercent = -1.0f;
+float estimatedFeedGrams = -1.0f;
+float feedLevelVoltage = 0.0f;
 bool feedLevelSensorOK = false;
+
 
 struct TurbidityResult {
   float ntu;
@@ -1579,6 +1593,8 @@ void printCalibrationHelp() {
   Serial.println("turbclear <VOLTS>        Set clear-water voltage");
   Serial.println("turbdirty <VOLTS>        Set dirty-water voltage");
   Serial.println("turbair <VOLTS>          Set out-of-water threshold");
+  Serial.println("feedempty                Save voltage with an empty hopper");
+  Serial.println("feedfull                 Save voltage with a full hopper");
   Serial.println("tankheight <CM>          Sensor-to-tank-bottom distance");
   Serial.println("tankdepth <CM>           Maximum water depth");
   Serial.println("tankcal                  Show tank calibration");
@@ -2141,7 +2157,11 @@ void sendFeederStatus() {
 
   time_t now;
   time(&now);
-  const String nowMs = epochMillisString(now);
+  const String heartbeatAt = firestoreTimestampString(now);
+  if (heartbeatAt.isEmpty()) {
+    Serial.println("[FEEDER STATUS] Skipped Firestore write: system clock is not synchronized");
+    return;
+  }
 
   FirebaseJson json;
   // Match FeederService's canonical status fields and keep the heartbeat fresh.
@@ -2149,9 +2169,12 @@ void sendFeederStatus() {
   json.set("fields/command_id/stringValue", feederCommandId);
   json.set("fields/status_reason/stringValue", feederStatusReason);
   json.set("fields/dispenseCount/integerValue", String(feederDispenseCount));
-  json.set("fields/lastSeen/integerValue", nowMs);
-  if (feederLastCompletedEpoch > 0) {
-    json.set("fields/last_dispensed_at/integerValue", epochMillisString((time_t)feederLastCompletedEpoch));
+  json.set("fields/lastSeen/timestampValue", heartbeatAt);
+  const String lastDispensedAt = feederLastCompletedEpoch > 0
+      ? firestoreTimestampString((time_t)feederLastCompletedEpoch)
+      : "";
+  if (!lastDispensedAt.isEmpty()) {
+    json.set("fields/last_dispensed_at/timestampValue", lastDispensedAt);
   } else {
     json.set("fields/last_dispensed_at/nullValue", "NULL_VALUE");
   }
@@ -2161,7 +2184,6 @@ void sendFeederStatus() {
     json.set("fields/feed_level/doubleValue", feedLevelPercent);
     json.set("fields/estimated_feed_grams/doubleValue", estimatedFeedGrams);
   }
-
   String statusDoc = "tanks/" + currentTankId + "/feeder/status";
   if (!Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "",
         statusDoc.c_str(), json.raw(),
@@ -2513,7 +2535,6 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
   feederStatus = "checking_feed_level";
   readFeedLevelSensor();
   sendFeederStatus();
-
   String blockedReason;
   time_t checkedAt;
   time(&checkedAt);
@@ -2540,20 +2561,15 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
     time_t blockedAt;
     time(&blockedAt);
     feederLastFeedEpoch = (unsigned long)blockedAt;
-    feederStatus = blockedReason == "insufficient feed" ||
-                           blockedReason == "empty feed hopper"
-                       ? "skipped_insufficient"
-                       : "blocked";
-    String action = blockedReason == "insufficient feed" ||
-                            blockedReason == "empty feed hopper"
-                        ? "Skipped - Insufficient feed"
-                        : "Feed blocked: " + blockedReason;
     const bool insufficient = blockedReason == "insufficient feed" ||
                               blockedReason == "empty feed hopper";
-    pushFeederLog(action, source == "manual" ? "manual" : "auto",
-                  insufficient ? "skipped_insufficient" : "blocked",
-                  feederRequestedGrams,
-                  estimatedFeedGrams, feedLevelPercent, feedLevelPercent);
+    feederStatus = insufficient ? "skipped_insufficient" : "blocked";
+    pushFeederLog(
+      insufficient ? "Skipped - Insufficient feed" : "Feed blocked: " + blockedReason,
+      source == "manual" ? "manual" : "auto",
+      insufficient ? "skipped_insufficient" : "blocked",
+      feederRequestedGrams,
+      estimatedFeedGrams, feedLevelPercent, feedLevelPercent);
     sendFeederStatus();
     feederLastScheduleKey = "";
     return;
@@ -2665,8 +2681,8 @@ void processFeederTick() {
       feederStatus = "completed";
       feederRunState = FEEDER_IDLE;
 
-      // A level sensor supports confirmation that feed decreased, but it is
-      // not a weighing scale and therefore never proves the exact grams.
+      // Confirm the level change after dispensing. This is a confirmation aid,
+      // not a direct measurement of the exact grams dispensed.
       readFeedLevelSensor();
       const float levelAfter = feedLevelSensorOK ? feedLevelPercent : -1.0f;
       // Push final status + log
@@ -2706,14 +2722,24 @@ void pushFeederLog(String action, String type, String status,
 
   time_t now;
   time(&now);
-  const String epochMs = epochMillisString(now);
+  const String loggedAt = firestoreTimestampString(now);
+  if (loggedAt.isEmpty()) {
+    Serial.println("[FEEDER LOG] Skipped Firestore write: system clock is not synchronized");
+    return;
+  }
 
   FirebaseJson json;
   json.set("fields/action/stringValue",    action);
   json.set("fields/type/stringValue",      type);
   if (!feederCommandId.isEmpty()) json.set("fields/command_id/stringValue", feederCommandId);
-  json.set("fields/logged_at/integerValue", String(epochMs));
-  json.set("fields/occurrence_at/integerValue", epochMillisString(feederOccurrenceEpoch));
+  json.set("fields/logged_at/timestampValue", loggedAt);
+  if (feederOccurrenceEpoch > 0) {
+    const String occurrenceAt =
+        firestoreTimestampString((time_t)feederOccurrenceEpoch);
+    if (!occurrenceAt.isEmpty()) {
+      json.set("fields/occurrence_at/timestampValue", occurrenceAt);
+    }
+  }
   if (feederLastScheduleKey.length() > 0) {
     json.set("fields/schedule_key/stringValue", feederLastScheduleKey);
     json.set("fields/schedule_time/stringValue", feederScheduleTime);
@@ -2872,7 +2898,7 @@ void applyTankAssignment(const String& tankId, const String& ownerUid, long long
 //  Firestore source of truth: tanks/{tankId}/actuators/{deviceId}
 //    control_mode : "on" | "off" | "auto"   (written by Flutter Controls screen)
 //    current_state: "on" | "off"            (ACTUAL relay state — ESP writes back)
-//    last_changed : Timestamp (app) / epoch-ms int (ESP report)
+//    last_changed : Firestore Timestamp (or null before the first device report)
 //  Logs: tanks/{tankId}/actuator_logs  (ESP creates a doc on every state change)
 //  Note: relays are ACTIVE-LOW — digitalWrite(LOW) turns the relay ON.
 // ============================================================
@@ -2968,11 +2994,15 @@ void reportActuatorState(int idx, bool forced) {
 
   time_t now;
   time(&now);
-  const String nowMs = epochMillisString(now);
+  const String nowTimestamp = firestoreTimestampString(now);
+  if (nowTimestamp.isEmpty()) {
+    Serial.println("[ACT] Cannot report relay state before clock synchronization");
+    return;
+  }
 
   FirebaseJson json;
   json.set("fields/current_state/stringValue", state);
-  json.set("fields/last_changed/integerValue", nowMs);
+  json.set("fields/last_changed/timestampValue", nowTimestamp);
 
   String path = String("tanks/") + currentTankId + "/actuators/" + a.deviceId;
   if (Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "",
@@ -2987,7 +3017,7 @@ void reportActuatorState(int idx, bool forced) {
 
 // ─── Push an actuator log entry (auto-ID doc) ───
 // Field names match Flutter ActuatorLogService:
-//   actuator_type, action, type, logged_at(ms)
+//   actuator_type, action, type, logged_at (Firestore Timestamp)
 // Put "(AUTO)" in `action` so the app surfaces it as an auto-control event.
 void pushActuatorLog(int idx, String action, String type) {
   if (!ensureFirebaseReady()) return;
@@ -2995,13 +3025,17 @@ void pushActuatorLog(int idx, String action, String type) {
 
   time_t now;
   time(&now);
-  const String epochMs = epochMillisString(now);
+  const String loggedAt = firestoreTimestampString(now);
+  if (loggedAt.isEmpty()) {
+    Serial.println("[ACT LOG] Skipped Firestore write: system clock is not synchronized");
+    return;
+  }
 
   FirebaseJson json;
   json.set("fields/actuator_type/stringValue", actuators[idx].deviceId);
   json.set("fields/action/stringValue",        action);
   json.set("fields/type/stringValue",          type);
-  json.set("fields/logged_at/integerValue",    epochMs);
+  json.set("fields/logged_at/timestampValue", loggedAt);
 
   String col = String("tanks/") + currentTankId + "/actuator_logs";
   if (Firebase.Firestore.createDocument(&fbdo, FIREBASE_PROJECT_ID, "",

@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1120" viewBox="0 0 1800 1120">
+  <rect width="1800" height="1120" fill="#ffffff"/>
+  <style>
+    .title{font:700 30px Arial,sans-serif;fill:#102a43}.label{font:600 18px Arial,sans-serif;fill:#102a43;text-anchor:middle}.actor{font:700 21px Arial,sans-serif;fill:#102a43;text-anchor:middle}.line{stroke:#263238;stroke-width:2;fill:none}.boundary{fill:none;stroke:#1785d1;stroke-width:3}.oval{fill:#eef8ff;stroke:#1785d1;stroke-width:2.5}.include{font:italic 16px Arial,sans-serif;fill:#263238;text-anchor:middle}
+  </style>
+  <text x="900" y="55" class="title" text-anchor="middle">CrayCare Use Case Diagram</text>
+  <rect x="210" y="80" width="1380" height="980" class="boundary"/>
+
+  <!-- Farm Owner actor -->
+  <circle cx="100" cy="515" r="22" class="line"/>
+  <path d="M100 537V610 M60 565H140 M100 610L62 660 M100 610L138 660" class="line"/>
+  <text x="100" y="695" class="actor">Farm Owner</text>
+
+  <!-- System Admin actor -->
+  <circle cx="1700" cy="515" r="22" class="line"/>
+  <path d="M1700 537V610 M1660 565H1740 M1700 610L1662 660 M1700 610L1738 660" class="line"/>
+  <text x="1700" y="695" class="actor">System Admin</text>
+
+  <!-- Association lines: Farm Owner -->
+  <path d="M140 565L345 180" class="line"/>
+  <path d="M140 565L755 180" class="line"/>
+  <path d="M140 565L345 305" class="line"/>
+  <path d="M140 565L755 305" class="line"/>
+  <path d="M140 565L345 430" class="line"/>
+  <path d="M140 565L755 430" class="line"/>
+  <path d="M140 565L345 555" class="line"/>
+  <path d="M140 565L755 555" class="line"/>
+  <path d="M140 565L345 680" class="line"/>
+  <path d="M140 565L755 680" class="line"/>
+  <path d="M140 565L345 805" class="line"/>
+  <path d="M140 565L755 930" class="line"/>
+
+  <!-- Association lines: System Admin -->
+  <path d="M1660 565L1455 355" class="line"/>
+  <path d="M1660 565L1455 480" class="line"/>
+  <path d="M1660 565L1015 930" class="line"/>
+
+  <!-- Use cases: owner left column -->
+  <ellipse cx="475" cy="180" rx="130" ry="48" class="oval"/>
+  <text x="475" y="186" class="label">View Dashboard</text>
+  <ellipse cx="475" cy="305" rx="130" ry="48" class="oval"/>
+  <text x="475" y="298" class="label"><tspan x="475">View Anomaly</tspan><tspan x="475" dy="22">Detection Results</tspan></text>
+  <ellipse cx="475" cy="430" rx="130" ry="48" class="oval"/>
+  <text x="475" y="423" class="label"><tspan x="475">Manage Water</tspan><tspan x="475" dy="22">Thresholds</tspan></text>
+  <ellipse cx="475" cy="555" rx="130" ry="48" class="oval"/>
+  <text x="475" y="548" class="label"><tspan x="475">View Analytics and</tspan><tspan x="475" dy="22">Historical Data</tspan></text>
+  <ellipse cx="475" cy="680" rx="130" ry="48" class="oval"/>
+  <text x="475" y="686" class="label">Manage Feeding</text>
+  <ellipse cx="475" cy="805" rx="130" ry="48" class="oval"/>
+  <text x="475" y="798" class="label"><tspan x="475">Manage Notification</tspan><tspan x="475" dy="22">Preferences</tspan></text>
+
+  <!-- Use cases: owner middle column -->
+  <ellipse cx="885" cy="180" rx="130" ry="48" class="oval"/>
+  <text x="885" y="173" class="label"><tspan x="885">Monitor Water</tspan><tspan x="885" dy="22">Parameters</tspan></text>
+  <ellipse cx="885" cy="305" rx="130" ry="48" class="oval"/>
+  <text x="885" y="298" class="label"><tspan x="885">Control Aerator and</tspan><tspan x="885" dy="22">Water Pump</tspan></text>
+  <ellipse cx="885" cy="430" rx="130" ry="48" class="oval"/>
+  <text x="885" y="423" class="label"><tspan x="885">Receive Alerts and</tspan><tspan x="885" dy="22">Notifications</tspan></text>
+  <ellipse cx="885" cy="555" rx="130" ry="48" class="oval"/>
+  <text x="885" y="548" class="label"><tspan x="885">Manage Tank Grow-out</tspan><tspan x="885" dy="22">Records</tspan></text>
+  <ellipse cx="885" cy="680" rx="130" ry="48" class="oval"/>
+  <text x="885" y="686" class="label">Export Reports</text>
+  <ellipse cx="885" cy="930" rx="130" ry="48" class="oval"/>
+  <text x="885" y="923" class="label"><tspan x="885">Manage Personal</tspan><tspan x="885" dy="22">Account</tspan></text>
+
+  <!-- Use cases: admin-only column -->
+  <ellipse cx="1325" cy="355" rx="130" ry="48" class="oval"/>
+  <text x="1325" y="348" class="label"><tspan x="1325">Manage User</tspan><tspan x="1325" dy="22">Accounts</tspan></text>
+  <ellipse cx="1325" cy="480" rx="130" ry="48" class="oval"/>
+  <text x="1325" y="473" class="label"><tspan x="1325">Manage Hardware</tspan><tspan x="1325" dy="22">Assignments</tspan></text>
+
+  <!-- UML include relationship -->
+  <path d="M605 180L748 180" stroke="#263238" stroke-width="2" stroke-dasharray="7 6" fill="none"/>
+  <path d="M748 180l-14 -8v16z" fill="#263238"/>
+  <text x="677" y="160" class="include">&lt;&lt;include&gt;&gt;</text>
+</svg>

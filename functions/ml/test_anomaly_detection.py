@@ -36,6 +36,19 @@ class WaterQualityAnomalyDetectionTests(unittest.TestCase):
         self.assertLessEqual(result["anomaly_score"], 100)
         self.assertTrue(result["insight"])
         self.assertTrue(result["recommendation"])
+        self.assertEqual(result["primary_driver"], result["contributors"][0])
+        self.assertEqual(set(result["primary_driver"]), {
+            "sensor", "label", "value", "unit", "direction", "contribution_score"
+        })
+        self.assertFalse(
+            {
+                "model_algorithm",
+                "training_data_origin",
+                "training_label_origin",
+                "model_feature_count",
+            }
+            & result.keys()
+        )
 
     def test_holdout_event_is_detected_somewhere(self):
         event_rows = self.frame[self.frame["event_type"] == "organic_load_event"]

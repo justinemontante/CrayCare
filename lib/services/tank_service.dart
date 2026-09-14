@@ -5,6 +5,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/crayfish_batch.dart';
 import 'connectivity_service.dart';
 import 'database_service.dart';
+import '../utils/prediction_timestamp.dart';
+
+DateTime? _readTankDate(dynamic value) =>
+    parsePredictionTimestamp(value)?.toLocal();
+
+Timestamp _writeTankTimestamp(DateTime value) =>
+    Timestamp.fromDate(value.toUtc());
 
 enum GrowthStage {
   earlyJuvenile(
@@ -70,6 +77,18 @@ int effectiveSamplingSize(int plannedSampleSize, int inTankCount) {
   return plannedSampleSize < inTankCount ? plannedSampleSize : inTankCount;
 }
 
+/// Computes a sample average from its persisted source measurements.
+/// `legacyAverage` keeps older Firestore records readable during migration.
+double deriveSamplingAverage({
+  required num? total,
+  required num? sampleSize,
+  double? legacyAverage,
+}) {
+  final count = sampleSize?.toDouble() ?? 0;
+  if (total != null && count > 0) return total.toDouble() / count;
+  return legacyAverage ?? 0.0;
+}
+
 class SamplingEntry {
   final String id;
   final DateTime date;
@@ -78,9 +97,10 @@ class SamplingEntry {
   final int sampleSize;
   final double totalWeight;
   final double totalLength;
-  final double biomass;
   final int liveCount;
   final bool isBaseline;
+  double get biomass =>
+      sampleSize > 0 ? liveCount * totalWeight / sampleSize : 0.0;
 
   SamplingEntry({
     this.id = '',
@@ -90,7 +110,6 @@ class SamplingEntry {
     required this.sampleSize,
     required this.totalWeight,
     required this.totalLength,
-    required this.biomass,
     required this.liveCount,
     this.isBaseline = false,
   });
@@ -417,7 +436,8 @@ class TankService extends ChangeNotifier {
       _selectedBatchId = rawBatchId == null || rawBatchId.trim().isEmpty
           ? null
           : rawBatchId.trim();
-      _isInitialized = data['is_initialized'] == true && _selectedBatchId != null;
+      _isInitialized =
+          data['is_initialized'] == true && _selectedBatchId != null;
       _setupComplete = _isInitialized;
       if (_selectedBatchId != null) {
         final batchDoc = await _batchesRef.doc(_selectedBatchId).get();
@@ -500,6 +520,7 @@ class TankService extends ChangeNotifier {
     _harvestHistory = list
         .where((b) => b.status == 'harvested' || b.status == 'superseded')
         .toList();
+    unawaited(_hydrateFinalSamplingAverages(list));
 
     final currentSelectionStillExists =
         _selectedBatchId != null &&
@@ -516,6 +537,86 @@ class TankService extends ChangeNotifier {
         _resubscribeToBatch();
       }
     }
+    notifyListeners();
+  }
+
+  Future<void> _hydrateFinalSamplingAverages(
+    List<CrayfishBatch> batches,
+  ) async {
+    final completed = batches
+        .where(
+          (batch) =>
+              batch.status == 'harvested' || batch.status == 'superseded',
+        )
+        .toList();
+    if (completed.isEmpty) return;
+
+    final summaries = <String, List<double>>{};
+    await Future.wait(
+      completed.map((batch) async {
+        try {
+          final snapshot = await _samplingRef(batch.batchId).get();
+          Map<String, dynamic>? record;
+          DateTime? latestDate;
+          for (final doc in snapshot.docs) {
+            final data = doc.data();
+            final date = _readTankDate(data['sampling_date']);
+            if (date != null &&
+                (latestDate == null || date.isAfter(latestDate))) {
+              record = data;
+              latestDate = date;
+            }
+          }
+          if (record == null) return;
+          final sampleSize = record['sample_size'] as num?;
+          final totalWeight = record['total_weight'] as num?;
+          final totalLength = record['total_length'] as num?;
+          final legacyAbw = (record['avg_body_weight'] as num?)?.toDouble();
+          final legacyAbl = (record['avg_body_length'] as num?)?.toDouble();
+          final hasAbwSource =
+              (totalWeight != null && (sampleSize?.toDouble() ?? 0) > 0) ||
+              legacyAbw != null;
+          final hasAblSource =
+              (totalLength != null && (sampleSize?.toDouble() ?? 0) > 0) ||
+              legacyAbl != null;
+          if (!hasAbwSource && !hasAblSource) return;
+          summaries[batch.batchId] = [
+            hasAbwSource
+                ? deriveSamplingAverage(
+                    total: totalWeight,
+                    sampleSize: sampleSize,
+                    legacyAverage: legacyAbw,
+                  )
+                : batch.finalAbw,
+            hasAblSource
+                ? deriveSamplingAverage(
+                    total: totalLength,
+                    sampleSize: sampleSize,
+                    legacyAverage: legacyAbl,
+                  )
+                : batch.finalAbl,
+          ];
+        } catch (e) {
+          debugPrint(
+            '[TankService] Failed to derive final sampling values for '
+            '${batch.batchId}: $e',
+          );
+        }
+      }),
+    );
+
+    if (summaries.isEmpty) return;
+    _batches = _batches.map((batch) {
+      final values = summaries[batch.batchId];
+      if (values == null) return batch;
+      return batch.withFinalSamplingAverages(abw: values[0], abl: values[1]);
+    }).toList();
+    _harvestHistory = _batches
+        .where(
+          (batch) =>
+              batch.status == 'harvested' || batch.status == 'superseded',
+        )
+        .toList();
     notifyListeners();
   }
 
@@ -628,20 +729,28 @@ class TankService extends ChangeNotifier {
             DateTime? lastDate;
             for (final doc in snap.docs) {
               final map = doc.data();
-              final dateRaw = map['sampling_date'];
-              if (dateRaw is! num) continue;
-              final date = DateTime.fromMillisecondsSinceEpoch(dateRaw.toInt());
+              final date = _readTankDate(map['sampling_date']);
+              if (date == null) continue;
+              final sampleSize = map['sample_size'] as num?;
+              final totalWeight = map['total_weight'] as num?;
+              final totalLength = map['total_length'] as num?;
               entries.add(
                 SamplingEntry(
                   id: doc.id,
                   date: date,
-                  abw: (map['avg_body_weight'] as num?)?.toDouble() ?? 0.0,
-                  avgLength:
-                      (map['avg_body_length'] as num?)?.toDouble() ?? 0.0,
-                  sampleSize: (map['sample_size'] as num?)?.toInt() ?? 0,
-                  totalWeight: (map['total_weight'] as num?)?.toDouble() ?? 0.0,
-                  totalLength: (map['total_length'] as num?)?.toDouble() ?? 0.0,
-                  biomass: (map['biomass'] as num?)?.toDouble() ?? 0.0,
+                  abw: deriveSamplingAverage(
+                    total: totalWeight,
+                    sampleSize: sampleSize,
+                    legacyAverage: (map['avg_body_weight'] as num?)?.toDouble(),
+                  ),
+                  avgLength: deriveSamplingAverage(
+                    total: totalLength,
+                    sampleSize: sampleSize,
+                    legacyAverage: (map['avg_body_length'] as num?)?.toDouble(),
+                  ),
+                  sampleSize: sampleSize?.toInt() ?? 0,
+                  totalWeight: totalWeight?.toDouble() ?? 0.0,
+                  totalLength: totalLength?.toDouble() ?? 0.0,
                   liveCount: (map['live_count'] as num?)?.toInt() ?? 0,
                   isBaseline: map['is_baseline'] == true,
                 ),
@@ -671,14 +780,12 @@ class TankService extends ChangeNotifier {
                 snap.docs
                     .map((doc) {
                       final map = doc.data();
-                      final dateRaw = map['mortality_date'];
+                      final date = _readTankDate(map['mortality_date']);
                       final countRaw = map['mortality_count'];
-                      if (dateRaw is! num || countRaw is! num) return null;
+                      if (date == null || countRaw is! num) return null;
                       return MortalityEntry(
                         id: doc.id,
-                        date: DateTime.fromMillisecondsSinceEpoch(
-                          dateRaw.toInt(),
-                        ),
+                        date: date,
                         count: countRaw.toInt(),
                       );
                     })
@@ -860,21 +967,23 @@ class TankService extends ChangeNotifier {
       writes.set(_batchesRef.doc(currentId), {
         'initial_count': initial,
         'current_count': initial,
-        'stocking_date': date.millisecondsSinceEpoch,
+        'stocking_date': _writeTankTimestamp(date),
         'sample_count': sampleCount,
         'initial_total_weight': totalWeight,
         'initial_total_length': totalLength,
-        'initial_abw': initialWeight,
-        'initial_abl': initialLength,
+        'initial_abw': FieldValue.delete(),
+        'initial_abl': FieldValue.delete(),
+        'final_abw': FieldValue.delete(),
+        'final_abl': FieldValue.delete(),
       }, SetOptions(merge: true));
       writes.set(_samplingRef(currentId).doc('baseline'), {
-        'sampling_date': date.millisecondsSinceEpoch,
-        'avg_body_weight': initialWeight,
-        'avg_body_length': initialLength,
+        'sampling_date': _writeTankTimestamp(date),
+        'avg_body_weight': FieldValue.delete(),
+        'avg_body_length': FieldValue.delete(),
+        'biomass': FieldValue.delete(),
         'sample_size': sampleCount,
         'total_weight': totalWeight,
         'total_length': totalLength,
-        'biomass': initial * initialWeight,
         'live_count': initial,
         'is_baseline': true,
         'updated_at': FieldValue.serverTimestamp(),
@@ -901,12 +1010,6 @@ class TankService extends ChangeNotifier {
     final existingActive = _batches
         .where((b) => b.status == 'active')
         .firstOrNull;
-    final previousFinalAbw = _samplingHistory.isNotEmpty
-        ? _samplingHistory.last.abw
-        : existingActive?.initialAbw ?? 0.0;
-    final previousFinalAbl = _samplingHistory.isNotEmpty
-        ? _samplingHistory.last.avgLength
-        : existingActive?.initialAbl ?? 0.0;
     final previousMortality = _mortality;
     final previousHarvested = _totalHarvested;
 
@@ -933,12 +1036,12 @@ class TankService extends ChangeNotifier {
       if (existingActive != null) {
         writes.set(_batchesRef.doc(existingActive.batchId), {
           'batch_status': 'superseded',
-          'days_in_culture': DateTime.now()
-              .difference(existingActive.stockingDate)
-              .inDays
-              .clamp(0, 1000000),
-          'final_abw': previousFinalAbw,
-          'final_abl': previousFinalAbl,
+          'ended_at': _writeTankTimestamp(DateTime.now()),
+          'days_in_culture': FieldValue.delete(),
+          'initial_abw': FieldValue.delete(),
+          'initial_abl': FieldValue.delete(),
+          'final_abw': FieldValue.delete(),
+          'final_abl': FieldValue.delete(),
           'total_mortality': previousMortality,
           'harvest_count': previousHarvested,
         }, SetOptions(merge: true));
@@ -946,18 +1049,13 @@ class TankService extends ChangeNotifier {
       writes.set(_batchesRef.doc(bid), {
         'batch_id': bid,
         'batch_status': 'active',
-        'stocking_date': _stockingDate.millisecondsSinceEpoch,
+        'stocking_date': _writeTankTimestamp(_stockingDate),
         'harvest_date': null,
         'initial_count': _initialCount,
         'current_count': _initialCount,
         'harvest_count': 0,
         'total_mortality': 0,
         'harvest_weight_grams': null,
-        'initial_abw': _initialWeight,
-        'initial_abl': _initialLength,
-        'final_abw': 0,
-        'final_abl': 0,
-        'days_in_culture': 0,
         'sample_count': _sampleCount,
         'initial_total_weight': _totalSampleWeight,
         'initial_total_length': _totalSampleLength,
@@ -979,13 +1077,10 @@ class TankService extends ChangeNotifier {
           _totalSampleLength > 0) {
         final baselineDoc = _samplingRef(bid).doc('baseline');
         writes.set(baselineDoc, {
-          'sampling_date': _stockingDate.millisecondsSinceEpoch,
-          'avg_body_weight': _initialWeight,
-          'avg_body_length': _initialLength,
+          'sampling_date': _writeTankTimestamp(_stockingDate),
           'sample_size': _sampleCount,
           'total_weight': _totalSampleWeight,
           'total_length': _totalSampleLength,
-          'biomass': _initialCount * _initialWeight,
           'live_count': _initialCount,
           'is_baseline': true,
           'created_at': FieldValue.serverTimestamp(),
@@ -1030,18 +1125,14 @@ class TankService extends ChangeNotifier {
       sampleSize: count,
       totalWeight: weight,
       totalLength: length,
-      biomass: inTankCount * abw,
       liveCount: inTankCount,
     );
     try {
       await _samplingRef(_selectedBatchId!).add({
-        'sampling_date': entry.date.millisecondsSinceEpoch,
-        'avg_body_weight': entry.abw,
-        'avg_body_length': entry.avgLength,
+        'sampling_date': _writeTankTimestamp(entry.date),
         'sample_size': entry.sampleSize,
         'total_weight': entry.totalWeight,
         'total_length': entry.totalLength,
-        'biomass': entry.biomass,
         'live_count': entry.liveCount,
         'is_baseline': false,
         'created_at': FieldValue.serverTimestamp(),
@@ -1089,18 +1180,17 @@ class TankService extends ChangeNotifier {
       sampleSize: count,
       totalWeight: weight,
       totalLength: length,
-      biomass: inTankCount * abw,
       liveCount: inTankCount,
     );
     _samplingHistory.last = updated;
     try {
       await _samplingRef(_selectedBatchId!).doc(_lastSamplingDocId!).update({
-        'avg_body_weight': updated.abw,
-        'avg_body_length': updated.avgLength,
+        'avg_body_weight': FieldValue.delete(),
+        'avg_body_length': FieldValue.delete(),
+        'biomass': FieldValue.delete(),
         'sample_size': updated.sampleSize,
         'total_weight': updated.totalWeight,
         'total_length': updated.totalLength,
-        'biomass': updated.biomass,
         'live_count': updated.liveCount,
         'created_at': FieldValue.serverTimestamp(),
       });
@@ -1157,7 +1247,7 @@ class TankService extends ChangeNotifier {
         }
         committedMortality = existingMortality + val;
         transaction.set(recordRef, {
-          'mortality_date': mEntry.date.millisecondsSinceEpoch,
+          'mortality_date': _writeTankTimestamp(mEntry.date),
           'mortality_count': mEntry.count,
           'created_at': FieldValue.serverTimestamp(),
         });
@@ -1306,14 +1396,13 @@ class TankService extends ChangeNotifier {
             (existing['harvest_weight_grams'] as num?)?.toDouble() ?? 0.0;
         transaction.set(recordRef, {
           'batch_id': resolvedBatchId,
-          'harvest_date': now.millisecondsSinceEpoch,
+          'harvest_date': _writeTankTimestamp(now),
           'harvest_count': harvestedCount,
           'total_weight_kg': totalWeightKg,
-          'abw_grams': abwGrams,
           'created_at': FieldValue.serverTimestamp(),
         });
         transaction.set(batchRef, {
-          'harvest_date': now.millisecondsSinceEpoch,
+          'harvest_date': _writeTankTimestamp(now),
           'harvest_count': committedTotal,
           'current_count': (initial - deaths - committedTotal).clamp(
             0,
@@ -1355,7 +1444,6 @@ class TankService extends ChangeNotifier {
         ? last.batchId
         : (_selectedBatchId ?? '');
     if (resolvedBatchId.isEmpty) throw ArgumentError('No batch selected');
-    final abwGrams = (totalWeightKg * 1000) / harvestedCount;
     final recordRef = _harvestRef(resolvedBatchId).doc(last.id);
     final batchRef = _batchesRef.doc(resolvedBatchId);
     int committedTotal = _totalHarvested;
@@ -1401,7 +1489,7 @@ class TankService extends ChangeNotifier {
           'batch_id': resolvedBatchId,
           'harvest_count': harvestedCount,
           'total_weight_kg': totalWeightKg,
-          'abw_grams': abwGrams,
+          'abw_grams': FieldValue.delete(),
           'created_at': FieldValue.serverTimestamp(),
         });
         transaction.set(batchRef, {
@@ -1421,7 +1509,6 @@ class TankService extends ChangeNotifier {
         date: last.date,
         harvestedCount: harvestedCount,
         totalWeightKg: totalWeightKg,
-        abwGrams: abwGrams,
       );
       _addActivity(
         'Updated last harvest to $harvestedCount crayfish, ${totalWeightKg.toStringAsFixed(2)}kg total',
@@ -1494,17 +1581,15 @@ class TankService extends ChangeNotifier {
       if (batchSnap.exists) {
         await batchRef.set({
           'batch_status': 'harvested',
-          'harvest_date': now.millisecondsSinceEpoch,
+          'harvest_date': _writeTankTimestamp(now),
           'harvest_count': harvestCount,
           'harvest_weight_grams': harvestWeightGrams,
-          'days_in_culture': daysInCulture,
+          'days_in_culture': FieldValue.delete(),
           'total_mortality': _mortality,
-          'final_abw': samplingHistory.isNotEmpty
-              ? samplingHistory.last.abw
-              : _initialWeight,
-          'final_abl': samplingHistory.isNotEmpty
-              ? samplingHistory.last.avgLength
-              : _initialLength,
+          'initial_abw': FieldValue.delete(),
+          'initial_abl': FieldValue.delete(),
+          'final_abw': FieldValue.delete(),
+          'final_abl': FieldValue.delete(),
         }, SetOptions(merge: true));
       }
 

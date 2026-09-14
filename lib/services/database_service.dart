@@ -245,16 +245,15 @@ class DatabaseService {
       });
       writeCount++;
     }
-    // Seed default actuators (off, manual-off state).
-    // last_changed is seeded as integer epoch-ms (0 = never changed) to keep
-    // the field type consistent with ESP32 writes.
+    // Seed default actuators (off, manual-off state). No Timestamp exists for
+    // last_changed until the ESP reports a physical relay state change.
     for (var index = 0; index < actuatorRefs.length; index++) {
       if (existingDefaults[defaults.length + index].exists) continue;
       final actuatorRef = actuatorRefs[index];
       batch.set(actuatorRef, {
         'control_mode': 'off',
         'current_state': 'off',
-        'last_changed': 0,
+        'last_changed': null,
       });
       writeCount++;
     }

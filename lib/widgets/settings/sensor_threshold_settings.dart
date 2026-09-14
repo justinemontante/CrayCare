@@ -467,55 +467,27 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
     final previousLow = config['min'] ?? 20.0;
     final previousCapacity = config['capacity_grams'] ?? 1000.0;
     final criticalCtrl = TextEditingController(
-      text: (config['critical'] ?? 10).toStringAsFixed(0),
+      text: previousCritical.toStringAsFixed(0),
     );
-    final lowCtrl = TextEditingController(
-      text: (config['min'] ?? 20).toStringAsFixed(0),
-    );
+    final lowCtrl = TextEditingController(text: previousLow.toStringAsFixed(0));
     final capacityCtrl = TextEditingController(
-      text: (config['capacity_grams'] ?? 1000).toStringAsFixed(0),
+      text: previousCapacity.toStringAsFixed(0),
     );
 
     return showDialog<({double critical, double low, double capacity})>(
       context: context,
       builder: (ctx) => AlertDialog(
         insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-        titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-        contentPadding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
-        actionsPadding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        title: Row(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(
-                Icons.inventory_2_outlined,
-                size: 21,
-                color: AppColors.primary,
-              ),
-            ),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Text(
-                'Feed Level Settings',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
-              ),
-            ),
-          ],
+        title: const Text(
+          'Feed Level Settings',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Warnings use percentage. Feeding is blocked only when empty or the estimated grams are insufficient.',
+              'Warnings use percentage. Feeding is blocked when the hopper is empty or the estimated amount is insufficient.',
               style: TextStyle(
                 fontSize: 11,
                 height: 1.4,
@@ -526,11 +498,7 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
             Row(
               children: [
                 Expanded(
-                  child: _buildModalField(
-                    'Critical at/below',
-                    criticalCtrl,
-                    '%',
-                  ),
+                  child: _buildModalField('Critical at/below', criticalCtrl, '%'),
                 ),
                 const SizedBox(width: 10),
                 Expanded(child: _buildModalField('Low at/below', lowCtrl, '%')),
@@ -543,14 +511,7 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: Text(
-              'Cancel',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: AppColors.darkWith(0.4),
-              ),
-            ),
+            child: const Text('Cancel'),
           ),
           ElevatedButton(
             onPressed: () {
@@ -571,9 +532,7 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
                   capacity > 50000) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
-                    content: Text(
-                      'Use Critical < Low ≤ 50%, and capacity 100–50,000 g.',
-                    ),
+                    content: Text('Use Critical < Low ≤ 50%, and capacity 100–50,000 g.'),
                   ),
                 );
                 return;
@@ -588,15 +547,8 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
               backgroundColor: AppColors.primary,
               foregroundColor: Colors.white,
               elevation: 0,
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
             ),
-            child: const Text(
-              'Update',
-              style: TextStyle(fontWeight: FontWeight.w800),
-            ),
+            child: const Text('Update'),
           ),
         ],
       ),
@@ -725,21 +677,21 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
                 Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      sensorKey == 'feedlevel'
-                          ? 'Critical ≤${(range['critical'] ?? 10).toStringAsFixed(0)}% • Low ≤${min.toStringAsFixed(0)}%'
-                          : '${min.toStringAsFixed(1)} – ${_formatMax(max)}',
+                    children: [
+                      Text(
+                        sensorKey == 'feedlevel'
+                            ? 'Critical ≤${(range['critical'] ?? 10).toStringAsFixed(0)}% • Low ≤${min.toStringAsFixed(0)}%'
+                            : '${min.toStringAsFixed(1)} – ${_formatMax(max)}',
                       style: const TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w900,
                         color: AppColors.primary,
                       ),
                     ),
-                    Text(
-                      sensorKey == 'feedlevel'
-                          ? 'Capacity ${(range['capacity_grams'] ?? 1000).toStringAsFixed(0)} g'
-                          : info.unit,
+                      Text(
+                        sensorKey == 'feedlevel'
+                            ? 'Capacity ${(range['capacity_grams'] ?? 1000).toStringAsFixed(0)} g'
+                            : info.unit,
                       style: TextStyle(
                         fontSize: 8,
                         fontWeight: FontWeight.w800,

@@ -144,7 +144,7 @@ String? feederOutcomeOnDate(ScheduleItem schedule, DateTime date) {
   }
   return switch (schedule.lastOutcome) {
     'completed' => 'completed',
-    'skipped_insufficient' || 'blocked' => 'skipped',
+    'blocked' => 'skipped',
     'failed' => 'failed',
     _ => null,
   };
@@ -178,7 +178,7 @@ String? feederRecordedOutcome(
     }
     final outcome = switch (log.status) {
       'completed' => 'completed',
-      'skipped_insufficient' || 'blocked' => 'skipped',
+      'blocked' => 'skipped',
       'failed' => 'failed',
       _ => null,
     };

@@ -109,9 +109,9 @@ class _SplashScreenState extends State<SplashScreen>
       // Without a provider the SDK sends a placeholder token and protected
       // calls are rejected before our function code can authenticate the user.
       await FirebaseAppCheck.instance.activate(
-        androidProvider: kDebugMode
-            ? AndroidProvider.debug
-            : AndroidProvider.playIntegrity,
+        providerAndroid: kDebugMode
+            ? const AndroidDebugProvider()
+            : const AndroidPlayIntegrityProvider(),
       );
     }, 10000);
     _advanceProgress();

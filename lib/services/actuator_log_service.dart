@@ -32,7 +32,8 @@ class ActuatorLogService extends ChangeNotifier {
   };
 
   final Map<String, List<LogEntry>> _logs = {};
-  final List<StreamSubscription<QuerySnapshot<Map<String, dynamic>>>> _subs = [];
+  final List<StreamSubscription<QuerySnapshot<Map<String, dynamic>>>> _subs =
+      [];
   bool _initialized = false;
   bool _warmup = true;
   final Set<String> _seenKeys = {};
@@ -41,7 +42,8 @@ class ActuatorLogService extends ChangeNotifier {
 
   final StreamController<AutoActuatorEvent> _autoControlController =
       StreamController<AutoActuatorEvent>.broadcast();
-  Stream<AutoActuatorEvent> get autoControlEvents => _autoControlController.stream;
+  Stream<AutoActuatorEvent> get autoControlEvents =>
+      _autoControlController.stream;
 
   void init() {
     if (_initialized) return;
@@ -75,8 +77,10 @@ class ActuatorLogService extends ChangeNotifier {
     }
 
     try {
-      final profileDoc =
-          await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      final profileDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get();
       final profile = profileDoc.data();
       // Admins do not own operational tank data and Firestore rules deny these
       // reads, so do not create noisy listeners for an admin account.
@@ -110,59 +114,63 @@ class ActuatorLogService extends ChangeNotifier {
           .orderBy('logged_at', descending: true)
           .limit(50)
           .snapshots()
-          .listen((snapshot) {
-        // Ignore a late event from a subscription whose account was replaced.
-        if (_listeningUid != uid) return;
+          .listen(
+            (snapshot) {
+              // Ignore a late event from a subscription whose account was replaced.
+              if (_listeningUid != uid) return;
 
-        final list = snapshot.docs.map((doc) {
-          final map = doc.data();
-          // Accept the canonical epoch-ms value plus legacy/admin-written
-          // Timestamp, DateTime, ISO string, or epoch-second representations.
-          final parsed = parsePredictionTimestamp(map['logged_at']);
-          final dt = parsed?.toLocal();
-          final ts = parsed?.millisecondsSinceEpoch ?? 0;
-          return LogEntry(
-            map['action'] as String? ?? '',
-            map['type'] as String? ?? '',
-            dt == null ? '' : _formatTime(dt),
-            dt == null ? '' : _formatDate(dt),
-            timestamp: ts,
+              final list = snapshot.docs.map((doc) {
+                final map = doc.data();
+                // Firestore Timestamp is canonical; accept legacy epoch-ms,
+                // DateTime, ISO string, and epoch-second values during rollout.
+                final parsed = parsePredictionTimestamp(map['logged_at']);
+                final dt = parsed?.toLocal();
+                final ts = parsed?.millisecondsSinceEpoch ?? 0;
+                return LogEntry(
+                  map['action'] as String? ?? '',
+                  map['type'] as String? ?? '',
+                  dt == null ? '' : _formatTime(dt),
+                  dt == null ? '' : _formatDate(dt),
+                  timestamp: ts,
+                );
+              }).toList()..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+
+              _logs[actuatorId] = list;
+              notifyListeners();
+
+              if (!_warmup) {
+                for (final change in snapshot.docChanges) {
+                  if (change.type != DocumentChangeType.added) continue;
+                  final data = change.doc.data();
+                  if (data == null) continue;
+                  final action = data['action'] as String? ?? '';
+                  final key = change.doc.id;
+                  if (_seenKeys.contains(key)) continue;
+                  _seenKeys.add(key);
+                  if (!action.contains('(AUTO)')) continue;
+
+                  final ts = parsePredictionTimestamp(data['logged_at']);
+                  if (ts == null) continue;
+                  final label = actuatorLabels[actuatorId] ?? actuatorId;
+
+                  _autoControlController.add(
+                    AutoActuatorEvent(
+                      eventId: change.doc.id,
+                      actuatorId: actuatorId,
+                      actuatorLabel: label,
+                      action: action,
+                      timestamp: ts.toLocal(),
+                    ),
+                  );
+                }
+              }
+            },
+            onError: (e) {
+              if (_listeningUid == uid) {
+                debugPrint('[ActuatorLogService] $actuatorId stream error: $e');
+              }
+            },
           );
-        }).toList()
-          ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
-
-        _logs[actuatorId] = list;
-        notifyListeners();
-
-        if (!_warmup) {
-          for (final change in snapshot.docChanges) {
-            if (change.type != DocumentChangeType.added) continue;
-            final data = change.doc.data();
-            if (data == null) continue;
-            final action = data['action'] as String? ?? '';
-            final key = change.doc.id;
-            if (_seenKeys.contains(key)) continue;
-            _seenKeys.add(key);
-            if (!action.contains('(AUTO)')) continue;
-
-            final ts = parsePredictionTimestamp(data['logged_at']);
-            if (ts == null) continue;
-            final label = actuatorLabels[actuatorId] ?? actuatorId;
-
-            _autoControlController.add(AutoActuatorEvent(
-              eventId: change.doc.id,
-              actuatorId: actuatorId,
-              actuatorLabel: label,
-              action: action,
-              timestamp: ts.toLocal(),
-            ));
-          }
-        }
-      }, onError: (e) {
-        if (_listeningUid == uid) {
-          debugPrint('[ActuatorLogService] $actuatorId stream error: $e');
-        }
-      });
       _subs.add(sub);
     }
 
@@ -172,8 +180,18 @@ class ActuatorLogService extends ChangeNotifier {
   }
 
   static const _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ];
 
   /// Formats an epoch-ms timestamp as "3:45 PM" (matches the old ESP32

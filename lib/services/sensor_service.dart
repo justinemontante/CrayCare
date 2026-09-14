@@ -137,6 +137,7 @@ class SensorService extends ChangeNotifier {
       if (value <= low) return 'WARNING';
       return 'OPTIMAL';
     }
+
     final min = range['min'] ?? 0.0;
     final max = range['max'] ?? 999.0;
 

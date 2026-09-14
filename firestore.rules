@@ -44,15 +44,15 @@ service cloud.firestore {
       let tempOk = sensorName == 'temperature' && min >= 10.0 && min <= 32.0 && max >= 15.0 && max <= 38.0;
       let phOk = sensorName == 'ph_level' && min >= 4.0 && min <= 7.5 && max >= 6.5 && max <= 10.0;
       let doOk = sensorName == 'dissolved_oxygen' && min >= 1.0 && min <= 8.0 && max >= 3.0 && max <= 15.0;
-      let turbOk = sensorName == 'turbidity' && min >= 0.0 && min <= 100.0 && max >= 5.0 && max <= 1000.0;
-      let waterOk = sensorName == 'water_level' && min >= 0.0 && min <= 95.0 && max >= 5.0 && max <= 100.0;
-      let feedCritical = request.resource.data.get('critical_value', -1);
-      let feedCapacity = request.resource.data.get('hopper_capacity_grams', 0);
-      let feedOk = sensorName == 'feed_level' &&
-        min >= 1.0 && min <= 50.0 && max == 100.0 &&
-        feedCritical is number && feedCritical >= 0.0 && feedCritical < min &&
-        feedCapacity is number && feedCapacity >= 100.0 && feedCapacity <= 50000.0;
-      return validNumbers && (tempOk || phOk || doOk || turbOk || waterOk || feedOk);
+        let turbOk = sensorName == 'turbidity' && min >= 0.0 && min <= 100.0 && max >= 5.0 && max <= 1000.0;
+        let waterOk = sensorName == 'water_level' && min >= 0.0 && min <= 95.0 && max >= 5.0 && max <= 100.0;
+        let feedCritical = request.resource.data.get('critical_value', -1);
+        let feedCapacity = request.resource.data.get('hopper_capacity_grams', 0);
+        let feedOk = sensorName == 'feed_level' &&
+          min >= 1.0 && min <= 50.0 && max == 100.0 &&
+          feedCritical is number && feedCritical >= 0.0 && feedCritical < min &&
+          feedCapacity is number && feedCapacity >= 100.0 && feedCapacity <= 50000.0;
+        return validNumbers && (tempOk || phOk || doOk || turbOk || waterOk || feedOk);
     }
     function isEspSession() {
       return isSignedIn() &&
@@ -222,7 +222,7 @@ service cloud.firestore {
           ]) &&
           request.resource.data.type in ['auto', 'manual', 'missed', 'error', 'pending_confirmation'] &&
           request.resource.data.action is string &&
-          request.resource.data.logged_at is int);
+          request.resource.data.logged_at is timestamp);
         // Feeding history is an append-only audit trail. Confirmed device
         // outcomes and owner-created schedule audit entries cannot be changed
         // or erased after the first successful write.
@@ -230,6 +230,11 @@ service cloud.firestore {
       }
 
       match /water_quality_anomaly_detections/{docId} {
+        allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId);
+        allow create, update, delete: if false;
+      }
+
+      match /water_quality_anomaly_detection_history/{detectionId} {
         allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId);
         allow create, update, delete: if false;
       }

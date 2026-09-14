@@ -5,11 +5,11 @@
 
 Project CrayCare {
   database_type: 'PostgreSQL'
-  Note: 'Normalized SQL logical model. Source facts are stored once; calculated values are produced by queries or views. Operational read/staging models are identified explicitly. Firestore persistence notes are attached per table.'
+  Note: 'Normalized SQL logical model. Source facts are stored once; calculated values are produced by queries or views. Operational read/staging models are identified explicitly. Firestore persistence notes are attached per table. Logical keys representing Firestore document IDs are path identifiers and may not be stored fields.'
 }
 
 Table users {
-  uid varchar [pk, note: 'Unique user identifier']
+  uid varchar [pk, note: 'Firebase Authentication UID and users/{uid} document ID; not duplicated as a stored uid field']
   full_name varchar [not null]
   email varchar [not null, unique]
   role varchar [not null, note: 'owner | admin']
@@ -19,8 +19,8 @@ Table users {
   created_at timestamp [not null]
 }
 
-Table notification_settings [note: 'Persisted at users/{uid}/notification_settings/preferences'] {
-  uid varchar [pk, ref: - users.uid]
+Table notification_settings [note: 'Persisted at users/{uid}/notification_settings/preferences; uid is the parent document ID, not a stored child field'] {
+  uid varchar [pk, ref: - users.uid, note: 'Parent Firebase Authentication UID']
   sound boolean [not null, default: true]
   vibration boolean [not null, default: true]
   critical boolean [not null, default: true]
@@ -31,47 +31,51 @@ Table notification_settings [note: 'Persisted at users/{uid}/notification_settin
   updated_at timestamp
 }
 
-Table tanks [note: 'Persisted at tanks/{tankId}; stores tank ownership, setup state, and the active-batch pointer only'] {
-  tank_id varchar [pk]
+Table tanks [note: 'Persisted at tanks/{tankId}; tankId is the owner Firebase Authentication UID. Stores tank ownership, setup state, and the active-batch pointer only'] {
+  tank_id varchar [pk, note: 'Firestore document ID: owner Firebase Authentication UID; not a stored field']
   owner_uid varchar [not null, unique, ref: - users.uid]
-  current_batch_id varchar [note: 'ID of the active batch doc under tanks/{tankId}/batches (tank pointer)']
+  current_batch_id varchar [note: 'Active batch document ID, format CR-YYYYMMDD-###']
   is_initialized boolean [not null, default: false]
   created_at timestamp [not null]
 }
 
 Table hardware_assignments [note: 'Firestore keeps a singleton hardware_system/currentOwner document (fields: uid, tank_id, assigned_by, assigned_at) plus the uid used for authorization'] {
-  assignment_id varchar [pk, note: 'Conceptual history key; not stored in the Firestore singleton']
+  assignment_id varchar [pk, note: 'Conceptual key only; actual fixed Firestore document ID is hardware_system/currentOwner']
   uid varchar [not null, note: 'Stored on hardware_system/currentOwner']
   tank_id varchar [not null, unique, ref: - tanks.tank_id]
   assigned_by varchar [not null, ref: > users.uid]
   assigned_at timestamp [not null]
 }
 
-Table notifications {
-  notification_id varchar [pk, note: 'Document ID; not a stored field']
+Table notifications [note: 'Persisted at notifications/{notificationId}'] {
+  notification_id varchar [pk, note: 'Firestore document ID; auto-ID by default or deterministic SHA-256 event ID for idempotent server notifications; not a stored field']
   uid varchar [not null, ref: > users.uid]
   notif_type varchar [not null, note: 'critical | warning | operational | reminder | device_auto | general']
   title varchar [not null]
   body text [not null]
   is_read boolean [not null, default: false]
   created_at timestamp [not null]
-  Indexes { (uid, created_at) }
+  Indexes {
+    (uid, created_at)
+  }
 }
 
-Table sensor_thresholds [note: 'Persisted at tanks/{tankId}/sensors/{sensorName}; sensor_name is the document ID'] {
-  tank_id varchar [not null, ref: > tanks.tank_id]
-  sensor_name varchar [not null, note: 'temperature | ph_level | dissolved_oxygen | turbidity | water_level | feed_level']
+Table sensor_thresholds [note: 'Persisted at tanks/{tankId}/sensors/{sensorName}; sensor_name is the fixed document ID'] {
+  tank_id varchar [not null, ref: > tanks.tank_id, note: 'Parent tank document ID; not stored on child document']
+  sensor_name varchar [not null, note: 'Fixed document ID: temperature | ph_level | dissolved_oxygen | turbidity | water_level | feed_level']
   min_value decimal(10,2) [not null]
   max_value decimal(10,2) [not null]
-  critical_value decimal(10,2) [note: 'Feed-level critical-low percentage only']
-  hopper_capacity_grams decimal(10,2) [note: 'Feed-level full-capacity calibration only']
+  critical_value decimal(10,2) [note: 'Feed-level critical threshold only']
+  hopper_capacity_grams decimal(10,2) [note: 'Feed-level hopper capacity only']
   updated_at timestamp
-  Indexes { (tank_id, sensor_name) [pk] }
+  Indexes {
+    (tank_id, sensor_name) [pk]
+  }
 }
 
-Table sensor_readings_history [note: '10-minute window aggregate rows stored at tanks/{tankId}/sensor_readings_history/{YYYY-MM-DD}/entries/{docId}; entry ID is the doc ID'] {
-  tank_id varchar [not null, ref: > tanks.tank_id]
-  reading_id varchar [not null, note: 'Document ID; not a stored field']
+Table sensor_readings_history [note: '10-minute sensor-history records. The parent daily record is used internally to summarize the same history for long-range analytics; it is not shown as a separate ERD table.'] {
+  tank_id varchar [not null, ref: > tanks.tank_id, note: 'Parent tank document ID; not stored on entry']
+  reading_id varchar [not null, note: 'Firestore Auto-ID inherited from sensorIngestion history; not a stored field']
   temp_min decimal(6,2)
   temp_max decimal(6,2)
   temp_avg decimal(6,2)
@@ -87,7 +91,7 @@ Table sensor_readings_history [note: '10-minute window aggregate rows stored at 
   waterLevel_min decimal(6,2)
   waterLevel_max decimal(6,2)
   waterLevel_avg decimal(6,2)
-  feed_level decimal(5,2)
+  feed_level decimal(6,2)
   estimated_feed_grams decimal(10,2)
   recorded_at timestamp [not null]
   Indexes {
@@ -104,47 +108,10 @@ Table sensor_readings [note: 'Operational latest-reading projection; outside the
   turbidity decimal(8,2)
   turbidity_air boolean
   water_level decimal(6,2)
-  feed_level decimal(5,2)
+  feed_level decimal(6,2)
   estimated_feed_grams decimal(10,2)
   buffered_entries int
   recorded_at timestamp [not null]
-}
-
-Table sensor_daily_summaries [note: 'Materialized analytics read model generated from history for fast long-range charts. Persisted at tanks/{tankId}/sensor_readings_history/{YYYY-MM-DD} (the same document path as the date_key parent)'] {
-  tank_id varchar [not null, ref: > tanks.tank_id]
-  date_key varchar [not null]
-  sample_count int [not null]
-  temp_min decimal(6,2)
-  temp_max decimal(6,2)
-  temp_avg decimal(6,2)
-  temp_sum decimal(10,2)
-  temp_count int
-  pH_min decimal(5,2)
-  pH_max decimal(5,2)
-  pH_avg decimal(5,2)
-  pH_sum decimal(8,2)
-  pH_count int
-  DO_min decimal(5,2)
-  DO_max decimal(5,2)
-  DO_avg decimal(5,2)
-  DO_sum decimal(8,2)
-  DO_count int
-  turbidity_min decimal(8,2)
-  turbidity_max decimal(8,2)
-  turbidity_avg decimal(8,2)
-  turbidity_sum decimal(12,2)
-  turbidity_count int
-  waterLevel_min decimal(6,2)
-  waterLevel_max decimal(6,2)
-  waterLevel_avg decimal(6,2)
-  waterLevel_sum decimal(10,2)
-  waterLevel_count int
-  summary_version int [not null, default: 1]
-  summary_sanitized boolean [not null, default: false]
-  summary_complete boolean [not null, default: false]
-  processed_entry_ids text [note: 'Firestore array<string> of folded entry doc IDs (idempotent rebuilds)']
-  updated_at timestamp
-  Indexes { (tank_id, date_key) [pk] }
 }
 
 Table actuators [note: 'Persisted at tanks/{tankId}/actuators/{deviceId}; device_id is the doc ID'] {
@@ -152,11 +119,13 @@ Table actuators [note: 'Persisted at tanks/{tankId}/actuators/{deviceId}; device
   device_id varchar [not null, note: 'pump | aerator1 | aerator2']
   control_mode varchar [not null, note: 'on | off | auto']
   current_state varchar [not null, note: 'on | off']
-  last_changed timestamp [note: 'Integer epoch-ms in Firestore; 0 means never changed']
-  Indexes { (tank_id, device_id) [pk] }
+  last_changed timestamp [note: 'Firestore Timestamp; null before the first device-reported change; legacy epoch-ms may exist']
+  Indexes {
+    (tank_id, device_id) [pk]
+  }
 }
 
-Table actuator_logs [note: 'Persisted at tanks/{tankId}/actuator_logs/{logId}; logged_at is integer epoch-ms in Firestore'] {
+Table actuator_logs [note: 'Persisted at tanks/{tankId}/actuator_logs/{logId}; logged_at is a Firestore Timestamp'] {
   tank_id varchar [not null, ref: > tanks.tank_id]
   log_id varchar [not null, note: 'Document ID; not a stored field']
   actuator_type varchar [not null]
@@ -172,13 +141,13 @@ Table actuator_logs [note: 'Persisted at tanks/{tankId}/actuator_logs/{logId}; l
 Table feeder_status [note: 'Operational current-state projection; one row per tank. Persisted at tanks/{tankId}/feeder/status with camelCase fields dispenseCount and lastSeen'] {
   tank_id varchar [pk, ref: - tanks.tank_id]
   command_id varchar
-  status varchar [not null, note: 'idle | checking_feed_level | dispensing | completed | skipped_insufficient | blocked | failed']
+  status varchar [not null, note: 'idle | checking_feed_level | dispensing | completed | blocked | skipped_insufficient | failed']
   status_reason varchar
   dispenseCount int [not null, default: 0, note: 'Persisted in ESP32 NVS across reboots']
-  lastSeen timestamp [note: 'Integer epoch-ms in Firestore']
-  last_dispensed_at timestamp [note: 'Integer epoch-ms in Firestore; null until first dispense']
+  lastSeen timestamp [note: 'Firestore Timestamp; legacy integer epoch-ms may exist']
+  last_dispensed_at timestamp [note: 'Firestore Timestamp; null until first dispense']
   last_dispensed_grams decimal(8,2)
-  feed_level decimal(5,2)
+  feed_level decimal(6,2)
   estimated_feed_grams decimal(10,2)
 }
 
@@ -193,8 +162,8 @@ Table feeder_schedules [note: 'Persisted at tanks/{tankId}/feeder_schedules/{sch
   days varchar [not null, note: '7-character Sunday-first mask (e.g. 0111110)']
   isDone boolean [not null, default: false, note: 'Legacy compatibility; true only for the completed current occurrence']
   effective_at_ms int [not null, note: 'Integer epoch-ms; prevents new/edited schedules from being treated as retroactively due']
-  last_outcome varchar [note: 'completed | skipped_insufficient | blocked | failed']
-  last_occurrence_at timestamp [note: 'Integer epoch-ms']
+  last_outcome varchar [note: 'completed | blocked | skipped_insufficient | failed']
+  last_occurrence_at timestamp [note: 'Firestore Timestamp; legacy integer epoch-ms may exist']
   created_at timestamp [not null]
   Indexes {
     (tank_id, schedule_id) [pk]
@@ -206,7 +175,9 @@ Table feeder_schedule_days [note: 'Logical normalization of the days mask only; 
   tank_id varchar [not null]
   schedule_id varchar [not null]
   day_of_week smallint [not null, note: '0=Sunday through 6=Saturday']
-  Indexes { (tank_id, schedule_id, day_of_week) [pk] }
+  Indexes {
+    (tank_id, schedule_id, day_of_week) [pk]
+  }
 }
 
 Table feeder_commands [note: 'Manual Feed Now commands persisted at tanks/{tankId}/feeder_commands/{commandId}; ESP32 reads and deletes processed commands'] {
@@ -218,10 +189,12 @@ Table feeder_commands [note: 'Manual Feed Now commands persisted at tanks/{tankI
   issued_at timestamp [not null]
   expires_at timestamp [not null]
   near_schedule_confirmed boolean [not null, default: false, note: 'Owner acknowledged warning-window proximity; never bypasses device collision block']
-  Indexes { (tank_id, command_id) [pk] }
+  Indexes {
+    (tank_id, command_id) [pk]
+  }
 }
 
-Table feeder_logs [note: 'Feeding lifecycle/audit logs at tanks/{tankId}/feeder_logs/{logId}; logged_at is integer epoch-ms in Firestore'] {
+Table feeder_logs [note: 'Feeding lifecycle/audit logs at tanks/{tankId}/feeder_logs/{logId}; event times are Firestore Timestamps'] {
   tank_id varchar [not null, ref: > tanks.tank_id]
   log_id varchar [not null, note: 'Document ID; not a stored field']
   command_id varchar
@@ -229,16 +202,15 @@ Table feeder_logs [note: 'Feeding lifecycle/audit logs at tanks/{tankId}/feeder_
   schedule_time varchar [note: 'Expected schedule time, human-readable']
   action varchar [not null]
   type varchar [not null, note: 'auto | manual | missed | error | pending_confirmation']
-  status varchar [note: 'completed | skipped_insufficient | blocked | failed; null for non-terminal audit entries such as pending_confirmation']
-  occurrence_at timestamp [note: 'Integer epoch-ms']
+  status varchar [note: 'completed | blocked | skipped_insufficient | failed; null for non-terminal audit entries such as pending_confirmation']
+  occurrence_at timestamp [note: 'Firestore Timestamp']
   requested_grams decimal(8,2)
   estimated_dispensed_grams decimal(8,2)
-  amount_basis varchar [note: 'servo_cycle_estimate']
   estimated_available_grams decimal(10,2)
-  feed_level_before decimal(5,2)
-  feed_level_after decimal(5,2)
+  feed_level_before decimal(6,2)
+  feed_level_after decimal(6,2)
   level_change_detected boolean
-  verification_note varchar
+  amount_basis varchar [note: 'servo_cycle_estimate']
   logged_at timestamp [not null]
   Indexes {
     (tank_id, log_id) [pk]
@@ -248,22 +220,19 @@ Table feeder_logs [note: 'Feeding lifecycle/audit logs at tanks/{tankId}/feeder_
 
 Ref: feeder_schedule_days.(tank_id, schedule_id) > feeder_schedules.(tank_id, schedule_id)
 
-Table water_quality_anomaly_detections [note: 'WQAD results at tanks/{tankId}/water_quality_anomaly_detections/{detectionId}; current is the live alias and timestamp-named docs form history. processed_at is the processing time'] {
+Table water_quality_anomaly_detections [note: 'Logical anomaly-detection record model. The current result and hourly history use the same fields in separate Firestore locations for fast dashboard access and historical retrieval.'] {
   tank_id varchar [not null, ref: > tanks.tank_id]
   uid varchar [note: 'Owner UID attached by the Cloud Function']
-  detection_id varchar [not null, note: 'Document ID (current or YYYYMMDDTHHMMSS); not a stored field']
+  detection_id varchar [not null, note: 'Logical document ID: current for the latest result or YYYYMMDDTHHMMSS for a history record; not a stored field']
   status varchar [not null, note: 'Normal | Unusual | Insufficient']
   is_anomaly boolean [not null, default: false]
   anomaly_score decimal(5,2)
   source varchar [not null]
-  model_algorithm varchar [not null, note: 'IsolationForest | Not applied']
-  training_data_origin varchar
-  training_label_origin varchar [note: 'none_unsupervised']
-  model_feature_count int
   analysis_window_minutes int
   data_status varchar [not null, note: 'ready | insufficient | stale']
-  source_recorded_at timestamp [note: 'ISO-8601 UTC string in Firestore']
+  source_recorded_at timestamp [note: 'Firestore Timestamp; null when no source reading exists']
   source_age_seconds int
+  primary_driver json [note: 'Nullable object: sensor, label, value, unit, direction, contribution_score; convenience copy of contributors[0]']
   driver varchar
   driver_label varchar
   driver_value decimal(10,2)
@@ -271,45 +240,26 @@ Table water_quality_anomaly_detections [note: 'WQAD results at tanks/{tankId}/wa
   insight text [not null]
   recommendation text [not null]
   processed_at timestamp [not null, note: 'Firestore Timestamp; app orders history by it']
-  contributors text [note: 'Firestore array of {sensor, label, value, unit, direction, contribution_score}; normalized into water_quality_anomaly_contributors']
+  contributors text [note: 'Firestore embedded array of {sensor, label, value, unit, direction, contribution_score}']
   Indexes {
     (tank_id, detection_id) [pk]
     (tank_id, processed_at)
   }
-  Note: 'Unsupervised model; safety thresholds remain separate and are not training labels.'
+  Note: 'Unsupervised Isolation Forest output; safety thresholds remain separate and are not training labels.'
 }
 
-Table water_quality_anomaly_contributors [note: 'Logical normalization of the embedded contributors array only; Firestore stores the array on the detection document'] {
-  tank_id varchar [not null]
-  detection_id varchar [not null]
-  rank_no smallint [not null]
-  sensor varchar [not null, note: 'temp | pH | DO | turbidity | waterLevel']
-  label varchar [not null]
-  value decimal(10,2)
-  unit varchar
-  direction varchar
-  contribution_score decimal(10,4)
-  Indexes { (tank_id, detection_id, rank_no) [pk] }
-}
-
-Ref: water_quality_anomaly_contributors.(tank_id, detection_id) > water_quality_anomaly_detections.(tank_id, detection_id)
-
-Table batches [note: 'Persisted at tanks/{tankId}/batches/{batchId}; Firestore stores the derived growth values below as columns on the batch document'] {
+Table batches [note: 'Persisted at tanks/{tankId}/batches/{batchId}; growth averages are derived by the app from baseline totals and sampling records, not stored on the batch document'] {
   tank_id varchar [not null, ref: > tanks.tank_id]
   batch_id varchar [not null, note: 'Document ID; not a stored field']
   batch_status varchar [not null, note: 'active | harvested | superseded']
-  stocking_date date [not null, note: 'Integer epoch-ms in Firestore']
-  harvest_date date [note: 'Integer epoch-ms in Firestore; null until harvested']
+  stocking_date timestamp [not null, note: 'Firestore Timestamp; calendar day of stocking']
+  harvest_date timestamp [note: 'Firestore Timestamp; null until harvested']
+  ended_at timestamp [note: 'Firestore Timestamp; set when a batch is superseded without harvest']
   initial_count int [not null]
   current_count int [note: 'Live population currently tracked']
   harvest_count int [not null, default: 0]
   total_mortality int [not null, default: 0]
   harvest_weight_grams decimal(12,2)
-  initial_abw decimal(10,2)
-  initial_abl decimal(10,2)
-  final_abw decimal(10,2)
-  final_abl decimal(10,2)
-  days_in_culture int [note: 'Calendar days from stocking to completion (date-based)']
   sample_count int
   initial_total_weight decimal(10,2)
   initial_total_length decimal(10,2)
@@ -324,13 +274,10 @@ Table sampling_records [note: 'Persisted at tanks/{tankId}/batches/{batchId}/sam
   tank_id varchar [not null]
   batch_id varchar [not null]
   sampling_id varchar [not null, note: 'Document ID; not a stored field']
-  sampling_date date [not null, note: 'Integer epoch-ms in Firestore']
+  sampling_date timestamp [not null, note: 'Firestore Timestamp; calendar day of sampling']
   sample_size int [not null]
   total_weight decimal(10,2) [not null]
   total_length decimal(10,2) [not null]
-  avg_body_weight decimal(10,2) [not null]
-  avg_body_length decimal(10,2) [not null]
-  biomass decimal(12,2) [not null, note: 'live_count x avg_body_weight']
   live_count int [not null]
   is_baseline boolean [not null, default: false, note: 'True for the Day 0 baseline; false for weekly samples']
   created_at timestamp [not null]
@@ -338,34 +285,37 @@ Table sampling_records [note: 'Persisted at tanks/{tankId}/batches/{batchId}/sam
     (tank_id, batch_id, sampling_id) [pk]
     (tank_id, batch_id, sampling_date)
   }
+  Note: 'The app derives avg_body_weight = total_weight / sample_size, avg_body_length = total_length / sample_size, and biomass = live_count x (total_weight / sample_size); none are persisted. Legacy records may still contain them.'
 }
 
 Table mortality_records [note: 'Persisted at tanks/{tankId}/batches/{batchId}/mortality_records/{recordId}'] {
   tank_id varchar [not null]
   batch_id varchar [not null]
   mortality_id varchar [not null, note: 'Document ID; not a stored field']
-  mortality_date date [not null, note: 'Integer epoch-ms in Firestore']
+  mortality_date timestamp [not null, note: 'Firestore Timestamp; date mortality was recorded']
   mortality_count int [not null]
   created_at timestamp [not null]
-  Indexes { (tank_id, batch_id, mortality_id) [pk] }
+  Indexes {
+    (tank_id, batch_id, mortality_id) [pk]
+  }
 }
 
-Table harvest_records [note: 'Persisted at tanks/{tankId}/batches/{batchId}/harvest_records/{recordId}'] {
+Table harvest_records [note: 'Persisted at tanks/{tankId}/batches/{batchId}/harvest_records/{recordId}; harvest ABW is app-derived from total_weight_kg and harvest_count, not stored'] {
   tank_id varchar [not null]
   batch_id varchar [not null]
   harvest_id varchar [not null, note: 'Document ID; not a stored field']
-  harvest_date date [not null, note: 'Integer epoch-ms in Firestore']
+  harvest_date timestamp [not null, note: 'Firestore Timestamp; date of harvest']
   harvest_count int [not null]
   total_weight_kg decimal(10,3) [not null]
-  abw_grams decimal(10,2) [not null, note: 'total_weight_kg x 1000 / harvest_count']
   created_at timestamp [not null]
-  Indexes { (tank_id, batch_id, harvest_id) [pk] }
+  Indexes {
+    (tank_id, batch_id, harvest_id) [pk]
+  }
 }
 
 Ref: sampling_records.(tank_id, batch_id) > batches.(tank_id, batch_id)
 Ref: mortality_records.(tank_id, batch_id) > batches.(tank_id, batch_id)
 Ref: harvest_records.(tank_id, batch_id) > batches.(tank_id, batch_id)
 
-// Derived values such as ABW/ABL/biomass/days-in-culture are stored as
-// columns on the Firestore batch/sampling documents (above). In a pure SQL
-// deployment they would instead be produced by views/queries.
+// ABW/ABL, sampling biomass, and days-in-culture are app-derived and not persisted.
+// Days-in-culture is recalculated from stocking_date to today (active) or harvest_date (completed).

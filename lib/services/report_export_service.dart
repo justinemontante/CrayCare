@@ -44,6 +44,24 @@ class ReportExportService {
   static String _fmtDateTime(DateTime dt) =>
       '${_fmtDate(dt)} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
 
+  static String _dateRange(DateTime start, DateTime end) {
+    final startText = _fmtDate(start);
+    final endText = _fmtDate(end);
+    return startText == endText ? startText : '$startText to $endText';
+  }
+
+  static DateTime _culturePeriodEnd(TankService tank) =>
+      tank.selectedBatch?.harvestDate ??
+      tank.selectedBatch?.endedAt ??
+      DateTime.now();
+
+  static String _samplingPeriod(List<SamplingEntry> samples) {
+    if (samples.isEmpty) return '-';
+    final ordered = List<SamplingEntry>.of(samples)
+      ..sort((a, b) => a.date.compareTo(b.date));
+    return _dateRange(ordered.first.date, ordered.last.date);
+  }
+
   static String _stamp() {
     final n = DateTime.now();
     return '${n.year}${n.month.toString().padLeft(2, '0')}${n.day.toString().padLeft(2, '0')}_'
@@ -128,6 +146,9 @@ class ReportExportService {
     buf.writeln(_row(['Summary']));
     buf.writeln(_row(['Batch ID', t.selectedBatchId ?? '-']));
     buf.writeln(_row(['Stocking Date', _fmtDate(t.stockingDate)]));
+    buf.writeln(
+      _row(['Culture Period', _dateRange(t.stockingDate, _culturePeriodEnd(t))]),
+    );
     buf.writeln(_row(['Days in Culture', t.daysInCulture]));
     buf.writeln(_row(['Initial Population', t.initialCount]));
     buf.writeln(_row(['Initial ABW (g)', t.initialWeight.toStringAsFixed(2)]));
@@ -140,6 +161,9 @@ class ReportExportService {
     buf.writeln();
 
     final samples = t.samplingHistory;
+    buf.writeln(_row(['Sampling Period', _samplingPeriod(samples)]));
+    buf.writeln(_row(['Sampling Events', samples.length]));
+    buf.writeln();
     if (samples.isNotEmpty) {
       buf.writeln(_row(['Sampling Records']));
       buf.write(_row(growthColumns));
@@ -273,6 +297,8 @@ class ReportExportService {
     final samples = t.samplingHistory;
     final mortality = t.mortalityHistory;
     final harvests = t.harvestRecords;
+    final culturePeriod = _dateRange(t.stockingDate, _culturePeriodEnd(t));
+    final samplingPeriod = _samplingPeriod(samples);
 
     final samplingRows = growthRows(samples, t.stockingDate);
 
@@ -330,6 +356,7 @@ class ReportExportService {
           kwTable([
             ['Batch ID', _pdfSafe(t.selectedBatchId ?? '-')],
             ['Stocking Date', _fmtDate(t.stockingDate)],
+            ['Culture Period', culturePeriod],
             ['Days in Culture', '${t.daysInCulture}'],
             ['Initial Population', '${t.initialCount}'],
             ['Initial ABW (g)', t.initialWeight.toStringAsFixed(2)],
@@ -339,6 +366,8 @@ class ReportExportService {
             ['Total Mortality', '${t.totalMortalityFromHistory}'],
             ['Total Harvested', '${t.totalHarvested}'],
             ['Survival Rate (%)', t.survivalRate.toStringAsFixed(2)],
+            ['Sampling Period', samplingPeriod],
+            ['Sampling Events', '${samples.length}'],
           ]),
           pw.SizedBox(height: 20),
           pw.Text(
