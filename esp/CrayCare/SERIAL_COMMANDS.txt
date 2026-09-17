@@ -84,21 +84,13 @@ BLOWER (GPIO16 relay, active-LOW)
     Manual blower control (15-minute safety timeout). A manually-started
     blower is never switched by the feed cycle.
   Auto warm-up
-    Every feed (manual, cloud, scheduled, physical button) starts with 5 s
+    Every feed (manual, cloud, scheduled) starts with 5 s
     of blower, which stays ON through dispensing and auto-switches OFF at
     DONE — unless it was manually started.
 
-PHYSICAL BUTTONS (to GND, INPUT_PULLUP)
-  GPIO12 dispense: each tap = +1 g; taps batch in a 3 s settle window, then
-    one feed runs (3 taps = one 3 g feed, single blower pre-run). Ignored
-    while a feed runs or within 3 s of boot. Cap 200 g. Live count on LCD.
-  GPIO2 blower: manual ON/OFF toggle; ignored while a feed auto-holds the
-    blower. This toggle is also the end control for a manually-started
-    blower.
-
 LCD (16x2, SDA 21 / SCL 22, addr 0x27)
   Rotating screens: sensors (T/pH/W/F) and feed+blower; live feed progress
-  (FEED 5g 3/5), tap counter, BLOCKED reasons, and a "Fed Xg OK" banner.
+  (FEED 5g 3/5), BLOCKED reasons, and a "Fed Xg OK" banner.
   Disabled silently if no ACK (check wiring/address).
 
 SENSOR CALIBRATION

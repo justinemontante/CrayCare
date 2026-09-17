@@ -44,8 +44,8 @@ OTHER PERIPHERALS
 ├────────┼───────┼──────────────────────┼──────────────────────────┤
 │   21   │ SDA   │ LCD I2C              │ 16x2 LCD, addr 0x27      │
 │   22   │ SCL   │ LCD I2C              │ VCC 5V + contrast trim  │
-│   12   │       │ Dispense button      │ To GND, INPUT_PULLUP     │
-│    2   │       │ Blower button        │ To GND, INPUT_PULLUP     │
+│   12   │       │ Spare                │                          │
+│    2   │       │ Spare (strapping)    │ Leave unconnected        │
 │    5   │       │ Gate servo SG90 180  │ PWM, LEDC ch 0, 1 g/act  │
 │   25   │       │ HC-SR04 Hopper ECHO  │ (see SENSORS table)      │
 │   18   │       │ SD card SCK (VSPI)   │ Keep SPI wires < 20 cm   │
@@ -126,24 +126,15 @@ Tank configuration:
    to GPIO33 and 2kΩ from GPIO33 to GND). TRIG may connect to GPIO32.
 
 LCD display: live 16x2 screens (sensors / feed+blower), feed progress,
-BLOCKED reasons, "Fed Xg OK" banner, tap counter. Silent-disabled if no
+BLOCKED reasons, "Fed Xg OK" banner. Silent-disabled if no
 ACK at 0x27 — if your backpack is 0x3F, change LCD_ADDR in main.cpp.
 
 ============================================
-  PHYSICAL BUTTONS (to GND, INPUT_PULLUP)
+  SPARE PINS (no physical buttons fitted)
 ============================================
 
-  GPIO12 = DISPENSE. Each tap = +1 g; taps batch in a 3 s settle window,
-  then one feed runs (3 taps = one 3 g feed, single blower pre-run).
-  Taps ignored while a feed runs or within 3 s of boot. Cap 200 g.
-  Full safety path: sensor/block checks + blower 5 s + gate swings.
-
-  GPIO2 = BLOWER toggle (manual ON/OFF). Ignored while a feed auto-holds
-  the blower. Doubles as the end control: a manually-started blower stays
-  ON after DONE until toggled OFF here. 15-minute manual safety timeout.
-
-  Both pins are boot-safe with buttons to GND (pressed = LOW matches
-  their strapping levels; pull-ups engage only in setup()).
+  GPIO12 and GPIO2 are spare. Feeds start from app/schedule/serial only.
+  GPIO2 is a strapping pin — leave unconnected at boot.
 
 ============================================
   SERIAL COMMANDS

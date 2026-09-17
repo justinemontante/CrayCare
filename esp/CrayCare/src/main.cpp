@@ -491,7 +491,6 @@ FeederRunState feederRunState = FEEDER_IDLE;
 int feederCurrentCycle = 0;
 int feederMaxCycles = 1;               // 1 g-only: cycles = whole grams (5 g = 5 actuations)
 unsigned long feederDoneShowMs = 0;    // LCD "Fed Xg OK" banner expiry
-int pendingTaps = 0;  // physical-button tap batching (+1 g per tap)
 unsigned long feederStepMs = 0;
 unsigned long feederStartMs = 0;
 
@@ -1852,7 +1851,6 @@ void printSerialHelp() {
   Serial.println("GATE_ANGLE <10-180>      Gate open angle (NVS)");
   Serial.println("GATE_MS <100-5000>       Gate hold ms (NVS)");
   Serial.println("n4on / n4off             Blower ON/OFF (GPIO16)");
-  Serial.println("Buttons: GPIO12 tap = +1 g (3 s batch), GPIO2 = blower toggle");
   Serial.println("relay status             Show relay states");
 }
 
@@ -1876,8 +1874,6 @@ void blowerAutoOff();
 void blowerSafetyTick();
 void initLCD();
 void updateLCD();
-void initFeedButtons();
-void pollFeedButtons();
 void processFeederCommands();
 void sendFeederStatus();
 void syncFeederSchedules();
@@ -1935,7 +1931,6 @@ void setup() {
   initActuators();
   initBlower();
   initLCD();
-  initFeedButtons();
   if (WiFi.status() == WL_CONNECTED) {
     initTime();
     connectFirebase();
@@ -2385,9 +2380,6 @@ void loop() {
 
   // ─── Blower manual-run safety timeout ───
   blowerSafetyTick();
-
-  // ─── Physical buttons (dispense batching + blower toggle) ───
-  pollFeedButtons();
 
   // ─── LCD status screens (non-blocking) ───
   updateLCD();
@@ -3395,10 +3387,7 @@ void updateLCD() {
   if (!lcdReady) return;
   unsigned long now = millis();
   String l0, l1;
-  if (pendingTaps > 0 && feederRunState == FEEDER_IDLE) {
-    l0 = "Taps: " + String(pendingTaps) + "g?";
-    l1 = "wait...";
-  } else if (feederRunState != FEEDER_IDLE) {
+  if (feederRunState != FEEDER_IDLE) {
     l0 = "FEED " + String(feederRequestedGrams, 0) + "g " +
          String(feederCurrentCycle + 1) + "/" + String(feederMaxCycles);
     if (feederStatusReason.length() > 0 && feederRunState != FEEDER_PRE_BLOW)
@@ -3433,71 +3422,6 @@ void updateLCD() {
   lcdPrint16(1, l1);
 }
 
-// ─── Physical buttons (to GND, INPUT_PULLUP) ───
-// GPIO12 = dispense (tap batching: +1 g per tap, 3 s settle -> one feed).
-// GPIO2  = blower manual ON/OFF toggle. Both boot-safe: pressed = LOW,
-// which matches their required strapping levels; pull-ups engage in setup().
-#define BTN_DISPENSE_PIN 12
-#define BTN_BLOWER_PIN 2
-#define BTN_DEBOUNCE_MS 50
-#define BTN_TAP_WINDOW_MS 3000
-#define BTN_BOOT_LOCK_MS 3000
-#define BTN_MAX_TAPS 200
-bool btnDispRaw = HIGH, btnDispStable = HIGH;
-bool btnBlowRaw = HIGH, btnBlowStable = HIGH;
-unsigned long btnDispChangeMs = 0, btnBlowChangeMs = 0;
-unsigned long lastTapMs = 0;
-
-void initFeedButtons() {
-  pinMode(BTN_DISPENSE_PIN, INPUT_PULLUP);
-  pinMode(BTN_BLOWER_PIN, INPUT_PULLUP);
-  Serial.println("[BUTTON] Dispense=GPIO12 Blower=GPIO2 (to GND, INPUT_PULLUP)");
-}
-
-void pollFeedButtons() {
-  unsigned long now = millis();
-  if (now < BTN_BOOT_LOCK_MS) return;
-
-  bool dRaw = digitalRead(BTN_DISPENSE_PIN);
-  if (dRaw != btnDispRaw) { btnDispRaw = dRaw; btnDispChangeMs = now; }
-  else if (now - btnDispChangeMs >= BTN_DEBOUNCE_MS && dRaw != btnDispStable) {
-    btnDispStable = dRaw;
-    if (dRaw == LOW) {
-      if (feederRunState != FEEDER_IDLE) {
-        Serial.println("[BUTTON] Feed busy — tap ignored");
-      } else if (pendingTaps >= BTN_MAX_TAPS) {
-        Serial.println("[BUTTON] 200 g cap — tap ignored");
-      } else {
-        pendingTaps++;
-        lastTapMs = now;
-        Serial.printf("[BUTTON] Tap %d (+1 g)\n", pendingTaps);
-      }
-    }
-  }
-
-  bool bRaw = digitalRead(BTN_BLOWER_PIN);
-  if (bRaw != btnBlowRaw) { btnBlowRaw = bRaw; btnBlowChangeMs = now; }
-  else if (now - btnBlowChangeMs >= BTN_DEBOUNCE_MS && bRaw != btnBlowStable) {
-    btnBlowStable = bRaw;
-    if (bRaw == LOW) {
-      if (blowerOn && blowerAutoHeld && feederRunState != FEEDER_IDLE) {
-        Serial.println("[BUTTON] Feed owns blower now — ignored");
-      } else {
-        setBlower(!blowerOn, false);
-      }
-    }
-  }
-
-  // Settle window expired -> one feed of the accumulated grams.
-  if (pendingTaps > 0 && feederRunState == FEEDER_IDLE && now - lastTapMs >= BTN_TAP_WINDOW_MS) {
-    int g = pendingTaps;
-    pendingTaps = 0;
-    Serial.printf("[BUTTON] %d taps -> %d g feed\n", g, g);
-    startFeed("button", (float)g);
-  }
-  // A feed started from elsewhere (app/cloud/schedule) voids stale taps.
-  if (pendingTaps > 0 && feederRunState != FEEDER_IDLE) pendingTaps = 0;
-}
 
 // ─── AUTO rule per device (only used when control_mode == "auto") ───
 // Sensor-driven with graceful fallbacks: when the dedicated sensor is not
