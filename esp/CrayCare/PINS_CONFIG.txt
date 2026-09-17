@@ -33,17 +33,21 @@ SENSORS
 │    4   │       │ DS18B20 (Water Temp) │ Standard OneWire         │
 │   32   │ TRIG  │ HC-SR04 (Water Level)│ Ultrasonic Trig         │
 │   33   │ ECHO  │ HC-SR04 (Water Level)│ Ultrasonic Echo         │
-│   39   │ VN    │ Feed Level Sensor    │ Analog hopper level      │
+│   39   │ VN    │ Feed Level Sensor    │ Analog hopper fallback   │
+│   17   │       │ HC-SR04 Hopper TRIG  │ Ultrasonic Trig (feed)   │
+│   25   │       │ HC-SR04 Hopper ECHO  │ Echo via 1k+2k divider   │
 └────────┴───────┴──────────────────────┴──────────────────────────┘
 
 OTHER PERIPHERALS
 ┌────────┬───────┬──────────────────────┬──────────────────────────┐
 │  GPIO  │ Pin   │ Device               │ Notes                    │
 ├────────┼───────┼──────────────────────┼──────────────────────────┤
-│   21   │ SDA   │ LCD I2C              │ 16x2 LCD                 │
-│   22   │ SCL   │ LCD I2C              │ Address: 0x27 or 0x3F    │
+│   21   │ SDA   │ LCD I2C              │ 16x2 LCD, addr 0x27      │
+│   22   │ SCL   │ LCD I2C              │ VCC 5V + contrast trim  │
+│   12   │       │ Dispense button      │ To GND, INPUT_PULLUP     │
+│    2   │       │ Blower button        │ To GND, INPUT_PULLUP     │
 │    5   │       │ Gate servo SG90 180  │ PWM, LEDC ch 0, 1 g/act  │
-│   25   │       │ SPARE (ex-door)      │ do not use yet           │
+│   25   │       │ HC-SR04 Hopper ECHO  │ (see SENSORS table)      │
 │   18   │       │ SD card SCK (VSPI)   │ Keep SPI wires < 20 cm   │
 │   19   │       │ SD card MISO (VSPI)  │ Keep SPI wires < 20 cm   │
 │   23   │       │ SD card MOSI (VSPI)  │ Keep SPI wires < 20 cm   │
@@ -51,24 +55,36 @@ OTHER PERIPHERALS
 └────────┴───────┴──────────────────────┴──────────────────────────┘
 
 FEEDER GATE — SG90 180-DEGREE SERVO ON GPIO5 (LEDC ch 0, ONLY servo)
-  - One open/close actuation drops gateGramsPerAct grams (NVS, default
-    1.0 g). Feed grams from the app decide the count: 5 g = 5 actuations.
+  - 1 g-only model: 1 open/close actuation = 1 g, always. Feed grams from
+    the app decide the count: 5 g = exactly 5 actuations.
   - Motion per actuation: 0 -> GATE_OPEN_ANGLE (default 90) -> hold
     GATE_HOLD_MS (default 800 ms) -> 0. Tune on bench, store permanently.
-  - Calibration: GATECAL runs 10 actuations — catch, weigh, then
-    GATE_GRAMS <total/10>. Adjust GATE_ANGLE / GATE_MS until 1 actuation
-    lands near 1 g. Test a single swing with GATE_TEST.
+  - Calibration: GATECAL runs 10 actuations — catch, weigh, expect ~10 g.
+    Adjust GATE_ANGLE / GATE_MS until 10 actuations land near 10 g.
+    Test a single swing with GATE_TEST.
   - Parks at 0 on boot and after FEEDER_DONE. Never actuates at boot.
   - GPIO25 door servo retired (spare). GPIO13 retired (dead output).
   - Power from separate 5V supply with common GND + ~470 uF cap on
     the servo rail. Never power servos from the ESP 5V pin.
 
+HOPPER LEVEL (2nd HC-SR04, feed surface)
+  - TRIG GPIO17 (direct), ECHO GPIO25 via 1kΩ (ECHO->GPIO) + 2kΩ
+    (GPIO->GND) divider — never direct, same rule as GPIO33.
+  - No ruler needed: empty hopper -> `hopperempty`, full hopper ->
+    `hopperfull`. Percent = (empty - echo) / (empty - full).
+    Manual values: `hopperheight <5-200>` (empty point),
+    `hopperdepth <1-empty>` (max feed depth).
+  - Source: ultrasonic by default; `FEEDMODE 0` forces analog GPIO39.
+    A bad echo falls back to analog automatically; both invalid blocks
+    feeding exactly like before. App sees identical feed_level/grams.
+
 SD CARD (offline storage, syncs when internet returns)
-  - SPI mode: SCK 18 / MISO 19 / MOSI 23 / CS 15. Pins reserved in
-    firmware (SD_SPI_*); full SD driver is still pending — LittleFS
-    /buf/history.jsonl remains the active offline buffer.
+  - SPI mode: SCK 18 / MISO 19 / MOSI 23 / CS 15. Active driver:
+    SD is the primary offline buffer (/craycare/history.jsonl);
+    LittleFS /buf/history.jsonl is the fallback with no card, and any
+    LittleFS backlog migrates to SD at boot. Flush order SD-first.
   - Module VCC to 5V (onboard regulator), signals at 3.3V, common GND.
-    Format card as FAT32 when the driver lands.
+    Format card as FAT32. Check state any time with BUFSTATUS.
   - GPIO15 (MTDO) needs HIGH at boot — SD CS idles HIGH through its
     pull-up, so this assignment is safe.
 
@@ -109,7 +125,25 @@ Tank configuration:
    Use a 5V→3.3V level shifter or resistor divider (for example 1kΩ from ECHO
    to GPIO33 and 2kΩ from GPIO33 to GND). TRIG may connect to GPIO32.
 
-LCD display: "W:XXcm" (actual water depth)
+LCD display: live 16x2 screens (sensors / feed+blower), feed progress,
+BLOCKED reasons, "Fed Xg OK" banner, tap counter. Silent-disabled if no
+ACK at 0x27 — if your backpack is 0x3F, change LCD_ADDR in main.cpp.
+
+============================================
+  PHYSICAL BUTTONS (to GND, INPUT_PULLUP)
+============================================
+
+  GPIO12 = DISPENSE. Each tap = +1 g; taps batch in a 3 s settle window,
+  then one feed runs (3 taps = one 3 g feed, single blower pre-run).
+  Taps ignored while a feed runs or within 3 s of boot. Cap 200 g.
+  Full safety path: sensor/block checks + blower 5 s + gate swings.
+
+  GPIO2 = BLOWER toggle (manual ON/OFF). Ignored while a feed auto-holds
+  the blower. Doubles as the end control: a manually-started blower stays
+  ON after DONE until toggled OFF here. 15-minute manual safety timeout.
+
+  Both pins are boot-safe with buttons to GND (pressed = LOW matches
+  their strapping levels; pull-ups engage only in setup()).
 
 ============================================
   SERIAL COMMANDS
@@ -131,10 +165,9 @@ RELAYS
   relay status         Show relay states
 
 FEEDER (SG90 gate on GPIO5, 1 g per actuation)
-  FEED                  Request one manual feed (1-200 g, default 20 g)
+  FEED                  Request one manual feed (1-200 whole g, default 20 g)
   GATE_TEST             One gate actuation 0 -> angle -> 0
-  GATECAL               10 actuations for weighing
-  GATE_GRAMS <g>        Grams per actuation, saved to NVS
+  GATECAL               10 actuations for weighing (expect ~10 g)
   GATE_ANGLE <10-180>   Gate open angle, saved to NVS
   GATE_MS <100-5000>    Gate hold ms, saved to NVS
 BLOWER

@@ -633,9 +633,10 @@ class FeederService extends ChangeNotifier {
           DateTime.now().add(const Duration(seconds: 60)),
         ),
       };
-      // Rules require grams on every command; the empty field means the
-      // default one-servo-cycle dose. Never omit it or the write is denied.
-      cmd['grams'] = grams ?? defaultFeederGrams;
+      // Rules require grams on every command; the empty field means a
+      // single 1 g test dose (1 g-only model). Never omit it or the write
+      // is denied.
+      cmd['grams'] = grams ?? 1.0;
       final ref = tankDoc.collection('feeder_commands').doc();
       _lastQueuedCommandId = ref.id;
       await ref.set(cmd);

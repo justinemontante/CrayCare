@@ -58,24 +58,20 @@ WIFI (up to 5 networks stored in NVS "wifiprof", survives reboot)
   RESET_WIFI
     Erases ALL stored Wi-Fi networks (legacy + multi) and restarts.
 
-FEEDER (SG90 gate on GPIO5 — the only servo, 1 g per actuation)
+FEEDER (SG90 gate on GPIO5 — the only servo, 1 g-only model)
   FEED
-    Requests one manual feed, 1-200 g (default 20 g). Actuations =
-    round(grams / gateGramsPerAct), so 5 g = 5 gate swings. The blower
-    always warms up 5 s first and stays ON through dispensing. Feeding is
-    blocked when required water-quality sensors are unavailable/outside safe
-    ranges, or when the feed-level estimate is empty or below the requested
-    grams.
+    Requests one manual feed, 1-200 whole grams (default 20 g). Grams =
+    actuations, so 5 g = exactly 5 gate swings. The blower always warms
+    up 5 s first and stays ON through dispensing. Feeding is blocked when
+    required water-quality sensors are unavailable/outside safe ranges, or
+    when the feed-level estimate is empty or below the requested grams.
 
   GATE_TEST  (alias: gate test)
     One gate actuation 0 -> open angle -> 0. Refused while a feed runs.
 
   GATECAL  (alias: gatecal)
-    Runs 10 actuations for weighing. Catch the output, weigh it, then store
-    the per-actuation value with GATE_GRAMS <total/10>.
-
-  GATE_GRAMS <0.1-50>  (alias: gate_grams)
-    Grams dropped per actuation, saved to NVS (default 1.0).
+    Runs 10 actuations for weighing — expect ~10 g total. If off, adjust
+    with GATE_ANGLE / GATE_MS and repeat until 10 actuations = ~10 g.
 
   GATE_ANGLE <10-180>  (alias: gate_angle)
     Gate open angle in degrees, saved to NVS (default 90).
@@ -88,17 +84,56 @@ BLOWER (GPIO16 relay, active-LOW)
     Manual blower control (15-minute safety timeout). A manually-started
     blower is never switched by the feed cycle.
   Auto warm-up
-    Every feed (manual, cloud, scheduled) starts with 5 s of blower,
-    which stays ON through dispensing and auto-switches OFF at DONE —
-    unless it was manually started.
+    Every feed (manual, cloud, scheduled, physical button) starts with 5 s
+    of blower, which stays ON through dispensing and auto-switches OFF at
+    DONE — unless it was manually started.
+
+PHYSICAL BUTTONS (to GND, INPUT_PULLUP)
+  GPIO12 dispense: each tap = +1 g; taps batch in a 3 s settle window, then
+    one feed runs (3 taps = one 3 g feed, single blower pre-run). Ignored
+    while a feed runs or within 3 s of boot. Cap 200 g. Live count on LCD.
+  GPIO2 blower: manual ON/OFF toggle; ignored while a feed auto-holds the
+    blower. This toggle is also the end control for a manually-started
+    blower.
+
+LCD (16x2, SDA 21 / SCL 22, addr 0x27)
+  Rotating screens: sensors (T/pH/W/F) and feed+blower; live feed progress
+  (FEED 5g 3/5), tap counter, BLOCKED reasons, and a "Fed Xg OK" banner.
+  Disabled silently if no ACK (check wiring/address).
 
 SENSOR CALIBRATION
+  Hopper level is ultrasonic (HC-SR04 TRIG 17 / ECHO 25) by default, with the
+  GPIO39 analog sensor as automatic fallback. The app always receives the
+  same feed_level % and estimated grams either way.
+
+  hopperempty
+    With the hopper empty, saves the current echo distance as the 0% point.
+
+  hopperfull
+    With the hopper full, saves the current echo distance as the 100% point.
+    Must read shorter than the empty point or it is rejected.
+
+  FEEDMODE <0|1>
+    0 = analog GPIO39 only, 1 = ultrasonic with analog fallback (default).
+
+  hopperheight <5-200>
+    Manual sensor height above the hopper floor in cm (sets the 0% point).
+
+  hopperdepth <1-empty>
+    Manual max feed depth in cm (sets the 100% point from the empty point).
+
   feedempty
-    With the hopper empty, saves the current GPIO39 voltage as the 0% point.
+    (Analog fallback) With the hopper empty, saves the GPIO39 voltage as 0%.
 
   feedfull
-    With the hopper filled to its configured capacity, saves the current GPIO39
-    voltage as the 100% point. Configure hopper capacity in Settings.
+    (Analog fallback) With the hopper full, saves the GPIO39 voltage as 100%.
+    Configure hopper capacity in Settings.
+
+  BUFSTATUS
+    Offline buffer state: active backend (SD/LittleFS), per-backend counts,
+    SD size/usage. SD card (SCK 18/MISO 19/MOSI 23/CS 15, FAT32) stores
+    /craycare/history.jsonl when present and syncs oldest-first on
+    reconnect; LittleFS is the fallback.
 
   phcal7
     Place the pH probe in pH 7.00 buffer, wait for a stable voltage, then run.
