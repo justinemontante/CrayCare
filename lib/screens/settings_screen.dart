@@ -17,6 +17,7 @@ import '../services/storage_service.dart'; // Para sa pag-pick ng profile pictur
 import '../services/auth_service.dart';
 import '../services/notification_service.dart';
 import '../utils/snackbar_helper.dart';
+import '../utils/smooth_page_route.dart';
 
 class SettingsScreen extends StatefulWidget {
   final String? initialPhotoUrl;
@@ -437,12 +438,13 @@ class _SettingsScreenState extends State<SettingsScreen>
       builder: (ctx) => LogoutSheet(
         onLogout: () async {
           try {
-            await AuthService().signOut();
-            if (!ctx.mounted || !mounted) return;
-            Navigator.of(ctx).pop();
-            Navigator.of(context).pop();
-            Navigator.of(context).pushAndRemoveUntil(
-              MaterialPageRoute(builder: (_) => const LoginScreen()),
+          await AuthService().signOut();
+            if (!ctx.mounted) return;
+            // Replace the modal, Settings screen, and MainShell in one
+            // navigation operation so the old shell is never shown between
+            // logout and the Login screen.
+            Navigator.of(ctx).pushAndRemoveUntil(
+              smoothPageRoute((_) => const LoginScreen()),
               (route) => false,
             );
           } catch (e) {

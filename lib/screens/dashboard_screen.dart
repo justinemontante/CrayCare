@@ -11,6 +11,7 @@ import '../services/tank_service.dart';
 import '../services/feeder_service.dart';
 import '../models/control_types.dart';
 import '../models/crayfish_batch.dart';
+import '../widgets/production/crayfish/grow_out_report_export_button.dart';
 
 class DashboardScreen extends StatefulWidget {
   final ValueChanged<String>? onViewGraph;
@@ -773,6 +774,12 @@ class DashboardScreenState extends State<DashboardScreen>
         Icons.trending_up_rounded,
         null,
         onTap: tank != null ? () => tank(2) : null,
+      ),
+      _QuickActionData(
+        'Export Reports',
+        Icons.ios_share_outlined,
+        null,
+        onTap: () => showGrowOutReportExport(context),
       ),
     ];
 

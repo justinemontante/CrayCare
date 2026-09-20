@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../services/report_export_service.dart';
 import '../../services/water_quality_anomaly_detection_service.dart';
 import '../../theme/app_colors.dart';
 
@@ -54,8 +53,8 @@ class _WaterQualityAnomalyDetectionHistorySheet extends StatelessWidget {
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 14, 10, 8),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 14, 20, 8),
               child: Row(
                 children: [
                   const Icon(Icons.history, size: 20, color: AppColors.primary),
@@ -69,22 +68,6 @@ class _WaterQualityAnomalyDetectionHistorySheet extends StatelessWidget {
                         color: AppColors.dark,
                       ),
                     ),
-                  ),
-                  PopupMenuButton<String>(
-                    tooltip: 'Export WQAD report',
-                    icon: const Icon(Icons.ios_share, color: AppColors.primary),
-                    onSelected: (value) async {
-                      final service = ReportExportService.instance;
-                      if (value == 'csv') {
-                        await service.shareWaterQualityAnomalyDetectionCsv();
-                      } else {
-                        await service.shareWaterQualityAnomalyDetectionPdf();
-                      }
-                    },
-                    itemBuilder: (_) => const [
-                      PopupMenuItem(value: 'csv', child: Text('Export CSV')),
-                      PopupMenuItem(value: 'pdf', child: Text('Export PDF')),
-                    ],
                   ),
                 ],
               ),

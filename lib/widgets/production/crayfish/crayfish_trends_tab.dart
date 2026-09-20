@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../../../theme/app_colors.dart';
 import '../../../services/tank_service.dart';
-import '../../../services/report_export_service.dart';
 import 'crayfish_sampling_tab.dart';
 
 class TrendsTab extends StatefulWidget {
@@ -153,57 +152,6 @@ class _TrendsTabState extends State<TrendsTab> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   _buildToggle(),
-                  const SizedBox(width: 4),
-                  PopupMenuButton<String>(
-                    tooltip: 'Export growth report',
-                    icon: const Icon(Icons.ios_share,
-                        size: 20, color: AppColors.primary),
-                    onSelected: (value) async {
-                      final svc = ReportExportService.instance;
-                      try {
-                        if (value == 'csv') {
-                          await svc.shareGrowthCsv();
-                        } else {
-                          await svc.shareGrowthPdf();
-                        }
-                        if (!mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                          content: Text(value == 'csv'
-                              ? 'CSV report ready — choose where to save or share it.'
-                              : 'PDF report ready — choose where to save or share it.'),
-                        ));
-                      } catch (e) {
-                        if (!mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                          content: Text('Export failed: $e'),
-                        ));
-                      }
-                    },
-                    itemBuilder: (context) => [
-                      const PopupMenuItem(
-                        value: 'csv',
-                        child: Row(
-                          children: [
-                            Icon(Icons.table_chart_outlined,
-                                size: 18, color: AppColors.primary),
-                            SizedBox(width: 10),
-                            Text('Export CSV (Excel)'),
-                          ],
-                        ),
-                      ),
-                      const PopupMenuItem(
-                        value: 'pdf',
-                        child: Row(
-                          children: [
-                            Icon(Icons.picture_as_pdf_outlined,
-                                size: 18, color: AppColors.primary),
-                            SizedBox(width: 10),
-                            Text('Export PDF'),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
                 ],
               ),
             ],
