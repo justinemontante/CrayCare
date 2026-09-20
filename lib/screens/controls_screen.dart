@@ -499,6 +499,9 @@ class ControlsScreenState extends State<ControlsScreen> {
         _feedState == _FeedState.dispensing) {
       return;
     }
+    // Empty field = single 1 g dose: normalize once so preflight math and
+    // the dispatched command agree.
+    grams ??= 1.0;
     final preflightIssue = svc.feedSafetyIssue(grams: grams);
     if (preflightIssue.isNotEmpty) {
       _feedNotice = 'Feed blocked: $preflightIssue';
@@ -676,7 +679,7 @@ class ControlsScreenState extends State<ControlsScreen> {
                           ),
                           SizedBox(height: 2),
                           Text(
-                            'Estimated dose · 20 g per cycle',
+                            'Estimated dose · 1 g per swing',
                             style: TextStyle(
                               fontSize: 10,
                               color: Color(0x80000000),
@@ -695,7 +698,7 @@ class ControlsScreenState extends State<ControlsScreen> {
                     onChanged: (_) => setModalState(() {}),
                     decoration: InputDecoration(
                       labelText: 'Grams (optional)',
-                      hintText: '20, 40, 60 … 200 (default: 20)',
+                      hintText: '1, 2, 3 … 200 (empty = 1 g)',
                       suffixText: 'g',
                       errorText: gramsError,
                       border: OutlineInputBorder(

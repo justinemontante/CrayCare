@@ -52,6 +52,10 @@
 #include <time.h>
 #include <stdlib.h>    // atoll()
 #include <LittleFS.h>  // offline store-and-forward buffer (data partition)
+#include <SPI.h>
+#include <SD.h>  // optional SD card: primary offline buffer when present
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>  // 16x2 status LCD (SDA 21 / SCL 22)
 #include <vector>
 #include "addons/TokenHelper.h"
 #include "addons/RTDBHelper.h"
@@ -177,21 +181,104 @@ bool littlefsMounted = false;
 
 size_t countBufferedEntries();  // forward decl (used by initOfflineBuffer)
 
+// SD card pins (VSPI) — declared early so initSDCard() below can use them.
+// (Also listed in the PINOUT section further down.)
+#define SD_SPI_SCK_PIN 18
+#define SD_SPI_MISO_PIN 19
+#define SD_SPI_MOSI_PIN 23
+#define SD_SPI_CS_PIN 15  // GPIO15 (MTDO) needs HIGH at boot — CS idles HIGH via pull-up, so safe.
+void initSDCard();
+void migrateLittleFSToSD();
+
+bool sdMounted = false;
+#define SD_BUFFER_PATH "/craycare/history.jsonl"
+#define SD_BUFFER_TMP "/craycare/history.tmp"
+
+// Active write backend: SD card when present, otherwise LittleFS.
+static inline fs::FS& bufFS() { return sdMounted ? (fs::FS&)SD : (fs::FS&)LittleFS; }
+static inline const char* bufPath() { return sdMounted ? SD_BUFFER_PATH : BUFFER_PATH; }
+static inline const char* bufTmpPath() { return sdMounted ? SD_BUFFER_TMP : "/buf/history.tmp"; }
+
 void initOfflineBuffer() {
   if (!LittleFS.begin(true)) {           // formatOnFail on the spiffs partition
-    Serial.println("[BUF] LittleFS mount FAILED — offline buffering disabled");
+    Serial.println("[BUF] LittleFS mount FAILED — LittleFS buffering disabled");
     littlefsMounted = false;
-    return;
+  } else {
+    littlefsMounted = true;
+    LittleFS.mkdir("/buf");  // parent dir must exist or appends can never create the file
   }
-  littlefsMounted = true;
-  LittleFS.mkdir("/buf");  // parent dir must exist or appends can never create the file
-  Serial.printf("[BUF] LittleFS ready, buffered: %u\n", (unsigned)countBufferedEntries());
+  initSDCard();  // optional — LittleFS remains the fallback when no card is present
+  Serial.printf("[BUF] backend=%s buffered=%u\n",
+                sdMounted ? "SD" : "LittleFS", (unsigned)countBufferedEntries());
 }
 
-size_t countBufferedEntries() {
-  if (!littlefsMounted) return 0;
-  if (!LittleFS.exists(BUFFER_PATH)) return 0;
-  File f = LittleFS.open(BUFFER_PATH, "r");
+// Mount the SD card (VSPI) and migrate any LittleFS backlog onto it so the
+// flush order stays oldest-first across the backend switch.
+void initSDCard() {
+  sdMounted = false;
+  SPI.begin(SD_SPI_SCK_PIN, SD_SPI_MISO_PIN, SD_SPI_MOSI_PIN, SD_SPI_CS_PIN);
+  if (!SD.begin(SD_SPI_CS_PIN)) {
+    Serial.println("[BUF] No SD card — using LittleFS buffer");
+    return;
+  }
+  if (SD.cardType() == CARD_NONE) {
+    Serial.println("[BUF] SD slot empty — using LittleFS buffer");
+    SD.end();
+    return;
+  }
+  SD.mkdir("/craycare");
+  sdMounted = true;
+  Serial.println("[BUF] SD card mounted — migrating LittleFS backlog");
+  migrateLittleFSToSD();
+}
+
+// Move LittleFS backlog lines onto SD (bounded rounds so boot never hangs).
+void migrateLittleFSToSD() {
+  if (!sdMounted || !littlefsMounted) return;
+  for (int round = 0; round < 20; round++) {
+    if (!LittleFS.exists(BUFFER_PATH)) return;
+    File src = LittleFS.open(BUFFER_PATH, "r");
+    if (!src) return;
+    File dst = SD.open(SD_BUFFER_PATH, FILE_APPEND);
+    if (!dst) { src.close(); return; }
+    size_t moved = 0;
+    while (src.available() && moved < 512) {
+      String line = src.readStringUntil('\n');
+      line.trim();
+      if (line.length() <= 10) continue;
+      dst.println(line);
+      moved++;
+    }
+    src.close();
+    dst.close();
+    if (moved == 0) { LittleFS.remove(BUFFER_PATH); return; }
+    // Drop exactly the moved lines from LittleFS by rewriting the remainder.
+    File r = LittleFS.open(BUFFER_PATH, "r");
+    File w = LittleFS.open("/buf/history.tmp", "w");
+    if (!r || !w) {
+      if (r) r.close();
+      if (w) w.close();
+      return;
+    }
+    size_t skipped = 0;
+    while (r.available()) {
+      String line = r.readStringUntil('\n');
+      line.trim();
+      if (line.length() <= 10) continue;
+      if (skipped < moved) { skipped++; continue; }
+      w.println(line);
+    }
+    r.close();
+    w.close();
+    LittleFS.remove(BUFFER_PATH);
+    LittleFS.rename("/buf/history.tmp", BUFFER_PATH);
+    if (skipped < moved) return;  // file fully drained
+  }
+}
+
+static size_t countEntriesIn(fs::FS& fs, const char* path) {
+  if (!fs.exists(path)) return 0;
+  File f = fs.open(path, "r");
   if (!f) return 0;
   size_t n = 0;
   while (f.available()) {
@@ -203,9 +290,18 @@ size_t countBufferedEntries() {
   return n;
 }
 
+size_t countBufferedEntries() {
+  size_t n = 0;
+  if (littlefsMounted) n += countEntriesIn(LittleFS, BUFFER_PATH);
+  if (sdMounted) n += countEntriesIn(SD, SD_BUFFER_PATH);
+  return n;
+}
+
 bool bufferAppend(const String& jsonLine) {
-  if (!littlefsMounted || jsonLine.length() < 10) return false;
-  File f = LittleFS.open(BUFFER_PATH, FILE_APPEND);
+  if (jsonLine.length() < 10) return false;
+  fs::FS& fs = bufFS();
+  if (!sdMounted && !littlefsMounted) return false;
+  File f = fs.open(bufPath(), FILE_APPEND);
   if (!f) return false;
   f.println(jsonLine);
   f.close();
@@ -213,17 +309,12 @@ bool bufferAppend(const String& jsonLine) {
 }
 
 // Drop exactly the first valid line while preserving the entire backlog.
-// The previous implementation rewrote only the first 32 loaded lines and
-// silently discarded everything after them during a long outage.
-bool bufferDropFirst(const String* ignoredLines, size_t ignoredCount) {
-  (void)ignoredLines;
-  (void)ignoredCount;
-  if (!littlefsMounted) return false;
-  if (!LittleFS.exists(BUFFER_PATH)) return false;
-  const char* tempPath = "/buf/history.tmp";
-  File src = LittleFS.open(BUFFER_PATH, "r");
+// SD drains first (it holds the migrated oldest entries); LittleFS follows.
+static bool dropFirstIn(fs::FS& fs, const char* path, const char* tempPath) {
+  if (!fs.exists(path)) return false;
+  File src = fs.open(path, "r");
   if (!src) return false;
-  File dst = LittleFS.open(tempPath, "w");
+  File dst = fs.open(tempPath, "w");
   if (!dst) { src.close(); return false; }
 
   bool dropped = false;
@@ -236,13 +327,35 @@ bool bufferDropFirst(const String* ignoredLines, size_t ignoredCount) {
   }
   src.close();
   dst.close();
-  if (!dropped) { LittleFS.remove(tempPath); return false; }
-  LittleFS.remove(BUFFER_PATH);
-  return LittleFS.rename(tempPath, BUFFER_PATH);
+  if (!dropped) { fs.remove(tempPath); return false; }
+  fs.remove(path);
+  return fs.rename(tempPath, path);
 }
 
-// Read all buffered lines into a fixed array (bounded).
+bool bufferDropFirst(const String* ignoredLines, size_t ignoredCount) {
+  (void)ignoredLines;
+  (void)ignoredCount;
+  if (sdMounted && SD.exists(SD_BUFFER_PATH))
+    return dropFirstIn(SD, SD_BUFFER_PATH, SD_BUFFER_TMP);
+  if (!littlefsMounted) return false;
+  return dropFirstIn(LittleFS, BUFFER_PATH, "/buf/history.tmp");
+}
+
+// Read all buffered lines into a fixed array (bounded). SD first.
 size_t bufferReadAll(String* lines, size_t maxLines) {
+  if (sdMounted && SD.exists(SD_BUFFER_PATH)) {
+    File f = SD.open(SD_BUFFER_PATH, "r");
+    if (f) {
+      size_t n = 0;
+      while (f.available() && n < maxLines) {
+        String line = f.readStringUntil('\n');
+        line.trim();
+        if (line.length() > 10) lines[n++] = line;
+      }
+      f.close();
+      if (n > 0) return n;
+    }
+  }
   if (!littlefsMounted) return 0;
   if (!LittleFS.exists(BUFFER_PATH)) return 0;
   File f = LittleFS.open(BUFFER_PATH, "r");
@@ -325,7 +438,7 @@ String feederStatus = "idle";
 String feederFeedSource = "";          // "manual" or "scheduled"
 String feederLastScheduleKey = "";     // doc id of the schedule that triggered the latest scheduled feed
 int feederDispenseCount = 0;              // total feeds dispensed since boot
-float feederRequestedGrams = 20.0f;   // nominal estimate; verify 20 g/cycle on hardware
+float feederRequestedGrams = 20.0f;   // 1 g-only model: N grams = N gate actuations
 float feederFeedLevelBefore = -1.0f;
 float feederAvailableBefore = -1.0f;
 bool feederInitialized = false;
@@ -376,7 +489,8 @@ enum FeederRunState {
 };
 FeederRunState feederRunState = FEEDER_IDLE;
 int feederCurrentCycle = 0;
-int feederMaxCycles = 1;               // 1 g actuations: cycles = round(grams / gateGramsPerAct)
+int feederMaxCycles = 1;               // 1 g-only: cycles = whole grams (5 g = 5 actuations)
+unsigned long feederDoneShowMs = 0;    // LCD "Fed Xg OK" banner expiry
 unsigned long feederStepMs = 0;
 unsigned long feederStartMs = 0;
 
@@ -444,9 +558,15 @@ unsigned long lastActuatorSyncMs = 0;
 #define WATER_LEVEL_TRIG_PIN 32
 #define WATER_LEVEL_ECHO_PIN 33
 #define FEED_LEVEL_PIN 39  // ADC1 input-only pin (VN), safe while Wi-Fi is active
+// Hopper (feed) level ultrasonic — second HC-SR04 facing the feed surface.
+// ECHO idles at 5V: same 1kΩ (ECHO->GPIO) + 2kΩ (GPIO->GND) divider rule as
+// the water HC-SR04. Mount above max feed level, clear of the gate swing.
+#define HOPPER_TRIG_PIN 17
+#define HOPPER_ECHO_PIN 25
 
 // Feeder gate — SG90 180-degree servo on GPIO5, the ONLY servo.
-// Each open/close actuation drops gateGramsPerAct grams (NVS, default 1 g);
+// 1 g-only model: every open/close actuation drops ~1 g (tune the mechanism
+// with GATE_ANGLE/GATE_MS until GATECAL weighs ~10 g for 10 actuations);
 // feed grams from the app decide the actuation count (5 g = 5 actuations).
 // (GPIO5 has an internal pull-up through reset, and a servo signal line
 // never pulls it low, so boot strapping is safe. GPIO25 door servo and
@@ -457,7 +577,6 @@ unsigned long lastActuatorSyncMs = 0;
 #define GATE_PULSE_MAX_US 2500
 #define GATE_OPEN_ANGLE_DFLT 90    // starting point — tune on bench, store via GATE_ANGLE
 #define GATE_HOLD_MS_DFLT 800      // starting point — tune on bench, store via GATE_MS
-float gateGramsPerAct = 1.0f;      // grams per actuation (NVS "gateGrams")
 int gateOpenAngle = GATE_OPEN_ANGLE_DFLT;  // NVS "gateAngle"
 int gateHoldMs = GATE_HOLD_MS_DFLT;        // NVS "gateHold"
 int gateAngleNow = 0;
@@ -478,11 +597,8 @@ void setGateAngle(int angle) {
 
 // SD card (SPI mode) — primary offline buffer when the internet is down;
 // LittleFS remains the fallback when no card is present.
-#define SD_SPI_SCK_PIN 18
-#define SD_SPI_MISO_PIN 19
-#define SD_SPI_MOSI_PIN 23
-#define SD_SPI_CS_PIN 15  // was 5; moved so it never collides with the gate servo.
-// GPIO15 (MTDO) needs HIGH at boot — SD CS idles HIGH via pull-up, so safe.
+// (SD_SPI_* pins are defined just above the offline-buffer code so the
+// mount helper can use them.)
 
 // Blower (relay module, ACTIVE-LOW like the main relays).
 // Runs 5 s ahead of every feed (manual, cloud, scheduled) to warm up,
@@ -638,6 +754,12 @@ float feedLevelPercent = -1.0f;
 float estimatedFeedGrams = -1.0f;
 float feedLevelVoltage = 0.0f;
 bool feedLevelSensorOK = false;
+float hopperDistanceCm = -1.0f;   // raw ultrasonic echo (hopper path)
+float hopperEmptyCm = -1.0f;      // taught echo, empty hopper (NVS "hopEmpty")
+float hopperFullCm = -1.0f;       // taught echo, full hopper (NVS "hopFull")
+int feedLevelMode = 1;            // 0 = analog GPIO39, 1 = ultrasonic (NVS "feedMode")
+bool hopperSensorOK = false;
+const char* feedLevelSource = "none";  // "ultrasonic" | "analog" | "none"
 
 
 struct TurbidityResult {
@@ -680,7 +802,9 @@ void saveSensorCalibrations() {
   prefs.putFloat("turbAir", turbidityVAirMax);
   prefs.putFloat("feedEmpty", feedLevelEmptyVoltage);
   prefs.putFloat("feedFull", feedLevelFullVoltage);
-  prefs.putFloat("gateGrams", gateGramsPerAct);
+  prefs.putFloat("hopEmpty", hopperEmptyCm);
+  prefs.putFloat("hopFull", hopperFullCm);
+  prefs.putInt("feedMode", feedLevelMode);
   prefs.putInt("gateAngle", gateOpenAngle);
   prefs.putInt("gateHold", gateHoldMs);
   prefs.end();
@@ -699,9 +823,10 @@ void loadSensorCalibrations() {
   turbidityVAirMax = prefs.getFloat("turbAir", turbidityVAirMax);
   feedLevelEmptyVoltage = prefs.getFloat("feedEmpty", feedLevelEmptyVoltage);
   feedLevelFullVoltage = prefs.getFloat("feedFull", feedLevelFullVoltage);
-  gateGramsPerAct = prefs.getFloat("gateGrams", gateGramsPerAct);
-  if (!isfinite(gateGramsPerAct) || gateGramsPerAct < 0.1f || gateGramsPerAct > 50.0f)
-    gateGramsPerAct = 1.0f;
+  hopperEmptyCm = prefs.getFloat("hopEmpty", hopperEmptyCm);
+  hopperFullCm = prefs.getFloat("hopFull", hopperFullCm);
+  feedLevelMode = prefs.getInt("feedMode", feedLevelMode);
+  if (feedLevelMode != 0) feedLevelMode = 1;
   gateOpenAngle = constrain(prefs.getInt("gateAngle", gateOpenAngle), 10, GATE_MAX_ANGLE);
   gateHoldMs = constrain(prefs.getInt("gateHold", gateHoldMs), 100, 5000);
   prefs.end();
@@ -1589,12 +1714,66 @@ void readWaterLevelSensor() {
   ACCUM_WINDOW(winWaterSum, winWaterN, winWaterMin, winWaterMax, waterLevelCm);
 }
 
+// Raw hopper echo in cm, or -1 on timeout. Quiet — callers decide logging.
+float measureHopperEcho() {
+  digitalWrite(HOPPER_TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(HOPPER_TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(HOPPER_TRIG_PIN, LOW);
+  const unsigned long durationUs = pulseIn(HOPPER_ECHO_PIN, HIGH, 30000UL);
+  if (durationUs == 0) return -1.0f;
+  return durationUs * 0.0343f / 2.0f;
+}
+
+void readHopperLevelSensor() {
+  hopperSensorOK = false;
+  hopperDistanceCm = measureHopperEcho();
+  if (hopperDistanceCm < 0) {
+    if (sensorOutputEnabled) Serial.println("[HOPPER] HC-SR04 timeout/disconnected");
+    return;
+  }
+  if (hopperEmptyCm < 0 || hopperFullCm < 0 || hopperEmptyCm <= hopperFullCm) {
+    if (sensorOutputEnabled) Serial.println("[HOPPER] Not calibrated — run hopperempty + hopperfull");
+    return;
+  }
+  // Reject impossible geometry instead of constraining a bad echo into a
+  // believable value that could unblock feeding on a false full hopper.
+  if (hopperDistanceCm < hopperFullCm - 2.0f || hopperDistanceCm > hopperEmptyCm + 2.0f) {
+    if (sensorOutputEnabled) {
+      Serial.printf("[HOPPER] Invalid echo: distance=%.1fcm (full=%.1f empty=%.1f)\n",
+                    hopperDistanceCm, hopperFullCm, hopperEmptyCm);
+    }
+    return;
+  }
+  hopperSensorOK = true;
+}
+
 void readFeedLevelSensor() {
   if (!ENABLE_FEED_LEVEL_SENSOR) {
     feedLevelSensorOK = false;
     feedLevelPercent = -1.0f;
     estimatedFeedGrams = -1.0f;
+    feedLevelSource = "none";
     return;
+  }
+
+  // Ultrasonic path first (default). A bad echo falls back to analog so one
+  // failed sensor never stalls feeding on its own.
+  if (feedLevelMode == 1) {
+    readHopperLevelSensor();
+    if (hopperSensorOK) {
+      const float span = hopperEmptyCm - hopperFullCm;
+      feedLevelPercent = constrain(
+        (hopperEmptyCm - hopperDistanceCm) * 100.0f / span,
+        0.0f,
+        100.0f);
+      estimatedFeedGrams = hopperCapacityGrams * feedLevelPercent / 100.0f;
+      feedLevelSensorOK = true;
+      feedLevelSource = "ultrasonic";
+      return;
+    }
+    if (sensorOutputEnabled) Serial.println("[FEED LEVEL] Ultrasonic invalid — falling back to analog");
   }
 
   feedLevelVoltage = readAnalogVoltage(FEED_LEVEL_PIN);
@@ -1604,6 +1783,7 @@ void readFeedLevelSensor() {
     feedLevelSensorOK = false;
     feedLevelPercent = -1.0f;
     estimatedFeedGrams = -1.0f;
+    feedLevelSource = "none";
     Serial.printf("[FEED LEVEL] Invalid/disconnected voltage: %.3fV\n",
                   feedLevelVoltage);
     return;
@@ -1615,6 +1795,7 @@ void readFeedLevelSensor() {
     100.0f);
   estimatedFeedGrams = hopperCapacityGrams * feedLevelPercent / 100.0f;
   feedLevelSensorOK = true;
+  feedLevelSource = "analog";
 }
 
 void readAllSensors() {
@@ -1643,6 +1824,12 @@ void printCalibrationHelp() {
   Serial.println("turbair <VOLTS>          Set out-of-water threshold");
   Serial.println("feedempty                Save voltage with an empty hopper");
   Serial.println("feedfull                 Save voltage with a full hopper");
+  Serial.println("hopperempty              Teach ultrasonic empty-hopper echo");
+  Serial.println("hopperfull               Teach ultrasonic full-hopper echo");
+  Serial.println("FEEDMODE <0|1>           0=analog GPIO39, 1=ultrasonic");
+  Serial.println("hopperheight <cm>        Manual sensor height (empty point)");
+  Serial.println("hopperdepth <cm>         Manual max feed depth");
+  Serial.println("BUFSTATUS                Offline buffer backend + counts");
   Serial.println("tankheight <CM>          Sensor-to-tank-bottom distance");
   Serial.println("tankdepth <CM>           Maximum water depth");
   Serial.println("tankcal                  Show tank calibration");
@@ -1660,8 +1847,7 @@ void printSerialHelp() {
   Serial.println("FIREBASE_STATUS          Show cloud authentication status");
   Serial.println("FEED                     Start a manual feed (1-200 g)");
   Serial.println("GATE_TEST                One gate actuation (GPIO5 SG90)");
-  Serial.println("GATECAL                  10 actuations for weighing");
-  Serial.println("GATE_GRAMS <g>           Grams per actuation (NVS)");
+  Serial.println("GATECAL                  10 actuations for weighing (~10 g)");
   Serial.println("GATE_ANGLE <10-180>      Gate open angle (NVS)");
   Serial.println("GATE_MS <100-5000>       Gate hold ms (NVS)");
   Serial.println("n4on / n4off             Blower ON/OFF (GPIO16)");
@@ -1686,6 +1872,8 @@ void initBlower();
 void setBlower(bool on, bool autoHeld);
 void blowerAutoOff();
 void blowerSafetyTick();
+void initLCD();
+void updateLCD();
 void processFeederCommands();
 void sendFeederStatus();
 void syncFeederSchedules();
@@ -1725,6 +1913,9 @@ void setup() {
   pinMode(WATER_LEVEL_TRIG_PIN, OUTPUT);
   digitalWrite(WATER_LEVEL_TRIG_PIN, LOW);
   pinMode(WATER_LEVEL_ECHO_PIN, INPUT);
+  pinMode(HOPPER_TRIG_PIN, OUTPUT);
+  digitalWrite(HOPPER_TRIG_PIN, LOW);
+  pinMode(HOPPER_ECHO_PIN, INPUT);
   pinMode(FEED_LEVEL_PIN, INPUT);
 
   sensors.begin();
@@ -1739,6 +1930,7 @@ void setup() {
   initFeeder();
   initActuators();
   initBlower();
+  initLCD();
   if (WiFi.status() == WL_CONNECTED) {
     initTime();
     connectFirebase();
@@ -1893,8 +2085,9 @@ void loop() {
       if (feederRunState != FEEDER_IDLE) {
         Serial.println("[GATE] Feeder busy — try after the feed finishes");
       } else {
-        Serial.println("[GATE] Calibration: 10 actuations — catch and weigh the output,");
-        Serial.println("[GATE] then store per-gram value with GATE_GRAMS <total_g/10>");
+        Serial.println("[GATE] Calibration: 10 actuations — catch and weigh the output.");
+        Serial.println("[GATE] Target ~10 g total (1 g each). If off, adjust with");
+        Serial.println("[GATE] GATE_ANGLE / GATE_MS and repeat until 10 actuations = ~10 g.");
         for (int i = 0; i < 10; i++) {
           setGateAngle(gateOpenAngle);
           delay(gateHoldMs);
@@ -1902,17 +2095,7 @@ void loop() {
           delay(300);
           Serial.printf("[GATE] Actuation %d/10\n", i + 1);
         }
-        Serial.println("[GATE] Done — weigh total and run GATE_GRAMS <g_per_actuation>");
-      }
-    }
-    if (cmd.startsWith("GATE_GRAMS ") || cmd.startsWith("gate_grams ")) {
-      float v = cmd.substring(cmd.lastIndexOf(' ') + 1).toFloat();
-      if (!isfinite(v) || v < 0.1f || v > 50.0f) {
-        Serial.println("Usage: GATE_GRAMS <0.1-50>  (grams dropped per actuation)");
-      } else {
-        gateGramsPerAct = v;
-        saveSensorCalibrations();
-        Serial.printf("[GATE] %.2f g/actuation saved\n", gateGramsPerAct);
+        Serial.println("[GATE] Done — weigh total (expect ~10 g for the 1 g-only model)");
       }
     }
     if (cmd.startsWith("GATE_ANGLE ") || cmd.startsWith("gate_angle ")) {
@@ -2032,11 +2215,82 @@ void loop() {
       saveSensorCalibrations();
       Serial.printf("[CAL] Feed hopper FULL = %.3fV\n", feedLevelFullVoltage);
     }
+    if (cmd == "hopperempty") {
+      float d = measureHopperEcho();
+      if (d < 0) {
+        Serial.println("[CAL] hopperempty failed: no echo — check TRIG 17 / ECHO 25 wiring");
+      } else {
+        hopperEmptyCm = d;
+        saveSensorCalibrations();
+        Serial.printf("[CAL] Hopper EMPTY echo = %.1fcm\n", hopperEmptyCm);
+      }
+    }
+    if (cmd == "hopperfull") {
+      float d = measureHopperEcho();
+      if (d < 0) {
+        Serial.println("[CAL] hopperfull failed: no echo — check TRIG 17 / ECHO 25 wiring");
+      } else if (d >= hopperEmptyCm) {
+        Serial.printf("[CAL] hopperfull rejected: full echo %.1fcm must be SHORTER than empty %.1fcm\n",
+                      d, hopperEmptyCm);
+      } else {
+        hopperFullCm = d;
+        saveSensorCalibrations();
+        Serial.printf("[CAL] Hopper FULL echo = %.1fcm (span %.1fcm)\n",
+                      hopperFullCm, hopperEmptyCm - hopperFullCm);
+      }
+    }
+    if (cmd.startsWith("FEEDMODE ") || cmd.startsWith("feedmode ")) {
+      int v = cmd.substring(cmd.lastIndexOf(' ') + 1).toInt();
+      if (v != 0 && v != 1) {
+        Serial.println("Usage: FEEDMODE <0|1>  (0=analog GPIO39, 1=ultrasonic)");
+      } else {
+        feedLevelMode = v;
+        saveSensorCalibrations();
+        Serial.printf("[CAL] Feed level source = %s\n", v == 1 ? "ultrasonic" : "analog");
+      }
+    }
+    if (cmd.startsWith("hopperheight ")) {
+      const float v = cmd.substring(13).toFloat();
+      if (v > 5.0f && v < 200.0f) {
+        hopperEmptyCm = v;
+        saveSensorCalibrations();
+        Serial.printf("[CAL] Hopper sensor height = %.1f cm (empty point)\n", v);
+      } else {
+        Serial.println("Usage: hopperheight <5-200>  (sensor height above hopper floor, cm)");
+      }
+    }
+    if (cmd.startsWith("hopperdepth ")) {
+      const float v = cmd.substring(12).toFloat();
+      if (v > 1.0f && v < hopperEmptyCm) {
+        hopperFullCm = hopperEmptyCm - v;
+        saveSensorCalibrations();
+        Serial.printf("[CAL] Hopper max depth = %.1f cm (full echo %.1fcm)\n", v, hopperFullCm);
+      } else {
+        Serial.println("Usage: hopperdepth <1-empty>  (max feed depth, cm)");
+      }
+    }
     if (cmd == "raw") {
-      Serial.printf("[RAW] pH=%.3fV DO=%.3fV Turb=%.3fV HC-SR04=%.1fcm Water=%.1fcm Feed=%.3fV/%.0f%%/~%.0fg\n",
+      Serial.printf("[RAW] pH=%.3fV DO=%.3fV Turb=%.3fV HC-SR04=%.1fcm Water=%.1fcm Feed=%.3fV/%.0f%%/~%.0fg Hopper=%.1fcm(%s)\n",
                     phVoltage, dissolvedOxygenVoltage, turbidityVoltage,
                     waterDistanceCm, waterLevelCm, feedLevelVoltage,
-                    feedLevelPercent, estimatedFeedGrams);
+                    feedLevelPercent, estimatedFeedGrams,
+                    hopperDistanceCm, feedLevelSource);
+    }
+    if (cmd == "BUFSTATUS" || cmd == "bufstatus") {
+      size_t lfs = littlefsMounted ? countEntriesIn(LittleFS, BUFFER_PATH) : 0;
+      size_t sdc = sdMounted ? countEntriesIn(SD, SD_BUFFER_PATH) : 0;
+      Serial.printf("[BUF] backend=%s LittleFS=%u SD=%u total=%u\n",
+                    sdMounted ? "SD" : "LittleFS",
+                    (unsigned)lfs, (unsigned)sdc, (unsigned)(lfs + sdc));
+      if (sdMounted) {
+        uint64_t total = SD.cardSize(), used = SD.usedBytes();
+        Serial.printf("[BUF] SD type=%u size=%lluMB used=%lluMB file=%s\n",
+                      (unsigned)SD.cardType(),
+                      total / (1024ULL * 1024ULL), used / (1024ULL * 1024ULL),
+                      SD_BUFFER_PATH);
+      } else {
+        Serial.println("[BUF] No SD card — LittleFS active");
+      }
     }
     // Relay test commands (local only — cloud mode re-asserts on next sync)
     if (cmd == "n1on")  { setActuatorRelay(0, true);  reportActuatorState(0, true); }
@@ -2127,6 +2381,9 @@ void loop() {
   // ─── Blower manual-run safety timeout ───
   blowerSafetyTick();
 
+  // ─── LCD status screens (non-blocking) ───
+  updateLCD();
+
   // ─── Actuators (pump + aerators) ───
   if (now - lastActuatorSyncMs >= ACTUATOR_SYNC_INTERVAL_MS) {
     lastActuatorSyncMs = now;
@@ -2202,8 +2459,8 @@ void initFeeder() {
   // Park the gate closed. Do NOT actuate at boot: every swing drops feed,
   // and resets also happen on Wi-Fi drops / power flickers. Use GATE_TEST
   // for a physical hardware self-test instead.
-  Serial.printf("[GATE] SG90 gate parked closed at 0 degrees on GPIO %d (%.1f g/actuation)\n",
-                GATE_SERVO_PIN, gateGramsPerAct);
+  Serial.printf("[GATE] SG90 gate parked closed at 0 degrees on GPIO %d (1 g-only model)\n",
+                GATE_SERVO_PIN);
 }
 
 // ─── Process Commands from Firestore ───
@@ -2672,8 +2929,8 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
                               (expiresAtMs > 0 && (long long)checkedAt * 1000 >= expiresAtMs))) {
     blockedReason = "Feed Now request expired or has an invalid timestamp";
   }
-  if (!isfinite(grams) || grams < 1 || grams > 200) {
-    blockedReason = "unsupported amount; use 1-200 g";
+  if (!isfinite(grams) || grams < 1 || grams > 200 || roundf(grams) != grams) {
+    blockedReason = "unsupported amount; use 1-200 whole grams";
   }
   String nearbySchedule;
   if (blockedReason.length() == 0 && source == "manual" &&
@@ -2702,8 +2959,8 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
 
   feederFeedLevelBefore = feedLevelPercent;
   feederAvailableBefore = estimatedFeedGrams;
-  // 1 g actuations: 5 g from the app = 5 gate swings.
-  feederMaxCycles = max(1, (int)roundf(feederRequestedGrams / gateGramsPerAct));
+  // 1 g-only: 5 g from the app = exactly 5 gate swings.
+  feederMaxCycles = max(1, min(200, (int)roundf(feederRequestedGrams)));
 
   // Announce readiness while the servo is still parked, then recheck expiry
   // after this potentially blocking call before opening the gate.
@@ -2765,8 +3022,8 @@ void processFeederTick() {
       setGateAngle(gateOpenAngle);
       feederStepMs = now;
       feederRunState = FEEDER_PAUSE_F;
-      Serial.printf("[FEEDER] Gate open %d/%d (%.1fg)\n",
-        feederCurrentCycle + 1, feederMaxCycles, gateGramsPerAct);
+      Serial.printf("[FEEDER] Gate open %d/%d (1 g each)\n",
+        feederCurrentCycle + 1, feederMaxCycles);
       break;
 
     case FEEDER_PAUSE_F:
@@ -2797,6 +3054,7 @@ void processFeederTick() {
       time(&completedAt);
       feederLastCompletedEpoch = completedAt;
       feederLastCompletedGrams = feederRequestedGrams;
+      feederDoneShowMs = millis() + 5000;  // LCD "Fed Xg OK" banner
       saveFeederState();
 
       feederIsRunning = false;
@@ -3089,6 +3347,81 @@ void blowerSafetyTick() {
     Serial.println("[BLOWER] Manual safety timeout — OFF");
   }
 }
+
+// ─── 16x2 status LCD (SDA 21 / SCL 22, addr 0x27) ───
+// Silent-disable on no-ACK so a missing LCD never affects the firmware.
+#define LCD_ADDR 0x27
+#define LCD_COLS 16
+#define LCD_ROWS 2
+#define LCD_ROTATE_MS 3000
+LiquidCrystal_I2C lcd(LCD_ADDR, LCD_COLS, LCD_ROWS);
+bool lcdReady = false;
+unsigned long lastLcdMs = 0;
+int lcdScreen = 0;
+
+static void lcdPrint16(int row, const String& text) {
+  char buf[17];
+  snprintf(buf, sizeof(buf), "%-16.16s", text.c_str());
+  lcd.setCursor(0, row);
+  lcd.print(buf);
+}
+
+void initLCD() {
+  Wire.begin(21, 22);
+  Wire.beginTransmission(LCD_ADDR);
+  if (Wire.endTransmission() != 0) {
+    Serial.println("[LCD] No ACK at 0x27 — LCD disabled (check wiring/address)");
+    lcdReady = false;
+    return;
+  }
+  lcd.init();
+  lcd.backlight();
+  lcdReady = true;
+  lcdPrint16(0, "CrayCare");
+  lcdPrint16(1, "starting...");
+  Serial.println("[LCD] 16x2 ready at 0x27");
+}
+
+// Non-blocking: refresh at most every LCD_ROTATE_MS, immediate on feed events.
+void updateLCD() {
+  if (!lcdReady) return;
+  unsigned long now = millis();
+  String l0, l1;
+  if (feederRunState != FEEDER_IDLE) {
+    l0 = "FEED " + String(feederRequestedGrams, 0) + "g " +
+         String(feederCurrentCycle + 1) + "/" + String(feederMaxCycles);
+    if (feederStatusReason.length() > 0 && feederRunState != FEEDER_PRE_BLOW)
+      l0 = "BLOCKED";
+    l1 = String("Blw:") + (blowerOn ? "ON " : "OFF") +
+         " W:" + (waterLevelCm >= 0 ? String(waterLevelCm, 0) + "cm" : "--");
+    if (feederStatusReason.length() > 0 && feederRunState != FEEDER_PRE_BLOW)
+      l1 = feederStatusReason.substring(0, 16);
+  } else if (now < feederDoneShowMs) {
+    l0 = "Fed " + String(feederLastCompletedGrams, 0) + "g OK";
+    l1 = String("Blw:") + (blowerOn ? "ON" : "OFF");
+  } else {
+    if (now - lastLcdMs >= LCD_ROTATE_MS) {
+      lastLcdMs = now;
+      lcdScreen = (lcdScreen + 1) % 2;
+    } else if (lastLcdMs != 0) {
+      return;
+    }
+    if (lcdScreen == 0) {
+      l0 = String("T:") + (smoothedTemp > -100 ? String(smoothedTemp, 1) + "C" : "--") +
+           " pH:" + (phLevel >= 0 ? String(phLevel, 1) : "--");
+      l1 = String("W:") + (waterLevelCm >= 0 ? String(waterLevelCm, 0) + "cm" : "--") +
+           " F:" + (feedLevelPercent >= 0 ? String(feedLevelPercent, 0) + "%" : "--");
+    } else {
+      l0 = String("Blw:") + (blowerOn ? "ON " : "OFF") +
+           " G:" + String(gateOpenAngle) + "/" + String(gateHoldMs);
+      l1 = WiFi.status() == WL_CONNECTED ? "WiFi OK " + WiFi.localIP().toString() : "WiFi OFFLINE";
+      if (l1.length() > 16) l1 = l1.substring(l1.length() - 16);
+    }
+  }
+  lcdPrint16(0, l0);
+  lcdPrint16(1, l1);
+}
+
 
 // ─── AUTO rule per device (only used when control_mode == "auto") ───
 // Sensor-driven with graceful fallbacks: when the dedicated sensor is not

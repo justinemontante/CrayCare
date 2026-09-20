@@ -166,11 +166,13 @@ test('role and status are normalized like the app treats them', async () => {
   assert.ok((await call(h, valid({time: '7:05', grams: 20}))).scheduleId);
 });
 
-test('scheduleFields enforces the time shape and the 20-200 g fixed cycle', () => {
+test('scheduleFields enforces the time shape and 1-200 g whole-gram doses', () => {
   assert.equal(scheduleFields({time: '12:00', ampm: 'AM', days: '1111111'}).timeValue, 0);
   assert.equal(scheduleFields({time: '12:30', ampm: 'PM', days: '1111111'}).timeValue, 750);
   assert.equal(scheduleFields({time: '07:30', ampm: 'AM', days: '1111111'}).time, '7:30');
   assert.equal(scheduleFields({time: '7:30', ampm: 'AM', days: '1111111'}).grams, 20);
+  assert.equal(scheduleFields({time: '7:30', ampm: 'AM', days: '1111111', grams: 5}).grams, 5);
+  assert.equal(scheduleFields({time: '7:30', ampm: 'AM', days: '1111111', grams: 30}).grams, 30);
   const bad = [
     {time: '0:30', ampm: 'AM', days: '1111111'},
     {time: '13:30', ampm: 'PM', days: '1111111'},
@@ -179,7 +181,7 @@ test('scheduleFields enforces the time shape and the 20-200 g fixed cycle', () =
     {time: '7:30', ampm: 'Night', days: '1111111'},
     {time: '7:30', ampm: 'AM', days: '111111'},
     {time: '7:30', ampm: 'AM', days: '0000000'},
-    {time: '7:30', ampm: 'AM', days: '1111111', grams: 30},
+    {time: '7:30', ampm: 'AM', days: '1111111', grams: 2.5},
     {time: '7:30', ampm: 'AM', days: '1111111', grams: 220},
     {time: '7:30', ampm: 'AM', days: '1111111', enabled: 'yes'},
   ];

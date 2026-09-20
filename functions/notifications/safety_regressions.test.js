@@ -12,7 +12,9 @@ test('schedule time normalization and duplicate day/time regardless of dose', ()
   assert.ok(!overlaps(first,{...first,days:'0001000'}));
   assert.ok(overlaps(first,{time:'6:00',ampm:'PM',grams:60}));
   assert.equal(scheduleFields({time:'12:00',ampm:'AM',days:'1111111'}).timeValue,0);
-  for(const grams of [0,-20,21,201,Infinity,'20'])
+  assert.equal(scheduleFields({time:'6:00',ampm:'AM',days:'1111111',grams:5}).grams,5);
+  assert.equal(scheduleFields({time:'6:00',ampm:'AM',days:'1111111',grams:21}).grams,21);
+  for(const grams of [0,-5,2.5,201,Infinity,'20'])
     assert.throws(()=>scheduleFields({time:'6:00',ampm:'AM',days:'1111111',grams}));
   assert.throws(()=>scheduleFields({time:'6:00',ampm:'AM',days:'0000000'}));
 });

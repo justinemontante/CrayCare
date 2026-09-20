@@ -20,13 +20,13 @@ function scheduleFields(data) {
   if (typeof data.days !== "string" || !/^[01]{7}$/.test(data.days) || !data.days.includes("1")) {
     throw new ScheduleMutationError("invalid-argument", "Select at least one repeat day.");
   }
-  // The UI and ESP both use one servo cycle (20 g) when no amount is entered.
-  // Persist the same canonical default instead of storing null, so every reader
-  // sees one consistent schedule dose.
+  // 1 g-only model: the ESP dispenses one gate swing per gram, so whole
+  // grams 1-200 map 1:1 to actuations. Persist the same canonical default
+  // instead of storing null, so every reader sees one consistent dose.
   const grams = data.grams == null ? 20 : data.grams;
   if (typeof grams !== "number" || !Number.isFinite(grams) ||
-      grams < 20 || grams > 200 || grams % 20 !== 0) {
-    throw new ScheduleMutationError("invalid-argument", "Use 20–200 g in steps of 20 g.");
+      grams < 1 || grams > 200 || !Number.isInteger(grams)) {
+    throw new ScheduleMutationError("invalid-argument", "Use 1–200 g in whole grams (1 swing per gram).");
   }
   if (data.enabled !== undefined && typeof data.enabled !== "boolean") {
     throw new ScheduleMutationError("invalid-argument", "Schedule enabled must be true or false.");

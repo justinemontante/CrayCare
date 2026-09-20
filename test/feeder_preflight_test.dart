@@ -46,7 +46,12 @@ void main() {
       );
       expect(check(oxygen: -1), contains('fresh'));
       expect(check(oxygen: 3), contains('too low'));
-      expect(check(grams: 21), isNotEmpty);
+      expect(check(grams: 21), isEmpty);
+      expect(check(grams: 5), isEmpty);
+      expect(check(grams: null), isEmpty);
+      expect(check(grams: 0), isNotEmpty);
+      expect(check(grams: 2.5), isNotEmpty);
+      expect(check(grams: 201), isNotEmpty);
     },
   );
 }

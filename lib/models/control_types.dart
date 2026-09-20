@@ -3,11 +3,12 @@ import 'package:flutter/foundation.dart';
 const manilaUtcOffset = Duration(hours: 8);
 const defaultFeederGrams = 20.0;
 
-/// Matches the fixed-cycle production firmware; never silently round a dose up.
+/// Matches the 1 g-only production firmware: 1 actuation = 1 g, so whole
+/// grams 1-200 map 1:1 to gate swings. Never silently round a dose up.
 String? validateFeederGrams(double? grams) {
   final amount = grams ?? defaultFeederGrams;
-  if (!amount.isFinite || amount < 20 || amount > 200 || amount % 20 != 0) {
-    return 'Use 20–200 g in steps of 20 g (estimated per servo cycle).';
+  if (!amount.isFinite || amount < 1 || amount > 200 || amount != amount.roundToDouble()) {
+    return 'Use 1–200 g in whole grams (1 swing per gram).';
   }
   return null;
 }
