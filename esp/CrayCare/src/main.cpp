@@ -134,10 +134,17 @@ bool ensureFirebaseReady();
 void applyTankAssignment(const String& tankId, const String& ownerUid = "", long long assignedAtMs = 0);
 void fetchTankId() {
   if (!ensureFirebaseReady()) return;
-  // Read hardware_system/currentOwner to get tank_id for subcollection paths
+  // Read hardware_system/currentOwner to get tank_id for subcollection paths.
+  // A missing doc is a legitimate unassignment; any other failure (e.g. a
+  // 403 from rules) is printed so it cannot fail silently on-device.
   if (!Firebase.Firestore.getDocument(&fbdo, FIREBASE_PROJECT_ID, "",
         "hardware_system/currentOwner")) {
-    if (fbdo.httpCode() == 404) applyTankAssignment("");
+    if (fbdo.httpCode() == 404) {
+      applyTankAssignment("");
+    } else {
+      Serial.printf("[ESP] Assignment read failed, http=%d (%s)\n",
+                    fbdo.httpCode(), fbdo.errorReason().c_str());
+    }
     return;
   }
   FirebaseJson resp;
@@ -1136,15 +1143,23 @@ void connectFirebase() {
                 lastFirebaseAuthAttemptMs - firebaseBeginStartedMs);
 }
 
-void printFirebaseAuthStatus() {
+String lastFirebaseAuthReport = "";
+
+void printFirebaseAuthStatus(bool force) {
   if (!firebaseStarted) {
     Serial.println("[FIREBASE] Not started; waiting for Wi-Fi.");
     return;
   }
   TokenInfo info = Firebase.authTokenInfo();
-  Serial.printf("[FIREBASE] auth=%s | token=%s | Wi-Fi=%s\n",
-                getTokenStatus(info), getTokenType(info),
-                WiFi.status() == WL_CONNECTED ? "connected" : "offline");
+  String report = String("[FIREBASE] auth=") + getTokenStatus(info) +
+                  " | token=" + getTokenType(info) +
+                  " | Wi-Fi=" + (WiFi.status() == WL_CONNECTED ? "connected" : "offline");
+  // Idle serial stays quiet: the 10 s loop reporter prints only on change.
+  // FIREBASE_STATUS forces a fresh print on demand.
+  if (force || report != lastFirebaseAuthReport) {
+    Serial.println(report);
+    lastFirebaseAuthReport = report;
+  }
   if (info.error.code != 0) {
     Serial.printf("[FIREBASE] error code=%d message=%s\n",
                   info.error.code, info.error.message.c_str());
@@ -1301,23 +1316,30 @@ String getHardwareId() {
 //  FIREBASE READY CHECK — Re-auth if token expired
 // ============================================================
 bool ensureFirebaseReady() {
-  // A failed email/password sign-in can otherwise be retried by every cloud
-  // call in loop(), quickly triggering Identity Toolkit rate limiting.
-  if (!Firebase.authenticated()) {
-    if (millis() - lastFirebaseAuthAttemptMs < FIREBASE_AUTH_RETRY_INTERVAL_MS) {
-      firebaseReady = false;
-      return false;
-    }
-    firebaseAuthAttemptFailed = false;
-    Serial.println("[FIREBASE] Retrying device authentication...");
-    Firebase.begin(&config, &auth);
-    lastFirebaseAuthAttemptMs = millis();
-    if (firebaseAuthAttemptFailed) {
-      config.signer.tokens.status = token_status_error;
-      Serial.println("[FIREBASE] Login still rejected; waiting 15 minutes before another retry.");
-      firebaseReady = false;
-      return false;
-    }
+  // Firebase.ready() (token ready + connected) is the readiness signal and
+  // must be checked FIRST. Core.authenticated only flips true after a
+  // successful API call, so gating on it deadlocks every cloud path:
+  // nothing ever goes out, so the flag never flips.
+  if (Firebase.ready()) {
+    firebaseReady = true;
+    return true;
+  }
+  // Not ready: throttle re-authentication so a failed email/password
+  // sign-in is not retried by every cloud call in loop(), which would
+  // quickly trigger Identity Toolkit rate limiting.
+  if (millis() - lastFirebaseAuthAttemptMs < FIREBASE_AUTH_RETRY_INTERVAL_MS) {
+    firebaseReady = false;
+    return false;
+  }
+  firebaseAuthAttemptFailed = false;
+  Serial.println("[FIREBASE] Retrying device authentication...");
+  Firebase.begin(&config, &auth);
+  lastFirebaseAuthAttemptMs = millis();
+  if (firebaseAuthAttemptFailed) {
+    config.signer.tokens.status = token_status_error;
+    Serial.println("[FIREBASE] Login still rejected; waiting 15 minutes before another retry.");
+    firebaseReady = false;
+    return false;
   }
   if (Firebase.ready()) {
     firebaseReady = true;
@@ -1784,8 +1806,9 @@ void readFeedLevelSensor() {
     feedLevelPercent = -1.0f;
     estimatedFeedGrams = -1.0f;
     feedLevelSource = "none";
-    Serial.printf("[FEED LEVEL] Invalid/disconnected voltage: %.3fV\n",
-                  feedLevelVoltage);
+    if (sensorOutputEnabled)
+      Serial.printf("[FEED LEVEL] Invalid/disconnected voltage: %.3fV\n",
+                    feedLevelVoltage);
     return;
   }
 
@@ -1982,7 +2005,7 @@ void loop() {
     if (cmd == "CAL_HELP" || cmd == "cal help") printCalibrationHelp();
     if (cmd == "WIFI_HELP" || cmd == "wifi help") printWifiHelp();
     if (cmd == "FIREBASE_STATUS" || cmd == "firebase status") {
-      printFirebaseAuthStatus();
+      printFirebaseAuthStatus(true);
     }
     if (cmd == "RESET_WIFI") {
       prefs.begin("wifiprof", false);
@@ -2331,7 +2354,7 @@ void loop() {
   if (networkAvailable && firebaseStarted && !cloudBootstrapComplete &&
       now - lastFirebaseAuthReportMs >= 10000UL) {
     lastFirebaseAuthReportMs = now;
-    printFirebaseAuthStatus();
+    printFirebaseAuthStatus(false);
   }
   if (networkAvailable && firebaseStarted && !cloudBootstrapComplete &&
       ensureFirebaseReady()) {
