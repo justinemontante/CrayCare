@@ -29,7 +29,7 @@ class MainShell extends StatefulWidget {
   State<MainShell> createState() => _MainShellState();
 }
 
-class _MainShellState extends State<MainShell> {
+class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   int _currentIndex = 0;
   final _scaffoldKey = GlobalKey<ScaffoldState>();
   final _dashboardKey = GlobalKey<DashboardScreenState>();
@@ -77,6 +77,7 @@ class _MainShellState extends State<MainShell> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _ownerScreens = [
       DashboardScreen(
         key: _dashboardKey,
@@ -113,11 +114,22 @@ class _MainShellState extends State<MainShell> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _profileSub?.cancel();
     _connectedMessageTimer?.cancel();
     NotificationService.instance.removeListener(_onNotificationChange);
     ConnectivityService.instance.removeListener(_onConnectivityChange);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Android may pause the connectivity timer and Firebase streams while
+      // the device is asleep. Recheck immediately when the app returns so a
+      // stale offline banner does not remain after internet is restored.
+      unawaited(ConnectivityService.instance.checkConnectivity());
+    }
   }
 
   void _onNotificationChange() {

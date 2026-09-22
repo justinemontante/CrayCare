@@ -581,7 +581,19 @@ class ProductionScreenState extends State<ProductionScreen> {
               return null;
             }
 
+            String? validateBatchName() {
+              if (isEdit) return null;
+              final name = batchNameCtrl.text.trim();
+              if (name.isEmpty) return null;
+              final nameKey = name.toLowerCase();
+              final exists = TankService.instance.batches.any(
+                (batch) => batch.batchId.trim().toLowerCase() == nameKey,
+              );
+              return exists ? 'This batch name is already in use.' : null;
+            }
+
             final sampleError = validateSample();
+            final batchNameError = validateBatchName();
 
             void revalidate() {
               setLocalState(() {});
@@ -651,7 +663,11 @@ class ProductionScreenState extends State<ProductionScreen> {
                       ],
                     ),
                     const SizedBox(height: 24),
-                    _buildBatchNameField(batchNameCtrl),
+                    _buildBatchNameField(
+                      batchNameCtrl,
+                      errorText: batchNameError,
+                      onChanged: revalidate,
+                    ),
                     const SizedBox(height: 4),
                     _buildInfoCard(
                       Image.asset(
@@ -701,7 +717,9 @@ class ProductionScreenState extends State<ProductionScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
-                        onPressed: (sampleError != null || isSaving)
+                        onPressed: (sampleError != null ||
+                                batchNameError != null ||
+                                isSaving)
                             ? null
                             : () async {
                                 final count = int.tryParse(countCtrl.text) ?? 0;
@@ -752,10 +770,12 @@ class ProductionScreenState extends State<ProductionScreen> {
                                 }
                               },
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: sampleError != null
+                          backgroundColor:
+                              sampleError != null || batchNameError != null
                               ? AppColors.dark.withValues(alpha: 0.2)
                               : AppColors.primary,
-                          foregroundColor: sampleError != null
+                          foregroundColor:
+                              sampleError != null || batchNameError != null
                               ? Colors.white.withValues(alpha: 0.4)
                               : Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 16),
@@ -808,7 +828,12 @@ class ProductionScreenState extends State<ProductionScreen> {
     });
   }
 
-  Widget _buildBatchNameField(TextEditingController controller) {
+  Widget _buildBatchNameField(
+    TextEditingController controller, {
+    String? errorText,
+    VoidCallback? onChanged,
+  }) {
+    final hasError = errorText != null;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Column(
@@ -828,6 +853,7 @@ class ProductionScreenState extends State<ProductionScreen> {
           TextField(
             controller: controller,
             textCapitalization: TextCapitalization.words,
+            onChanged: (_) => onChanged?.call(),
             style: const TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
@@ -845,14 +871,18 @@ class ProductionScreenState extends State<ProductionScreen> {
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide(
-                  color: AppColors.dark.withValues(alpha: 0.5),
+                  color: hasError
+                      ? AppColors.critical
+                      : AppColors.dark.withValues(alpha: 0.5),
                   width: 1.5,
                 ),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide(
-                  color: AppColors.dark.withValues(alpha: 0.5),
+                  color: hasError
+                      ? AppColors.critical
+                      : AppColors.dark.withValues(alpha: 0.5),
                   width: 1.5,
                 ),
               ),
@@ -863,6 +893,7 @@ class ProductionScreenState extends State<ProductionScreen> {
                   width: 2,
                 ),
               ),
+              errorText: errorText,
             ),
           ),
         ],

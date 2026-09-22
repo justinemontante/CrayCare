@@ -144,6 +144,22 @@ class MortalityEntry {
   MortalityEntry({this.id = '', required this.date, required this.count});
 }
 
+/// The complete record set for one batch, used by all-batch exports without
+/// changing which batch is currently open in the production workspace.
+class BatchRecordSnapshot {
+  final CrayfishBatch batch;
+  final List<SamplingEntry> sampling;
+  final List<MortalityEntry> mortality;
+  final List<CrayfishHarvestRecord> harvests;
+
+  const BatchRecordSnapshot({
+    required this.batch,
+    required this.sampling,
+    required this.mortality,
+    required this.harvests,
+  });
+}
+
 class TankService extends ChangeNotifier {
   static final TankService instance = TankService._();
   TankService._();
@@ -299,6 +315,97 @@ class TankService extends ChangeNotifier {
     final active = _batches.where((b) => b.status == 'active').toList();
     if (active.isNotEmpty) return active.first;
     return _batches.first;
+  }
+
+  /// Loads the nested records for every batch for the Batch List export.
+  /// This does not change the selected batch or the live listeners used by the
+  /// currently displayed workspace.
+  Future<List<BatchRecordSnapshot>> loadAllBatchRecordSnapshots() async {
+    return loadBatchRecordSnapshots(_batches.map((batch) => batch.batchId));
+  }
+
+  /// Loads records only for the batches selected for an export.
+  Future<List<BatchRecordSnapshot>> loadBatchRecordSnapshots(
+    Iterable<String> batchIds,
+  ) async {
+    final requestedIds = batchIds.toSet();
+    final batches = _batches
+        .where((batch) => requestedIds.contains(batch.batchId))
+        .toList();
+    if (batches.isEmpty || _tankOwnerUid.isEmpty) return const [];
+
+    return Future.wait(batches.map(_loadBatchRecordSnapshot));
+  }
+
+  Future<BatchRecordSnapshot> _loadBatchRecordSnapshot(
+    CrayfishBatch batch,
+  ) async {
+    final results = await Future.wait<QuerySnapshot<Map<String, dynamic>>>([
+      _samplingRef(batch.batchId).orderBy('sampling_date').get(),
+      _mortalityRef(batch.batchId).orderBy('mortality_date').get(),
+      _harvestRef(batch.batchId).orderBy('harvest_date').get(),
+    ]);
+
+    final sampling = <SamplingEntry>[];
+    for (final doc in results[0].docs) {
+      final map = doc.data();
+      final date = _readTankDate(map['sampling_date']);
+      if (date == null) continue;
+      final sampleSize = map['sample_size'] as num?;
+      final totalWeight = map['total_weight'] as num?;
+      final totalLength = map['total_length'] as num?;
+      sampling.add(
+        SamplingEntry(
+          id: doc.id,
+          date: date,
+          abw: deriveSamplingAverage(
+            total: totalWeight,
+            sampleSize: sampleSize,
+            legacyAverage: (map['avg_body_weight'] as num?)?.toDouble(),
+          ),
+          avgLength: deriveSamplingAverage(
+            total: totalLength,
+            sampleSize: sampleSize,
+            legacyAverage: (map['avg_body_length'] as num?)?.toDouble(),
+          ),
+          sampleSize: sampleSize?.toInt() ?? 0,
+          totalWeight: totalWeight?.toDouble() ?? 0.0,
+          totalLength: totalLength?.toDouble() ?? 0.0,
+          liveCount: (map['live_count'] as num?)?.toInt() ?? 0,
+          isBaseline: map['is_baseline'] == true,
+        ),
+      );
+    }
+    sampling.sort((a, b) => a.date.compareTo(b.date));
+
+    final mortality = results[1].docs
+        .map((doc) {
+          final map = doc.data();
+          final date = _readTankDate(map['mortality_date']);
+          final count = map['mortality_count'];
+          if (date == null || count is! num) return null;
+          return MortalityEntry(
+            id: doc.id,
+            date: date,
+            count: count.toInt(),
+          );
+        })
+        .whereType<MortalityEntry>()
+        .toList()
+      ..sort((a, b) => a.date.compareTo(b.date));
+
+    final harvests = results[2].docs.map((doc) {
+      final data = Map<String, dynamic>.from(doc.data());
+      data['batch_id'] ??= batch.batchId;
+      return CrayfishHarvestRecord.fromJson(doc.id, data);
+    }).toList()..sort((a, b) => a.date.compareTo(b.date));
+
+    return BatchRecordSnapshot(
+      batch: batch,
+      sampling: sampling,
+      mortality: mortality,
+      harvests: harvests,
+    );
   }
 
   int get totalMortalityFromHistory =>
@@ -1001,6 +1108,12 @@ class TankService extends ChangeNotifier {
     }
 
     final bid = requestedName.isNotEmpty ? requestedName : fallbackBid;
+    final requestedNameKey = bid.toLowerCase();
+    if (_batches.any(
+      (batch) => batch.batchId.trim().toLowerCase() == requestedNameKey,
+    )) {
+      throw StateError('A batch named "$bid" already exists');
+    }
     if ((await _batchesRef.doc(bid).get()).exists) {
       throw StateError('A batch named "$bid" already exists');
     }
