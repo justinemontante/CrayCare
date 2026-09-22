@@ -119,7 +119,7 @@ long long firestoreTimestampMillis(const String& value) {
 #define CONFIG_SYNC_INTERVAL_MS 60000   // thresholds re-sync; switch forces immediate
 #define FLUSH_INTERVAL_MS 1000           // flush backlog at 1 entry/sec (max)
 #define SENSOR_POLL_MS 2000
-#define ASSIGNMENT_RECHECK_MS 60000     // slow switch-detector while assigned
+#define ASSIGNMENT_RECHECK_MS 180000     // slow switch-detector while assigned (3 min)
 #define ASSIGNMENT_SEARCH_MS 10000      // aggressive search while missing
 
 // Feeder timing
@@ -138,13 +138,32 @@ void applyTankAssignment(const String& tankId, const String& ownerUid = "", long
 // failures (slow-TLS timeouts, dropped connections). Definitive answers —
 // 404 missing, 401 auth, 403 rules — return immediately without retry.
 // Silent on first-attempt failure; callers print only if both fail.
+int cloudTransportFailures = 0;  // consecutive timeout-class failures
+
+// Any success clears the streak. On 3 consecutive transport failures the
+// shared TLS session is dropped so the next call does a clean handshake
+// (counters wedged-session accumulation: connect fd climbing, SSL
+// mRunUntil/mConnectSSL timeouts after link flaps).
+bool cloudSessionResetPending = false;
+
+void reportCloudResult(bool ok) {
+  if (ok) { cloudTransportFailures = 0; cloudSessionResetPending = false; return; }
+  if (++cloudTransportFailures >= 3) {
+    cloudTransportFailures = 0;
+    cloudSessionResetPending = true;
+  }
+}
+
 bool firestoreGetDoc(const char* docPath) {
   for (int attempt = 0; attempt < 2; attempt++) {
-    if (Firebase.Firestore.getDocument(&fbdo, FIREBASE_PROJECT_ID, "", docPath))
+    if (Firebase.Firestore.getDocument(&fbdo, FIREBASE_PROJECT_ID, "", docPath)) {
+      reportCloudResult(true);
       return true;
+    }
     const int code = fbdo.httpCode();
     if (code == 404 || code == 401 || code == 403) return false;
   }
+  reportCloudResult(false);
   return false;
 }
 
@@ -1472,8 +1491,8 @@ void buildFirestorePayload(FirebaseJson &json, bool includeTimestamp) {
 // hardware_system/currentOwner to get ownerUid, and copies data into
 // tanks/{tankId}/sensor_readings/latest for the Flutter app to read.
 // The ESP never knows any user UID — ownership is resolved server-side.
-void sendLatestToFirestore() {
-  if (!ensureFirebaseReady()) return;
+bool sendLatestToFirestore() {
+  if (!ensureFirebaseReady()) return false;
 
   FirebaseJson content;
   buildFirestorePayload(content, false);
@@ -1488,19 +1507,18 @@ void sendLatestToFirestore() {
 
   bool latestOk = Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "(default)",
                                                      docPath, content.raw(), "");
-  if (!latestOk) {
-    // Fixed-path overwrite is idempotent: one immediate retry on transport
-    // failures, never on 404/401/403.
-    const int code = fbdo.httpCode();
-    if (code != 404 && code != 401 && code != 403)
-      latestOk = Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "(default)",
-                                                  docPath, content.raw(), "");
-  }
+  reportCloudResult(latestOk);
   if (latestOk) {
     Serial.println("[FIRESTORE] Latest sent");
   } else {
-    Serial.printf("[FIRESTORE ERROR] %s\n", fbdo.errorReason().c_str());
+    // Do not retry immediately. A second TLS operation against an already
+    // wedged session commonly produces mRunUntil/mConnectSSL errors and puts
+    // more pressure on heap. The main loop retries on the next 5-second slot.
+    Serial.printf("[FIRESTORE ERROR] code=%d reason=%s | RSSI=%d dBm | heap=%u\n",
+                  fbdo.httpCode(), fbdo.errorReason().c_str(), WiFi.RSSI(),
+                  (unsigned)ESP.getFreeHeap());
   }
+  return latestOk;
 }
 
 // ─── Write history entry to Firestore ───────────────────────────────
@@ -2425,6 +2443,8 @@ void loop() {
 
   if (now - lastFirebaseSendTime >= FIREBASE_SEND_INTERVAL_MS) {
     // Sensor writes go to Firestore; Cloud Functions add recorded_at server timestamps.
+    // Whether this succeeds or fails, wait for the next normal slot. Immediate
+    // retries amplify weak-link TLS failures and can exhaust the SSL layer.
     sendLatestToFirestore();
     lastFirebaseSendTime = millis();
     now = lastFirebaseSendTime;
@@ -2502,6 +2522,16 @@ void loop() {
     }
     lastFlushTime = millis();
     now = lastFlushTime;
+  }
+
+  // Drop a TLS session wedged by repeated transport failures (BearSSL
+  // mRunUntil/mConnectSSL timeouts, climbing fds). All payloads are consumed
+  // inline by their callers, so clearing here is safe; the next cloud call
+  // does a clean handshake.
+  if (cloudSessionResetPending) {
+    cloudSessionResetPending = false;
+    fbdo.clear();
+    Serial.println("[NET] TLS session reset after repeated transport failures");
   }
 }
 
@@ -3490,7 +3520,7 @@ void updateLCD() {
     } else {
       l0 = String("Blw:") + (blowerOn ? "ON " : "OFF") +
            " G:" + String(gateOpenAngle) + "/" + String(gateHoldMs);
-      l1 = WiFi.status() == WL_CONNECTED ? "WiFi OK " + WiFi.localIP().toString() : "WiFi OFFLINE";
+      l1 = WiFi.status() == WL_CONNECTED ? "WiFi OK " + WiFi.SSID().substring(0, 8) : "WiFi OFFLINE";
       if (l1.length() > 16) l1 = l1.substring(l1.length() - 16);
     }
   }

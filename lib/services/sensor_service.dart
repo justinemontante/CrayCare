@@ -56,7 +56,11 @@ class SensorService extends ChangeNotifier {
 
   Timer? _staleTimer;
   Timer? _periodicCheckTimer;
-  static const _staleTimeout = Duration(seconds: 10);
+  // The ESP publishes every 5 seconds, but a Firestore write is routed through
+  // a Cloud Function before this listener receives it. Allow several publish
+  // windows for TLS reconnects and function latency so one delayed write does
+  // not incorrectly mark healthy hardware offline.
+  static const _staleTimeout = Duration(seconds: 30);
   static const _maxFutureTimestampSkew = Duration(seconds: 60);
   static const _trendWindow = Duration(seconds: 60);
   static const _minTrendSpan = Duration(seconds: 15);
