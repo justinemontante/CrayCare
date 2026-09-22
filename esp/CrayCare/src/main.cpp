@@ -116,12 +116,14 @@ long long firestoreTimestampMillis(const String& value) {
 
 #define FIREBASE_SEND_INTERVAL_MS 5000
 #define HISTORY_SEND_INTERVAL_MS 600000  // 10 minutes; matches the documented schema
-#define CONFIG_SYNC_INTERVAL_MS 10000
+#define CONFIG_SYNC_INTERVAL_MS 60000   // thresholds re-sync; switch forces immediate
 #define FLUSH_INTERVAL_MS 1000           // flush backlog at 1 entry/sec (max)
 #define SENSOR_POLL_MS 2000
+#define ASSIGNMENT_RECHECK_MS 60000     // slow switch-detector while assigned
+#define ASSIGNMENT_SEARCH_MS 10000      // aggressive search while missing
 
 // Feeder timing
-#define FEEDER_CMD_INTERVAL_MS 300
+#define FEEDER_CMD_INTERVAL_MS 1000
 #define FEEDER_STATUS_INTERVAL_MS 5000
 #define FEEDER_SCHEDULE_SYNC_MS 10000
 #define FEEDER_SCHEDULE_CHECK_MS 1000
@@ -132,13 +134,26 @@ long long firestoreTimestampMillis(const String& value) {
 extern FirebaseData fbdo;
 bool ensureFirebaseReady();
 void applyTankAssignment(const String& tankId, const String& ownerUid = "", long long assignedAtMs = 0);
+// Idempotent Firestore GET with one immediate retry on transport-class
+// failures (slow-TLS timeouts, dropped connections). Definitive answers —
+// 404 missing, 401 auth, 403 rules — return immediately without retry.
+// Silent on first-attempt failure; callers print only if both fail.
+bool firestoreGetDoc(const char* docPath) {
+  for (int attempt = 0; attempt < 2; attempt++) {
+    if (Firebase.Firestore.getDocument(&fbdo, FIREBASE_PROJECT_ID, "", docPath))
+      return true;
+    const int code = fbdo.httpCode();
+    if (code == 404 || code == 401 || code == 403) return false;
+  }
+  return false;
+}
+
 void fetchTankId() {
   if (!ensureFirebaseReady()) return;
   // Read hardware_system/currentOwner to get tank_id for subcollection paths.
   // A missing doc is a legitimate unassignment; any other failure (e.g. a
   // 403 from rules) is printed so it cannot fail silently on-device.
-  if (!Firebase.Firestore.getDocument(&fbdo, FIREBASE_PROJECT_ID, "",
-        "hardware_system/currentOwner")) {
+  if (!firestoreGetDoc("hardware_system/currentOwner")) {
     if (fbdo.httpCode() == 404) {
       applyTankAssignment("");
     } else {
@@ -406,8 +421,7 @@ bool flushOneBufferedEntry() {
   String docPath = String("sensorIngestion/current/history/") + docId;
 
   // Skip if already uploaded (crash between create and buffer-delete).
-  if (Firebase.Firestore.getDocument(&fbdo, FIREBASE_PROJECT_ID, "(default)",
-                                     docPath.c_str())) {
+  if (firestoreGetDoc(docPath.c_str())) {
     Serial.println("[BUF] Duplicate found — dropping buffered entry");
     return bufferDropFirst(lines, n);
   }
@@ -424,6 +438,7 @@ bool flushOneBufferedEntry() {
   return false;
 }
 unsigned long lastConfigSyncTime = 0;
+unsigned long lastAssignmentCheckMs = 0;
 unsigned long lastPollTime = 0;
 unsigned long lastWifiReconnectTime = 0;
 
@@ -1119,6 +1134,8 @@ void connectFirebase() {
 
   config.api_key = FIREBASE_API_KEY;
   config.database_url = FIREBASE_DATABASE_URL;
+  // Tolerate slow TLS reads on weak links (default 10 s -> http -6).
+  config.timeout.serverResponse = 30000;
   // This callback is throttled above so authentication progress stays visible
   // without flooding the Serial Monitor on repeated retries.
   config.token_status_callback = firebaseTokenStatusCallback;
@@ -1221,7 +1238,7 @@ bool ensureFirebaseReady();
 bool syncTankRange(const char* sensorDoc, float &lowTarget, float &highTarget,
                    float minLimit, float maxLimit) {
   String path = String("tanks/") + currentTankId + "/sensors/" + sensorDoc;
-  if (!Firebase.Firestore.getDocument(&fbdo, FIREBASE_PROJECT_ID, "", path.c_str(), "")) {
+  if (!firestoreGetDoc(path.c_str())) {
     Serial.printf("[CONFIG] %s unavailable: %s\n", path.c_str(), fbdo.errorReason().c_str());
     return false;
   }
@@ -1241,7 +1258,7 @@ bool syncTankRange(const char* sensorDoc, float &lowTarget, float &highTarget,
 
 bool syncFeedLevelConfig() {
   String path = String("tanks/") + currentTankId + "/sensors/feed_level";
-  if (!Firebase.Firestore.getDocument(&fbdo, FIREBASE_PROJECT_ID, "", path.c_str(), "")) {
+  if (!firestoreGetDoc(path.c_str())) {
     return false;
   }
   FirebaseJson doc;
@@ -1265,10 +1282,9 @@ bool syncFeedLevelConfig() {
   return true;
 }
 
-// Thresholds are owned by the currently assigned tank. The ESP obtains its
-// tank ID from hardware_system/currentOwner, never from a user UID.
+// Thresholds are owned by the currently assigned tank. The tank ID is a
+// cached credential refreshed by the assignment block in loop(), never here.
 void syncConfigFromFirebase() {
-  fetchTankId();
   if (currentTankId.length() == 0) {
     if (sensorOutputEnabled) Serial.println("[CONFIG] No tank assigned; retaining firmware defaults.");
     return;
@@ -1470,8 +1486,17 @@ void sendLatestToFirestore() {
   // Fixed path — no hardwareId needed. There is only one hardware package.
   const char* docPath = "sensorIngestion/current";
 
-  if (Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "(default)",
-                                       docPath, content.raw(), "")) {
+  bool latestOk = Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "(default)",
+                                                     docPath, content.raw(), "");
+  if (!latestOk) {
+    // Fixed-path overwrite is idempotent: one immediate retry on transport
+    // failures, never on 404/401/403.
+    const int code = fbdo.httpCode();
+    if (code != 404 && code != 401 && code != 403)
+      latestOk = Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "(default)",
+                                                  docPath, content.raw(), "");
+  }
+  if (latestOk) {
     Serial.println("[FIRESTORE] Latest sent");
   } else {
     Serial.printf("[FIRESTORE ERROR] %s\n", fbdo.errorReason().c_str());
@@ -1954,6 +1979,9 @@ void setup() {
   initActuators();
   initBlower();
   initLCD();
+  // Larger read side for Firestore payloads: fewer -6 payload timeouts.
+  fbdo.setResponseSize(8192);
+  fbdo.setBSSLBufferSize(4096, 2048);
   if (WiFi.status() == WL_CONNECTED) {
     initTime();
     connectFirebase();
@@ -2367,29 +2395,67 @@ void loop() {
     now = millis();
   }
 
+  // ─── Assignment (cached credentials) ───
+  // Held assignment: slow switch-detector. Missing: aggressive search until
+  // resolved. Transport failures keep the old cache (fetch only overwrites
+  // on success, 404, or a definitive read).
+  {
+    const bool haveAssignment = currentTankId.length() > 0;
+    const unsigned long assignInterval =
+        haveAssignment ? ASSIGNMENT_RECHECK_MS : ASSIGNMENT_SEARCH_MS;
+    if (now - lastAssignmentCheckMs >= assignInterval) {
+      String prevTank = currentTankId;
+      fetchTankId();
+      lastAssignmentCheckMs = millis();
+      now = lastAssignmentCheckMs;
+      // A fresh switch/unassign forces an immediate config re-sync.
+      if (currentTankId != prevTank) lastConfigSyncTime = 0;
+    }
+  }
+
+  // ─── Sensors + live Latest (first: the realtime path never queues) ───
+
+  if (now - lastPollTime >= SENSOR_POLL_MS) {
+    readAllSensors();
+    lastPollTime = millis();
+    now = lastPollTime;
+
+    if (sensorOutputEnabled) printSensorReading();
+  }
+
+  if (now - lastFirebaseSendTime >= FIREBASE_SEND_INTERVAL_MS) {
+    // Sensor writes go to Firestore; Cloud Functions add recorded_at server timestamps.
+    sendLatestToFirestore();
+    lastFirebaseSendTime = millis();
+    now = lastFirebaseSendTime;
+  }
+
   // ─── Feeder ───
   // Observe assignment changes before consuming commands or running a plan.
   if (now - lastConfigSyncTime >= CONFIG_SYNC_INTERVAL_MS) {
-    lastConfigSyncTime = now;
     syncConfigFromFirebase();
-    now = millis();
+    lastConfigSyncTime = millis();
+    now = lastConfigSyncTime;
   }
   // Cloud commands/status/schedule refresh need network. Already-synced
   // schedules continue to execute locally below while offline.
   if (networkAvailable && now - lastFeederCmdCheckMs >= FEEDER_CMD_INTERVAL_MS) {
-    lastFeederCmdCheckMs = now;
     processFeederCommands();
+    lastFeederCmdCheckMs = millis();
+    now = lastFeederCmdCheckMs;
     if (feederRunState != FEEDER_IDLE) return;
   }
 
   if (networkAvailable && now - lastFeederStatusMs >= FEEDER_STATUS_INTERVAL_MS) {
-    lastFeederStatusMs = now;
     sendFeederStatus();
+    lastFeederStatusMs = millis();
+    now = lastFeederStatusMs;
   }
 
   if (networkAvailable && now - lastFeederScheduleSyncMs >= FEEDER_SCHEDULE_SYNC_MS) {
-    lastFeederScheduleSyncMs = now;
     syncFeederSchedules();
+    lastFeederScheduleSyncMs = millis();
+    now = lastFeederScheduleSyncMs;
   }
 
   if (now - lastFeederScheduleCheckMs >= FEEDER_SCHEDULE_CHECK_MS) {
@@ -2409,36 +2475,21 @@ void loop() {
 
   // ─── Actuators (pump + aerators) ───
   if (now - lastActuatorSyncMs >= ACTUATOR_SYNC_INTERVAL_MS) {
-    lastActuatorSyncMs = now;
     syncActuatorsFromFirestore();
-  }
-
-  // ─── Sensors ───
-
-  if (now - lastPollTime >= SENSOR_POLL_MS) {
-    lastPollTime = now;
-
-    readAllSensors();
-
-    if (sensorOutputEnabled) printSensorReading();
-  }
-
-  if (now - lastFirebaseSendTime >= FIREBASE_SEND_INTERVAL_MS) {
-    lastFirebaseSendTime = now;
-    // Sensor writes go to Firestore; Cloud Functions add recorded_at server timestamps.
-    sendLatestToFirestore();
+    lastActuatorSyncMs = millis();
+    now = lastActuatorSyncMs;
   }
 
   if (now - lastHistorySendTime >= HISTORY_SEND_INTERVAL_MS) {
-    lastHistorySendTime = now;
     sendHistoryToFirestore();
+    lastHistorySendTime = millis();
+    now = lastHistorySendTime;
   }
 
   // ─── Offline buffer flush (store-and-forward) ───
   // Runs whenever Firebase is reachable; 1 entry/sec max so the live
   // 5-sec + 10-min writes are never starved. Oldest entry goes first.
   if (now - lastFlushTime >= FLUSH_INTERVAL_MS) {
-    lastFlushTime = now;
     if (networkAvailable && littlefsMounted && ensureFirebaseReady()) flushOneFeederLog();
     if (networkAvailable && littlefsMounted && countBufferedEntries() > 0) {
       if (ensureFirebaseReady()) {
@@ -2449,6 +2500,8 @@ void loop() {
         // flushOneBufferedEntry()==false -> still offline, keep for retry.
       }
     }
+    lastFlushTime = millis();
+    now = lastFlushTime;
   }
 }
 
@@ -3487,7 +3540,7 @@ bool readActuatorMode(int idx, String& modeOut) {
   if (currentTankId.length() == 0) return false;
 
   String path = String("tanks/") + currentTankId + "/actuators/" + actuators[idx].deviceId;
-  if (!Firebase.Firestore.getDocument(&fbdo, FIREBASE_PROJECT_ID, "", path.c_str(), "")) {
+  if (!firestoreGetDoc(path.c_str())) {
     return false;   // doc may not exist yet — tank seeding happens on app side
   }
   FirebaseJson doc;
