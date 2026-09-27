@@ -58,6 +58,7 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>  // 16x2 status LCD (SDA 21 / SCL 22)
 #include <vector>
+#include "esp_task_wdt.h"  // task watchdog: reboot (with trail) on silent hang
 #include "addons/TokenHelper.h"
 #include "addons/RTDBHelper.h"
 #include "secrets.h"   // Firebase credentials — gitignored (see secrets.h.example)
@@ -753,6 +754,8 @@ uint8_t tempSkipCount = 0;
 // Serial output is opt-in so continuous readings never interfere with commands.
 // Sampling, Firestore uploads, buffering, and automation remain active.
 bool sensorOutputEnabled = false;
+bool rawStreamEnabled = false;      // `raw on` 1 s voltage stream for calibration
+unsigned long lastRawStreamMs = 0;
 
 float turbidityBuffer[SMOOTH_WINDOW];
 uint8_t turbidityCount = 0;
@@ -1063,6 +1066,7 @@ bool wifiTryOne(const String &s, const String &p) {
   for (int i = 0; i < 20; i++) {
     if (WiFi.status() == WL_CONNECTED) break;
     delay(500);
+    esp_task_wdt_reset();  // 10 s worst case here; keep the watchdog fed
     Serial.print(".");
   }
   Serial.println();
@@ -1909,6 +1913,17 @@ void printSensorReading() {
                 dissolvedOxygen, phLevel, waterLevelCm, feedLevelPercent);
 }
 
+// One raw-voltage snapshot for calibration stability checks. Reuses the
+// latest smoothed values (no extra ADC traffic); called by `raw` and by
+// the 1 s `raw on` stream.
+void printRawReading() {
+  Serial.printf("[RAW] pH=%.3fV DO=%.3fV Turb=%.3fV HC-SR04=%.1fcm Water=%.1fcm Feed=%.3fV/%.0f%%/~%.0fg Hopper=%.1fcm(%s)\n",
+                phVoltage, dissolvedOxygenVoltage, turbidityVoltage,
+                waterDistanceCm, waterLevelCm, feedLevelVoltage,
+                feedLevelPercent, estimatedFeedGrams,
+                hopperDistanceCm, feedLevelSource);
+}
+
 void printCalibrationHelp() {
   Serial.println("\n=== CALIBRATION COMMANDS ===");
   Serial.println("phcal7                  Save voltage in pH 7 buffer");
@@ -1930,7 +1945,7 @@ void printCalibrationHelp() {
   Serial.println("tankheight <CM>          Sensor-to-tank-bottom distance");
   Serial.println("tankdepth <CM>           Maximum water depth");
   Serial.println("tankcal                  Show tank calibration");
-  Serial.println("raw                      Show one raw reading");
+  Serial.println("raw [on|off]             One raw reading / 1 s stream for cal");
 }
 
 void printSerialHelp() {
@@ -2013,6 +2028,11 @@ void setup() {
   Serial.begin(115200);
   delay(500);
 
+  // Task watchdog: 30 s timeout (longest legit block is ~30 s TLS) with
+  // reset on expiry, so a silent hang reboots with a TASK_WDT trail.
+  esp_task_wdt_init(30, true);
+  esp_task_wdt_add(NULL);
+
   initLCD();
   showLCDBoot("CrayCare", "Booting...");
   initOnsiteButton();
@@ -2072,6 +2092,7 @@ void setup() {
 //  LOOP
 // ============================================================
 void loop() {
+  esp_task_wdt_reset();  // fed every pass (< 1 s normally)
   processOnsiteButton();
   pollBlowerButton();
   // Motor timing must never wait behind a blocking cloud/sensor operation.
@@ -2420,11 +2441,17 @@ void loop() {
       }
     }
     if (cmd == "raw") {
-      Serial.printf("[RAW] pH=%.3fV DO=%.3fV Turb=%.3fV HC-SR04=%.1fcm Water=%.1fcm Feed=%.3fV/%.0f%%/~%.0fg Hopper=%.1fcm(%s)\n",
-                    phVoltage, dissolvedOxygenVoltage, turbidityVoltage,
-                    waterDistanceCm, waterLevelCm, feedLevelVoltage,
-                    feedLevelPercent, estimatedFeedGrams,
-                    hopperDistanceCm, feedLevelSource);
+      printRawReading();
+    }
+    if (cmd == "raw on" || cmd == "raw stream") {
+      rawStreamEnabled = true;
+      lastRawStreamMs = 0;  // stream prints on the next loop pass
+      Serial.println("[RAW] Stream ON (1 s, 'raw off' to stop)");
+      printRawReading();
+    }
+    if (cmd == "raw off" || cmd == "raw stop") {
+      rawStreamEnabled = false;
+      Serial.println("[RAW] Stream OFF");
     }
     if (cmd == "BUFSTATUS" || cmd == "bufstatus") {
       size_t lfs = littlefsMounted ? countEntriesIn(LittleFS, BUFFER_PATH) : 0;
@@ -2532,6 +2559,13 @@ void loop() {
     now = lastPollTime;
 
     if (sensorOutputEnabled) printSensorReading();
+  }
+
+  // Continuous raw-voltage stream for calibration stability checks
+  // (`raw on` / `raw off`). Reuses cached values; zero extra ADC load.
+  if (rawStreamEnabled && now - lastRawStreamMs >= 1000UL) {
+    lastRawStreamMs = now;
+    printRawReading();
   }
 
   if (now - lastFirebaseSendTime >= FIREBASE_SEND_INTERVAL_MS) {

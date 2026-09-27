@@ -143,8 +143,13 @@ SENSOR CALIBRATION
   phcal4
     Place the pH probe in pH 4.00 buffer, wait for a stable voltage, then run.
 
-    Both pH points are required. After the second point, firmware computes and
-    saves the two-point voltage slope/intercept.
+  phcal9 [VALUE]
+    Optional third point: pH 9.00 buffer (or pass your buffer's exact pH,
+    e.g. phcal9 9.18, range 8.00-10.00). Selects the 7/9 pair instead of
+    7/4 for alkaline water.
+
+    Two points are required (7 + 4 or 7 + 9). After the second point,
+    firmware computes and saves the two-point voltage slope/intercept.
 
   doread
     Shows current DO raw voltage, converted mg/L, and water temperature.
@@ -178,6 +183,11 @@ DEBUG
   raw
     Prints pH, DO, turbidity, water depth, plus hopper voltage, percentage, and
     estimated remaining grams.
+
+  raw on / raw off
+    Streams the same raw-voltage line every 1 s for calibration stability
+    checks (watch the 3-decimal volts sit still before teaching a point).
+    Bare `raw` stays a one-shot. Reuses cached values; no extra ADC load.
 
 RELAYS — LOCAL TEST
   n1on / n1off       Water pump, GPIO26

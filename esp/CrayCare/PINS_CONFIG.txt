@@ -31,7 +31,7 @@ SENSORS
 │   36   │ SVP   │ Dissolved Oxygen     │ DFRobot SEN0237          │
 │   35   │       │ pH Sensor            │ DFRobot SEN0161          │
 │   34   │       │ Turbidity            │ DFRobot SEN0189          │
-│    4   │       │ DS18B20 (Water Temp) │ Standard OneWire         │
+│    4   │       │ DS18B20 (Water Temp) │ 5.1k pull-up to 3.3V     │
 │   32   │ TRIG  │ HC-SR04 (Water Level)│ Ultrasonic Trig         │
 │   33   │ ECHO  │ HC-SR04 (Water Level)│ Ultrasonic Echo         │
 │   39   │ VN    │ Feed Level Sensor    │ Analog hopper fallback   │
@@ -112,6 +112,77 @@ Sensor powered at 5V — verify each before connecting:
 ⚠️  IMPORTANT: SEN0189 Turbidity at 5V outputs ~3.8-4.2V.
     If powered at 5V, add voltage divider. Direct connect only
     if powered at 3.3V.
+    After adding ANY divider, reteach turbclear + turbdirty: the NTU
+    scale interpolates between the taught voltages, so old taught
+    values (taken undivided) become wrong the moment a divider lands.
+
+SEPARATE 5V ADAPTER RULES (sensors, ultrasonics, servo, LCD)
+  A separate adapter changes NOTHING about resistors: dividers care about
+  SIGNAL voltage, not SUPPLY source. HC-SR04 ECHO still outputs ~5V, so the
+  1k+2k dividers stay mandatory, as do all dividers/pull-ups below.
+  - COMMON GND IS MANDATORY. Tie the adapter GND to ESP32 GND (best: star
+    grounding at one point). Without it every sensor reading floats
+    (garbage values) and TRIG/ECHO/servo signals have no reference.
+  - DS18B20 pull-up goes to 3.3V ALWAYS, even if the sensor VCC is 5V
+    (open-drain DQ: the pull-up voltage sets the logic level). A 5V
+    pull-up puts 5V on GPIO4 = damaged pin.
+  - TRIG pins (GPIO32/17) stay direct: 3.3V registers as HIGH on the 5V
+    ultrasonic modules. Servo signal likewise stays direct (3.3V).
+
+HOW TO CONNECT EACH RESISTOR (signal -> resistors -> ESP -> GND)
+  Stock on hand: 10k, 5.1k, 1k, 2k (+ 220, 10, 100, 330, 100k, 1M).
+  Use ONLY 10k / 5.1k / 1k / 2k for the circuits below. Avoid 100k/1M
+  (too high: ADC leakage skews readings) and 220 and below (too low:
+  loads the sensor output and wastes current).
+  DO (GPIO36) and pH (GPIO35), 10k + 10k each:
+    module SIG -> 10k -> GPIO pin; GPIO pin -> 10k -> GND.
+    Why kept: both DFRobot modules output 0-3.0V, so the divider gives
+    0-1.5V at the ADC — comfortable headroom, never clips, and safe
+    against 5V-supply overshoot. Firmware compensates (/0.5), so readings
+    stay correct. Removing them would need a code change AND a full
+    recalibration (pH slope, DO point, all taught voltages) for ~1 mV
+    of extra resolution — not worth it. Leave them alone.
+  Turbidity (GPIO34, 5V supply), 10k + 10k:
+    module SIG -> 10k -> GPIO34; GPIO34 -> 10k -> GND.
+    Then reteach turbclear + turbdirty (see above). No code change:
+    the 2:1 scale is absorbed by the taught points.
+  DS18B20 temp (GPIO4), one 5.1k pull-up (ideal value, in stock):
+    DQ -> 5.1k -> 3.3V; DQ -> GPIO4; VCC -> 3.3V; GND -> GND.
+    REQUIRED for reliable OneWire. Symptom of a weak/missing pull-up:
+    -127 C / 85 C readings or dropouts. (Backup: 10k on short wires
+    < 1 m, or 2x10k in parallel = ~5k.)
+  HC-SR04 ECHO (GPIO33 water, GPIO25 hopper), 1k + 2k each:
+    ECHO -> 1k -> GPIO pin; GPIO pin -> 2k -> GND. Never direct.
+  Buttons/SD/LCD/servo need no extra resistors (internal pull-ups /
+  module-level shifting; see LCD 5V pull-up advisory in project notes).
+
+DIVIDER CONNECTION DIAGRAMS (ASCII, signal flows left to right)
+  10k + 10k divider (DO->GPIO36, pH->GPIO35, turbidity->GPIO34 @5V):
+
+      module SIG o----[ 10k ]----+----o GPIO pin
+                                  |
+                             [ 10k ]
+                                  |
+                                 GND
+      GPIO reads HALF the module voltage; firmware compensates (/0.5
+      for DO/pH; turbidity absorbs it via reteach). Either 10k can be
+      on either side — the ratio is what matters.
+
+  1k + 2k divider (HC-SR04 ECHO -> GPIO33 water / GPIO25 hopper):
+
+      ECHO (5V) o----[ 1k ]----+----o GPIO pin
+                                |
+                               [ 2k ]
+                                |
+                               GND
+      GPIO sees 5V * 2k/(1k+2k) = 3.3V. Do NOT swap the values: 2k on
+      top would give 1.7V (weak echo reads); direct wire gives 5V
+      (damages the pin).
+
+  DS18B20 pull-up (DQ -> GPIO4):
+
+      3.3V o----[ 5.1k ]----+----o DQ / GPIO4
+      (VCC -> 3.3V, GND -> GND; DQ doubles as the data line.)
 
 ============================================
   WATER LEVEL (HC-SR04)
