@@ -51,6 +51,7 @@
 #include <Preferences.h>
 #include <time.h>
 #include <stdlib.h>    // atoll()
+#include <string.h>   // strlen(), memmove()
 #include <LittleFS.h>  // offline store-and-forward buffer (data partition)
 #include <SPI.h>
 #include <SD.h>  // optional SD card: primary offline buffer when present
@@ -119,7 +120,7 @@ long long firestoreTimestampMillis(const String& value) {
 #define CONFIG_SYNC_INTERVAL_MS 60000   // thresholds re-sync; switch forces immediate
 #define FLUSH_INTERVAL_MS 1000           // flush backlog at 1 entry/sec (max)
 #define SENSOR_POLL_MS 2000
-#define ASSIGNMENT_RECHECK_MS 60000     // slow switch-detector while assigned
+#define ASSIGNMENT_RECHECK_MS 180000     // slow switch-detector while assigned (3 min)
 #define ASSIGNMENT_SEARCH_MS 10000      // aggressive search while missing
 
 // Feeder timing
@@ -138,13 +139,32 @@ void applyTankAssignment(const String& tankId, const String& ownerUid = "", long
 // failures (slow-TLS timeouts, dropped connections). Definitive answers —
 // 404 missing, 401 auth, 403 rules — return immediately without retry.
 // Silent on first-attempt failure; callers print only if both fail.
+int cloudTransportFailures = 0;  // consecutive timeout-class failures
+
+// Any success clears the streak. On 3 consecutive transport failures the
+// shared TLS session is dropped so the next call does a clean handshake
+// (counters wedged-session accumulation: connect fd climbing, SSL
+// mRunUntil/mConnectSSL timeouts after link flaps).
+bool cloudSessionResetPending = false;
+
+void reportCloudResult(bool ok) {
+  if (ok) { cloudTransportFailures = 0; cloudSessionResetPending = false; return; }
+  if (++cloudTransportFailures >= 3) {
+    cloudTransportFailures = 0;
+    cloudSessionResetPending = true;
+  }
+}
+
 bool firestoreGetDoc(const char* docPath) {
   for (int attempt = 0; attempt < 2; attempt++) {
-    if (Firebase.Firestore.getDocument(&fbdo, FIREBASE_PROJECT_ID, "", docPath))
+    if (Firebase.Firestore.getDocument(&fbdo, FIREBASE_PROJECT_ID, "", docPath)) {
+      reportCloudResult(true);
       return true;
+    }
     const int code = fbdo.httpCode();
     if (code == 404 || code == 401 || code == 403) return false;
   }
+  reportCloudResult(false);
   return false;
 }
 
@@ -457,10 +477,10 @@ bool feederAutoMode = true;
 unsigned long feederLastFeedEpoch = 0;
 bool feederIsRunning = false;
 String feederStatus = "idle";
-String feederFeedSource = "";          // "manual" or "scheduled"
+String feederFeedSource = "";          // "manual", "onsite", or "scheduled"
 String feederLastScheduleKey = "";     // doc id of the schedule that triggered the latest scheduled feed
 int feederDispenseCount = 0;              // total feeds dispensed since boot
-float feederRequestedGrams = 20.0f;   // 1 g-only model: N grams = N gate actuations
+float feederRequestedGrams = 1.0f;    // 1 g-only model: N grams = N gate actuations
 float feederFeedLevelBefore = -1.0f;
 float feederAvailableBefore = -1.0f;
 bool feederInitialized = false;
@@ -504,7 +524,7 @@ String firestoreTimestampString(time_t seconds) {
 // Non-blocking feeder state machine
 enum FeederRunState {
   FEEDER_IDLE,
-  FEEDER_PRE_BLOW,   // blower warm-up lead before the first actuation
+  // Physical dispense requests go straight to the gate; no blower pre-run.
   FEEDER_FORWARD,    // gate opens to GATE_OPEN_ANGLE
   FEEDER_PAUSE_F,    // gate holds, then closes and the cycle advances
   FEEDER_DONE
@@ -622,17 +642,20 @@ void setGateAngle(int angle) {
 // (SD_SPI_* pins are defined just above the offline-buffer code so the
 // mount helper can use them.)
 
-// Blower (relay module, ACTIVE-LOW like the main relays).
-// Runs 5 s ahead of every feed (manual, cloud, scheduled) to warm up,
-// stays ON through dispensing, then auto-OFF at DONE unless manually ON.
-// Future app ID (reserved, not synced yet): "blower".
-#define BLOWER_PIN 16
-#define BLOWER_PRE_SEC 5              // warm-up lead before every feed
-#define BLOWER_POST_SEC 0             // tail after DONE (0 = off immediately)
-#define BLOWER_MAX_ON_MS (15UL * 60UL * 1000UL)  // safety timeout for manual runs
-bool blowerOn = false;
-bool blowerAutoHeld = false;          // true only when auto logic turned it ON
-unsigned long blowerOnSinceMs = 0;
+// GPIO16 is reserved for the onsite manual dispense button.
+#define ONSITE_BUTTON_PIN 16
+#define ONSITE_BUTTON_DEBOUNCE_US 50000UL
+#define ONSITE_BUTTON_BATCH_MS 1500UL
+#define ONSITE_BUTTON_MAX_TAPS 200
+volatile uint16_t onsiteButtonTapCount = 0;
+volatile uint32_t onsiteButtonLastTapUs = 0;
+volatile bool onsiteButtonEnabled = false;
+portMUX_TYPE onsiteButtonMux = portMUX_INITIALIZER_UNLOCKED;
+String lcdTransientLine0;
+String lcdTransientLine1;
+unsigned long lcdTransientUntilMs = 0;
+bool lcdCloudBootPending = false;
+unsigned long lcdCloudBootStartedMs = 0;
 
 // Actuator pins are defined with the ACTUATOR STATE block above.
 
@@ -991,6 +1014,8 @@ void wifiMigrateLegacy() {
   }
 }
 
+void showLCDBoot(const String& line0, const String& line1, unsigned long holdMs = 900);
+
 void wifiPromptAndSave() {
   Serial.println("\n=== WIFI SETUP ===");
   Serial.println("Enter SSID:");
@@ -1019,6 +1044,7 @@ void wifiPromptAndSave() {
 }
 
 bool wifiTryOne(const String &s, const String &p) {
+  showLCDBoot("WiFi connecting", s);
   WiFi.begin(s.c_str(), p.c_str());
   Serial.printf("[WIFI] Trying \"%s\"", s.c_str());
   for (int i = 0; i < 20; i++) {
@@ -1027,6 +1053,12 @@ bool wifiTryOne(const String &s, const String &p) {
     Serial.print(".");
   }
   Serial.println();
+  if (WiFi.status() == WL_CONNECTED) {
+    showLCDBoot("WiFi connected", s, 1200);
+    showLCDBoot("IP address", WiFi.localIP().toString(), 1000);
+  } else {
+    showLCDBoot("WiFi failed", s, 900);
+  }
   return WiFi.status() == WL_CONNECTED;
 }
 
@@ -1061,10 +1093,12 @@ void wifiScanNetworks() {
 }
 
 void connectWiFi() {
+  showLCDBoot("WiFi", "Loading profiles");
   wifiMigrateLegacy();
   int n = wifiProfileCount();
 
   if (n == 0) {
+    showLCDBoot("WiFi setup", "Use Serial Monitor", 1500);
     wifiPromptAndSave();
     return;
   }
@@ -1105,6 +1139,7 @@ void initTime() {
 
     if (now > 1700000000) {
       Serial.println(" OK");
+      showLCDBoot("Time synced", "Manila time", 900);
       return;
     }
 
@@ -1113,6 +1148,7 @@ void initTime() {
   }
 
   Serial.println(" skipped");
+  showLCDBoot("Time not synced", "Check internet", 1200);
 }
 
 void firebaseTokenStatusCallback(TokenInfo info) {
@@ -1472,8 +1508,8 @@ void buildFirestorePayload(FirebaseJson &json, bool includeTimestamp) {
 // hardware_system/currentOwner to get ownerUid, and copies data into
 // tanks/{tankId}/sensor_readings/latest for the Flutter app to read.
 // The ESP never knows any user UID — ownership is resolved server-side.
-void sendLatestToFirestore() {
-  if (!ensureFirebaseReady()) return;
+bool sendLatestToFirestore() {
+  if (!ensureFirebaseReady()) return false;
 
   FirebaseJson content;
   buildFirestorePayload(content, false);
@@ -1488,19 +1524,18 @@ void sendLatestToFirestore() {
 
   bool latestOk = Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "(default)",
                                                      docPath, content.raw(), "");
-  if (!latestOk) {
-    // Fixed-path overwrite is idempotent: one immediate retry on transport
-    // failures, never on 404/401/403.
-    const int code = fbdo.httpCode();
-    if (code != 404 && code != 401 && code != 403)
-      latestOk = Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "(default)",
-                                                  docPath, content.raw(), "");
-  }
+  reportCloudResult(latestOk);
   if (latestOk) {
     Serial.println("[FIRESTORE] Latest sent");
   } else {
-    Serial.printf("[FIRESTORE ERROR] %s\n", fbdo.errorReason().c_str());
+    // Do not retry immediately. A second TLS operation against an already
+    // wedged session commonly produces mRunUntil/mConnectSSL errors and puts
+    // more pressure on heap. The main loop retries on the next 5-second slot.
+    Serial.printf("[FIRESTORE ERROR] code=%d reason=%s | RSSI=%d dBm | heap=%u\n",
+                  fbdo.httpCode(), fbdo.errorReason().c_str(), WiFi.RSSI(),
+                  (unsigned)ESP.getFreeHeap());
   }
+  return latestOk;
 }
 
 // ─── Write history entry to Firestore ───────────────────────────────
@@ -1865,6 +1900,7 @@ void printCalibrationHelp() {
   Serial.println("\n=== CALIBRATION COMMANDS ===");
   Serial.println("phcal7                  Save voltage in pH 7 buffer");
   Serial.println("phcal4                  Save voltage in pH 4 buffer");
+  Serial.println("phcal9 [VALUE]          Save pH 9 buffer (default 9.00; e.g. 9.18)");
   Serial.println("doread                   Show current DO voltage/value");
   Serial.println("doclear                  Calibrate DO in air-saturated water");
   Serial.println("turbclear <VOLTS>        Set clear-water voltage");
@@ -1893,12 +1929,12 @@ void printSerialHelp() {
   Serial.println("CAL_HELP                 Show calibration commands");
   Serial.println("WIFI_HELP                Show Wi-Fi commands");
   Serial.println("FIREBASE_STATUS          Show cloud authentication status");
-  Serial.println("FEED                     Start a manual feed (1-200 g)");
+  Serial.println("FEED                     Start a 1 g manual feed");
   Serial.println("GATE_TEST                One gate actuation (GPIO5 SG90)");
   Serial.println("GATECAL                  10 actuations for weighing (~10 g)");
   Serial.println("GATE_ANGLE <10-180>      Gate open angle (NVS)");
   Serial.println("GATE_MS <100-5000>       Gate hold ms (NVS)");
-  Serial.println("n4on / n4off             Blower ON/OFF (GPIO16)");
+  Serial.println("GPIO16 button            Onsite feed: taps = grams (1-200)");
   Serial.println("relay status             Show relay states");
 }
 
@@ -1916,12 +1952,12 @@ void printWifiHelp() {
 
 // ─── Feeder forward declarations ───
 void initFeeder();
-void initBlower();
-void setBlower(bool on, bool autoHeld);
-void blowerAutoOff();
-void blowerSafetyTick();
 void initLCD();
 void updateLCD();
+void showLCDBoot(const String& line0, const String& line1, unsigned long holdMs);
+void showLCDTransient(const String& line0, const String& line1, unsigned long holdMs = 1800);
+void initOnsiteButton();
+void processOnsiteButton();
 void processFeederCommands();
 void sendFeederStatus();
 void syncFeederSchedules();
@@ -1930,7 +1966,7 @@ void saveCachedFeederSchedules();
 void loadFeederState();
 bool saveFeederState();
 void checkScheduledFeed();
-void startFeed(String source, float grams = 20.0f, String commandId = "", long long issuedAtMs = 0, long long expiresAtMs = 0);
+void startFeed(String source, float grams = 1.0f, String commandId = "", long long issuedAtMs = 0, long long expiresAtMs = 0);
 void processFeederTick();
 void pushFeederLog(String action, String type, String status = "",
                    float requestedGrams = -1.0f,
@@ -1956,6 +1992,10 @@ void setup() {
   Serial.begin(115200);
   delay(500);
 
+  initLCD();
+  showLCDBoot("CrayCare", "Booting...");
+  initOnsiteButton();
+
   analogReadResolution(12);
   analogSetAttenuation(ADC_11db);
   pinMode(WATER_LEVEL_TRIG_PIN, OUTPUT);
@@ -1969,6 +2009,7 @@ void setup() {
   sensors.begin();
   loadSensorCalibrations();
 
+  showLCDBoot("Sensors", "Starting...");
   primeTemperatureBuffer();
   primeTurbidityBuffer();
 
@@ -1977,15 +2018,18 @@ void setup() {
   getHardwareId();  // resolve MAC-based ID after WiFi is up
   initFeeder();
   initActuators();
-  initBlower();
-  initLCD();
   // Larger read side for Firestore payloads: fewer -6 payload timeouts.
   fbdo.setResponseSize(8192);
   fbdo.setBSSLBufferSize(4096, 2048);
   if (WiFi.status() == WL_CONNECTED) {
+    showLCDBoot("Time sync", "Checking NTP...");
     initTime();
+    showLCDBoot("Firebase", "Signing in...");
     connectFirebase();
+    lcdCloudBootPending = true;
+    lcdCloudBootStartedMs = millis();
   } else {
+    showLCDBoot("WiFi offline", "Local mode", 1300);
     Serial.println("[CLOUD] Offline startup skipped; serial commands are ready now.");
   }
 
@@ -1997,15 +2041,19 @@ void setup() {
   Serial.println("  Turbidity: NTU (calibrated)");
   Serial.println("  Sensor display: OFF (type HELP for commands)");
   Serial.println("============================================");
+  onsiteButtonEnabled = true;
+  showLCDBoot("CrayCare ready", WiFi.status() == WL_CONNECTED ? "Cloud starting" : "Local mode", 1200);
 }
 
 // ============================================================
 //  LOOP
 // ============================================================
 void loop() {
+  processOnsiteButton();
   // Motor timing must never wait behind a blocking cloud/sensor operation.
   if (feederRunState != FEEDER_IDLE) {
     processFeederTick();
+    updateLCD();
     delay(1);
     return;
   }
@@ -2189,22 +2237,49 @@ void loop() {
       Serial.printf("[CAL] sensorHeight=%.1fcm maxDepth=%.1fcm lastDistance=%.1fcm\n",
                     waterSensorHeightCm, waterLevelCmMax, waterDistanceCm);
     }
-    if (cmd == "phcal7" || cmd == "phcal4") {
+    if (cmd == "phcal7" || cmd == "phcal4" || cmd == "phcal9" ||
+        cmd.startsWith("phcal9 ")) {
+      const bool isNine = cmd == "phcal9" || cmd.startsWith("phcal9 ");
+      float nineReference = 9.0f;
+      if (cmd.startsWith("phcal9 ")) {
+        String valueText = cmd.substring(7);
+        valueText.trim();
+        char* end = nullptr;
+        nineReference = strtof(valueText.c_str(), &end);
+        if (end == valueText.c_str() || *end != '\0' ||
+            !isfinite(nineReference) || nineReference < 8.0f ||
+            nineReference > 10.0f) {
+          Serial.println("[CAL] Usage: phcal9 [buffer pH from 8.00 to 10.00]");
+          return;
+        }
+      }
       const float v = readAnalogVoltage(PH_PIN);
       prefs.begin("sensorcal", false);
-      prefs.putFloat(cmd == "phcal7" ? "phV7" : "phV4", v);
+      prefs.putFloat(cmd == "phcal7" ? "phV7" : isNine ? "phV9" : "phV4", v);
+      if (isNine) {
+        prefs.putFloat("phV9Ref", nineReference);
+        prefs.putInt("phPair", 9);
+      } else if (cmd == "phcal4") {
+        prefs.putInt("phPair", 4);
+      }
       const float v7 = prefs.getFloat("phV7", -1.0f);
       const float v4 = prefs.getFloat("phV4", -1.0f);
+      const float v9 = prefs.getFloat("phV9", -1.0f);
+      const float ref9 = prefs.getFloat("phV9Ref", 9.0f);
+      const int selectedPair = prefs.getInt("phPair", 4);
       prefs.end();
-      if (v7 > 0.0f && v4 > 0.0f && fabs(v7 - v4) > 0.05f) {
-        phVoltageSlope = 3.0f / (v7 - v4);
+      const float otherVoltage = selectedPair == 9 ? v9 : v4;
+      const float otherPH = selectedPair == 9 ? ref9 : 4.0f;
+      if (v7 > 0.0f && otherVoltage > 0.0f &&
+          fabs(v7 - otherVoltage) > 0.05f) {
+        phVoltageSlope = (7.0f - otherPH) / (v7 - otherVoltage);
         phVoltageIntercept = 7.0f - phVoltageSlope * v7;
         saveSensorCalibrations();
-        Serial.printf("[CAL] pH two-point saved: slope=%.4f intercept=%.4f\n",
-                      phVoltageSlope, phVoltageIntercept);
+        Serial.printf("[CAL] pH 7.00 / %.2f saved: slope=%.4f intercept=%.4f\n",
+                      otherPH, phVoltageSlope, phVoltageIntercept);
       } else {
-        Serial.printf("[CAL] Saved %s voltage %.3fV; calibrate the other buffer next.\n",
-                      cmd.c_str(), v);
+        Serial.printf("[CAL] Saved %s voltage %.3fV; calibrate pH %.2f next (points must differ by >0.05V).\n",
+                      cmd.c_str(), v, cmd == "phcal7" ? otherPH : 7.0f);
       }
     }
     if (cmd == "doread") {
@@ -2350,9 +2425,6 @@ void loop() {
     if (cmd == "n2off") { setActuatorRelay(1, false); reportActuatorState(1, true); }
     if (cmd == "n3on")  { setActuatorRelay(2, true);  reportActuatorState(2, true); }
     if (cmd == "n3off") { setActuatorRelay(2, false); reportActuatorState(2, true); }
-    if (cmd == "n4on" || cmd == "n4off") {
-      setBlower(cmd == "n4on", false);
-    }
     if (cmd == "relay status" || cmd == "relaystatus") {
       for (int i = 0; i < 3; i++) {
         Serial.printf("  %s (GPIO %d): %s | mode=%s\n",
@@ -2360,8 +2432,6 @@ void loop() {
                       actuators[i].relayOn ? "ON" : "OFF",
                       actuators[i].controlMode.c_str());
       }
-      Serial.printf("  Blower (GPIO %d): %s%s\n", BLOWER_PIN, blowerOn ? "ON" : "OFF",
-                    blowerAutoHeld ? " (auto)" : "");
     }
   }
 
@@ -2392,7 +2462,19 @@ void loop() {
     syncFeederSchedules();
     cloudBootstrapComplete = true;
     Serial.println("[FIREBASE] Connected; cloud control is active.");
+    showLCDTransient("Firebase ready", "Cloud controls on", 2500);
     now = millis();
+  }
+  if (lcdCloudBootPending) {
+    if (cloudBootstrapComplete) {
+      lcdCloudBootPending = false;
+    } else if (firebaseAuthAttemptFailed) {
+      lcdCloudBootPending = false;
+      showLCDTransient("Firebase error", "See Serial Monitor", 4000);
+    } else if (now - lcdCloudBootStartedMs >= 30000UL) {
+      lcdCloudBootPending = false;
+      showLCDTransient("Firebase pending", "Check Serial log", 4000);
+    }
   }
 
   // ─── Assignment (cached credentials) ───
@@ -2425,6 +2507,8 @@ void loop() {
 
   if (now - lastFirebaseSendTime >= FIREBASE_SEND_INTERVAL_MS) {
     // Sensor writes go to Firestore; Cloud Functions add recorded_at server timestamps.
+    // Whether this succeeds or fails, wait for the next normal slot. Immediate
+    // retries amplify weak-link TLS failures and can exhaust the SSL layer.
     sendLatestToFirestore();
     lastFirebaseSendTime = millis();
     now = lastFirebaseSendTime;
@@ -2467,9 +2551,6 @@ void loop() {
   // ─── Feeder state machine tick ───
   processFeederTick();
 
-  // ─── Blower manual-run safety timeout ───
-  blowerSafetyTick();
-
   // ─── LCD status screens (non-blocking) ───
   updateLCD();
 
@@ -2502,6 +2583,16 @@ void loop() {
     }
     lastFlushTime = millis();
     now = lastFlushTime;
+  }
+
+  // Drop a TLS session wedged by repeated transport failures (BearSSL
+  // mRunUntil/mConnectSSL timeouts, climbing fds). All payloads are consumed
+  // inline by their callers, so clearing here is safe; the next cloud call
+  // does a clean handshake.
+  if (cloudSessionResetPending) {
+    cloudSessionResetPending = false;
+    fbdo.clear();
+    Serial.println("[NET] TLS session reset after repeated transport failures");
   }
 }
 
@@ -2930,13 +3021,23 @@ void checkScheduledFeed() {
 // ─── Start Feed — kicks off non-blocking state machine ───
 void startFeed(String source, float grams, String commandId, long long issuedAtMs, long long expiresAtMs) {
   if (feederRunState != FEEDER_IDLE) {
+    feederStatusReason = "Feeder busy";
     Serial.println("[FEEDER] Already running, skipping");
     return;
   }
-  if (currentTankId.isEmpty()) return;
+  feederStatusReason = "";
+  if (currentTankId.isEmpty()) {
+    feederStatusReason = "Tank not assigned";
+    Serial.println("[FEEDER] BLOCKED: tank assignment is not available");
+    return;
+  }
   time_t startedAt;
   time(&startedAt);
-  if (startedAt < 1700000000 || !littlefsMounted) return;
+  if (startedAt < 1700000000 || !littlefsMounted) {
+    feederStatusReason = startedAt < 1700000000 ? "Clock not synced" : "Storage unavailable";
+    Serial.printf("[FEEDER] BLOCKED: %s\n", feederStatusReason.c_str());
+    return;
+  }
   // A durable command intent is a tombstone until the queued command has
   // been acknowledged. Never restart its motor operation after a reset.
   if (!commandId.isEmpty()) {
@@ -2972,7 +3073,7 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
   if (!LittleFS.exists("/feedlogs/" + feederEventKey + ".pending")) {
     feederStatus = "blocked";
     feederStatusReason = "Cannot persist feed request";
-    sendFeederStatus();
+    if (source != "onsite") sendFeederStatus();
     return;
   }
   if (source == "scheduled") {
@@ -2986,13 +3087,13 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
       // deletion before it can upload/remove this durable failed outcome.
       feederStatus = "blocked";
       feederStatusReason = "Command acknowledgement not confirmed";
-      sendFeederStatus();
+      if (source != "onsite") sendFeederStatus();
       return;
     }
   }
   feederStatus = "checking_feed_level";
   readFeedLevelSensor();
-  sendFeederStatus();
+  if (source != "onsite") sendFeederStatus();
   String blockedReason;
   time_t checkedAt;
   time(&checkedAt);
@@ -3009,7 +3110,7 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
     blockedReason = "unsupported amount; use 1-200 whole grams";
   }
   String nearbySchedule;
-  if (blockedReason.length() == 0 && source == "manual" &&
+  if (blockedReason.length() == 0 && (source == "manual" || source == "onsite") &&
       manualFeedConflictsWithSchedule(checkedAt, nearbySchedule)) {
     blockedReason = "automatic feeding is due at " + nearbySchedule;
   }
@@ -3028,7 +3129,7 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
       insufficient ? "skipped_insufficient" : "blocked",
       feederRequestedGrams,
       estimatedFeedGrams, feedLevelPercent, feedLevelPercent);
-    sendFeederStatus();
+    if (source != "onsite") sendFeederStatus();
     feederLastScheduleKey = "";
     return;
   }
@@ -3041,7 +3142,7 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
   // Announce readiness while the servo is still parked, then recheck expiry
   // after this potentially blocking call before opening the gate.
   feederStatus = "dispensing";
-  sendFeederStatus();
+  if (source != "onsite") sendFeederStatus();
   time(&checkedAt);
   if (!commandId.isEmpty() && ((long long)checkedAt * 1000 - issuedAtMs > 60000 ||
       (expiresAtMs > 0 && (long long)checkedAt * 1000 >= expiresAtMs))) {
@@ -3049,17 +3150,18 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
     feederStatusReason = "Feed Now request expired before dispensing";
     pushFeederLog(feederStatusReason, "manual", "blocked", grams,
                   feederAvailableBefore, feederFeedLevelBefore, feederFeedLevelBefore);
-    sendFeederStatus();
+    if (source != "onsite") sendFeederStatus();
     return;
   }
 
   // Recheck after the blocking status upload, immediately before activation.
-  if (source == "manual" && manualFeedConflictsWithSchedule(checkedAt, nearbySchedule)) {
+  if ((source == "manual" || source == "onsite") &&
+      manualFeedConflictsWithSchedule(checkedAt, nearbySchedule)) {
     feederStatus = "blocked";
     feederStatusReason = "automatic feeding is due at " + nearbySchedule;
     pushFeederLog(feederStatusReason, "manual", "blocked", grams,
                   feederAvailableBefore, feederFeedLevelBefore, feederFeedLevelBefore);
-    sendFeederStatus();
+    if (source != "onsite") sendFeederStatus();
     return;
   }
   feederLastFeedEpoch = (unsigned long)checkedAt;
@@ -3067,12 +3169,10 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
   feederIsRunning = true;
   feederStatus = "dispensing";
   feederCurrentCycle = 0;
-  feederRunState = FEEDER_PRE_BLOW;
+  feederRunState = FEEDER_FORWARD;
   feederStartMs = millis();
   feederStepMs = feederStartMs;
 
-  // Blower warms up first on every feed (manual, cloud, scheduled).
-  setBlower(true, true);
   // No blocking cloud call between the expiry check and the motor tick.
   Serial.printf("[FEEDER] Start feed (source=%s, %.1fg = %d actuations)\n",
                 source.c_str(), feederRequestedGrams, feederMaxCycles);
@@ -3085,14 +3185,6 @@ void processFeederTick() {
   unsigned long now = millis();
 
   switch (feederRunState) {
-
-    case FEEDER_PRE_BLOW:
-      // Blower was switched auto-ON at startFeed; wait out the warm-up lead.
-      if (now - feederStepMs >= (unsigned long)BLOWER_PRE_SEC * 1000UL) {
-        feederRunState = FEEDER_FORWARD;
-        feederStepMs = now;
-      }
-      break;
 
     case FEEDER_FORWARD:
       setGateAngle(gateOpenAngle);
@@ -3121,8 +3213,6 @@ void processFeederTick() {
       if (now - feederStartMs < 1000) break;
 
       setGateAngle(0);
-      blowerAutoOff();
-
       // Update feed count and persist it so a reboot doesn't reset the total
       // the app displays as "feeds completed".
       feederDispenseCount++;
@@ -3145,7 +3235,9 @@ void processFeederTick() {
       pushFeederLog(
         feederFeedSource == "scheduled"
           ? "Dispensed feed (Scheduled)"
-          : "Dispensed feed (Manual)",
+          : feederFeedSource == "onsite"
+            ? "Dispensed feed (Onsite Button)"
+            : "Dispensed feed (Manual)",
         feederFeedSource == "scheduled" ? "auto" : "manual",
         "completed",
         feederRequestedGrams,
@@ -3153,7 +3245,7 @@ void processFeederTick() {
         feederFeedLevelBefore,
         levelAfter
       );
-      sendFeederStatus();
+      if (feederFeedSource != "onsite") sendFeederStatus();
       // The log trigger updates the date-scoped outcome, including backfills.
 
       feederFeedSource = "";
@@ -3201,6 +3293,9 @@ void pushFeederLog(String action, String type, String status,
     json.set("fields/schedule_time/stringValue", feederScheduleTime);
   }
   json.set("fields/amount_basis/stringValue", "servo_cycle_estimate");
+  json.set("fields/trigger_source/stringValue",
+           feederFeedSource == "onsite" ? "physical_button" :
+           feederFeedSource == "scheduled" ? "schedule" : "manual_request");
   if (status == "completed") json.set("fields/estimated_dispensed_grams/doubleValue", String(requestedGrams, 1));
   if (status.length() > 0) json.set("fields/status/stringValue", status);
   if (isfinite(requestedGrams) && requestedGrams >= 0.0f) {
@@ -3384,46 +3479,6 @@ void setActuatorRelay(int idx, bool on) {
   Serial.printf("[ACT] %s -> %s\n", a.label, on ? "ON" : "OFF");
 }
 
-// ─── Blower (GPIO16, ACTIVE-LOW relay) ───
-// Serial-only for now; future app ID "blower" is reserved.
-// Auto logic only ever switches OFF what it switched ON (blowerAutoHeld);
-// a manually-started blower is never touched by the feed cycle.
-void initBlower() {
-  pinMode(BLOWER_PIN, OUTPUT);
-  digitalWrite(BLOWER_PIN, HIGH);   // HIGH = relay OFF
-  blowerOn = false;
-  blowerAutoHeld = false;
-  Serial.println("[BLOWER] GPIO16 initialized OFF");
-}
-
-void setBlower(bool on, bool autoHeld) {
-  if (blowerOn == on) {
-    if (on && autoHeld) blowerAutoHeld = true;
-    return;
-  }
-  blowerOn = on;
-  digitalWrite(BLOWER_PIN, on ? LOW : HIGH);
-  if (on) {
-    blowerOnSinceMs = millis();
-    if (autoHeld) blowerAutoHeld = true;
-  } else {
-    blowerAutoHeld = false;
-  }
-  Serial.printf("[BLOWER] -> %s%s\n", on ? "ON" : "OFF", autoHeld ? " (auto)" : " (manual)");
-}
-
-void blowerAutoOff() {
-  if (blowerOn && blowerAutoHeld) setBlower(false, true);
-}
-
-// Safety timeout for manual runs — call every loop().
-void blowerSafetyTick() {
-  if (blowerOn && !blowerAutoHeld && millis() - blowerOnSinceMs >= BLOWER_MAX_ON_MS) {
-    setBlower(false, false);
-    Serial.println("[BLOWER] Manual safety timeout — OFF");
-  }
-}
-
 // ─── 16x2 status LCD (SDA 21 / SCL 22, addr 0x27) ───
 // Silent-disable on no-ACK so a missing LCD never affects the firmware.
 #define LCD_ADDR 0x27
@@ -3433,6 +3488,7 @@ void blowerSafetyTick() {
 LiquidCrystal_I2C lcd(LCD_ADDR, LCD_COLS, LCD_ROWS);
 bool lcdReady = false;
 unsigned long lastLcdMs = 0;
+unsigned long lastLcdRenderMs = 0;
 int lcdScreen = 0;
 
 static void lcdPrint16(int row, const String& text) {
@@ -3458,44 +3514,178 @@ void initLCD() {
   Serial.println("[LCD] 16x2 ready at 0x27");
 }
 
+void showLCDBoot(const String& line0, const String& line1, unsigned long holdMs) {
+  if (!lcdReady) return;
+  lcdPrint16(0, line0);
+  lcdPrint16(1, line1);
+  if (holdMs > 0) delay(holdMs);
+}
+
+void showLCDTransient(const String& line0, const String& line1, unsigned long holdMs) {
+  if (!lcdReady) return;
+  lcdTransientLine0 = line0;
+  lcdTransientLine1 = line1;
+  lcdTransientUntilMs = millis() + holdMs;
+  lcdPrint16(0, line0);
+  lcdPrint16(1, line1);
+}
+
+void IRAM_ATTR onsiteButtonISR() {
+  if (!onsiteButtonEnabled) return;
+  const uint32_t nowUs = micros();
+  portENTER_CRITICAL_ISR(&onsiteButtonMux);
+  if (onsiteButtonTapCount < ONSITE_BUTTON_MAX_TAPS &&
+      (uint32_t)(nowUs - onsiteButtonLastTapUs) >= ONSITE_BUTTON_DEBOUNCE_US) {
+    ++onsiteButtonTapCount;
+    onsiteButtonLastTapUs = nowUs;
+  }
+  portEXIT_CRITICAL_ISR(&onsiteButtonMux);
+}
+
+void initOnsiteButton() {
+  pinMode(ONSITE_BUTTON_PIN, INPUT_PULLUP);
+  onsiteButtonLastTapUs = micros();
+  attachInterrupt(digitalPinToInterrupt(ONSITE_BUTTON_PIN), onsiteButtonISR, FALLING);
+  Serial.printf("[BUTTON] Onsite dispense button ready on GPIO%d (tap count = grams)\n",
+                ONSITE_BUTTON_PIN);
+}
+
+void processOnsiteButton() {
+  if (!onsiteButtonEnabled) return;
+  uint16_t tapsToFeed = 0;
+  bool tapsIgnoredBusy = false;
+  portENTER_CRITICAL(&onsiteButtonMux);
+  if (feederRunState != FEEDER_IDLE && onsiteButtonTapCount > 0) {
+    onsiteButtonTapCount = 0;
+    tapsIgnoredBusy = true;
+  } else if (feederRunState == FEEDER_IDLE && onsiteButtonTapCount > 0 &&
+             (uint32_t)(micros() - onsiteButtonLastTapUs) >=
+                 ONSITE_BUTTON_BATCH_MS * 1000UL) {
+    tapsToFeed = onsiteButtonTapCount;
+    onsiteButtonTapCount = 0;
+  }
+  portEXIT_CRITICAL(&onsiteButtonMux);
+
+  if (tapsIgnoredBusy) {
+    Serial.println("[BUTTON] Tap ignored: feeder busy");
+    return;
+  }
+  if (tapsToFeed == 0) return;
+
+  Serial.printf("[BUTTON] %u tap(s) -> onsite dispense %u g\n",
+                tapsToFeed, tapsToFeed);
+  startFeed("onsite", (float)tapsToFeed);
+  if (feederRunState == FEEDER_IDLE) {
+    const String reason = feederStatusReason.length() > 0
+        ? feederStatusReason.substring(0, 16) : "See Serial Monitor";
+    showLCDTransient("Feed blocked", reason, 2500);
+  }
+}
+
+void getNextScheduleLines(String& line0, String& line1) {
+  time_t now;
+  time(&now);
+  if (now < 1700000000) {
+    line0 = "Next feeding";
+    line1 = "Clock unavailable";
+    return;
+  }
+  if (feederScheduleCount == 0) {
+    line0 = "No feed schedule";
+    line1 = "Set schedule in app";
+    return;
+  }
+
+  time_t nextAt = 0;
+  float nextGrams = 0;
+  for (int dayOffset = 0; dayOffset <= 7; ++dayOffset) {
+    for (int i = 0; i < feederScheduleCount; ++i) {
+      const FeedSchedule& schedule = feederSchedules[i];
+      if (!schedule.enabled) continue;
+      struct tm candidateTm;
+      localtime_r(&now, &candidateTm);
+      candidateTm.tm_mday += dayOffset;
+      candidateTm.tm_hour = schedule.hour24;
+      candidateTm.tm_min = schedule.minute;
+      candidateTm.tm_sec = 0;
+      const time_t candidate = mktime(&candidateTm);
+      struct tm normalized;
+      localtime_r(&candidate, &normalized);
+      if (schedule.days.length() >= 7 &&
+          schedule.days.charAt(normalized.tm_wday) != '1') continue;
+      if (schedule.effectiveEpoch > (unsigned long)candidate || candidate <= now) continue;
+      if (nextAt == 0 || candidate < nextAt) {
+        nextAt = candidate;
+        nextGrams = schedule.grams;
+      }
+    }
+    if (nextAt != 0) break;
+  }
+
+  if (nextAt == 0) {
+    line0 = "No upcoming feed";
+    line1 = "Check app schedule";
+    return;
+  }
+  struct tm nextTm;
+  localtime_r(&nextAt, &nextTm);
+  char timeText[12];
+  strftime(timeText, sizeof(timeText), "%I:%M %p", &nextTm);
+  if (timeText[0] == '0') memmove(timeText, timeText + 1, strlen(timeText));
+  line0 = String("Next ") + timeText;
+  line1 = String("Dose: ") + String(nextGrams, 0) + "g";
+}
+
 // Non-blocking: refresh at most every LCD_ROTATE_MS, immediate on feed events.
 void updateLCD() {
   if (!lcdReady) return;
   unsigned long now = millis();
+  if (lastLcdRenderMs != 0 && now - lastLcdRenderMs < 250UL) return;
   String l0, l1;
   if (feederRunState != FEEDER_IDLE) {
-    l0 = "FEED " + String(feederRequestedGrams, 0) + "g " +
-         String(feederCurrentCycle + 1) + "/" + String(feederMaxCycles);
-    if (feederStatusReason.length() > 0 && feederRunState != FEEDER_PRE_BLOW)
-      l0 = "BLOCKED";
-    l1 = String("Blw:") + (blowerOn ? "ON " : "OFF") +
-         " W:" + (waterLevelCm >= 0 ? String(waterLevelCm, 0) + "cm" : "--");
-    if (feederStatusReason.length() > 0 && feederRunState != FEEDER_PRE_BLOW)
-      l1 = feederStatusReason.substring(0, 16);
+    const String source = feederFeedSource == "onsite" ? "Onsite" :
+                          feederFeedSource == "scheduled" ? "Schedule" : "App";
+    l0 = source + " " + String(feederRequestedGrams, 0) + "g";
+    l1 = String("Gate ") + String(min(feederCurrentCycle + 1, feederMaxCycles)) +
+         "/" + String(feederMaxCycles);
   } else if (now < feederDoneShowMs) {
-    l0 = "Fed " + String(feederLastCompletedGrams, 0) + "g OK";
-    l1 = String("Blw:") + (blowerOn ? "ON" : "OFF");
+    l0 = String("Fed ") + String(feederLastCompletedGrams, 0) + "g OK";
+    l1 = "Gate cycles done";
+  } else if (onsiteButtonTapCount > 0) {
+    uint16_t taps;
+    portENTER_CRITICAL(&onsiteButtonMux);
+    taps = onsiteButtonTapCount;
+    portEXIT_CRITICAL(&onsiteButtonMux);
+    l0 = String("Onsite taps: ") + String(taps);
+    l1 = "Pause to dispense";
+  } else if (now < lcdTransientUntilMs) {
+    l0 = lcdTransientLine0;
+    l1 = lcdTransientLine1;
   } else {
-    if (now - lastLcdMs >= LCD_ROTATE_MS) {
+    if (lastLcdMs == 0) {
       lastLcdMs = now;
-      lcdScreen = (lcdScreen + 1) % 2;
+    } else if (now - lastLcdMs >= LCD_ROTATE_MS) {
+      lastLcdMs = now;
+      lcdScreen = (lcdScreen + 1) % 4;
     } else if (lastLcdMs != 0) {
       return;
     }
     if (lcdScreen == 0) {
-      l0 = String("T:") + (smoothedTemp > -100 ? String(smoothedTemp, 1) + "C" : "--") +
-           " pH:" + (phLevel >= 0 ? String(phLevel, 1) : "--");
-      l1 = String("W:") + (waterLevelCm >= 0 ? String(waterLevelCm, 0) + "cm" : "--") +
-           " F:" + (feedLevelPercent >= 0 ? String(feedLevelPercent, 0) + "%" : "--");
+      l0 = String("Temp: ") + (smoothedTemp > -100 ? String(smoothedTemp, 1) + " C" : "--");
+      l1 = String("pH: ") + (phLevel >= 0 ? String(phLevel, 1) : "--");
+    } else if (lcdScreen == 1) {
+      l0 = String("DO:") + (dissolvedOxygen >= 0 ? String(dissolvedOxygen, 1) : "--") + "mg/L";
+      l1 = String("Turb:") + (smoothedTurbidityNTU >= 0 ? String(smoothedTurbidityNTU, 0) : "--") + " NTU";
+    } else if (lcdScreen == 2) {
+      l0 = String("Water:") + (waterLevelCm >= 0 ? String(waterLevelCm, 0) + "cm" : "--");
+      l1 = String("Hopper:") + (feedLevelPercent >= 0 ? String(feedLevelPercent, 0) + "%" : "--");
     } else {
-      l0 = String("Blw:") + (blowerOn ? "ON " : "OFF") +
-           " G:" + String(gateOpenAngle) + "/" + String(gateHoldMs);
-      l1 = WiFi.status() == WL_CONNECTED ? "WiFi OK " + WiFi.localIP().toString() : "WiFi OFFLINE";
-      if (l1.length() > 16) l1 = l1.substring(l1.length() - 16);
+      getNextScheduleLines(l0, l1);
     }
   }
   lcdPrint16(0, l0);
   lcdPrint16(1, l1);
+  lastLcdRenderMs = now;
 }
 
 
