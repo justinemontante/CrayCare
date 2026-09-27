@@ -524,7 +524,7 @@ String firestoreTimestampString(time_t seconds) {
 // Non-blocking feeder state machine
 enum FeederRunState {
   FEEDER_IDLE,
-  // Physical dispense requests go straight to the gate; no blower pre-run.
+  FEEDER_PRE_BLOW,   // blower warm-up lead before the first actuation
   FEEDER_FORWARD,    // gate opens to GATE_OPEN_ANGLE
   FEEDER_PAUSE_F,    // gate holds, then closes and the cycle advances
   FEEDER_DONE
@@ -642,8 +642,9 @@ void setGateAngle(int angle) {
 // (SD_SPI_* pins are defined just above the offline-buffer code so the
 // mount helper can use them.)
 
-// GPIO16 is reserved for the onsite manual dispense button.
-#define ONSITE_BUTTON_PIN 16
+// Onsite manual dispense button (to GND, INPUT_PULLUP, ISR taps).
+// GPIO16 went back to the blower relay; GPIO12 is boot-safe for buttons.
+#define ONSITE_BUTTON_PIN 12
 #define ONSITE_BUTTON_DEBOUNCE_US 50000UL
 #define ONSITE_BUTTON_BATCH_MS 1500UL
 #define ONSITE_BUTTON_MAX_TAPS 200
@@ -656,6 +657,18 @@ String lcdTransientLine1;
 unsigned long lcdTransientUntilMs = 0;
 bool lcdCloudBootPending = false;
 unsigned long lcdCloudBootStartedMs = 0;
+
+// Blower (relay module, ACTIVE-LOW like the main relays) on GPIO16.
+// Runs 5 s ahead of every feed (manual, cloud, scheduled, onsite) to warm
+// up, stays ON through dispensing, then auto-OFF at DONE unless manually ON.
+// Manual control: n4on/n4off serial + GPIO2 physical toggle button.
+#define BLOWER_PIN 16
+#define BLOWER_PRE_SEC 5              // warm-up lead before every feed
+#define BLOWER_POST_SEC 0             // tail after DONE (0 = off immediately)
+#define BLOWER_MAX_ON_MS (15UL * 60UL * 1000UL)  // safety timeout for manual runs
+bool blowerOn = false;
+bool blowerAutoHeld = false;          // true only when auto logic turned it ON
+unsigned long blowerOnSinceMs = 0;
 
 // Actuator pins are defined with the ACTUATOR STATE block above.
 
@@ -1934,7 +1947,9 @@ void printSerialHelp() {
   Serial.println("GATECAL                  10 actuations for weighing (~10 g)");
   Serial.println("GATE_ANGLE <10-180>      Gate open angle (NVS)");
   Serial.println("GATE_MS <100-5000>       Gate hold ms (NVS)");
-  Serial.println("GPIO16 button            Onsite feed: taps = grams (1-200)");
+  Serial.println("GPIO12 button            Onsite feed: taps = grams (1-200)");
+  Serial.println("GPIO2 button             Blower manual ON/OFF toggle");
+  Serial.println("n4on / n4off             Blower ON/OFF (GPIO16)");
   Serial.println("relay status             Show relay states");
 }
 
@@ -1952,6 +1967,12 @@ void printWifiHelp() {
 
 // ─── Feeder forward declarations ───
 void initFeeder();
+void initBlower();
+void setBlower(bool on, bool autoHeld);
+void blowerAutoOff();
+void blowerSafetyTick();
+void initBlowerButton();
+void pollBlowerButton();
 void initLCD();
 void updateLCD();
 void showLCDBoot(const String& line0, const String& line1, unsigned long holdMs);
@@ -2018,6 +2039,8 @@ void setup() {
   getHardwareId();  // resolve MAC-based ID after WiFi is up
   initFeeder();
   initActuators();
+  initBlower();
+  initBlowerButton();
   // Larger read side for Firestore payloads: fewer -6 payload timeouts.
   fbdo.setResponseSize(8192);
   fbdo.setBSSLBufferSize(4096, 2048);
@@ -2050,6 +2073,7 @@ void setup() {
 // ============================================================
 void loop() {
   processOnsiteButton();
+  pollBlowerButton();
   // Motor timing must never wait behind a blocking cloud/sensor operation.
   if (feederRunState != FEEDER_IDLE) {
     processFeederTick();
@@ -2425,6 +2449,9 @@ void loop() {
     if (cmd == "n2off") { setActuatorRelay(1, false); reportActuatorState(1, true); }
     if (cmd == "n3on")  { setActuatorRelay(2, true);  reportActuatorState(2, true); }
     if (cmd == "n3off") { setActuatorRelay(2, false); reportActuatorState(2, true); }
+    if (cmd == "n4on" || cmd == "n4off") {
+      setBlower(cmd == "n4on", false);
+    }
     if (cmd == "relay status" || cmd == "relaystatus") {
       for (int i = 0; i < 3; i++) {
         Serial.printf("  %s (GPIO %d): %s | mode=%s\n",
@@ -2432,6 +2459,8 @@ void loop() {
                       actuators[i].relayOn ? "ON" : "OFF",
                       actuators[i].controlMode.c_str());
       }
+      Serial.printf("  Blower (GPIO %d): %s%s\n", BLOWER_PIN, blowerOn ? "ON" : "OFF",
+                    blowerAutoHeld ? " (auto)" : "");
     }
   }
 
@@ -2550,6 +2579,9 @@ void loop() {
 
   // ─── Feeder state machine tick ───
   processFeederTick();
+
+  // ─── Blower manual-run safety timeout ───
+  blowerSafetyTick();
 
   // ─── LCD status screens (non-blocking) ───
   updateLCD();
@@ -3169,10 +3201,12 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
   feederIsRunning = true;
   feederStatus = "dispensing";
   feederCurrentCycle = 0;
-  feederRunState = FEEDER_FORWARD;
+  feederRunState = FEEDER_PRE_BLOW;
   feederStartMs = millis();
   feederStepMs = feederStartMs;
 
+  // Blower warms up first on every feed (manual, cloud, scheduled, onsite).
+  setBlower(true, true);
   // No blocking cloud call between the expiry check and the motor tick.
   Serial.printf("[FEEDER] Start feed (source=%s, %.1fg = %d actuations)\n",
                 source.c_str(), feederRequestedGrams, feederMaxCycles);
@@ -3185,6 +3219,14 @@ void processFeederTick() {
   unsigned long now = millis();
 
   switch (feederRunState) {
+
+    case FEEDER_PRE_BLOW:
+      // Blower was switched auto-ON at startFeed; wait out the warm-up lead.
+      if (now - feederStepMs >= (unsigned long)BLOWER_PRE_SEC * 1000UL) {
+        feederRunState = FEEDER_FORWARD;
+        feederStepMs = now;
+      }
+      break;
 
     case FEEDER_FORWARD:
       setGateAngle(gateOpenAngle);
@@ -3213,6 +3255,7 @@ void processFeederTick() {
       if (now - feederStartMs < 1000) break;
 
       setGateAngle(0);
+      blowerAutoOff();
       // Update feed count and persist it so a reboot doesn't reset the total
       // the app displays as "feeds completed".
       feederDispenseCount++;
@@ -3479,6 +3522,75 @@ void setActuatorRelay(int idx, bool on) {
   Serial.printf("[ACT] %s -> %s\n", a.label, on ? "ON" : "OFF");
 }
 
+// ─── Blower (GPIO16, ACTIVE-LOW relay) ───
+// Serial + physical button for now; future app ID "blower" is reserved.
+// Auto logic only ever switches OFF what it switched ON (blowerAutoHeld);
+// a manually-started blower is never touched by the feed cycle.
+void initBlower() {
+  pinMode(BLOWER_PIN, OUTPUT);
+  digitalWrite(BLOWER_PIN, HIGH);   // HIGH = relay OFF
+  blowerOn = false;
+  blowerAutoHeld = false;
+  Serial.println("[BLOWER] GPIO16 initialized OFF");
+}
+
+void setBlower(bool on, bool autoHeld) {
+  if (blowerOn == on) {
+    if (on && autoHeld) blowerAutoHeld = true;
+    return;
+  }
+  blowerOn = on;
+  digitalWrite(BLOWER_PIN, on ? LOW : HIGH);
+  if (on) {
+    blowerOnSinceMs = millis();
+    if (autoHeld) blowerAutoHeld = true;
+  } else {
+    blowerAutoHeld = false;
+  }
+  Serial.printf("[BLOWER] -> %s%s\n", on ? "ON" : "OFF", autoHeld ? " (auto)" : " (manual)");
+}
+
+void blowerAutoOff() {
+  if (blowerOn && blowerAutoHeld) setBlower(false, true);
+}
+
+// Safety timeout for manual runs — call every loop().
+void blowerSafetyTick() {
+  if (blowerOn && !blowerAutoHeld && millis() - blowerOnSinceMs >= BLOWER_MAX_ON_MS) {
+    setBlower(false, false);
+    Serial.println("[BLOWER] Manual safety timeout — OFF");
+  }
+}
+
+// Blower manual button (GPIO2 -> GND, INPUT_PULLUP). Toggle ON/OFF.
+// Ignored while a feed auto-holds the blower; the 15-minute manual
+// timeout from blowerSafetyTick() still applies. Polled (no ISR needed).
+#define BLOWER_BUTTON_PIN 2
+#define BLOWER_BUTTON_DEBOUNCE_MS 50
+#define BLOWER_BUTTON_BOOT_LOCK_MS 3000
+bool blowerBtnRaw = HIGH, blowerBtnStable = HIGH;
+unsigned long blowerBtnChangeMs = 0;
+
+void initBlowerButton() {
+  pinMode(BLOWER_BUTTON_PIN, INPUT_PULLUP);
+  Serial.println("[BUTTON] Blower toggle ready on GPIO2 (to GND, INPUT_PULLUP)");
+}
+
+void pollBlowerButton() {
+  unsigned long now = millis();
+  if (now < BLOWER_BUTTON_BOOT_LOCK_MS) return;
+  bool raw = digitalRead(BLOWER_BUTTON_PIN);
+  if (raw != blowerBtnRaw) { blowerBtnRaw = raw; blowerBtnChangeMs = now; return; }
+  if (now - blowerBtnChangeMs < BLOWER_BUTTON_DEBOUNCE_MS || raw == blowerBtnStable) return;
+  blowerBtnStable = raw;
+  if (raw != LOW) return;
+  if (blowerOn && blowerAutoHeld && feederRunState != FEEDER_IDLE) {
+    Serial.println("[BUTTON] Feed owns blower now — ignored");
+    return;
+  }
+  setBlower(!blowerOn, false);
+}
+
 // ─── 16x2 status LCD (SDA 21 / SCL 22, addr 0x27) ───
 // Silent-disable on no-ACK so a missing LCD never affects the firmware.
 #define LCD_ADDR 0x27
@@ -3642,7 +3754,10 @@ void updateLCD() {
   unsigned long now = millis();
   if (lastLcdRenderMs != 0 && now - lastLcdRenderMs < 250UL) return;
   String l0, l1;
-  if (feederRunState != FEEDER_IDLE) {
+  if (feederRunState == FEEDER_PRE_BLOW) {
+    l0 = "Blower warm-up";
+    l1 = "Please wait...";
+  } else if (feederRunState != FEEDER_IDLE) {
     const String source = feederFeedSource == "onsite" ? "Onsite" :
                           feederFeedSource == "scheduled" ? "Schedule" : "App";
     l0 = source + " " + String(feederRequestedGrams, 0) + "g";
@@ -3666,7 +3781,7 @@ void updateLCD() {
       lastLcdMs = now;
     } else if (now - lastLcdMs >= LCD_ROTATE_MS) {
       lastLcdMs = now;
-      lcdScreen = (lcdScreen + 1) % 4;
+      lcdScreen = (lcdScreen + 1) % 5;
     } else if (lastLcdMs != 0) {
       return;
     }
@@ -3679,8 +3794,13 @@ void updateLCD() {
     } else if (lcdScreen == 2) {
       l0 = String("Water:") + (waterLevelCm >= 0 ? String(waterLevelCm, 0) + "cm" : "--");
       l1 = String("Hopper:") + (feedLevelPercent >= 0 ? String(feedLevelPercent, 0) + "%" : "--");
-    } else {
+    } else if (lcdScreen == 3) {
       getNextScheduleLines(l0, l1);
+    } else {
+      l0 = String("Blw:") + (blowerOn ? "ON " : "OFF") +
+           " G:" + String(gateOpenAngle) + "/" + String(gateHoldMs);
+      l1 = WiFi.status() == WL_CONNECTED ? "WiFi OK " + WiFi.SSID().substring(0, 8) : "WiFi OFFLINE";
+      if (l1.length() > 16) l1 = l1.substring(l1.length() - 16);
     }
   }
   lcdPrint16(0, l0);

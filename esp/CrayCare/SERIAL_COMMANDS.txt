@@ -60,7 +60,7 @@ WIFI (up to 5 networks stored in NVS "wifiprof", survives reboot)
 
 FEEDER (SG90 gate on GPIO5 — the only servo, 1 g-only model)
   FEED
-    Requests one manual feed, 1-200 whole grams (default 20 g). Grams =
+    Requests one manual feed, 1-200 whole grams (default 1 g). Grams =
     actuations, so 5 g = exactly 5 gate swings. The blower always warms
     up 5 s first and stays ON through dispensing. Feeding is blocked when
     required water-quality sensors are unavailable/outside safe ranges, or
@@ -84,14 +84,24 @@ BLOWER (GPIO16 relay, active-LOW)
     Manual blower control (15-minute safety timeout). A manually-started
     blower is never switched by the feed cycle.
   Auto warm-up
-    Every feed (manual, cloud, scheduled) starts with 5 s
+    Every feed (manual, cloud, scheduled, onsite button) starts with 5 s
     of blower, which stays ON through dispensing and auto-switches OFF at
     DONE — unless it was manually started.
 
+PHYSICAL BUTTONS (to GND, INPUT_PULLUP)
+  GPIO12 onsite feed: each tap = +1 g (ISR, 50 ms debounce); taps batch in
+    a 1.5 s settle window, then one feed runs with the full safety path +
+    blower pre-run. Ignored while a feed runs. Cap 200 g. Live count,
+    progress, and blocked reasons on LCD.
+  GPIO2 blower: manual ON/OFF toggle; ignored while a feed auto-holds the
+    blower. 15-minute manual safety timeout.
+
 LCD (16x2, SDA 21 / SCL 22, addr 0x27)
-  Rotating screens: sensors (T/pH/W/F) and feed+blower; live feed progress
-  (FEED 5g 3/5), BLOCKED reasons, and a "Fed Xg OK" banner.
-  Disabled silently if no ACK (check wiring/address).
+  Boot progress, then 5 rotating screens: Temp/pH, DO/Turb, Water/Hopper,
+  next schedule, blower+WiFi/SSID. Live feed progress with source label
+  (App/Schedule/Onsite), tap counter, transient banners, BLOCKED reasons,
+  and a "Fed Xg OK" banner. Disabled silently if no ACK (check wiring/
+  address; try 0x3F).
 
 SENSOR CALIBRATION
   Hopper level is ultrasonic (HC-SR04 TRIG 17 / ECHO 25) by default, with the

@@ -1,7 +1,7 @@
 
 ============================================
   CRAYCARE ESP32 ALL-IN-ONE — PINOUT
-  Last Updated: 2026-08-25
+  Last Updated: 2026-09-27
 ============================================
 
 RELAYS (Active LOW = LOW turns ON)
@@ -17,7 +17,8 @@ RELAYS (Active LOW = LOW turns ON)
 BLOWER (GPIO16, active-LOW relay module)
   - Wiring: GPIO16 -> relay IN, common GND, blower on its own supply.
     Relay module must trigger on 3.3V logic. Initializes OFF at boot.
-  - Warm-up: auto-ON 5 s before EVERY feed (manual, cloud, scheduled),
+  - Warm-up: auto-ON 5 s before EVERY feed (manual, cloud, scheduled,
+    onsite button),
     stays ON through dispensing, auto-OFF at DONE — unless manually ON
     via n4on, which the feed cycle never overrides.
   - Manual: n4on / n4off (15-minute safety timeout). Future app ID
@@ -44,8 +45,8 @@ OTHER PERIPHERALS
 ├────────┼───────┼──────────────────────┼──────────────────────────┤
 │   21   │ SDA   │ LCD I2C              │ 16x2 LCD, addr 0x27      │
 │   22   │ SCL   │ LCD I2C              │ VCC 5V + contrast trim  │
-│   12   │       │ Spare                │                          │
-│    2   │       │ Spare (strapping)    │ Leave unconnected        │
+│   12   │       │ Onsite feed button   │ To GND, INPUT_PULLUP     │
+│    2   │       │ Blower button        │ To GND, INPUT_PULLUP     │
 │    5   │       │ Gate servo SG90 180  │ PWM, LEDC ch 0, 1 g/act  │
 │   25   │       │ HC-SR04 Hopper ECHO  │ (see SENSORS table)      │
 │   18   │       │ SD card SCK (VSPI)   │ Keep SPI wires < 20 cm   │
@@ -125,16 +126,24 @@ Tank configuration:
    Use a 5V→3.3V level shifter or resistor divider (for example 1kΩ from ECHO
    to GPIO33 and 2kΩ from GPIO33 to GND). TRIG may connect to GPIO32.
 
-LCD display: live 16x2 screens (sensors / feed+blower), feed progress,
-BLOCKED reasons, "Fed Xg OK" banner. Silent-disabled if no
-ACK at 0x27 — if your backpack is 0x3F, change LCD_ADDR in main.cpp.
+LCD display: boot progress, then 5 rotating screens (Temp/pH, DO/Turb,
+Water/Hopper, next schedule, blower+WiFi/SSID); live feed progress with
+source label, tap counter, transient banners, "Fed Xg OK". Silent-disabled
+if no ACK at 0x27 — if your backpack is 0x3F, change LCD_ADDR in main.cpp.
 
 ============================================
-  SPARE PINS (no physical buttons fitted)
+  PHYSICAL BUTTONS (to GND, INPUT_PULLUP)
 ============================================
 
-  GPIO12 and GPIO2 are spare. Feeds start from app/schedule/serial only.
-  GPIO2 is a strapping pin — leave unconnected at boot.
+  GPIO12 = ONSITE FEED. Each tap = +1 g (ISR counted, 50 ms debounce);
+  taps batch in a 1.5 s settle window, then one feed runs (3 taps = 3 g,
+  single 5 s blower pre-run). Taps ignored while a feed runs. Cap 200 g.
+  Full safety path: sensor/block checks + blower + gate swings. Live
+  count + blocked reasons on LCD.
+
+  GPIO2 = BLOWER toggle (manual ON/OFF). Ignored while a feed auto-holds
+  the blower. 15-minute manual safety timeout. Neither pin is a boot
+  strapping risk with buttons to GND (pressed = LOW).
 
 ============================================
   SERIAL COMMANDS
@@ -156,7 +165,7 @@ RELAYS
   relay status         Show relay states
 
 FEEDER (SG90 gate on GPIO5, 1 g per actuation)
-  FEED                  Request one manual feed (1-200 whole g, default 20 g)
+  FEED                  Request one manual feed (1-200 whole g, default 1 g)
   GATE_TEST             One gate actuation 0 -> angle -> 0
   GATECAL               10 actuations for weighing (expect ~10 g)
   GATE_ANGLE <10-180>   Gate open angle, saved to NVS
