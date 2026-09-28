@@ -101,8 +101,9 @@ PHYSICAL BUTTONS (to GND, INPUT_PULLUP)
     blower. 15-minute manual safety timeout.
 
 LCD (16x2, SDA 21 / SCL 22, addr 0x27)
-  Boot progress, then 5 rotating screens: Temp/pH, DO/Turb, Water/Hopper,
-  next schedule, blower+WiFi/SSID. Live feed progress with source label
+  Boot progress, then 4 rotating screens: Temp/pH, DO/Turb, Water/Hopper,
+  next schedule. Blower state via warm-up screen + relay status; SSID via
+  boot screens + wifistatus. Live feed progress with source label
   (App/Schedule/Onsite), tap counter, transient banners, BLOCKED reasons,
   and a "Fed Xg OK" banner. Disabled silently if no ACK (check wiring/
   address; try 0x3F).

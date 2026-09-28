@@ -210,8 +210,9 @@ Tank configuration:
    Use a 5V→3.3V level shifter or resistor divider (for example 1kΩ from ECHO
    to GPIO33 and 2kΩ from GPIO33 to GND). TRIG may connect to GPIO32.
 
-LCD display: boot progress, then 5 rotating screens (Temp/pH, DO/Turb,
-Water/Hopper, next schedule, blower+WiFi/SSID); live feed progress with
+LCD display: boot progress, then 4 rotating screens (Temp/pH, DO/Turb,
+Water/Hopper, next schedule); blower state via warm-up screen + relay
+status cmd; SSID via boot screens + wifistatus. Live feed progress with
 source label, tap counter, transient banners, "Fed Xg OK". Silent-disabled
 if no ACK at 0x27 — if your backpack is 0x3F, change LCD_ADDR in main.cpp.
 

@@ -140,7 +140,12 @@ void applyTankAssignment(const String& tankId, const String& ownerUid = "", long
 // failures (slow-TLS timeouts, dropped connections). Definitive answers —
 // 404 missing, 401 auth, 403 rules — return immediately without retry.
 // Silent on first-attempt failure; callers print only if both fail.
-int cloudTransportFailures = 0;  // consecutive timeout-class failures
+#define OUTAGE_TRIP_FAILURES 5
+#define OUTAGE_PROBE_MS 30000
+int cloudTransportFailures = 0;  // consecutive timeout-class failures (session resets)
+int cloudOutageStreak = 0;       // consecutive failures (outage mode, never auto-resets down)
+bool cloudOutage = false;
+unsigned long lastOutageProbeMs = 0;
 
 // Any success clears the streak. On 3 consecutive transport failures the
 // shared TLS session is dropped so the next call does a clean handshake
@@ -149,10 +154,24 @@ int cloudTransportFailures = 0;  // consecutive timeout-class failures
 bool cloudSessionResetPending = false;
 
 void reportCloudResult(bool ok) {
-  if (ok) { cloudTransportFailures = 0; cloudSessionResetPending = false; return; }
+  if (ok) {
+    cloudTransportFailures = 0;
+    cloudSessionResetPending = false;
+    cloudOutageStreak = 0;
+    if (cloudOutage) {
+      cloudOutage = false;
+      Serial.println("[NET] Link recovered — full cloud ops resumed");
+    }
+    return;
+  }
+  cloudOutageStreak++;
   if (++cloudTransportFailures >= 3) {
     cloudTransportFailures = 0;
     cloudSessionResetPending = true;
+  }
+  if (!cloudOutage && cloudOutageStreak >= OUTAGE_TRIP_FAILURES) {
+    cloudOutage = true;
+    Serial.println("[NET] Outage mode — cloud calls suspended, probing every 30 s");
   }
 }
 
@@ -1353,6 +1372,7 @@ bool syncFeedLevelConfig() {
 // Thresholds are owned by the currently assigned tank. The tank ID is a
 // cached credential refreshed by the assignment block in loop(), never here.
 void syncConfigFromFirebase() {
+  if (!ensureFirebaseReady()) return;
   if (currentTankId.length() == 0) {
     if (sensorOutputEnabled) Serial.println("[CONFIG] No tank assigned; retaining firmware defaults.");
     return;
@@ -1404,6 +1424,9 @@ bool ensureFirebaseReady() {
   // must be checked FIRST. Core.authenticated only flips true after a
   // successful API call, so gating on it deadlocks every cloud path:
   // nothing ever goes out, so the flag never flips.
+  // Outage mode: fail fast. Every cloud call site funnels through here, so
+  // one gate suspends them all; only the loop probe bypasses (direct call).
+  if (cloudOutage) return false;
   if (Firebase.ready()) {
     firebaseReady = true;
     return true;
@@ -2644,6 +2667,17 @@ void loop() {
     now = lastFirebaseSendTime;
   }
 
+  // Outage probe: the ONLY network call allowed in outage mode. A single
+  // attempt (no retry); success clears the outage via reportCloudResult and
+  // normal ops resume. Everything else stays fail-fast until then.
+  if (cloudOutage && now - lastOutageProbeMs >= OUTAGE_PROBE_MS) {
+    lastOutageProbeMs = now;
+    bool probeOk = Firebase.Firestore.getDocument(&fbdo, FIREBASE_PROJECT_ID, "",
+                                                  "hardware_system/currentOwner");
+    reportCloudResult(probeOk);
+    now = millis();
+  }
+
   // ─── Feeder ───
   // Observe assignment changes before consuming commands or running a plan.
   if (now - lastConfigSyncTime >= CONFIG_SYNC_INTERVAL_MS) {
@@ -2966,6 +3000,7 @@ void syncFeederSchedules() {
   String schedCol = "tanks/" + currentTankId + "/feeder_schedules";
   std::vector<FeedSchedule> synced;
   String pageToken;
+  int pages = 0;
   do {
   if (!Firebase.Firestore.listDocuments(&fbdo, FIREBASE_PROJECT_ID, "",
         schedCol.c_str(), FEEDER_SCHEDULE_PAGE_SIZE, pageToken.c_str(), "timeValue", "", false)) {
@@ -3044,6 +3079,8 @@ void syncFeederSchedules() {
 
     synced.push_back(s);
   }
+    esp_task_wdt_reset();  // multi-page syncs must not trip the watchdog
+    if (++pages >= 5) break;  // hard cap: 100 schedules is plenty
   } while (pageToken.length() > 0);
   bool unchanged = synced.size() == feederSchedules.size();
   for (size_t i = 0; unchanged && i < synced.size(); ++i) {
@@ -3995,7 +4032,7 @@ void updateLCD() {
       lastLcdMs = now;
     } else if (now - lastLcdMs >= LCD_ROTATE_MS) {
       lastLcdMs = now;
-      lcdScreen = (lcdScreen + 1) % 5;
+      lcdScreen = (lcdScreen + 1) % 4;
     } else if (lastLcdMs != 0) {
       return;
     }
@@ -4008,13 +4045,8 @@ void updateLCD() {
     } else if (lcdScreen == 2) {
       l0 = String("Water:") + (waterLevelCm >= 0 ? String(waterLevelCm, 0) + "cm" : "--");
       l1 = String("Hopper:") + (feedLevelPercent >= 0 ? String(feedLevelPercent, 0) + "%" : "--");
-    } else if (lcdScreen == 3) {
-      getNextScheduleLines(l0, l1);
     } else {
-      l0 = String("Blw:") + (blowerOn ? "ON " : "OFF") +
-           " G:" + String(gateOpenAngle) + "/" + String(gateHoldMs);
-      l1 = WiFi.status() == WL_CONNECTED ? "WiFi OK " + WiFi.SSID().substring(0, 8) : "WiFi OFFLINE";
-      if (l1.length() > 16) l1 = l1.substring(l1.length() - 16);
+      getNextScheduleLines(l0, l1);
     }
   }
   lcdPrint16(0, l0);
