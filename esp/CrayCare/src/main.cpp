@@ -2015,7 +2015,7 @@ void saveCachedFeederSchedules();
 void loadFeederState();
 bool saveFeederState();
 void checkScheduledFeed();
-void startFeed(String source, float grams = 1.0f, String commandId = "", long long issuedAtMs = 0, long long expiresAtMs = 0, bool forceOverride = false);
+void startFeed(String source, float grams = 1.0f, String commandId = "", long long issuedAtMs = 0, long long expiresAtMs = 0, bool forceOverride = false, bool allowHighTurbidityOverride = false);
 void processFeederTick();
 void pushFeederLog(String action, String type, String status = "",
                    float requestedGrams = -1.0f,
@@ -2741,6 +2741,7 @@ void processFeederCommands() {
     float grams;
     long long issuedAtMs = 0;
     long long expiresAtMs = 0;
+    bool allowHighTurbidityOverride = false;
   };
   CmdEntry entries[20];
   int entryCount = 0;
@@ -2764,6 +2765,9 @@ void processFeederCommands() {
     else if (response.get(d, base + "grams/integerValue")) e.grams = d.stringValue.toFloat();
     if (response.get(d, base + "issued_at/timestampValue")) e.issuedAtMs = firestoreTimestampMillis(d.stringValue);
     if (response.get(d, base + "expires_at/timestampValue")) e.expiresAtMs = firestoreTimestampMillis(d.stringValue);
+    if (response.get(d, base + "allow_high_turbidity/booleanValue")) {
+      e.allowHighTurbidityOverride = d.boolValue;
+    }
 
     if (e.action != "") entryCount++;
   }
@@ -2776,7 +2780,8 @@ void processFeederCommands() {
                   e.action.c_str(), e.docId.c_str());
 
     if (e.action == "feed_now") {
-      startFeed("manual", e.grams, e.docId, e.issuedAtMs, e.expiresAtMs);
+      startFeed("manual", e.grams, e.docId, e.issuedAtMs, e.expiresAtMs,
+                false, e.allowHighTurbidityOverride);
       break;
     }
   }
@@ -3121,7 +3126,7 @@ void checkScheduledFeed() {
 }
 
 // ─── Start Feed — kicks off non-blocking state machine ───
-void startFeed(String source, float grams, String commandId, long long issuedAtMs, long long expiresAtMs, bool forceOverride) {
+void startFeed(String source, float grams, String commandId, long long issuedAtMs, long long expiresAtMs, bool forceOverride, bool allowHighTurbidityOverride) {
   if (!forceOverride) { feederForced = false; feederForceReason = ""; }
   if (feederRunState != FEEDER_IDLE) {
     feederStatusReason = "Feeder busy";
@@ -3218,7 +3223,12 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
     blockedReason = "automatic feeding is due at " + nearbySchedule;
   }
   if (blockedReason.length() > 0 || !canFeedSafely(blockedReason, feederRequestedGrams)) {
-    if (forceOverride && feedBlockBypassable(blockedReason)) {
+    const bool confirmedManualTurbidityOverride =
+        source == "manual" && allowHighTurbidityOverride &&
+        blockedReason == "turbidity too high";
+    if (confirmedManualTurbidityOverride) {
+      Serial.println("[FEEDER] Owner confirmed Feed anyway — bypassing high turbidity only");
+    } else if (forceOverride && feedBlockBypassable(blockedReason)) {
       Serial.printf("[FEEDER] Override confirmed — bypassing: %s\n", blockedReason.c_str());
     } else {
       feederStatusReason = blockedReason;

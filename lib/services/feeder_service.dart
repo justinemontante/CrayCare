@@ -635,6 +635,9 @@ class FeederService extends ChangeNotifier {
         'issued_by': uid,
         'issued_at': FieldValue.serverTimestamp(),
         'near_schedule_confirmed': nearScheduleConfirmed,
+        // Only an explicit app confirmation can bypass the ESP's high-
+        // turbidity threshold for this one manual command.
+        'allow_high_turbidity': turbidityConfirmed,
         // A queued offline write must not become a fresh motor command when
         // Firestore finally commits its server timestamp after reconnect.
         'expires_at': Timestamp.fromDate(

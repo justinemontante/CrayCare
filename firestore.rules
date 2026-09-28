@@ -198,7 +198,7 @@ service cloud.firestore {
         allow create: if isTankOwner(tankId) &&
           request.resource.data.keys().hasOnly([
             'command_type', 'grams', 'issued_by', 'issued_at',
-            'expires_at', 'near_schedule_confirmed'
+            'expires_at', 'near_schedule_confirmed', 'allow_high_turbidity'
           ]) &&
           request.resource.data.command_type == 'feed_now' &&
           request.resource.data.grams is number &&
@@ -209,7 +209,9 @@ service cloud.firestore {
           request.resource.data.expires_at is timestamp &&
           request.resource.data.expires_at > request.resource.data.issued_at &&
           request.resource.data.expires_at <= request.resource.data.issued_at + duration.value(5, 'm') &&
-          request.resource.data.near_schedule_confirmed is bool;
+          request.resource.data.near_schedule_confirmed is bool &&
+          (!('allow_high_turbidity' in request.resource.data) ||
+            request.resource.data.allow_high_turbidity is bool);
         allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId) || isAssignedEsp(tankId);
         allow delete: if isTankOwner(tankId) || isAssignedEsp(tankId);
         allow update: if false;
