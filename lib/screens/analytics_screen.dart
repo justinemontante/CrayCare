@@ -39,6 +39,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   static const _historyRefreshInterval = Duration(minutes: 10);
   Timer? _autoRefreshTimer;
   Timer? _liveTimer;
+  final ValueNotifier<int> _liveRefresh = ValueNotifier<int>(0);
+  static const _liveReadingTimeout = Duration(seconds: 10);
   bool _isTabActive = false;
 
   bool get _showCritical => _activeFilter != 'live' && _activeFilter == '24h';
@@ -64,8 +66,15 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   void _startLiveTimer() {
     _liveTimer?.cancel();
     if (!_isTabActive) return;
-    _liveTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (mounted && _activeFilter == 'live') {
+    _liveTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted &&
+          _activeFilter == 'live' &&
+          SensorService.sensorKeys.any((key) {
+            if (_data['$key-live']?.isEmpty ?? true) return false;
+            final times = SensorService.instance.getDataTimes(key);
+            return times.isEmpty ||
+                DateTime.now().difference(times.last) > _liveReadingTimeout;
+          })) {
         _generateLive();
       }
     });
@@ -76,28 +85,38 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     for (final key in SensorService.sensorKeys) {
       final history = SensorService.instance.getData(key);
       final historyTimes = SensorService.instance.getDataTimes(key);
-      final last12 = history.length > 12
-          ? history.sublist(history.length - 12)
-          : history;
-      _data['$key-live'] = List<double>.from(last12);
-      _minData['$key-live'] = List<double>.from(last12);
-      _maxData['$key-live'] = List<double>.from(last12);
-
       final hasMatchingTimes = historyTimes.length == history.length;
-      final lastTimes = hasMatchingTimes
-          ? (historyTimes.length > 12
-                ? historyTimes.sublist(historyTimes.length - 12)
-                : historyTimes)
-          : const <DateTime>[];
-      _labels['$key-live'] = List<String>.generate(last12.length, (i) {
-        final t = hasMatchingTimes
-            ? lastTimes[i]
-            : now.subtract(Duration(seconds: (last12.length - 1 - i) * 5));
+      final hasFreshReading = hasMatchingTimes &&
+          historyTimes.isNotEmpty &&
+          !now.isBefore(historyTimes.last) &&
+          now.difference(historyTimes.last) <= _liveReadingTimeout;
+      if (!hasFreshReading) {
+        _data['$key-live'] = <double>[];
+        _minData['$key-live'] = <double>[];
+        _maxData['$key-live'] = <double>[];
+        _labels['$key-live'] = <String>[];
+        continue;
+      }
+      // Live view is intentionally limited to the newest eight actual sensor
+      // readings so the points and their timestamps stay readable together.
+      final last8 = history.length > 8
+          ? history.sublist(history.length - 8)
+          : history;
+      _data['$key-live'] = List<double>.from(last8);
+      _minData['$key-live'] = List<double>.from(last8);
+      _maxData['$key-live'] = List<double>.from(last8);
+
+      final lastTimes = historyTimes.length > 8
+          ? historyTimes.sublist(historyTimes.length - 8)
+          : historyTimes;
+      _labels['$key-live'] = List<String>.generate(last8.length, (i) {
+        final t = lastTimes[i];
         final h = t.hour > 12 ? t.hour - 12 : (t.hour == 0 ? 12 : t.hour);
         final ampm = t.hour >= 12 ? 'PM' : 'AM';
         return '$h:${t.minute.toString().padLeft(2, '0')}:${t.second.toString().padLeft(2, '0')} $ampm';
       });
     }
+    _liveRefresh.value++;
     if (mounted) setState(() {});
   }
 
@@ -134,6 +153,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     _generateLive();
     _startLiveTimer();
     SettingsService.instance.addListener(_onSettingsChanged);
+    SensorService.instance.addListener(_onSensorChanged);
     // Auto-refresh every 10 min — matches the ESP32 history write cadence.
     // Refreshing more often just reads docs that haven't changed yet.
     _autoRefreshTimer = Timer.periodic(
@@ -146,13 +166,22 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   void dispose() {
     _autoRefreshTimer?.cancel();
     _liveTimer?.cancel();
+    _liveRefresh.dispose();
     _scrollController.dispose();
     SettingsService.instance.removeListener(_onSettingsChanged);
+    SensorService.instance.removeListener(_onSensorChanged);
     super.dispose();
   }
 
   void _onSettingsChanged() {
     if (mounted && _isTabActive) setState(() {});
+  }
+
+  void _onSensorChanged() {
+    if (!mounted || !_isTabActive || _activeFilter != 'live') return;
+    // Redraw immediately when Firestore delivers a new sensor snapshot.
+    // The timer remains only as a fallback for lifecycle/cache updates.
+    _generateLive();
   }
 
   void setTabActive(bool active) {
@@ -352,6 +381,50 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       _labels[range] = labelTimes.map((d) => '${d.month}/${d.day}').toList();
     }
 
+    // Use the newest real Firestore record time in each populated bucket for
+    // the chart labels. The bucket grid still determines point spacing, while
+    // labels no longer inherit seconds from the phone's current clock.
+    final axisTimes = List<DateTime?>.filled(labelTimes.length, null);
+    for (var i = 0; i < labelTimes.length; i++) {
+      final usesDailyBuckets =
+          range == '30d' || (range == 'custom' && customGranularity == 'daily');
+      final bucketStart = usesDailyBuckets
+          ? DateTime(labelTimes[i].year, labelTimes[i].month, labelTimes[i].day)
+          : labelTimes[i];
+      final bucketEnd = switch ((range, customGranularity)) {
+        ('24h', _) || ('custom', '10m') =>
+          i == labelTimes.length - 1
+              ? historyEnd.add(const Duration(microseconds: 1))
+              : bucketStart.add(const Duration(minutes: 10)),
+        ('7d', _) || ('custom', 'hourly') =>
+          i == labelTimes.length - 1
+              ? historyEnd.add(const Duration(microseconds: 1))
+              : bucketStart.add(const Duration(hours: 1)),
+        _ => bucketStart.add(const Duration(days: 1)),
+      };
+      for (final timestamp in parsedTs) {
+        if (timestamp.isBefore(bucketStart) || !timestamp.isBefore(bucketEnd)) {
+          continue;
+        }
+        if (axisTimes[i] == null || timestamp.isAfter(axisTimes[i]!)) {
+          axisTimes[i] = timestamp;
+        }
+      }
+    }
+    _labels[range] = List<String>.generate(labelTimes.length, (i) {
+      final time = axisTimes[i] ?? labelTimes[i];
+      if (range == '30d' ||
+          (range == 'custom' && customGranularity == 'daily')) {
+        return _formatDate(time);
+      }
+      final hour =
+          time.hour > 12 ? time.hour - 12 : (time.hour == 0 ? 12 : time.hour);
+      final ampm = time.hour >= 12 ? 'PM' : 'AM';
+      final minute = time.minute.toString().padLeft(2, '0');
+      final second = time.second.toString().padLeft(2, '0');
+      return '${time.month}/${time.day} $hour:$minute:$second $ampm';
+    });
+
     for (final key in SensorService.sensorKeys) {
       final fields = _historyFieldMap[key];
       if (fields == null) continue;
@@ -450,8 +523,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   DateTime _recordTime(Map<String, dynamic> record) {
     final raw =
         record['recorded_at'] ??
-        record['timestamp'] ??
         record['captured_at_ms'] ??
+        record['timestamp'] ??
         record['created_at'];
     if (raw is Timestamp) return raw.toDate();
     if (raw is DateTime) return raw;
@@ -1023,6 +1096,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                       if (_activeFilter == '24h') ...[const SizedBox(width: 8)],
                     ],
                   ),
+                  if (_activeFilter == 'live')
+                    _buildLiveSensorStatus(chartKey, hasValid),
                 ],
               ),
               const SizedBox(height: 8),
@@ -1055,12 +1130,25 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                         thresholdMin: thresholds['min'],
                         thresholdMax: thresholds['max'],
                         decimalPlaces: dp,
-                        // Open at the oldest reading. Swipe left to move forward
-                        // chronologically until the newest reading at the end.
-                        initialScrollToEnd: false,
+                        // Start on the newest point in the selected range.
+                        initialScrollToEnd: true,
                       ),
               ),
-              if (hasValid) ...[
+              if (hasValid && _activeFilter == 'live') ...[
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Current Reading: ${validData.last.toStringAsFixed(dp)} $unit',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.dark,
+                    ),
+                  ),
+                ),
+              ],
+              if (hasValid && _activeFilter != 'live') ...[
                 const SizedBox(height: 8),
                 _buildStatsFooter(
                   curLabel,
@@ -1082,6 +1170,42 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
               ],
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLiveSensorStatus(String chartKey, bool hasReading) {
+    final zone = hasReading
+        ? SensorService.instance.getZone(chartKey)
+        : 'NO READING';
+    final label = switch (zone) {
+      'OPTIMAL' => 'NORMAL',
+      'WARNING' => 'WARNING',
+      'CRITICAL' => 'CRITICAL',
+      'EMPTY' => 'EMPTY',
+      _ => 'NO READING',
+    };
+    final color = switch (zone) {
+      'OPTIMAL' => AppColors.success,
+      'WARNING' => AppColors.warning,
+      'CRITICAL' || 'EMPTY' => AppColors.critical,
+      _ => AppColors.darkWith(0.35),
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 8,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.35,
+          color: color,
         ),
       ),
     );
@@ -1344,6 +1468,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
           listenable: Listenable.merge([
             SensorService.instance,
             SettingsService.instance,
+            _liveRefresh,
           ]),
           builder: (context, child) {
             final data = _getData(chartKey, _activeFilter);
@@ -1470,7 +1595,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                         if (modalShowCritical)
                           _buildModalCriticalList(criticalItems, unit, dp: dp)
                         else ...[
-                          Container(
+                          if (_activeFilter != 'live')
+                            Container(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 10,
                               vertical: 8,
@@ -1596,7 +1722,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                                 thresholdMax: thresholds['max'],
                                 decimalPlaces: dp,
                                 // Expanded chart follows the same oldest → newest flow.
-                                initialScrollToEnd: false,
+                                initialScrollToEnd: true,
                               ),
                             )
                           else
@@ -1617,6 +1743,26 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                                 ),
                               ),
                             ),
+                          if (_activeFilter == 'live') ...[
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    hasValid
+                                        ? 'Current Reading: ${validData.last.toStringAsFixed(dp)} $unit'
+                                        : 'Current Reading: -- $unit',
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.dark,
+                                    ),
+                                  ),
+                                ),
+                                _buildLiveSensorStatus(chartKey, hasValid),
+                              ],
+                            ),
+                          ],
                         ],
                       ],
                     ),

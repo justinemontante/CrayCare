@@ -26,6 +26,7 @@ String feederPreflightIssue({
   required Map<String, Map<String, double>> ranges,
   required double? availableGrams,
   double? grams,
+  bool allowTurbidityConfirmation = false,
 }) {
   final doseError = validateFeederGrams(grams);
   if (doseError != null) return doseError;
@@ -33,12 +34,13 @@ String feederPreflightIssue({
   if (busy) return 'A feeding request is already in progress';
   if (!feederOnline) return 'Feeder is offline';
   if (!schedulesLoaded) return 'Waiting for feeding schedules';
-  if (turbidityAir) return 'Turbidity sensor is in air';
+  if (turbidityAir && !allowTurbidityConfirmation) {
+    return 'Turbidity sensor is in air';
+  }
   for (final entry in const {
     'temp': 'temperature',
     'do': 'dissolved oxygen',
     'ph': 'pH',
-    'turb': 'turbidity',
     'feedlevel': 'feed-level',
   }.entries) {
     final value = values[entry.key];
@@ -47,6 +49,15 @@ String feederPreflightIssue({
         !value.isFinite ||
         value < 0) {
       return 'Waiting for fresh ${entry.value} data';
+    }
+  }
+  if (!allowTurbidityConfirmation) {
+    final value = values['turb'];
+    if (!freshSensors.contains('turb') ||
+        value == null ||
+        !value.isFinite ||
+        value < 0) {
+      return 'Waiting for fresh turbidity data';
     }
   }
   final temp = values['temp']!;
@@ -63,7 +74,8 @@ String feederPreflightIssue({
     return 'pH outside range (${ph.toStringAsFixed(2)})';
   }
   final turbidity = values['turb']!;
-  if (turbidity > (ranges['turb']?['max'] ?? 999)) {
+  if (!allowTurbidityConfirmation &&
+      turbidity > (ranges['turb']?['max'] ?? 999)) {
     return 'Turbidity too high (${turbidity.toStringAsFixed(0)} NTU)';
   }
   if (values['feedlevel']! > 100) return 'Waiting for valid feed-level data';

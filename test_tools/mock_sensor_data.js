@@ -47,10 +47,14 @@ const LATEST_KEYS = [
   'dissolvedOxygen',
   'turbidity',
   'waterLevel',
+  'feedLevel',
 ];
 
 let OPTIMAL_MODE = false; // --optimal flag
 let CRITICAL_MODE = false; // --critical flag
+let DEMO_MODE = false; // --demo flag: exactly one critical + one warning sensor
+let DIRECT_MODE = false; // --direct flag: also write the assigned tank's latest doc
+let demoTick = 0;
 // Config thresholds (pre_adult default — matched sa writeDefaultConfig)
 const CONFIG_RANGES = {
   temperature:     { min: 24, max: 30 },
@@ -58,6 +62,7 @@ const CONFIG_RANGES = {
   dissolvedOxygen: { min: 5.0, max: 9.0 },
   turbidity:       { min: 0,   max: 25 },
   waterLevel:      { min: 15, max: 20 },
+  feedLevel:       { min: 20, max: 100 },
 };
 
 const RANGES = {
@@ -66,6 +71,7 @@ const RANGES = {
   dissolvedOxygen: { min: 2.5, max: 7.0 },
   turbidity:       { min: 3,   max: 55 },
   waterLevel:      { min: 3, max: 23 },
+  feedLevel:       { min: 0, max: 100 },
 };
 
 const HOUR_CYCLE = (hour) => ({
@@ -85,6 +91,7 @@ const IDEAL = {
   phLevel:         7.8,   // 🟢 optimal
   turbidity:       24.0,  // 🟡 warning near the 25 NTU maximum
   waterLevel:      18.0,  // 🟢 optimal (15-20 cm)
+  feedLevel:       68.0,  // 🟢 normal feed-bin level (%)
 };
 
 const OPTIMAL_IDEAL = {
@@ -93,6 +100,7 @@ const OPTIMAL_IDEAL = {
   phLevel:         7.5,   // 🟢 optimal mid
   turbidity:       12.0,  // 🟢 optimal
   waterLevel:      18.0,  // 🟢 optimal mid (15-20 cm)
+  feedLevel:       68.0,  // 🟢 normal feed-bin level (%)
 };
 
 // Max na paggalaw per second (sapat para may pagbabago, hindi drastic)
@@ -102,6 +110,7 @@ const DRIFT_SPEED = {
   phLevel:         0.03,
   turbidity:       0.4,
   waterLevel:      0.05,
+  feedLevel:       0.25,
 };
 
 const _state = {};
@@ -245,6 +254,21 @@ function _updateCriticalSensor(key) {
 }
 
 function generateReading() {
+  if (DEMO_MODE) {
+    // Moving demo profile: values change every cycle while keeping one
+    // critical sensor, one warning sensor, and the rest in normal ranges.
+    demoTick += 1;
+    const wave = (amplitude, period) => amplitude * Math.sin((demoTick / period) * 2 * Math.PI);
+    return {
+      temperature: parseFloat((33.0 + wave(0.6, 12)).toFixed(2)),
+      phLevel: parseFloat((7.1 + wave(0.035, 10)).toFixed(2)),
+      dissolvedOxygen: parseFloat((6.5 + wave(0.25, 14)).toFixed(2)),
+      turbidity: parseFloat((12.0 + wave(1.5, 16)).toFixed(2)),
+      waterLevel: parseFloat((18.0 + wave(0.25, 18)).toFixed(2)),
+      feedLevel: parseFloat((68.0 - ((demoTick * 0.15) % 8) + wave(0.4, 20)).toFixed(2)),
+    };
+  }
+
   if (CRITICAL_MODE) {
     for (const key of LATEST_KEYS) {
       _updateCriticalSensor(key);
@@ -260,7 +284,7 @@ function generateReading() {
   _updateTemperature();
 
   if (OPTIMAL_MODE) {
-    for (const key of ['dissolvedOxygen', 'phLevel', 'turbidity', 'waterLevel']) {
+    for (const key of ['dissolvedOxygen', 'phLevel', 'turbidity', 'waterLevel', 'feedLevel']) {
       _state[key] += (Math.random() - 0.5) * 0.05;
       _state[key] = Math.max(
         OPTIMAL_IDEAL[key] - 2,
@@ -294,7 +318,8 @@ function generateAggregatedReading() {
     phLevel: 'pH',
     dissolvedOxygen: 'DO',
     turbidity: 'turbidity',
-    waterLevel: 'waterLevel'
+    waterLevel: 'waterLevel',
+    feedLevel: 'feedLevel'
   };
 
   for (const [rtdbKey, mlKey] of Object.entries(keysMap)) {
@@ -310,14 +335,58 @@ function generateAggregatedReading() {
   return result;
 }
 
+async function resolveAssignmentContext() {
+  const assignment = await firestore.collection('hardware_system').doc('currentOwner').get();
+  const assignmentData = assignment.exists ? (assignment.data() || {}) : {};
+  const ownerUid = typeof assignmentData.uid === 'string' ? assignmentData.uid.trim() : '';
+  let tankId = typeof assignmentData.tank_id === 'string' ? assignmentData.tank_id.trim() : '';
+
+  const assignedAtValue = assignmentData.assigned_at || assignment.updateTime;
+  const assignedAtMs = assignedAtValue && typeof assignedAtValue.toMillis === 'function'
+    ? Math.floor(assignedAtValue.toMillis())
+    : NaN;
+
+  if (tankId && ownerUid && Number.isSafeInteger(assignedAtMs)) {
+    return { tankId, ownerUid, assignedAtMs };
+  }
+
+  // Fallback for the current schema: ownership is stored on tanks.owner_uid.
+  if (ownerUid) {
+    const tanks = await firestore.collection('tanks')
+      .where('owner_uid', '==', ownerUid)
+      .where('is_initialized', '==', true)
+      .limit(1)
+      .get();
+    if (!tanks.empty) tankId = tanks.docs[0].id;
+  }
+
+  // Safe local-demo fallback when the assignment document is incomplete but
+  // there is exactly one initialized tank in the project.
+  const initializedTanks = await firestore.collection('tanks')
+    .where('is_initialized', '==', true)
+    .limit(2)
+    .get();
+  if (!tankId && initializedTanks.size === 1) tankId = initializedTanks.docs[0].id;
+
+  if (!tankId || !ownerUid || !Number.isSafeInteger(assignedAtMs)) return null;
+  return { tankId, ownerUid, assignedAtMs };
+}
+
 // ─── 4. Write latest (Firestore only) ─────────────────────────
 async function writeLatest() {
   try {
     const data = generateReading();
+    const capturedAtMs = Date.now();
+    const assignment = await resolveAssignmentContext();
+    if (!assignment) {
+      throw new Error(
+        'No complete hardware assignment found. Set uid, tank_id, and assigned_at on hardware_system/currentOwner.',
+      );
+    }
 
     // Mirror the production ESP staging payload; Cloud Functions route this
     // fixed document to the tank in hardware_system/currentOwner.
-    await firestore.collection('sensorIngestion').doc('current').set({
+    const stagedWrite = firestore.collection('sensorIngestion').doc('current').set({
       hardwareId: 'MOCK_TEST_TOOL',
       temperature: data.temperature,
       ph_level: data.phLevel,
@@ -325,10 +394,41 @@ async function writeLatest() {
       turbidity: data.turbidity,
       turbidity_air: false,
       water_level: data.waterLevel,
+      feed_level: data.feedLevel,
       buffered_entries: 0,
+      captured_at_ms: capturedAtMs,
+      source_tank_id: assignment.tankId,
+      source_owner_uid: assignment.ownerUid,
+      source_assignment_at_ms: assignment.assignedAtMs,
     });
 
-    const ts = new Date().toLocaleTimeString();
+    const directWrite = DIRECT_MODE
+      ? firestore.collection('tanks').doc(assignment.tankId)
+        .collection('sensor_readings').doc('latest').set({
+          temperature: data.temperature,
+          ph_level: data.phLevel,
+          dissolved_oxygen: data.dissolvedOxygen,
+          turbidity: data.turbidity,
+          turbidity_air: false,
+          water_level: data.waterLevel,
+          feed_level: data.feedLevel,
+          buffered_entries: 0,
+          // Keep the database timestamp identical to the capture time printed
+          // in the console and used by the analytics chart labels.
+          recorded_at: new Date(capturedAtMs),
+          captured_at_ms: capturedAtMs,
+          source_tank_id: assignment.tankId,
+          source_owner_uid: assignment.ownerUid,
+          source_assignment_at_ms: assignment.assignedAtMs,
+          source: 'MOCK_TEST_TOOL',
+        }, { merge: true })
+      : Promise.resolve();
+
+    // Start both writes together. The app listens to the tank document, so
+    // its update need not wait for the staging write to finish first.
+    await Promise.all([stagedWrite, directWrite]);
+
+    const ts = new Date(capturedAtMs).toLocaleTimeString();
     const vals = LATEST_KEYS.map(k => `${data[k]}`).join(' | ');
     const status = OPTIMAL_MODE ? ' 🟢 OPTIMAL' : _checkStatus(data);
     console.log(`[${ts}]  ${vals}${status}`);
@@ -346,6 +446,11 @@ async function appendHistory() {
     const dateStr = now.toISOString().slice(0, 10);
     const reading = generateAggregatedReading();
     reading.captured_at_ms = Date.now();
+    const assignment = await resolveAssignmentContext();
+    if (!assignment) throw new Error('No complete hardware assignment found.');
+    reading.source_tank_id = assignment.tankId;
+    reading.source_owner_uid = assignment.ownerUid;
+    reading.source_assignment_at_ms = assignment.assignedAtMs;
 
     await firestore.collection('sensorIngestion').doc('current')
       .collection('history').add(reading);
@@ -376,6 +481,11 @@ async function backfillHistory({ hours, label }) {
     const dateStr = date.toISOString().slice(0, 10);
     const reading = generateAggregatedReading();
     reading.captured_at_ms = ts;
+    const assignment = await resolveAssignmentContext();
+    if (!assignment) throw new Error('No complete hardware assignment found.');
+    reading.source_tank_id = assignment.tankId;
+    reading.source_owner_uid = assignment.ownerUid;
+    reading.source_assignment_at_ms = assignment.assignedAtMs;
 
     await firestore.collection('sensorIngestion').doc('current')
       .collection('history').add(reading);
@@ -397,6 +507,7 @@ async function writeDefaultConfig() {
     dissolved_oxygen: { min: 5.0, max: 9.0 },
     turbidity: { min: 0, max: 25 },
     water_level: { min: 15, max: 20 },
+    feed_level: { min: 20, max: 100 },
   };
   const batch = firestore.batch();
   for (const [sensor, range] of Object.entries(defaults)) {
@@ -420,6 +531,9 @@ function _checkStatus(data) {
     const warnThreshold = range * 0.10;
     return (data[k] - c[k].min < warnThreshold) || (c[k].max - data[k] < warnThreshold);
   });
+  if (critical.length && warning.length) {
+    return ` 🔴 CRITICAL (${critical.join(', ')}) 🟡 WARNING (${warning.join(', ')})`;
+  }
   if (critical.length) return ` 🔴 CRITICAL (${critical.join(', ')})`;
   if (warning.length) return ` 🟡 WARNING (${warning.join(', ')})`;
   return ' 🟢 OPTIMAL';
@@ -432,12 +546,15 @@ process.on('SIGTERM', () => process.exit());
 async function main() {
   const args = process.argv.slice(2);
   const doBackfill = args.includes('--backfill');
+  const once = args.includes('--once');
 
   OPTIMAL_MODE = args.includes('--optimal');
   CRITICAL_MODE = args.includes('--critical');
+  DEMO_MODE = args.includes('--demo');
+  DIRECT_MODE = args.includes('--direct');
 
-  if (CRITICAL_MODE && OPTIMAL_MODE) {
-    console.error('❌ Cannot use --critical and --optimal together.');
+  if ([CRITICAL_MODE, OPTIMAL_MODE, DEMO_MODE].filter(Boolean).length > 1) {
+    console.error('❌ Choose only one mode: --critical, --optimal, or --demo.');
     process.exit(1);
   }
 
@@ -460,15 +577,22 @@ async function main() {
       ? '🔴 CRITICAL MODE — all sensors cycling: optimal → warning → critical → recovery'
       : OPTIMAL_MODE
       ? '🟢 OPTIMAL MODE — all sensors within ideal range'
+      : DEMO_MODE
+      ? '🧪 DEMO MODE — one critical + one warning reading'
       : '🌡️  Temperature cycles: stable → slow rise → fast rise → fall → ...';
     console.log('\n🚀 Starting real-time simulation…');
     console.log(`   ${modeLabel}`);
     console.log('   Every 5s  → sensorIngestion/current');
     console.log('   Every 10m → sensorIngestion/current/history (min/max/avg)');
     console.log('   Cloud Functions route data using hardware_system/currentOwner.');
+    if (DIRECT_MODE) console.log('   Direct mode → also writing tanks/{tankId}/sensor_readings/latest.');
     console.log('   Press Ctrl+C to stop.\n');
 
     await writeLatest();
+    if (once) {
+      await app.delete();
+      return;
+    }
     setInterval(() => writeLatest(), 5000);
 
     await appendHistory();

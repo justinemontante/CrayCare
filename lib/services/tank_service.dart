@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/crayfish_batch.dart';
 import 'connectivity_service.dart';
 import 'database_service.dart';
+import 'sensor_service.dart';
 import '../utils/prediction_timestamp.dart';
 
 DateTime? _readTankDate(dynamic value) =>
@@ -99,6 +100,8 @@ class SamplingEntry {
   final double totalLength;
   final int liveCount;
   final bool isBaseline;
+  final List<CrayfishMeasurement> measurements;
+  bool get hasIndividualMeasurements => measurements.isNotEmpty;
   double get biomass =>
       sampleSize > 0 ? liveCount * totalWeight / sampleSize : 0.0;
 
@@ -112,7 +115,130 @@ class SamplingEntry {
     required this.totalLength,
     required this.liveCount,
     this.isBaseline = false,
+    this.measurements = const [],
   });
+}
+
+class CrayfishMeasurement {
+  final int sampleNumber;
+  final double weightGrams;
+  final double lengthCm;
+
+  const CrayfishMeasurement({
+    required this.sampleNumber,
+    required this.weightGrams,
+    required this.lengthCm,
+  });
+
+  String get label => 'Crayfish $sampleNumber';
+
+  Map<String, dynamic> toMap() => {
+    'sample_number': sampleNumber,
+    'label': label,
+    'weight_g': weightGrams,
+    'length_cm': lengthCm,
+  };
+
+  static List<CrayfishMeasurement> parseList(dynamic raw) {
+    if (raw is! Iterable) return const [];
+    final result = <CrayfishMeasurement>[];
+    for (final item in raw) {
+      if (item is! Map) continue;
+      final map = Map<String, dynamic>.from(
+        item.map((key, value) => MapEntry(key.toString(), value)),
+      );
+      final number = map['sample_number'];
+      final weight = map['weight_g'];
+      final length = map['length_cm'];
+      if (number is! num || weight is! num || length is! num) continue;
+      final measurement = CrayfishMeasurement(
+        sampleNumber: number.toInt(),
+        weightGrams: weight.toDouble(),
+        lengthCm: length.toDouble(),
+      );
+      if (measurement.sampleNumber > 0 &&
+          measurement.weightGrams.isFinite &&
+          measurement.weightGrams > 0 &&
+          measurement.lengthCm.isFinite &&
+          measurement.lengthCm > 0) {
+        result.add(measurement);
+      }
+    }
+    result.sort((a, b) => a.sampleNumber.compareTo(b.sampleNumber));
+    return result;
+  }
+}
+
+const int maxCrayfishMeasurementsPerSample = 500;
+
+void validateCrayfishMeasurements(
+  List<CrayfishMeasurement> measurements, {
+  required int population,
+}) {
+  if (measurements.isEmpty) {
+    throw ArgumentError('Enter at least one crayfish measurement.');
+  }
+  if (measurements.length > population) {
+    throw ArgumentError('Sample size cannot exceed the live population.');
+  }
+  if (measurements.length > maxCrayfishMeasurementsPerSample) {
+    throw ArgumentError(
+      'A sampling session supports up to $maxCrayfishMeasurementsPerSample individual entries.',
+    );
+  }
+  for (var i = 0; i < measurements.length; i++) {
+    final item = measurements[i];
+    if (item.sampleNumber != i + 1 ||
+        !item.weightGrams.isFinite ||
+        item.weightGrams <= 0 ||
+        !item.lengthCm.isFinite ||
+        item.lengthCm <= 0) {
+      throw ArgumentError(
+        'Enter a valid positive weight and length for Crayfish ${i + 1}.',
+      );
+    }
+  }
+}
+
+SamplingEntry? samplingEntryFromMap(String id, Map<String, dynamic> map) {
+  final date = _readTankDate(map['sampling_date']);
+  if (date == null) return null;
+  final measurements = CrayfishMeasurement.parseList(map['measurements']);
+  final legacySampleSize = (map['sample_size'] as num?)?.toInt() ?? 0;
+  final legacyWeight = (map['total_weight'] as num?)?.toDouble() ?? 0.0;
+  final legacyLength = (map['total_length'] as num?)?.toDouble() ?? 0.0;
+  final hasMeasurements = measurements.isNotEmpty;
+  final count = hasMeasurements ? measurements.length : legacySampleSize;
+  final totalWeight = hasMeasurements
+      ? measurements.fold<double>(0, (total, item) => total + item.weightGrams)
+      : legacyWeight;
+  final totalLength = hasMeasurements
+      ? measurements.fold<double>(0, (total, item) => total + item.lengthCm)
+      : legacyLength;
+  return SamplingEntry(
+    id: id,
+    date: date,
+    abw: hasMeasurements
+        ? totalWeight / count
+        : deriveSamplingAverage(
+            total: map['total_weight'] as num?,
+            sampleSize: map['sample_size'] as num?,
+            legacyAverage: (map['avg_body_weight'] as num?)?.toDouble(),
+          ),
+    avgLength: hasMeasurements
+        ? totalLength / count
+        : deriveSamplingAverage(
+            total: map['total_length'] as num?,
+            sampleSize: map['sample_size'] as num?,
+            legacyAverage: (map['avg_body_length'] as num?)?.toDouble(),
+          ),
+    sampleSize: count,
+    totalWeight: totalWeight,
+    totalLength: totalLength,
+    liveCount: (map['live_count'] as num?)?.toInt() ?? 0,
+    isBaseline: map['is_baseline'] == true,
+    measurements: measurements,
+  );
 }
 
 class TankActivity {
@@ -168,6 +294,7 @@ class TankService extends ChangeNotifier {
   int _mortality = 0;
   bool _isInitialized = false;
   bool _setupComplete = false;
+  bool _hasTankDocument = false;
   DateTime _stockingDate = DateTime.now();
 
   List<CrayfishBatch> _batches = [];
@@ -349,50 +476,27 @@ class TankService extends ChangeNotifier {
     final sampling = <SamplingEntry>[];
     for (final doc in results[0].docs) {
       final map = doc.data();
-      final date = _readTankDate(map['sampling_date']);
-      if (date == null) continue;
-      final sampleSize = map['sample_size'] as num?;
-      final totalWeight = map['total_weight'] as num?;
-      final totalLength = map['total_length'] as num?;
-      sampling.add(
-        SamplingEntry(
-          id: doc.id,
-          date: date,
-          abw: deriveSamplingAverage(
-            total: totalWeight,
-            sampleSize: sampleSize,
-            legacyAverage: (map['avg_body_weight'] as num?)?.toDouble(),
-          ),
-          avgLength: deriveSamplingAverage(
-            total: totalLength,
-            sampleSize: sampleSize,
-            legacyAverage: (map['avg_body_length'] as num?)?.toDouble(),
-          ),
-          sampleSize: sampleSize?.toInt() ?? 0,
-          totalWeight: totalWeight?.toDouble() ?? 0.0,
-          totalLength: totalLength?.toDouble() ?? 0.0,
-          liveCount: (map['live_count'] as num?)?.toInt() ?? 0,
-          isBaseline: map['is_baseline'] == true,
-        ),
-      );
+      final entry = samplingEntryFromMap(doc.id, map);
+      if (entry != null) sampling.add(entry);
     }
     sampling.sort((a, b) => a.date.compareTo(b.date));
 
-    final mortality = results[1].docs
-        .map((doc) {
-          final map = doc.data();
-          final date = _readTankDate(map['mortality_date']);
-          final count = map['mortality_count'];
-          if (date == null || count is! num) return null;
-          return MortalityEntry(
-            id: doc.id,
-            date: date,
-            count: count.toInt(),
-          );
-        })
-        .whereType<MortalityEntry>()
-        .toList()
-      ..sort((a, b) => a.date.compareTo(b.date));
+    final mortality =
+        results[1].docs
+            .map((doc) {
+              final map = doc.data();
+              final date = _readTankDate(map['mortality_date']);
+              final count = map['mortality_count'];
+              if (date == null || count is! num) return null;
+              return MortalityEntry(
+                id: doc.id,
+                date: date,
+                count: count.toInt(),
+              );
+            })
+            .whereType<MortalityEntry>()
+            .toList()
+          ..sort((a, b) => a.date.compareTo(b.date));
 
     final harvests = results[2].docs.map((doc) {
       final data = Map<String, dynamic>.from(doc.data());
@@ -531,9 +635,11 @@ class TankService extends ChangeNotifier {
       final doc = await _tankRef.get();
       if (!doc.exists) {
         debugPrint('[TankService] _loadTank: tank doc does NOT exist');
+        _hasTankDocument = false;
         _resetAll();
         return;
       }
+      _hasTankDocument = true;
       final data = doc.data() ?? <String, dynamic>{};
       // Mortality/harvest totals are derived from the batch + record
       // listeners (SUM over records), not stored on the tank doc.
@@ -546,6 +652,7 @@ class TankService extends ChangeNotifier {
       _isInitialized =
           data['is_initialized'] == true && _selectedBatchId != null;
       _setupComplete = _isInitialized;
+      if (!_isInitialized) _selectedBatchId = null;
       if (_selectedBatchId != null) {
         final batchDoc = await _batchesRef.doc(_selectedBatchId).get();
         if (batchDoc.exists && batchDoc.data() != null) {
@@ -598,6 +705,12 @@ class TankService extends ChangeNotifier {
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _tankSub;
 
   void _cancelSubscriptions() {
+    _cancelNestedSubscriptions();
+    _tankSub?.cancel();
+    _tankSub = null;
+  }
+
+  void _cancelNestedSubscriptions() {
     _batchesSub?.cancel();
     _batchesSub = null;
     _samplingSub?.cancel();
@@ -606,8 +719,6 @@ class TankService extends ChangeNotifier {
     _mortalitySub = null;
     _harvestsSub?.cancel();
     _harvestsSub = null;
-    _tankSub?.cancel();
-    _tankSub = null;
   }
 
   void _parseBatchesFromSnapshot(QuerySnapshot<Map<String, dynamic>> snap) {
@@ -627,7 +738,16 @@ class TankService extends ChangeNotifier {
     _harvestHistory = list
         .where((b) => b.status == 'harvested' || b.status == 'superseded')
         .toList();
+    unawaited(_hydrateInitialSamplingAverages(list));
     unawaited(_hydrateFinalSamplingAverages(list));
+
+    // Historical/orphaned subcollection documents must not implicitly
+    // recreate an active setup after the parent tank says setup is incomplete.
+    if (!_isInitialized) {
+      _selectedBatchId = null;
+      notifyListeners();
+      return;
+    }
 
     final currentSelectionStillExists =
         _selectedBatchId != null &&
@@ -644,6 +764,50 @@ class TankService extends ChangeNotifier {
         _resubscribeToBatch();
       }
     }
+    notifyListeners();
+  }
+
+  Future<void> _hydrateInitialSamplingAverages(
+    List<CrayfishBatch> batches,
+  ) async {
+    final active = batches.where((batch) => batch.status == 'active').toList();
+    if (active.isEmpty) return;
+
+    final summaries = <String, List<double>>{};
+    await Future.wait(
+      active.map((batch) async {
+        try {
+          final snapshot = await _samplingRef(
+            batch.batchId,
+          ).doc('baseline').get();
+          final data = snapshot.data();
+          if (data == null) return;
+          final entry = samplingEntryFromMap('baseline', data);
+          if (entry == null || entry.sampleSize <= 0) return;
+          if (entry.abw > 0 && entry.avgLength > 0) {
+            summaries[batch.batchId] = [entry.abw, entry.avgLength];
+          }
+        } catch (e) {
+          debugPrint(
+            '[TankService] Failed to derive initial sampling values for '
+            '${batch.batchId}: $e',
+          );
+        }
+      }),
+    );
+
+    if (summaries.isEmpty) return;
+    var changed = false;
+    _batches = _batches.map((batch) {
+      final values = summaries[batch.batchId];
+      if (values == null ||
+          (batch.initialAbw == values[0] && batch.initialAbl == values[1])) {
+        return batch;
+      }
+      changed = true;
+      return batch.withInitialSamplingAverages(abw: values[0], abl: values[1]);
+    }).toList();
+    if (!changed) return;
     notifyListeners();
   }
 
@@ -675,33 +839,14 @@ class TankService extends ChangeNotifier {
             }
           }
           if (record == null) return;
-          final sampleSize = record['sample_size'] as num?;
-          final totalWeight = record['total_weight'] as num?;
-          final totalLength = record['total_length'] as num?;
-          final legacyAbw = (record['avg_body_weight'] as num?)?.toDouble();
-          final legacyAbl = (record['avg_body_length'] as num?)?.toDouble();
-          final hasAbwSource =
-              (totalWeight != null && (sampleSize?.toDouble() ?? 0) > 0) ||
-              legacyAbw != null;
-          final hasAblSource =
-              (totalLength != null && (sampleSize?.toDouble() ?? 0) > 0) ||
-              legacyAbl != null;
+          final entry = samplingEntryFromMap('', record);
+          if (entry == null) return;
+          final hasAbwSource = entry.sampleSize > 0 && entry.abw > 0;
+          final hasAblSource = entry.sampleSize > 0 && entry.avgLength > 0;
           if (!hasAbwSource && !hasAblSource) return;
           summaries[batch.batchId] = [
-            hasAbwSource
-                ? deriveSamplingAverage(
-                    total: totalWeight,
-                    sampleSize: sampleSize,
-                    legacyAverage: legacyAbw,
-                  )
-                : batch.finalAbw,
-            hasAblSource
-                ? deriveSamplingAverage(
-                    total: totalLength,
-                    sampleSize: sampleSize,
-                    legacyAverage: legacyAbl,
-                  )
-                : batch.finalAbl,
+            hasAbwSource ? entry.abw : batch.finalAbw,
+            hasAblSource ? entry.avgLength : batch.finalAbl,
           ];
         } catch (e) {
           debugPrint(
@@ -764,25 +909,26 @@ class TankService extends ChangeNotifier {
     //    "not set up yet"
     //  - is_initialized flipped elsewhere   -> reload tank + batches
     _tankSub?.cancel();
+    _cancelNestedSubscriptions();
     _tankSub = _tankRef.snapshots().listen(
       (doc) {
         final data = doc.data();
         if (data == null) {
-          // Tank document was deleted — treat as "no setup yet".
-          if (_isInitialized ||
-              _batches.isNotEmpty ||
-              _samplingHistory.isNotEmpty) {
-            _resetAll();
-          }
+          // Parent deletion does not delete Firestore subcollections, so stop
+          // their listeners explicitly and clear any values still on screen.
+          _hasTankDocument = false;
+          _cancelNestedSubscriptions();
+          _resetAll();
+          SensorService.instance.clearForMissingTank();
           return;
         }
+        final wasMissing = !_hasTankDocument;
+        _hasTankDocument = true;
         final nowInitialized = data['is_initialized'] == true;
-        if (_isInitialized != nowInitialized) {
+        if (wasMissing || _isInitialized != nowInitialized) {
           // Setup state changed somewhere else (e.g. another device).
-          _cancelSubscriptions();
-          _loadTank();
-          _listenFirebase();
-          notifyListeners();
+          _cancelNestedSubscriptions();
+          unawaited(_reloadAfterTankDocumentChange());
         }
       },
       onError: (e) {
@@ -790,6 +936,18 @@ class TankService extends ChangeNotifier {
       },
     );
 
+    if (_hasTankDocument) _listenNestedFirebase();
+  }
+
+  Future<void> _reloadAfterTankDocumentChange() async {
+    await _loadTank();
+    if (!_hasTankDocument) return;
+    _listenNestedFirebase();
+    await SensorService.instance.refresh();
+    notifyListeners();
+  }
+
+  void _listenNestedFirebase() {
     // Listen to this tank's nested batches collection.
     _batchesSub = _batchesRef
         .orderBy('stocking_date', descending: true)
@@ -838,30 +996,9 @@ class TankService extends ChangeNotifier {
               final map = doc.data();
               final date = _readTankDate(map['sampling_date']);
               if (date == null) continue;
-              final sampleSize = map['sample_size'] as num?;
-              final totalWeight = map['total_weight'] as num?;
-              final totalLength = map['total_length'] as num?;
-              entries.add(
-                SamplingEntry(
-                  id: doc.id,
-                  date: date,
-                  abw: deriveSamplingAverage(
-                    total: totalWeight,
-                    sampleSize: sampleSize,
-                    legacyAverage: (map['avg_body_weight'] as num?)?.toDouble(),
-                  ),
-                  avgLength: deriveSamplingAverage(
-                    total: totalLength,
-                    sampleSize: sampleSize,
-                    legacyAverage: (map['avg_body_length'] as num?)?.toDouble(),
-                  ),
-                  sampleSize: sampleSize?.toInt() ?? 0,
-                  totalWeight: totalWeight?.toDouble() ?? 0.0,
-                  totalLength: totalLength?.toDouble() ?? 0.0,
-                  liveCount: (map['live_count'] as num?)?.toInt() ?? 0,
-                  isBaseline: map['is_baseline'] == true,
-                ),
-              );
+              final entry = samplingEntryFromMap(doc.id, map);
+              if (entry == null) continue;
+              entries.add(entry);
               if (lastDate == null || date.isAfter(lastDate)) {
                 lastDate = date;
                 lastId = doc.id;
@@ -869,6 +1006,16 @@ class TankService extends ChangeNotifier {
             }
             entries.sort((a, b) => a.date.compareTo(b.date));
             _samplingHistory = entries;
+            final baseline = entries
+                .where((entry) => entry.isBaseline)
+                .firstOrNull;
+            if (baseline != null && baseline.sampleSize > 0) {
+              _sampleCount = baseline.sampleSize;
+              _totalSampleWeight = baseline.totalWeight;
+              _totalSampleLength = baseline.totalLength;
+              _initialWeight = baseline.abw;
+              _initialLength = baseline.avgLength;
+            }
             _lastSamplingDocId = lastId;
             notifyListeners();
           },
@@ -1007,9 +1154,7 @@ class TankService extends ChangeNotifier {
 
   Future<void> initializeGrowOut(
     int initial,
-    int sampleCount,
-    double totalWeight,
-    double totalLength,
+    List<CrayfishMeasurement> measurements,
     DateTime date, {
     String? batchName,
     bool editExisting = false,
@@ -1020,15 +1165,16 @@ class TankService extends ChangeNotifier {
     if (initial <= 0) {
       throw ArgumentError('Initial population must be greater than 0');
     }
-    if (sampleCount <= 0) {
-      throw ArgumentError('Sample count must be greater than 0');
-    }
-    if (sampleCount > initial) {
-      throw ArgumentError('Sample count cannot exceed initial population');
-    }
-    if (totalWeight <= 0 || totalLength <= 0) {
-      throw ArgumentError('Sample weight and length must be greater than zero');
-    }
+    validateCrayfishMeasurements(measurements, population: initial);
+    final sampleCount = measurements.length;
+    final totalWeight = measurements.fold<double>(
+      0,
+      (total, item) => total + item.weightGrams,
+    );
+    final totalLength = measurements.fold<double>(
+      0,
+      (total, item) => total + item.lengthCm,
+    );
 
     final requestedName = batchName?.trim() ?? '';
     if (requestedName.contains('/') || requestedName.length > 100) {
@@ -1076,8 +1222,8 @@ class TankService extends ChangeNotifier {
         'current_count': initial,
         'stocking_date': _writeTankTimestamp(date),
         'sample_count': sampleCount,
-        'initial_total_weight': totalWeight,
-        'initial_total_length': totalLength,
+        'initial_total_weight': FieldValue.delete(),
+        'initial_total_length': FieldValue.delete(),
         'initial_abw': FieldValue.delete(),
         'initial_abl': FieldValue.delete(),
         'final_abw': FieldValue.delete(),
@@ -1088,9 +1234,10 @@ class TankService extends ChangeNotifier {
         'avg_body_weight': FieldValue.delete(),
         'avg_body_length': FieldValue.delete(),
         'biomass': FieldValue.delete(),
-        'sample_size': sampleCount,
-        'total_weight': totalWeight,
-        'total_length': totalLength,
+        'measurements': measurements.map((item) => item.toMap()).toList(),
+        'sample_size': FieldValue.delete(),
+        'total_weight': FieldValue.delete(),
+        'total_length': FieldValue.delete(),
         'live_count': initial,
         'is_baseline': true,
         'updated_at': FieldValue.serverTimestamp(),
@@ -1170,8 +1317,6 @@ class TankService extends ChangeNotifier {
         'total_mortality': 0,
         'harvest_weight_grams': null,
         'sample_count': _sampleCount,
-        'initial_total_weight': _totalSampleWeight,
-        'initial_total_length': _totalSampleLength,
         'created_at': FieldValue.serverTimestamp(),
       });
       writes.set(_tankRef, {
@@ -1185,15 +1330,11 @@ class TankService extends ChangeNotifier {
       // record. It is excluded from the weekly cadence calculation and from
       // the "Week N" counter so the first weekly sampling is always Day 7
       // after stocking.
-      if (_sampleCount > 0 &&
-          _totalSampleWeight > 0 &&
-          _totalSampleLength > 0) {
+      if (_sampleCount > 0 && measurements.isNotEmpty) {
         final baselineDoc = _samplingRef(bid).doc('baseline');
         writes.set(baselineDoc, {
           'sampling_date': _writeTankTimestamp(_stockingDate),
-          'sample_size': _sampleCount,
-          'total_weight': _totalSampleWeight,
-          'total_length': _totalSampleLength,
+          'measurements': measurements.map((item) => item.toMap()).toList(),
           'live_count': _initialCount,
           'is_baseline': true,
           'created_at': FieldValue.serverTimestamp(),
@@ -1215,20 +1356,23 @@ class TankService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> addSamplingEntry(int count, double weight, double length) async {
-    if (count <= 0) throw ArgumentError('Sample count must be greater than 0');
-    if (count > inTankCount) {
-      throw ArgumentError('Sample count exceeds in-tank population');
-    }
-    if (weight <= 0 || length <= 0) {
-      throw ArgumentError('Sample weight and length must be greater than zero');
-    }
+  Future<void> addSamplingEntry(List<CrayfishMeasurement> measurements) async {
+    validateCrayfishMeasurements(measurements, population: inTankCount);
     if (_selectedBatchId == null || _selectedBatchId!.isEmpty) {
       throw ArgumentError('No batch selected');
     }
 
     _setupComplete = true;
     final now = DateTime.now();
+    final count = measurements.length;
+    final weight = measurements.fold<double>(
+      0,
+      (total, item) => total + item.weightGrams,
+    );
+    final length = measurements.fold<double>(
+      0,
+      (total, item) => total + item.lengthCm,
+    );
     final abw = weight / count;
     final avgLength = length / count;
     final entry = SamplingEntry(
@@ -1239,13 +1383,12 @@ class TankService extends ChangeNotifier {
       totalWeight: weight,
       totalLength: length,
       liveCount: inTankCount,
+      measurements: measurements,
     );
     try {
       await _samplingRef(_selectedBatchId!).add({
         'sampling_date': _writeTankTimestamp(entry.date),
-        'sample_size': entry.sampleSize,
-        'total_weight': entry.totalWeight,
-        'total_length': entry.totalLength,
+        'measurements': measurements.map((item) => item.toMap()).toList(),
         'live_count': entry.liveCount,
         'is_baseline': false,
         'created_at': FieldValue.serverTimestamp(),
@@ -1266,23 +1409,24 @@ class TankService extends ChangeNotifier {
   }
 
   Future<void> updateLastSamplingEntry(
-    int count,
-    double weight,
-    double length,
+    List<CrayfishMeasurement> measurements,
   ) async {
     if (_lastSamplingDocId == null || _samplingHistory.isEmpty) return;
     if (_samplingHistory.last.isBaseline) {
       throw StateError('No weekly sampling record is available to edit.');
     }
     if (_selectedBatchId == null) return;
-    if (count <= 0) throw ArgumentError('Sample count must be greater than 0');
-    if (count > inTankCount) {
-      throw ArgumentError('Sample count exceeds in-tank population');
-    }
-    if (weight <= 0 || length <= 0) {
-      throw ArgumentError('Sample weight and length must be greater than zero');
-    }
+    validateCrayfishMeasurements(measurements, population: inTankCount);
 
+    final count = measurements.length;
+    final weight = measurements.fold<double>(
+      0,
+      (total, item) => total + item.weightGrams,
+    );
+    final length = measurements.fold<double>(
+      0,
+      (total, item) => total + item.lengthCm,
+    );
     final abw = weight / count;
     final avgLength = length / count;
     final updated = SamplingEntry(
@@ -1294,6 +1438,7 @@ class TankService extends ChangeNotifier {
       totalWeight: weight,
       totalLength: length,
       liveCount: inTankCount,
+      measurements: measurements,
     );
     _samplingHistory.last = updated;
     try {
@@ -1301,9 +1446,10 @@ class TankService extends ChangeNotifier {
         'avg_body_weight': FieldValue.delete(),
         'avg_body_length': FieldValue.delete(),
         'biomass': FieldValue.delete(),
-        'sample_size': updated.sampleSize,
-        'total_weight': updated.totalWeight,
-        'total_length': updated.totalLength,
+        'measurements': measurements.map((item) => item.toMap()).toList(),
+        'sample_size': FieldValue.delete(),
+        'total_weight': FieldValue.delete(),
+        'total_length': FieldValue.delete(),
         'live_count': updated.liveCount,
         'created_at': FieldValue.serverTimestamp(),
       });

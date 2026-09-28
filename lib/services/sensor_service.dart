@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'settings_service.dart';
 import 'connectivity_service.dart';
 
@@ -29,6 +31,79 @@ class SensorService extends ChangeNotifier {
   }
 
   Future<void> refresh() => _initFirebaseListener();
+
+  Future<void> _restoreLocalLiveHistory(String tankId) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (_tankId != tankId) return;
+    final now = DateTime.now();
+    for (final key in sensorKeys) {
+      final raw = prefs.getString('sensor_live_${tankId}_$key');
+      if (raw == null) continue;
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is! List) continue;
+        final values = <double>[];
+        final times = <DateTime>[];
+        for (final item in decoded) {
+          if (item is! Map) continue;
+          final value = (item['value'] as num?)?.toDouble();
+          final millis = (item['time'] as num?)?.toInt();
+          if (value == null || millis == null) continue;
+          final time = DateTime.fromMillisecondsSinceEpoch(millis);
+          if (now.difference(time) > _trendWindow || time.isAfter(now)) {
+            continue;
+          }
+          values.add(value);
+          times.add(time);
+        }
+        if (values.isNotEmpty &&
+            (_historyTimes[key]?.isEmpty ?? true)) {
+          _history[key] = values;
+          _historyTimes[key] = times;
+        }
+      } catch (_) {
+        // Ignore a malformed local cache and continue with live Firestore data.
+      }
+    }
+    if (_tankId == tankId) notifyListeners();
+  }
+
+  void _persistLocalLivePoint(String key, double value, DateTime time) {
+    final tankId = _tankId;
+    if (tankId == null) return;
+    unawaited(() async {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('sensor_live_${tankId}_$key');
+      final entries = <Map<String, dynamic>>[];
+      if (raw != null) {
+        try {
+          final decoded = jsonDecode(raw);
+          if (decoded is List) {
+            entries.addAll(
+              decoded.whereType<Map>().map(
+                (item) => <String, dynamic>{
+                  'value': item['value'],
+                  'time': item['time'],
+                },
+              ),
+            );
+          }
+        } catch (_) {}
+      }
+      entries.add({'value': value, 'time': time.millisecondsSinceEpoch});
+      final cutoff = DateTime.now()
+          .subtract(_trendWindow)
+          .millisecondsSinceEpoch;
+      final recent = entries.where((item) {
+        final millis = (item['time'] as num?)?.toInt();
+        return millis != null && millis >= cutoff;
+      }).toList();
+      await prefs.setString(
+        'sensor_live_${tankId}_$key',
+        jsonEncode(recent),
+      );
+    }());
+  }
 
   static const List<String> sensorKeys = [
     'temp',
@@ -99,6 +174,25 @@ class SensorService extends ChangeNotifier {
     _lastUpdated = DateTime.fromMillisecondsSinceEpoch(0);
     _lastError = null;
     _bufferedEntries = 0;
+    clearHistoryCache();
+    notifyListeners();
+  }
+
+  /// Clear readings that belong to a tank document that no longer exists.
+  /// Keep the resolved owner ID so a later TankService refresh can reconnect
+  /// after the tank is initialized again.
+  void clearForMissingTank() {
+    _subscription?.cancel();
+    _subscription = null;
+    _history.clear();
+    _historyTimes.clear();
+    _latest.clear();
+    _turbidityAir = null;
+    _estimatedFeedGrams = null;
+    _initialDataLoaded = false;
+    _hasLiveData = false;
+    _lastUpdated = DateTime.fromMillisecondsSinceEpoch(0);
+    _lastError = null;
     clearHistoryCache();
     notifyListeners();
   }
@@ -255,10 +349,36 @@ class SensorService extends ChangeNotifier {
     _resetForTankChange(resolvedTankId);
     _tankId = resolvedTankId;
     final tankId = _tankId;
+    if (tankId != null) unawaited(_restoreLocalLiveHistory(tankId));
     if (tankId == null || tankId.isEmpty) {
       _lastError = 'No tank assigned to this account yet.';
       notifyListeners();
       return;
+    }
+
+    // Firestore keeps subcollections when their parent document is deleted.
+    // Do not subscribe to a leftover sensor_readings/latest document unless
+    // the owning tank document itself still exists.
+    try {
+      final tankDoc = await FirebaseFirestore.instance
+          .collection('tanks')
+          .doc(tankId)
+          .get();
+      if (generation != _listenerGeneration) return;
+      final tankData = tankDoc.data();
+      final currentBatchId = tankData?['current_batch_id'];
+      final hasInitializedBatch =
+          tankData?['is_initialized'] == true &&
+          currentBatchId is String &&
+          currentBatchId.trim().isNotEmpty;
+      if (!tankDoc.exists || !hasInitializedBatch) {
+        clearForMissingTank();
+        return;
+      }
+    } catch (e) {
+      debugPrint('[SensorService] Failed to verify tank document: $e');
+      // Preserve the existing sensor subscription behavior on transient read
+      // failures; Firestore rules still protect the data itself.
     }
 
     _subscription = FirebaseFirestore.instance
@@ -293,6 +413,7 @@ class SensorService extends ChangeNotifier {
   DateTime? _extractTimestamp(Map<String, dynamic> data) {
     final rawTs =
         data['recorded_at'] ??
+        data['captured_at_ms'] ??
         data['timestamp'] ??
         data['updatedAt'] ??
         data['time'];
@@ -433,6 +554,7 @@ class SensorService extends ChangeNotifier {
 
     values.add(value);
     times.add(readingTime);
+    _persistLocalLivePoint(key, value, readingTime);
 
     final cutoff = readingTime.subtract(const Duration(seconds: 90));
     while (times.length > 1 && times.first.isBefore(cutoff)) {

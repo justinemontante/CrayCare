@@ -299,7 +299,10 @@ class FeederService extends ChangeNotifier {
     _listenTodayTotals();
   }
 
-  String feedSafetyIssue({double? grams}) {
+  String feedSafetyIssue({
+    double? grams,
+    bool allowTurbidityConfirmation = false,
+  }) {
     final sensors = SensorService.instance;
     const keys = ['temp', 'do', 'ph', 'turb', 'feedlevel'];
     return feederPreflightIssue(
@@ -316,6 +319,7 @@ class FeederService extends ChangeNotifier {
       ranges: SettingsService.instance.currentRanges,
       availableGrams: sensors.estimatedFeedGrams,
       grams: grams,
+      allowTurbidityConfirmation: allowTurbidityConfirmation,
     );
   }
 
@@ -592,10 +596,14 @@ class FeederService extends ChangeNotifier {
   Future<bool> feedNow({
     double? grams,
     bool nearScheduleConfirmed = false,
+    bool turbidityConfirmed = false,
   }) async {
     // Recheck after any confirmation dialog, immediately before dispatch.
     // Callers outside ControlsScreen receive exactly the same protections.
-    final issue = feedSafetyIssue(grams: grams);
+    final issue = feedSafetyIssue(
+      grams: grams,
+      allowTurbidityConfirmation: turbidityConfirmed,
+    );
     if (issue.isNotEmpty) {
       _lastFeedRequestError = issue;
       return false;

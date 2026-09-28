@@ -1,5 +1,9 @@
+import 'dart:convert';
+
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_colors.dart';
 import '../services/tank_service.dart';
 import '../widgets/production/crayfish/crayfish_overview_tab.dart';
@@ -16,16 +20,29 @@ class ProductionScreen extends StatefulWidget {
 }
 
 class ProductionScreenState extends State<ProductionScreen> {
-
   String _formatTimestamp(int ts) {
     final dt = DateTime.fromMillisecondsSinceEpoch(ts);
-    final months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    final months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
     final dateStr = '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
     final h = dt.hour > 12 ? dt.hour - 12 : (dt.hour == 0 ? 12 : dt.hour);
     final ampm = dt.hour >= 12 ? 'PM' : 'AM';
     final timeStr = '$h:${dt.minute.toString().padLeft(2, '0')} $ampm';
     return '$dateStr · $timeStr';
   }
+
   int _crayfishTab = 0; // 0 = Overview, 1 = Sampling, 2 = Growth
 
   DateTime _lastEdited = DateTime.now();
@@ -64,9 +81,7 @@ class ProductionScreenState extends State<ProductionScreen> {
       child: Column(
         children: [
           _buildHeader(),
-          Expanded(
-            child: _buildCrayfishContent(),
-          ),
+          Expanded(child: _buildCrayfishContent()),
         ],
       ),
     );
@@ -74,7 +89,7 @@ class ProductionScreenState extends State<ProductionScreen> {
 
   Widget _buildCrayfishContent() {
     final selectedBatchId = TankService.instance.selectedBatchId;
-    
+
     if (selectedBatchId == null) {
       return Column(
         children: [
@@ -100,13 +115,23 @@ class ProductionScreenState extends State<ProductionScreen> {
                 onTap: () => TankService.instance.selectBatch(null),
                 child: Row(
                   children: [
-                    Icon(Icons.arrow_back_ios_new_rounded, size: 14, color: AppColors.primary),
+                    Icon(
+                      Icons.arrow_back_ios_new_rounded,
+                      size: 14,
+                      color: AppColors.primary,
+                    ),
                     const SizedBox(width: 4),
-                    Text('Batches', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.primary)),
+                    Text(
+                      'Batches',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.primary,
+                      ),
+                    ),
                   ],
                 ),
               ),
-
             ],
           ),
         ),
@@ -115,9 +140,7 @@ class ProductionScreenState extends State<ProductionScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 14),
           child: _buildCrayfishSubTabBar(),
         ),
-        Expanded(
-          child: _buildActiveCrayfishTab(),
-        ),
+        Expanded(child: _buildActiveCrayfishTab()),
       ],
     );
   }
@@ -125,7 +148,8 @@ class ProductionScreenState extends State<ProductionScreen> {
   Widget _buildActiveCrayfishTab() {
     final batchKey = '${TankService.instance.selectedBatchId}_$_lastEdited';
     switch (_crayfishTab) {
-      case 0:return OverviewTab(
+      case 0:
+        return OverviewTab(
           key: ValueKey('overview_$batchKey'),
           onShowInitModal: _showInitModal,
           onShowMortalityModal: _showMortalityModal,
@@ -208,25 +232,13 @@ class ProductionScreenState extends State<ProductionScreen> {
                       ),
                     ),
                     const SizedBox(height: 2),
-                    Row(
-                      children: [
-                        Container(
-                          width: 8, height: 8,
-                          decoration: BoxDecoration(
-                            color: AppColors.primary,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          'Tank',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
-                            color: AppColors.dark.withValues(alpha: 0.55),
-                          ),
-                        ),
-                      ],
+                    Text(
+                      'Production & Growth Tracking',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.dark.withValues(alpha: 0.55),
+                      ),
                     ),
                   ],
                 ),
@@ -351,9 +363,7 @@ class ProductionScreenState extends State<ProductionScreen> {
                       controller: scrollCtrl,
                       scrollDirection: Axis.horizontal,
                       child: Container(
-                        constraints: BoxConstraints(
-                          minWidth: 510,
-                        ),
+                        constraints: BoxConstraints(minWidth: 510),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(
@@ -382,22 +392,34 @@ class ProductionScreenState extends State<ProductionScreen> {
                                   SizedBox(width: 12),
                                   SizedBox(
                                     width: 120,
-                                    child: Text('Growth Stage', style: _tableHeaderStyle),
+                                    child: Text(
+                                      'Growth Stage',
+                                      style: _tableHeaderStyle,
+                                    ),
                                   ),
                                   SizedBox(width: 12),
                                   SizedBox(
                                     width: 65,
-                                    child: Text('ABW', style: _tableHeaderStyle),
+                                    child: Text(
+                                      'ABW',
+                                      style: _tableHeaderStyle,
+                                    ),
                                   ),
                                   SizedBox(width: 12),
                                   SizedBox(
                                     width: 65,
-                                    child: Text('ABL', style: _tableHeaderStyle),
+                                    child: Text(
+                                      'ABL',
+                                      style: _tableHeaderStyle,
+                                    ),
                                   ),
                                   SizedBox(width: 12),
                                   SizedBox(
                                     width: 200,
-                                    child: Text('System Classification', style: _tableHeaderStyle),
+                                    child: Text(
+                                      'System Classification',
+                                      style: _tableHeaderStyle,
+                                    ),
                                   ),
                                   SizedBox(width: 12),
                                 ],
@@ -461,8 +483,18 @@ class ProductionScreenState extends State<ProductionScreen> {
     'Preparing for full maturity',
     'Ready for harvest',
   ];
-  static const _stageAbwRanges = ['1\u20135g', '5\u201315g', '15\u201350g', '50\u2013120g+'];
-  static const _stageAblRanges = ['2\u20134cm', '4\u20136cm', '6\u201310cm', '10cm+'];
+  static const _stageAbwRanges = [
+    '1\u20135g',
+    '5\u201315g',
+    '15\u201350g',
+    '50\u2013120g+',
+  ];
+  static const _stageAblRanges = [
+    '2\u20134cm',
+    '4\u20136cm',
+    '6\u201310cm',
+    '10cm+',
+  ];
 
   static const _tableHeaderStyle = TextStyle(
     fontSize: 9,
@@ -494,22 +526,50 @@ class ProductionScreenState extends State<ProductionScreen> {
           const SizedBox(width: 12),
           SizedBox(
             width: 120,
-            child: Text(stage, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.dark)),
+            child: Text(
+              stage,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: AppColors.dark,
+              ),
+            ),
           ),
           const SizedBox(width: 12),
           SizedBox(
             width: 65,
-            child: Text(abw, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.primary)),
+            child: Text(
+              abw,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: AppColors.primary,
+              ),
+            ),
           ),
           const SizedBox(width: 12),
           SizedBox(
             width: 65,
-            child: Text(abl, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.primary)),
+            child: Text(
+              abl,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: AppColors.primary,
+              ),
+            ),
           ),
           const SizedBox(width: 12),
           SizedBox(
             width: 200,
-            child: Text(classification, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: AppColors.dark.withValues(alpha: 0.55))),
+            child: Text(
+              classification,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w500,
+                color: AppColors.dark.withValues(alpha: 0.55),
+              ),
+            ),
           ),
           const SizedBox(width: 12),
         ],
@@ -538,33 +598,132 @@ class ProductionScreenState extends State<ProductionScreen> {
     _showSetupForm(isEdit: true);
   }
 
-  void _showSetupForm({required bool isEdit}) {
+  Future<void> _showSetupForm({required bool isEdit}) async {
     if (_setupModalOpen) return;
     _setupModalOpen = true;
+
+    SharedPreferences? draftPrefs;
+    String? draftKey;
+    Map<String, dynamic>? draft;
+    if (!isEdit) {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null) {
+        draftKey = 'growout_setup_draft_$uid';
+        try {
+          draftPrefs = await SharedPreferences.getInstance();
+          final rawDraft = draftPrefs.getString(draftKey);
+          if (rawDraft != null) {
+            final decoded = jsonDecode(rawDraft);
+            if (decoded is Map<String, dynamic>) draft = decoded;
+          }
+        } catch (_) {
+          draft = null;
+        }
+      }
+    }
+    if (!mounted) {
+      _setupModalOpen = false;
+      return;
+    }
     final batchNameCtrl = TextEditingController(
-      text: isEdit ? (TankService.instance.selectedBatch?.batchId ?? '') : '',
+      text: isEdit
+          ? (TankService.instance.selectedBatch?.batchId ?? '')
+          : (draft?['batchName'] as String? ?? ''),
     );
     final countCtrl = TextEditingController(
-      text: isEdit ? '${TankService.instance.initialCount}' : '',
+      text: isEdit
+          ? '${TankService.instance.initialCount}'
+          : (draft?['population'] as String? ?? ''),
     );
     final sampleCountCtrl = TextEditingController(
-      text: isEdit ? '${TankService.instance.sampleCount}' : '',
-    );
-    final totalWeightCtrl = TextEditingController(
       text: isEdit
-          ? TankService.instance.initialTotalWeight.toStringAsFixed(1)
-          : '',
+          ? '${TankService.instance.sampleCount}'
+          : (draft?['sampleSize'] as String? ?? ''),
     );
-    final totalLengthCtrl = TextEditingController(
-      text: isEdit
-          ? TankService.instance.initialTotalLength.toStringAsFixed(1)
-          : '',
-    );
+    final baseline = TankService.instance.samplingHistory
+        .where((entry) => entry.isBaseline)
+        .firstOrNull;
+    final weightControllers = <TextEditingController>[];
+    final lengthControllers = <TextEditingController>[];
+    final draftWeights = (draft?['weights'] as List?)
+        ?.map((value) => value?.toString() ?? '')
+        .toList();
+    final draftLengths = (draft?['lengths'] as List?)
+        ?.map((value) => value?.toString() ?? '')
+        .toList();
+    void resizeMeasurementControllers(int requested) {
+      if (requested < 0 || requested > maxCrayfishMeasurementsPerSample) {
+        return;
+      }
+      while (weightControllers.length < requested) {
+        final index = weightControllers.length;
+        weightControllers.add(
+          TextEditingController(
+            text: index < (baseline?.measurements.length ?? 0)
+                ? baseline!.measurements[index].weightGrams.toString()
+                : (draftWeights != null && index < draftWeights.length
+                      ? draftWeights[index]
+                      : ''),
+          ),
+        );
+        lengthControllers.add(
+          TextEditingController(
+            text: index < (baseline?.measurements.length ?? 0)
+                ? baseline!.measurements[index].lengthCm.toString()
+                : (draftLengths != null && index < draftLengths.length
+                      ? draftLengths[index]
+                      : ''),
+          ),
+        );
+      }
+      while (weightControllers.length > requested) {
+        weightControllers.removeLast().dispose();
+        lengthControllers.removeLast().dispose();
+      }
+    }
+
+    resizeMeasurementControllers(int.tryParse(sampleCountCtrl.text) ?? 0);
     var isSaving = false;
+    var showSampleValidation = false;
+    var pendingDraftSave = Future<void>.value();
+
+    void persistSetupDraft() {
+      if (isEdit || draftPrefs == null || draftKey == null) return;
+      final value = jsonEncode({
+        'batchName': batchNameCtrl.text,
+        'population': countCtrl.text,
+        'sampleSize': sampleCountCtrl.text,
+        'weights': weightControllers
+            .map((controller) => controller.text)
+            .toList(),
+        'lengths': lengthControllers
+            .map((controller) => controller.text)
+            .toList(),
+      });
+      pendingDraftSave = draftPrefs
+          .setString(draftKey, value)
+          .then((_) {})
+          .catchError((Object _) {});
+    }
+
+    Future<void> clearSetupDraft() async {
+      if (draftPrefs == null || draftKey == null) return;
+      try {
+        await draftPrefs.remove(draftKey);
+      } catch (_) {
+        // Initialization is already saved; a stale local draft is harmless.
+      }
+    }
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      enableDrag: true,
+      isDismissible: true,
+      useSafeArea: true,
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * 0.88,
+      ),
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
@@ -572,11 +731,51 @@ class ProductionScreenState extends State<ProductionScreen> {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setLocalState) {
-            String? validateSample() {
-              final pop = int.tryParse(countCtrl.text) ?? 0;
-              final sample = int.tryParse(sampleCountCtrl.text) ?? 0;
-              if (sample > 0 && pop > 0 && sample > pop) {
+            String? validateSample({bool? showMissing}) {
+              final shouldShowMissing = showMissing ?? showSampleValidation;
+              final popText = countCtrl.text.trim();
+              final sampleText = sampleCountCtrl.text.trim();
+              if (!shouldShowMissing && popText.isEmpty && sampleText.isEmpty) {
+                return null;
+              }
+              final pop = int.tryParse(popText);
+              final sample = int.tryParse(sampleText);
+              if (popText.isNotEmpty && (pop == null || pop <= 0)) {
+                return 'Initial population must be a positive whole number.';
+              }
+              if (sampleText.isNotEmpty && (sample == null || sample <= 0)) {
+                return 'Sample size must be a positive whole number.';
+              }
+              if (shouldShowMissing && (pop == null || sample == null)) {
+                return 'Enter the initial population and sample size.';
+              }
+              if (pop == null || sample == null) return null;
+              if (sample > maxCrayfishMeasurementsPerSample) {
+                return 'A sample can contain up to $maxCrayfishMeasurementsPerSample individual entries.';
+              }
+              if (sample > pop) {
                 return 'Sample count ($sample) exceeds population ($pop).';
+              }
+              for (var i = 0; i < weightControllers.length; i++) {
+                for (final controller in [
+                  weightControllers[i],
+                  lengthControllers[i],
+                ]) {
+                  final text = controller.text.trim();
+                  if (text.isEmpty) {
+                    if (shouldShowMissing) {
+                      return 'Enter a positive weight and length for every crayfish.';
+                    }
+                    continue;
+                  }
+                  final value = double.tryParse(text);
+                  if (value == null || !value.isFinite || value <= 0) {
+                    return 'Crayfish ${i + 1} measurements must be positive numbers.';
+                  }
+                }
+              }
+              if (shouldShowMissing && weightControllers.length != sample) {
+                return 'Add one measurement row for each crayfish in the sample.';
               }
               return null;
             }
@@ -592,10 +791,58 @@ class ProductionScreenState extends State<ProductionScreen> {
               return exists ? 'This batch name is already in use.' : null;
             }
 
+            String? validatePopulationField() {
+              final text = countCtrl.text.trim();
+              if (text.isEmpty) {
+                return showSampleValidation ? 'Required' : null;
+              }
+              final value = int.tryParse(text);
+              return value == null || value <= 0
+                  ? 'Enter a positive whole number.'
+                  : null;
+            }
+
+            String? validateSampleSizeField() {
+              final text = sampleCountCtrl.text.trim();
+              if (text.isEmpty) {
+                return showSampleValidation ? 'Required' : null;
+              }
+              final value = int.tryParse(text);
+              if (value == null || value <= 0) {
+                return 'Enter a positive whole number.';
+              }
+              if (value > maxCrayfishMeasurementsPerSample) {
+                return 'Maximum is $maxCrayfishMeasurementsPerSample.';
+              }
+              final population = int.tryParse(countCtrl.text.trim());
+              if (population != null && value > population) {
+                return 'Cannot exceed the population.';
+              }
+              return null;
+            }
+
+            String? validateMeasurementField(TextEditingController controller) {
+              final valueText = controller.text.trim();
+              if (valueText.isEmpty) {
+                return showSampleValidation ? 'Required' : null;
+              }
+              final value = double.tryParse(valueText);
+              if (value == null || !value.isFinite || value <= 0) {
+                return 'Must be > 0.';
+              }
+              return null;
+            }
+
             final sampleError = validateSample();
+            final populationError = validatePopulationField();
+            final sampleSizeError = validateSampleSizeField();
             final batchNameError = validateBatchName();
+            final currentSampleSize =
+                int.tryParse(sampleCountCtrl.text.trim()) ?? 0;
+            final currentPopulation = int.tryParse(countCtrl.text.trim());
 
             void revalidate() {
+              persistSetupDraft();
               setLocalState(() {});
             }
 
@@ -678,6 +925,7 @@ class ProductionScreenState extends State<ProductionScreen> {
                       'Initial Population',
                       'Total stock count upon start',
                       countCtrl,
+                      errorText: populationError,
                       onChanged: revalidate,
                     ),
                     _buildInfoCard(
@@ -689,35 +937,198 @@ class ProductionScreenState extends State<ProductionScreen> {
                       'Sample Size',
                       'Number of crayfish sampled',
                       sampleCountCtrl,
-                      errorText: sampleError,
-                      onChanged: revalidate,
+                      errorText: sampleSizeError,
+                      onChanged: () {
+                        resizeMeasurementControllers(
+                          int.tryParse(sampleCountCtrl.text) ?? 0,
+                        );
+                        revalidate();
+                      },
                     ),
-                    _buildInfoCard(
-                      Image.asset(
-                        'assets/images/TotalWeight.png',
-                        width: 24,
-                        height: 24,
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        onPressed:
+                            currentSampleSize >= 0 &&
+                                currentSampleSize <
+                                    maxCrayfishMeasurementsPerSample &&
+                                (currentPopulation == null ||
+                                    currentSampleSize < currentPopulation)
+                            ? () {
+                                final next = currentSampleSize + 1;
+                                sampleCountCtrl.text = '$next';
+                                resizeMeasurementControllers(next);
+                                revalidate();
+                              }
+                            : null,
+                        icon: const Icon(Icons.add_circle_outline, size: 18),
+                        label: const Text('Add next crayfish'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.primary,
+                          visualDensity: VisualDensity.compact,
+                        ),
                       ),
-                      'Initial Total\nSample Weight (g)',
-                      'Total weight of sampled group',
-                      totalWeightCtrl,
                     ),
-                    _buildInfoCard(
-                      Image.asset(
-                        'assets/images/TotalLength.png',
-                        width: 24,
-                        height: 24,
+                    const SizedBox(height: 8),
+                    Text(
+                      'Individual baseline measurements',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.dark,
                       ),
-                      'Initial Total\nSample Length (cm)',
-                      'Total length of sampled group',
-                      totalLengthCtrl,
                     ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Enter each crayfish separately. Totals and averages are calculated automatically.',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: AppColors.dark.withValues(alpha: 0.55),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    ...List.generate(weightControllers.length, (index) {
+                      final weight = weightControllers[index].text.trim();
+                      final length = lengthControllers[index].text.trim();
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 4),
+                        elevation: 0,
+                        color: AppColors.primary.withValues(alpha: 0.035),
+                        shape: RoundedRectangleBorder(
+                          side: BorderSide(
+                            color: AppColors.primary.withValues(alpha: 0.12),
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: ExpansionTile(
+                          key: ValueKey(
+                            'baseline_crayfish_${index + 1}_${weightControllers.length}',
+                          ),
+                          initiallyExpanded:
+                              index == weightControllers.length - 1,
+                          tilePadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                          ),
+                          childrenPadding: const EdgeInsets.fromLTRB(
+                            12,
+                            0,
+                            12,
+                            12,
+                          ),
+                          visualDensity: VisualDensity.compact,
+                          title: Text(
+                            'Crayfish ${index + 1}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.dark,
+                            ),
+                          ),
+                          subtitle: Text(
+                            weight.isNotEmpty && length.isNotEmpty
+                                ? '$weight g • $length cm'
+                                : 'Tap to enter weight and length',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: AppColors.dark.withValues(alpha: 0.55),
+                            ),
+                          ),
+                          children: [
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Weight (g)',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w700,
+                                          color: AppColors.dark,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      TextField(
+                                        controller: weightControllers[index],
+                                        keyboardType:
+                                            const TextInputType.numberWithOptions(
+                                              decimal: true,
+                                              signed: true,
+                                            ),
+                                        onChanged: (_) => revalidate(),
+                                        decoration: InputDecoration(
+                                          hintText: '0.0',
+                                          border: const OutlineInputBorder(),
+                                          isDense: true,
+                                          errorMaxLines: 1,
+                                          errorStyle: const TextStyle(
+                                            fontSize: 9,
+                                            height: 1.1,
+                                          ),
+                                          errorText: validateMeasurementField(
+                                            weightControllers[index],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Length (cm)',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w700,
+                                          color: AppColors.dark,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      TextField(
+                                        controller: lengthControllers[index],
+                                        keyboardType:
+                                            const TextInputType.numberWithOptions(
+                                              decimal: true,
+                                              signed: true,
+                                            ),
+                                        onChanged: (_) => revalidate(),
+                                        decoration: InputDecoration(
+                                          hintText: '0.0',
+                                          border: const OutlineInputBorder(),
+                                          isDense: true,
+                                          errorMaxLines: 1,
+                                          errorStyle: const TextStyle(
+                                            fontSize: 9,
+                                            height: 1.1,
+                                          ),
+                                          errorText: validateMeasurementField(
+                                            lengthControllers[index],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
 
                     const SizedBox(height: 20),
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
-                        onPressed: (sampleError != null ||
+                        onPressed:
+                            (sampleError != null ||
                                 batchNameError != null ||
                                 isSaving)
                             ? null
@@ -725,33 +1136,55 @@ class ProductionScreenState extends State<ProductionScreen> {
                                 final count = int.tryParse(countCtrl.text) ?? 0;
                                 final sampleCount =
                                     int.tryParse(sampleCountCtrl.text) ?? 0;
-                                final totalWeight =
-                                    double.tryParse(totalWeightCtrl.text) ??
-                                    0.0;
-                                final totalLength =
-                                    double.tryParse(totalLengthCtrl.text) ??
-                                    0.0;
+                                final measurements = List.generate(
+                                  weightControllers.length,
+                                  (index) => CrayfishMeasurement(
+                                    sampleNumber: index + 1,
+                                    weightGrams:
+                                        double.tryParse(
+                                          weightControllers[index].text,
+                                        ) ??
+                                        double.nan,
+                                    lengthCm:
+                                        double.tryParse(
+                                          lengthControllers[index].text,
+                                        ) ??
+                                        double.nan,
+                                  ),
+                                );
 
-                                if (count > 0 && sampleCount > 0) {
+                                setLocalState(
+                                  () => showSampleValidation = true,
+                                );
+                                if (count > 0 &&
+                                    sampleCount > 0 &&
+                                    validateSample(showMissing: true) == null &&
+                                    batchNameError == null) {
                                   setLocalState(() => isSaving = true);
                                   try {
-                                    await TankService.instance.initializeGrowOut(
-                                      count,
-                                      sampleCount,
-                                      totalWeight,
-                                      totalLength,
-                                      isEdit
-                                          ? TankService.instance.stockingDate
-                                          : DateTime.now(),
-                                      batchName: batchNameCtrl.text.trim(),
-                                      editExisting: isEdit,
-                                    );
+                                    await TankService.instance
+                                        .initializeGrowOut(
+                                          count,
+                                          measurements,
+                                          isEdit
+                                              ? TankService
+                                                    .instance
+                                                    .stockingDate
+                                              : DateTime.now(),
+                                          batchName: batchNameCtrl.text.trim(),
+                                          editExisting: isEdit,
+                                        );
+                                    await pendingDraftSave;
+                                    await clearSetupDraft();
                                   } catch (e) {
                                     if (ctx.mounted) {
                                       setLocalState(() => isSaving = false);
                                       showBeautifulSnackbar(
                                         ctx,
-                                        e.toString().replaceFirst('Exception: ', ''),
+                                        e.toString().replaceFirst(
+                                          'Exception: ',
+                                          '',
+                                        ),
                                         false,
                                       );
                                     }
@@ -812,13 +1245,18 @@ class ProductionScreenState extends State<ProductionScreen> {
           },
         );
       },
-    ).whenComplete(() {
+    ).whenComplete(() async {
+      await pendingDraftSave;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         batchNameCtrl.dispose();
         countCtrl.dispose();
         sampleCountCtrl.dispose();
-        totalWeightCtrl.dispose();
-        totalLengthCtrl.dispose();
+        for (final controller in weightControllers) {
+          controller.dispose();
+        }
+        for (final controller in lengthControllers) {
+          controller.dispose();
+        }
         if (!mounted) return;
         setState(() {
           _setupModalOpen = false;
@@ -964,9 +1402,10 @@ class ProductionScreenState extends State<ProductionScreen> {
                   onChanged: (_) => onChanged?.call(),
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
+                    signed: true,
                   ),
                   inputFormatters: [
-                    FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$')),
+                    FilteringTextInputFormatter.allow(RegExp(r'^-?\d*\.?\d*$')),
                   ],
                   textAlign: TextAlign.center,
                   style: TextStyle(
@@ -1147,34 +1586,39 @@ class ProductionScreenState extends State<ProductionScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: errorText == null && mortalityVal > 0 && !savingMortality
-                           ? () async {
-                               // Guard against double taps — one log per tap.
-                               setLocalState(() => savingMortality = true);
-                               // Capture the messenger before popping so the
-                               // snackbar still shows after the sheet closes.
-                               final messenger = ScaffoldMessenger.of(ctx);
-                               try {
-                                 await TankService.instance.addMortality(mortalityVal);
-                               } catch (e) {
-                                 if (!ctx.mounted) return;
-                                 setLocalState(() => savingMortality = false);
-                                 showBeautifulSnackbar(
-                                   ctx,
-                                   'Failed to log mortality: ${e.toString().replaceFirst('Exception: ', '')}',
-                                   false,
-                                 );
-                                 return;
-                               }
-                               if (!ctx.mounted) return;
-                               Navigator.pop(ctx);
-                               if (!mounted) return;
-                               showBeautifulSnackbarWithMessenger(
-                                 messenger,
-                                 'Mortality of $mortalityVal successfully logged.',
-                                 true,
-                               );
-                             }
+                      onPressed:
+                          errorText == null &&
+                              mortalityVal > 0 &&
+                              !savingMortality
+                          ? () async {
+                              // Guard against double taps — one log per tap.
+                              setLocalState(() => savingMortality = true);
+                              // Capture the messenger before popping so the
+                              // snackbar still shows after the sheet closes.
+                              final messenger = ScaffoldMessenger.of(ctx);
+                              try {
+                                await TankService.instance.addMortality(
+                                  mortalityVal,
+                                );
+                              } catch (e) {
+                                if (!ctx.mounted) return;
+                                setLocalState(() => savingMortality = false);
+                                showBeautifulSnackbar(
+                                  ctx,
+                                  'Failed to log mortality: ${e.toString().replaceFirst('Exception: ', '')}',
+                                  false,
+                                );
+                                return;
+                              }
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              showBeautifulSnackbarWithMessenger(
+                                messenger,
+                                'Mortality of $mortalityVal successfully logged.',
+                                true,
+                              );
+                            }
                           : null,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: errorText != null
@@ -1322,15 +1766,15 @@ class ProductionScreenState extends State<ProductionScreen> {
                             color: isHarvest
                                 ? AppColors.success.withValues(alpha: 0.06)
                                 : isMortality
-                                    ? AppColors.criticalWith(0.04)
-                                    : AppColors.primaryWith(0.04),
+                                ? AppColors.criticalWith(0.04)
+                                : AppColors.primaryWith(0.04),
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
                               color: isHarvest
                                   ? AppColors.success.withValues(alpha: 0.2)
                                   : isMortality
-                                      ? AppColors.criticalWith(0.15)
-                                      : AppColors.darkWith(0.06),
+                                  ? AppColors.criticalWith(0.15)
+                                  : AppColors.darkWith(0.06),
                             ),
                           ),
                           child: Row(
@@ -1359,7 +1803,8 @@ class ProductionScreenState extends State<ProductionScreen> {
                                       maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
                                     ),
-                                    if (act.abw != null && act.avgLength != null)
+                                    if (act.abw != null &&
+                                        act.avgLength != null)
                                       Padding(
                                         padding: const EdgeInsets.only(top: 3),
                                         child: Text(
@@ -1372,7 +1817,9 @@ class ProductionScreenState extends State<ProductionScreen> {
                                         ),
                                       ),
                                     Text(
-                                      act.date.isNotEmpty ? '${act.date} · ${act.time}' : _formatTimestamp(act.timestamp),
+                                      act.date.isNotEmpty
+                                          ? '${act.date} · ${act.time}'
+                                          : _formatTimestamp(act.timestamp),
                                       style: TextStyle(
                                         fontSize: 10,
                                         fontWeight: FontWeight.w500,
@@ -1467,10 +1914,12 @@ class ProductionScreenState extends State<ProductionScreen> {
           TextField(
             controller: controller,
             onChanged: (_) => onChanged?.call(),
-            keyboardType: isText ? TextInputType.text : const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: isText ? null : [
-              FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$')),
-            ],
+            keyboardType: isText
+                ? TextInputType.text
+                : const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: isText
+                ? null
+                : [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$'))],
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
@@ -1518,7 +1967,4 @@ class ProductionScreenState extends State<ProductionScreen> {
       ),
     );
   }
-
-  }
-
-
+}

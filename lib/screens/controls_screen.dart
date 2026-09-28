@@ -342,7 +342,14 @@ class ControlsScreenState extends State<ControlsScreen> {
 
   String get _feedSafetyIssue => FeederService.instance.feedSafetyIssue();
 
-  bool get _canFeed => _feedSafetyIssue.isEmpty;
+  bool _isTurbidityConfirmationIssue(String issue) =>
+      issue == 'Turbidity sensor is in air' ||
+      issue == 'Waiting for fresh turbidity data' ||
+      issue.startsWith('Turbidity too high');
+
+  bool get _canFeed =>
+      _feedSafetyIssue.isEmpty ||
+      _isTurbidityConfirmationIssue(_feedSafetyIssue);
 
   String get _feedBlockedReason {
     final issue = _feedSafetyIssue;
@@ -492,6 +499,50 @@ class ControlsScreenState extends State<ControlsScreen> {
     return result ?? false;
   }
 
+  Future<bool> _confirmTurbidityCondition(String issue) async {
+    final reading = SensorService.instance.getLatestValue('turb');
+    final maximum =
+        SettingsService.instance.currentRanges['turb']?['max'] ?? 25;
+    final String title;
+    final String message;
+    if (issue == 'Turbidity sensor is in air') {
+      title = 'Check turbidity sensor';
+      message =
+          'The turbidity sensor appears to be out of the water, so its reading may not represent the tank. Do you still want to send the Feed Now request? The feeder may still block it if its own safety checks fail.';
+    } else if (issue == 'Waiting for fresh turbidity data') {
+      title = 'Turbidity reading is unavailable';
+      message =
+          'There is no recent turbidity reading. The water condition cannot be verified. Do you still want to send the Feed Now request? The feeder may still block it if its own safety checks fail.';
+    } else {
+      title = 'Turbidity is above range';
+      message =
+          'The current reading is ${reading.toStringAsFixed(0)} NTU, above the set limit of ${maximum.toStringAsFixed(0)} NTU. The water may be cloudy. Do you still want to send the Feed Now request? The feeder may still block it if its own safety checks fail.';
+    }
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(
+          Icons.water_drop_outlined,
+          color: AppColors.warningDark,
+        ),
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
   Future<void> _feedNow({double? grams}) async {
     final svc = FeederService.instance;
     if (svc.isRunning ||
@@ -502,7 +553,16 @@ class ControlsScreenState extends State<ControlsScreen> {
     // Empty field = single 1 g dose: normalize once so preflight math and
     // the dispatched command agree.
     grams ??= 1.0;
-    final preflightIssue = svc.feedSafetyIssue(grams: grams);
+    var turbidityConfirmed = false;
+    var preflightIssue = svc.feedSafetyIssue(grams: grams);
+    if (_isTurbidityConfirmationIssue(preflightIssue)) {
+      turbidityConfirmed = await _confirmTurbidityCondition(preflightIssue);
+      if (!turbidityConfirmed || !mounted) return;
+      preflightIssue = svc.feedSafetyIssue(
+        grams: grams,
+        allowTurbidityConfirmation: true,
+      );
+    }
     if (preflightIssue.isNotEmpty) {
       _feedNotice = 'Feed blocked: $preflightIssue';
       setState(() => _feedState = _FeedState.failed);
@@ -539,7 +599,10 @@ class ControlsScreenState extends State<ControlsScreen> {
       }
     }
     if (svc.isRunning || !mounted) return;
-    final refreshedIssue = svc.feedSafetyIssue(grams: grams);
+    final refreshedIssue = svc.feedSafetyIssue(
+      grams: grams,
+      allowTurbidityConfirmation: turbidityConfirmed,
+    );
     if (refreshedIssue.isNotEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -576,6 +639,7 @@ class ControlsScreenState extends State<ControlsScreen> {
     final request = svc.feedNow(
       grams: grams,
       nearScheduleConfirmed: nearScheduleConfirmed,
+      turbidityConfirmed: turbidityConfirmed,
     );
     _activeCommandId = svc.lastQueuedCommandId;
     final requestId = _activeCommandId;

@@ -95,8 +95,6 @@ class CrayfishBatch {
     'total_mortality': totalMortality,
     'harvest_weight_grams': harvestWeightGrams,
     'sample_count': sampleCount,
-    'initial_total_weight': initialTotalWeight,
-    'initial_total_length': initialTotalLength,
     if (archivedSampling != null) 'archived_sampling': archivedSampling,
     if (archivedMortality != null) 'archived_mortality': archivedMortality,
   };
@@ -130,8 +128,11 @@ class CrayfishBatch {
             return da.compareTo(db);
           });
       if (sortedEntries.isNotEmpty) {
-        fallbackSampleCount =
-            (sortedEntries.first['sample_size'] as num?)?.toInt() ?? 0;
+        final baseline = sortedEntries.first;
+        final measurements = baseline['measurements'];
+        fallbackSampleCount = measurements is List
+            ? measurements.length
+            : (baseline['sample_size'] as num?)?.toInt() ?? 0;
       }
     }
 
@@ -211,6 +212,30 @@ class CrayfishBatch {
     initialAbl: initialAbl,
     finalAbw: abw,
     finalAbl: abl,
+    sampleCount: sampleCount,
+    initialTotalWeight: initialTotalWeight,
+    initialTotalLength: initialTotalLength,
+    archivedSampling: archivedSampling,
+    archivedMortality: archivedMortality,
+  );
+
+  CrayfishBatch withInitialSamplingAverages({
+    required double abw,
+    required double abl,
+  }) => CrayfishBatch(
+    batchId: batchId,
+    status: status,
+    stockingDate: stockingDate,
+    harvestDate: harvestDate,
+    endedAt: endedAt,
+    initialCount: initialCount,
+    harvestCount: harvestCount,
+    totalMortality: totalMortality,
+    harvestWeightGrams: harvestWeightGrams,
+    initialAbw: abw,
+    initialAbl: abl,
+    finalAbw: finalAbw,
+    finalAbl: finalAbl,
     sampleCount: sampleCount,
     initialTotalWeight: initialTotalWeight,
     initialTotalLength: initialTotalLength,

@@ -358,18 +358,22 @@ class DashboardScreenState extends State<DashboardScreen>
     final hasAnyData = SensorService.sensorKeys.any((k) => ss.hasSensorData(k));
     final error = ss.lastError;
     final syncing = ss.bufferedEntries > 0;
+    final tankService = TankService.instance;
 
     // Show the banner while the ESP is flushing its offline backlog even if
     // live data is already flowing again (store-and-forward in progress).
-    if (hasAnyData && error == null && !syncing) return const SizedBox.shrink();
+    // But never let cached readings hide a missing/uninitialized tank.
+    if (tankService.isInitialized &&
+        hasAnyData &&
+        error == null &&
+        !syncing) {
+      return const SizedBox.shrink();
+    }
 
     final String message;
     final IconData bannerIcon;
-    final tankService = TankService.instance;
     if (!tankService.isInitialized) {
       // A registered owner may not have a tank document until first setup.
-      // TankService also returns here for an existing tank with no active
-      // initialized grow-out batch.
       message = 'Tank not set up yet.';
       bannerIcon = Icons.info_outline_rounded;
     } else if (error != null && error.contains('No tank assigned')) {
@@ -1346,17 +1350,6 @@ class DashboardScreenState extends State<DashboardScreen>
   Widget _buildFeedingScheduleCard() {
     final schedules = FeedState.schedules.value;
     final now = _manilaNow();
-    final sensorService = SensorService.instance;
-    final hasFeedLevel = sensorService.hasSensorData('feedlevel');
-    final feedLevel = hasFeedLevel
-        ? sensorService.getLatestValue('feedlevel')
-        : null;
-    final estimatedFeed = sensorService.estimatedFeedGrams;
-    final feedStatus = _getStatus('feedlevel');
-    final feedStatusColor = _getStatusColor('feedlevel');
-    final consumptionToday = FeederService.instance.consumptionTodayGrams;
-    final completedToday = FeederService.instance.completedFeedingsToday;
-
     final sorted = List<ScheduleItem>.from(schedules)
       ..sort(
         (a, b) => feederScheduleMinutes(a).compareTo(feederScheduleMinutes(b)),
@@ -1471,37 +1464,6 @@ class DashboardScreenState extends State<DashboardScreen>
                       ),
                     ],
                   ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _buildFeederSummaryTile(
-                  icon: Icons.inventory_2_outlined,
-                  label: 'FEED LEVEL',
-                  value: feedLevel == null
-                      ? '--'
-                      : '${feedLevel.toStringAsFixed(0)}%',
-                  detail: feedLevel == null
-                      ? 'No reading'
-                      : estimatedFeed == null
-                      ? feedStatus
-                      : '$feedStatus • ~${estimatedFeed.toStringAsFixed(0)} g',
-                  color: feedStatusColor,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _buildFeederSummaryTile(
-                  icon: Icons.scale_outlined,
-                  label: 'CONSUMPTION\nTODAY',
-                  value: '~${consumptionToday.toStringAsFixed(0)} g',
-                  detail:
-                      '$completedToday completed feeding${completedToday == 1 ? '' : 's'}',
-                  color: AppColors.primary,
                 ),
               ),
             ],
@@ -1680,79 +1642,6 @@ class DashboardScreenState extends State<DashboardScreen>
               ),
             ),
           ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFeederSummaryTile({
-    required IconData icon,
-    required String label,
-    required String value,
-    required String detail,
-    required Color color,
-  }) {
-    return Container(
-      constraints: const BoxConstraints(minHeight: 82),
-      padding: const EdgeInsets.all(11),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withValues(alpha: 0.16)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 30,
-            height: 30,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(9),
-            ),
-            child: Icon(icon, size: 16, color: color),
-          ),
-          const SizedBox(width: 9),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 7.5,
-                    height: 1.1,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.35,
-                    color: AppColors.darkWith(0.5),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w900,
-                    color: color,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  detail,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 8.5,
-                    height: 1.2,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.darkWith(0.55),
-                  ),
-                ),
-              ],
-            ),
-          ),
         ],
       ),
     );

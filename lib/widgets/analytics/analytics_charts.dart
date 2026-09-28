@@ -367,6 +367,8 @@ class _LineChartPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (data.isEmpty) return;
 
+    // Keep chart geometry aligned with hit-testing/scroll calculations in the
+    // stateful chart widget. Add visual spacing to the time labels themselves.
     final yLabelW = large ? 36.0 : 32.0;
     final padL = showAxis ? yLabelW : 4.0;
     const padR = 0.0;
@@ -424,53 +426,6 @@ class _LineChartPainter extends CustomPainter {
         )..layout(maxWidth: yLabelW - 2);
         tp.paint(canvas, Offset(2, y - tp.height / 2));
       }
-    }
-
-    void drawThreshold(double? threshold, String label, Color lineColor) {
-      if (threshold == null ||
-          !threshold.isFinite ||
-          threshold < minVal ||
-          threshold > maxVal) {
-        return;
-      }
-      final y = padT + chartH - ((threshold - minVal) / range) * chartH;
-      final thresholdPaint = Paint()
-        ..color = lineColor.withValues(alpha: 0.55)
-        ..strokeWidth = 1.0;
-      const dash = 5.0;
-      const gap = 4.0;
-      double x = visibleLeft;
-      while (x < visibleRight) {
-        canvas.drawLine(
-          Offset(x, y),
-          Offset(min(x + dash, visibleRight), y),
-          thresholdPaint,
-        );
-        x += dash + gap;
-      }
-      final tp = TextPainter(
-        text: TextSpan(
-          text: label,
-          style: TextStyle(
-            color: lineColor.withValues(alpha: 0.75),
-            fontSize: large ? 8 : 7,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      tp.paint(
-        canvas,
-        Offset(
-          max(visibleLeft, visibleRight - tp.width - 2),
-          max(0, y - tp.height - 1),
-        ),
-      );
-    }
-
-    drawThreshold(thresholdMin, 'Min', AppColors.warning);
-    if (thresholdMax != null && thresholdMax! < 999) {
-      drawThreshold(thresholdMax, 'Max', AppColors.critical);
     }
 
     canvas.save();
@@ -595,59 +550,84 @@ class _LineChartPainter extends CustomPainter {
     if (showAxis && labels != null && labels!.isNotEmpty) {
       final count = data.length;
       if (count > 0) {
-        final targetCount = min(6, count);
         const angle = -0.55;
         final cosA = cos(angle);
         final sinA = sin(angle);
-        final maxRight = size.width - padR - 2;
 
-        // A single point has no horizontal interval; anchor its only label at
-        // the first plotting position instead of dividing by stepX == 0.
-        final idxs = <int>[];
-        if (count == 1) {
-          idxs.add(0);
-        } else {
-          for (int n = 0; n < targetCount; n++) {
-            final t = targetCount > 1 ? n / (targetCount - 1) : 0.5;
-            final probeX = padL + (maxRight - padL) * t;
-            final dataX = probeX + scrollOffset - padL;
-            idxs.add((dataX / stepX).round().clamp(0, count - 1));
-          }
-        }
-
-        double maxSlantExtent = 0;
-        for (final idx in idxs) {
-          final tp = TextPainter(
-            text: TextSpan(text: labels![idx], style: textStyle),
-            textDirection: TextDirection.ltr,
-          )..layout();
-          final ext = tp.width * cosA.abs() + tp.height * sinA.abs();
-          if (ext > maxSlantExtent) maxSlantExtent = ext;
-        }
-
-        final firstX = padL;
-        final lastX = maxRight - maxSlantExtent;
-        final spacing = targetCount > 1
-            ? (lastX - firstX) / (targetCount - 1)
-            : 0.0;
-
-        for (int n = 0; n < targetCount; n++) {
-          final fixedX = firstX + spacing * n;
-          final idx = count == 1
-              ? 0
-              : ((fixedX + scrollOffset - padL) / stepX)
-                  .round()
+        // Select actual data indices across the visible window. Labels use
+        // evenly spaced screen positions, and the selected index is included
+        // so its time also appears on the bottom axis.
+        final firstVisibleIndex = count == 1
+            ? 0
+            : (scrollOffset / stepX).floor().clamp(0, count - 1);
+        final lastVisibleIndex = count == 1
+            ? 0
+            : ((scrollOffset + visibleChartW) / stepX)
+                  .ceil()
                   .clamp(0, count - 1);
+        final visiblePointCount = lastVisibleIndex - firstVisibleIndex + 1;
+        final visibleLabelCount = min(8, visiblePointCount);
+        final visibleIndices = List<int>.generate(visibleLabelCount, (n) {
+          final position = visibleLabelCount > 1
+              ? n * (visiblePointCount - 1) / (visibleLabelCount - 1)
+              : 0.0;
+          return firstVisibleIndex + position.round();
+        });
+        final selected = selectedIndex;
+        if (selected != null &&
+            selected >= firstVisibleIndex &&
+            selected <= lastVisibleIndex &&
+            !visibleIndices.contains(selected) &&
+            visibleIndices.length > 2) {
+          // Make the selected point's exact time visible on the bottom axis,
+          // so it can be compared directly with the black tooltip.
+          var replaceAt = 1;
+          var nearestDistance = (visibleIndices[replaceAt] - selected).abs();
+          for (var i = 2; i < visibleIndices.length - 1; i++) {
+            final distance = (visibleIndices[i] - selected).abs();
+            if (distance < nearestDistance) {
+              nearestDistance = distance;
+              replaceAt = i;
+            }
+          }
+          visibleIndices[replaceAt] = selected;
+          visibleIndices.sort();
+        }
+        final labelPainters = <TextPainter>[];
+        final labelExtents = <double>[];
+        for (final idx in visibleIndices) {
           final tp = TextPainter(
             text: TextSpan(text: labels![idx], style: textStyle),
             textDirection: TextDirection.ltr,
           )..layout();
-          final anchorY = size.height - padB + 18;
-          final tx = tp.width * 0.15;
-          final dx = fixedX + tx * cosA;
-          final dy = anchorY + tx * sinA;
+          labelPainters.add(tp);
+          labelExtents.add(
+            tp.width * cosA.abs() + tp.height * sinA.abs(),
+          );
+        }
+        final firstPointX =
+            padL + visibleIndices.first * stepX - scrollOffset;
+        final lastPointX =
+            padL + visibleIndices.last * stepX - scrollOffset;
+        // Keep the last rotated timestamp inside the card, with its visible
+        // right edge ending at the final plotted point. Spread the anchors
+        // evenly between the first point and that safe endpoint.
+        final firstLabelX = max(visibleLeft - 8.0, firstPointX - 8.0);
+        final lastLabelX = max(
+          firstLabelX,
+          lastPointX - labelExtents.last,
+        );
+        final labelSpacing = visibleIndices.length > 1
+            ? (lastLabelX - firstLabelX) / (visibleIndices.length - 1)
+            : 0.0;
+        for (var i = 0; i < visibleIndices.length; i++) {
+          final tp = labelPainters[i];
+          final labelX = firstLabelX + labelSpacing * i;
+          // Move timestamps slightly lower so they have breathing room below
+          // the plot and stay visually separate from the y-axis bottom tick.
+          final anchorY = size.height - padB + 20.0;
           canvas.save();
-          canvas.translate(dx, dy);
+          canvas.translate(labelX, anchorY);
           canvas.rotate(angle);
           tp.paint(canvas, Offset.zero);
           canvas.restore();

@@ -11,13 +11,22 @@ void main() {
     double? grams = 40,
     Set<String>? fresh,
     double oxygen = 6,
+    double turbidity = 10,
+    bool turbidityAir = false,
+    bool allowTurbidityConfirmation = false,
   }) => feederPreflightIssue(
     internetOnline: online,
     feederOnline: true,
     busy: busy,
     schedulesLoaded: loaded,
-    turbidityAir: false,
-    values: {'temp': 27, 'do': oxygen, 'ph': 7, 'turb': 10, 'feedlevel': level},
+    turbidityAir: turbidityAir,
+    values: {
+      'temp': 27,
+      'do': oxygen,
+      'ph': 7,
+      'turb': turbidity,
+      'feedlevel': level,
+    },
     freshSensors: fresh ?? {'temp', 'do', 'ph', 'turb', 'feedlevel'},
     ranges: {
       'temp': {'min': 24, 'max': 32},
@@ -28,11 +37,39 @@ void main() {
     },
     availableGrams: available,
     grams: grams,
+    allowTurbidityConfirmation: allowTurbidityConfirmation,
   );
   test('critical percentage still allows enough estimated feed', () {
     expect(check(), isEmpty);
     expect(check(available: 20), contains('Insufficient feed'));
     expect(check(level: 0), contains('empty'));
+  });
+  test('high turbidity needs explicit confirmation to allow feeding', () {
+    expect(check(turbidity: 55), contains('Turbidity too high'));
+    expect(
+      check(turbidity: 55, allowTurbidityConfirmation: true),
+      isEmpty,
+    );
+    expect(
+      check(turbidity: 55, allowTurbidityConfirmation: true, oxygen: 3),
+      contains('Dissolved oxygen too low'),
+    );
+    expect(
+      check(fresh: {'temp', 'do', 'ph', 'feedlevel'}),
+      contains('Waiting for fresh turbidity data'),
+    );
+    expect(
+      check(
+        fresh: {'temp', 'do', 'ph', 'feedlevel'},
+        allowTurbidityConfirmation: true,
+      ),
+      isEmpty,
+    );
+    expect(check(turbidityAir: true), contains('sensor is in air'));
+    expect(
+      check(turbidityAir: true, allowTurbidityConfirmation: true),
+      isEmpty,
+    );
   });
   test(
     'dispatch preflight rejects offline, busy, stale and invalid requests',
