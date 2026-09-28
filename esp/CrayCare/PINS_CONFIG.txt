@@ -59,7 +59,9 @@ FEEDER GATE — SG90 180-DEGREE SERVO ON GPIO5 (LEDC ch 0, ONLY servo)
   - 1 g-only model: 1 open/close actuation = 1 g, always. Feed grams from
     the app decide the count: 5 g = exactly 5 actuations.
   - Motion per actuation: 0 -> GATE_OPEN_ANGLE (default 90) -> hold
-    GATE_HOLD_MS (default 800 ms) -> 0. Tune on bench, store permanently.
+    GATE_HOLD_MS (default 800 ms) -> 0 -> 300 ms close dwell -> next gram.
+    The dwell lets the servo physically shut (same gap as GATECAL).
+    Tune on bench, store permanently.
   - Calibration: GATECAL runs 10 actuations — catch, weigh, expect ~10 g.
     Adjust GATE_ANGLE / GATE_MS until 10 actuations land near 10 g.
     Test a single swing with GATE_TEST.
@@ -211,6 +213,11 @@ if no ACK at 0x27 — if your backpack is 0x3F, change LCD_ADDR in main.cpp.
   single 5 s blower pre-run). Taps ignored while a feed runs. Cap 200 g.
   Full safety path: sensor/block checks + blower + gate swings. Live
   count + blocked reasons on LCD.
+  OVERRIDE: a bypassable block (unsafe water, low hopper, schedule
+  conflict) opens a 10 s warning instead of aborting — LCD shows the
+  reason + "Tap 2x to force". Two taps inside the window force-dispense
+  the locked grams (logged as forced with reason); no taps = cancelled.
+  Hard blocks (tank/clock/storage/grams) never offer override.
 
   GPIO2 = BLOWER toggle (manual ON/OFF). Ignored while a feed auto-holds
   the blower. 15-minute manual safety timeout. Neither pin is a boot

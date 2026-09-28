@@ -93,6 +93,10 @@ PHYSICAL BUTTONS (to GND, INPUT_PULLUP)
     a 1.5 s settle window, then one feed runs with the full safety path +
     blower pre-run. Ignored while a feed runs. Cap 200 g. Live count,
     progress, and blocked reasons on LCD.
+    OVERRIDE: a bypassable block (unsafe water, low hopper, schedule)
+    opens a 10 s warning (reason + "Tap 2x to force"). Two taps force
+    the locked grams (logged forced + reason); silence cancels. Hard
+    blocks (tank/clock/storage/grams) abort with no override.
   GPIO2 blower: manual ON/OFF toggle; ignored while a feed auto-holds the
     blower. 15-minute manual safety timeout.
 

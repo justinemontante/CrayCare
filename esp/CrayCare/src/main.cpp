@@ -528,6 +528,7 @@ enum FeederRunState {
   FEEDER_PRE_BLOW,   // blower warm-up lead before the first actuation
   FEEDER_FORWARD,    // gate opens to GATE_OPEN_ANGLE
   FEEDER_PAUSE_F,    // gate holds, then closes and the cycle advances
+  FEEDER_CLOSE_DWELL,// let the servo physically shut before the next gram
   FEEDER_DONE
 };
 FeederRunState feederRunState = FEEDER_IDLE;
@@ -535,6 +536,15 @@ int feederCurrentCycle = 0;
 int feederMaxCycles = 1;               // 1 g-only: cycles = whole grams (5 g = 5 actuations)
 unsigned long feederDoneShowMs = 0;    // LCD "Fed Xg OK" banner expiry
 unsigned long feederStepMs = 0;
+// Onsite override: bypassable block -> 10 s warning window -> 2-tap confirm.
+#define OVERRIDE_WINDOW_MS 10000
+#define OVERRIDE_CONFIRM_TAPS 2
+String overrideWarnReason = "";        // non-empty = warning window open
+float overrideGrams = 0;
+int overrideConfirmTaps = 0;
+unsigned long overrideDeadlineMs = 0;
+bool feederForced = false;             // this run bypassed checks via confirm
+String feederForceReason = "";
 unsigned long feederStartMs = 0;
 
 struct FeedSchedule {
@@ -620,6 +630,7 @@ unsigned long lastActuatorSyncMs = 0;
 #define GATE_PULSE_MAX_US 2500
 #define GATE_OPEN_ANGLE_DFLT 90    // starting point — tune on bench, store via GATE_ANGLE
 #define GATE_HOLD_MS_DFLT 800      // starting point — tune on bench, store via GATE_MS
+#define GATE_CLOSE_DWELL_MS 300    // let the servo shut between grams (mirrors GATECAL)
 int gateOpenAngle = GATE_OPEN_ANGLE_DFLT;  // NVS "gateAngle"
 int gateHoldMs = GATE_HOLD_MS_DFLT;        // NVS "gateHold"
 int gateAngleNow = 0;
@@ -1994,6 +2005,8 @@ void showLCDBoot(const String& line0, const String& line1, unsigned long holdMs)
 void showLCDTransient(const String& line0, const String& line1, unsigned long holdMs = 1800);
 void initOnsiteButton();
 void processOnsiteButton();
+void armFeedOverride(float grams, const String& reason);
+void pollFeedOverride();
 void processFeederCommands();
 void sendFeederStatus();
 void syncFeederSchedules();
@@ -2002,7 +2015,7 @@ void saveCachedFeederSchedules();
 void loadFeederState();
 bool saveFeederState();
 void checkScheduledFeed();
-void startFeed(String source, float grams = 1.0f, String commandId = "", long long issuedAtMs = 0, long long expiresAtMs = 0);
+void startFeed(String source, float grams = 1.0f, String commandId = "", long long issuedAtMs = 0, long long expiresAtMs = 0, bool forceOverride = false);
 void processFeederTick();
 void pushFeederLog(String action, String type, String status = "",
                    float requestedGrams = -1.0f,
@@ -2028,9 +2041,12 @@ void setup() {
   Serial.begin(115200);
   delay(500);
 
-  // Task watchdog: 30 s timeout (longest legit block is ~30 s TLS) with
-  // reset on expiry, so a silent hang reboots with a TASK_WDT trail.
-  esp_task_wdt_init(30, true);
+  // Task watchdog: the Arduino core pre-inits it at 5 s, and a bare
+  // esp_task_wdt_init() is a no-op once initialized — so deinit first.
+  // 60 s covers the worst legit block (30 s TLS x 2 attempts, GATECAL at
+  // max hold) while still catching true hangs with a TASK_WDT trail.
+  esp_task_wdt_deinit();
+  esp_task_wdt_init(60, true);
   esp_task_wdt_add(NULL);
 
   initLCD();
@@ -2095,6 +2111,7 @@ void loop() {
   esp_task_wdt_reset();  // fed every pass (< 1 s normally)
   processOnsiteButton();
   pollBlowerButton();
+  pollFeedOverride();
   // Motor timing must never wait behind a blocking cloud/sensor operation.
   if (feederRunState != FEEDER_IDLE) {
     processFeederTick();
@@ -2237,6 +2254,7 @@ void loop() {
           delay(gateHoldMs);
           setGateAngle(0);
           delay(300);
+          esp_task_wdt_reset();  // 10 cycles x (hold + dwell) exceeds short timeouts
           Serial.printf("[GATE] Actuation %d/10\n", i + 1);
         }
         Serial.println("[GATE] Done — weigh total (expect ~10 g for the 1 g-only model)");
@@ -2988,6 +3006,24 @@ void syncFeederSchedules() {
   Serial.printf("[FEEDER] Synced %d schedules from Firestore\n", feederScheduleCount);
 }
 
+// Override policy for the onsite physical button: after a 2-tap confirm
+// inside the warning window, these blocks may be bypassed (force path).
+// Never bypassable: missing tank/clock/storage, persist/ack failures,
+// bad grams, stale/duplicate commands, busy feeder.
+bool feedBlockBypassable(const String& reason) {
+  if (reason.startsWith("automatic feeding is due at")) return true;
+  if (reason == "tank sensor settings have not finished syncing") return true;
+  if (reason == "required water-quality sensor unavailable") return true;
+  if (reason == "temperature outside range") return true;
+  if (reason == "dissolved oxygen too low") return true;
+  if (reason == "pH outside range") return true;
+  if (reason == "turbidity too high") return true;
+  if (reason == "feed-level sensor unavailable") return true;
+  if (reason == "empty feed hopper") return true;
+  if (reason == "insufficient feed") return true;
+  return false;
+}
+
 bool canFeedSafely(String &reason, float requiredGrams) {
   if (!feederConfigReady) {
     reason = "tank sensor settings have not finished syncing";
@@ -3085,7 +3121,8 @@ void checkScheduledFeed() {
 }
 
 // ─── Start Feed — kicks off non-blocking state machine ───
-void startFeed(String source, float grams, String commandId, long long issuedAtMs, long long expiresAtMs) {
+void startFeed(String source, float grams, String commandId, long long issuedAtMs, long long expiresAtMs, bool forceOverride) {
+  if (!forceOverride) { feederForced = false; feederForceReason = ""; }
   if (feederRunState != FEEDER_IDLE) {
     feederStatusReason = "Feeder busy";
     Serial.println("[FEEDER] Already running, skipping");
@@ -3181,23 +3218,32 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
     blockedReason = "automatic feeding is due at " + nearbySchedule;
   }
   if (blockedReason.length() > 0 || !canFeedSafely(blockedReason, feederRequestedGrams)) {
-    feederStatusReason = blockedReason;
-    Serial.printf("[FEEDER] BLOCKED: %s\n", blockedReason.c_str());
-    time_t blockedAt;
-    time(&blockedAt);
-    feederLastFeedEpoch = (unsigned long)blockedAt;
-    const bool insufficient = blockedReason == "insufficient feed" ||
-                              blockedReason == "empty feed hopper";
-    feederStatus = insufficient ? "skipped_insufficient" : "blocked";
-    pushFeederLog(
-      insufficient ? "Skipped - Insufficient feed" : "Feed blocked: " + blockedReason,
-      source == "manual" ? "manual" : "auto",
-      insufficient ? "skipped_insufficient" : "blocked",
-      feederRequestedGrams,
-      estimatedFeedGrams, feedLevelPercent, feedLevelPercent);
-    if (source != "onsite") sendFeederStatus();
-    feederLastScheduleKey = "";
-    return;
+    if (forceOverride && feedBlockBypassable(blockedReason)) {
+      Serial.printf("[FEEDER] Override confirmed — bypassing: %s\n", blockedReason.c_str());
+    } else {
+      feederStatusReason = blockedReason;
+      Serial.printf("[FEEDER] BLOCKED: %s\n", blockedReason.c_str());
+      time_t blockedAt;
+      time(&blockedAt);
+      feederLastFeedEpoch = (unsigned long)blockedAt;
+      const bool insufficient = blockedReason == "insufficient feed" ||
+                                blockedReason == "empty feed hopper";
+      feederStatus = insufficient ? "skipped_insufficient" : "blocked";
+      pushFeederLog(
+        insufficient ? "Skipped - Insufficient feed" : "Feed blocked: " + blockedReason,
+        source == "manual" ? "manual" : "auto",
+        insufficient ? "skipped_insufficient" : "blocked",
+        feederRequestedGrams,
+        estimatedFeedGrams, feedLevelPercent, feedLevelPercent);
+      if (source != "onsite") sendFeederStatus();
+      feederLastScheduleKey = "";
+      // Bypassable onsite block: open the 10 s warning window instead of a
+      // silent abort. Taps inside the window confirm; grams stay locked.
+      if (source == "onsite" && feedBlockBypassable(blockedReason)) {
+        armFeedOverride(feederRequestedGrams, blockedReason);
+      }
+      return;
+    }
   }
 
   feederFeedLevelBefore = feedLevelPercent;
@@ -3223,12 +3269,17 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
   // Recheck after the blocking status upload, immediately before activation.
   if ((source == "manual" || source == "onsite") &&
       manualFeedConflictsWithSchedule(checkedAt, nearbySchedule)) {
-    feederStatus = "blocked";
-    feederStatusReason = "automatic feeding is due at " + nearbySchedule;
-    pushFeederLog(feederStatusReason, "manual", "blocked", grams,
-                  feederAvailableBefore, feederFeedLevelBefore, feederFeedLevelBefore);
-    if (source != "onsite") sendFeederStatus();
-    return;
+    if (forceOverride) {
+      Serial.printf("[FEEDER] Override confirmed — bypassing: %s\n",
+                    ("automatic feeding is due at " + nearbySchedule).c_str());
+    } else {
+      feederStatus = "blocked";
+      feederStatusReason = "automatic feeding is due at " + nearbySchedule;
+      pushFeederLog(feederStatusReason, "manual", "blocked", grams,
+                    feederAvailableBefore, feederFeedLevelBefore, feederFeedLevelBefore);
+      if (source != "onsite") sendFeederStatus();
+      return;
+    }
   }
   feederLastFeedEpoch = (unsigned long)checkedAt;
   feederFeedSource = source;
@@ -3275,6 +3326,15 @@ void processFeederTick() {
         setGateAngle(0);
         feederStepMs = now;
         feederCurrentCycle++;
+        feederRunState = FEEDER_CLOSE_DWELL;
+      }
+      break;
+
+    case FEEDER_CLOSE_DWELL:
+      // Without this dwell the next FORWARD fires within one fast loop pass
+      // and the servo (~150 ms transit) never shuts: N grams merge into a
+      // single long open. GATECAL has the same 300 ms gap per actuation.
+      if (now - feederStepMs >= GATE_CLOSE_DWELL_MS) {
         if (feederCurrentCycle >= feederMaxCycles) {
           feederRunState = FEEDER_DONE;
         } else {
@@ -3313,10 +3373,11 @@ void processFeederTick() {
         feederFeedSource == "scheduled"
           ? "Dispensed feed (Scheduled)"
           : feederFeedSource == "onsite"
-            ? "Dispensed feed (Onsite Button)"
+            ? (feederForced ? "Dispensed feed (Onsite Button, override: " + feederForceReason + ")"
+                            : "Dispensed feed (Onsite Button)")
             : "Dispensed feed (Manual)",
         feederFeedSource == "scheduled" ? "auto" : "manual",
-        "completed",
+        feederForced ? "forced" : "completed",
         feederRequestedGrams,
         feederAvailableBefore,
         feederFeedLevelBefore,
@@ -3327,6 +3388,8 @@ void processFeederTick() {
 
       feederFeedSource = "";
       feederLastScheduleKey = "";
+      feederForced = false;
+      feederForceReason = "";
       // Keep the terminal confirmation until the next request starts.
       Serial.println("[FEEDER] Feed complete");
       break;
@@ -3696,8 +3759,63 @@ void initOnsiteButton() {
                 ONSITE_BUTTON_PIN);
 }
 
+void armFeedOverride(float grams, const String& reason) {
+  overrideGrams = grams;
+  overrideWarnReason = reason;
+  overrideConfirmTaps = 0;
+  overrideDeadlineMs = millis() + OVERRIDE_WINDOW_MS;
+  Serial.printf("[FEEDER] BLOCKED (bypassable): %s — tap 2x within 10 s to force-dispense\n",
+                reason.c_str());
+}
+
+void clearFeedOverride() {
+  overrideWarnReason = "";
+  overrideGrams = 0;
+  overrideConfirmTaps = 0;
+  overrideDeadlineMs = 0;
+}
+
+// Expiry watchdog for the warning window — call every loop().
+void pollFeedOverride() {
+  if (overrideWarnReason.length() == 0) return;
+  if ((long)(millis() - overrideDeadlineMs) >= 0) {
+    Serial.println("[FEEDER] Override expired — feed cancelled");
+    clearFeedOverride();
+  }
+}
+
 void processOnsiteButton() {
   if (!onsiteButtonEnabled) return;
+  // Confirmation taps inside an override warning window: counted
+  // immediately (no settle) and never converted to grams.
+  if (overrideWarnReason.length() > 0) {
+    if (feederRunState != FEEDER_IDLE) { clearFeedOverride(); return; }
+    uint16_t fresh = 0;
+    portENTER_CRITICAL(&onsiteButtonMux);
+    fresh = onsiteButtonTapCount;
+    onsiteButtonTapCount = 0;
+    portEXIT_CRITICAL(&onsiteButtonMux);
+    if (fresh == 0) return;
+    overrideConfirmTaps += fresh;
+    Serial.printf("[BUTTON] Override confirm %d/%d\n",
+                  overrideConfirmTaps, OVERRIDE_CONFIRM_TAPS);
+    if (overrideConfirmTaps >= OVERRIDE_CONFIRM_TAPS) {
+      float g = overrideGrams;
+      String r = overrideWarnReason;
+      clearFeedOverride();
+      feederForceReason = r;
+      startFeed("onsite", g, "", 0, 0, true);
+      if (feederRunState == FEEDER_IDLE) {
+        // Forced attempt hit a hard (non-bypassable) block.
+        feederForced = false;
+        feederForceReason = "";
+        const String reason2 = feederStatusReason.length() > 0
+            ? feederStatusReason.substring(0, 16) : "See Serial Monitor";
+        showLCDTransient("Feed blocked", reason2, 2500);
+      }
+    }
+    return;
+  }
   uint16_t tapsToFeed = 0;
   bool tapsIgnoredBusy = false;
   portENTER_CRITICAL(&onsiteButtonMux);
@@ -3721,7 +3839,7 @@ void processOnsiteButton() {
   Serial.printf("[BUTTON] %u tap(s) -> onsite dispense %u g\n",
                 tapsToFeed, tapsToFeed);
   startFeed("onsite", (float)tapsToFeed);
-  if (feederRunState == FEEDER_IDLE) {
+  if (feederRunState == FEEDER_IDLE && overrideWarnReason.length() == 0) {
     const String reason = feederStatusReason.length() > 0
         ? feederStatusReason.substring(0, 16) : "See Serial Monitor";
     showLCDTransient("Feed blocked", reason, 2500);
@@ -3800,6 +3918,9 @@ void updateLCD() {
   } else if (now < feederDoneShowMs) {
     l0 = String("Fed ") + String(feederLastCompletedGrams, 0) + "g OK";
     l1 = "Gate cycles done";
+  } else if (overrideWarnReason.length() > 0) {
+    l0 = overrideWarnReason.substring(0, 16);
+    l1 = "Tap 2x to force";
   } else if (onsiteButtonTapCount > 0) {
     uint16_t taps;
     portENTER_CRITICAL(&onsiteButtonMux);
