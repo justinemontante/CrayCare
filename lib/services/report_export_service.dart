@@ -493,6 +493,7 @@ class ReportExportService {
     List<BatchRecordSnapshot> snapshots, {
     GrowOutReportSections sections = const GrowOutReportSections(),
     bool includeSummary = true,
+    bool includeIndividualMeasurements = false,
   }) async {
     final ordered = List<BatchRecordSnapshot>.of(snapshots)
       ..sort((a, b) {
@@ -614,6 +615,55 @@ class ReportExportService {
         );
         if (snapshot.sampling.isEmpty) {
           _appendExcelRow(sheet, ['No sampling records.']);
+        }
+        if (includeIndividualMeasurements) {
+          _appendExcelRow(sheet, ['']);
+          _appendExcelLabelRow(
+            sheet,
+            'Individual Crayfish Measurements',
+            _excelSectionStyle,
+          );
+          _appendExcelTable(
+            sheet,
+            headers: const [
+              'Week',
+              'Date',
+              'Crayfish No.',
+              'Weight (g)',
+              'Length (cm)',
+            ],
+            rows: snapshot.sampling.expand((entry) {
+              final days =
+                  DateTime.utc(
+                        entry.date.year,
+                        entry.date.month,
+                        entry.date.day,
+                      )
+                      .difference(
+                        DateTime.utc(
+                          batch.stockingDate.year,
+                          batch.stockingDate.month,
+                          batch.stockingDate.day,
+                        ),
+                      )
+                      .inDays;
+              final week = (days < 0 ? 0 : days) ~/ 7;
+              return entry.measurements.map(
+                (measurement) => <Object?>[
+                  entry.isBaseline ? 'Baseline' : 'Week $week',
+                  _fmtDate(entry.date),
+                  measurement.sampleNumber,
+                  measurement.weightGrams.toStringAsFixed(2),
+                  measurement.lengthCm.toStringAsFixed(2),
+                ],
+              );
+            }),
+          );
+          if (snapshot.sampling.every((entry) => entry.measurements.isEmpty)) {
+            _appendExcelRow(sheet, [
+              'No individual measurements are saved for these samples.',
+            ]);
+          }
         }
       }
 
@@ -1189,6 +1239,7 @@ class ReportExportService {
     required Iterable<String> batchIds,
     GrowOutReportSections sections = const GrowOutReportSections(),
     bool includeSummary = true,
+    bool includeIndividualMeasurements = false,
     String fileName = 'craycare_all_batches',
   }) async {
     final snapshots = await TankService.instance.loadBatchRecordSnapshots(
@@ -1205,6 +1256,7 @@ class ReportExportService {
         snapshots,
         sections: sections,
         includeSummary: includeSummary,
+        includeIndividualMeasurements: includeIndividualMeasurements,
       ),
     );
   }

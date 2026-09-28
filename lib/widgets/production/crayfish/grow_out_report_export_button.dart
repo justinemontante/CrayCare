@@ -8,12 +8,14 @@ class _ReportExportSelection {
   final Set<String> batchIds;
   final GrowOutReportSections sections;
   final bool includeSummary;
+  final bool includeIndividualMeasurements;
   final String fileName;
 
   const _ReportExportSelection({
     required this.batchIds,
     required this.sections,
     required this.includeSummary,
+    required this.includeIndividualMeasurements,
     required this.fileName,
   });
 }
@@ -101,8 +103,9 @@ class GrowOutReportExportButton extends StatelessWidget {
   });
 
   Future<_ReportExportSelection?> _chooseReportContent(
-    BuildContext context,
-  ) async {
+    BuildContext context, {
+    required bool canIncludeIndividualMeasurements,
+  }) async {
     final batches = List.of(TankService.instance.batches)
       ..sort((a, b) {
         final dateOrder = a.stockingDate.compareTo(b.stockingDate);
@@ -113,6 +116,7 @@ class GrowOutReportExportButton extends StatelessWidget {
     var includeMortality = true;
     var includeHarvest = true;
     var includeSummary = true;
+    var includeIndividualMeasurements = false;
     var fileName = 'craycare_all_batches';
 
     final result = await showModalBottomSheet<_ReportExportSelection>(
@@ -332,6 +336,23 @@ class GrowOutReportExportButton extends StatelessWidget {
                             () => includeHarvest = value ?? false,
                           ),
                         ),
+                        if (canIncludeIndividualMeasurements)
+                          CheckboxListTile(
+                            value: includeIndividualMeasurements,
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text(
+                              'Include individual crayfish measurements',
+                            ),
+                            subtitle: const Text(
+                              'Adds one row per measured crayfish with its weight and length. Turn off for sample totals and averages only.',
+                            ),
+                            onChanged: includeSampling
+                                ? (value) => setSheetState(
+                                    () => includeIndividualMeasurements =
+                                        value ?? false,
+                                  )
+                                : null,
+                          ),
                         if (!hasSelectedBatch)
                           const Padding(
                             padding: EdgeInsets.only(top: 4),
@@ -381,6 +402,8 @@ class GrowOutReportExportButton extends StatelessWidget {
                                     _ReportExportSelection(
                                       batchIds: Set.of(selectedBatchIds),
                                       includeSummary: includeSummary,
+                                      includeIndividualMeasurements:
+                                          includeIndividualMeasurements,
                                       fileName: fileName,
                                       sections: GrowOutReportSections(
                                         includeSampling: includeSampling,
@@ -394,7 +417,7 @@ class GrowOutReportExportButton extends StatelessWidget {
                               backgroundColor: AppColors.primary,
                               padding: const EdgeInsets.symmetric(vertical: 14),
                             ),
-                            child: const Text('Continue'),
+                            child: const Text('Preview Report'),
                           ),
                         ),
                       ],
@@ -410,17 +433,263 @@ class GrowOutReportExportButton extends StatelessWidget {
     return result;
   }
 
+  Future<bool> _previewReport(
+    BuildContext context,
+    _ReportExportSelection selection,
+    List<BatchRecordSnapshot> snapshots,
+    String format,
+  ) async {
+    final isExcel = format == 'xlsx';
+    return await showModalBottomSheet<bool>(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.white,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+          ),
+          builder: (sheetContext) => SafeArea(
+            top: false,
+            child: SizedBox(
+              height: MediaQuery.of(sheetContext).size.height * 0.88,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(22, 20, 22, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Preview ${isExcel ? 'Excel' : 'PDF'} Report',
+                          style: const TextStyle(
+                            fontSize: 19,
+                            fontWeight: FontWeight.w900,
+                            color: AppColors.dark,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${snapshots.length} batch${snapshots.length == 1 ? '' : 'es'} selected · Review the included data before saving.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: AppColors.darkWith(0.58),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: ListView(
+                      padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
+                      children: [
+                        for (final snapshot in snapshots)
+                          _buildBatchPreview(snapshot, selection),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(18, 10, 18, 16),
+                    decoration: BoxDecoration(
+                      border: Border(
+                        top: BorderSide(color: AppColors.darkWith(0.08)),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(sheetContext, false),
+                            child: const Text('Back'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton.icon(
+                            onPressed: () => Navigator.pop(sheetContext, true),
+                            icon: const Icon(Icons.download_rounded, size: 18),
+                            label: Text(isExcel ? 'Save Excel' : 'Save PDF'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              padding: const EdgeInsets.symmetric(vertical: 13),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ) ??
+        false;
+  }
+
+  Widget _buildBatchPreview(
+    BatchRecordSnapshot snapshot,
+    _ReportExportSelection selection,
+  ) {
+    final batch = snapshot.batch;
+    final mortality = snapshot.mortality.fold<int>(
+      0,
+      (sum, row) => sum + row.count,
+    );
+    final harvested = snapshot.harvests.fold<int>(
+      0,
+      (sum, row) => sum + row.harvestedCount,
+    );
+    final rows = ReportExportService.growthRows(
+      snapshot.sampling,
+      batch.stockingDate,
+    );
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 0,
+      color: AppColors.primaryWith(0.045),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: AppColors.primaryWith(0.14)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Batch ${batch.batchId}',
+              style: const TextStyle(
+                fontWeight: FontWeight.w900,
+                color: AppColors.dark,
+              ),
+            ),
+            if (selection.includeSummary) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Initial population: ${batch.initialCount} · Mortality: $mortality · Harvested: $harvested',
+                style: TextStyle(fontSize: 11, color: AppColors.darkWith(0.68)),
+              ),
+            ],
+            if (selection.sections.includeSampling) ...[
+              const SizedBox(height: 12),
+              const Text(
+                'Sampling Records',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+              ),
+              if (rows.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    'No sampling records.',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: AppColors.darkWith(0.58),
+                    ),
+                  ),
+                ),
+              for (var i = 0; i < rows.length; i++)
+                Padding(
+                  padding: const EdgeInsets.only(top: 7),
+                  child: Text(
+                    '${rows[i][0]} · ${rows[i][1]} · Sample size: ${rows[i][2]}\nTotal length: ${rows[i][3]} cm · Total weight: ${rows[i][4]} g\nAverage length: ${rows[i][5]} cm · Average weight: ${rows[i][6]} g',
+                    style: TextStyle(
+                      fontSize: 11,
+                      height: 1.4,
+                      color: AppColors.darkWith(0.72),
+                    ),
+                  ),
+                ),
+              if (selection.includeIndividualMeasurements)
+                for (final entry in snapshot.sampling)
+                  if (entry.measurements.isNotEmpty) ...[
+                    Padding(
+                      padding: const EdgeInsets.only(top: 7),
+                      child: Text(
+                        'Individual measurements · ${entry.date.year}-${entry.date.month.toString().padLeft(2, '0')}-${entry.date.day.toString().padLeft(2, '0')}',
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    for (final measurement in entry.measurements)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 10, top: 3),
+                        child: Text(
+                          'Crayfish ${measurement.sampleNumber}: ${measurement.weightGrams.toStringAsFixed(2)} g · ${measurement.lengthCm.toStringAsFixed(2)} cm',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: AppColors.darkWith(0.62),
+                          ),
+                        ),
+                      ),
+                  ],
+              if (selection.includeIndividualMeasurements &&
+                  snapshot.sampling.every(
+                    (entry) => entry.measurements.isEmpty,
+                  ))
+                Padding(
+                  padding: const EdgeInsets.only(top: 5),
+                  child: Text(
+                    'No individual measurements are saved for these samples.',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: AppColors.darkWith(0.58),
+                    ),
+                  ),
+                ),
+            ],
+            if (selection.sections.includeMortality) ...[
+              const SizedBox(height: 10),
+              Text(
+                'Mortality records: ${snapshot.mortality.length} · $mortality total',
+                style: TextStyle(fontSize: 11, color: AppColors.darkWith(0.68)),
+              ),
+            ],
+            if (selection.sections.includeHarvest) ...[
+              const SizedBox(height: 5),
+              Text(
+                'Harvest records: ${snapshot.harvests.length} · $harvested crayfish',
+                style: TextStyle(fontSize: 11, color: AppColors.darkWith(0.68)),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _export(BuildContext context, String format) async {
-    final selection = await _chooseReportContent(context);
+    final selection = await _chooseReportContent(
+      context,
+      canIncludeIndividualMeasurements: format == 'xlsx',
+    );
     if (selection == null || !context.mounted) return;
 
     try {
       final reportService = ReportExportService.instance;
+      final snapshots = await TankService.instance.loadBatchRecordSnapshots(
+        selection.batchIds,
+      );
+      if (snapshots.isEmpty) {
+        throw StateError('No batch records are available to preview.');
+      }
+      if (!context.mounted) return;
+      final confirmed = await _previewReport(
+        context,
+        selection,
+        snapshots,
+        format,
+      );
+      if (!confirmed || !context.mounted) return;
       if (format == 'xlsx') {
         await reportService.shareAllGrowthExcel(
           batchIds: selection.batchIds,
           sections: selection.sections,
           includeSummary: selection.includeSummary,
+          includeIndividualMeasurements:
+              selection.includeIndividualMeasurements,
           fileName: selection.fileName,
         );
       } else {
@@ -436,8 +705,8 @@ class GrowOutReportExportButton extends StatelessWidget {
         SnackBar(
           content: Text(
             format == 'xlsx'
-                ? 'Excel report ready — choose where to save or share it.'
-                : 'PDF report ready — choose where to save or share it.',
+                ? 'Excel is ready — choose Save/Files to download it.'
+                : 'PDF is ready — choose where to save or share it.',
           ),
         ),
       );
