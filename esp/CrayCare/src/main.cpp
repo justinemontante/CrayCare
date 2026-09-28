@@ -462,6 +462,9 @@ unsigned long lastConfigSyncTime = 0;
 unsigned long lastAssignmentCheckMs = 0;
 unsigned long lastPollTime = 0;
 unsigned long lastWifiReconnectTime = 0;
+bool ntpEverSynced = false;            // set once time() passes the epoch gate
+unsigned long lastNtpSyncMs = 0;
+#define NTP_RESYNC_INTERVAL_MS 86400000UL  // daily refresh + post-outage recovery
 
 // Feeder state
 // LEDC servo control (no ESP32Servo library needed — avoid timer conflicts)
@@ -1142,6 +1145,7 @@ void connectWiFi() {
     String s, p;
     wifiGetProfile(idx, s, p);
     if (s.length() == 0) continue;
+    esp_task_wdt_reset();  // N dead profiles x ~13 s can exceed short timeouts
     if (wifiTryOne(s, p)) {
       ssid = s;
       pass = p;
@@ -2040,6 +2044,21 @@ void pushActuatorLog(int idx, String action, String type);
 void setup() {
   Serial.begin(115200);
   delay(500);
+  const char* resetReasonText = "unknown";
+  switch (esp_reset_reason()) {
+    case ESP_RST_POWERON: resetReasonText = "power-on"; break;
+    case ESP_RST_EXT: resetReasonText = "external pin"; break;
+    case ESP_RST_SW: resetReasonText = "software (esp_restart)"; break;
+    case ESP_RST_PANIC: resetReasonText = "panic/exception"; break;
+    case ESP_RST_INT_WDT: resetReasonText = "interrupt watchdog"; break;
+    case ESP_RST_TASK_WDT: resetReasonText = "task watchdog"; break;
+    case ESP_RST_WDT: resetReasonText = "other watchdog"; break;
+    case ESP_RST_DEEPSLEEP: resetReasonText = "deep sleep wake"; break;
+    case ESP_RST_BROWNOUT: resetReasonText = "brownout"; break;
+    case ESP_RST_SDIO: resetReasonText = "SDIO"; break;
+    default: break;
+  }
+  Serial.printf("[BOOT] Reset reason: %s\n", resetReasonText);
 
   // Task watchdog: the Arduino core pre-inits it at 5 s, and a bare
   // esp_task_wdt_init() is a no-op once initialized — so deinit first.
@@ -2083,6 +2102,7 @@ void setup() {
   if (WiFi.status() == WL_CONNECTED) {
     showLCDBoot("Time sync", "Checking NTP...");
     initTime();
+    { time_t st; time(&st); if (st > 1700000000) { ntpEverSynced = true; lastNtpSyncMs = millis(); } }
     showLCDBoot("Firebase", "Signing in...");
     connectFirebase();
     lcdCloudBootPending = true;
@@ -2225,6 +2245,18 @@ void loop() {
                     WiFi.status() == WL_CONNECTED ? "CONNECTED" : "OFFLINE",
                     WiFi.localIP().toString().c_str(), WiFi.RSSI(), ssid.c_str());
       wifiListProfiles();
+    }
+    if (cmd == "timesync" || cmd == "ntp sync" || cmd == "ntpsync") {
+      initTime();
+      time_t nt2;
+      time(&nt2);
+      if (nt2 > 1700000000) {
+        ntpEverSynced = true;
+        lastNtpSyncMs = millis();
+        Serial.println("[TIME] Manual NTP sync OK");
+      } else {
+        Serial.println("[TIME] Manual NTP sync failed (offline?)");
+      }
     }
     if (cmd == "FEED") {
       startFeed("manual");
@@ -2477,6 +2509,9 @@ void loop() {
       Serial.printf("[BUF] backend=%s LittleFS=%u SD=%u total=%u\n",
                     sdMounted ? "SD" : "LittleFS",
                     (unsigned)lfs, (unsigned)sdc, (unsigned)(lfs + sdc));
+      Serial.printf("[BUF] heap=%uB min=%uB uptime=%lus ntp=%s\n",
+                    (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMinFreeHeap(),
+                    millis() / 1000UL, ntpEverSynced ? "synced" : "unsynced");
       if (sdMounted) {
         uint64_t total = SD.cardSize(), used = SD.usedBytes();
         Serial.printf("[BUF] SD type=%u size=%lluMB used=%lluMB file=%s\n",
@@ -2518,6 +2553,20 @@ void loop() {
       Serial.println("[WIFI] Offline — local sensing/automation continues; reconnecting...");
     }
     WiFi.reconnect();
+  }
+
+  // Time maintenance: boot sync happens in setup; re-sync daily while online
+  // (clock drift + post-outage/offline-boot recovery). Deferred while feeding;
+  // the bounded ~10 s initTime() block is WDT-safe at 60 s. The stamp updates
+  // on every attempt so a dead NTP server cannot wedge the loop.
+  if (networkAvailable && feederRunState == FEEDER_IDLE &&
+      (!ntpEverSynced || now - lastNtpSyncMs >= NTP_RESYNC_INTERVAL_MS)) {
+    initTime();
+    time_t nt;
+    time(&nt);
+    if (nt > 1700000000) ntpEverSynced = true;
+    lastNtpSyncMs = millis();
+    now = lastNtpSyncMs;
   }
 
   // Start Firebase only after Wi-Fi exists. Never block serial commands while
@@ -3925,7 +3974,7 @@ void updateLCD() {
     l0 = source + " " + String(feederRequestedGrams, 0) + "g";
     l1 = String("Gate ") + String(min(feederCurrentCycle + 1, feederMaxCycles)) +
          "/" + String(feederMaxCycles);
-  } else if (now < feederDoneShowMs) {
+  } else if ((long)(now - feederDoneShowMs) < 0) {  // rollover-safe expiry
     l0 = String("Fed ") + String(feederLastCompletedGrams, 0) + "g OK";
     l1 = "Gate cycles done";
   } else if (overrideWarnReason.length() > 0) {
@@ -3938,7 +3987,7 @@ void updateLCD() {
     portEXIT_CRITICAL(&onsiteButtonMux);
     l0 = String("Onsite taps: ") + String(taps);
     l1 = "Pause to dispense";
-  } else if (now < lcdTransientUntilMs) {
+  } else if ((long)(now - lcdTransientUntilMs) < 0) {  // rollover-safe expiry
     l0 = lcdTransientLine0;
     l1 = lcdTransientLine1;
   } else {
