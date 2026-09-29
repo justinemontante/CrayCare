@@ -8,7 +8,6 @@ import '../widgets/dashboard/water_quality_anomaly_detection_card.dart';
 import '../services/sensor_service.dart';
 import '../services/settings_service.dart';
 import '../services/tank_service.dart';
-import '../services/feeder_service.dart';
 import '../models/control_types.dart';
 import '../models/crayfish_batch.dart';
 import '../widgets/production/crayfish/grow_out_report_export_button.dart';
@@ -83,11 +82,11 @@ class DashboardScreenState extends State<DashboardScreen>
         .doc(uid)
         .snapshots()
         .listen((doc) {
-      final name = doc.data()?['full_name']?.toString().trim();
-      if (name != null && name.isNotEmpty && mounted && _isTabActive) {
-        setState(() => _profileFirstName = name.split(' ').first);
-      }
-    });
+          final name = doc.data()?['full_name']?.toString().trim();
+          if (name != null && name.isNotEmpty && mounted && _isTabActive) {
+            setState(() => _profileFirstName = name.split(' ').first);
+          }
+        });
   }
 
   @override
@@ -363,10 +362,7 @@ class DashboardScreenState extends State<DashboardScreen>
     // Show the banner while the ESP is flushing its offline backlog even if
     // live data is already flowing again (store-and-forward in progress).
     // But never let cached readings hide a missing/uninitialized tank.
-    if (tankService.isInitialized &&
-        hasAnyData &&
-        error == null &&
-        !syncing) {
+    if (tankService.isInitialized && hasAnyData && error == null && !syncing) {
       return const SizedBox.shrink();
     }
 
@@ -575,6 +571,11 @@ class DashboardScreenState extends State<DashboardScreen>
     final ranges = SettingsService.instance.currentRanges;
     final range = ranges[key];
     if (range == null) return '';
+    if (key == 'waterlevel') {
+      final critical = range['critical'] ?? 10.0;
+      final low = range['low'] ?? 15.0;
+      return 'Low ≤ ${low.toStringAsFixed(0)} • Critical ≤ ${critical.toStringAsFixed(0)} cm';
+    }
     final min = range['min'] ?? 0.0;
     final max = range['max'] ?? 999.0;
     final unit = _getUnit(key);
@@ -592,6 +593,11 @@ class DashboardScreenState extends State<DashboardScreen>
     if (key == 'feedlevel') {
       if (zone == 'OPTIMAL') return 'NORMAL';
       if (zone == 'WARNING') return 'LOW';
+    }
+    if (key == 'waterlevel') {
+      if (zone == 'OPTIMAL') return 'NORMAL';
+      if (zone == 'WARNING') return 'LOW';
+      if (zone == 'EMPTY') return 'EMPTY';
     }
     return zone;
   }
@@ -642,7 +648,7 @@ class DashboardScreenState extends State<DashboardScreen>
               child: _buildGaugeCard(
                 title: 'Water Level',
                 value: ss.hasSensorData('waterlevel')
-                    ? ss.getLatestValue('waterlevel').toStringAsFixed(2)
+                    ? ss.getLatestValue('waterlevel').toStringAsFixed(1)
                     : '--',
                 unit: 'cm',
                 ideal: _getIdealText('waterlevel'),
@@ -1722,6 +1728,9 @@ class DashboardScreenState extends State<DashboardScreen>
     final rMax = (range['max'] ?? 999.0).toDouble();
     final rUnit = _getUnit(sensorKey);
 
+    final waterCritical = (range['critical'] ?? 10.0).toDouble();
+    final waterLow = (range['low'] ?? 15.0).toDouble();
+
     final isMaxBound = rMax < 999.0;
     final rangeSpan = isMaxBound ? (rMax - rMin) : rMin;
     final warningThreshold = rangeSpan * 0.10;
@@ -1733,7 +1742,13 @@ class DashboardScreenState extends State<DashboardScreen>
     String warningRangeText = '';
     String criticalRangeText = '';
 
-    if (checkLower && checkUpper) {
+    if (sensorKey == 'waterlevel') {
+      optimalRangeText = '> ${waterLow.toStringAsFixed(0)}$rUnit';
+      warningRangeText =
+          '> ${waterCritical.toStringAsFixed(0)}$rUnit to ${waterLow.toStringAsFixed(0)}$rUnit';
+      criticalRangeText =
+          '> 0$rUnit to ${waterCritical.toStringAsFixed(0)}$rUnit';
+    } else if (checkLower && checkUpper) {
       final lowWarnEnd = rMin + warningThreshold;
       final highWarnStart = rMax - warningThreshold;
       optimalRangeText =
@@ -1761,7 +1776,34 @@ class DashboardScreenState extends State<DashboardScreen>
     }
 
     final List<_LegendItem> legends;
-    if (sensorKey == 'feedlevel') {
+    if (sensorKey == 'waterlevel') {
+      legends = [
+        _LegendItem(
+          'Normal',
+          '> ${waterLow.toStringAsFixed(0)} cm',
+          'Water level is above the refill warning point.',
+          AppColors.success,
+        ),
+        _LegendItem(
+          'Low',
+          '> ${waterCritical.toStringAsFixed(0)} to ${waterLow.toStringAsFixed(0)} cm',
+          'Add water manually soon.',
+          AppColors.warning,
+        ),
+        _LegendItem(
+          'Critical',
+          '> 0 to ${waterCritical.toStringAsFixed(0)} cm',
+          'Add water manually as soon as possible.',
+          AppColors.critical,
+        ),
+        const _LegendItem(
+          'Empty',
+          '0 cm',
+          'No water depth is detected.',
+          AppColors.critical,
+        ),
+      ];
+    } else if (sensorKey == 'feedlevel') {
       final critical = (range['critical'] ?? 10.0).toDouble();
       legends = [
         _LegendItem(
@@ -1833,7 +1875,13 @@ class DashboardScreenState extends State<DashboardScreen>
             final statusColor = _getStatusColor(sensorKey);
             final formattedValue = !hasData
                 ? '--'
-                : value.toStringAsFixed(sensorKey == 'feedlevel' ? 0 : 2);
+                : value.toStringAsFixed(
+                    sensorKey == 'feedlevel'
+                        ? 0
+                        : sensorKey == 'waterlevel'
+                        ? 1
+                        : 2,
+                  );
 
             return SafeArea(
               child: SingleChildScrollView(

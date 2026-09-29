@@ -29,6 +29,18 @@ test('bad sensor readings do not produce water-quality alarms',()=>{
   assert.equal(sensorStateChanges({dissolved_oxygen:1}, {dissolved_oxygen:7},thresholds)[0].state,'resolved');
 });
 
+test('water level uses low and critical thresholds with an explicit empty state',()=>{
+  const thresholds={water_level:{low:15,critical:10}};
+  assert.deepEqual(
+    sensorStateChanges({}, {water_level:0}, thresholds).map(({state,dir})=>({state,dir})),
+    [{state:'critical',dir:'empty'}],
+  );
+  assert.equal(sensorStateChanges({}, {water_level:8}, thresholds)[0].state,'critical');
+  assert.equal(sensorStateChanges({}, {water_level:12}, thresholds)[0].state,'warning');
+  assert.equal(sensorStateChanges({}, {water_level:18}, thresholds).length,0);
+  assert.equal(sensorStateChanges({water_level:12}, {water_level:18}, thresholds)[0].state,'resolved');
+});
+
 test('reminders tolerate late ticks, obey effective time and midnight',()=>{
   const now = Date.parse('2026-09-08T17:57:30+08:00');
   const schedule={timeValue:1080,days:'0010000',enabled:true};

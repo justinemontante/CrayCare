@@ -86,7 +86,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       final history = SensorService.instance.getData(key);
       final historyTimes = SensorService.instance.getDataTimes(key);
       final hasMatchingTimes = historyTimes.length == history.length;
-      final hasFreshReading = hasMatchingTimes &&
+      final hasFreshReading =
+          hasMatchingTimes &&
           historyTimes.isNotEmpty &&
           !now.isBefore(historyTimes.last) &&
           now.difference(historyTimes.last) <= _liveReadingTimeout;
@@ -208,9 +209,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       _historyLoadFailed.remove(range);
     });
     await _generateData(range);
-    if (!mounted ||
-        requestId != _filterRequestId ||
-        _activeFilter != range) {
+    if (!mounted || requestId != _filterRequestId || _activeFilter != range) {
       return;
     }
     setState(() => _isLoading = false);
@@ -225,11 +224,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       'min': 'turbidity_min',
       'max': 'turbidity_max',
     },
-    'waterlevel': {
-      'avg': 'waterLevel_avg',
-      'min': 'waterLevel_min',
-      'max': 'waterLevel_max',
-    },
+    'waterlevel': {'avg': 'water_level'},
   };
 
   Future<void> _generateData(String range) async {
@@ -417,8 +412,9 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
           (range == 'custom' && customGranularity == 'daily')) {
         return _formatDate(time);
       }
-      final hour =
-          time.hour > 12 ? time.hour - 12 : (time.hour == 0 ? 12 : time.hour);
+      final hour = time.hour > 12
+          ? time.hour - 12
+          : (time.hour == 0 ? 12 : time.hour);
       final ampm = time.hour >= 12 ? 'PM' : 'AM';
       final minute = time.minute.toString().padLeft(2, '0');
       final second = time.second.toString().padLeft(2, '0');
@@ -467,9 +463,16 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
             continue;
           }
 
-          final avg = _historyValue(key, records[j][fields['avg']!]);
-          final rawMin = _historyValue(key, records[j][fields['min']!]);
-          final rawMax = _historyValue(key, records[j][fields['max']!]);
+          final avgRaw = key == 'waterlevel'
+              ? records[j]['water_level']
+              : records[j][fields['avg']!];
+          final avg = _historyValue(key, avgRaw);
+          final rawMin = key == 'waterlevel'
+              ? avg
+              : _historyValue(key, records[j][fields['min']!]);
+          final rawMax = key == 'waterlevel'
+              ? avg
+              : _historyValue(key, records[j][fields['max']!]);
           if (avg != null) {
             sum += avg;
             count++;
@@ -703,59 +706,59 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                     ),
                   ),
                 Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        KeyedSubtree(
-                          key: _chartCardKeys['temp'],
-                          child: _buildChartCard(
-                            context,
-                            title: 'Temperature',
-                            iconPath: 'assets/images/temperature.png',
-                            chartKey: 'temp',
-                          ),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      KeyedSubtree(
+                        key: _chartCardKeys['temp'],
+                        child: _buildChartCard(
+                          context,
+                          title: 'Temperature',
+                          iconPath: 'assets/images/temperature.png',
+                          chartKey: 'temp',
                         ),
-                        KeyedSubtree(
-                          key: _chartCardKeys['ph'],
-                          child: _buildChartCard(
-                            context,
-                            title: 'pH Level',
-                            iconPath: 'assets/images/pH.png',
-                            chartKey: 'ph',
-                          ),
+                      ),
+                      KeyedSubtree(
+                        key: _chartCardKeys['ph'],
+                        child: _buildChartCard(
+                          context,
+                          title: 'pH Level',
+                          iconPath: 'assets/images/pH.png',
+                          chartKey: 'ph',
                         ),
-                        KeyedSubtree(
-                          key: _chartCardKeys['do'],
-                          child: _buildChartCard(
-                            context,
-                            title: 'Dissolved O₂',
-                            iconPath: 'assets/images/DO.png',
-                            chartKey: 'do',
-                          ),
+                      ),
+                      KeyedSubtree(
+                        key: _chartCardKeys['do'],
+                        child: _buildChartCard(
+                          context,
+                          title: 'Dissolved O₂',
+                          iconPath: 'assets/images/DO.png',
+                          chartKey: 'do',
                         ),
-                        KeyedSubtree(
-                          key: _chartCardKeys['turb'],
-                          child: _buildChartCard(
-                            context,
-                            title: 'Turbidity',
-                            iconPath: 'assets/images/Turbidity.png',
-                            chartKey: 'turb',
-                          ),
+                      ),
+                      KeyedSubtree(
+                        key: _chartCardKeys['turb'],
+                        child: _buildChartCard(
+                          context,
+                          title: 'Turbidity',
+                          iconPath: 'assets/images/Turbidity.png',
+                          chartKey: 'turb',
                         ),
-                        KeyedSubtree(
-                          key: _chartCardKeys['waterlevel'],
-                          child: _buildChartCard(
-                            context,
-                            title: 'Water Level',
-                            iconPath: 'assets/images/waterLevel.png',
-                            chartKey: 'waterlevel',
-                          ),
+                      ),
+                      KeyedSubtree(
+                        key: _chartCardKeys['waterlevel'],
+                        child: _buildChartCard(
+                          context,
+                          title: 'Water Level',
+                          iconPath: 'assets/images/waterLevel.png',
+                          chartKey: 'waterlevel',
                         ),
-                        const SizedBox(height: 16),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
                   ),
+                ),
               ],
             ),
           ),
@@ -1033,6 +1036,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     final thresholds = _thresholdsFor(chartKey);
     final criticalItems = _showCritical
         ? _criticalItemsFor(
+            chartKey: chartKey,
             labels: labels,
             minData: minData,
             maxData: maxData,
@@ -1127,8 +1131,12 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                         selectedIndex: selIdx,
                         onSelectedIndexChanged: (idx) =>
                             _onChartSelectionChanged(chartKey, idx),
-                        thresholdMin: thresholds['min'],
-                        thresholdMax: thresholds['max'],
+                        thresholdMin: chartKey == 'waterlevel'
+                            ? null
+                            : thresholds['min'],
+                        thresholdMax: chartKey == 'waterlevel'
+                            ? null
+                            : thresholds['max'],
                         decimalPlaces: dp,
                         // Start on the newest point in the selected range.
                         initialScrollToEnd: true,
@@ -1249,6 +1257,12 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
   Map<String, double> _thresholdsFor(String key) {
     final range = SettingsService.instance.currentRanges[key];
+    if (key == 'waterlevel') {
+      return {
+        'low': range?['low'] ?? 15.0,
+        'critical': range?['critical'] ?? 10.0,
+      };
+    }
     if (range != null) return range;
     return {'min': 0.0, 'max': 999.0};
   }
@@ -1261,12 +1275,33 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   List<_CriticalItem> _criticalItemsFor({
+    required String chartKey,
     required List<String> labels,
     required List<double> minData,
     required List<double> maxData,
     required Map<String, double> thresholds,
   }) {
     final items = <_CriticalItem>[];
+    if (chartKey == 'waterlevel') {
+      final lowThreshold = thresholds['low'] ?? 15.0;
+      final criticalThreshold = thresholds['critical'] ?? 10.0;
+      final length = max(minData.length, maxData.length);
+      for (int i = 0; i < length; i++) {
+        final value = i < minData.length && !minData[i].isNaN
+            ? minData[i]
+            : (i < maxData.length ? maxData[i] : double.nan);
+        if (!value.isNaN && value <= lowThreshold) {
+          items.add(
+            _CriticalItem(
+              value: value,
+              label: i < labels.length ? labels[i] : '',
+              isAboveMax: value <= criticalThreshold,
+            ),
+          );
+        }
+      }
+      return items;
+    }
     final minThreshold = thresholds['min'] ?? double.negativeInfinity;
     final maxThreshold = thresholds['max'] ?? double.infinity;
     final length = max(minData.length, maxData.length);
@@ -1310,6 +1345,23 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       if (valid.isNotEmpty) {
         avg = valid.reduce((a, b) => a + b) / valid.length;
       }
+    }
+
+    if (chartKey == 'waterlevel') {
+      return Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: AppColors.primaryWith(0.04),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppColors.darkWith(0.06)),
+        ),
+        child: _buildStatRow(
+          Icons.water_drop_outlined,
+          'Average: ${avg.toStringAsFixed(dp)} cm',
+          'Selected period',
+          AppColors.primary,
+        ),
+      );
     }
 
     return Container(
@@ -1376,7 +1428,9 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                 Flexible(
                   child: Text(
                     criticalCount > 0
-                        ? '$criticalCount critical point${criticalCount > 1 ? 's' : ''}'
+                        ? chartKey == 'waterlevel'
+                              ? '$criticalCount low/critical reading${criticalCount > 1 ? 's' : ''}'
+                              : '$criticalCount critical point${criticalCount > 1 ? 's' : ''}'
                         : 'No critical points',
                     maxLines: 1,
                     style: TextStyle(
@@ -1506,6 +1560,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
             final thresholds = _thresholdsFor(chartKey);
             final criticalItems = _showCritical
                 ? _criticalItemsFor(
+                    chartKey: chartKey,
                     labels: labels,
                     minData: minData,
                     maxData: maxData,
@@ -1551,7 +1606,9 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                               ),
                             Text(
                               modalShowCritical
-                                  ? 'Critical Points'
+                                  ? chartKey == 'waterlevel'
+                                        ? 'Low/Critical Readings'
+                                        : 'Critical Points'
                                   : '$title ($unit)',
                               style: const TextStyle(
                                 fontSize: 14,
@@ -1593,111 +1650,129 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                         ),
                         const SizedBox(height: 10),
                         if (modalShowCritical)
-                          _buildModalCriticalList(criticalItems, unit, dp: dp)
+                          _buildModalCriticalList(
+                            criticalItems,
+                            unit,
+                            chartKey: chartKey,
+                            dp: dp,
+                          )
                         else ...[
                           if (_activeFilter != 'live')
                             Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 8,
-                            ),
-                            decoration: BoxDecoration(
-                              color: AppColors.primaryWith(0.04),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Column(
-                              children: [
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: GestureDetector(
-                                        onTap: minIdx >= 0
-                                            ? () => setDialogState(
-                                                () =>
-                                                    modalSelectedIndex = minIdx,
-                                              )
-                                            : null,
-                                        child: _buildStatRow(
-                                          Icons.arrow_downward,
-                                          'Min: $mn $unit',
-                                          minLabel,
-                                          AppColors.success,
-                                        ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.primaryWith(0.04),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Column(
+                                children: [
+                                  if (chartKey == 'waterlevel')
+                                    Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: _buildStatRow(
+                                        Icons.water_drop_outlined,
+                                        'Average: ${avg.toStringAsFixed(dp)} cm',
+                                        modalDisplayLabel,
+                                        AppColors.primary,
                                       ),
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Expanded(
-                                      child: GestureDetector(
-                                        onTap: maxIdx >= 0
-                                            ? () => setDialogState(
-                                                () =>
-                                                    modalSelectedIndex = maxIdx,
-                                              )
-                                            : null,
-                                        child: _buildStatRow(
-                                          Icons.arrow_upward,
-                                          'Max: $mx $unit',
-                                          maxLabel,
-                                          AppColors.warning,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Expanded(
-                                      child: GestureDetector(
-                                        onTap: nowIdx >= 0
-                                            ? () => setDialogState(
-                                                () =>
-                                                    modalSelectedIndex = nowIdx,
-                                              )
-                                            : null,
-                                        child: _buildStatRow(
-                                          Icons.sensors,
-                                          'Avg: ${avg.toStringAsFixed(dp)} $unit',
-                                          modalDisplayLabel,
-                                          AppColors.primary,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                if (_showCritical) ...[
-                                  const SizedBox(height: 6),
-                                  GestureDetector(
-                                    onTap: criticalCount > 0
-                                        ? () => setDialogState(
-                                            () => modalShowCritical = true,
-                                          )
-                                        : null,
-                                    child: Row(
+                                    )
+                                  else
+                                    Row(
                                       children: [
-                                        Icon(
-                                          Icons.warning_amber_rounded,
-                                          size: 11,
-                                          color: criticalCount > 0
-                                              ? AppColors.critical
-                                              : AppColors.success,
+                                        Expanded(
+                                          child: GestureDetector(
+                                            onTap: minIdx >= 0
+                                                ? () => setDialogState(
+                                                    () => modalSelectedIndex =
+                                                        minIdx,
+                                                  )
+                                                : null,
+                                            child: _buildStatRow(
+                                              Icons.arrow_downward,
+                                              'Min: $mn $unit',
+                                              minLabel,
+                                              AppColors.success,
+                                            ),
+                                          ),
                                         ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          criticalCount > 0
-                                              ? '$criticalCount critical point${criticalCount > 1 ? 's' : ''}  ›'
-                                              : 'No critical points',
-                                          style: TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w600,
-                                            color: criticalCount > 0
-                                                ? AppColors.critical
-                                                : AppColors.success,
+                                        const SizedBox(width: 6),
+                                        Expanded(
+                                          child: GestureDetector(
+                                            onTap: maxIdx >= 0
+                                                ? () => setDialogState(
+                                                    () => modalSelectedIndex =
+                                                        maxIdx,
+                                                  )
+                                                : null,
+                                            child: _buildStatRow(
+                                              Icons.arrow_upward,
+                                              'Max: $mx $unit',
+                                              maxLabel,
+                                              AppColors.warning,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Expanded(
+                                          child: GestureDetector(
+                                            onTap: nowIdx >= 0
+                                                ? () => setDialogState(
+                                                    () => modalSelectedIndex =
+                                                        nowIdx,
+                                                  )
+                                                : null,
+                                            child: _buildStatRow(
+                                              Icons.sensors,
+                                              'Avg: ${avg.toStringAsFixed(dp)} $unit',
+                                              modalDisplayLabel,
+                                              AppColors.primary,
+                                            ),
                                           ),
                                         ),
                                       ],
                                     ),
-                                  ),
+                                  if (_showCritical) ...[
+                                    const SizedBox(height: 6),
+                                    GestureDetector(
+                                      onTap: criticalCount > 0
+                                          ? () => setDialogState(
+                                              () => modalShowCritical = true,
+                                            )
+                                          : null,
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            Icons.warning_amber_rounded,
+                                            size: 11,
+                                            color: criticalCount > 0
+                                                ? AppColors.critical
+                                                : AppColors.success,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            criticalCount > 0
+                                                ? chartKey == 'waterlevel'
+                                                      ? '$criticalCount low/critical reading${criticalCount > 1 ? 's' : ''}  ›'
+                                                      : '$criticalCount critical point${criticalCount > 1 ? 's' : ''}  ›'
+                                                : 'No critical points',
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.w600,
+                                              color: criticalCount > 0
+                                                  ? AppColors.critical
+                                                  : AppColors.success,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
                                 ],
-                              ],
+                              ),
                             ),
-                          ),
                           const SizedBox(height: 12),
                           if (hasValid && labels.isNotEmpty)
                             Container(
@@ -1718,8 +1793,12 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                                 onSelectedIndexChanged: (idx) => setDialogState(
                                   () => modalSelectedIndex = idx,
                                 ),
-                                thresholdMin: thresholds['min'],
-                                thresholdMax: thresholds['max'],
+                                thresholdMin: chartKey == 'waterlevel'
+                                    ? null
+                                    : thresholds['min'],
+                                thresholdMax: chartKey == 'waterlevel'
+                                    ? null
+                                    : thresholds['max'],
                                 decimalPlaces: dp,
                                 // Expanded chart follows the same oldest → newest flow.
                                 initialScrollToEnd: true,
@@ -1779,6 +1858,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   Widget _buildModalCriticalList(
     List<_CriticalItem> items,
     String unit, {
+    required String chartKey,
     int dp = 1,
   }) {
     return Container(
@@ -1801,7 +1881,9 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
               ),
               const SizedBox(width: 4),
               Text(
-                'Critical Points (${items.length})',
+                chartKey == 'waterlevel'
+                    ? 'Low/Critical Readings (${items.length})'
+                    : 'Critical Points (${items.length})',
                 style: const TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.w700,

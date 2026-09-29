@@ -38,19 +38,23 @@ service cloud.firestore {
         myProfile().get('status', 'active') == 'active';
     }
     function isSafeThreshold(sensorName) {
-      let min = request.resource.data.min_value;
-      let max = request.resource.data.max_value;
+      let min = request.resource.data.get('min_value', -1);
+      let max = request.resource.data.get('max_value', -1);
       let validNumbers = (min is number) && (max is number) && (min < max);
       let tempOk = sensorName == 'temperature' && min >= 10.0 && min <= 32.0 && max >= 15.0 && max <= 38.0;
       let phOk = sensorName == 'ph_level' && min >= 4.0 && min <= 7.5 && max >= 6.5 && max <= 10.0;
       let doOk = sensorName == 'dissolved_oxygen' && min >= 1.0 && min <= 8.0 && max >= 3.0 && max <= 15.0;
         let turbOk = sensorName == 'turbidity' && min >= 0.0 && min <= 100.0 && max >= 5.0 && max <= 1000.0;
-        let waterOk = sensorName == 'water_level' && min >= 0.0 && min <= 95.0 && max >= 5.0 && max <= 100.0;
+        let waterLow = request.resource.data.get('low_value', -1);
+        let waterCritical = request.resource.data.get('critical_value', -1);
+        let waterOk = sensorName == 'water_level' &&
+          waterLow is number && waterCritical is number &&
+          waterCritical >= 0.0 && waterCritical < waterLow && waterLow <= 95.0;
         let feedCritical = request.resource.data.get('critical_value', -1);
         let feedOk = sensorName == 'feed_level' &&
           min >= 1.0 && min <= 50.0 && max == 100.0 &&
           feedCritical is number && feedCritical >= 0.0 && feedCritical < min;
-        return validNumbers && (tempOk || phOk || doOk || turbOk || waterOk || feedOk);
+      return waterOk || (validNumbers && (tempOk || phOk || doOk || turbOk || feedOk));
     }
     function isEspSession() {
       return isSignedIn() &&
@@ -121,7 +125,7 @@ service cloud.firestore {
           'turbidity_min', 'turbidity_max', 'turbidity_avg',
           'DO_min', 'DO_max', 'DO_avg',
           'pH_min', 'pH_max', 'pH_avg',
-          'waterLevel_min', 'waterLevel_max', 'waterLevel_avg', 'feed_level'
+          'water_level', 'feed_level'
         ]) &&
         validOptionalSensorNumber('temp_min', -10.0, 60.0) &&
         validOptionalSensorNumber('temp_max', -10.0, 60.0) &&
@@ -135,9 +139,7 @@ service cloud.firestore {
         validOptionalSensorNumber('pH_min', 0.0, 14.0) &&
         validOptionalSensorNumber('pH_max', 0.0, 14.0) &&
         validOptionalSensorNumber('pH_avg', 0.0, 14.0) &&
-        validOptionalSensorNumber('waterLevel_min', 0.0, 500.0) &&
-        validOptionalSensorNumber('waterLevel_max', 0.0, 500.0) &&
-        validOptionalSensorNumber('waterLevel_avg', 0.0, 500.0) &&
+        validOptionalSensorNumber('water_level', 0.0, 500.0) &&
         validOptionalSensorNumber('feed_level', 0.0, 100.0);
     }
     function newerSensorReading() {

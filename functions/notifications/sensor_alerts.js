@@ -33,6 +33,17 @@ function stateForSensor(sensorName, value, range) {
   if (value === null || !range) return {state: "unknown"};
   const min = finiteNumber(range.min);
   const max = finiteNumber(range.max);
+  if (sensorName === "water_level") {
+    const critical = finiteNumber(range.critical);
+    const low = finiteNumber(range.low);
+    if (critical === null || low === null || critical < 0 || critical >= low) {
+      return {state: "unknown"};
+    }
+    if (value === 0) return {state: "critical", dir: "empty", threshold: 0};
+    if (value <= critical) return {state: "critical", dir: "low", threshold: critical};
+    if (value <= low) return {state: "warning", dir: "low", threshold: low};
+    return {state: "normal"};
+  }
   if (sensorName === "feed_level") {
     const critical = finiteNumber(range.critical);
     if (min === null || critical === null || critical < 0 ||

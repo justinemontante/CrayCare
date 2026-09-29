@@ -3,7 +3,7 @@ const Map<String, Map<String, double>> defaultRanges = {
   'ph': {'min': 7.0, 'max': 8.5},
   'do': {'min': 5.0, 'max': 9.0},
   'turb': {'min': 0.0, 'max': 25.0},
-  'waterlevel': {'min': 15.0, 'max': 20.0},
+  'waterlevel': {'low': 15.0, 'critical': 10.0},
   'feedlevel': {'min': 20.0, 'max': 100.0, 'critical': 10.0},
 };
 

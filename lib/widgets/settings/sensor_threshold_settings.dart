@@ -25,14 +25,8 @@ class _SensorMeta {
 }
 
 class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
-  final List<String> sensors = const [
-    'temp',
-    'ph',
-    'do',
-    'turb',
-    'waterlevel',
-    'feedlevel',
-  ];
+  static const List<String> _waterQualitySensors = ['temp', 'ph', 'do', 'turb'];
+  static const List<String> _physicalSensors = ['waterlevel', 'feedlevel'];
 
   final Map<String, _SensorMeta> sensorMeta = const {
     'temp': _SensorMeta(
@@ -86,12 +80,7 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
     'ph': {'minLow': 4.0, 'minHigh': 7.5, 'maxLow': 6.5, 'maxHigh': 10.0},
     'do': {'minLow': 1.0, 'minHigh': 8.0, 'maxLow': 3.0, 'maxHigh': 15.0},
     'turb': {'minLow': 0.0, 'minHigh': 100.0, 'maxLow': 5.0, 'maxHigh': 1000.0},
-    'waterlevel': {
-      'minLow': 0.0,
-      'minHigh': 95.0,
-      'maxLow': 5.0,
-      'maxHigh': 100.0,
-    },
+    'waterlevel': {'criticalLow': 0.0, 'lowHigh': 95.0},
     'feedlevel': {
       'minLow': 1.0,
       'minHigh': 50.0,
@@ -118,6 +107,20 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
       if (changedKey != null && key != changedKey) continue;
       final bounds = _safeBounds[key];
       if (bounds == null) continue;
+      if (key == 'waterlevel') {
+        final critical = entry.value['critical'];
+        final low = entry.value['low'];
+        if (critical == null ||
+            low == null ||
+            !critical.isFinite ||
+            !low.isFinite ||
+            critical < bounds['criticalLow']! ||
+            critical >= low ||
+            low > bounds['lowHigh']!) {
+          return 'Water Level: use Critical < Low ≤ ${bounds['lowHigh']!.toStringAsFixed(0)} cm.';
+        }
+        continue;
+      }
       final min = entry.value['min'];
       final max = entry.value['max'];
       if (min == null || max == null) continue;
@@ -310,6 +313,9 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
     double currentMin,
     double currentMax,
   ) {
+    if (sensorKey == 'waterlevel') {
+      return _showWaterLevelEditor();
+    }
     if (sensorKey == 'feedlevel') {
       return _showFeedLevelEditor();
     }
@@ -457,6 +463,125 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
     });
   }
 
+  Future<void> _showWaterLevelEditor() {
+    final config = SettingsService.instance.currentRanges['waterlevel']!;
+    final previousCritical = config['critical'] ?? 10.0;
+    final previousLow = config['low'] ?? 15.0;
+    final criticalCtrl = TextEditingController(
+      text: previousCritical.toStringAsFixed(0),
+    );
+    final lowCtrl = TextEditingController(text: previousLow.toStringAsFixed(0));
+    return showDialog<({double critical, double low})>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+        title: const Text(
+          'Water Level',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Set low and critical levels to know when the tank needs a manual refill.',
+              style: TextStyle(
+                fontSize: 11,
+                height: 1.4,
+                color: AppColors.darkWith(0.55),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildModalField(
+                    'Critical at/below',
+                    criticalCtrl,
+                    'cm',
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _buildModalField('Low at/below', lowCtrl, 'cm'),
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.darkWith(0.4),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            ),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final critical = double.tryParse(criticalCtrl.text.trim());
+              final low = double.tryParse(lowCtrl.text.trim());
+              if (critical == null ||
+                  low == null ||
+                  !critical.isFinite ||
+                  !low.isFinite ||
+                  critical < 0 ||
+                  critical >= low ||
+                  low > 95) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Use Critical < Low ≤ 95 cm.')),
+                );
+                return;
+              }
+              _replaceEditorWithSuccess(
+                ctx,
+                'Water Level thresholds updated!',
+                (critical: critical, low: low),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            child: const Text(
+              'Update',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+          ),
+        ],
+      ),
+    ).then((result) async {
+      criticalCtrl.dispose();
+      lowCtrl.dispose();
+      if (result == null || !mounted) return;
+
+      await SettingsService.instance.updateWaterLevelConfig(
+        critical: result.critical,
+        low: result.low,
+      );
+      if (!mounted) return;
+      final saved = await _saveConfigToFirebase(
+        changedKey: 'waterlevel',
+        showMessage: false,
+      );
+      if (!saved) {
+        await SettingsService.instance.updateWaterLevelConfig(
+          critical: previousCritical,
+          low: previousLow,
+        );
+      }
+    });
+  }
+
   Future<void> _showFeedLevelEditor() {
     final config = SettingsService.instance.currentRanges['feedlevel']!;
     final previousCritical = config['critical'] ?? 10.0;
@@ -504,7 +629,14 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.darkWith(0.4),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            ),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+            ),
           ),
           ElevatedButton(
             onPressed: () {
@@ -532,8 +664,15 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
               backgroundColor: AppColors.primary,
               foregroundColor: Colors.white,
               elevation: 0,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
             ),
-            child: const Text('Update'),
+            child: const Text(
+              'Update',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
           ),
         ],
       ),
@@ -663,6 +802,8 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
                     Text(
                       sensorKey == 'feedlevel'
                           ? 'Critical ≤${(range['critical'] ?? 10).toStringAsFixed(0)}% • Low ≤${min.toStringAsFixed(0)}%'
+                          : sensorKey == 'waterlevel'
+                          ? 'Critical ≤${(range['critical'] ?? 10).toStringAsFixed(0)} • Low ≤${(range['low'] ?? 15).toStringAsFixed(0)}'
                           : '${min.toStringAsFixed(1)} – ${_formatMax(max)}',
                       style: const TextStyle(
                         fontSize: 10,
@@ -673,6 +814,8 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
                     Text(
                       sensorKey == 'feedlevel'
                           ? 'Measured in percent'
+                          : sensorKey == 'waterlevel'
+                          ? 'cm • Empty at 0 cm'
                           : info.unit,
                       style: TextStyle(
                         fontSize: 8,
@@ -699,6 +842,36 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildGroupHeader(String title, IconData icon, Color color) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(2, 6, 2, 8),
+      child: Row(
+        children: [
+          Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(9),
+            ),
+            child: Icon(icon, size: 15, color: color),
+          ),
+          const SizedBox(width: 9),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+              color: AppColors.dark,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(child: Divider(color: AppColors.dark.withValues(alpha: 0.1))),
+        ],
       ),
     );
   }
@@ -752,7 +925,21 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
           Expanded(
             child: ListView(
               padding: EdgeInsets.zero,
-              children: sensors.map((key) => _buildSensorRow(key)).toList(),
+              children: [
+                _buildGroupHeader(
+                  'Water Quality Parameters',
+                  Icons.water_drop_rounded,
+                  AppColors.primary,
+                ),
+                ..._waterQualitySensors.map(_buildSensorRow),
+                const SizedBox(height: 8),
+                _buildGroupHeader(
+                  'Physical Parameters',
+                  Icons.straighten_rounded,
+                  const Color(0xFF64748B),
+                ),
+                ..._physicalSensors.map(_buildSensorRow),
+              ],
             ),
           ),
         ],

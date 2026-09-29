@@ -228,6 +228,15 @@ class SensorService extends ChangeNotifier {
       return 'OPTIMAL';
     }
 
+    if (key == 'waterlevel') {
+      final critical = range['critical'] ?? 10.0;
+      final low = range['low'] ?? 15.0;
+      if (value <= 0) return 'EMPTY';
+      if (value <= critical) return 'CRITICAL';
+      if (value <= low) return 'WARNING';
+      return 'OPTIMAL';
+    }
+
     final min = range['min'] ?? 0.0;
     final max = range['max'] ?? 999.0;
 
@@ -641,7 +650,7 @@ class SensorService extends ChangeNotifier {
   }
 
   bool _hasUsableDailySummary(Map<String, dynamic> data) {
-    if (data['summary_version'] != 1 ||
+    if (data['summary_version'] != 2 ||
         data['summary_complete'] != true ||
         data['summary_sanitized'] != true) {
       return false;
@@ -651,7 +660,7 @@ class SensorService extends ChangeNotifier {
       'pH_avg',
       'DO_avg',
       'turbidity_avg',
-      'waterLevel_avg',
+      'water_level',
     ];
     return averageFields.any((field) => data[field] is num);
   }

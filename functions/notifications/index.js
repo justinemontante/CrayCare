@@ -182,7 +182,7 @@ function normalizeSensorReading(raw) {
     ph_level: raw.ph_level ?? raw.phLevel ?? null,
     dissolved_oxygen: raw.dissolved_oxygen ?? raw.dissolvedOxygen ?? null,
     turbidity: raw.turbidity ?? null,
-    water_level: raw.water_level ?? raw.waterLevelPercent ?? raw.waterLevel ?? null,
+    water_level: raw.water_level ?? raw.waterLevel ?? raw.waterLevel_avg ?? raw.waterLevelPercent ?? null,
     feed_level: raw.feed_level ?? raw.feedLevel ?? null,
     turbidity_air: raw.turbidity_air ?? raw.turbidityAir ?? null,
     temp_min: raw.temp_min ?? null,
@@ -197,9 +197,6 @@ function normalizeSensorReading(raw) {
     turbidity_min: raw.turbidity_min ?? null,
     turbidity_max: raw.turbidity_max ?? null,
     turbidity_avg: raw.turbidity_avg ?? null,
-    waterLevel_min: raw.waterLevel_min ?? null,
-    waterLevel_max: raw.waterLevel_max ?? null,
-    waterLevel_avg: raw.waterLevel_avg ?? null,
     recorded_at: (() => {
       const capMs = Number(raw.captured_at_ms);
       return Number.isFinite(capMs) && capMs > TRUSTED_EPOCH_MS
@@ -228,6 +225,18 @@ function sensorMessage(change) {
       return `Feed level is critically low at ${change.val.toFixed(0)}%. Refill the feeder soon.`;
     }
     return `Feed level is low at ${change.val.toFixed(0)}%. Consider refilling soon.`;
+  }
+  if (change.svcKey === "waterlevel") {
+    if (change.state === "resolved") {
+      return `Water level is back above the low threshold (${change.val.toFixed(1)} cm)`;
+    }
+    if (change.dir === "empty") {
+      return "Water level is empty. Add water manually.";
+    }
+    if (change.state === "critical") {
+      return `Water level is critically low at ${change.val.toFixed(1)} cm. Add water manually soon.`;
+    }
+    return `Water level is low at ${change.val.toFixed(1)} cm. Consider adding water.`;
   }
   if (change.state === "resolved") {
     return `${label} is back to normal (${change.val.toFixed(1)}${suffix})`;
@@ -418,6 +427,7 @@ exports.onSensorUpdate = functions.runWith({failurePolicy: true}).region("asia-s
         thresholds[doc.id] = {
           min: data.min_value,
           max: data.max_value,
+          low: data.low_value ?? data.min_value,
           critical: data.critical_value,
         };
       });
@@ -441,6 +451,7 @@ exports.onSensorThresholdUpdate = functions.runWith({failurePolicy: true}).regio
       if (
         before.min_value === after.min_value &&
         before.max_value === after.max_value &&
+        before.low_value === after.low_value &&
         before.critical_value === after.critical_value
       ) {
         return null;
@@ -461,10 +472,12 @@ exports.onSensorThresholdUpdate = functions.runWith({failurePolicy: true}).regio
       const stateChanges = thresholdStateChanges(sensorName, latestSnap.data(), {
         min: before.min_value,
         max: before.max_value,
+        low: before.low_value ?? before.min_value,
         critical: before.critical_value,
       }, {
         min: after.min_value,
         max: after.max_value,
+        low: after.low_value ?? after.min_value,
         critical: after.critical_value,
       });
       await notifySensorChanges(ownerUid, stateChanges,

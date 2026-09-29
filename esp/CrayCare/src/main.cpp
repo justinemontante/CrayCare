@@ -737,8 +737,8 @@ float doCriticalHigh = 9.0;
 float phCriticalLow = 7.0;
 float phCriticalHigh = 8.5;
 
-float waterLevelCriticalLow = 15.0;
-float waterLevelCriticalHigh = 20.0;
+float waterLevelLowThreshold = 15.0;
+float waterLevelCriticalThreshold = 10.0;
 
 float feedLevelLowThreshold = 20.0f;
 float feedLevelCriticalThreshold = 10.0f;
@@ -816,15 +816,12 @@ float winDOSum = 0.0f; uint16_t winDON = 0;
 float winDOMin = 0.0f; float winDOMax = 0.0f;
 float winPHSum = 0.0f; uint16_t winPHN = 0;
 float winPHMin = 0.0f; float winPHMax = 0.0f;
-float winWaterSum = 0.0f; uint16_t winWaterN = 0;
-float winWaterMin = 0.0f; float winWaterMax = 0.0f;
 
 void resetWindowAggregates() {
   winTempSum = 0.0f; winTempN = 0; winTempMin = 0.0f; winTempMax = 0.0f;
   winTurbSum = 0.0f; winTurbN = 0; winTurbMin = 0.0f; winTurbMax = 0.0f;
   winDOSum = 0.0f; winDON = 0; winDOMin = 0.0f; winDOMax = 0.0f;
   winPHSum = 0.0f; winPHN = 0; winPHMin = 0.0f; winPHMax = 0.0f;
-  winWaterSum = 0.0f; winWaterN = 0; winWaterMin = 0.0f; winWaterMax = 0.0f;
 }
 
 // Accumulate one accepted reading into the 10-min window aggregates.
@@ -1367,6 +1364,39 @@ bool syncFeedLevelConfig() {
   return true;
 }
 
+bool syncWaterLevelConfig() {
+  String path = String("tanks/") + currentTankId + "/sensors/water_level";
+  if (!firestoreGetDoc(path.c_str())) return false;
+  FirebaseJson doc;
+  doc.setJsonData(fbdo.payload());
+  float low = waterLevelLowThreshold;
+  float critical = waterLevelCriticalThreshold;
+  bool gotLow = readConfigFloatPath(
+    doc, "fields/low_value/doubleValue", low, 1.0f, 95.0f);
+  bool gotCritical = readConfigFloatPath(
+    doc, "fields/critical_value/doubleValue", critical, 0.0f, 94.0f);
+  // Read legacy threshold documents until owners save the new Low/Critical UI.
+  if (!gotLow) {
+    gotLow = readConfigFloatPath(
+      doc, "fields/min_value/doubleValue", low, 1.0f, 95.0f);
+  }
+  if (!gotCritical && gotLow) {
+    float legacyMax = low + 5.0f;
+    if (readConfigFloatPath(
+          doc, "fields/max_value/doubleValue", legacyMax, 5.0f, 100.0f)) {
+      critical = max(0.0f, low - 5.0f);
+      gotCritical = true;
+    }
+  }
+  if (!gotLow || !gotCritical || critical >= low) {
+    Serial.println("[CONFIG] Invalid water-level thresholds; retaining previous values.");
+    return false;
+  }
+  waterLevelLowThreshold = low;
+  waterLevelCriticalThreshold = critical;
+  return true;
+}
+
 // Thresholds are owned by the currently assigned tank. The tank ID is a
 // cached credential refreshed by the assignment block in loop(), never here.
 void syncConfigFromFirebase() {
@@ -1381,17 +1411,17 @@ void syncConfigFromFirebase() {
   changed &= syncTankRange("turbidity",         turbNtuMin,            turbNtuMax,             0.0, 1000.0);
   changed &= syncTankRange("dissolved_oxygen",  doCriticalLow,         doCriticalHigh,          0.0,   30.0);
   changed &= syncTankRange("ph_level",          phCriticalLow,         phCriticalHigh,          0.0,   14.0);
-  changed &= syncTankRange("water_level",       waterLevelCriticalLow, waterLevelCriticalHigh,  0.0,  300.0);
+  changed &= syncWaterLevelConfig();
   changed &= syncFeedLevelConfig();
   // Keep a known-good same-tank configuration through temporary outages, but
   // require a complete fresh sync after startup or assignment changes.
   if (changed) feederConfigReady = true;
 
   if (changed) {
-    Serial.printf("[CONFIG] Tank %s | Temp %.1f-%.1f | Turb %.0f-%.0f | DO %.1f-%.1f | pH %.1f-%.1f | Water %.1f-%.1fcm\n",
+    Serial.printf("[CONFIG] Tank %s | Temp %.1f-%.1f | Turb %.0f-%.0f | DO %.1f-%.1f | pH %.1f-%.1f | Water critical <=%.1f, low <=%.1fcm\n",
                   currentTankId.c_str(), tempCriticalLow, tempCriticalHigh,
                   turbNtuMin, turbNtuMax, doCriticalLow, doCriticalHigh,
-                  phCriticalLow, phCriticalHigh, waterLevelCriticalLow, waterLevelCriticalHigh);
+                  phCriticalLow, phCriticalHigh, waterLevelCriticalThreshold, waterLevelLowThreshold);
     Serial.printf("[CONFIG] Feed low <%.0f%% | critical <=%.0f%%\n",
                   feedLevelLowThreshold, feedLevelCriticalThreshold);
   }
@@ -1533,10 +1563,8 @@ void buildFirestorePayload(FirebaseJson &json, bool includeTimestamp, time_t cap
     json.set("fields/pH_max/doubleValue", winPHMax);
     json.set("fields/pH_avg/doubleValue", winPHSum / (float)winPHN);
   }
-  if (ENABLE_WATER_LEVEL_SENSOR && winWaterN > 0) {
-    json.set("fields/waterLevel_min/doubleValue", winWaterMin);
-    json.set("fields/waterLevel_max/doubleValue", winWaterMax);
-    json.set("fields/waterLevel_avg/doubleValue", winWaterSum / (float)winWaterN);
+  if (ENABLE_WATER_LEVEL_SENSOR && waterLevelSensorOK) {
+    json.set("fields/water_level/doubleValue", waterLevelCm);
   }
   if (ENABLE_FEED_LEVEL_SENSOR && feedLevelSensorOK) {
     json.set("fields/feed_level/doubleValue", feedLevelPercent);
@@ -1900,7 +1928,6 @@ void readWaterLevelSensor() {
 
   waterLevelCm = constrain(depth, waterLevelCmMin, waterLevelCmMax);
   waterLevelSensorOK = true;
-  ACCUM_WINDOW(winWaterSum, winWaterN, winWaterMin, winWaterMax, waterLevelCm);
 }
 
 // Raw hopper echo in cm, or -1 on timeout. Quiet — callers decide logging.
@@ -4196,8 +4223,6 @@ bool actuatorAutoTarget(int idx) {
   if (strcmp(a.deviceId, "pump") == 0) {
     // Pump: circulate/refill when water level is critically low,
     // or keep water moving when temperature is high (heat stress).
-    if (ENABLE_WATER_LEVEL_SENSOR && waterLevelSensorOK &&
-        waterLevelCm < waterLevelCriticalLow) return true;
     if (tempSensorOK && smoothedTemp > tempCriticalHigh) return true;
     return false;
   }

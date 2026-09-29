@@ -43,7 +43,7 @@ async function seedHistory() {
       pH_min: 7.3, pH_max: 7.6, pH_avg: 7.45,
       DO_min: 5.8, DO_max: 6.4, DO_avg: 6.1,
       turbidity_min: 10, turbidity_max: 15, turbidity_avg: 12.5,
-      waterLevel_min: 17.5, waterLevel_max: 18.5, waterLevel_avg: 18.0,
+      water_level: 18.0,
       recorded_at: Timestamp.fromMillis(captured),
     });
   }

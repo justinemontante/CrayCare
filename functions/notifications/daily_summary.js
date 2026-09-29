@@ -4,14 +4,13 @@ const admin = require("firebase-admin");
 // main.js loads index.js first, so the shared Admin app is already initialized.
 const firestoreDb = admin.firestore();
 const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
-const SUMMARY_VERSION = 1;
+const SUMMARY_VERSION = 2;
 
 const DAILY_SENSORS = [
   { avg: "temp_avg", min: "temp_min", max: "temp_max", sum: "temp_sum", count: "temp_count" },
   { avg: "pH_avg", min: "pH_min", max: "pH_max", sum: "pH_sum", count: "pH_count" },
   { avg: "DO_avg", min: "DO_min", max: "DO_max", sum: "DO_sum", count: "DO_count" },
   { avg: "turbidity_avg", min: "turbidity_min", max: "turbidity_max", sum: "turbidity_sum", count: "turbidity_count" },
-  { avg: "waterLevel_avg", min: "waterLevel_min", max: "waterLevel_max", sum: "waterLevel_sum", count: "waterLevel_count" },
 ];
 
 function finiteNumber(value) {
@@ -62,6 +61,9 @@ function addReadingToSummary(current, reading, entryId, dateKey) {
     sample_count: currentSampleCount + 1,
     processed_entry_ids: [...processed, entryId],
     updated_at: admin.firestore.FieldValue.serverTimestamp(),
+    waterLevel_min: admin.firestore.FieldValue.delete(),
+    waterLevel_max: admin.firestore.FieldValue.delete(),
+    waterLevel_avg: admin.firestore.FieldValue.delete(),
   };
 
   for (const sensor of DAILY_SENSORS) {
@@ -84,6 +86,17 @@ function addReadingToSummary(current, reading, entryId, dateKey) {
     update[sensor.max] = oldMax === null ? entryMax : Math.max(oldMax, entryMax);
   }
 
+  const waterLevel = finiteSensorNumber(reading.water_level ?? reading.waterLevel_avg);
+  if (waterLevel !== null) {
+    const oldSum = finiteNumber(current.waterLevel_sum) || 0;
+    const oldCount = finiteNumber(current.waterLevel_count) || 0;
+    const nextSum = oldSum + waterLevel;
+    const nextCount = oldCount + 1;
+    update.waterLevel_sum = nextSum;
+    update.waterLevel_count = nextCount;
+    update.water_level = nextSum / nextCount;
+  }
+
   return update;
 }
 
@@ -96,6 +109,9 @@ function buildCompleteSummary(entryDocs, dateKey) {
     sample_count: entryDocs.length,
     processed_entry_ids: entryDocs.map((doc) => doc.id),
     updated_at: admin.firestore.FieldValue.serverTimestamp(),
+    waterLevel_min: admin.firestore.FieldValue.delete(),
+    waterLevel_max: admin.firestore.FieldValue.delete(),
+    waterLevel_avg: admin.firestore.FieldValue.delete(),
   };
 
   for (const sensor of DAILY_SENSORS) {
@@ -124,6 +140,21 @@ function buildCompleteSummary(entryDocs, dateKey) {
       summary[sensor.min] = minValue;
       summary[sensor.max] = maxValue;
     }
+  }
+
+  let waterSum = 0;
+  let waterCount = 0;
+  for (const doc of entryDocs) {
+    const reading = doc.data() || {};
+    const value = finiteSensorNumber(reading.water_level ?? reading.waterLevel_avg);
+    if (value === null) continue;
+    waterSum += value;
+    waterCount++;
+  }
+  if (waterCount > 0) {
+    summary.waterLevel_sum = waterSum;
+    summary.waterLevel_count = waterCount;
+    summary.water_level = waterSum / waterCount;
   }
 
   return summary;
