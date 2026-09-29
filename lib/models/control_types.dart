@@ -7,7 +7,10 @@ const defaultFeederGrams = 20.0;
 /// grams 1-200 map 1:1 to gate swings. Never silently round a dose up.
 String? validateFeederGrams(double? grams) {
   final amount = grams ?? defaultFeederGrams;
-  if (!amount.isFinite || amount < 1 || amount > 200 || amount != amount.roundToDouble()) {
+  if (!amount.isFinite ||
+      amount < 1 ||
+      amount > 200 ||
+      amount != amount.roundToDouble()) {
     return 'Use 1–200 g in whole grams (1 swing per gram).';
   }
   return null;
@@ -24,9 +27,8 @@ String feederPreflightIssue({
   required Map<String, double> values,
   required Set<String> freshSensors,
   required Map<String, Map<String, double>> ranges,
-  required double? availableGrams,
   double? grams,
-  bool allowTurbidityConfirmation = false,
+  bool allowWaterQualityOverride = false,
 }) {
   final doseError = validateFeederGrams(grams);
   if (doseError != null) return doseError;
@@ -34,13 +36,14 @@ String feederPreflightIssue({
   if (busy) return 'A feeding request is already in progress';
   if (!feederOnline) return 'Feeder is offline';
   if (!schedulesLoaded) return 'Waiting for feeding schedules';
-  if (turbidityAir && !allowTurbidityConfirmation) {
+  if (turbidityAir) {
     return 'Turbidity sensor is in air';
   }
   for (final entry in const {
     'temp': 'temperature',
     'do': 'dissolved oxygen',
     'ph': 'pH',
+    'turb': 'turbidity',
     'feedlevel': 'feed-level',
   }.entries) {
     final value = values[entry.key];
@@ -51,44 +54,30 @@ String feederPreflightIssue({
       return 'Waiting for fresh ${entry.value} data';
     }
   }
-  if (!allowTurbidityConfirmation) {
-    final value = values['turb'];
-    if (!freshSensors.contains('turb') ||
-        value == null ||
-        !value.isFinite ||
-        value < 0) {
-      return 'Waiting for fresh turbidity data';
+  if (!allowWaterQualityOverride) {
+    final temp = values['temp']!;
+    if (temp < (ranges['temp']?['min'] ?? 0) ||
+        temp > (ranges['temp']?['max'] ?? 50)) {
+      return 'Temperature outside range (${temp.toStringAsFixed(1)}°C)';
+    }
+    final oxygen = values['do']!;
+    if (oxygen < (ranges['do']?['min'] ?? 0)) {
+      return 'Dissolved oxygen too low (${oxygen.toStringAsFixed(1)} mg/L)';
+    }
+    final ph = values['ph']!;
+    if (ph < (ranges['ph']?['min'] ?? 0) || ph > (ranges['ph']?['max'] ?? 14)) {
+      return 'pH outside range (${ph.toStringAsFixed(2)})';
+    }
+    final turbidity = values['turb']!;
+    if (turbidity > (ranges['turb']?['max'] ?? 999)) {
+      return 'Turbidity too high (${turbidity.toStringAsFixed(0)} NTU)';
     }
   }
-  final temp = values['temp']!;
-  if (temp < (ranges['temp']?['min'] ?? 0) ||
-      temp > (ranges['temp']?['max'] ?? 50)) {
-    return 'Temperature outside range (${temp.toStringAsFixed(1)}°C)';
-  }
-  final oxygen = values['do']!;
-  if (oxygen < (ranges['do']?['min'] ?? 0)) {
-    return 'Dissolved oxygen too low (${oxygen.toStringAsFixed(1)} mg/L)';
-  }
-  final ph = values['ph']!;
-  if (ph < (ranges['ph']?['min'] ?? 0) || ph > (ranges['ph']?['max'] ?? 14)) {
-    return 'pH outside range (${ph.toStringAsFixed(2)})';
-  }
-  final turbidity = values['turb']!;
-  if (!allowTurbidityConfirmation &&
-      turbidity > (ranges['turb']?['max'] ?? 999)) {
-    return 'Turbidity too high (${turbidity.toStringAsFixed(0)} NTU)';
-  }
   if (values['feedlevel']! > 100) return 'Waiting for valid feed-level data';
-  if (values['feedlevel']! <= 0) return 'Hopper is empty';
-  if (availableGrams == null ||
-      !availableGrams.isFinite ||
-      availableGrams < 0) {
-    return 'Waiting for an estimated feed amount';
-  }
-  final requiredGrams = grams ?? defaultFeederGrams;
-  if (availableGrams + 0.5 < requiredGrams) {
-    return 'Insufficient feed: ~${availableGrams.toStringAsFixed(0)} g available, '
-        '${requiredGrams.toStringAsFixed(0)} g required.';
+  final feedLevel = values['feedlevel']!;
+  final criticalFeedLevel = ranges['feedlevel']?['critical'] ?? 10.0;
+  if (feedLevel <= criticalFeedLevel) {
+    return 'Feed level is critical (${feedLevel.toStringAsFixed(0)}%). Refill the hopper before feeding.';
   }
   return '';
 }
@@ -157,7 +146,7 @@ String? feederOutcomeOnDate(ScheduleItem schedule, DateTime date) {
   }
   return switch (schedule.lastOutcome) {
     'completed' => 'completed',
-    'blocked' => 'skipped',
+    'blocked' || 'skipped_insufficient' => 'skipped',
     'failed' => 'failed',
     _ => null,
   };
@@ -191,7 +180,7 @@ String? feederRecordedOutcome(
     }
     final outcome = switch (log.status) {
       'completed' => 'completed',
-      'blocked' => 'skipped',
+      'blocked' || 'skipped_insufficient' => 'skipped',
       'failed' => 'failed',
       _ => null,
     };
@@ -436,7 +425,6 @@ class LogEntry {
   final double? requestedGrams;
   final double? estimatedDispensedGrams;
   final int? occurrenceTimestamp;
-  final double? estimatedAvailableGrams;
   final double? feedLevelBefore;
   final double? feedLevelAfter;
   final bool? levelChangeDetected;
@@ -454,7 +442,6 @@ class LogEntry {
     this.requestedGrams,
     this.estimatedDispensedGrams,
     this.occurrenceTimestamp,
-    this.estimatedAvailableGrams,
     this.feedLevelBefore,
     this.feedLevelAfter,
     this.levelChangeDetected,

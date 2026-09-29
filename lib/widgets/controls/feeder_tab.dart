@@ -15,6 +15,8 @@ class FeederTab extends StatelessWidget {
   final TextEditingController timeCtl;
   final VoidCallback onFeedNow;
   final Future<bool> Function(double? grams, String days) onAddSchedule;
+  final bool allowHighTurbiditySchedules;
+  final Future<void> Function(bool enabled) onSetAllowHighTurbiditySchedules;
   final void Function(int index) onDeleteSchedule;
   final Future<bool> Function(int index, ScheduleItem item) onEditSchedule;
   final void Function(int index, bool enabled) onToggleSchedule;
@@ -27,8 +29,6 @@ class FeederTab extends StatelessWidget {
   final bool canFeed;
   final String feedBlockedReason;
   final double? feedLevelPercent;
-  final double? estimatedFeedGrams;
-  final double consumptionTodayGrams;
   final int completedFeedingsToday;
 
   const FeederTab({
@@ -37,6 +37,8 @@ class FeederTab extends StatelessWidget {
     required this.timeCtl,
     required this.onFeedNow,
     required this.onAddSchedule,
+    this.allowHighTurbiditySchedules = false,
+    required this.onSetAllowHighTurbiditySchedules,
     required this.onDeleteSchedule,
     required this.onEditSchedule,
     required this.onToggleSchedule,
@@ -48,8 +50,6 @@ class FeederTab extends StatelessWidget {
     this.canFeed = true,
     this.feedBlockedReason = '',
     this.feedLevelPercent,
-    this.estimatedFeedGrams,
-    this.consumptionTodayGrams = 0,
     this.completedFeedingsToday = 0,
   });
 
@@ -167,7 +167,7 @@ class FeederTab extends StatelessWidget {
                               'dispensing' => 'Dispensing',
                               'completed' => 'Completed',
                               'skipped_insufficient' =>
-                                'Skipped • Insufficient Feed',
+                                'Skipped • Critical Feed Level',
                               'blocked' => 'Feed Blocked',
                               'failed' => 'Feed Failed',
                               _ =>
@@ -183,7 +183,7 @@ class FeederTab extends StatelessWidget {
                               color:
                                   feederStatus == 'skipped_insufficient' ||
                                       feederStatus == 'blocked' ||
-                                       feederStatus == 'failed'
+                                      feederStatus == 'failed'
                                   ? AppColors.critical
                                   : hasEnabledSchedules
                                   ? AppColors.success
@@ -248,6 +248,43 @@ class FeederTab extends StatelessWidget {
                 ),
               ],
             ),
+            const SizedBox(height: 8),
+            Container(
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF8E8),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFF3D99A)),
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: CheckboxListTile.adaptive(
+                  value: allowHighTurbiditySchedules,
+                  onChanged: (value) {
+                    if (value != null) {
+                      onSetAllowHighTurbiditySchedules(value);
+                    }
+                  },
+                  activeColor: AppColors.primary,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 0,
+                  ),
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: const Text(
+                    'Allow all schedules during high turbidity',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.dark,
+                    ),
+                  ),
+                  subtitle: const Text(
+                    'Applies to every scheduled feeding. Sensor faults and other safety checks still block feeding.',
+                    style: TextStyle(fontSize: 9, height: 1.3),
+                  ),
+                ),
+              ),
+            ),
             if (schedules.isNotEmpty) ...[
               const SizedBox(height: 10),
               _buildSchedulePeriod(
@@ -308,42 +345,7 @@ class FeederTab extends StatelessWidget {
   }
 
   Widget _buildFeedInventorySummary() {
-    final now = _manilaNow();
-    final nextOccurrence = nextEnabledFeeding(schedules, now);
-    final nextGrams = nextOccurrence?.schedule.grams ?? defaultFeederGrams;
     final level = feedLevelPercent;
-    final available = estimatedFeedGrams;
-    final hasLevel = level != null && available != null;
-    final availableValue = available ?? 0.0;
-    final enoughForNext = hasLevel && availableValue + 0.5 >= nextGrams;
-    final tomorrow = now.add(const Duration(days: 1));
-    final endOfTomorrow = DateTime(
-      tomorrow.year,
-      tomorrow.month,
-      tomorrow.day,
-      23,
-      59,
-      59,
-    );
-    var requiredThroughTomorrow = 0.0;
-    for (var dayOffset = 0; dayOffset <= 1; dayOffset++) {
-      final day = DateTime(now.year, now.month, now.day + dayOffset);
-      for (final schedule in schedules) {
-        if (!feederScheduleRunsOnDate(schedule, day)) continue;
-        final minutes = feederScheduleMinutes(schedule);
-        final occurrence = DateTime(
-          day.year,
-          day.month,
-          day.day,
-          minutes ~/ 60,
-          minutes % 60,
-        );
-        if (!occurrence.isAfter(now) || occurrence.isAfter(endOfTomorrow)) {
-          continue;
-        }
-        requiredThroughTomorrow += schedule.grams ?? defaultFeederGrams;
-      }
-    }
 
     Color levelColor = AppColors.darkWith(0.35);
     String levelLabel = 'Waiting for sensor';
@@ -363,36 +365,29 @@ class FeederTab extends StatelessWidget {
       }
     }
 
-    String availabilityText;
-    Color availabilityColor;
-    IconData availabilityIcon;
-    if (!hasLevel) {
-      availabilityText = 'Feed availability is not available yet';
-      availabilityColor = AppColors.darkWith(0.45);
-      availabilityIcon = Icons.sensors_off_outlined;
-    } else if (nextOccurrence == null) {
-      availabilityText = 'No upcoming feeding to evaluate';
-      availabilityColor = AppColors.darkWith(0.5);
-      availabilityIcon = Icons.event_available_outlined;
-    } else if (enoughForNext &&
-        availableValue + 0.5 < requiredThroughTomorrow) {
-      final shortBy = requiredThroughTomorrow - availableValue;
-      availabilityText =
-          'Refill reminder: ~${availableValue.toStringAsFixed(0)}g available, ${requiredThroughTomorrow.toStringAsFixed(0)}g needed through tomorrow (short ${shortBy.toStringAsFixed(0)}g)';
-      availabilityColor = AppColors.warning;
-      availabilityIcon = Icons.inventory_outlined;
-    } else if (enoughForNext) {
-      availabilityText = level <= 10
-          ? 'Critical level, but feed can still proceed'
-          : 'Feed available for next feeding';
-      availabilityColor = level <= 10 ? AppColors.warning : AppColors.success;
-      availabilityIcon = Icons.check_circle_outline;
-    } else {
-      availabilityText =
-          'Insufficient: ~${availableValue.toStringAsFixed(0)}g available • ${nextGrams.toStringAsFixed(0)}g required';
-      availabilityColor = AppColors.critical;
-      availabilityIcon = Icons.error_outline_rounded;
-    }
+    final isCritical = level != null && level <= 10;
+    final isLow = level != null && level <= 20;
+    final availabilityText = level == null
+        ? 'Waiting for a feed-level sensor reading'
+        : isCritical
+        ? 'Critical feed level. Feeding is blocked until the hopper is refilled.'
+        : isLow
+        ? 'Feed level is low. Refill the hopper soon.'
+        : 'Feed level is within the configured operating range.';
+    final availabilityColor = level == null
+        ? AppColors.darkWith(0.45)
+        : isCritical
+        ? AppColors.critical
+        : isLow
+        ? AppColors.warning
+        : AppColors.success;
+    final availabilityIcon = level == null
+        ? Icons.sensors_off_outlined
+        : isCritical
+        ? Icons.error_outline_rounded
+        : isLow
+        ? Icons.inventory_outlined
+        : Icons.check_circle_outline;
 
     return Container(
       width: double.infinity,
@@ -418,10 +413,10 @@ class FeederTab extends StatelessWidget {
               Container(width: 1, height: 46, color: AppColors.darkWith(0.08)),
               Expanded(
                 child: _inventoryMetric(
-                  Icons.scale_outlined,
-                  'Consumption Today',
-                  '~${consumptionTodayGrams.toStringAsFixed(0)} g',
-                  '$completedFeedingsToday completed',
+                  Icons.checklist_rounded,
+                  'Completed Today',
+                  '$completedFeedingsToday',
+                  'feeding cycles',
                   AppColors.primary,
                 ),
               ),
@@ -1353,10 +1348,10 @@ class FeederTab extends StatelessWidget {
                                                   const SizedBox(height: 4),
                                                   Text(
                                                     [
-                                                      'Required ${l.requestedGrams!.toStringAsFixed(0)}g',
-                                                      if (l.estimatedAvailableGrams !=
+                                                      'Dose ${l.requestedGrams!.toStringAsFixed(0)}g',
+                                                      if (l.estimatedDispensedGrams !=
                                                           null)
-                                                        'Available ~${l.estimatedAvailableGrams!.toStringAsFixed(0)}g',
+                                                        'Est. dispensed ~${l.estimatedDispensedGrams!.toStringAsFixed(0)}g',
                                                       if (l.feedLevelBefore !=
                                                           null)
                                                         'Before ${l.feedLevelBefore!.toStringAsFixed(0)}%',
@@ -1490,299 +1485,308 @@ class FeederTab extends StatelessWidget {
                 20,
                 20 + MediaQuery.of(sheetCtx).viewInsets.bottom,
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 36,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade300,
-                        borderRadius: BorderRadius.circular(2),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 36,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade300,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    isEdit ? 'Edit Schedule' : 'Add Schedule',
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.dark,
+                    const SizedBox(height: 16),
+                    Text(
+                      isEdit ? 'Edit Schedule' : 'Add Schedule',
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.dark,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  // Time picker
-                  GestureDetector(
-                    onTap: () async {
-                      final picked = await showTimePicker(
-                        context: sheetCtx,
-                        initialTime: selectedTime,
-                      );
-                      if (picked != null) {
-                        setSheetState(() => selectedTime = picked);
-                      }
-                    },
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 16,
-                      ),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: AppColors.darkWith(0.15)),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            selectedTime.format(sheetCtx),
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.dark,
+                    const SizedBox(height: 16),
+                    // Time picker
+                    GestureDetector(
+                      onTap: () async {
+                        final picked = await showTimePicker(
+                          context: sheetCtx,
+                          initialTime: selectedTime,
+                        );
+                        if (picked != null) {
+                          setSheetState(() => selectedTime = picked);
+                        }
+                      },
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 16,
+                        ),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: AppColors.darkWith(0.15)),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              selectedTime.format(sheetCtx),
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.dark,
+                              ),
                             ),
+                            Icon(
+                              Icons.access_time,
+                              size: 18,
+                              color: AppColors.primary,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    // Grams field
+                    TextField(
+                      controller: gramsCtl,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                        signed: false,
+                      ),
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(
+                          RegExp(r'^\d*\.?\d*$'),
+                        ),
+                      ],
+                      onChanged: (_) => setSheetState(() {}),
+                      decoration: InputDecoration(
+                        labelText: 'Grams (optional)',
+                        hintText: '20, 40, 60 … 200 (default: 20)',
+                        suffixText: 'g',
+                        errorText: gramsError,
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(
+                            color: AppColors.darkWith(0.15),
+                            width: 1.5,
                           ),
-                          Icon(
-                            Icons.access_time,
-                            size: 18,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(
                             color: AppColors.primary,
+                            width: 2,
                           ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  // Grams field
-                  TextField(
-                    controller: gramsCtl,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                      signed: false,
-                    ),
-                    inputFormatters: [
-                      FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$')),
-                    ],
-                    onChanged: (_) => setSheetState(() {}),
-                    decoration: InputDecoration(
-                      labelText: 'Grams (optional)',
-                      hintText: '20, 40, 60 … 200 (default: 20)',
-                      suffixText: 'g',
-                      errorText: gramsError,
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(
-                          color: AppColors.darkWith(0.15),
-                          width: 1.5,
                         ),
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(
-                          color: AppColors.primary,
-                          width: 2,
+                        errorBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(
+                            color: AppColors.critical,
+                            width: 1.5,
+                          ),
                         ),
-                      ),
-                      errorBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(
-                          color: AppColors.critical,
-                          width: 1.5,
-                        ),
-                      ),
-                      focusedErrorBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(
-                          color: AppColors.critical,
-                          width: 2,
+                        focusedErrorBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(
+                            color: AppColors.critical,
+                            width: 2,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  // Days of the week selector (alarm-clock style)
-                  Text(
-                    'Repeat on',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.darkWith(0.6),
+                    const SizedBox(height: 12),
+                    // Days of the week selector (alarm-clock style)
+                    Text(
+                      'Repeat on',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.darkWith(0.6),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: List.generate(7, (i) {
-                      final on = selectedDays.contains(i);
-                      return GestureDetector(
-                        onTap: () => setSheetState(() {
-                          if (on) {
-                            selectedDays.remove(i);
-                          } else {
-                            selectedDays.add(i);
-                          }
-                        }),
-                        child: Container(
-                          width: 36,
-                          height: 36,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: on ? AppColors.primary : Colors.transparent,
-                            border: Border.all(
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: List.generate(7, (i) {
+                        final on = selectedDays.contains(i);
+                        return GestureDetector(
+                          onTap: () => setSheetState(() {
+                            if (on) {
+                              selectedDays.remove(i);
+                            } else {
+                              selectedDays.add(i);
+                            }
+                          }),
+                          child: Container(
+                            width: 36,
+                            height: 36,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
                               color: on
                                   ? AppColors.primary
-                                  : AppColors.darkWith(0.2),
-                              width: 1.5,
+                                  : Colors.transparent,
+                              border: Border.all(
+                                color: on
+                                    ? AppColors.primary
+                                    : AppColors.darkWith(0.2),
+                                width: 1.5,
+                              ),
+                            ),
+                            child: Text(
+                              const ['S', 'M', 'T', 'W', 'T', 'F', 'S'][i],
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                                color: on
+                                    ? Colors.white
+                                    : AppColors.darkWith(0.5),
+                              ),
                             ),
                           ),
-                          child: Text(
-                            const ['S', 'M', 'T', 'W', 'T', 'F', 'S'][i],
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w800,
-                              color: on
-                                  ? Colors.white
-                                  : AppColors.darkWith(0.5),
-                            ),
+                        );
+                      }),
+                    ),
+                    if (selectedDays.isEmpty) ...[
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Select at least one day',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.critical,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed:
+                            gramsError != null ||
+                                selectedDays.isEmpty ||
+                                isSaving
+                            ? null
+                            : () async {
+                                final h = selectedTime.hour;
+                                final m = selectedTime.minute;
+                                final ampm = h >= 12 ? 'PM' : 'AM';
+                                final h12 = h % 12 == 0 ? 12 : h % 12;
+                                final timeStr =
+                                    '$h12:${m.toString().padLeft(2, '0')}';
+                                final grams = double.tryParse(gramsCtl.text);
+                                final daysMask = String.fromCharCodes(
+                                  List.generate(
+                                    7,
+                                    (i) => selectedDays.contains(i) ? 49 : 48,
+                                  ),
+                                );
+                                final requested = ScheduleItem(
+                                  timeStr,
+                                  ampm,
+                                  enabled: existing?.enabled ?? true,
+                                  grams: grams,
+                                  days: daysMask,
+                                );
+                                ScheduleItem? conflict;
+                                for (final e in schedules.asMap().entries) {
+                                  if (isEdit && e.key == index) continue;
+                                  final s = e.value;
+                                  if (feederSchedulesConflict(requested, s)) {
+                                    conflict = s;
+                                    break;
+                                  }
+                                }
+                                if (conflict != null) {
+                                  ScaffoldMessenger.of(ctx).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        feederScheduleConflictMessage(
+                                          requested,
+                                          conflict,
+                                        ),
+                                      ),
+                                      behavior: SnackBarBehavior.floating,
+                                      backgroundColor: AppColors.critical,
+                                      duration: const Duration(seconds: 2),
+                                    ),
+                                  );
+                                  return;
+                                }
+                                if (isEdit) {
+                                  setSheetState(() => isSaving = true);
+                                  final saved = await onEditSchedule(
+                                    index!,
+                                    ScheduleItem(
+                                      timeStr,
+                                      ampm,
+                                      enabled: existing.enabled,
+                                      grams: grams,
+                                      days: daysMask,
+                                    ),
+                                  );
+                                  if (!sheetCtx.mounted) return;
+                                  if (!saved) {
+                                    setSheetState(() => isSaving = false);
+                                    return;
+                                  }
+                                  Navigator.pop(sheetCtx);
+                                } else {
+                                  timeCtl.text = '$timeStr:$ampm';
+                                  setSheetState(() => isSaving = true);
+                                  final saved = await onAddSchedule(
+                                    grams,
+                                    daysMask,
+                                  );
+                                  if (!sheetCtx.mounted) return;
+                                  if (!saved) {
+                                    setSheetState(() => isSaving = false);
+                                    return;
+                                  }
+                                  Navigator.pop(sheetCtx);
+                                }
+                              },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          disabledBackgroundColor: Colors.grey.shade300,
+                          foregroundColor: Colors.white,
+                          disabledForegroundColor: Colors.grey.shade500,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
                           ),
                         ),
-                      );
-                    }),
-                  ),
-                  if (selectedDays.isEmpty) ...[
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Select at least one day',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.critical,
+                        child: isSaving
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : Text(
+                                isEdit ? 'Save' : 'Add',
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
                       ),
                     ),
                   ],
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed:
-                          gramsError != null || selectedDays.isEmpty || isSaving
-                          ? null
-                          : () async {
-                              final h = selectedTime.hour;
-                              final m = selectedTime.minute;
-                              final ampm = h >= 12 ? 'PM' : 'AM';
-                              final h12 = h % 12 == 0 ? 12 : h % 12;
-                              final timeStr =
-                                  '$h12:${m.toString().padLeft(2, '0')}';
-                              final grams = double.tryParse(gramsCtl.text);
-                              final daysMask = String.fromCharCodes(
-                                List.generate(
-                                  7,
-                                  (i) => selectedDays.contains(i) ? 49 : 48,
-                                ),
-                              );
-                              final requested = ScheduleItem(
-                                timeStr,
-                                ampm,
-                                enabled: existing?.enabled ?? true,
-                                grams: grams,
-                                days: daysMask,
-                              );
-                              ScheduleItem? conflict;
-                              for (final e in schedules.asMap().entries) {
-                                if (isEdit && e.key == index) continue;
-                                final s = e.value;
-                                if (feederSchedulesConflict(requested, s)) {
-                                  conflict = s;
-                                  break;
-                                }
-                              }
-                              if (conflict != null) {
-                                ScaffoldMessenger.of(ctx).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      feederScheduleConflictMessage(
-                                        requested,
-                                        conflict,
-                                      ),
-                                    ),
-                                    behavior: SnackBarBehavior.floating,
-                                    backgroundColor: AppColors.critical,
-                                    duration: const Duration(seconds: 2),
-                                  ),
-                                );
-                                return;
-                              }
-                              if (isEdit) {
-                                setSheetState(() => isSaving = true);
-                                final saved = await onEditSchedule(
-                                  index!,
-                                  ScheduleItem(
-                                    timeStr,
-                                    ampm,
-                                    enabled: existing.enabled,
-                                    grams: grams,
-                                    days: daysMask,
-                                  ),
-                                );
-                                if (!sheetCtx.mounted) return;
-                                if (!saved) {
-                                  setSheetState(() => isSaving = false);
-                                  return;
-                                }
-                                Navigator.pop(sheetCtx);
-                              } else {
-                                timeCtl.text = '$timeStr:$ampm';
-                                setSheetState(() => isSaving = true);
-                                final saved = await onAddSchedule(
-                                  grams,
-                                  daysMask,
-                                );
-                                if (!sheetCtx.mounted) return;
-                                if (!saved) {
-                                  setSheetState(() => isSaving = false);
-                                  return;
-                                }
-                                Navigator.pop(sheetCtx);
-                              }
-                            },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        disabledBackgroundColor: Colors.grey.shade300,
-                        foregroundColor: Colors.white,
-                        disabledForegroundColor: Colors.grey.shade500,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: isSaving
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : Text(
-                              isEdit ? 'Save' : 'Add',
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                    ),
-                  ),
-                ],
+                ),
               ),
             );
           },

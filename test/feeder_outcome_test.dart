@@ -83,7 +83,7 @@ void main() {
   });
   test('explicit skipped log overrides legacy done flag', () {
     final log = LogEntry(
-      'Skipped - Insufficient feed',
+      'Skipped - Critical feed level',
       'auto',
       '4:00 PM',
       'Aug 26, 2026',

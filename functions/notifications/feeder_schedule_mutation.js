@@ -59,10 +59,46 @@ function overlaps(first, second) {
 
 async function mutateSchedule({db, uid, input, timestamp, deleteField, now = Date.now}) {
   if (!uid) throw new ScheduleMutationError("unauthenticated", "Sign in before changing schedules.");
-  if (!input || !["add", "edit", "toggle", "delete"].includes(input.operation)) {
+  if (!input || !["add", "edit", "toggle", "delete", "set_schedule_turbidity_policy"].includes(input.operation)) {
     throw new ScheduleMutationError("invalid-argument", "Unknown schedule action.");
   }
   const operation = input.operation;
+  if (operation === "set_schedule_turbidity_policy") {
+    if (typeof input.allowHighTurbidity !== "boolean") {
+      throw new ScheduleMutationError("invalid-argument", "Scheduled turbidity setting must be true or false.");
+    }
+    const tank = db.collection("tanks").doc(uid);
+    const profile = db.collection("users").doc(uid);
+    const policy = tank.collection("feeder").doc("schedule_policy");
+    const audit = tank.collection("feeder_logs").doc();
+    return db.runTransaction(async tx => {
+      const profileSnap = await tx.get(profile);
+      const tankSnap = await tx.get(tank);
+      const user = profileSnap.exists ? profileSnap.data() : {};
+      const tankData = tankSnap.exists ? tankSnap.data() : {};
+      const role = String(user.role || "owner").trim().toLowerCase();
+      const status = String(user.status || "active").trim().toLowerCase();
+      if (role !== "owner" || status !== "active" || tankData.owner_uid !== uid) {
+        throw new ScheduleMutationError("permission-denied", "Only the active tank owner can change feeding settings.");
+      }
+      if (tankData.is_initialized !== true) {
+        throw new ScheduleMutationError("failed-precondition", "Initialize your tank before changing feeding settings.");
+      }
+      const policySnap = await tx.get(policy);
+      const previous = policySnap.exists && policySnap.data().allow_high_turbidity === true;
+      if (previous === input.allowHighTurbidity) return {updated: false};
+      tx.set(policy, {
+        allow_high_turbidity: input.allowHighTurbidity,
+        updated_at: timestamp(),
+      });
+      tx.create(audit, {
+        action: `Scheduled high-turbidity feeding ${input.allowHighTurbidity ? "enabled" : "disabled"}`,
+        type: "auto",
+        logged_at: timestamp(),
+      });
+      return {updated: true};
+    });
+  }
   if (operation !== "add" && (typeof input.scheduleId !== "string" ||
       !/^[A-Za-z0-9_-]{1,128}$/.test(input.scheduleId))) {
     throw new ScheduleMutationError("invalid-argument", "A valid schedule ID is required.");
@@ -133,6 +169,7 @@ async function mutateSchedule({db, uid, input, timestamp, deleteField, now = Dat
     } else if (operation === "toggle") {
       tx.update(scheduleRef, {
         ...(input.enabled ? scheduleFields(desired) : {}),
+        allow_high_turbidity: deleteField(),
         enabled: input.enabled,
         isDone: false,
         ...(input.enabled ? {effective_at_ms: nowMs, last_outcome: deleteField(), last_occurrence_at: deleteField()} : {}),
@@ -141,7 +178,12 @@ async function mutateSchedule({db, uid, input, timestamp, deleteField, now = Dat
     } else {
       const data = {...desired, isDone: false, effective_at_ms: nowMs};
       if (operation === "add") tx.create(scheduleRef, {...data, created_at: timestamp()});
-      else tx.update(scheduleRef, {...data, last_outcome: deleteField(), last_occurrence_at: deleteField()});
+      else tx.update(scheduleRef, {
+        ...data,
+        allow_high_turbidity: deleteField(),
+        last_outcome: deleteField(),
+        last_occurrence_at: deleteField(),
+      });
       action = `${operation === "add" ? "Scheduled auto feed at" : "Edited schedule to"} ${desired.time} ${desired.ampm}`;
     }
     const oldRevision = guardSnap.exists ? guardSnap.data().revision : 0;

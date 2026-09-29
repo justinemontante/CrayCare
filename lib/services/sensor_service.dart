@@ -56,8 +56,7 @@ class SensorService extends ChangeNotifier {
           values.add(value);
           times.add(time);
         }
-        if (values.isNotEmpty &&
-            (_historyTimes[key]?.isEmpty ?? true)) {
+        if (values.isNotEmpty && (_historyTimes[key]?.isEmpty ?? true)) {
           _history[key] = values;
           _historyTimes[key] = times;
         }
@@ -98,10 +97,7 @@ class SensorService extends ChangeNotifier {
         final millis = (item['time'] as num?)?.toInt();
         return millis != null && millis >= cutoff;
       }).toList();
-      await prefs.setString(
-        'sensor_live_${tankId}_$key',
-        jsonEncode(recent),
-      );
+      await prefs.setString('sensor_live_${tankId}_$key', jsonEncode(recent));
     }());
   }
 
@@ -122,10 +118,8 @@ class SensorService extends ChangeNotifier {
   final Map<String, List<DateTime>> _historyTimes = {};
   final Map<String, double> _latest = {};
   bool? _turbidityAir;
-  double? _estimatedFeedGrams;
 
   bool get turbidityAir => _turbidityAir ?? false;
-  double? get estimatedFeedGrams => _estimatedFeedGrams;
 
   bool _initialDataLoaded = false;
 
@@ -135,7 +129,7 @@ class SensorService extends ChangeNotifier {
   // a Cloud Function before this listener receives it. Allow several publish
   // windows for TLS reconnects and function latency so one delayed write does
   // not incorrectly mark healthy hardware offline.
-  static const _staleTimeout = Duration(seconds: 30);
+  static const _staleTimeout = Duration(minutes: 1);
   static const _maxFutureTimestampSkew = Duration(seconds: 60);
   static const _trendWindow = Duration(seconds: 60);
   static const _minTrendSpan = Duration(seconds: 15);
@@ -152,6 +146,7 @@ class SensorService extends ChangeNotifier {
     final age = DateTime.now().difference(_lastUpdated);
     return !age.isNegative && age <= _staleTimeout;
   }
+
   DateTime get lastUpdated => _lastUpdated;
   String? get lastError => _lastError;
   int get bufferedEntries => _bufferedEntries;
@@ -168,7 +163,6 @@ class SensorService extends ChangeNotifier {
     _historyTimes.clear();
     _latest.clear();
     _turbidityAir = null;
-    _estimatedFeedGrams = null;
     _initialDataLoaded = false;
     _hasLiveData = false;
     _lastUpdated = DateTime.fromMillisecondsSinceEpoch(0);
@@ -188,7 +182,6 @@ class SensorService extends ChangeNotifier {
     _historyTimes.clear();
     _latest.clear();
     _turbidityAir = null;
-    _estimatedFeedGrams = null;
     _initialDataLoaded = false;
     _hasLiveData = false;
     _lastUpdated = DateTime.fromMillisecondsSinceEpoch(0);
@@ -203,7 +196,6 @@ class SensorService extends ChangeNotifier {
     _historyTimes.clear();
     _latest.clear();
     _turbidityAir = null;
-    _estimatedFeedGrams = null;
     _hasLiveData = false;
     _lastUpdated = DateTime.fromMillisecondsSinceEpoch(0);
     _bufferedEntries = 0;
@@ -447,7 +439,9 @@ class SensorService extends ChangeNotifier {
     final docTime = _extractTimestamp(data);
     if (docTime == null) {
       _lastError = 'Latest sensor reading has no valid timestamp.';
-      debugPrint('[SensorService] Ignoring sensor document with invalid timestamp.');
+      debugPrint(
+        '[SensorService] Ignoring sensor document with invalid timestamp.',
+      );
       _markStale();
       return;
     }
@@ -488,9 +482,6 @@ class SensorService extends ChangeNotifier {
     final phRaw = _toDouble(data['ph_level'] ?? data['phLevel']);
     final wlRaw = _toDouble(data['water_level'] ?? data['waterLevel']);
     final feedLevelRaw = _toDouble(data['feed_level'] ?? data['feedLevel']);
-    final estimatedFeedRaw = _toDouble(
-      data['estimated_feed_grams'] ?? data['estimatedFeedGrams'],
-    );
     final turbAirRaw = data['turbidity_air'] ?? data['turbidityAir'];
     _turbidityAir = turbAirRaw is bool ? turbAirRaw : (turbAirRaw == true);
 
@@ -504,7 +495,6 @@ class SensorService extends ChangeNotifier {
     _updateSensor('ph', phRaw, readingTime);
     _updateSensor('waterlevel', wlRaw, readingTime);
     _updateSensor('feedlevel', feedLevelRaw, readingTime);
-    _estimatedFeedGrams = estimatedFeedRaw >= 0 ? estimatedFeedRaw : null;
 
     _staleTimer?.cancel();
     final remaining = _staleTimeout - age;
@@ -523,7 +513,6 @@ class SensorService extends ChangeNotifier {
     }
     _hasLiveData = false;
     _bufferedEntries = 0;
-    _estimatedFeedGrams = null;
     _staleTimer?.cancel();
     notifyListeners();
     debugPrint(

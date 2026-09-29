@@ -5,8 +5,8 @@
   "scripts": {
     "start": "node mock_sensor_data.js",
     "once": "node mock_sensor_data.js --once",
-    "demo": "node mock_sensor_data.js --demo --direct",
-    "demo:once": "node mock_sensor_data.js --once --demo --direct",
+    "demo": "node mock_sensor_data.js --demo",
+    "demo:once": "node mock_sensor_data.js --once --demo",
     "backfill": "node mock_sensor_data.js --backfill --config",
     "critical": "node mock_sensor_data.js --critical",
     "config": "node mock_sensor_data.js --config"

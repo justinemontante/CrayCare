@@ -32,12 +32,12 @@
  *   Reset: send "RESET_WIFI" over Serial.
  *
  * Firestore ingestion paths (written by ESP32):
- *  sensorIngestion/current                  -> latest payload every 5 seconds
- *  sensorIngestion/current/history/{docId}  -> history payload every 10 minutes
+ *  tanks/{tankId}/sensor_readings/latest    -> latest payload every 5 seconds
+ *  tanks/{tankId}/sensor_readings_history/... -> current-assignment history directly
+ *  sensorIngestion/current/history/{docId}  -> buffered/unassigned history fallback
  *
- * Cloud Functions resolve hardware_system/currentOwner.tank_id and route to:
- *  tanks/{tankId}/sensor_readings/latest
- *  tanks/{tankId}/sensor_readings_history/{YYYY-MM-DD}/entries/{docId}
+ * Firestore Rules validate current hardware assignment for direct writes.
+ * Cloud Functions still route buffered history and legacy ingestion safely.
  *
  * All Firebase operations use Firestore only — zero RTDB calls.
  * Feeder commands/status/schedules/logs all migrated to Firestore.
@@ -85,8 +85,9 @@ String pass;
 // Firebase credentials (FIREBASE_API_KEY, FIREBASE_DATABASE_URL,
 // FIREBASE_PROJECT_ID, SECRETS_FIREBASE_USER_EMAIL and
 // SECRETS_FIREBASE_USER_PASSWORD) are defined in the gitignored secrets.h.
-// Sensor snapshots are staged under sensorIngestion and routed by Cloud
-// Functions. Device control/config paths use tanks/{currentTankId}/... directly.
+// Live sensors and normal history write directly to tanks/{currentTankId}/.
+// Buffered/unassigned history uses sensorIngestion so Functions can quarantine
+// stale assignments safely. Device control/config also uses the assigned tank.
 // Hardware ID derived from MAC address on first use (see getHardwareId())
 String hardwareId = "";
 String currentTankId = "";
@@ -121,7 +122,7 @@ long long firestoreTimestampMillis(const String& value) {
 #define CONFIG_SYNC_INTERVAL_MS 60000   // thresholds re-sync; switch forces immediate
 #define FLUSH_INTERVAL_MS 1000           // flush backlog at 1 entry/sec (max)
 #define SENSOR_POLL_MS 2000
-#define ASSIGNMENT_RECHECK_MS 180000     // slow switch-detector while assigned (3 min)
+#define ASSIGNMENT_RECHECK_MS 60000      // refresh hardware assignment once per minute
 #define ASSIGNMENT_SEARCH_MS 10000      // aggressive search while missing
 
 // Feeder timing
@@ -440,8 +441,8 @@ bool flushOneBufferedEntry() {
   size_t n = bufferReadAll(lines, 32);
   if (n == 0) return true;
 
-  // Deterministic doc ID from the bucket time (dedup: re-uploading the same
-  // bucket after a crash simply finds the existing doc and skips it).
+  // Deterministic doc ID from the original capture instant (dedup: a buffered
+  // fallback uses this same ID as the direct canonical history write).
   // The buffered line is Firestore wire-format JSON, e.g.
   //   {"fields":{"captured_at_ms":{"integerValue":"1755122400000"},...}}
   // so dig into the nested integerValue for the epoch-ms.
@@ -455,9 +456,10 @@ bool flushOneBufferedEntry() {
       if (en > st) capMs = atoll(lines[0].substring(st, en).c_str());
     }
   }
-  String docId = (capMs > 0)
-      ? "offline_" + String((unsigned long)(capMs / 600000LL))
-      : "offline_" + String((long)millis());
+  char docIdBuffer[32];
+  snprintf(docIdBuffer, sizeof(docIdBuffer), "r_%llu",
+           static_cast<unsigned long long>(capMs > 0 ? capMs : millis()));
+  String docId(docIdBuffer);
   String docPath = String("sensorIngestion/current/history/") + docId;
 
   // Skip if already uploaded (crash between create and buffer-delete).
@@ -505,11 +507,9 @@ String feederLastScheduleKey = "";     // doc id of the schedule that triggered 
 int feederDispenseCount = 0;              // total feeds dispensed since boot
 float feederRequestedGrams = 1.0f;    // 1 g-only model: N grams = N gate actuations
 float feederFeedLevelBefore = -1.0f;
-float feederAvailableBefore = -1.0f;
 bool feederInitialized = false;
 unsigned long feederLastScheduledMinute = 0;
 unsigned long feederLastCompletedEpoch = 0;
-float feederLastCompletedGrams = 0;
 unsigned long feederEventSequence = 0;
 unsigned long feederOccurrenceEpoch = 0;
 String feederEventTank;
@@ -567,6 +567,8 @@ int overrideConfirmTaps = 0;
 unsigned long overrideDeadlineMs = 0;
 bool feederForced = false;             // this run bypassed checks via confirm
 String feederForceReason = "";
+bool feederHighTurbidityOverrideUsed = false;
+bool feederWaterQualityOverrideUsed = false;
 unsigned long feederStartMs = 0;
 
 struct FeedSchedule {
@@ -586,6 +588,8 @@ unsigned long lastFeederCmdCheckMs = 0;
 unsigned long lastFeederStatusMs = 0;
 unsigned long lastFeederScheduleSyncMs = 0;
 unsigned long lastFeederScheduleCheckMs = 0;
+bool allowHighTurbidityScheduledFeeding = false;
+unsigned long lastSchedulePolicySyncMs = 0;
 
 // ============================================================
 //  ACTUATOR STATE — pump + 2 aerators
@@ -738,7 +742,6 @@ float waterLevelCriticalHigh = 20.0;
 
 float feedLevelLowThreshold = 20.0f;
 float feedLevelCriticalThreshold = 10.0f;
-float hopperCapacityGrams = 1000.0f;
 float feedLevelEmptyVoltage = 0.50f;
 float feedLevelFullVoltage = 2.80f;
 
@@ -845,7 +848,6 @@ float waterDistanceCm = -1.0;
 bool waterLevelSensorOK = false;
 
 float feedLevelPercent = -1.0f;
-float estimatedFeedGrams = -1.0f;
 float feedLevelVoltage = 0.0f;
 bool feedLevelSensorOK = false;
 float hopperDistanceCm = -1.0f;   // raw ultrasonic echo (hopper path)
@@ -1352,20 +1354,16 @@ bool syncFeedLevelConfig() {
   doc.setJsonData(fbdo.payload());
   float low = feedLevelLowThreshold;
   float critical = feedLevelCriticalThreshold;
-  float capacity = hopperCapacityGrams;
   const bool gotLow = readConfigFloatPath(
     doc, "fields/min_value/doubleValue", low, 1.0f, 50.0f);
   const bool gotCritical = readConfigFloatPath(
     doc, "fields/critical_value/doubleValue", critical, 0.0f, 49.0f);
-  const bool gotCapacity = readConfigFloatPath(
-    doc, "fields/hopper_capacity_grams/doubleValue", capacity, 100.0f, 50000.0f);
-  if (!gotLow || !gotCritical || !gotCapacity || critical >= low) {
+  if (!gotLow || !gotCritical || critical >= low) {
     Serial.println("[CONFIG] Invalid feed-level settings; retaining previous values.");
     return false;
   }
   feedLevelLowThreshold = low;
   feedLevelCriticalThreshold = critical;
-  hopperCapacityGrams = capacity;
   return true;
 }
 
@@ -1394,9 +1392,8 @@ void syncConfigFromFirebase() {
                   currentTankId.c_str(), tempCriticalLow, tempCriticalHigh,
                   turbNtuMin, turbNtuMax, doCriticalLow, doCriticalHigh,
                   phCriticalLow, phCriticalHigh, waterLevelCriticalLow, waterLevelCriticalHigh);
-    Serial.printf("[CONFIG] Feed low <%.0f%% | critical <%.0f%% | capacity %.0fg\n",
-                  feedLevelLowThreshold, feedLevelCriticalThreshold,
-                  hopperCapacityGrams);
+    Serial.printf("[CONFIG] Feed low <%.0f%% | critical <=%.0f%%\n",
+                  feedLevelLowThreshold, feedLevelCriticalThreshold);
   }
 }
 
@@ -1465,15 +1462,18 @@ bool ensureFirebaseReady() {
 //  Used for both latest (patch) and history (create) writes.
 //  includeTimestamp=true adds a timestamp field for history.
 // ============================================================
-void buildFirestorePayload(FirebaseJson &json, bool includeTimestamp) {
+void buildFirestorePayload(FirebaseJson &json, bool includeTimestamp, time_t capturedAt = 0) {
   String hwId = getHardwareId();
   json.set("fields/hardwareId/stringValue", hwId);
   json.set("fields/source_tank_id/stringValue", currentTankId);
   json.set("fields/source_owner_uid/stringValue", currentOwnerUid);
   json.set("fields/source_assignment_at_ms/integerValue", String(currentAssignmentAtMs));
-  time_t capturedAt;
-  time(&capturedAt);
+  if (capturedAt <= 0) time(&capturedAt);
   json.set("fields/captured_at_ms/integerValue", epochMillisString(capturedAt));
+  const String recordedAt = firestoreTimestampString(capturedAt);
+  if (recordedAt.length() > 0) {
+    json.set("fields/recorded_at/timestampValue", recordedAt);
+  }
 
   if (!includeTimestamp) {
     // ── 5-sec LIVE payload: current smoothed values (dashboard display). ──
@@ -1500,7 +1500,6 @@ void buildFirestorePayload(FirebaseJson &json, bool includeTimestamp) {
     }
     if (ENABLE_FEED_LEVEL_SENSOR && feedLevelSensorOK) {
       json.set("fields/feed_level/doubleValue", feedLevelPercent);
-      json.set("fields/estimated_feed_grams/doubleValue", estimatedFeedGrams);
     }
     return;
   }
@@ -1541,44 +1540,47 @@ void buildFirestorePayload(FirebaseJson &json, bool includeTimestamp) {
   }
   if (ENABLE_FEED_LEVEL_SENSOR && feedLevelSensorOK) {
     json.set("fields/feed_level/doubleValue", feedLevelPercent);
-    json.set("fields/estimated_feed_grams/doubleValue", estimatedFeedGrams);
   }
 
-  // History entries carry the ESP's capture time so the Cloud Function can
-  // preserve the ORIGINAL timestamp when routing (critical for offline
-  // backfill — buffered readings must land in the correct date folder with
-  // their true capture time, not the upload time). NTP is synced in setup().
-  time_t nowT;
-  time(&nowT);
-  if (nowT > 1577836800) {  // > 2020-01-01 — guard against unsynced clock
-    long long ms = (long long)nowT * 1000LL;
-    json.set("fields/captured_at_ms/integerValue", String(ms));
-  }
+  // captured_at_ms and recorded_at share the same NTP capture instant so
+  // Firestore Rules can validate both direct and staged history documents.
 }
 
 
 // ─── Write latest sensor reading to Firestore ───────────────────────
-// Path: sensorIngestion/current  (fixed doc — patch, overwrites in place)
-// Cloud Function onSensorIngestionWrite triggers here, reads
-// hardware_system/currentOwner to get ownerUid, and copies data into
-// tanks/{tankId}/sensor_readings/latest for the Flutter app to read.
-// The ESP never knows any user UID — ownership is resolved server-side.
+// Path: tanks/{tankId}/sensor_readings/latest (fixed live document).
+// Firestore Rules compare the payload's assignment identity against the
+// current hardware_system/currentOwner document before allowing the write.
 bool sendLatestToFirestore() {
   if (!ensureFirebaseReady()) return false;
+  if (currentTankId.length() == 0 || currentOwnerUid.length() == 0 ||
+      currentAssignmentAtMs < 1577836800000LL) {
+    Serial.println("[FIRESTORE] Latest skipped: no current hardware assignment");
+    return false;
+  }
 
   FirebaseJson content;
-  buildFirestorePayload(content, false);
+  time_t capturedAt;
+  time(&capturedAt);
+  buildFirestorePayload(content, false, capturedAt);
+  if (capturedAt < 1577836800 || firestoreTimestampString(capturedAt).length() == 0) {
+    Serial.println("[FIRESTORE] Latest skipped: device clock is not synchronized");
+    return false;
+  }
 
   // Advertise the pending offline backlog so the app can show
   // "Syncing N offline readings…" while the ESP flushes LittleFS.
   content.set("fields/buffered_entries/integerValue",
               String((unsigned long)countBufferedEntries()));
 
-  // Fixed path — no hardwareId needed. There is only one hardware package.
-  const char* docPath = "sensorIngestion/current";
+  const String docPath = "tanks/" + currentTankId + "/sensor_readings/latest";
+  // Include every optional sensor field in the mask so omitted values are
+  // removed instead of lingering as apparently fresh values from an older
+  // reading.
+  const char* updateMask = "hardwareId,source_tank_id,source_owner_uid,source_assignment_at_ms,captured_at_ms,recorded_at,buffered_entries,temperature,turbidity,turbidity_air,dissolved_oxygen,ph_level,water_level,feed_level";
 
   bool latestOk = Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "(default)",
-                                                     docPath, content.raw(), "");
+                                                     docPath.c_str(), content.raw(), updateMask);
   reportCloudResult(latestOk);
   if (latestOk) {
     Serial.println("[FIRESTORE] Latest sent");
@@ -1594,14 +1596,16 @@ bool sendLatestToFirestore() {
 }
 
 // ─── Write history entry to Firestore ───────────────────────────────
-// Path: sensorIngestion/current/history  (create — auto-ID doc every 10 minutes)
-// Cloud Function onSensorIngestionHistoryCreate triggers here, reads
-// hardware_system/currentOwner, and saves into
-// tanks/{tankId}/sensor_readings_history/{YYYY-MM-DD}/entries/{autoId}.
+// Current-assignment history goes directly to its canonical day folder. If
+// direct validation fails (for example, assignment changed while the device
+// was offline), buffer it; the existing staging route will quarantine it
+// rather than assigning old readings to a new owner.
 void sendHistoryToFirestore() {
   // Build the payload FIRST (captures the 10-min window aggregates).
   FirebaseJson content;
-  buildFirestorePayload(content, true);
+  time_t capturedAt;
+  time(&capturedAt);
+  buildFirestorePayload(content, true, capturedAt);
 
   // WiFi/Firebase down: buffer the reading for later flush. (Previously we
   // returned early here and the reading was LOST — the whole point of the
@@ -1615,19 +1619,67 @@ void sendHistoryToFirestore() {
     return;
   }
 
-  // Fixed subcollection — always under sensorIngestion/current.
-  const char* colPath = "sensorIngestion/current/history";
+  if (capturedAt < 1577836800 || firestoreTimestampString(capturedAt).length() == 0) {
+    if (bufferAppend(content.raw())) {
+      Serial.printf("[BUF] Clock unsynchronized; buffered entry #%u\n",
+                    (unsigned)countBufferedEntries());
+    }
+    resetWindowAggregates();
+    return;
+  }
 
-  if (Firebase.Firestore.createDocument(&fbdo, FIREBASE_PROJECT_ID, "(default)",
-                                        colPath, "", content.raw(), "")) {
-    Serial.println("[FIRESTORE] History saved");
+  // Without an assignment, keep the previous staging behavior so the Cloud
+  // Function can retain/quarantine this record safely.
+  if (currentTankId.length() == 0 || currentOwnerUid.length() == 0 ||
+      currentAssignmentAtMs < 1577836800000LL) {
+    const long long capturedMs = atoll(epochMillisString(capturedAt).c_str());
+    char fallbackId[32];
+    snprintf(fallbackId, sizeof(fallbackId), "r_%llu",
+             static_cast<unsigned long long>(capturedMs));
+    if (Firebase.Firestore.createDocument(&fbdo, FIREBASE_PROJECT_ID, "(default)",
+          "sensorIngestion/current/history", fallbackId, content.raw(), "")) {
+      Serial.println("[FIRESTORE] Unassigned history staged for safe routing");
+    } else if (bufferAppend(content.raw())) {
+      Serial.printf("[BUF] Unassigned history buffered #%u\n",
+                    (unsigned)countBufferedEntries());
+    }
+    resetWindowAggregates();
+    return;
+  }
+
+  const long long capturedMs = atoll(epochMillisString(capturedAt).c_str());
+  const time_t manilaEpoch = capturedAt + 8 * 60 * 60;
+  struct tm manilaTm;
+  char dateKey[11] = {0};
+  char entryId[32];
+  if (gmtime_r(&manilaEpoch, &manilaTm) == nullptr ||
+      strftime(dateKey, sizeof(dateKey), "%Y-%m-%d", &manilaTm) == 0) {
+    if (bufferAppend(content.raw())) {
+      Serial.printf("[BUF] Could not resolve history date; buffered #%u\n",
+                    (unsigned)countBufferedEntries());
+    }
+    resetWindowAggregates();
+    return;
+  }
+  snprintf(entryId, sizeof(entryId), "r_%llu",
+           static_cast<unsigned long long>(capturedMs));
+  const String collectionPath = "tanks/" + currentTankId +
+      "/sensor_readings_history/" + dateKey + "/entries";
+  const String documentPath = collectionPath + "/" + entryId;
+
+  bool saved = Firebase.Firestore.createDocument(&fbdo, FIREBASE_PROJECT_ID, "(default)",
+      collectionPath.c_str(), entryId, content.raw(), "");
+  // Recover from a lost HTTP response without creating a duplicate history
+  // record or placing it in the offline queue.
+  if (!saved && fbdo.httpCode() == 409 && firestoreGetDoc(documentPath.c_str())) saved = true;
+  reportCloudResult(saved);
+  if (saved) {
+    Serial.println("[FIRESTORE] History saved directly");
   } else {
     Serial.printf("[FIRESTORE HISTORY ERROR] %s\n", fbdo.errorReason().c_str());
-    // WiFi is up but Firebase failed (or is unreachable): keep the reading.
-    // Store-and-forward — it will be flushed automatically once connectivity
-    // returns. Power loss during the outage is safe: LittleFS is persistent.
     if (bufferAppend(content.raw())) {
-      Serial.printf("[BUF] Buffered entry #%u\n", (unsigned)countBufferedEntries());
+      Serial.printf("[BUF] Buffered entry #%u for validated history routing\n",
+                    (unsigned)countBufferedEntries());
     }
   }
   resetWindowAggregates();  // values captured -> start a fresh 10-min window
@@ -1890,7 +1942,6 @@ void readFeedLevelSensor() {
   if (!ENABLE_FEED_LEVEL_SENSOR) {
     feedLevelSensorOK = false;
     feedLevelPercent = -1.0f;
-    estimatedFeedGrams = -1.0f;
     feedLevelSource = "none";
     return;
   }
@@ -1905,7 +1956,6 @@ void readFeedLevelSensor() {
         (hopperEmptyCm - hopperDistanceCm) * 100.0f / span,
         0.0f,
         100.0f);
-      estimatedFeedGrams = hopperCapacityGrams * feedLevelPercent / 100.0f;
       feedLevelSensorOK = true;
       feedLevelSource = "ultrasonic";
       return;
@@ -1919,7 +1969,6 @@ void readFeedLevelSensor() {
       feedLevelVoltage < 0.02f || feedLevelVoltage > 3.28f) {
     feedLevelSensorOK = false;
     feedLevelPercent = -1.0f;
-    estimatedFeedGrams = -1.0f;
     feedLevelSource = "none";
     if (sensorOutputEnabled)
       Serial.printf("[FEED LEVEL] Invalid/disconnected voltage: %.3fV\n",
@@ -1931,7 +1980,6 @@ void readFeedLevelSensor() {
     (feedLevelVoltage - feedLevelEmptyVoltage) * 100.0f / span,
     0.0f,
     100.0f);
-  estimatedFeedGrams = hopperCapacityGrams * feedLevelPercent / 100.0f;
   feedLevelSensorOK = true;
   feedLevelSource = "analog";
 }
@@ -1955,10 +2003,10 @@ void printSensorReading() {
 // latest smoothed values (no extra ADC traffic); called by `raw` and by
 // the 1 s `raw on` stream.
 void printRawReading() {
-  Serial.printf("[RAW] pH=%.3fV DO=%.3fV Turb=%.3fV HC-SR04=%.1fcm Water=%.1fcm Feed=%.3fV/%.0f%%/~%.0fg Hopper=%.1fcm(%s)\n",
+  Serial.printf("[RAW] pH=%.3fV DO=%.3fV Turb=%.3fV HC-SR04=%.1fcm Water=%.1fcm Feed=%.3fV/%.0f%% Hopper=%.1fcm(%s)\n",
                 phVoltage, dissolvedOxygenVoltage, turbidityVoltage,
                 waterDistanceCm, waterLevelCm, feedLevelVoltage,
-                feedLevelPercent, estimatedFeedGrams,
+                feedLevelPercent,
                 hopperDistanceCm, feedLevelSource);
 }
 
@@ -2042,11 +2090,10 @@ void saveCachedFeederSchedules();
 void loadFeederState();
 bool saveFeederState();
 void checkScheduledFeed();
-void startFeed(String source, float grams = 1.0f, String commandId = "", long long issuedAtMs = 0, long long expiresAtMs = 0, bool forceOverride = false, bool allowHighTurbidityOverride = false);
+void startFeed(String source, float grams = 1.0f, String commandId = "", long long issuedAtMs = 0, long long expiresAtMs = 0, bool forceOverride = false, bool allowHighTurbidityOverride = false, bool allowWaterQualityOverride = false);
 void processFeederTick();
 void pushFeederLog(String action, String type, String status = "",
                    float requestedGrams = -1.0f,
-                   float availableGrams = -1.0f,
                    float levelBefore = -1.0f,
                    float levelAfter = -1.0f);
 bool flushOneFeederLog();
@@ -2825,6 +2872,7 @@ void processFeederCommands() {
     long long issuedAtMs = 0;
     long long expiresAtMs = 0;
     bool allowHighTurbidityOverride = false;
+    bool allowWaterQualityOverride = false;
   };
   CmdEntry entries[20];
   int entryCount = 0;
@@ -2851,6 +2899,9 @@ void processFeederCommands() {
     if (response.get(d, base + "allow_high_turbidity/booleanValue")) {
       e.allowHighTurbidityOverride = d.boolValue;
     }
+    if (response.get(d, base + "allow_water_quality_override/booleanValue")) {
+      e.allowWaterQualityOverride = d.boolValue;
+    }
 
     if (e.action != "") entryCount++;
   }
@@ -2864,7 +2915,8 @@ void processFeederCommands() {
 
     if (e.action == "feed_now") {
       startFeed("manual", e.grams, e.docId, e.issuedAtMs, e.expiresAtMs,
-                false, e.allowHighTurbidityOverride);
+                false, e.allowHighTurbidityOverride,
+                e.allowWaterQualityOverride);
       break;
     }
   }
@@ -2899,16 +2951,13 @@ void sendFeederStatus() {
   } else {
     json.set("fields/last_dispensed_at/nullValue", "NULL_VALUE");
   }
-  json.set("fields/last_dispensed_grams/doubleValue",
-           String(feederLastCompletedGrams, 1));
   if (feedLevelSensorOK) {
     json.set("fields/feed_level/doubleValue", feedLevelPercent);
-    json.set("fields/estimated_feed_grams/doubleValue", estimatedFeedGrams);
   }
   String statusDoc = "tanks/" + currentTankId + "/feeder/status";
   if (!Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "",
         statusDoc.c_str(), json.raw(),
-        "status,command_id,status_reason,dispenseCount,lastSeen,last_dispensed_at,last_dispensed_grams,feed_level,estimated_feed_grams")) {
+        "status,command_id,status_reason,dispenseCount,lastSeen,last_dispensed_at,feed_level")) {
     if (fbdo.httpConnected()) {
       Serial.printf("[FEEDER STATUS ERROR] %s\n", fbdo.errorReason().c_str());
     }
@@ -2970,7 +3019,6 @@ bool saveFeederState() {
   prefs.putString("tank", currentTankId);
   const bool minuteSaved = prefs.putULong("lastSchedMin", feederLastScheduledMinute) == sizeof(uint32_t);
   prefs.putULong("lastComplete", feederLastCompletedEpoch);
-  prefs.putFloat("lastGrams", feederLastCompletedGrams);
   const bool sequenceSaved = prefs.putULong("eventSeq", feederEventSequence) == sizeof(uint32_t);
   prefs.end();
   return minuteSaved && sequenceSaved;
@@ -2983,7 +3031,6 @@ void loadFeederState() {
   if (prefs.getString("tank", "") == currentTankId && !currentTankId.isEmpty()) {
     feederDispenseCount = prefs.getInt("dispenseCount", 0);
     feederLastCompletedEpoch = prefs.getULong("lastComplete", 0);
-    feederLastCompletedGrams = prefs.getFloat("lastGrams", 0);
   }
   prefs.end();
   if (feederDispenseCount > 0) {
@@ -2996,6 +3043,31 @@ void loadFeederState() {
 void syncFeederSchedules() {
   if (!ensureFirebaseReady()) return;
   if (currentTankId.length() == 0) return;   // no tank assigned -> nothing to sync
+
+  // One owner-level policy applies to every schedule. Do not trust an old
+  // opt-in indefinitely while offline; the safety bypass expires after three
+  // normal schedule-sync intervals (30 seconds).
+  String policyPath = "tanks/" + currentTankId + "/feeder/schedule_policy";
+  if (firestoreGetDoc(policyPath.c_str())) {
+    FirebaseJson policyResponse;
+    FirebaseJsonData policyValue;
+    policyResponse.setJsonData(fbdo.payload());
+    bool enabled = policyResponse.get(
+        policyValue, "fields/allow_high_turbidity/booleanValue") &&
+        policyValue.boolValue;
+    if (enabled != allowHighTurbidityScheduledFeeding) {
+      Serial.printf("[FEEDER] Global scheduled high-turbidity override %s\n",
+                    enabled ? "enabled" : "disabled");
+    }
+    allowHighTurbidityScheduledFeeding = enabled;
+    lastSchedulePolicySyncMs = millis();
+  } else if (fbdo.httpCode() == 404) {
+    allowHighTurbidityScheduledFeeding = false;
+    lastSchedulePolicySyncMs = millis();
+  } else {
+    Serial.printf("[FEEDER] Schedule policy sync failed; retaining the last value temporarily, http=%d\n",
+                  fbdo.httpCode());
+  }
 
   String schedCol = "tanks/" + currentTankId + "/feeder_schedules";
   std::vector<FeedSchedule> synced;
@@ -3076,7 +3148,6 @@ void syncFeederSchedules() {
 
     s.days = "1111111";
     if (response.get(d, base + "days/stringValue")) s.days = d.stringValue;
-
     synced.push_back(s);
   }
     esp_task_wdt_reset();  // multi-page syncs must not trip the watchdog
@@ -3087,7 +3158,8 @@ void syncFeederSchedules() {
     const FeedSchedule& a = synced[i];
     const FeedSchedule& b = feederSchedules[i];
     unchanged = a.key == b.key && a.hour24 == b.hour24 && a.minute == b.minute &&
-        a.enabled == b.enabled && a.grams == b.grams && a.days == b.days && a.effectiveEpoch == b.effectiveEpoch;
+        a.enabled == b.enabled && a.grams == b.grams && a.days == b.days &&
+        a.effectiveEpoch == b.effectiveEpoch;
   }
   if (unchanged) return; // Avoid rewriting NVS on every poll.
   feederSchedules.swap(synced);
@@ -3110,12 +3182,11 @@ bool feedBlockBypassable(const String& reason) {
   if (reason == "pH outside range") return true;
   if (reason == "turbidity too high") return true;
   if (reason == "feed-level sensor unavailable") return true;
-  if (reason == "empty feed hopper") return true;
-  if (reason == "insufficient feed") return true;
   return false;
 }
 
-bool canFeedSafely(String &reason, float requiredGrams) {
+bool canFeedSafely(String &reason, bool allowHighTurbidityRange = false,
+                   bool allowWaterQualityRanges = false) {
   if (!feederConfigReady) {
     reason = "tank sensor settings have not finished syncing";
     return false;
@@ -3124,13 +3195,15 @@ bool canFeedSafely(String &reason, float requiredGrams) {
     reason = "required water-quality sensor unavailable";
     return false;
   }
-  if (smoothedTemp < tempCriticalLow || smoothedTemp > tempCriticalHigh) reason = "temperature outside range";
-  else if (dissolvedOxygen < doCriticalLow) reason = "dissolved oxygen too low";
-  else if (phLevel < phCriticalLow || phLevel > phCriticalHigh) reason = "pH outside range";
-  else if (smoothedTurbidityNTU > turbNtuMax) reason = "turbidity too high";
+  if (!allowWaterQualityRanges &&
+      (smoothedTemp < tempCriticalLow || smoothedTemp > tempCriticalHigh)) reason = "temperature outside range";
+  else if (!allowWaterQualityRanges && dissolvedOxygen < doCriticalLow) reason = "dissolved oxygen too low";
+  else if (!allowWaterQualityRanges &&
+           (phLevel < phCriticalLow || phLevel > phCriticalHigh)) reason = "pH outside range";
+  else if (!allowWaterQualityRanges && !allowHighTurbidityRange &&
+           smoothedTurbidityNTU > turbNtuMax) reason = "turbidity too high";
   else if (!feedLevelSensorOK) reason = "feed-level sensor unavailable";
-  else if (feedLevelPercent <= 0.0f) reason = "empty feed hopper";
-  else if (estimatedFeedGrams + 0.5f < requiredGrams) reason = "insufficient feed";
+  else if (feedLevelPercent <= feedLevelCriticalThreshold) reason = "critical feed level";
   else return true;
   return false;
 }
@@ -3204,7 +3277,11 @@ void checkScheduledFeed() {
         feederLastScheduleKey = s.key;
         const int hour12 = s.hour24 % 12 == 0 ? 12 : s.hour24 % 12;
         feederScheduleTime = String(hour12) + ":" + (s.minute < 10 ? "0" : "") + String(s.minute) + (s.hour24 >= 12 ? " PM" : " AM");
-        startFeed("scheduled", s.grams);
+        const bool schedulePolicyFresh = lastSchedulePolicySyncMs > 0 &&
+            millis() - lastSchedulePolicySyncMs <= FEEDER_SCHEDULE_SYNC_MS * 3UL;
+        startFeed("scheduled", s.grams, "", 0, 0, false,
+                  allowHighTurbidityScheduledFeeding && schedulePolicyFresh,
+                  false);
         return;
       }
     }
@@ -3212,7 +3289,9 @@ void checkScheduledFeed() {
 }
 
 // ─── Start Feed — kicks off non-blocking state machine ───
-void startFeed(String source, float grams, String commandId, long long issuedAtMs, long long expiresAtMs, bool forceOverride, bool allowHighTurbidityOverride) {
+void startFeed(String source, float grams, String commandId, long long issuedAtMs, long long expiresAtMs, bool forceOverride, bool allowHighTurbidityOverride, bool allowWaterQualityOverride) {
+  feederHighTurbidityOverrideUsed = false;
+  feederWaterQualityOverrideUsed = false;
   if (!forceOverride) { feederForced = false; feederForceReason = ""; }
   if (feederRunState != FEEDER_IDLE) {
     feederStatusReason = "Feeder busy";
@@ -3262,7 +3341,7 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
   }
   feederWritingIntent = true;
   pushFeederLog("Feed interrupted - execution could not be confirmed", source == "scheduled" ? "auto" : "manual",
-                "failed", grams, -1, -1, -1);
+                "failed", grams, -1, -1);
   feederWritingIntent = false;
   if (!LittleFS.exists("/feedlogs/" + feederEventKey + ".pending")) {
     feederStatus = "blocked";
@@ -3308,13 +3387,43 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
       manualFeedConflictsWithSchedule(checkedAt, nearbySchedule)) {
     blockedReason = "automatic feeding is due at " + nearbySchedule;
   }
-  if (blockedReason.length() > 0 || !canFeedSafely(blockedReason, feederRequestedGrams)) {
-    const bool confirmedManualTurbidityOverride =
-        source == "manual" && allowHighTurbidityOverride &&
-        blockedReason == "turbidity too high";
-    if (confirmedManualTurbidityOverride) {
-      Serial.println("[FEEDER] Owner confirmed Feed anyway — bypassing high turbidity only");
-    } else if (forceOverride && feedBlockBypassable(blockedReason)) {
+  if (blockedReason.isEmpty()) {
+    String sensorRangeReason;
+    if (!canFeedSafely(sensorRangeReason)) {
+      const bool confirmedTurbidityOverride =
+          (source == "manual" || source == "scheduled") &&
+          allowHighTurbidityOverride &&
+          sensorRangeReason == "turbidity too high";
+      const bool waterQualityRangeOverride =
+          source == "manual" && allowWaterQualityOverride &&
+          (sensorRangeReason == "temperature outside range" ||
+           sensorRangeReason == "dissolved oxygen too low" ||
+           sensorRangeReason == "pH outside range" ||
+           sensorRangeReason == "turbidity too high");
+      if (waterQualityRangeOverride) {
+        String remainingSafetyReason;
+        if (canFeedSafely(remainingSafetyReason, false, true)) {
+          feederWaterQualityOverrideUsed = true;
+          Serial.println("[FEEDER] One-time manual water-quality range override accepted; sensors and feed-level checks passed");
+        } else {
+          blockedReason = remainingSafetyReason;
+        }
+      } else if (confirmedTurbidityOverride) {
+        String remainingSafetyReason;
+        if (canFeedSafely(remainingSafetyReason, true, false)) {
+          feederHighTurbidityOverrideUsed = true;
+          Serial.printf("[FEEDER] Explicit turbidity opt-in — bypassing high turbidity only (source=%s)\n",
+                        source.c_str());
+        } else {
+          blockedReason = remainingSafetyReason;
+        }
+      } else {
+        blockedReason = sensorRangeReason;
+      }
+    }
+  }
+  if (blockedReason.length() > 0) {
+    if (forceOverride && feedBlockBypassable(blockedReason)) {
       Serial.printf("[FEEDER] Override confirmed — bypassing: %s\n", blockedReason.c_str());
     } else {
       feederStatusReason = blockedReason;
@@ -3322,15 +3431,20 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
       time_t blockedAt;
       time(&blockedAt);
       feederLastFeedEpoch = (unsigned long)blockedAt;
-      const bool insufficient = blockedReason == "insufficient feed" ||
-                                blockedReason == "empty feed hopper";
+      const bool insufficient = blockedReason == "critical feed level";
       feederStatus = insufficient ? "skipped_insufficient" : "blocked";
       pushFeederLog(
-        insufficient ? "Skipped - Insufficient feed" : "Feed blocked: " + blockedReason,
+        insufficient ? "Skipped - Critical feed level" : "Feed blocked: " + blockedReason,
         source == "manual" ? "manual" : "auto",
         insufficient ? "skipped_insufficient" : "blocked",
         feederRequestedGrams,
-        estimatedFeedGrams, feedLevelPercent, feedLevelPercent);
+        feedLevelPercent, feedLevelPercent);
+      if (source == "scheduled") {
+        // Consume the occurrence after its terminal safety decision so one
+        // blocked schedule is logged once rather than retried each loop pass.
+        feederLastScheduledMinute = (unsigned long)blockedAt / 60;
+        saveFeederState();
+      }
       if (source != "onsite") sendFeederStatus();
       feederLastScheduleKey = "";
       // Bypassable onsite block: open the 10 s warning window instead of a
@@ -3343,7 +3457,6 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
   }
 
   feederFeedLevelBefore = feedLevelPercent;
-  feederAvailableBefore = estimatedFeedGrams;
   // 1 g-only: 5 g from the app = exactly 5 gate swings.
   feederMaxCycles = max(1, min(200, (int)roundf(feederRequestedGrams)));
 
@@ -3357,7 +3470,7 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
     feederStatus = "blocked";
     feederStatusReason = "Feed Now request expired before dispensing";
     pushFeederLog(feederStatusReason, "manual", "blocked", grams,
-                  feederAvailableBefore, feederFeedLevelBefore, feederFeedLevelBefore);
+                  feederFeedLevelBefore, feederFeedLevelBefore);
     if (source != "onsite") sendFeederStatus();
     return;
   }
@@ -3371,8 +3484,8 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
     } else {
       feederStatus = "blocked";
       feederStatusReason = "automatic feeding is due at " + nearbySchedule;
-      pushFeederLog(feederStatusReason, "manual", "blocked", grams,
-                    feederAvailableBefore, feederFeedLevelBefore, feederFeedLevelBefore);
+    pushFeederLog(feederStatusReason, "manual", "blocked", grams,
+                  feederFeedLevelBefore, feederFeedLevelBefore);
       if (source != "onsite") sendFeederStatus();
       return;
     }
@@ -3452,8 +3565,7 @@ void processFeederTick() {
       time_t completedAt;
       time(&completedAt);
       feederLastCompletedEpoch = completedAt;
-      feederLastCompletedGrams = feederRequestedGrams;
-      feederDoneShowMs = millis() + 5000;  // LCD "Fed Xg OK" banner
+      feederDoneShowMs = millis() + 5000;  // LCD feeding-complete banner
       saveFeederState();
 
       feederIsRunning = false;
@@ -3464,18 +3576,25 @@ void processFeederTick() {
       // not a direct measurement of the exact grams dispensed.
       readFeedLevelSensor();
       const float levelAfter = feedLevelSensorOK ? feedLevelPercent : -1.0f;
+      // Make the schedule-level opt-in visible in the audit log/notification.
+      String completionAction = feederFeedSource == "scheduled"
+          ? String("Dispensed feed (Scheduled)") +
+                (feederHighTurbidityOverrideUsed ? " - high-turbidity override" : "")
+          : feederFeedSource == "onsite"
+              ? (feederForced ? "Dispensed feed (Onsite Button, override: " + feederForceReason + ")"
+                              : "Dispensed feed (Onsite Button)")
+              : String("Dispensed feed (Manual)") +
+                    (feederWaterQualityOverrideUsed
+                         ? " - water-quality range override"
+                         : feederHighTurbidityOverrideUsed
+                             ? " - high-turbidity override"
+                             : "");
       // Push final status + log
       pushFeederLog(
-        feederFeedSource == "scheduled"
-          ? "Dispensed feed (Scheduled)"
-          : feederFeedSource == "onsite"
-            ? (feederForced ? "Dispensed feed (Onsite Button, override: " + feederForceReason + ")"
-                            : "Dispensed feed (Onsite Button)")
-            : "Dispensed feed (Manual)",
+        completionAction,
         feederFeedSource == "scheduled" ? "auto" : "manual",
         feederForced ? "forced" : "completed",
         feederRequestedGrams,
-        feederAvailableBefore,
         feederFeedLevelBefore,
         levelAfter
       );
@@ -3486,6 +3605,8 @@ void processFeederTick() {
       feederLastScheduleKey = "";
       feederForced = false;
       feederForceReason = "";
+      feederHighTurbidityOverrideUsed = false;
+      feederWaterQualityOverrideUsed = false;
       // Keep the terminal confirmation until the next request starts.
       Serial.println("[FEEDER] Feed complete");
       break;
@@ -3500,8 +3621,7 @@ void processFeederTick() {
 // ─── Push Feeding Log to Firestore ───
 // Write locally first. A deterministic ID makes retries safe after reconnect.
 void pushFeederLog(String action, String type, String status,
-                   float requestedGrams, float availableGrams,
-                   float levelBefore, float levelAfter) {
+                   float requestedGrams, float levelBefore, float levelAfter) {
   if (!littlefsMounted || feederEventTank.isEmpty()) return;
 
   time_t now;
@@ -3528,17 +3648,18 @@ void pushFeederLog(String action, String type, String status,
     json.set("fields/schedule_key/stringValue", feederLastScheduleKey);
     json.set("fields/schedule_time/stringValue", feederScheduleTime);
   }
-  json.set("fields/amount_basis/stringValue", "servo_cycle_estimate");
   json.set("fields/trigger_source/stringValue",
            feederFeedSource == "onsite" ? "physical_button" :
            feederFeedSource == "scheduled" ? "schedule" : "manual_request");
-  if (status == "completed") json.set("fields/estimated_dispensed_grams/doubleValue", String(requestedGrams, 1));
   if (status.length() > 0) json.set("fields/status/stringValue", status);
   if (isfinite(requestedGrams) && requestedGrams >= 0.0f) {
     json.set("fields/requested_grams/doubleValue", String(requestedGrams, 1));
-  }
-  if (availableGrams >= 0.0f) {
-    json.set("fields/estimated_available_grams/doubleValue", String(availableGrams, 1));
+    if (status == "completed" || status == "forced") {
+      // Servo-cycle estimate, not a directly weighed amount.
+      json.set("fields/estimated_dispensed_grams/doubleValue",
+               String(requestedGrams, 1));
+      json.set("fields/amount_basis/stringValue", "servo_cycle_estimate");
+    }
   }
   if (levelBefore >= 0.0f) {
     json.set("fields/feed_level_before/doubleValue", String(levelBefore, 1));
@@ -3666,11 +3787,12 @@ void applyTankAssignment(const String& tankId, const String& ownerUid, long long
   // never carry a previous owner's schedules/counters into the next account.
   feederSchedules.clear();
   feederScheduleCount = 0;
+  allowHighTurbidityScheduledFeeding = false;
+  lastSchedulePolicySyncMs = 0;
   feederLastScheduleKey = "";
   feederScheduleTime = "";
   feederDispenseCount = 0;
   feederLastCompletedEpoch = 0;
-  feederLastCompletedGrams = 0;
   feederStatus = "idle";
   saveCachedFeederSchedules();
   saveFeederState();
@@ -4012,7 +4134,7 @@ void updateLCD() {
     l1 = String("Gate ") + String(min(feederCurrentCycle + 1, feederMaxCycles)) +
          "/" + String(feederMaxCycles);
   } else if ((long)(now - feederDoneShowMs) < 0) {  // rollover-safe expiry
-    l0 = String("Fed ") + String(feederLastCompletedGrams, 0) + "g OK";
+    l0 = "Feeding completed";
     l1 = "Gate cycles done";
   } else if (overrideWarnReason.length() > 0) {
     l0 = overrideWarnReason.substring(0, 16);

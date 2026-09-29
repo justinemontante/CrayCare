@@ -47,11 +47,9 @@ service cloud.firestore {
         let turbOk = sensorName == 'turbidity' && min >= 0.0 && min <= 100.0 && max >= 5.0 && max <= 1000.0;
         let waterOk = sensorName == 'water_level' && min >= 0.0 && min <= 95.0 && max >= 5.0 && max <= 100.0;
         let feedCritical = request.resource.data.get('critical_value', -1);
-        let feedCapacity = request.resource.data.get('hopper_capacity_grams', 0);
         let feedOk = sensorName == 'feed_level' &&
           min >= 1.0 && min <= 50.0 && max == 100.0 &&
-          feedCritical is number && feedCritical >= 0.0 && feedCritical < min &&
-          feedCapacity is number && feedCapacity >= 100.0 && feedCapacity <= 50000.0;
+          feedCritical is number && feedCritical >= 0.0 && feedCritical < min;
         return validNumbers && (tempOk || phOk || doOk || turbOk || waterOk || feedOk);
     }
     function isEspSession() {
@@ -62,6 +60,90 @@ service cloud.firestore {
     function isAssignedEsp(tankId) {
       return isEspSession() &&
         get(/databases/$(database)/documents/hardware_system/currentOwner).data.tank_id == tankId;
+    }
+    function assignmentTankMatches(tankId, assignment) {
+      let tankPath = /databases/$(database)/documents/tanks/$(tankId);
+      return exists(tankPath) && get(tankPath).data.owner_uid == assignment.uid;
+    }
+    function sensorAssignmentDataMatches(tankId, assignment) {
+      let reading = request.resource.data;
+      return assignment.get('tank_id', '') == tankId &&
+        assignment.get('uid', '') is string && assignment.uid.size() > 0 &&
+        assignment.get('assigned_at', timestamp.value(0)) is timestamp &&
+        assignmentTankMatches(tankId, assignment) &&
+        reading.get('hardwareId', '') is string && reading.hardwareId.size() > 0 &&
+        reading.get('source_tank_id', '') == tankId &&
+        reading.get('source_owner_uid', '') == assignment.uid &&
+        reading.get('source_assignment_at_ms', -1) is int &&
+        reading.source_assignment_at_ms == assignment.assigned_at.toMillis() &&
+        reading.get('captured_at_ms', -1) is int &&
+        reading.captured_at_ms >= assignment.assigned_at.toMillis() - 1000 &&
+        reading.captured_at_ms <= request.time.toMillis() + 60000 &&
+        reading.get('recorded_at', timestamp.value(0)) is timestamp &&
+        reading.recorded_at.toMillis() == reading.captured_at_ms;
+    }
+    function validSensorAssignment(tankId) {
+      let assignmentPath = /databases/$(database)/documents/hardware_system/currentOwner;
+      return isEspSession() && exists(assignmentPath) &&
+        sensorAssignmentDataMatches(tankId, get(assignmentPath).data);
+    }
+    function validOptionalSensorNumber(field, minimum, maximum) {
+      let value = request.resource.data.get(field, null);
+      return value == null ||
+        (value is number && value >= minimum && value <= maximum);
+    }
+    function validLatestSensorPayload() {
+      let reading = request.resource.data;
+      return reading.keys().hasOnly([
+          'hardwareId', 'source_tank_id', 'source_owner_uid',
+          'source_assignment_at_ms', 'captured_at_ms', 'recorded_at',
+          'buffered_entries', 'temperature', 'turbidity', 'turbidity_air',
+          'dissolved_oxygen', 'ph_level', 'water_level', 'feed_level'
+        ]) &&
+        reading.get('temperature', null) is number &&
+        reading.get('turbidity', null) is number &&
+        reading.get('turbidity_air', null) is bool &&
+        reading.get('buffered_entries', 0) is int &&
+        reading.buffered_entries >= 0 &&
+        validOptionalSensorNumber('temperature', -10.0, 60.0) &&
+        validOptionalSensorNumber('turbidity', 0.0, 5000.0) &&
+        validOptionalSensorNumber('dissolved_oxygen', -1.0, 30.0) &&
+        validOptionalSensorNumber('ph_level', -1.0, 14.0) &&
+        validOptionalSensorNumber('water_level', -1.0, 500.0) &&
+        validOptionalSensorNumber('feed_level', 0.0, 100.0);
+    }
+    function validSensorHistoryPayload() {
+      let reading = request.resource.data;
+      return reading.keys().hasOnly([
+          'hardwareId', 'source_tank_id', 'source_owner_uid',
+          'source_assignment_at_ms', 'captured_at_ms', 'recorded_at',
+          'temp_min', 'temp_max', 'temp_avg',
+          'turbidity_min', 'turbidity_max', 'turbidity_avg',
+          'DO_min', 'DO_max', 'DO_avg',
+          'pH_min', 'pH_max', 'pH_avg',
+          'waterLevel_min', 'waterLevel_max', 'waterLevel_avg', 'feed_level'
+        ]) &&
+        validOptionalSensorNumber('temp_min', -10.0, 60.0) &&
+        validOptionalSensorNumber('temp_max', -10.0, 60.0) &&
+        validOptionalSensorNumber('temp_avg', -10.0, 60.0) &&
+        validOptionalSensorNumber('turbidity_min', 0.0, 5000.0) &&
+        validOptionalSensorNumber('turbidity_max', 0.0, 5000.0) &&
+        validOptionalSensorNumber('turbidity_avg', 0.0, 5000.0) &&
+        validOptionalSensorNumber('DO_min', 0.0, 30.0) &&
+        validOptionalSensorNumber('DO_max', 0.0, 30.0) &&
+        validOptionalSensorNumber('DO_avg', 0.0, 30.0) &&
+        validOptionalSensorNumber('pH_min', 0.0, 14.0) &&
+        validOptionalSensorNumber('pH_max', 0.0, 14.0) &&
+        validOptionalSensorNumber('pH_avg', 0.0, 14.0) &&
+        validOptionalSensorNumber('waterLevel_min', 0.0, 500.0) &&
+        validOptionalSensorNumber('waterLevel_max', 0.0, 500.0) &&
+        validOptionalSensorNumber('waterLevel_avg', 0.0, 500.0) &&
+        validOptionalSensorNumber('feed_level', 0.0, 100.0);
+    }
+    function newerSensorReading() {
+      let previousRecordedAt = resource.data.get('recorded_at', timestamp.value(0));
+      let oldCapturedAt = resource.data.get('captured_at_ms', previousRecordedAt.toMillis());
+      return request.resource.data.captured_at_ms > oldCapturedAt;
     }
     function ownerChangesOnlyControlMode(tankId) {
       return isTankOwner(tankId) &&
@@ -141,7 +223,11 @@ service cloud.firestore {
 
       match /sensor_readings/{doc} {
         allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId);
-        allow create, update, delete: if false;
+        allow create: if doc == 'latest' && validSensorAssignment(tankId) &&
+          validLatestSensorPayload();
+        allow update: if doc == 'latest' && validSensorAssignment(tankId) &&
+          validLatestSensorPayload() && newerSensorReading();
+        allow delete: if false;
       }
       match /sensor_readings_history/{dateStr} {
         // Parent day documents are server-maintained daily summaries. Owners
@@ -151,7 +237,9 @@ service cloud.firestore {
 
         match /entries/{entryId} {
           allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId);
-          allow create, update, delete: if false;
+          allow create: if validSensorAssignment(tankId) &&
+            validSensorHistoryPayload();
+          allow update, delete: if false;
         }
       }
       match /sensors/{sensorName} {
@@ -198,7 +286,7 @@ service cloud.firestore {
         allow create: if isTankOwner(tankId) &&
           request.resource.data.keys().hasOnly([
             'command_type', 'grams', 'issued_by', 'issued_at',
-            'expires_at', 'near_schedule_confirmed', 'allow_high_turbidity'
+            'expires_at', 'near_schedule_confirmed', 'allow_water_quality_override'
           ]) &&
           request.resource.data.command_type == 'feed_now' &&
           request.resource.data.grams is number &&
@@ -210,8 +298,8 @@ service cloud.firestore {
           request.resource.data.expires_at > request.resource.data.issued_at &&
           request.resource.data.expires_at <= request.resource.data.issued_at + duration.value(5, 'm') &&
           request.resource.data.near_schedule_confirmed is bool &&
-          (!('allow_high_turbidity' in request.resource.data) ||
-            request.resource.data.allow_high_turbidity is bool);
+          (!('allow_water_quality_override' in request.resource.data) ||
+            request.resource.data.allow_water_quality_override is bool);
         allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId) || isAssignedEsp(tankId);
         allow delete: if isTankOwner(tankId) || isAssignedEsp(tankId);
         allow update: if false;

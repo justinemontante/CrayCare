@@ -56,8 +56,6 @@ class SettingsService extends ChangeNotifier {
             'max': max.toDouble(),
             if (range['critical'] is num)
               'critical': (range['critical'] as num).toDouble(),
-            if (range['capacity_grams'] is num)
-              'capacity_grams': (range['capacity_grams'] as num).toDouble(),
           };
         }
       }
@@ -148,13 +146,9 @@ class SettingsService extends ChangeNotifier {
                 final min = (data['min_value'] as num?)?.toDouble();
                 final max = (data['max_value'] as num?)?.toDouble();
                 final critical = (data['critical_value'] as num?)?.toDouble();
-                final capacity = (data['hopper_capacity_grams'] as num?)
-                    ?.toDouble();
                 final current = _ranges[shortKey];
                 final feedConfigChanged =
-                    shortKey == 'feedlevel' &&
-                    (current?['critical'] != critical ||
-                        current?['capacity_grams'] != capacity);
+                    shortKey == 'feedlevel' && current?['critical'] != critical;
                 if (min != null &&
                     max != null &&
                     (current?['min'] != min ||
@@ -164,7 +158,6 @@ class SettingsService extends ChangeNotifier {
                     'min': min,
                     'max': max,
                     if (critical != null) 'critical': critical,
-                    if (capacity != null) 'capacity_grams': capacity,
                   };
                   changed = true;
                 }
@@ -240,13 +233,11 @@ class SettingsService extends ChangeNotifier {
         final min = (data['min_value'] as num?)?.toDouble();
         final max = (data['max_value'] as num?)?.toDouble();
         final critical = (data['critical_value'] as num?)?.toDouble();
-        final capacity = (data['hopper_capacity_grams'] as num?)?.toDouble();
         if (min != null && max != null) {
           _ranges[shortKey] = {
             'min': min,
             'max': max,
             if (critical != null) 'critical': critical,
-            if (capacity != null) 'capacity_grams': capacity,
           };
           anyApplied = true;
         }
@@ -275,7 +266,6 @@ class SettingsService extends ChangeNotifier {
             'max_value': values['max'],
             if (entry.key == 'feedlevel') ...{
               'critical_value': values['critical'],
-              'hopper_capacity_grams': values['capacity_grams'],
             },
             'updated_at': FieldValue.serverTimestamp(),
           });
@@ -318,10 +308,7 @@ class SettingsService extends ChangeNotifier {
         batch.set(tankRef.collection('sensors').doc(longKey), {
           'min_value': e.value['min'],
           'max_value': e.value['max'],
-          if (e.key == 'feedlevel') ...{
-            'critical_value': e.value['critical'],
-            'hopper_capacity_grams': e.value['capacity_grams'],
-          },
+          if (e.key == 'feedlevel') ...{'critical_value': e.value['critical']},
           'updated_at': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
       }
@@ -338,7 +325,6 @@ class SettingsService extends ChangeNotifier {
       'max': max,
       if (sensorKey == 'feedlevel') ...{
         'critical': _ranges[sensorKey]?['critical'] ?? 10.0,
-        'capacity_grams': _ranges[sensorKey]?['capacity_grams'] ?? 1000.0,
       },
     };
     notifyListeners();
@@ -350,14 +336,8 @@ class SettingsService extends ChangeNotifier {
   Future<void> updateFeedLevelConfig({
     required double critical,
     required double low,
-    required double capacityGrams,
   }) async {
-    _ranges['feedlevel'] = {
-      'min': low,
-      'max': 100.0,
-      'critical': critical,
-      'capacity_grams': capacityGrams,
-    };
+    _ranges['feedlevel'] = {'min': low, 'max': 100.0, 'critical': critical};
     notifyListeners();
     await _saveRanges();
   }
@@ -391,10 +371,7 @@ class SettingsService extends ChangeNotifier {
         batch.set(tankRef.collection('sensors').doc(longKey), {
           'min_value': e.value['min'],
           'max_value': e.value['max'],
-          if (e.key == 'feedlevel') ...{
-            'critical_value': e.value['critical'],
-            'hopper_capacity_grams': e.value['capacity_grams'],
-          },
+          if (e.key == 'feedlevel') ...{'critical_value': e.value['critical']},
           'updated_at': FieldValue.serverTimestamp(),
         });
       }

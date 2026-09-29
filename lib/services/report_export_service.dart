@@ -148,17 +148,9 @@ class ReportExportService {
   ) {
     final ordered = List<SamplingEntry>.of(samples)
       ..sort((a, b) => a.date.compareTo(b.date));
-    final start = DateTime.utc(
-      stockingDate.year,
-      stockingDate.month,
-      stockingDate.day,
-    );
     return ordered.map((s) {
-      final day = DateTime.utc(s.date.year, s.date.month, s.date.day);
-      final days = day.difference(start).inDays;
-      final week = (days < 0 ? 0 : days) ~/ 7;
       return <String>[
-        s.isBaseline ? 'Baseline' : 'Week $week',
+        samplingPeriod(s, stockingDate),
         _fmtDate(s.date),
         '${s.sampleSize}',
         s.totalLength.toStringAsFixed(2),
@@ -169,6 +161,22 @@ class ReportExportService {
         '${s.liveCount}',
       ];
     }).toList();
+  }
+
+  static String samplingPeriod(SamplingEntry entry, DateTime stockingDate) {
+    final start = DateTime.utc(
+      stockingDate.year,
+      stockingDate.month,
+      stockingDate.day,
+    );
+    final day = DateTime.utc(entry.date.year, entry.date.month, entry.date.day);
+    final elapsedDays = day.difference(start).inDays;
+    final week = (elapsedDays < 0 ? 0 : elapsedDays) ~/ 7;
+    return entry.isBaseline ? 'Baseline' : 'Week $week';
+  }
+
+  static String samplingGroupTitle(SamplingEntry entry, DateTime stockingDate) {
+    return '${samplingPeriod(entry, stockingDate)} · ${_fmtDate(entry.date)}';
   }
 
   String buildGrowthCsv({
@@ -623,46 +631,32 @@ class ReportExportService {
             'Individual Crayfish Measurements',
             _excelSectionStyle,
           );
-          _appendExcelTable(
-            sheet,
-            headers: const [
-              'Week',
-              'Date',
-              'Crayfish No.',
-              'Weight (g)',
-              'Length (cm)',
-            ],
-            rows: snapshot.sampling.expand((entry) {
-              final days =
-                  DateTime.utc(
-                        entry.date.year,
-                        entry.date.month,
-                        entry.date.day,
-                      )
-                      .difference(
-                        DateTime.utc(
-                          batch.stockingDate.year,
-                          batch.stockingDate.month,
-                          batch.stockingDate.day,
-                        ),
-                      )
-                      .inDays;
-              final week = (days < 0 ? 0 : days) ~/ 7;
-              return entry.measurements.map(
-                (measurement) => <Object?>[
-                  entry.isBaseline ? 'Baseline' : 'Week $week',
-                  _fmtDate(entry.date),
-                  measurement.sampleNumber,
-                  measurement.weightGrams.toStringAsFixed(2),
-                  measurement.lengthCm.toStringAsFixed(2),
-                ],
-              );
-            }),
-          );
-          if (snapshot.sampling.every((entry) => entry.measurements.isEmpty)) {
+          final individualEntries = List<SamplingEntry>.of(snapshot.sampling)
+            ..sort((a, b) => a.date.compareTo(b.date));
+          if (individualEntries.every((entry) => entry.measurements.isEmpty)) {
             _appendExcelRow(sheet, [
               'No individual measurements are saved for these samples.',
             ]);
+          } else {
+            for (final entry in individualEntries) {
+              _appendExcelRow(sheet, ['']);
+              _appendExcelLabelRow(
+                sheet,
+                samplingGroupTitle(entry, batch.stockingDate),
+                _excelSectionStyle,
+              );
+              _appendExcelTable(
+                sheet,
+                headers: const ['Crayfish No.', 'Weight (g)', 'Length (cm)'],
+                rows: entry.measurements.map(
+                  (measurement) => <Object?>[
+                    measurement.sampleNumber,
+                    measurement.weightGrams.toStringAsFixed(2),
+                    measurement.lengthCm.toStringAsFixed(2),
+                  ],
+                ),
+              );
+            }
           }
         }
       }
@@ -934,6 +928,7 @@ class ReportExportService {
     List<BatchRecordSnapshot> snapshots, {
     GrowOutReportSections sections = const GrowOutReportSections(),
     bool includeSummary = true,
+    bool includeIndividualMeasurements = false,
   }) async {
     final ordered = List<BatchRecordSnapshot>.of(snapshots)
       ..sort((a, b) {
@@ -1044,6 +1039,8 @@ class ReportExportService {
       final batch = snapshot.batch;
       final latest = _latestSampling(snapshot);
       final samplingRows = growthRows(snapshot.sampling, batch.stockingDate);
+      final individualEntries = List<SamplingEntry>.of(snapshot.sampling)
+        ..sort((a, b) => a.date.compareTo(b.date));
       final mortalityRows = snapshot.mortality
           .map((entry) => [_fmtDate(entry.date), '${entry.count}'])
           .toList();
@@ -1126,6 +1123,45 @@ class ReportExportService {
               )
             else if (sections.includeSampling)
               table(headers: growthColumns, rows: samplingRows, fontSize: 7),
+            if (sections.includeSampling && includeIndividualMeasurements) ...[
+              pw.SizedBox(height: 14),
+              sectionTitle('Individual Crayfish Measurements'),
+              pw.SizedBox(height: 6),
+              if (individualEntries.every(
+                (entry) => entry.measurements.isEmpty,
+              ))
+                pw.Text(
+                  'No individual measurements are saved for these samples.',
+                  style: const pw.TextStyle(
+                    fontSize: 9,
+                    color: PdfColors.grey600,
+                  ),
+                ),
+              for (final entry in individualEntries) ...[
+                if (entry.measurements.isNotEmpty) ...[
+                  sectionTitle(samplingGroupTitle(entry, batch.stockingDate)),
+                  pw.SizedBox(height: 5),
+                  table(
+                    headers: const [
+                      'Crayfish No.',
+                      'Weight (g)',
+                      'Length (cm)',
+                    ],
+                    rows: entry.measurements
+                        .map(
+                          (measurement) => [
+                            '${measurement.sampleNumber}',
+                            measurement.weightGrams.toStringAsFixed(2),
+                            measurement.lengthCm.toStringAsFixed(2),
+                          ],
+                        )
+                        .toList(),
+                    fontSize: 8,
+                  ),
+                  pw.SizedBox(height: 8),
+                ],
+              ],
+            ],
             if (sections.includeMortality) pw.SizedBox(height: 20),
             if (sections.includeMortality) sectionTitle('Mortality Records'),
             if (sections.includeMortality) pw.SizedBox(height: 8),
@@ -1265,6 +1301,7 @@ class ReportExportService {
     required Iterable<String> batchIds,
     GrowOutReportSections sections = const GrowOutReportSections(),
     bool includeSummary = true,
+    bool includeIndividualMeasurements = false,
     String fileName = 'craycare_all_batches',
   }) async {
     final snapshots = await TankService.instance.loadBatchRecordSnapshots(
@@ -1281,6 +1318,7 @@ class ReportExportService {
         snapshots,
         sections: sections,
         includeSummary: includeSummary,
+        includeIndividualMeasurements: includeIndividualMeasurements,
       ),
     );
   }

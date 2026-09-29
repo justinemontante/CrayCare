@@ -128,15 +128,11 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
       final label = sensorMeta[key]?.label ?? key;
       if (key == 'feedlevel') {
         final critical = entry.value['critical'] ?? 10.0;
-        final capacity = entry.value['capacity_grams'] ?? 1000.0;
-        if (!critical.isFinite || !capacity.isFinite) {
+        if (!critical.isFinite) {
           return 'Feed Level values must be finite numbers.';
         }
         if (critical < 0 || critical >= min) {
           return 'Feed Level: critical threshold must be below the low threshold.';
-        }
-        if (capacity < 100 || capacity > 50000) {
-          return 'Feed Level: hopper capacity must be 100–50,000 g.';
         }
       }
       if (min >= max) {
@@ -465,16 +461,11 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
     final config = SettingsService.instance.currentRanges['feedlevel']!;
     final previousCritical = config['critical'] ?? 10.0;
     final previousLow = config['min'] ?? 20.0;
-    final previousCapacity = config['capacity_grams'] ?? 1000.0;
     final criticalCtrl = TextEditingController(
       text: previousCritical.toStringAsFixed(0),
     );
     final lowCtrl = TextEditingController(text: previousLow.toStringAsFixed(0));
-    final capacityCtrl = TextEditingController(
-      text: previousCapacity.toStringAsFixed(0),
-    );
-
-    return showDialog<({double critical, double low, double capacity})>(
+    return showDialog<({double critical, double low})>(
       context: context,
       builder: (ctx) => AlertDialog(
         insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
@@ -487,7 +478,7 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Warnings use percentage. Feeding is blocked when the hopper is empty or the estimated amount is insufficient.',
+              'Feed level is measured as a percentage. Feeding is blocked when the reading reaches the critical threshold.',
               style: TextStyle(
                 fontSize: 11,
                 height: 1.4,
@@ -498,14 +489,16 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
             Row(
               children: [
                 Expanded(
-                  child: _buildModalField('Critical at/below', criticalCtrl, '%'),
+                  child: _buildModalField(
+                    'Critical at/below',
+                    criticalCtrl,
+                    '%',
+                  ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(child: _buildModalField('Low at/below', lowCtrl, '%')),
               ],
             ),
-            const SizedBox(height: 12),
-            _buildModalField('Hopper capacity', capacityCtrl, 'g'),
           ],
         ),
         actions: [
@@ -517,30 +510,22 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
             onPressed: () {
               final critical = double.tryParse(criticalCtrl.text.trim());
               final low = double.tryParse(lowCtrl.text.trim());
-              final capacity = double.tryParse(capacityCtrl.text.trim());
               if (critical == null ||
                   low == null ||
-                  capacity == null ||
                   !critical.isFinite ||
                   !low.isFinite ||
-                  !capacity.isFinite ||
                   critical < 0 ||
                   critical >= low ||
                   low < 1 ||
-                  low > 50 ||
-                  capacity < 100 ||
-                  capacity > 50000) {
+                  low > 50) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Use Critical < Low ≤ 50%, and capacity 100–50,000 g.'),
-                  ),
+                  const SnackBar(content: Text('Use Critical < Low ≤ 50%.')),
                 );
                 return;
               }
               _replaceEditorWithSuccess(ctx, 'Feed Level thresholds updated!', (
                 critical: critical,
                 low: low,
-                capacity: capacity,
               ));
             },
             style: ElevatedButton.styleFrom(
@@ -555,13 +540,11 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
     ).then((result) async {
       criticalCtrl.dispose();
       lowCtrl.dispose();
-      capacityCtrl.dispose();
       if (result == null || !mounted) return;
 
       await SettingsService.instance.updateFeedLevelConfig(
         critical: result.critical,
         low: result.low,
-        capacityGrams: result.capacity,
       );
       if (!mounted) return;
       final saved = await _saveConfigToFirebase(
@@ -572,7 +555,6 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
         await SettingsService.instance.updateFeedLevelConfig(
           critical: previousCritical,
           low: previousLow,
-          capacityGrams: previousCapacity,
         );
       }
     });
@@ -677,21 +659,21 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
                 Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        sensorKey == 'feedlevel'
-                            ? 'Critical ≤${(range['critical'] ?? 10).toStringAsFixed(0)}% • Low ≤${min.toStringAsFixed(0)}%'
-                            : '${min.toStringAsFixed(1)} – ${_formatMax(max)}',
+                  children: [
+                    Text(
+                      sensorKey == 'feedlevel'
+                          ? 'Critical ≤${(range['critical'] ?? 10).toStringAsFixed(0)}% • Low ≤${min.toStringAsFixed(0)}%'
+                          : '${min.toStringAsFixed(1)} – ${_formatMax(max)}',
                       style: const TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w900,
                         color: AppColors.primary,
                       ),
                     ),
-                      Text(
-                        sensorKey == 'feedlevel'
-                            ? 'Capacity ${(range['capacity_grams'] ?? 1000).toStringAsFixed(0)} g'
-                            : info.unit,
+                    Text(
+                      sensorKey == 'feedlevel'
+                          ? 'Measured in percent'
+                          : info.unit,
                       style: TextStyle(
                         fontSize: 8,
                         fontWeight: FontWeight.w800,

@@ -111,6 +111,7 @@ class FeederService extends ChangeNotifier {
 
   StreamSubscription? _statusSub;
   StreamSubscription? _schedulesSub;
+  StreamSubscription? _schedulePolicySub;
   StreamSubscription? _logsSub;
   StreamSubscription? _todayLogsSub;
   StreamSubscription? _legacyTodayLogsSub;
@@ -118,7 +119,6 @@ class FeederService extends ChangeNotifier {
   final Map<String, Map<String, dynamic>> _legacyTodayLogDocs = {};
   StreamSubscription<User?>? _authSub;
   String _totalsDayKey = '';
-  double _consumptionToday = 0;
   int _completedToday = 0;
 
   bool _isRunning = false;
@@ -129,11 +129,13 @@ class FeederService extends ChangeNotifier {
   String? _lastQueuedCommandId;
   int _dispenseCount = 0;
   double? _feedLevelPercent;
-  double? _estimatedFeedGrams;
   DateTime _lastSeen = DateTime.fromMillisecondsSinceEpoch(0);
   String? _lastError;
   String? _lastFeedRequestError;
   bool _schedulesLoaded = false;
+  bool _allowHighTurbiditySchedules = false;
+
+  bool get allowHighTurbiditySchedules => _allowHighTurbiditySchedules;
 
   final List<LogEntry> _logs = [];
   final List<ScheduleItem> _schedules = [];
@@ -151,7 +153,6 @@ class FeederService extends ChangeNotifier {
   String? get lastQueuedCommandId => _lastQueuedCommandId;
   int get dispenseCount => _dispenseCount;
   double? get feedLevelPercent => _feedLevelPercent;
-  double? get estimatedFeedGrams => _estimatedFeedGrams;
   DateTime get lastSeen => _lastSeen;
   String? get lastError => _lastError;
   String? get lastFeedRequestError => _lastFeedRequestError;
@@ -165,10 +166,6 @@ class FeederService extends ChangeNotifier {
 
   List<LogEntry> get logs => List.unmodifiable(_logs);
   List<ScheduleItem> get schedules => List.unmodifiable(_schedules);
-
-  double get consumptionTodayGrams {
-    return _consumptionToday;
-  }
 
   int get completedFeedingsToday {
     return _completedToday;
@@ -191,7 +188,6 @@ class FeederService extends ChangeNotifier {
     _legacyTodayLogsSub?.cancel();
     _todayTimestampLogDocs.clear();
     _legacyTodayLogDocs.clear();
-    _consumptionToday = 0;
     _completedToday = 0;
     final start = DateTime.utc(
       now.year,
@@ -243,18 +239,11 @@ class FeederService extends ChangeNotifier {
 
   void _recalculateTodayTotals() {
     final todayDocs = {..._legacyTodayLogDocs, ..._todayTimestampLogDocs};
-    var total = 0.0;
     var completed = 0;
     for (final data in todayDocs.values) {
       if (data['status'] != 'completed') continue;
       completed++;
-      final grams =
-          (data['estimated_dispensed_grams'] as num?)?.toDouble() ??
-          (data['requested_grams'] as num?)?.toDouble() ??
-          0;
-      if (grams.isFinite && grams >= 0) total += grams;
     }
-    _consumptionToday = total;
     _completedToday = completed;
     notifyListeners();
   }
@@ -295,13 +284,14 @@ class FeederService extends ChangeNotifier {
     }
     _listenStatus();
     _listenSchedules();
+    _listenSchedulePolicy();
     _listenLogs();
     _listenTodayTotals();
   }
 
   String feedSafetyIssue({
     double? grams,
-    bool allowTurbidityConfirmation = false,
+    bool allowWaterQualityOverride = false,
   }) {
     final sensors = SensorService.instance;
     const keys = ['temp', 'do', 'ph', 'turb', 'feedlevel'];
@@ -317,9 +307,8 @@ class FeederService extends ChangeNotifier {
           if (sensors.hasFreshData(key)) key,
       },
       ranges: SettingsService.instance.currentRanges,
-      availableGrams: sensors.estimatedFeedGrams,
       grams: grams,
-      allowTurbidityConfirmation: allowTurbidityConfirmation,
+      allowWaterQualityOverride: allowWaterQualityOverride,
     );
   }
 
@@ -337,6 +326,7 @@ class FeederService extends ChangeNotifier {
     _listenerGeneration++;
     _statusSub?.cancel();
     _schedulesSub?.cancel();
+    _schedulePolicySub?.cancel();
     _logsSub?.cancel();
     _todayLogsSub?.cancel();
     _legacyTodayLogsSub?.cancel();
@@ -345,10 +335,10 @@ class FeederService extends ChangeNotifier {
     _todayTimestampLogDocs.clear();
     _legacyTodayLogDocs.clear();
     _totalsDayKey = '';
-    _consumptionToday = 0;
     _completedToday = 0;
     _statusSub = null;
     _schedulesSub = null;
+    _schedulePolicySub = null;
     _logsSub = null;
     _schedules.clear();
     _scheduleKeys.clear();
@@ -363,11 +353,11 @@ class FeederService extends ChangeNotifier {
     _manualRequestPendingUntil = null;
     _dispenseCount = 0;
     _feedLevelPercent = null;
-    _estimatedFeedGrams = null;
     _lastSeen = DateTime.fromMillisecondsSinceEpoch(0);
     _lastError = null;
     _lastFeedRequestError = null;
     _schedulesLoaded = false;
+    _allowHighTurbiditySchedules = false;
     FeedState.schedules.value = [];
     FeedState.feederLogs.value = [];
     notifyListeners();
@@ -404,8 +394,6 @@ class FeederService extends ChangeNotifier {
                 _isRunning =
                     _status == 'dispensing' || _status == 'checking_feed_level';
                 _feedLevelPercent = (data['feed_level'] as num?)?.toDouble();
-                _estimatedFeedGrams =
-                    (data['estimated_feed_grams'] as num?)?.toDouble();
                 _dispenseCount =
                     (data['dispenseCount'] as num?)?.toInt() ?? _dispenseCount;
 
@@ -512,6 +500,26 @@ class FeederService extends ChangeNotifier {
     }
   }
 
+  void _listenSchedulePolicy() {
+    _schedulePolicySub?.cancel();
+    final tankDoc = _tankDoc();
+    if (tankDoc == null) return;
+    _schedulePolicySub = tankDoc
+        .collection('feeder')
+        .doc('schedule_policy')
+        .snapshots()
+        .listen(
+          (snapshot) {
+            _allowHighTurbiditySchedules =
+                snapshot.data()?['allow_high_turbidity'] as bool? ?? false;
+            notifyListeners();
+          },
+          onError: (Object error) {
+            debugPrint('[FeederService] Schedule policy stream error: $error');
+          },
+        );
+  }
+
   void _listenLogs() {
     _logsSub?.cancel();
     final tankDoc = _tankDoc();
@@ -561,13 +569,10 @@ class FeederService extends ChangeNotifier {
                         occurrenceTimestamp: data['occurrence_at'] == null
                             ? null
                             : _parseLoggedAtMillis(data['occurrence_at']),
-                        estimatedAvailableGrams:
-                            (data['estimated_available_grams'] as num?)
-                                ?.toDouble(),
-                        feedLevelBefore:
-                            (data['feed_level_before'] as num?)?.toDouble(),
-                        feedLevelAfter:
-                            (data['feed_level_after'] as num?)?.toDouble(),
+                        feedLevelBefore: (data['feed_level_before'] as num?)
+                            ?.toDouble(),
+                        feedLevelAfter: (data['feed_level_after'] as num?)
+                            ?.toDouble(),
                         levelChangeDetected:
                             data['level_change_detected'] as bool?,
                       ),
@@ -596,13 +601,13 @@ class FeederService extends ChangeNotifier {
   Future<bool> feedNow({
     double? grams,
     bool nearScheduleConfirmed = false,
-    bool turbidityConfirmed = false,
+    bool allowWaterQualityOverride = false,
   }) async {
     // Recheck after any confirmation dialog, immediately before dispatch.
     // Callers outside ControlsScreen receive exactly the same protections.
     final issue = feedSafetyIssue(
       grams: grams,
-      allowTurbidityConfirmation: turbidityConfirmed,
+      allowWaterQualityOverride: allowWaterQualityOverride,
     );
     if (issue.isNotEmpty) {
       _lastFeedRequestError = issue;
@@ -635,9 +640,10 @@ class FeederService extends ChangeNotifier {
         'issued_by': uid,
         'issued_at': FieldValue.serverTimestamp(),
         'near_schedule_confirmed': nearScheduleConfirmed,
-        // Only an explicit app confirmation can bypass the ESP's high-
-        // turbidity threshold for this one manual command.
-        'allow_high_turbidity': turbidityConfirmed,
+        // One-time manual command flag; does not persist a user preference.
+        // ESP may bypass water-quality range limits only, never sensor faults,
+        // stale readings, critical feed level, or schedule/command guards.
+        'allow_water_quality_override': allowWaterQualityOverride,
         // A queued offline write must not become a fresh motor command when
         // Firestore finally commits its server timestamp after reconnect.
         'expires_at': Timestamp.fromDate(
@@ -841,6 +847,25 @@ class FeederService extends ChangeNotifier {
       'days': days,
     }, requested: requested);
     notifyListeners();
+  }
+
+  Future<void> setAllowHighTurbiditySchedules(bool enabled) async {
+    if (_tankDoc() == null) {
+      throw StateError('No tank is connected to this account.');
+    }
+    final previous = _allowHighTurbiditySchedules;
+    _allowHighTurbiditySchedules = enabled;
+    notifyListeners();
+    try {
+      await _mutateSchedule({
+        'operation': 'set_schedule_turbidity_policy',
+        'allowHighTurbidity': enabled,
+      });
+    } catch (_) {
+      _allowHighTurbiditySchedules = previous;
+      notifyListeners();
+      rethrow;
+    }
   }
 
   /// The callable validates against current schedules inside a server
@@ -1090,6 +1115,7 @@ class FeederService extends ChangeNotifier {
     _legacyTodayLogsSub?.cancel();
     _statusSub?.cancel();
     _schedulesSub?.cancel();
+    _schedulePolicySub?.cancel();
     _logsSub?.cancel();
     _authSub?.cancel();
     _authSub = null;

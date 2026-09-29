@@ -10,6 +10,8 @@ void main() {
     WidgetTester tester, {
     List<ScheduleItem> schedules = const [],
     Future<bool> Function(double?, String)? onAdd,
+    bool allowHighTurbiditySchedules = false,
+    Future<void> Function(bool)? onSetSchedulePolicy,
     Future<bool> Function(int, ScheduleItem)? onEdit,
   }) async {
     final errorHandler = FlutterError.onError;
@@ -32,6 +34,9 @@ void main() {
             timeCtl: controller,
             onFeedNow: () {},
             onAddSchedule: onAdd ?? (_, _) async => true,
+            allowHighTurbiditySchedules: allowHighTurbiditySchedules,
+            onSetAllowHighTurbiditySchedules:
+                onSetSchedulePolicy ?? (_) async {},
             onDeleteSchedule: (_) {},
             onEditSchedule: onEdit ?? (_, _) async => true,
             onToggleSchedule: (_, _) {},
@@ -86,9 +91,9 @@ void main() {
     await tester.ensureVisible(find.text('Add Schedule'));
     await tester.tap(find.text('Add Schedule'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), '35');
+    await tester.enterText(find.byType(TextField), '0');
     await tester.pump();
-    expect(find.textContaining('Use 20–200 g'), findsOneWidget);
+    expect(find.textContaining('Use 1–200 g'), findsOneWidget);
     expect(
       tester
           .widget<ElevatedButton>(find.widgetWithText(ElevatedButton, 'Add'))
@@ -109,6 +114,26 @@ void main() {
     ); // Failed save keeps user input.
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'global schedule turbidity checkbox is shown outside the editor',
+    (tester) async {
+      bool? savedPolicy;
+      await pumpFeeder(
+        tester,
+        onSetSchedulePolicy: (enabled) async {
+          savedPolicy = enabled;
+        },
+      );
+      final policyCheckbox = find.byType(CheckboxListTile);
+      expect(policyCheckbox, findsOneWidget);
+      expect(tester.widget<CheckboxListTile>(policyCheckbox).value, isFalse);
+      await tester.tap(policyCheckbox);
+      await tester.pumpAndSettle();
+      expect(savedPolicy, isTrue);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('edit schedule preserves the sheet when save fails', (
     tester,
@@ -137,5 +162,4 @@ void main() {
     expect(find.text('Edit Schedule'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
-
 }

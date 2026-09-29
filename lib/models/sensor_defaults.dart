@@ -4,12 +4,7 @@ const Map<String, Map<String, double>> defaultRanges = {
   'do': {'min': 5.0, 'max': 9.0},
   'turb': {'min': 0.0, 'max': 25.0},
   'waterlevel': {'min': 15.0, 'max': 20.0},
-  'feedlevel': {
-    'min': 20.0,
-    'max': 100.0,
-    'critical': 10.0,
-    'capacity_grams': 1000.0,
-  },
+  'feedlevel': {'min': 20.0, 'max': 100.0, 'critical': 10.0},
 };
 
 const Map<String, SensorInfo> sensorInfo = {

@@ -207,12 +207,7 @@ class DatabaseService {
       'dissolved_oxygen': {'min': 5.0, 'max': 9.0},
       'turbidity': {'min': 0.0, 'max': 25.0},
       'water_level': {'min': 15.0, 'max': 20.0},
-      'feed_level': {
-        'min': 20.0,
-        'max': 100.0,
-        'critical': 10.0,
-        'capacity_grams': 1000.0,
-      },
+      'feed_level': {'min': 20.0, 'max': 100.0, 'critical': 10.0},
     };
     final sensorRefs = defaults.keys
         .map((name) => ref.collection('sensors').doc(name))
@@ -239,7 +234,6 @@ class DatabaseService {
         'max_value': entry.value['max'],
         if (entry.key == 'feed_level') ...{
           'critical_value': entry.value['critical'],
-          'hopper_capacity_grams': entry.value['capacity_grams'],
         },
         'updated_at': FieldValue.serverTimestamp(),
       });
@@ -259,11 +253,7 @@ class DatabaseService {
     }
     // Seed feeder status doc.
     if (!existingDefaults.last.exists) {
-      batch.set(feederRef, {
-        'status': 'idle',
-        'last_dispensed_at': null,
-        'last_dispensed_grams': 0.0,
-      });
+      batch.set(feederRef, {'status': 'idle', 'last_dispensed_at': null});
       writeCount++;
     }
     if (writeCount > 0) await batch.commit();
@@ -332,7 +322,6 @@ class DatabaseService {
         'max_value': entry.value['max'],
         if (entry.key == 'feedlevel') ...{
           'critical_value': entry.value['critical'],
-          'hopper_capacity_grams': entry.value['capacity_grams'],
         },
         'updated_at': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));

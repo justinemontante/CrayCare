@@ -6,14 +6,15 @@ void main() {
     bool online = true,
     bool busy = false,
     bool loaded = true,
-    double level = 8,
-    double available = 50,
+    double level = 50,
     double? grams = 40,
     Set<String>? fresh,
+    double temperature = 27,
     double oxygen = 6,
+    double ph = 7,
     double turbidity = 10,
     bool turbidityAir = false,
-    bool allowTurbidityConfirmation = false,
+    bool allowWaterQualityOverride = false,
   }) => feederPreflightIssue(
     internetOnline: online,
     feederOnline: true,
@@ -21,9 +22,9 @@ void main() {
     schedulesLoaded: loaded,
     turbidityAir: turbidityAir,
     values: {
-      'temp': 27,
+      'temp': temperature,
       'do': oxygen,
-      'ph': 7,
+      'ph': ph,
       'turb': turbidity,
       'feedlevel': level,
     },
@@ -35,24 +36,30 @@ void main() {
       'turb': {'max': 50},
       'feedlevel': {'min': 20, 'max': 100, 'critical': 10},
     },
-    availableGrams: available,
     grams: grams,
-    allowTurbidityConfirmation: allowTurbidityConfirmation,
+    allowWaterQualityOverride: allowWaterQualityOverride,
   );
-  test('critical percentage still allows enough estimated feed', () {
+  test('feed safety uses the configured percentage threshold only', () {
     expect(check(), isEmpty);
-    expect(check(available: 20), contains('Insufficient feed'));
-    expect(check(level: 0), contains('empty'));
+    expect(check(level: 20), isEmpty);
+    expect(check(level: 10), contains('critical'));
+    expect(check(level: 0), contains('critical'));
   });
-  test('high turbidity needs explicit confirmation to allow feeding', () {
+  test('water-quality range override is explicit and request-scoped', () {
     expect(check(turbidity: 55), contains('Turbidity too high'));
+    expect(check(turbidity: 55, allowWaterQualityOverride: true), isEmpty);
     expect(
-      check(turbidity: 55, allowTurbidityConfirmation: true),
+      check(turbidity: 55, allowWaterQualityOverride: true, oxygen: 3),
       isEmpty,
     );
+    expect(check(oxygen: 3, allowWaterQualityOverride: true), isEmpty);
+    expect(check(temperature: 33), contains('Temperature outside range'));
+    expect(check(temperature: 33, allowWaterQualityOverride: true), isEmpty);
+    expect(check(ph: 9), contains('pH outside range'));
+    expect(check(ph: 9, allowWaterQualityOverride: true), isEmpty);
     expect(
-      check(turbidity: 55, allowTurbidityConfirmation: true, oxygen: 3),
-      contains('Dissolved oxygen too low'),
+      check(level: 10, allowWaterQualityOverride: true),
+      contains('critical'),
     );
     expect(
       check(fresh: {'temp', 'do', 'ph', 'feedlevel'}),
@@ -61,14 +68,21 @@ void main() {
     expect(
       check(
         fresh: {'temp', 'do', 'ph', 'feedlevel'},
-        allowTurbidityConfirmation: true,
+        allowWaterQualityOverride: true,
       ),
-      isEmpty,
+      contains('Waiting for fresh turbidity data'),
     );
     expect(check(turbidityAir: true), contains('sensor is in air'));
     expect(
-      check(turbidityAir: true, allowTurbidityConfirmation: true),
-      isEmpty,
+      check(turbidityAir: true, allowWaterQualityOverride: true),
+      contains('sensor is in air'),
+    );
+    expect(
+      check(
+        fresh: {'do', 'ph', 'turb', 'feedlevel'},
+        allowWaterQualityOverride: true,
+      ),
+      contains('Waiting for fresh temperature data'),
     );
   });
   test(

@@ -184,7 +184,6 @@ function normalizeSensorReading(raw) {
     turbidity: raw.turbidity ?? null,
     water_level: raw.water_level ?? raw.waterLevelPercent ?? raw.waterLevel ?? null,
     feed_level: raw.feed_level ?? raw.feedLevel ?? null,
-    estimated_feed_grams: raw.estimated_feed_grams ?? raw.estimatedFeedGrams ?? null,
     turbidity_air: raw.turbidity_air ?? raw.turbidityAir ?? null,
     temp_min: raw.temp_min ?? null,
     temp_max: raw.temp_max ?? null,
@@ -355,10 +354,10 @@ exports.onFeederLogCreate = functions.runWith({failurePolicy: true}).region("asi
       if (prefs.feeding === false) return null;
 
       const requested = Number(data.requested_grams);
-      const available = Number(data.estimated_available_grams);
       const requestedText = Number.isFinite(requested)
-        ? `${requested.toFixed(0)} g`
-        : "the scheduled amount";
+        ? `${requested.toFixed(0)} g requested dose`
+        : "the requested dose";
+      const feedLevel = Number(data.feed_level_before);
       const source = String(data.type || "").toLowerCase() === "manual"
         ? "Manual feeding"
         : "Scheduled feeding";
@@ -367,13 +366,13 @@ exports.onFeederLogCreate = functions.runWith({failurePolicy: true}).region("asi
       let body;
       if (status === "completed") {
         title = "Feeding Completed";
-        body = `${source} cycle completed (estimated ${requestedText}).`;
+        body = `${source} cycle completed (${requestedText}).`;
       } else {
         title = "Feeding Skipped";
-        const availableText = Number.isFinite(available)
-          ? `${available.toFixed(0)} g available`
-          : "insufficient feed available";
-        body = `${source} was skipped: insufficient feed (${availableText}; ${requestedText} required). Refill the hopper.`;
+        const levelText = Number.isFinite(feedLevel)
+          ? `the feed level was ${feedLevel.toFixed(0)}%`
+          : "the feed level was at its critical threshold";
+        body = `${source} was skipped because ${levelText}. Refill the hopper before the next feeding.`;
       }
 
       await deliverFeederNotificationOnce({

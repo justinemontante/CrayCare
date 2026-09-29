@@ -316,9 +316,12 @@ class GrowOutReportExportButton extends StatelessWidget {
                           value: includeSampling,
                           contentPadding: EdgeInsets.zero,
                           title: const Text('Sampling Records'),
-                          onChanged: (value) => setSheetState(
-                            () => includeSampling = value ?? false,
-                          ),
+                          onChanged: (value) => setSheetState(() {
+                            includeSampling = value ?? false;
+                            if (!includeSampling) {
+                              includeIndividualMeasurements = false;
+                            }
+                          }),
                         ),
                         CheckboxListTile(
                           value: includeMortality,
@@ -344,7 +347,7 @@ class GrowOutReportExportButton extends StatelessWidget {
                               'Include individual crayfish measurements',
                             ),
                             subtitle: const Text(
-                              'Adds one row per measured crayfish with its weight and length. Turn off for sample totals and averages only.',
+                              'Groups measurements by sampling week and date, then lists each crayfish’s weight and length. Turn off for totals and averages only.',
                             ),
                             onChanged: includeSampling
                                 ? (value) => setSheetState(
@@ -543,6 +546,8 @@ class GrowOutReportExportButton extends StatelessWidget {
       snapshot.sampling,
       batch.stockingDate,
     );
+    final individualEntries = List.of(snapshot.sampling)
+      ..sort((a, b) => a.date.compareTo(b.date));
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -600,13 +605,17 @@ class GrowOutReportExportButton extends StatelessWidget {
                     ),
                   ),
                 ),
-              if (selection.includeIndividualMeasurements)
-                for (final entry in snapshot.sampling)
+              if (selection.sections.includeSampling &&
+                  selection.includeIndividualMeasurements)
+                for (final entry in individualEntries)
                   if (entry.measurements.isNotEmpty) ...[
                     Padding(
                       padding: const EdgeInsets.only(top: 7),
                       child: Text(
-                        'Individual measurements · ${entry.date.year}-${entry.date.month.toString().padLeft(2, '0')}-${entry.date.day.toString().padLeft(2, '0')}',
+                        ReportExportService.samplingGroupTitle(
+                          entry,
+                          batch.stockingDate,
+                        ),
                         style: const TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w800,
@@ -625,7 +634,8 @@ class GrowOutReportExportButton extends StatelessWidget {
                         ),
                       ),
                   ],
-              if (selection.includeIndividualMeasurements &&
+              if (selection.sections.includeSampling &&
+                  selection.includeIndividualMeasurements &&
                   snapshot.sampling.every(
                     (entry) => entry.measurements.isEmpty,
                   ))
@@ -663,7 +673,7 @@ class GrowOutReportExportButton extends StatelessWidget {
   Future<void> _export(BuildContext context, String format) async {
     final selection = await _chooseReportContent(
       context,
-      canIncludeIndividualMeasurements: format == 'xlsx',
+      canIncludeIndividualMeasurements: true,
     );
     if (selection == null || !context.mounted) return;
 
@@ -697,6 +707,8 @@ class GrowOutReportExportButton extends StatelessWidget {
           batchIds: selection.batchIds,
           sections: selection.sections,
           includeSummary: selection.includeSummary,
+          includeIndividualMeasurements:
+              selection.includeIndividualMeasurements,
           fileName: selection.fileName,
         );
       }

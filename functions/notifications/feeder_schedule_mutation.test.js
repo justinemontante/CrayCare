@@ -111,7 +111,7 @@ test('a missing uid is reported as unauthenticated, never as an internal error',
   assert.equal(h.snapshot(), JSON.stringify(h.store));
 });
 
-test('toggle off only flips enabled; toggle on re-validates and re-anchors to now', async () => {
+test('schedule enable/disable does not carry a per-schedule turbidity setting', async () => {
   const h = makeHarness();
   await call(h, valid({time: '6:15', ampm: 'PM', grams: 20}));
   const [doc] = h.scheduleDocs();
@@ -121,11 +121,13 @@ test('toggle off only flips enabled; toggle on re-validates and re-anchors to no
   assert.equal(h.store[key].enabled, false);
   assert.equal(h.store[key].isDone, false);
   assert.equal(h.store[key].grams, 20);
+  assert.deepEqual(h.store[key].allow_high_turbidity, {__delete: true});
   assert.equal(h.store[key].effective_at_ms, NOW);
 
   h.store[key] = {...h.store[key], effective_at_ms: NOW - 9e7, last_outcome: 'failed', last_occurrence_at: NOW - 9e7};
   await call(h, {operation: 'toggle', scheduleId: doc.id, enabled: true});
   assert.equal(h.store[key].enabled, true);
+  assert.deepEqual(h.store[key].allow_high_turbidity, {__delete: true});
   assert.equal(h.store[key].effective_at_ms, NOW);
   assert.deepEqual(h.store[key].last_outcome, {__delete: true});
   assert.deepEqual(h.store[key].last_occurrence_at, {__delete: true});
@@ -140,6 +142,7 @@ test('legacy schedule rows are normalized when enabled', async () => {
   assert.equal(stored.enabled, true);
   assert.equal(stored.days, '1111111');
   assert.equal(stored.grams, 20);
+  assert.deepEqual(stored.allow_high_turbidity, {__delete: true});
   assert.equal(stored.timeValue, 300);
 });
 
@@ -173,6 +176,7 @@ test('scheduleFields enforces the time shape and 1-200 g whole-gram doses', () =
   assert.equal(scheduleFields({time: '7:30', ampm: 'AM', days: '1111111'}).grams, 20);
   assert.equal(scheduleFields({time: '7:30', ampm: 'AM', days: '1111111', grams: 5}).grams, 5);
   assert.equal(scheduleFields({time: '7:30', ampm: 'AM', days: '1111111', grams: 30}).grams, 30);
+  assert.equal('allow_high_turbidity' in scheduleFields({time: '7:30', ampm: 'AM', days: '1111111'}), false);
   const bad = [
     {time: '0:30', ampm: 'AM', days: '1111111'},
     {time: '13:30', ampm: 'PM', days: '1111111'},
@@ -190,6 +194,20 @@ test('scheduleFields enforces the time shape and 1-200 g whole-gram doses', () =
     try { scheduleFields(input); } catch (e) { code = e.code; }
     assert.equal(code, 'invalid-argument', `expected rejection for ${JSON.stringify(input)}`);
   }
+});
+
+test('shared schedule turbidity policy is stored once at tank feeder settings', async () => {
+  const h = makeHarness();
+  await call(h, {operation: 'set_schedule_turbidity_policy', allowHighTurbidity: true});
+  assert.equal(h.store[`${tankPrefix}/feeder/schedule_policy`].allow_high_turbidity, true);
+  assert.equal(listLogs(h)[0].action, 'Scheduled high-turbidity feeding enabled');
+  const before = h.snapshot();
+  const result = await call(h, {operation: 'set_schedule_turbidity_policy', allowHighTurbidity: true});
+  assert.deepEqual(result, {updated: false});
+  assert.equal(h.snapshot(), before, 'setting the existing value should not add a duplicate audit entry');
+  await call(h, {operation: 'set_schedule_turbidity_policy', allowHighTurbidity: false});
+  assert.equal(h.store[`${tankPrefix}/feeder/schedule_policy`].allow_high_turbidity, false);
+  assert.equal(listLogs(h).length, 2);
 });
 
 test('same minute on an overlapping day is a conflict even when grams differ', async () => {
