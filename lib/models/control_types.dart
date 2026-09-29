@@ -64,11 +64,17 @@ String feederPreflightIssue({
     if (oxygen < (ranges['do']?['min'] ?? 0)) {
       return 'Dissolved oxygen too low (${oxygen.toStringAsFixed(1)} mg/L)';
     }
+    if (oxygen > (ranges['do']?['max'] ?? 999)) {
+      return 'Dissolved oxygen too high (${oxygen.toStringAsFixed(1)} mg/L)';
+    }
     final ph = values['ph']!;
     if (ph < (ranges['ph']?['min'] ?? 0) || ph > (ranges['ph']?['max'] ?? 14)) {
       return 'pH outside range (${ph.toStringAsFixed(2)})';
     }
     final turbidity = values['turb']!;
+    if (turbidity < (ranges['turb']?['min'] ?? 0)) {
+      return 'Turbidity below range (${turbidity.toStringAsFixed(0)} NTU)';
+    }
     if (turbidity > (ranges['turb']?['max'] ?? 999)) {
       return 'Turbidity too high (${turbidity.toStringAsFixed(0)} NTU)';
     }

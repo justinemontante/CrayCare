@@ -755,14 +755,14 @@ class ControlsScreenState extends State<ControlsScreen> {
                       () => allowWaterQualityOverride = value ?? false,
                     ),
                     title: const Text(
-                      'Allow Feed Now outside water-quality ranges',
+                      'Allow feeding when water quality is outside safe ranges',
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                     subtitle: const Text(
-                      'Applies once to temperature, pH, dissolved oxygen, and turbidity. Missing/stale sensors and critical feed level still block feeding.',
+                      'One-time override for temperature, pH, dissolved oxygen, and turbidity. Fresh sensors and a noncritical feed level are still required.',
                       style: TextStyle(fontSize: 11),
                     ),
                     activeColor: AppColors.primary,

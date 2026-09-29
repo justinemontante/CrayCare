@@ -31,9 +31,9 @@ void main() {
     freshSensors: fresh ?? {'temp', 'do', 'ph', 'turb', 'feedlevel'},
     ranges: {
       'temp': {'min': 24, 'max': 32},
-      'do': {'min': 5},
+      'do': {'min': 5, 'max': 9},
       'ph': {'min': 6, 'max': 8},
-      'turb': {'max': 50},
+      'turb': {'min': 3, 'max': 50},
       'feedlevel': {'min': 20, 'max': 100, 'critical': 10},
     },
     grams: grams,
@@ -53,6 +53,10 @@ void main() {
       isEmpty,
     );
     expect(check(oxygen: 3, allowWaterQualityOverride: true), isEmpty);
+    expect(check(oxygen: 10), contains('Dissolved oxygen too high'));
+    expect(check(oxygen: 10, allowWaterQualityOverride: true), isEmpty);
+    expect(check(turbidity: 1), contains('Turbidity below range'));
+    expect(check(turbidity: 1, allowWaterQualityOverride: true), isEmpty);
     expect(check(temperature: 33), contains('Temperature outside range'));
     expect(check(temperature: 33, allowWaterQualityOverride: true), isEmpty);
     expect(check(ph: 9), contains('pH outside range'));

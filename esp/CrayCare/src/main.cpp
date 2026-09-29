@@ -3179,7 +3179,9 @@ bool feedBlockBypassable(const String& reason) {
   if (reason == "required water-quality sensor unavailable") return true;
   if (reason == "temperature outside range") return true;
   if (reason == "dissolved oxygen too low") return true;
+  if (reason == "dissolved oxygen too high") return true;
   if (reason == "pH outside range") return true;
+  if (reason == "turbidity below range") return true;
   if (reason == "turbidity too high") return true;
   if (reason == "feed-level sensor unavailable") return true;
   return false;
@@ -3198,8 +3200,10 @@ bool canFeedSafely(String &reason, bool allowHighTurbidityRange = false,
   if (!allowWaterQualityRanges &&
       (smoothedTemp < tempCriticalLow || smoothedTemp > tempCriticalHigh)) reason = "temperature outside range";
   else if (!allowWaterQualityRanges && dissolvedOxygen < doCriticalLow) reason = "dissolved oxygen too low";
+  else if (!allowWaterQualityRanges && dissolvedOxygen > doCriticalHigh) reason = "dissolved oxygen too high";
   else if (!allowWaterQualityRanges &&
            (phLevel < phCriticalLow || phLevel > phCriticalHigh)) reason = "pH outside range";
+  else if (!allowWaterQualityRanges && smoothedTurbidityNTU < turbNtuMin) reason = "turbidity below range";
   else if (!allowWaterQualityRanges && !allowHighTurbidityRange &&
            smoothedTurbidityNTU > turbNtuMax) reason = "turbidity too high";
   else if (!feedLevelSensorOK) reason = "feed-level sensor unavailable";
@@ -3398,7 +3402,9 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
           source == "manual" && allowWaterQualityOverride &&
           (sensorRangeReason == "temperature outside range" ||
            sensorRangeReason == "dissolved oxygen too low" ||
+           sensorRangeReason == "dissolved oxygen too high" ||
            sensorRangeReason == "pH outside range" ||
+           sensorRangeReason == "turbidity below range" ||
            sensorRangeReason == "turbidity too high");
       if (waterQualityRangeOverride) {
         String remainingSafetyReason;
