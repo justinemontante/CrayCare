@@ -15,8 +15,8 @@ class FeederTab extends StatelessWidget {
   final TextEditingController timeCtl;
   final VoidCallback onFeedNow;
   final Future<bool> Function(double? grams, String days) onAddSchedule;
-  final bool allowHighTurbiditySchedules;
-  final Future<void> Function(bool enabled) onSetAllowHighTurbiditySchedules;
+  final bool allowWaterQualitySchedules;
+  final Future<void> Function(bool enabled) onSetAllowWaterQualitySchedules;
   final void Function(int index) onDeleteSchedule;
   final Future<bool> Function(int index, ScheduleItem item) onEditSchedule;
   final void Function(int index, bool enabled) onToggleSchedule;
@@ -37,8 +37,8 @@ class FeederTab extends StatelessWidget {
     required this.timeCtl,
     required this.onFeedNow,
     required this.onAddSchedule,
-    this.allowHighTurbiditySchedules = false,
-    required this.onSetAllowHighTurbiditySchedules,
+    this.allowWaterQualitySchedules = false,
+    required this.onSetAllowWaterQualitySchedules,
     required this.onDeleteSchedule,
     required this.onEditSchedule,
     required this.onToggleSchedule,
@@ -251,36 +251,44 @@ class FeederTab extends StatelessWidget {
             const SizedBox(height: 8),
             Container(
               decoration: BoxDecoration(
-                color: const Color(0xFFFFF8E8),
+                color: AppColors.primary.withValues(alpha: 0.045),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFF3D99A)),
+                border: Border.all(
+                  color: AppColors.primary.withValues(alpha: 0.18),
+                ),
               ),
               child: Material(
                 color: Colors.transparent,
-                child: CheckboxListTile.adaptive(
-                  value: allowHighTurbiditySchedules,
+                child: CheckboxListTile(
+                  value: allowWaterQualitySchedules,
                   onChanged: (value) {
                     if (value != null) {
-                      onSetAllowHighTurbiditySchedules(value);
+                      onSetAllowWaterQualitySchedules(value);
                     }
                   },
                   activeColor: AppColors.primary,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 0,
+                  checkColor: Colors.white,
+                  side: const BorderSide(color: AppColors.dark, width: 1.5),
+                  fillColor: WidgetStateProperty.resolveWith((states) =>
+                      states.contains(WidgetState.selected)
+                          ? AppColors.primary
+                          : Colors.transparent),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 6),
+                  horizontalTitleGap: 2,
+                  minLeadingWidth: 26,
+                  dense: true,
+                  visualDensity: const VisualDensity(
+                    horizontal: -2,
+                    vertical: -2,
                   ),
                   controlAffinity: ListTileControlAffinity.leading,
                   title: const Text(
-                    'Allow all schedules during high turbidity',
+                    'Allow scheduled feeding outside safe water-quality ranges',
                     style: TextStyle(
                       fontSize: 11,
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.w600,
                       color: AppColors.dark,
                     ),
-                  ),
-                  subtitle: const Text(
-                    'Applies to every scheduled feeding. Sensor faults and other safety checks still block feeding.',
-                    style: TextStyle(fontSize: 9, height: 1.3),
                   ),
                 ),
               ),

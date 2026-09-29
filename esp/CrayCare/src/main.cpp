@@ -588,7 +588,7 @@ unsigned long lastFeederCmdCheckMs = 0;
 unsigned long lastFeederStatusMs = 0;
 unsigned long lastFeederScheduleSyncMs = 0;
 unsigned long lastFeederScheduleCheckMs = 0;
-bool allowHighTurbidityScheduledFeeding = false;
+bool allowWaterQualityScheduledFeeding = false;
 unsigned long lastSchedulePolicySyncMs = 0;
 
 // ============================================================
@@ -3053,16 +3053,18 @@ void syncFeederSchedules() {
     FirebaseJsonData policyValue;
     policyResponse.setJsonData(fbdo.payload());
     bool enabled = policyResponse.get(
-        policyValue, "fields/allow_high_turbidity/booleanValue") &&
+        policyValue, "fields/allow_water_quality_override/booleanValue") &&
         policyValue.boolValue;
-    if (enabled != allowHighTurbidityScheduledFeeding) {
-      Serial.printf("[FEEDER] Global scheduled high-turbidity override %s\n",
+    if (enabled != allowWaterQualityScheduledFeeding) {
+      Serial.printf("[FEEDER] Global scheduled water-quality range override %s\n",
                     enabled ? "enabled" : "disabled");
     }
-    allowHighTurbidityScheduledFeeding = enabled;
+    allowWaterQualityScheduledFeeding = enabled;
+    // Retired policy is deliberately ignored. New schedules use one unified
+    // explicit opt-in for all four water-quality sensor ranges.
     lastSchedulePolicySyncMs = millis();
   } else if (fbdo.httpCode() == 404) {
-    allowHighTurbidityScheduledFeeding = false;
+    allowWaterQualityScheduledFeeding = false;
     lastSchedulePolicySyncMs = millis();
   } else {
     Serial.printf("[FEEDER] Schedule policy sync failed; retaining the last value temporarily, http=%d\n",
@@ -3283,9 +3285,8 @@ void checkScheduledFeed() {
         feederScheduleTime = String(hour12) + ":" + (s.minute < 10 ? "0" : "") + String(s.minute) + (s.hour24 >= 12 ? " PM" : " AM");
         const bool schedulePolicyFresh = lastSchedulePolicySyncMs > 0 &&
             millis() - lastSchedulePolicySyncMs <= FEEDER_SCHEDULE_SYNC_MS * 3UL;
-        startFeed("scheduled", s.grams, "", 0, 0, false,
-                  allowHighTurbidityScheduledFeeding && schedulePolicyFresh,
-                  false);
+        startFeed("scheduled", s.grams, "", 0, 0, false, false,
+                  allowWaterQualityScheduledFeeding && schedulePolicyFresh);
         return;
       }
     }
@@ -3350,7 +3351,7 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
   if (!LittleFS.exists("/feedlogs/" + feederEventKey + ".pending")) {
     feederStatus = "blocked";
     feederStatusReason = "Cannot persist feed request";
-    if (source != "onsite") sendFeederStatus();
+    sendFeederStatus();
     return;
   }
   if (source == "scheduled") {
@@ -3364,13 +3365,13 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
       // deletion before it can upload/remove this durable failed outcome.
       feederStatus = "blocked";
       feederStatusReason = "Command acknowledgement not confirmed";
-      if (source != "onsite") sendFeederStatus();
+      sendFeederStatus();
       return;
     }
   }
   feederStatus = "checking_feed_level";
   readFeedLevelSensor();
-  if (source != "onsite") sendFeederStatus();
+  sendFeederStatus();
   String blockedReason;
   time_t checkedAt;
   time(&checkedAt);
@@ -3399,7 +3400,8 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
           allowHighTurbidityOverride &&
           sensorRangeReason == "turbidity too high";
       const bool waterQualityRangeOverride =
-          source == "manual" && allowWaterQualityOverride &&
+          (source == "manual" || source == "scheduled") &&
+          allowWaterQualityOverride &&
           (sensorRangeReason == "temperature outside range" ||
            sensorRangeReason == "dissolved oxygen too low" ||
            sensorRangeReason == "dissolved oxygen too high" ||
@@ -3410,7 +3412,8 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
         String remainingSafetyReason;
         if (canFeedSafely(remainingSafetyReason, false, true)) {
           feederWaterQualityOverrideUsed = true;
-          Serial.println("[FEEDER] One-time manual water-quality range override accepted; sensors and feed-level checks passed");
+          Serial.printf("[FEEDER] Water-quality range override accepted (source=%s); sensors and feed-level checks passed\n",
+                        source.c_str());
         } else {
           blockedReason = remainingSafetyReason;
         }
@@ -3451,7 +3454,7 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
         feederLastScheduledMinute = (unsigned long)blockedAt / 60;
         saveFeederState();
       }
-      if (source != "onsite") sendFeederStatus();
+      sendFeederStatus();
       feederLastScheduleKey = "";
       // Bypassable onsite block: open the 10 s warning window instead of a
       // silent abort. Taps inside the window confirm; grams stay locked.
@@ -3469,7 +3472,7 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
   // Announce readiness while the servo is still parked, then recheck expiry
   // after this potentially blocking call before opening the gate.
   feederStatus = "dispensing";
-  if (source != "onsite") sendFeederStatus();
+  sendFeederStatus();
   time(&checkedAt);
   if (!commandId.isEmpty() && ((long long)checkedAt * 1000 - issuedAtMs > 60000 ||
       (expiresAtMs > 0 && (long long)checkedAt * 1000 >= expiresAtMs))) {
@@ -3477,7 +3480,7 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
     feederStatusReason = "Feed Now request expired before dispensing";
     pushFeederLog(feederStatusReason, "manual", "blocked", grams,
                   feederFeedLevelBefore, feederFeedLevelBefore);
-    if (source != "onsite") sendFeederStatus();
+    sendFeederStatus();
     return;
   }
 
@@ -3492,7 +3495,7 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
       feederStatusReason = "automatic feeding is due at " + nearbySchedule;
     pushFeederLog(feederStatusReason, "manual", "blocked", grams,
                   feederFeedLevelBefore, feederFeedLevelBefore);
-      if (source != "onsite") sendFeederStatus();
+      sendFeederStatus();
       return;
     }
   }
@@ -3604,7 +3607,7 @@ void processFeederTick() {
         feederFeedLevelBefore,
         levelAfter
       );
-      if (feederFeedSource != "onsite") sendFeederStatus();
+      sendFeederStatus();
       // The log trigger updates the date-scoped outcome, including backfills.
 
       feederFeedSource = "";
@@ -3793,7 +3796,7 @@ void applyTankAssignment(const String& tankId, const String& ownerUid, long long
   // never carry a previous owner's schedules/counters into the next account.
   feederSchedules.clear();
   feederScheduleCount = 0;
-  allowHighTurbidityScheduledFeeding = false;
+  allowWaterQualityScheduledFeeding = false;
   lastSchedulePolicySyncMs = 0;
   feederLastScheduleKey = "";
   feederScheduleTime = "";

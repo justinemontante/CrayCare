@@ -27,6 +27,10 @@ void _showSnack(
   bool isSuccess, {
   String? title,
 }) {
+  // A queued snackbar can make feedback from a recent toggle appear late.
+  // Discard stale messages and replace the current one immediately.
+  messenger.clearSnackBars();
+  messenger.removeCurrentSnackBar();
   messenger.showSnackBar(
     SnackBar(
       content: Row(
@@ -99,7 +103,7 @@ void _showSnack(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       elevation: 12,
-      duration: const Duration(seconds: 3),
+      duration: const Duration(seconds: 2),
     ),
   );
 }

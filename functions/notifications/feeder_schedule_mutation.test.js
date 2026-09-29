@@ -210,6 +210,22 @@ test('shared schedule turbidity policy is stored once at tank feeder settings', 
   assert.equal(listLogs(h).length, 2);
 });
 
+test('unified scheduled water-quality override is stored once and clears legacy turbidity policy', async () => {
+  const h = makeHarness();
+  await call(h, {operation: 'set_schedule_water_quality_policy', allowWaterQualityOverride: true});
+  const path = `${tankPrefix}/feeder/schedule_policy`;
+  assert.equal(h.store[path].allow_water_quality_override, true);
+  assert.equal(h.store[path].allow_high_turbidity, false);
+  assert.equal(listLogs(h)[0].action, 'Scheduled water-quality range override enabled');
+  const before = h.snapshot();
+  const result = await call(h, {operation: 'set_schedule_water_quality_policy', allowWaterQualityOverride: true});
+  assert.deepEqual(result, {updated: false});
+  assert.equal(h.snapshot(), before, 'setting the existing value should not add a duplicate audit entry');
+  await call(h, {operation: 'set_schedule_water_quality_policy', allowWaterQualityOverride: false});
+  assert.equal(h.store[path].allow_water_quality_override, false);
+  assert.equal(listLogs(h).length, 2);
+});
+
 test('same minute on an overlapping day is a conflict even when grams differ', async () => {
   const h = makeHarness();
   h.addScheduleDoc('a', {time: '7:30', ampm: 'AM', days: '1111111', grams: 40, enabled: true, timeValue: 450});

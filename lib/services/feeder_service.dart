@@ -133,9 +133,9 @@ class FeederService extends ChangeNotifier {
   String? _lastError;
   String? _lastFeedRequestError;
   bool _schedulesLoaded = false;
-  bool _allowHighTurbiditySchedules = false;
+  bool _allowWaterQualitySchedules = false;
 
-  bool get allowHighTurbiditySchedules => _allowHighTurbiditySchedules;
+  bool get allowWaterQualitySchedules => _allowWaterQualitySchedules;
 
   final List<LogEntry> _logs = [];
   final List<ScheduleItem> _schedules = [];
@@ -357,7 +357,7 @@ class FeederService extends ChangeNotifier {
     _lastError = null;
     _lastFeedRequestError = null;
     _schedulesLoaded = false;
-    _allowHighTurbiditySchedules = false;
+    _allowWaterQualitySchedules = false;
     FeedState.schedules.value = [];
     FeedState.feederLogs.value = [];
     notifyListeners();
@@ -510,8 +510,8 @@ class FeederService extends ChangeNotifier {
         .snapshots()
         .listen(
           (snapshot) {
-            _allowHighTurbiditySchedules =
-                snapshot.data()?['allow_high_turbidity'] as bool? ?? false;
+            _allowWaterQualitySchedules =
+                snapshot.data()?['allow_water_quality_override'] as bool? ?? false;
             notifyListeners();
           },
           onError: (Object error) {
@@ -849,20 +849,20 @@ class FeederService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setAllowHighTurbiditySchedules(bool enabled) async {
+  Future<void> setAllowWaterQualitySchedules(bool enabled) async {
     if (_tankDoc() == null) {
       throw StateError('No tank is connected to this account.');
     }
-    final previous = _allowHighTurbiditySchedules;
-    _allowHighTurbiditySchedules = enabled;
+    final previous = _allowWaterQualitySchedules;
+    _allowWaterQualitySchedules = enabled;
     notifyListeners();
     try {
       await _mutateSchedule({
-        'operation': 'set_schedule_turbidity_policy',
-        'allowHighTurbidity': enabled,
+        'operation': 'set_schedule_water_quality_policy',
+        'allowWaterQualityOverride': enabled,
       });
     } catch (_) {
-      _allowHighTurbiditySchedules = previous;
+      _allowWaterQualitySchedules = previous;
       notifyListeners();
       rethrow;
     }

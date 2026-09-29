@@ -905,18 +905,11 @@ class ControlsScreenState extends State<ControlsScreen> {
     }
   }
 
-  Future<void> _setAllowHighTurbiditySchedules(bool enabled) async {
+  Future<void> _setAllowWaterQualitySchedules(bool enabled) async {
     try {
-      await FeederService.instance.setAllowHighTurbiditySchedules(enabled);
-      if (mounted) {
-        showBeautifulSnackbar(
-          context,
-          enabled
-              ? 'High-turbidity override enabled for all schedules.'
-              : 'High-turbidity override disabled for all schedules.',
-          true,
-        );
-      }
+      await FeederService.instance.setAllowWaterQualitySchedules(enabled);
+      // The checkbox updates optimistically; avoid waiting for the callable
+      // just to show a delayed success snackbar. Only failures need feedback.
     } catch (error) {
       if (mounted) {
         showBeautifulSnackbar(
@@ -1007,10 +1000,10 @@ class ControlsScreenState extends State<ControlsScreen> {
                       onFeedNow: _showFeedNowDialog,
                       onAddSchedule: (grams, days) =>
                           _addSchedule(grams: grams, days: days),
-                      allowHighTurbiditySchedules:
-                          FeederService.instance.allowHighTurbiditySchedules,
-                      onSetAllowHighTurbiditySchedules:
-                          _setAllowHighTurbiditySchedules,
+                      allowWaterQualitySchedules:
+                          FeederService.instance.allowWaterQualitySchedules,
+                      onSetAllowWaterQualitySchedules:
+                          _setAllowWaterQualitySchedules,
                       onDeleteSchedule: (index) =>
                           unawaited(_deleteSchedule(index)),
                       onEditSchedule: (index, item) =>
