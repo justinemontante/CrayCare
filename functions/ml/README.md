@@ -1,6 +1,6 @@
 # CrayCare WQAD
 
-CrayCare uses **Machine Learning-Based Water Quality Anomaly Detection (WQAD)**. The deployed `IsolationForest` learns the usual combined behavior of temperature, pH, dissolved oxygen, turbidity, and water level, including short-term changes and trends. Water level is represented by one centimeter reading per history record; only temperature, pH, dissolved oxygen, and turbidity use min/average/max window aggregates.
+CrayCare uses **Machine Learning-Based Water Quality Anomaly Detection (WQAD)**. The deployed `IsolationForest` learns the usual combined behavior of temperature, pH, dissolved oxygen, turbidity, and water level, including short-term changes and trends. Each 10-minute history record stores the mean of valid readings under the canonical sensor names. Per-window min/max values are not stored.
 
 It is not a Good/Moderate/Poor/Critical classifier. Sensor safety thresholds remain a separate feature for immediate alerts and actuator logic. WQAD provides an advisory `Normal`, `Unusual`, or `Insufficient` result, a reference-pattern percentile, ranked contributors, an insight, and a verification-focused recommendation.
 
@@ -49,7 +49,7 @@ The 98th-percentile decision boundary is a statistical rarity cutoff learned fro
 
 ## Training from collected history
 
-`export_firestore.py` exports the selected tank to `real_sensor_history.csv`, without overwriting the synthetic dataset. Configure `CRAYCARE_TANK_ID` and application credentials before exporting. Exported timestamps are UTC. Export one tank at a time; do not mix tanks in a single reference history.
+`export_firestore.py` exports the selected tank to `real_sensor_history.csv`, without overwriting the synthetic dataset. It reads canonical sensor fields and remains compatible with older average-field records. Configure `CRAYCARE_TANK_ID` and application credentials before exporting. Exported timestamps are UTC. Export one tank at a time; do not mix tanks in a single reference history.
 
 ```powershell
 venv\Scripts\python.exe train_model.py --dataset real_sensor_history.csv --origin real_field_unvalidated --train-days 40 --output wqad_candidate.joblib

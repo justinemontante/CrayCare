@@ -4,13 +4,13 @@ const admin = require("firebase-admin");
 // main.js loads index.js first, so the shared Admin app is already initialized.
 const firestoreDb = admin.firestore();
 const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
-const SUMMARY_VERSION = 3;
+const SUMMARY_VERSION = 4;
 
 const DAILY_SENSORS = [
-  { avg: "temp_avg", min: "temp_min", max: "temp_max", sum: "temp_sum", count: "temp_count" },
-  { avg: "pH_avg", min: "pH_min", max: "pH_max", sum: "pH_sum", count: "pH_count" },
-  { avg: "DO_avg", min: "DO_min", max: "DO_max", sum: "DO_sum", count: "DO_count" },
-  { avg: "turbidity_avg", min: "turbidity_min", max: "turbidity_max", sum: "turbidity_sum", count: "turbidity_count" },
+  { input: "temperature", legacyInput: "temp_avg", avg: "temp_avg", min: "temp_min", max: "temp_max", sum: "temp_sum", count: "temp_count" },
+  { input: "ph_level", legacyInput: "pH_avg", avg: "pH_avg", min: "pH_min", max: "pH_max", sum: "pH_sum", count: "pH_count" },
+  { input: "dissolved_oxygen", legacyInput: "DO_avg", avg: "DO_avg", min: "DO_min", max: "DO_max", sum: "DO_sum", count: "DO_count" },
+  { input: "turbidity", legacyInput: "turbidity_avg", avg: "turbidity_avg", min: "turbidity_min", max: "turbidity_max", sum: "turbidity_sum", count: "turbidity_count" },
 ];
 
 function finiteNumber(value) {
@@ -25,6 +25,11 @@ function finiteNumber(value) {
 function finiteSensorNumber(value) {
   const n = finiteNumber(value);
   return n !== null && n >= 0 ? n : null;
+}
+
+function sensorAverage(reading, sensor) {
+  return finiteSensorNumber(reading[sensor.input]) ??
+    finiteSensorNumber(reading[sensor.legacyInput]);
 }
 
 function manilaDateKey(date) {
@@ -67,7 +72,7 @@ function addReadingToSummary(current, reading, entryId, dateKey) {
   };
 
   for (const sensor of DAILY_SENSORS) {
-    const avg = finiteSensorNumber(reading[sensor.avg]);
+    const avg = sensorAverage(reading, sensor);
     if (avg === null) continue;
 
     const oldSum = finiteNumber(current[sensor.sum]) || 0;
@@ -133,7 +138,7 @@ function buildCompleteSummary(entryDocs, dateKey) {
 
     for (const doc of entryDocs) {
       const reading = doc.data() || {};
-      const avg = finiteSensorNumber(reading[sensor.avg]);
+      const avg = sensorAverage(reading, sensor);
       if (avg === null) continue;
 
       const entryMin = finiteSensorNumber(reading[sensor.min]) ?? avg;

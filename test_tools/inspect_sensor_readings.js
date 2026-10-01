@@ -113,10 +113,10 @@ async function main() {
       hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true,
     }).format(recordedAt);
     const gap = gapSeconds == null ? '--' : `${Math.floor(gapSeconds / 60)}m ${gapSeconds % 60}s`;
-    const temp = firstNumber(data, ['temp_avg', 'temperature']);
-    const ph = firstNumber(data, ['pH_avg', 'ph_level']);
-    const oxygen = firstNumber(data, ['DO_avg', 'dissolved_oxygen']);
-    const turbidity = firstNumber(data, ['turbidity_avg', 'turbidity']);
+    const temp = firstNumber(data, ['temperature', 'temp_avg']);
+    const ph = firstNumber(data, ['ph_level', 'pH_avg']);
+    const oxygen = firstNumber(data, ['dissolved_oxygen', 'DO_avg']);
+    const turbidity = firstNumber(data, ['turbidity', 'turbidity_avg']);
     const water = firstNumber(data, ['water_level', 'waterLevel', 'waterLevel_avg']);
     const feed = firstNumber(data, ['feed_level', 'feedLevel']);
 

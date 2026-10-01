@@ -90,28 +90,28 @@
           "date_key (YYYY-MM-DD)",
           "sample_count (int entry count)",
           "processed_entry_ids (array<string>)",
-          "temp_min/temp_max/temp_avg/temp_sum/temp_count (when data exists)",
-          "pH_min/pH_max/pH_avg/pH_sum/pH_count (when data exists)",
-          "DO_min/DO_max/DO_avg/DO_sum/DO_count (when data exists)",
-          "turbidity_min/turbidity_max/turbidity_avg/turbidity_sum/turbidity_count (when data exists)",
+          "temp_min/temp_max/temp_avg/temp_sum/temp_count across saved 10-minute means (when data exists)",
+          "pH_min/pH_max/pH_avg/pH_sum/pH_count across saved 10-minute means (when data exists)",
+          "DO_min/DO_max/DO_avg/DO_sum/DO_count across saved 10-minute means (when data exists)",
+          "turbidity_min/turbidity_max/turbidity_avg/turbidity_sum/turbidity_count across saved 10-minute means (when data exists)",
           "water_level (daily mean in cm), waterLevel_sum, waterLevel_count (when data exists; no min/max)",
           "updated_at (Timestamp)"
         ]
       },
       "sensor_readings_history/{YYYY-MM-DD}/entries/{docId}": {
-        "_description": "10-minute per-sensor window aggregates written directly by the currently assigned ESP32, partitioned by Manila capture date. Firestore Rules verify the current assignment. Buffered entries still use the validated staging route so readings from an old assignment are quarantined rather than attributed to a new owner.",
+        "_description": "10-minute per-sensor mean readings written directly by the currently assigned ESP32, partitioned by Manila capture date. Firestore Rules verify the current assignment. Buffered entries still use the validated staging route so readings from an old assignment are quarantined rather than attributed to a new owner. Older records remain readable.",
         "fields": [
           "hardwareId (string)",
           "source_tank_id (string)",
           "source_owner_uid (string)",
           "source_assignment_at_ms (int epoch-ms)",
           "captured_at_ms (int epoch-ms)",
-          "temp_min, temp_max, temp_avg (when valid samples exist)",
-          "turbidity_min, turbidity_max, turbidity_avg (when valid samples exist)",
-          "pH_min, pH_max, pH_avg (when valid samples exist)",
-          "DO_min, DO_max, DO_avg (when valid samples exist)",
-          "water_level (single centimeter reading; no min/max aggregate)",
-          "feed_level (percent, when available)",
+          "temperature (mean of valid samples in the 10-minute window, when available)",
+          "ph_level (mean of valid samples in the 10-minute window, when available)",
+          "dissolved_oxygen (mean of valid samples in the 10-minute window, when available)",
+          "turbidity (mean of valid samples in the 10-minute window, when available)",
+          "water_level (mean of valid samples in cm, when available)",
+          "feed_level (mean of valid samples in percent, when available)",
           "recorded_at (Timestamp)"
         ]
       },
@@ -334,7 +334,7 @@
     ]
   },
   "sensorIngestion/current/history/{docId}": {
-    "_description": "Dedicated ESP Email/Password service-account fallback for buffered, unassigned, or older-firmware 10-minute aggregate entries. Cloud Functions preserve captured_at_ms as recorded_at, validate the original assignment binding, and quarantine mismatches rather than attributing them to a new owner.",
+    "_description": "Dedicated ESP Email/Password service-account fallback for buffered 10-minute sensor means. Cloud Functions preserve captured_at_ms as recorded_at, validate the original assignment binding, and quarantine mismatches rather than attributing them to a new owner.",
     "fields": [
       "hardwareId (string)",
       "source_tank_id (string)",
@@ -343,11 +343,12 @@
       "captured_at_ms (int epoch-ms when NTP is synced)",
       "routing_status (string, optional server result)",
       "routing_reason (string, optional server result)",
-      "temp_min/temp_max/temp_avg (when valid samples exist)",
-      "turbidity_min/turbidity_max/turbidity_avg (when valid samples exist)",
-      "DO_min/DO_max/DO_avg (when valid samples exist)",
-      "pH_min/pH_max/pH_avg (when valid samples exist)",
-      "water_level (single centimeter reading; no min/max aggregate)"
+      "temperature (mean of valid samples in the 10-minute window)",
+      "ph_level (mean of valid samples in the 10-minute window)",
+      "dissolved_oxygen (mean of valid samples in the 10-minute window)",
+      "turbidity (mean of valid samples in the 10-minute window)",
+      "water_level (mean of valid samples in cm)",
+      "feed_level (mean of valid samples in percent)"
     ]
   }
 }

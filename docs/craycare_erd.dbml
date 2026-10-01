@@ -76,20 +76,12 @@ Table sensor_thresholds [note: 'Persisted at tanks/{tankId}/sensors/{sensorName}
 Table sensor_readings_history [note: '10-minute sensor-history records. The parent daily record is used internally to summarize the same history for long-range analytics; it is not shown as a separate ERD table.'] {
   tank_id varchar [not null, ref: > tanks.tank_id, note: 'Parent tank document ID; not stored on entry']
   reading_id varchar [not null, note: 'Firestore Auto-ID inherited from sensorIngestion history; not a stored field']
-  temp_min decimal(6,2)
-  temp_max decimal(6,2)
-  temp_avg decimal(6,2)
-  pH_min decimal(5,2)
-  pH_max decimal(5,2)
-  pH_avg decimal(5,2)
-  DO_min decimal(5,2)
-  DO_max decimal(5,2)
-  DO_avg decimal(5,2)
-  turbidity_min decimal(8,2)
-  turbidity_max decimal(8,2)
-  turbidity_avg decimal(8,2)
-  water_level decimal(6,2) [note: 'Single water-level reading in centimeters; no min/max aggregate']
-  feed_level decimal(6,2)
+  temperature decimal(6,2) [note: 'Mean of valid readings collected during the 10-minute window']
+  ph_level decimal(5,2) [note: 'Mean of valid readings collected during the 10-minute window']
+  dissolved_oxygen decimal(5,2) [note: 'Mean of valid readings collected during the 10-minute window']
+  turbidity decimal(8,2) [note: 'Mean of valid readings collected during the 10-minute window']
+  water_level decimal(6,2) [note: 'Mean of valid readings collected during the 10-minute window, in centimeters']
+  feed_level decimal(6,2) [note: 'Mean of valid readings collected during the 10-minute window, in percent']
   recorded_at timestamp [not null]
   Indexes {
     (tank_id, reading_id) [pk]

@@ -93,31 +93,16 @@ for sensor, (low, high) in physical_bounds.items():
     signals[sensor] = np.clip(signals[sensor], low, high)
 
 
-def window_triplet(sensor, spread_scale):
-    avg = signals[sensor]
-    spread = np.abs(rng.normal(spread_scale, spread_scale * 0.25, ROWS))
-    low = avg - spread
-    high = avg + spread
-    if sensor == "DO":
-        low[stuck_start:stuck_start + stuck_duration] = avg[stuck_start:stuck_start + stuck_duration]
-        high[stuck_start:stuck_start + stuck_duration] = avg[stuck_start:stuck_start + stuck_duration]
-    bound_low, bound_high = physical_bounds[sensor]
-    return np.clip(low, bound_low, bound_high), avg, np.clip(high, bound_low, bound_high)
-
-
 data = {
     "timestamp": [START + timedelta(minutes=i * INTERVAL_MINUTES) for i in range(ROWS)],
     "is_injected_anomaly": is_anomaly,
     "event_type": event_type,
+    "temperature": signals["temp"],
+    "ph_level": signals["pH"],
+    "dissolved_oxygen": signals["DO"],
+    "turbidity": signals["turbidity"],
+    "water_level": signals["waterLevel"],
 }
-for sensor, scale in {"temp": 0.10, "pH": 0.025, "DO": 0.09, "turbidity": 0.35, "waterLevel": 0.04}.items():
-    if sensor == "waterLevel":
-        data["waterLevel"] = signals[sensor]
-        continue
-    low, avg, high = window_triplet(sensor, scale)
-    data[f"{sensor}_avg"] = avg
-    data[f"{sensor}_min"] = low
-    data[f"{sensor}_max"] = high
 
 df = pd.DataFrame(data)
 numeric_columns = df.select_dtypes(include=["number"]).columns

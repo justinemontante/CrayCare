@@ -804,34 +804,31 @@ bool turbiditySensorOK = false;
 uint8_t turbiditySkipCount = 0;
 float turbidityVoltage = 0.0;
 
-// ─── 10-min window aggregates (min/max/avg) ──────────────────────────
+// ─── 10-min window means ───────────────────────────────────────────────
 // Accumulated from ACCEPTED readings between history saves, so brief
-// spikes inside a 10-min window are preserved in the history entry
-// (and the ML volatility feature gets a real signal). The ESP polls
-// every 2 s, so each window collects up to ~300 samples.
+// each ten-minute history entry stores one average per valid sensor. The ESP
+// polls every 2 s, so each window can collect up to ~300 samples per sensor.
 // Reset after every history write (or buffer append).
 float winTempSum = 0.0f; uint16_t winTempN = 0;
-float winTempMin = 0.0f; float winTempMax = 0.0f;
 float winTurbSum = 0.0f; uint16_t winTurbN = 0;
-float winTurbMin = 0.0f; float winTurbMax = 0.0f;
 float winDOSum = 0.0f; uint16_t winDON = 0;
-float winDOMin = 0.0f; float winDOMax = 0.0f;
 float winPHSum = 0.0f; uint16_t winPHN = 0;
-float winPHMin = 0.0f; float winPHMax = 0.0f;
+float winWaterLevelSum = 0.0f; uint16_t winWaterLevelN = 0;
+float winFeedLevelSum = 0.0f; uint16_t winFeedLevelN = 0;
 
 void resetWindowAggregates() {
-  winTempSum = 0.0f; winTempN = 0; winTempMin = 0.0f; winTempMax = 0.0f;
-  winTurbSum = 0.0f; winTurbN = 0; winTurbMin = 0.0f; winTurbMax = 0.0f;
-  winDOSum = 0.0f; winDON = 0; winDOMin = 0.0f; winDOMax = 0.0f;
-  winPHSum = 0.0f; winPHN = 0; winPHMin = 0.0f; winPHMax = 0.0f;
+  winTempSum = 0.0f; winTempN = 0;
+  winTurbSum = 0.0f; winTurbN = 0;
+  winDOSum = 0.0f; winDON = 0;
+  winPHSum = 0.0f; winPHN = 0;
+  winWaterLevelSum = 0.0f; winWaterLevelN = 0;
+  winFeedLevelSum = 0.0f; winFeedLevelN = 0;
 }
 
 // Accumulate one accepted reading into the 10-min window aggregates.
-#define ACCUM_WINDOW(sumV, nV, minV, maxV, val) \
+#define ACCUM_WINDOW(sumV, nV, val) \
   do { \
     (sumV) += (val); (nV)++; \
-    if ((nV) == 1) { (minV) = (val); (maxV) = (val); } \
-    else { if ((val) < (minV)) (minV) = (val); if ((val) > (maxV)) (maxV) = (val); } \
   } while (0)
 
 float dissolvedOxygen = -1.0;
@@ -1547,40 +1544,28 @@ void buildFirestorePayload(FirebaseJson &json, bool includeTimestamp, time_t cap
     return;
   }
 
-  // ── 10-min HISTORY payload: per-sensor window aggregates. ────────────
-  // Structure per sensor: MIN, MAX, AVG (in that order — avg NOT first).
-  // The window accumulators hold every ACCEPTED reading since the last
-  // history save (up to ~300 samples at 2s poll), so brief spikes
-  // inside the window are preserved (e.g. temp_max catches a spike that
-  // the snapshot at save time would miss). Sensors with zero accepted samples are omitted
-  // instead of writing stale fallback values.
+  // ── 10-min HISTORY payload: one mean per available sensor window. ─────
+  // Each average uses accepted readings collected since the last history
+  // save. Sensors with no valid samples in this window are omitted.
 
   // Only include sensors that had valid samples in this 10-minute window.
   if (winTempN > 0) {
-    json.set("fields/temp_min/doubleValue", winTempMin);
-    json.set("fields/temp_max/doubleValue", winTempMax);
-    json.set("fields/temp_avg/doubleValue", winTempSum / (float)winTempN);
+    json.set("fields/temperature/doubleValue", winTempSum / (float)winTempN);
   }
   if (winTurbN > 0) {
-    json.set("fields/turbidity_min/doubleValue", winTurbMin);
-    json.set("fields/turbidity_max/doubleValue", winTurbMax);
-    json.set("fields/turbidity_avg/doubleValue", winTurbSum / (float)winTurbN);
+    json.set("fields/turbidity/doubleValue", winTurbSum / (float)winTurbN);
   }
   if (ENABLE_DO_SENSOR && winDON > 0) {
-    json.set("fields/DO_min/doubleValue", winDOMin);
-    json.set("fields/DO_max/doubleValue", winDOMax);
-    json.set("fields/DO_avg/doubleValue", winDOSum / (float)winDON);
+    json.set("fields/dissolved_oxygen/doubleValue", winDOSum / (float)winDON);
   }
   if (ENABLE_PH_SENSOR && winPHN > 0) {
-    json.set("fields/pH_min/doubleValue", winPHMin);
-    json.set("fields/pH_max/doubleValue", winPHMax);
-    json.set("fields/pH_avg/doubleValue", winPHSum / (float)winPHN);
+    json.set("fields/ph_level/doubleValue", winPHSum / (float)winPHN);
   }
-  if (ENABLE_WATER_LEVEL_SENSOR && waterLevelSensorOK) {
-    json.set("fields/water_level/doubleValue", waterLevelCm);
+  if (winWaterLevelN > 0) {
+    json.set("fields/water_level/doubleValue", winWaterLevelSum / (float)winWaterLevelN);
   }
-  if (ENABLE_FEED_LEVEL_SENSOR && feedLevelSensorOK) {
-    json.set("fields/feed_level/doubleValue", feedLevelPercent);
+  if (winFeedLevelN > 0) {
+    json.set("fields/feed_level/doubleValue", winFeedLevelSum / (float)winFeedLevelN);
   }
 
   // captured_at_ms and recorded_at share the same NTP capture instant so
@@ -1798,7 +1783,7 @@ void readTemperatureSensor() {
     lastValidTemp = rawTemp;
     tempSensorOK = true;
     smoothedTemp = computeAverage(tempBuffer, tempCount);
-    ACCUM_WINDOW(winTempSum, winTempN, winTempMin, winTempMax, rawTemp);
+    ACCUM_WINDOW(winTempSum, winTempN, rawTemp);
   } else {
     tempSkipCount++;
 
@@ -1844,7 +1829,7 @@ void readTurbiditySensor() {
     lastValidTurbidityNTU = tr.ntu;
     turbiditySensorOK = true;
     smoothedTurbidityNTU = computeAverage(turbidityBuffer, turbidityCount);
-    ACCUM_WINDOW(winTurbSum, winTurbN, winTurbMin, winTurbMax, tr.ntu);
+    ACCUM_WINDOW(winTurbSum, winTurbN, tr.ntu);
   } else {
     turbiditySkipCount++;
 
@@ -1876,7 +1861,7 @@ void readDissolvedOxygenSensor() {
     return;
   }
   doSensorOK = true;
-  ACCUM_WINDOW(winDOSum, winDON, winDOMin, winDOMax, dissolvedOxygen);
+  ACCUM_WINDOW(winDOSum, winDON, dissolvedOxygen);
 }
 
 void readPHSensor() {
@@ -1899,7 +1884,7 @@ void readPHSensor() {
     return;
   }
   phSensorOK = true;
-  ACCUM_WINDOW(winPHSum, winPHN, winPHMin, winPHMax, phLevel);
+  ACCUM_WINDOW(winPHSum, winPHN, phLevel);
 }
 
 void readWaterLevelSensor() {
@@ -1941,6 +1926,7 @@ void readWaterLevelSensor() {
 
   waterLevelCm = constrain(depth, waterLevelCmMin, waterLevelCmMax);
   waterLevelSensorOK = true;
+  ACCUM_WINDOW(winWaterLevelSum, winWaterLevelN, waterLevelCm);
 }
 
 // Raw hopper echo in cm, or -1 on timeout. Quiet — callers decide logging.
@@ -1998,6 +1984,7 @@ void readFeedLevelSensor() {
         100.0f);
       feedLevelSensorOK = true;
       feedLevelSource = "ultrasonic";
+      ACCUM_WINDOW(winFeedLevelSum, winFeedLevelN, feedLevelPercent);
       return;
     }
     if (sensorOutputEnabled) Serial.println("[FEED LEVEL] Ultrasonic invalid — falling back to analog");
@@ -2022,6 +2009,7 @@ void readFeedLevelSensor() {
     100.0f);
   feedLevelSensorOK = true;
   feedLevelSource = "analog";
+  ACCUM_WINDOW(winFeedLevelSum, winFeedLevelN, feedLevelPercent);
 }
 
 void readAllSensors() {

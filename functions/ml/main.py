@@ -53,26 +53,16 @@ def _run_water_quality_anomaly_detection(frame):
 
 
 def _valid_history_row(row):
-    for sensor in ("temp", "pH", "DO", "turbidity"):
-        keys = (f"{sensor}_min", f"{sensor}_avg", f"{sensor}_max")
-        values = [row.get(key) for key in keys]
-        if any(
+    for key in ("temp_avg", "pH_avg", "DO_avg", "turbidity_avg", "waterLevel"):
+        value = row.get(key)
+        if (
             value is None
             or not isinstance(value, (int, float))
             or not math.isfinite(float(value))
             or float(value) < 0
-            for value in values
         ):
             return False
-        minimum, average, maximum = map(float, values)
-        if not minimum <= average <= maximum:
-            return False
-    water_level = row.get("waterLevel", row.get("water_level"))
-    return (
-        isinstance(water_level, (int, float))
-        and math.isfinite(float(water_level))
-        and float(water_level) >= 0
-    )
+    return True
 
 
 def _timestamp_seconds(value):
@@ -151,25 +141,17 @@ def _fetch_sensor_history(tank_id, hours=24):
                     ):
                         continue
 
-                    temp = data.get("temp_avg", data.get("temperature"))
-                    ph = data.get("pH_avg", data.get("ph_level"))
-                    dissolved_oxygen = data.get("DO_avg", data.get("dissolved_oxygen"))
-                    turbidity = data.get("turbidity_avg", data.get("turbidity"))
+                    temp = data.get("temperature", data.get("temp_avg"))
+                    ph = data.get("ph_level", data.get("pH_avg"))
+                    dissolved_oxygen = data.get("dissolved_oxygen", data.get("DO_avg"))
+                    turbidity = data.get("turbidity", data.get("turbidity_avg"))
                     water_level = data.get("water_level", data.get("waterLevel_avg"))
                     row = {
                         "timestamp": recorded_seconds,
                         "temp_avg": temp,
-                        "temp_min": data.get("temp_min", temp),
-                        "temp_max": data.get("temp_max", temp),
                         "pH_avg": ph,
-                        "pH_min": data.get("pH_min", ph),
-                        "pH_max": data.get("pH_max", ph),
                         "DO_avg": dissolved_oxygen,
-                        "DO_min": data.get("DO_min", dissolved_oxygen),
-                        "DO_max": data.get("DO_max", dissolved_oxygen),
                         "turbidity_avg": turbidity,
-                        "turbidity_min": data.get("turbidity_min", turbidity),
-                        "turbidity_max": data.get("turbidity_max", turbidity),
                         "waterLevel": water_level,
                     }
                     if _valid_history_row(row):

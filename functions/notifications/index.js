@@ -180,25 +180,13 @@ async function getCurrentHardwareOwner() {
 
 function normalizeSensorReading(raw) {
   const reading = {
-    temperature: raw.temperature ?? null,
-    ph_level: raw.ph_level ?? raw.phLevel ?? null,
-    dissolved_oxygen: raw.dissolved_oxygen ?? raw.dissolvedOxygen ?? null,
-    turbidity: raw.turbidity ?? null,
+    temperature: raw.temperature ?? raw.temp_avg ?? null,
+    ph_level: raw.ph_level ?? raw.phLevel ?? raw.pH_avg ?? null,
+    dissolved_oxygen: raw.dissolved_oxygen ?? raw.dissolvedOxygen ?? raw.DO_avg ?? null,
+    turbidity: raw.turbidity ?? raw.turbidity_avg ?? null,
     water_level: raw.water_level ?? raw.waterLevel ?? raw.waterLevel_avg ?? raw.waterLevelPercent ?? null,
     feed_level: raw.feed_level ?? raw.feedLevel ?? null,
     turbidity_air: raw.turbidity_air ?? raw.turbidityAir ?? null,
-    temp_min: raw.temp_min ?? null,
-    temp_max: raw.temp_max ?? null,
-    temp_avg: raw.temp_avg ?? null,
-    pH_min: raw.pH_min ?? null,
-    pH_max: raw.pH_max ?? null,
-    pH_avg: raw.pH_avg ?? null,
-    DO_min: raw.DO_min ?? null,
-    DO_max: raw.DO_max ?? null,
-    DO_avg: raw.DO_avg ?? null,
-    turbidity_min: raw.turbidity_min ?? null,
-    turbidity_max: raw.turbidity_max ?? null,
-    turbidity_avg: raw.turbidity_avg ?? null,
     recorded_at: (() => {
       const capMs = Number(raw.captured_at_ms);
       return Number.isFinite(capMs) && capMs > TRUSTED_EPOCH_MS

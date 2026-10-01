@@ -101,23 +101,29 @@ tanks/{tank_id}       # tank_id is the owner's Firebase Authentication UID
     recorded_at: Timestamp
 
   sensor_readings_history/{YYYY-MM-DD}
-    summary_version: 1
+    summary_version: 4
     summary_sanitized: boolean
     summary_complete: boolean
     date_key: string
     sample_count: number
     processed_entry_ids: string[]
-    temperature/pH/DO/turbidity: *_min, *_max, *_avg, *_sum, *_count
+    temperature/pH/DO/turbidity: daily *_min, *_max, *_avg, *_sum, *_count
+      # Daily extrema are calculated across 10-minute means, not sub-window extrema.
     water_level: daily mean in cm, waterLevel_sum, waterLevel_count
+    feed_level: daily mean in percent, feed_level_sum, feed_level_count
     updated_at: Timestamp
 
     entries/{reading_id}
-      temp_min, temp_max, temp_avg
-      pH_min, pH_max, pH_avg
-      DO_min, DO_max, DO_avg
-      turbidity_min, turbidity_max, turbidity_avg
-      water_level: single reading in cm (no min/max)
-      feed_level: number | null
+      temperature: mean of valid readings in the 10-minute window
+      ph_level: mean of valid readings in the 10-minute window
+      dissolved_oxygen: mean of valid readings in the 10-minute window
+      turbidity: mean of valid readings in the 10-minute window
+      water_level: mean of valid readings in cm
+      feed_level: mean of valid readings in percent
+      # Any sensor without a valid reading in this window is omitted.
+      # No per-window min/max or *_avg fields are written.
+      hardwareId, source_tank_id, source_owner_uid, source_assignment_at_ms
+      captured_at_ms, recorded_at
       recorded_at: Timestamp
 
   sensors/{temperature|ph_level|dissolved_oxygen|turbidity|water_level|feed_level}
@@ -278,7 +284,7 @@ ESP32
        source_assignment_at_ms
        captured_at_ms
        recorded_at
-       per-sensor 10-minute min/max/avg (only sensors with valid samples)
+       one per-sensor mean of valid readings for each 10-minute window
 
 Firestore Rules check hardware_system/currentOwner and the tank owner on each direct write.
 The ESP refreshes its cached assignment every 60 seconds while assigned.
@@ -288,7 +294,7 @@ Offline, unassigned, and old-assignment buffered history
   -> Cloud Function validates the original assignment; mismatches are quarantined.
 ```
 
-Live snapshots and normal 10-minute history now write once to their canonical tank documents. Firestore Rules validate the current tank and owner, the capture assignment timestamp, payload fields, and that live timestamps move forward. Buffered history continues through `sensorIngestion` so the Cloud Function can quarantine entries captured under an earlier assignment instead of attributing them to the new owner. Invalid 10-minute aggregates are omitted rather than stored as negative sentinels. `recorded_at` preserves the ESP capture time when NTP is valid.
+Live snapshots and normal 10-minute history now write once to their canonical tank documents. Firestore Rules validate the current tank and owner, the capture assignment timestamp, payload fields, and that live timestamps move forward. Buffered history continues through `sensorIngestion` so the Cloud Function can quarantine entries captured under an earlier assignment instead of attributing them to the new owner. Sensors without valid readings in a 10-minute window are omitted rather than stored as negative sentinels. `recorded_at` preserves the ESP capture time when NTP is valid.
 
 ## Security note
 

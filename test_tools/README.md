@@ -58,10 +58,12 @@ This command only reads Firestore; it does not write or delete data.
 ## Stored sensor shape
 
 - Live readings use one scalar each for `water_level` (cm) and `feed_level` (%).
-- History readings also store one scalar each: `water_level` and `feed_level`.
+- History readings store one 10-minute mean each for `water_level` and `feed_level`.
 - Neither water-level nor feed-level threshold documents are written by this
   tool. Their configured fields remain `low_value` and `critical_value` only.
-- Water-quality sensor history keeps its existing min/max/average fields.
+- All six sensor-history values use canonical field names and store only the
+  mean of valid readings captured during each ten-minute window. Per-window
+  min/max fields are not written; older records remain readable.
 - `--config` is disabled to prevent this tool from changing thresholds.
 - The full multi-range backfill is blocked unless explicitly confirmed; it can
   add about 5,475 synthetic history records. To proceed deliberately, run

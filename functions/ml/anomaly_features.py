@@ -10,7 +10,13 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 SENSORS = ["temp", "pH", "DO", "turbidity", "waterLevel"]
-WATER_QUALITY_SENSORS = ["temp", "pH", "DO", "turbidity"]
+SENSOR_VALUE_FIELDS = {
+    "temp": ("temperature", "temp_avg"),
+    "pH": ("ph_level", "pH_avg"),
+    "DO": ("dissolved_oxygen", "DO_avg"),
+    "turbidity": ("turbidity", "turbidity_avg"),
+    "waterLevel": ("water_level", "waterLevel", "waterLevel_avg"),
+}
 
 
 def build_anomaly_features(df):
@@ -20,21 +26,15 @@ def build_anomaly_features(df):
 
     feat = pd.DataFrame(index=df.index)
     for sensor in SENSORS:
-        if sensor == "waterLevel":
-            value_column = next(
-                (name for name in ("waterLevel", "water_level", "waterLevel_avg") if name in df),
-                None,
+        value_column = next(
+            (name for name in SENSOR_VALUE_FIELDS[sensor] if name in df), None
+        )
+        if value_column is None:
+            raise ValueError(
+                f"{sensor} readings require a canonical sensor field or legacy average field."
             )
-            if value_column is None:
-                raise ValueError("Water-level readings require one waterLevel value in cm.")
-            avg = pd.to_numeric(df[value_column], errors="coerce")
-        else:
-            avg = pd.to_numeric(df[f"{sensor}_avg"], errors="coerce")
+        avg = pd.to_numeric(df[value_column], errors="coerce")
         feat[f"{sensor}_avg"] = avg
-        if sensor in WATER_QUALITY_SENSORS:
-            low = pd.to_numeric(df[f"{sensor}_min"], errors="coerce")
-            high = pd.to_numeric(df[f"{sensor}_max"], errors="coerce")
-            feat[f"{sensor}_spread"] = high - low
         feat[f"{sensor}_delta"] = avg.diff()
         feat[f"{sensor}_roll1h_mean"] = avg.rolling(6, min_periods=2).mean()
         feat[f"{sensor}_roll1h_std"] = avg.rolling(6, min_periods=2).std()
@@ -83,8 +83,6 @@ def _contributors(latest, bundle):
             f"{sensor}_trend1h",
             f"{sensor}_baseline_deviation",
         ]
-        if sensor in WATER_QUALITY_SENSORS:
-            names.insert(1, f"{sensor}_spread")
         z_values = []
         for name in names:
             center = float(centers.get(name, 0.0))

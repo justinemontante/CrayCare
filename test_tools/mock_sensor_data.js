@@ -316,25 +316,19 @@ function generateAggregatedReading() {
 
   const result = {};
   const keysMap = {
-    temperature: 'temp',
-    phLevel: 'pH',
-    dissolvedOxygen: 'DO',
+    temperature: 'temperature',
+    ph_level: 'phLevel',
+    dissolved_oxygen: 'dissolvedOxygen',
     turbidity: 'turbidity',
+    water_level: 'waterLevel',
+    feed_level: 'feedLevel',
   };
 
-  for (const [rtdbKey, mlKey] of Object.entries(keysMap)) {
-    const vals = readings.map(r => r[rtdbKey]);
-    const min = Math.min(...vals);
-    const max = Math.max(...vals);
+  for (const [historyKey, readingKey] of Object.entries(keysMap)) {
+    const vals = readings.map(r => r[readingKey]);
     const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
-
-    result[`${mlKey}_min`] = parseFloat(min.toFixed(2));
-    result[`${mlKey}_max`] = parseFloat(max.toFixed(2));
-    result[`${mlKey}_avg`] = parseFloat(avg.toFixed(2));
+    result[historyKey] = parseFloat(avg.toFixed(2));
   }
-  // These physical sensor levels are single readings, not min/max/averages.
-  result.water_level = readings[readings.length - 1].waterLevel;
-  result.feed_level = readings[readings.length - 1].feedLevel;
   return result;
 }
 

@@ -7,29 +7,25 @@ from anomaly_features import SENSORS, build_anomaly_features
 def prepare_history(frame):
     frame = frame.copy()
     frame['timestamp'] = pd.to_datetime(frame['timestamp'], utc=True, errors='coerce')
-    water_level_column = next(
-        (name for name in ('waterLevel', 'water_level', 'waterLevel_avg') if name in frame),
-        None,
-    )
-    if water_level_column is None:
-        raise ValueError('Water-level history requires a single waterLevel value in cm.')
-    frame['waterLevel'] = pd.to_numeric(frame[water_level_column], errors='coerce')
-    quality_columns = [
-        f'{sensor}_{stat}'
-        for sensor in SENSORS[:-1]
-        for stat in ('min', 'avg', 'max')
-    ]
-    for column in quality_columns:
-        frame[column] = pd.to_numeric(frame[column], errors='coerce')
+    aliases = {
+        'temp_avg': ('temperature', 'temp_avg'),
+        'pH_avg': ('ph_level', 'pH_avg'),
+        'DO_avg': ('dissolved_oxygen', 'DO_avg'),
+        'turbidity_avg': ('turbidity', 'turbidity_avg'),
+        'waterLevel': ('water_level', 'waterLevel', 'waterLevel_avg'),
+    }
+    value_columns = []
+    for target, candidates in aliases.items():
+        source = next((name for name in candidates if name in frame), None)
+        if source is None:
+            raise ValueError(f'Missing required sensor average: {candidates[0]}.')
+        frame[target] = pd.to_numeric(frame[source], errors='coerce')
+        value_columns.append(target)
     valid = (
         frame['timestamp'].notna()
-        & np.isfinite(frame[quality_columns]).all(axis=1)
-        & np.isfinite(frame['waterLevel'])
-        & (frame['waterLevel'] >= 0)
+        & np.isfinite(frame[value_columns]).all(axis=1)
+        & (frame[value_columns] >= 0).all(axis=1)
     )
-    for sensor in SENSORS[:-1]:
-        low, avg, high = (frame[f'{sensor}_{stat}'] for stat in ('min', 'avg', 'max'))
-        valid &= (low >= 0) & (low <= avg) & (avg <= high)
     frame = frame.loc[valid].sort_values('timestamp').drop_duplicates('timestamp', keep='last').reset_index(drop=True)
     gaps = frame['timestamp'].diff().dt.total_seconds()
     segment = (~gaps.between(480, 720)).cumsum()

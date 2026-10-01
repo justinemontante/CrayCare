@@ -6,17 +6,18 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
-from anomaly_features import SENSORS, build_anomaly_features
+from anomaly_features import build_anomaly_features
 from training_data import prepare_history
 
 
 class TrainingDataTests(unittest.TestCase):
     def sample(self, count=30):
         data = {'timestamp': pd.date_range('2026-08-01', periods=count, freq='10min', tz='UTC')}
-        for sensor in SENSORS[:-1]:
-            for stat, offset in [('min', 0), ('avg', 1), ('max', 2)]:
-                data[f'{sensor}_{stat}'] = np.arange(count) * .01 + offset + 2
-        data['waterLevel'] = 18 - np.arange(count) * .001
+        data['temperature'] = np.arange(count) * .01 + 3
+        data['ph_level'] = np.arange(count) * .01 + 3
+        data['dissolved_oxygen'] = np.arange(count) * .01 + 3
+        data['turbidity'] = np.arange(count) * .01 + 3
+        data['water_level'] = 18 - np.arange(count) * .001
         return pd.DataFrame(data)
 
     def test_unlabeled_and_time_units_match_inference(self):
@@ -40,13 +41,13 @@ class TrainingDataTests(unittest.TestCase):
     def test_future_changes_do_not_change_past_features(self):
         data = self.sample()
         _, before = prepare_history(data)
-        data.loc[29, 'temp_max'] = 999
+        data.loc[29, 'temperature'] = 999
         _, after = prepare_history(data)
         np.testing.assert_allclose(before.iloc[:-1], after.iloc[:-1])
 
     def test_invalid_aggregates_are_not_zero_filled(self):
         data = self.sample(40)
-        data.loc[20, 'DO_min'] = -1
+        data.loc[20, 'dissolved_oxygen'] = -1
         rows, _ = prepare_history(data)
         self.assertEqual(len(rows), 17)
 
@@ -61,9 +62,20 @@ class TrainingDataTests(unittest.TestCase):
 
     def test_water_level_must_be_finite_and_nonnegative(self):
         data = self.sample(30)
-        data.loc[20, 'waterLevel'] = -1
+        data.loc[20, 'water_level'] = -1
         rows, _ = prepare_history(data)
         self.assertEqual(len(rows), 9)
+
+    def test_legacy_history_aliases_remain_readable(self):
+        data = self.sample(30).rename(columns={
+            'temperature': 'temp_avg',
+            'ph_level': 'pH_avg',
+            'dissolved_oxygen': 'DO_avg',
+            'turbidity': 'turbidity_avg',
+            'water_level': 'waterLevel',
+        })
+        rows, _ = prepare_history(data)
+        self.assertEqual(len(rows), 19)
 
     def test_unlabeled_training_cli(self):
         with tempfile.TemporaryDirectory() as directory:

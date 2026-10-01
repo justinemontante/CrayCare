@@ -1,4 +1,4 @@
-const admin = require('firebase-admin');
+const { initializeApp, cert } = require('firebase-admin/app');
 const { getFirestore, Timestamp } = require('firebase-admin/firestore');
 const path = require('path');
 const fs = require('fs');
@@ -13,7 +13,7 @@ for (const keyPath of keyPaths) {
 }
 if (!serviceAccount) { console.error('No service account found.'); process.exit(1); }
 
-admin.initializeApp({ credential: admin.cert(serviceAccount) });
+initializeApp({ credential: cert(serviceAccount) });
 const db = getFirestore();
 
 function manilaDateKey(milliseconds) {
@@ -114,25 +114,16 @@ async function seedHistory() {
     const ref = tankRef
       .collection('sensor_readings_history').doc(dateKey)
       .collection('entries').doc(entryId);
-    const range = (value, spread) => ({
-      min: parseFloat((value - spread).toFixed(2)),
-      avg: value,
-      max: parseFloat((value + spread).toFixed(2)),
-    });
-    const temp = range(sample.temp, 0.15);
-    const ph = range(sample.ph, 0.03);
-    const dissolvedOxygen = range(sample.do, 0.12);
-    const turbidity = range(sample.turbidity, 0.35);
     batch.set(ref, {
       hardwareId: 'MOCK_TEST_TOOL',
       source_tank_id: tankId,
       source_owner_uid: ownerUid,
       source_assignment_at_ms: assignmentAtMs,
       captured_at_ms: captured,
-      temp_min: temp.min, temp_max: temp.max, temp_avg: temp.avg,
-      pH_min: ph.min, pH_max: ph.max, pH_avg: ph.avg,
-      DO_min: dissolvedOxygen.min, DO_max: dissolvedOxygen.max, DO_avg: dissolvedOxygen.avg,
-      turbidity_min: turbidity.min, turbidity_max: turbidity.max, turbidity_avg: turbidity.avg,
+      temperature: sample.temp,
+      ph_level: sample.ph,
+      dissolved_oxygen: sample.do,
+      turbidity: sample.turbidity,
       water_level: sample.water,
       feed_level: sample.feed,
       recorded_at: Timestamp.fromMillis(captured),
@@ -142,7 +133,7 @@ async function seedHistory() {
   console.log(`✅ Replaced ${removed} recent synthetic test records and seeded twelve fresh, varied 10-minute records for tank ${tankId}.`);
   console.log('The demo pattern includes normal sensor variation and a gradual turbidity increase in the latest samples.');
   console.log('This writes sensor history only; it does not change sensor_readings/latest or the dashboard live tiles.');
-  console.log('Water and feed levels are single scalar fields; no threshold fields were changed.');
+  console.log('All six sensor values are single 10-minute averages; no threshold fields were changed.');
   console.log('Run npm run ml:run-now to analyze the fresh history immediately; automatic analysis runs every 30 minutes.');
 }
 

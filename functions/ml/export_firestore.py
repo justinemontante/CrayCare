@@ -34,54 +34,22 @@ for date_doc in date_docs:
             continue
         rows.append({
             "timestamp": recorded_at,
-            "temp_avg": data.get("temp_avg"),
-            "temp_min": data.get("temp_min"),
-            "temp_max": data.get("temp_max"),
-            "pH_avg": data.get("pH_avg"),
-            "pH_min": data.get("pH_min"),
-            "pH_max": data.get("pH_max"),
-            "DO_avg": data.get("DO_avg"),
-            "DO_min": data.get("DO_min"),
-            "DO_max": data.get("DO_max"),
-            "turbidity_avg": data.get("turbidity_avg"),
-            "turbidity_min": data.get("turbidity_min"),
-            "turbidity_max": data.get("turbidity_max"),
-            "waterLevel": data.get("water_level", data.get("waterLevel_avg")),
+            "temperature": data.get("temperature", data.get("temp_avg")),
+            "ph_level": data.get("ph_level", data.get("pH_avg")),
+            "dissolved_oxygen": data.get("dissolved_oxygen", data.get("DO_avg")),
+            "turbidity": data.get("turbidity", data.get("turbidity_avg")),
+            "water_level": data.get("water_level", data.get("waterLevel_avg")),
         })
 
-columns = [
-    "timestamp",
-    "temp_avg", "temp_min", "temp_max",
-    "pH_avg", "pH_min", "pH_max",
-    "DO_avg", "DO_min", "DO_max",
-    "turbidity_avg", "turbidity_min", "turbidity_max",
-    "waterLevel",
-]
+columns = ["timestamp", "temperature", "ph_level", "dissolved_oxygen", "turbidity", "water_level"]
 df = pd.DataFrame(rows, columns=columns)
 if not df.empty:
     for column in columns[1:]:
         df[column] = pd.to_numeric(df[column], errors='coerce')
     df = df.dropna(subset=columns)
 
-    def valid_aggregate(row):
-        for sensor in ("temp", "pH", "DO", "turbidity"):
-            minimum = float(row[f"{sensor}_min"])
-            average = float(row[f"{sensor}_avg"])
-            maximum = float(row[f"{sensor}_max"])
-            if not all(
-                math.isfinite(value) and value >= 0
-                for value in (minimum, average, maximum)
-            ):
-                return False
-            if not (minimum <= average <= maximum):
-                return False
-        return True
-
     df = df[
-        df.apply(valid_aggregate, axis=1)
-        & df["waterLevel"].map(
-            lambda value: math.isfinite(float(value)) and float(value) >= 0
-        )
+        df[columns[1:]].applymap(lambda value: math.isfinite(float(value)) and float(value) >= 0).all(axis=1)
     ].sort_values("timestamp")
     df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True).dt.tz_localize(None)
 

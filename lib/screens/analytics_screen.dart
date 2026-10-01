@@ -217,15 +217,11 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   static const Map<String, Map<String, String>> _historyFieldMap = {
-    'temp': {'avg': 'temp_avg', 'min': 'temp_min', 'max': 'temp_max'},
-    'ph': {'avg': 'pH_avg', 'min': 'pH_min', 'max': 'pH_max'},
-    'do': {'avg': 'DO_avg', 'min': 'DO_min', 'max': 'DO_max'},
-    'turb': {
-      'avg': 'turbidity_avg',
-      'min': 'turbidity_min',
-      'max': 'turbidity_max',
-    },
-    'waterlevel': {'avg': 'water_level'},
+    'temp': {'avg': 'temperature', 'legacyAvg': 'temp_avg'},
+    'ph': {'avg': 'ph_level', 'legacyAvg': 'pH_avg'},
+    'do': {'avg': 'dissolved_oxygen', 'legacyAvg': 'DO_avg'},
+    'turb': {'avg': 'turbidity', 'legacyAvg': 'turbidity_avg'},
+    'waterlevel': {'avg': 'water_level', 'legacyAvg': 'waterLevel_avg'},
     'feedlevel': {'avg': 'feed_level'},
   };
 
@@ -427,9 +423,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       final fields = _historyFieldMap[key];
       if (fields == null) continue;
       final averages = List<double>.filled(labelTimes.length, double.nan);
-      // Chart points and period statistics must use the stored average for
-      // each sensor-history record. The ESP's *_min/*_max fields describe
-      // variation inside one capture window, not the selected Analytics range.
+      // Plot the saved ten-minute window average. Older entries used *_avg;
+      // current entries use the plain sensor names.
 
       for (int i = 0; i < labelTimes.length; i++) {
         final usesDailyBuckets =
@@ -464,11 +459,10 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
             continue;
           }
 
-          final avgRaw = key == 'waterlevel'
-              ? records[j]['water_level']
-              : key == 'feedlevel'
-              ? records[j]['feed_level']
-              : records[j][fields['avg']!];
+          final avgRaw = records[j][fields['avg']!] ??
+              (fields['legacyAvg'] == null
+                  ? null
+                  : records[j][fields['legacyAvg']!]);
           final avg = _historyValue(key, avgRaw);
           if (avg != null) {
             sum += avg;
