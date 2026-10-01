@@ -695,6 +695,8 @@ String lcdTransientLine1;
 unsigned long lcdTransientUntilMs = 0;
 bool lcdCloudBootPending = false;
 unsigned long lcdCloudBootStartedMs = 0;
+unsigned long lcdCloudBootLastDrawMs = 0;
+void showLCDBootProgress(const String& label, uint8_t filled);
 
 // Blower (relay module, ACTIVE-LOW like the main relays) on GPIO16.
 // Runs 5 s ahead of every feed (manual, cloud, scheduled, onsite) to warm
@@ -1092,21 +1094,23 @@ void wifiPromptAndSave() {
 }
 
 bool wifiTryOne(const String &s, const String &p) {
-  showLCDBoot("WiFi connecting", s);
+  showLCDBootProgress("Connecting WiFi", 0);
   WiFi.begin(s.c_str(), p.c_str());
   Serial.printf("[WIFI] Trying \"%s\"", s.c_str());
   for (int i = 0; i < 20; i++) {
     if (WiFi.status() == WL_CONNECTED) break;
     delay(500);
+    showLCDBootProgress("Connecting WiFi", min(15, (i + 1) * 15 / 20));
     esp_task_wdt_reset();  // 10 s worst case here; keep the watchdog fed
     Serial.print(".");
   }
   Serial.println();
   if (WiFi.status() == WL_CONNECTED) {
-    showLCDBoot("WiFi connected", s, 1200);
+    showLCDBootProgress("WiFi connected", 16);
+    delay(600);
     showLCDBoot("IP address", WiFi.localIP().toString(), 1000);
   } else {
-    showLCDBoot("WiFi failed", s, 900);
+    showLCDBoot("WiFi failed", "Trying next...", 900);
   }
   return WiFi.status() == WL_CONNECTED;
 }
@@ -1142,7 +1146,7 @@ void wifiScanNetworks() {
 }
 
 void connectWiFi() {
-  showLCDBoot("WiFi", "Loading profiles");
+  showLCDBootProgress("WiFi profiles", 2);
   wifiMigrateLegacy();
   int n = wifiProfileCount();
 
@@ -1176,11 +1180,13 @@ void connectWiFi() {
 
   wifiGetProfile(a, ssid, pass);
   Serial.println("[WIFI] FAILED — all saved networks unreachable");
+  showLCDBoot("WiFi offline", "Local mode", 900);
   Serial.println("Commands: WIFI_HELP | wifi set <SSID>|<PASS> | wifi list | wifi use <n> | wifiscan | RESET_WIFI");
 }
 
 void initTime() {
   configTime(8 * 3600, 0, "pool.ntp.org", "time.nist.gov");
+  showLCDBootProgress("Syncing time", 0);
 
   Serial.print("Syncing time");
   for (int i = 0; i < 20; i++) {
@@ -1189,12 +1195,14 @@ void initTime() {
 
     if (now > 1700000000) {
       Serial.println(" OK");
-      showLCDBoot("Time synced", "Manila time", 900);
+      showLCDBootProgress("Time synced", 16);
+      delay(600);
       return;
     }
 
     Serial.print(".");
     delay(500);
+    showLCDBootProgress("Syncing time", min(15, (i + 1) * 15 / 20));
   }
 
   Serial.println(" skipped");
@@ -2171,7 +2179,7 @@ void setup() {
   esp_task_wdt_add(NULL);
 
   initLCD();
-  showLCDBoot("CrayCare", "Booting...");
+  showLCDBootProgress("CrayCare boot", 1);
   initOnsiteButton();
 
   analogReadResolution(12);
@@ -2187,9 +2195,11 @@ void setup() {
   sensors.begin();
   loadSensorCalibrations();
 
-  showLCDBoot("Sensors", "Starting...");
+  showLCDBootProgress("Starting sensors", 4);
   primeTemperatureBuffer();
   primeTurbidityBuffer();
+  showLCDBootProgress("Sensors ready", 16);
+  delay(400);
 
   connectWiFi();
   initOfflineBuffer();  // LittleFS store-and-forward (mounted before loop)
@@ -2202,10 +2212,9 @@ void setup() {
   fbdo.setResponseSize(8192);
   fbdo.setBSSLBufferSize(4096, 2048);
   if (WiFi.status() == WL_CONNECTED) {
-    showLCDBoot("Time sync", "Checking NTP...");
     initTime();
     { time_t st; time(&st); if (st > 1700000000) { ntpEverSynced = true; lastNtpSyncMs = millis(); } }
-    showLCDBoot("Firebase", "Signing in...");
+    showLCDBootProgress("Starting cloud", 0);
     connectFirebase();
     lcdCloudBootPending = true;
     lcdCloudBootStartedMs = millis();
@@ -2223,7 +2232,9 @@ void setup() {
   Serial.println("  Sensor display: OFF (type HELP for commands)");
   Serial.println("============================================");
   onsiteButtonEnabled = true;
-  showLCDBoot("CrayCare ready", WiFi.status() == WL_CONNECTED ? "Cloud starting" : "Local mode", 1200);
+  if (!lcdCloudBootPending) {
+    showLCDBoot("CrayCare ready", "Local mode", 1200);
+  }
 }
 
 // ============================================================
@@ -2693,12 +2704,17 @@ void loop() {
   if (lcdCloudBootPending) {
     if (cloudBootstrapComplete) {
       lcdCloudBootPending = false;
+      showLCDBootProgress("CrayCare ready", 16);
     } else if (firebaseAuthAttemptFailed) {
       lcdCloudBootPending = false;
       showLCDTransient("Firebase error", "See Serial Monitor", 4000);
     } else if (now - lcdCloudBootStartedMs >= 30000UL) {
       lcdCloudBootPending = false;
       showLCDTransient("Firebase pending", "Check Serial log", 4000);
+    } else if (now - lcdCloudBootLastDrawMs >= 400UL) {
+      lcdCloudBootLastDrawMs = now;
+      // Moving bar means waiting, not a fabricated authentication percentage.
+      showLCDBootProgress("Starting cloud", (now / 400UL) % 16UL + 1);
     }
   }
 
@@ -3989,6 +4005,16 @@ void showLCDBoot(const String& line0, const String& line1, unsigned long holdMs)
   if (holdMs > 0) delay(holdMs);
 }
 
+void showLCDBootProgress(const String& label, uint8_t filled) {
+  if (!lcdReady) return;
+  if (filled > 16) filled = 16;
+  char bar[17];
+  for (uint8_t i = 0; i < 16; ++i) bar[i] = i < filled ? '#' : '-';
+  bar[16] = '\0';
+  lcdPrint16(0, label);
+  lcdPrint16(1, bar);
+}
+
 void showLCDTransient(const String& line0, const String& line1, unsigned long holdMs) {
   if (!lcdReady) return;
   lcdTransientLine0 = line0;
@@ -4163,6 +4189,8 @@ void getNextScheduleLines(String& line0, String& line1) {
 void updateLCD() {
   if (!lcdReady) return;
   unsigned long now = millis();
+  if (lcdCloudBootPending && feederRunState == FEEDER_IDLE &&
+      onsiteButtonTapCount == 0 && overrideWarnReason.length() == 0) return;
   if (lastLcdRenderMs != 0 && now - lastLcdRenderMs < 250UL) return;
   String l0, l1;
   if (feederRunState == FEEDER_PRE_BLOW) {
