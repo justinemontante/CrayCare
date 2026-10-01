@@ -311,7 +311,7 @@ class SamplingHistoryShortcut extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      onTap: () => _showSamplingHistory(context),
+      onTap: () => showSamplingHistory(context),
       borderRadius: BorderRadius.circular(9),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
@@ -340,14 +340,36 @@ class SamplingHistoryShortcut extends StatelessWidget {
   }
 }
 
-void _showSamplingHistory(BuildContext context) {
+void showSamplingHistory(
+  BuildContext context, {
+  bool expandBaseline = false,
+}) {
+  var baselineExpansionReady = false;
+  var expansionScheduled = false;
   final history = TankService.instance.samplingHistory.toList()
-    ..sort((a, b) => b.date.compareTo(a.date));
+    ..sort((a, b) {
+      if (expandBaseline && a.isBaseline != b.isBaseline) {
+        return a.isBaseline ? -1 : 1;
+      }
+      return b.date.compareTo(a.date);
+    });
   showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (sheetContext) => Container(
+    builder: (sheetContext) => StatefulBuilder(
+      builder: (sheetContext, setSheetState) {
+        if (expandBaseline && !expansionScheduled) {
+          expansionScheduled = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            Future<void>.delayed(const Duration(milliseconds: 380), () {
+              if (sheetContext.mounted) {
+                setSheetState(() => baselineExpansionReady = true);
+              }
+            });
+          });
+        }
+        return Container(
       height: MediaQuery.of(sheetContext).size.height * 0.72,
       decoration: const BoxDecoration(
         color: Colors.white,
@@ -431,9 +453,13 @@ void _showSamplingHistory(BuildContext context) {
                           ),
                         ),
                         child: ExpansionTile(
-                          key: PageStorageKey(
-                            'top_sampling_history_${entry.id}',
+                          key: ValueKey(
+                            'top_sampling_history_${entry.id}_${entry.isBaseline && baselineExpansionReady}',
                           ),
+                          initiallyExpanded:
+                              expandBaseline &&
+                              baselineExpansionReady &&
+                              entry.isBaseline,
                           backgroundColor: Colors.transparent,
                           collapsedBackgroundColor: Colors.transparent,
                           tilePadding: const EdgeInsets.symmetric(
@@ -485,6 +511,8 @@ void _showSamplingHistory(BuildContext context) {
           ),
         ],
       ),
+        );
+      },
     ),
   );
 }
@@ -1323,7 +1351,7 @@ class _SamplingEntryLauncherState extends State<SamplingEntryLauncher> {
       backgroundColor: Colors.transparent,
       builder: (sheetContext) {
         final media = MediaQuery.of(sheetContext);
-        final sheetHeight = (media.size.height * 0.92 - media.viewInsets.bottom)
+        final sheetHeight = (media.size.height * 0.88 - media.viewInsets.bottom)
             .clamp(320.0, media.size.height)
             .toDouble();
         return Container(

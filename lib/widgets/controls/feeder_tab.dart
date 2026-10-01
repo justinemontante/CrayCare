@@ -25,11 +25,10 @@ class FeederTab extends StatelessWidget {
 
   final bool isOnline;
   final bool isRunning;
-  final String feederStatus;
   final bool canFeed;
   final String feedBlockedReason;
   final double? feedLevelPercent;
-  final int completedFeedingsToday;
+  final double estimatedConsumptionToday;
 
   const FeederTab({
     super.key,
@@ -46,24 +45,33 @@ class FeederTab extends StatelessWidget {
     this.fedToday = const {},
     this.isOnline = true,
     this.isRunning = false,
-    this.feederStatus = 'idle',
     this.canFeed = true,
     this.feedBlockedReason = '',
     this.feedLevelPercent,
-    this.completedFeedingsToday = 0,
+    this.estimatedConsumptionToday = 0,
   });
 
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
       child: _buildFeederCardBody(context),
     );
   }
 
   Widget _buildFeederCardBody(BuildContext ctx) {
-    final morning = schedules.where((s) => s.ampm == 'AM').toList();
-    final afternoon = schedules.where((s) => s.ampm == 'PM').toList();
+    final daytime = schedules
+        .where((s) {
+          final minutes = feederScheduleMinutes(s);
+          return minutes >= 6 * 60 && minutes < 18 * 60;
+        })
+        .toList();
+    final nighttime = schedules
+        .where((s) {
+          final minutes = feederScheduleMinutes(s);
+          return minutes < 6 * 60 || minutes >= 18 * 60;
+        })
+        .toList();
     final hasEnabledSchedules = schedules.any((s) => s.enabled);
 
     return Container(
@@ -162,30 +170,15 @@ class FeederTab extends StatelessWidget {
                           ),
                           const SizedBox(width: 5),
                           Text(
-                            switch (feederStatus) {
-                              'checking_feed_level' => 'Checking Feed Level',
-                              'dispensing' => 'Dispensing',
-                              'completed' => 'Completed',
-                              'skipped_insufficient' =>
-                                'Skipped • Critical Feed Level',
-                              'blocked' => 'Feed Blocked',
-                              'failed' => 'Feed Failed',
-                              _ =>
-                                schedules.isEmpty
-                                    ? 'Auto Mode • No Schedules'
-                                    : hasEnabledSchedules
-                                    ? 'Auto Mode • Ready'
-                                    : 'Auto Mode • Paused',
-                            },
+                            schedules.isEmpty
+                                ? 'Auto Mode • No Schedules'
+                                : hasEnabledSchedules
+                                ? 'Auto Mode • Ready'
+                                : 'Auto Mode • Paused',
                             style: TextStyle(
                               fontSize: 9,
                               fontWeight: FontWeight.w600,
-                              color:
-                                  feederStatus == 'skipped_insufficient' ||
-                                      feederStatus == 'blocked' ||
-                                      feederStatus == 'failed'
-                                  ? AppColors.critical
-                                  : hasEnabledSchedules
+                              color: hasEnabledSchedules
                                   ? AppColors.success
                                   : AppColors.darkWith(0.4),
                             ),
@@ -199,10 +192,12 @@ class FeederTab extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             _buildFeedInventorySummary(),
-            if (schedules.isNotEmpty) _buildCountdown(),
+            if (schedules.isNotEmpty) ...[
+              _buildCountdown(),
+            ],
             const SizedBox(height: 12),
             _buildFeedNowButton(ctx),
-            const SizedBox(height: 14),
+            const SizedBox(height: 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -285,7 +280,7 @@ class FeederTab extends StatelessWidget {
                   title: const Text(
                     'Allow scheduled feeding outside safe water-quality ranges',
                     style: TextStyle(
-                      fontSize: 11,
+                      fontSize: 9.5,
                       fontWeight: FontWeight.w600,
                       color: AppColors.dark,
                     ),
@@ -297,16 +292,16 @@ class FeederTab extends StatelessWidget {
               const SizedBox(height: 10),
               _buildSchedulePeriod(
                 ctx,
-                'Morning',
+                'Daytime',
                 Icons.wb_sunny_outlined,
-                morning,
+                daytime,
               ),
               const SizedBox(height: 12),
               _buildSchedulePeriod(
                 ctx,
-                'Afternoon',
-                Icons.wb_twilight_outlined,
-                afternoon,
+                'Night',
+                Icons.nightlight_outlined,
+                nighttime,
               ),
             ] else
               Padding(
@@ -421,41 +416,43 @@ class FeederTab extends StatelessWidget {
               Container(width: 1, height: 46, color: AppColors.darkWith(0.08)),
               Expanded(
                 child: _inventoryMetric(
-                  Icons.checklist_rounded,
-                  'Completed Today',
-                  '$completedFeedingsToday',
-                  'feeding cycles',
+                  Icons.scale_outlined,
+                  'Est. consumption today',
+                  '~${estimatedConsumptionToday.toStringAsFixed(1)} g',
+                  '',
                   AppColors.primary,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 10),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            decoration: BoxDecoration(
-              color: availabilityColor.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Row(
-              children: [
-                Icon(availabilityIcon, size: 14, color: availabilityColor),
-                const SizedBox(width: 7),
-                Expanded(
-                  child: Text(
-                    availabilityText,
-                    style: TextStyle(
-                      fontSize: 9,
-                      height: 1.3,
-                      fontWeight: FontWeight.w700,
-                      color: availabilityColor,
+          if (level == null || isLow) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: availabilityColor.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  Icon(availabilityIcon, size: 14, color: availabilityColor),
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: Text(
+                      availabilityText,
+                      style: TextStyle(
+                        fontSize: 9,
+                        height: 1.3,
+                        fontWeight: FontWeight.w700,
+                        color: availabilityColor,
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -501,16 +498,17 @@ class FeederTab extends StatelessWidget {
                     color: AppColors.dark,
                   ),
                 ),
-                Text(
-                  detail,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 8,
-                    fontWeight: FontWeight.w600,
-                    color: color,
+                if (detail.isNotEmpty)
+                  Text(
+                    detail,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 8,
+                      fontWeight: FontWeight.w600,
+                      color: color,
+                    ),
                   ),
-                ),
               ],
             ),
           ),
@@ -630,7 +628,7 @@ class FeederTab extends StatelessWidget {
         }
 
         return Padding(
-          padding: const EdgeInsets.only(top: 12),
+          padding: const EdgeInsets.only(top: 4),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(

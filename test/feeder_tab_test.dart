@@ -10,7 +10,7 @@ void main() {
     WidgetTester tester, {
     List<ScheduleItem> schedules = const [],
     Future<bool> Function(double?, String)? onAdd,
-    bool allowHighTurbiditySchedules = false,
+    bool allowWaterQualitySchedules = false,
     Future<void> Function(bool)? onSetSchedulePolicy,
     Future<bool> Function(int, ScheduleItem)? onEdit,
   }) async {
@@ -34,8 +34,8 @@ void main() {
             timeCtl: controller,
             onFeedNow: () {},
             onAddSchedule: onAdd ?? (_, _) async => true,
-            allowHighTurbiditySchedules: allowHighTurbiditySchedules,
-            onSetAllowHighTurbiditySchedules:
+            allowWaterQualitySchedules: allowWaterQualitySchedules,
+            onSetAllowWaterQualitySchedules:
                 onSetSchedulePolicy ?? (_) async {},
             onDeleteSchedule: (_) {},
             onEditSchedule: onEdit ?? (_, _) async => true,

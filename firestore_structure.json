@@ -63,8 +63,13 @@
     ],
     "subcollections": {
       "sensor_readings/latest": {
-        "_description": "Latest complete routed sensor snapshot. Written by Cloud Functions from ESP staging; read by the owner.",
+        "_description": "Latest live sensor snapshot written directly by the assigned ESP32. Firestore Rules verify the current tank, owner, assignment timestamp, payload shape, and increasing capture time; read by the tank owner.",
         "fields": [
+          "hardwareId (string)",
+          "source_tank_id (string)",
+          "source_owner_uid (string)",
+          "source_assignment_at_ms (int epoch-ms)",
+          "captured_at_ms (int epoch-ms)",
           "temperature (double, when present)",
           "ph_level (double, when present)",
           "dissolved_oxygen (double, when present)",
@@ -72,7 +77,6 @@
           "turbidity_air (bool, when present)",
           "water_level (double, cm, when present)",
           "feed_level (double, percent, when present)",
-          "estimated_feed_grams (double, when present)",
           "buffered_entries (int, optional offline-backlog count)",
           "recorded_at (Timestamp)"
         ]
@@ -90,24 +94,29 @@
           "pH_min/pH_max/pH_avg/pH_sum/pH_count (when data exists)",
           "DO_min/DO_max/DO_avg/DO_sum/DO_count (when data exists)",
           "turbidity_min/turbidity_max/turbidity_avg/turbidity_sum/turbidity_count (when data exists)",
-          "waterLevel_min/waterLevel_max/waterLevel_avg/waterLevel_sum/waterLevel_count (when data exists)",
+          "water_level (daily mean in cm), waterLevel_sum, waterLevel_count (when data exists; no min/max)",
           "updated_at (Timestamp)"
         ]
       },
       "sensor_readings_history/{YYYY-MM-DD}/entries/{docId}": {
-        "_description": "Canonical 10-minute per-sensor window aggregates, partitioned by original Manila capture date. Invalid sensors are omitted rather than stored as sentinel values.",
+        "_description": "10-minute per-sensor window aggregates written directly by the currently assigned ESP32, partitioned by Manila capture date. Firestore Rules verify the current assignment. Buffered entries still use the validated staging route so readings from an old assignment are quarantined rather than attributed to a new owner.",
         "fields": [
+          "hardwareId (string)",
+          "source_tank_id (string)",
+          "source_owner_uid (string)",
+          "source_assignment_at_ms (int epoch-ms)",
+          "captured_at_ms (int epoch-ms)",
           "temp_min, temp_max, temp_avg (when valid samples exist)",
           "turbidity_min, turbidity_max, turbidity_avg (when valid samples exist)",
           "pH_min, pH_max, pH_avg (when valid samples exist)",
           "DO_min, DO_max, DO_avg (when valid samples exist)",
-          "waterLevel_min, waterLevel_max, waterLevel_avg (when valid samples exist)",
-          "feed_level, estimated_feed_grams (when available)",
+          "water_level (single centimeter reading; no min/max aggregate)",
+          "feed_level (percent, when available)",
           "recorded_at (Timestamp)"
         ]
       },
       "sensors/{sensorName}": {
-        "_description": "Per-sensor threshold configuration. Owner writes validated min/max values; the assigned ESP reads them.",
+        "_description": "Per-sensor threshold configuration. Water-quality sensors use min/max; water-level and feed-level sensors use low/critical thresholds. The assigned ESP reads the configuration.",
         "examples": [
           "temperature",
           "ph_level",
@@ -119,8 +128,8 @@
         "fields": [
           "min_value (double)",
           "max_value (double)",
-          "critical_value (double, feed-level document only)",
-          "hopper_capacity_grams (double, feed-level document only)",
+          "low_value (double, water-level or feed-level document)",
+          "critical_value (double, water-level or feed-level document)",
           "updated_at (Timestamp)"
         ]
       },
@@ -155,9 +164,7 @@
           "dispenseCount (int)",
           "lastSeen (Timestamp; legacy int epoch-ms remains readable)",
           "last_dispensed_at (Timestamp|null)",
-          "last_dispensed_grams (double)",
-          "feed_level (double, percent|null)",
-          "estimated_feed_grams (double|null)"
+          "feed_level (double, percent|null)"
         ]
       },
       "feeder_schedules/{scheduleId}": {
@@ -188,12 +195,11 @@
           "occurrence_at (Firestore Timestamp, optional)",
           "status (completed|blocked|skipped_insufficient|failed, optional)",
           "requested_grams (double, optional)",
-          "estimated_dispensed_grams (double, optional)",
-          "estimated_available_grams (double, optional)",
+          "estimated_dispensed_grams (double, optional; servo-cycle estimate, not directly weighed)",
+          "amount_basis (servo_cycle_estimate, optional)",
           "feed_level_before (double, optional)",
           "feed_level_after (double, optional)",
-          "level_change_detected (bool, optional)",
-          "amount_basis (servo_cycle_estimate, optional)"
+          "level_change_detected (bool, optional)"
         ]
       },
       "feeder_commands/{commandId}": {
@@ -204,7 +210,8 @@
           "issued_by (uid)",
           "issued_at (Timestamp)",
           "expires_at (Timestamp)",
-          "near_schedule_confirmed (bool)"
+          "near_schedule_confirmed (bool)",
+          "allow_water_quality_override (bool, optional; one manual request only; range violations only)"
         ]
       },
       "water_quality_anomaly_detections/{detectionId}": {
@@ -216,16 +223,9 @@
           "is_anomaly (bool)",
           "anomaly_score (0-100 percentile relative to learned reference patterns; not a safety score)",
           "source (WQAD model|Model unavailable|Insufficient data|Stale sensor history)",
-          "analysis_window_minutes (int, currently 120)",
           "data_status (ready|insufficient|stale)",
           "source_recorded_at (Timestamp|null)",
-          "source_age_seconds (int|null)",
-          "primary_driver (object|null: sensor, label, value, unit, direction, contribution_score)",
-          "driver (temp|pH|DO|turbidity|waterLevel|overall|N/A)",
-          "driver_label (string)",
-          "driver_value (double|null)",
-          "driver_unit (string)",
-          "contributors (array of sensor, label, value, unit, direction, contribution_score)",
+          "contributors (array of sensor, value, direction, contribution_score; app maps labels and units)",
           "insight (string)",
           "recommendation (string)",
           "processed_at (Timestamp)"
@@ -317,7 +317,7 @@
     ]
   },
   "sensorIngestion/current": {
-    "_description": "Dedicated ESP Email/Password service-account staging document for the 5-second live snapshot. Cloud Functions validate the source assignment and route it to the currently assigned tank.",
+    "_description": "Legacy 5-second live staging document retained for older firmware during rollout. Current firmware writes live readings directly to tanks/{tankId}/sensor_readings/latest.",
     "fields": [
       "hardwareId (string)",
       "source_tank_id (string)",
@@ -334,7 +334,7 @@
     ]
   },
   "sensorIngestion/current/history/{docId}": {
-    "_description": "Dedicated ESP Email/Password service-account append-only 10-minute aggregate staging entry. Cloud Functions preserve captured_at_ms as recorded_at, validate the original assignment binding, and quarantine mismatches rather than attributing them to a new owner.",
+    "_description": "Dedicated ESP Email/Password service-account fallback for buffered, unassigned, or older-firmware 10-minute aggregate entries. Cloud Functions preserve captured_at_ms as recorded_at, validate the original assignment binding, and quarantine mismatches rather than attributing them to a new owner.",
     "fields": [
       "hardwareId (string)",
       "source_tank_id (string)",
@@ -347,7 +347,7 @@
       "turbidity_min/turbidity_max/turbidity_avg (when valid samples exist)",
       "DO_min/DO_max/DO_avg (when valid samples exist)",
       "pH_min/pH_max/pH_avg (when valid samples exist)",
-      "waterLevel_min/waterLevel_max/waterLevel_avg (when valid samples exist)"
+      "water_level (single centimeter reading; no min/max aggregate)"
     ]
   }
 }

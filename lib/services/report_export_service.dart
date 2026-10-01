@@ -501,7 +501,7 @@ class ReportExportService {
     List<BatchRecordSnapshot> snapshots, {
     GrowOutReportSections sections = const GrowOutReportSections(),
     bool includeSummary = true,
-    bool includeIndividualMeasurements = false,
+    bool includeIndividualMeasurements = true,
   }) async {
     final ordered = List<BatchRecordSnapshot>.of(snapshots)
       ..sort((a, b) {
@@ -928,7 +928,7 @@ class ReportExportService {
     List<BatchRecordSnapshot> snapshots, {
     GrowOutReportSections sections = const GrowOutReportSections(),
     bool includeSummary = true,
-    bool includeIndividualMeasurements = false,
+    bool includeIndividualMeasurements = true,
   }) async {
     final ordered = List<BatchRecordSnapshot>.of(snapshots)
       ..sort((a, b) {
@@ -1275,7 +1275,7 @@ class ReportExportService {
     required Iterable<String> batchIds,
     GrowOutReportSections sections = const GrowOutReportSections(),
     bool includeSummary = true,
-    bool includeIndividualMeasurements = false,
+    bool includeIndividualMeasurements = true,
     String fileName = 'craycare_all_batches',
   }) async {
     final snapshots = await TankService.instance.loadBatchRecordSnapshots(
@@ -1301,7 +1301,7 @@ class ReportExportService {
     required Iterable<String> batchIds,
     GrowOutReportSections sections = const GrowOutReportSections(),
     bool includeSummary = true,
-    bool includeIndividualMeasurements = false,
+    bool includeIndividualMeasurements = true,
     String fileName = 'craycare_all_batches',
   }) async {
     final snapshots = await TankService.instance.loadBatchRecordSnapshots(

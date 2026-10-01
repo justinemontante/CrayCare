@@ -1,5 +1,5 @@
 const admin = require('firebase-admin');
-const { getFirestore, FieldValue } = require('firebase-admin/firestore');
+const { getFirestore } = require('firebase-admin/firestore');
 const path = require('path');
 const fs = require('fs');
 
@@ -54,17 +54,20 @@ let OPTIMAL_MODE = false; // --optimal flag
 let CRITICAL_MODE = false; // --critical flag
 let DEMO_MODE = false; // --demo flag: exactly one critical + one warning sensor
 let demoTick = 0;
-// Config thresholds (pre_adult default — matched sa writeDefaultConfig)
-const CONFIG_RANGES = {
+// Threshold shape matches tanks/{tankId}/sensors/{sensorId}.
+// Physical water/feed levels use low + critical only, never min/max.
+const SENSOR_THRESHOLDS = {
   temperature:     { min: 24, max: 30 },
   phLevel:         { min: 7.0, max: 8.5 },
   dissolvedOxygen: { min: 5.0, max: 9.0 },
   turbidity:       { min: 0,   max: 25 },
-  waterLevel:      { min: 15, max: 20 },
-  feedLevel:       { min: 20, max: 100 },
+  waterLevel:      { low: 15, critical: 10 },
+  feedLevel:       { low: 20, critical: 10 },
 };
 
-const RANGES = {
+// Bounds below constrain generated demo readings only. They are not Firestore
+// threshold fields and are never written to tanks/{tankId}/sensors.
+const SIMULATION_BOUNDS = {
   temperature:     { min: 24, max: 34 },
   phLevel:         { min: 6.5, max: 9.0 },
   dissolvedOxygen: { min: 2.5, max: 7.0 },
@@ -293,7 +296,7 @@ function generateReading() {
   } else {
     for (const key of ['dissolvedOxygen', 'phLevel', 'turbidity', 'waterLevel']) {
       _state[key] = _driftTo(IDEAL[key], _state[key], DRIFT_SPEED[key]);
-      const r = RANGES[key];
+      const r = SIMULATION_BOUNDS[key];
       _state[key] = Math.max(r.min, Math.min(r.max, _state[key]));
     }
   }
@@ -317,7 +320,6 @@ function generateAggregatedReading() {
     phLevel: 'pH',
     dissolvedOxygen: 'DO',
     turbidity: 'turbidity',
-    waterLevel: 'waterLevel',
   };
 
   for (const [rtdbKey, mlKey] of Object.entries(keysMap)) {
@@ -330,8 +332,8 @@ function generateAggregatedReading() {
     result[`${mlKey}_max`] = parseFloat(max.toFixed(2));
     result[`${mlKey}_avg`] = parseFloat(avg.toFixed(2));
   }
-  // History stores feed level as the captured percentage, not a calculated
-  // min/max/average value.
+  // These physical sensor levels are single readings, not min/max/averages.
+  result.water_level = readings[readings.length - 1].waterLevel;
   result.feed_level = readings[readings.length - 1].feedLevel;
   return result;
 }
@@ -371,24 +373,7 @@ async function resolveAssignmentContext() {
     return { tankId, ownerUid, assignedAtMs };
   }
 
-  // Fallback for the current schema: ownership is stored on tanks.owner_uid.
-  if (ownerUid) {
-    const tanks = await firestore.collection('tanks')
-      .where('owner_uid', '==', ownerUid)
-      .where('is_initialized', '==', true)
-      .limit(1)
-      .get();
-    if (!tanks.empty) tankId = tanks.docs[0].id;
-  }
-
-  // Safe local-demo fallback when the assignment document is incomplete but
-  // there is exactly one initialized tank in the project.
-  const initializedTanks = await firestore.collection('tanks')
-    .where('is_initialized', '==', true)
-    .limit(2)
-    .get();
-  if (!tankId && initializedTanks.size === 1) tankId = initializedTanks.docs[0].id;
-
+  // Never guess the target tank for a live test write.
   if (!tankId || !ownerUid || !Number.isSafeInteger(assignedAtMs)) return null;
   return { tankId, ownerUid, assignedAtMs };
 }
@@ -486,37 +471,16 @@ async function backfillHistory({ hours, label }) {
   console.log(` ✅ ${written} entries for ${label}`);
 }
 
-// ─── 8. Write sensor config (Firestore only) ──────────────────
-async function writeDefaultConfig() {
-  const assignment = await firestore.collection('hardware_system').doc('currentOwner').get();
-  const tankId = assignment.exists ? assignment.data().tank_id : null;
-  if (!tankId) throw new Error('No hardware_system/currentOwner.tank_id assigned');
-  const defaults = {
-    temperature: { min: 24, max: 30 },
-    ph_level: { min: 7.0, max: 8.5 },
-    dissolved_oxygen: { min: 5.0, max: 9.0 },
-    turbidity: { min: 0, max: 25 },
-    water_level: { min: 15, max: 20 },
-    feed_level: { min: 20, max: 100 },
-  };
-  const batch = firestore.batch();
-  for (const [sensor, range] of Object.entries(defaults)) {
-    batch.set(firestore.collection('tanks').doc(tankId).collection('sensors').doc(sensor), {
-      min_value: range.min,
-      max_value: range.max,
-      updated_at: FieldValue.serverTimestamp(),
-    }, { merge: true });
-  }
-  await batch.commit();
-  console.log(`📋 Default sensor thresholds written to tanks/${tankId}/sensors.`);
-}
-
 // ─── 9a. Status check helper ────────────────────────────────────
 function _checkStatus(data) {
-  const c = CONFIG_RANGES;
-  const critical = LATEST_KEYS.filter(k => data[k] < c[k].min || data[k] > c[k].max);
+  const c = SENSOR_THRESHOLDS;
+  const physicalLevels = ['waterLevel', 'feedLevel'];
+  const critical = LATEST_KEYS.filter(k => physicalLevels.includes(k)
+    ? data[k] <= c[k].critical
+    : data[k] < c[k].min || data[k] > c[k].max);
   const warning = LATEST_KEYS.filter(k => {
     if (critical.includes(k)) return false;
+    if (physicalLevels.includes(k)) return data[k] <= c[k].low;
     const range = c[k].max - c[k].min;
     const warnThreshold = range * 0.10;
     return (data[k] - c[k].min < warnThreshold) || (c[k].max - data[k] < warnThreshold);
@@ -536,6 +500,7 @@ process.on('SIGTERM', () => process.exit());
 async function main() {
   const args = process.argv.slice(2);
   const doBackfill = args.includes('--backfill');
+  const includeHistory = args.includes('--history');
   const once = args.includes('--once');
 
   OPTIMAL_MODE = args.includes('--optimal');
@@ -548,7 +513,13 @@ async function main() {
   }
 
   if (args.includes('--config')) {
-    await writeDefaultConfig();
+    console.error('❌ --config was removed: this sensor demo must not write threshold settings.');
+    process.exit(1);
+  }
+  if (doBackfill && !args.includes('--confirm-backfill')) {
+    console.error('❌ Backfill would add about 5,475 synthetic history documents to the assigned tank.');
+    console.error('   To deliberately continue, pass --confirm-backfill.');
+    process.exit(1);
   }
 
   if (doBackfill) {
@@ -572,7 +543,10 @@ async function main() {
     console.log('\n🚀 Starting real-time simulation…');
     console.log(`   ${modeLabel}`);
     console.log('   Every 5s  → tanks/{assignedTank}/sensor_readings/latest');
-    console.log('   Every 10m → tanks/{assignedTank}/sensor_readings_history/{date}/entries');
+    console.log(includeHistory
+      ? '   Every 10m → tanks/{assignedTank}/sensor_readings_history/{date}/entries'
+      : '   History writes are OFF (pass --history only when you want test history records).');
+    console.log('   No sensor threshold documents are written.');
     console.log('   Tank target is resolved from hardware_system/currentOwner.');
     console.log('   Press Ctrl+C to stop.\n');
 
@@ -583,8 +557,10 @@ async function main() {
     }
     setInterval(() => writeLatest(), 5000);
 
-    await appendHistory();
-    setInterval(() => appendHistory(), 10 * 60 * 1000);
+    if (includeHistory) {
+      await appendHistory();
+      setInterval(() => appendHistory(), 10 * 60 * 1000);
+    }
   }
 }
 

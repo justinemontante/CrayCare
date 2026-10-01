@@ -116,7 +116,7 @@ class GrowOutReportExportButton extends StatelessWidget {
     var includeMortality = true;
     var includeHarvest = true;
     var includeSummary = true;
-    var includeIndividualMeasurements = false;
+    var includeIndividualMeasurements = true;
     var fileName = 'craycare_all_batches';
 
     final result = await showModalBottomSheet<_ReportExportSelection>(

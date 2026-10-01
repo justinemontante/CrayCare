@@ -1014,7 +1014,6 @@ class ControlsScreenState extends State<ControlsScreen> {
                       fedToday: _fedToday,
                       isOnline: FeederService.instance.isOnline,
                       isRunning: FeederService.instance.isRunning,
-                      feederStatus: FeederService.instance.status,
                       canFeed: _canFeed,
                       feedBlockedReason: _feedBlockedReason,
                       feedLevelPercent:
@@ -1024,8 +1023,8 @@ class ControlsScreenState extends State<ControlsScreen> {
                                   'feedlevel',
                                 )
                               : null),
-                      completedFeedingsToday:
-                          FeederService.instance.completedFeedingsToday,
+                      estimatedConsumptionToday:
+                          FeederService.instance.estimatedConsumptionToday,
                     ),
                     ActuatorsTab(
                       actuatorModes: _actuatorModes,
@@ -1241,7 +1240,7 @@ class ControlsScreenState extends State<ControlsScreen> {
       (Icons.developer_board_outlined, 'Actuators'),
     ];
     return Container(
-      margin: const EdgeInsets.fromLTRB(12, 4, 12, 14),
+      margin: const EdgeInsets.fromLTRB(12, 4, 12, 6),
       padding: const EdgeInsets.all(5),
       decoration: BoxDecoration(
         color: AppColors.dark.withValues(alpha: 0.03),

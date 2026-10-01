@@ -11,6 +11,7 @@ class OverviewTab extends StatelessWidget {
   final VoidCallback onShowEditModal;
   final VoidCallback onShowLogsModal;
   final VoidCallback onShowCompleteBatchModal;
+  final VoidCallback onViewInitialSampleDetails;
   final bool hasSetup;
   final DateTime lastEdited;
 
@@ -21,6 +22,7 @@ class OverviewTab extends StatelessWidget {
     required this.onShowEditModal,
     required this.onShowLogsModal,
     required this.onShowCompleteBatchModal,
+    required this.onViewInitialSampleDetails,
     required this.hasSetup,
     required this.lastEdited,
   });
@@ -228,7 +230,7 @@ class OverviewTab extends StatelessWidget {
                   Expanded(child: _buildMetricCard(Image.asset('assets/images/InitialPopulation.png', width: 20, height: 20), 'Initial Population', '${service.initialCount}', 'Total stock at start', onTap: () => _showMetricDetail(context, 'Initial Population', service.initialCount.toString(), 'Total stock at start', 'assets/images/InitialPopulation.png', 'During grow-out initialization, ${service.initialCount} crayfish were placed in the tank on ${_formatDate(service.stockingDate)}. This serves as the baseline for all monitoring and survival rate calculations.', Icons.people_alt_rounded))),
 
                   const SizedBox(width: 6),
-                  Expanded(child: _buildMetricCard(Image.asset('assets/images/SampleCount.png', width: 20, height: 20), 'Sample Size', '${service.sampleCount}', 'Crayfish in sample', onTap: () => _showMetricDetail(context, 'Sample Size', service.sampleCount.toString(), 'Crayfish in sample', 'assets/images/SampleCount.png', 'During initialization, ${service.sampleCount} crayfish were taken and measured to determine the average weight and length per crayfish. This sample represents the entire population.', Icons.analytics_rounded))),
+                  Expanded(child: _buildMetricCard(Image.asset('assets/images/SampleCount.png', width: 20, height: 20), 'Initial Sample Size', '${service.sampleCount}', 'Crayfish in sample', onTap: () => _showMetricDetail(context, 'Initial Sample Size', service.sampleCount.toString(), 'Crayfish in sample', 'assets/images/SampleCount.png', 'During initialization, ${service.sampleCount} crayfish were taken and measured to determine the average weight and length per crayfish. This sample represents the entire population.', Icons.analytics_rounded, onViewDetails: onViewInitialSampleDetails))),
                 ],
               ),
               const SizedBox(height: 6),
@@ -242,7 +244,7 @@ class OverviewTab extends StatelessWidget {
               const SizedBox(height: 6),
               Row(
                 children: [
-                  Expanded(child: _buildMetricCard(Image.asset('assets/images/Alive.png', width: 20, height: 20), 'In Tank', '${service.inTankCount}', 'In tank now', onTap: () => _showMetricDetail(context, 'In Tank', service.inTankCount.toString(), 'In tank now', 'assets/images/Alive.png', 'Out of ${service.initialCount} crayfish initially stocked, ${service.inTankCount} are still in the tank (${service.mortality} died, ${service.totalHarvested} harvested). Survival rate (mortality only): ${service.survivalRate.toStringAsFixed(1)}%.', Icons.favorite_rounded))),
+                  Expanded(child: _buildMetricCard(Image.asset('assets/images/Alive.png', width: 20, height: 20), 'In Tank', '${service.inTankCount}', 'In tank now', onTap: () => _showMetricDetail(context, 'In Tank', service.inTankCount.toString(), 'In tank now', 'assets/images/Alive.png', 'Out of ${service.initialCount} crayfish initially stocked, ${service.inTankCount} are still in the tank (${service.mortality} died, ${service.totalHarvested} harvested).', Icons.favorite_rounded))),
                   const SizedBox(width: 6),
                   Expanded(child: _buildMetricCard(Image.asset('assets/images/Mortality.png', width: 20, height: 20), 'Mortality', '${service.mortality}', 'Total deaths', onTap: () => _showMetricDetail(context, 'Mortality', service.mortality.toString(), 'Total deaths', 'assets/images/Mortality.png', 'Out of ${service.initialCount} crayfish initially stocked, ${service.mortality} have died. Survival rate: ${service.survivalRate.toStringAsFixed(1)}%.', Icons.warning_rounded))),
                 ],
@@ -269,8 +271,9 @@ class OverviewTab extends StatelessWidget {
     String subtitle,
     String iconPath,
     String description,
-    IconData fallbackIcon,
-  ) {
+    IconData fallbackIcon, {
+    VoidCallback? onViewDetails,
+  }) {
     showDialog(
       context: context,
       barrierDismissible: true,
@@ -285,6 +288,31 @@ class OverviewTab extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (onViewDetails != null)
+                Align(
+                  alignment: Alignment.topRight,
+                  child: TextButton(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (context.mounted) onViewDetails();
+                      });
+                    },
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.primary,
+                      padding: EdgeInsets.zero,
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: const Text(
+                      'View Full Details',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
               Container(
                 width: 56,
                 height: 56,
@@ -323,25 +351,27 @@ class OverviewTab extends StatelessWidget {
                   color: AppColors.dark.withValues(alpha: 0.5),
                 ),
               ),
-              const SizedBox(height: 16),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.05),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  description,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                    color: AppColors.dark.withValues(alpha: 0.7),
-                    height: 1.4,
+              if (description.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    description,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.dark.withValues(alpha: 0.7),
+                      height: 1.4,
+                    ),
                   ),
                 ),
-              ),
+              ],
               const SizedBox(height: 20),
               SizedBox(
                 width: double.infinity,

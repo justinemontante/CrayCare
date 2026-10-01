@@ -4,7 +4,7 @@ const admin = require("firebase-admin");
 // main.js loads index.js first, so the shared Admin app is already initialized.
 const firestoreDb = admin.firestore();
 const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
-const SUMMARY_VERSION = 2;
+const SUMMARY_VERSION = 3;
 
 const DAILY_SENSORS = [
   { avg: "temp_avg", min: "temp_min", max: "temp_max", sum: "temp_sum", count: "temp_count" },
@@ -97,6 +97,17 @@ function addReadingToSummary(current, reading, entryId, dateKey) {
     update.water_level = nextSum / nextCount;
   }
 
+  const feedLevel = finiteSensorNumber(reading.feed_level);
+  if (feedLevel !== null && feedLevel <= 100) {
+    const oldSum = finiteNumber(current.feed_level_sum) || 0;
+    const oldCount = finiteNumber(current.feed_level_count) || 0;
+    const nextSum = oldSum + feedLevel;
+    const nextCount = oldCount + 1;
+    update.feed_level_sum = nextSum;
+    update.feed_level_count = nextCount;
+    update.feed_level = nextSum / nextCount;
+  }
+
   return update;
 }
 
@@ -157,6 +168,20 @@ function buildCompleteSummary(entryDocs, dateKey) {
     summary.water_level = waterSum / waterCount;
   }
 
+  let feedSum = 0;
+  let feedCount = 0;
+  for (const doc of entryDocs) {
+    const feedLevel = finiteSensorNumber((doc.data() || {}).feed_level);
+    if (feedLevel === null || feedLevel > 100) continue;
+    feedSum += feedLevel;
+    feedCount++;
+  }
+  if (feedCount > 0) {
+    summary.feed_level_sum = feedSum;
+    summary.feed_level_count = feedCount;
+    summary.feed_level = feedSum / feedCount;
+  }
+
   return summary;
 }
 
@@ -167,7 +192,8 @@ async function rebuildCompletedDay(tankId, dateKey) {
   const daySnap = await dayRef.get();
   if (daySnap.exists) {
     const data = daySnap.data() || {};
-    if (data.summary_complete === true && data.summary_sanitized === true) {
+    if (data.summary_version === SUMMARY_VERSION &&
+        data.summary_complete === true && data.summary_sanitized === true) {
       return false;
     }
   }

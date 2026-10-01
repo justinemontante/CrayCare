@@ -976,28 +976,28 @@ class DashboardScreenState extends State<DashboardScreen>
               children: [
                 Expanded(
                   child: _buildStatColumn(
-                    'assets/images/InitialPopulationNo.png',
+                    0,
                     popStr,
                     'Initial Population',
                   ),
                 ),
                 Expanded(
                   child: _buildStatColumn(
-                    'assets/images/SurvivalRate.png',
+                    1,
                     survivalStr,
                     'Survival Rate',
                   ),
                 ),
                 Expanded(
                   child: _buildStatColumn(
-                    'assets/images/AliveNo.png',
+                    2,
                     aliveStr,
                     'In Tank',
                   ),
                 ),
                 Expanded(
                   child: _buildStatColumn(
-                    'assets/images/mortalityNo.png',
+                    3,
                     mortalityStr,
                     'Mortality',
                     valueColor: AppColors.critical,
@@ -1174,10 +1174,15 @@ class DashboardScreenState extends State<DashboardScreen>
         const SizedBox(height: 3),
         Text(
           value,
+          textAlign: TextAlign.center,
+          maxLines: label == 'Stage' ? 2 : 1,
+          softWrap: true,
+          overflow: TextOverflow.ellipsis,
           style: const TextStyle(
             fontSize: 10,
             fontWeight: FontWeight.w800,
             color: AppColors.dark,
+            height: 1.1,
           ),
         ),
         const SizedBox(height: 1),
@@ -1313,23 +1318,14 @@ class DashboardScreenState extends State<DashboardScreen>
   }
 
   Widget _buildStatColumn(
-    String iconPath,
+    int iconIndex,
     String value,
     String label, {
     Color? valueColor,
   }) {
     return Column(
       children: [
-        Container(
-          width: 32,
-          height: 32,
-          padding: const EdgeInsets.all(7),
-          decoration: BoxDecoration(
-            color: AppColors.primary.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Image.asset(iconPath, fit: BoxFit.contain),
-        ),
+        _buildCrayfishInfoIcon(iconIndex),
         const SizedBox(height: 4),
         Text(
           value,
@@ -1350,6 +1346,43 @@ class DashboardScreenState extends State<DashboardScreen>
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildCrayfishInfoIcon(int index) {
+    const iconSize = 32.0;
+    const sheetSize = 78.0;
+    const offsets = <Offset>[
+      Offset(-4.6, -4.5),
+      Offset(-40.9, -4.5),
+      Offset(-4.6, -40.9),
+      Offset(-40.9, -40.9),
+    ];
+    final offset = offsets[index.clamp(0, offsets.length - 1).toInt()];
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: SizedBox(
+        width: iconSize,
+        height: iconSize,
+        child: ClipRect(
+          child: Stack(
+            children: [
+              Positioned(
+                left: offset.dx,
+                top: offset.dy,
+                width: sheetSize,
+                height: sheetSize,
+                child: Image.asset(
+                  'assets/images/crayfish_info_icons.png',
+                  fit: BoxFit.fill,
+                  filterQuality: FilterQuality.high,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 

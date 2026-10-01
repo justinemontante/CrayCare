@@ -28,6 +28,8 @@ const UNITS = {
 
 const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
 const TRUSTED_EPOCH_MS = 1577836800000;
+// Keep connection alerts consistent with the app's sensor freshness window.
+const SENSOR_STALE_MS = 60 * 1000;
 
 function parseTimestampMillis(value) {
   if (value && typeof value.toMillis === "function") return value.toMillis();
@@ -284,6 +286,100 @@ async function notifySensorChanges(ownerUid, stateChanges, eventId) {
   });
 }
 
+function sensorConnectionMarkerRef(ownerUid, tankId) {
+  return firestoreDb.collection("users").doc(ownerUid)
+    .collection("notif_markers").doc(`sensor_connection_${tankId}`);
+}
+
+async function transitionSensorConnection(ownerUid, tankId, nextState) {
+  const markerRef = sensorConnectionMarkerRef(ownerUid, tankId);
+  return firestoreDb.runTransaction(async (tx) => {
+    const snapshot = await tx.get(markerRef);
+    const marker = snapshot.exists ? snapshot.data() || {} : {};
+    const previousState = marker.value || "unknown";
+    const wasEverOnline = marker.ever_online === true || previousState === "online";
+    if (previousState === nextState) return false;
+
+    tx.set(markerRef, {
+      markerKey: `sensor_connection_${tankId}`,
+      value: nextState,
+      ever_online: wasEverOnline || nextState === "online",
+      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+    }, {merge: true});
+
+    // Do not send a misleading "restored" alert on first-ever startup, or
+    // an offline alert for a tank that has never produced a live reading.
+    return wasEverOnline &&
+      ((previousState === "online" && nextState === "offline") ||
+       (previousState === "offline" && nextState === "online"));
+  });
+}
+
+async function notifySensorConnection(ownerUid, tankId, state, transitionKey) {
+  const online = state === "online";
+  const title = online ? "Sensor Connection Restored" : "Sensor Offline";
+  const body = online
+    ? "The ESP32 is online again and new sensor readings are arriving."
+    : "No new sensor readings have arrived for over a minute. Check the ESP32 and its network connection.";
+  await deliverNotificationOnce({
+    db: firestoreDb,
+    id: notificationEventId("sensor_connection", `${ownerUid}_${tankId}`, transitionKey),
+    uid: ownerUid,
+    type: "operational",
+    title,
+    body,
+    timestamp: () => admin.firestore.FieldValue.serverTimestamp(),
+    send: () => sendPush(ownerUid, {
+      notification: {title, body},
+      data: {
+        title,
+        body,
+        operational: "true",
+        critical: "false",
+      },
+    }, "operational"),
+  });
+}
+
+async function getActiveAssignedSensorOwner(tankId) {
+  const assignment = await getCurrentHardwareOwner();
+  if (!assignment || assignment.tankId !== tankId) return null;
+  const [tankSnap, userSnap] = await Promise.all([
+    firestoreDb.collection("tanks").doc(tankId).get(),
+    firestoreDb.collection("users").doc(assignment.uid).get(),
+  ]);
+  if (!tankSnap.exists || !userSnap.exists) return null;
+  const tank = tankSnap.data() || {};
+  const user = userSnap.data() || {};
+  if (tank.owner_uid !== assignment.uid ||
+      String(user.role || "owner").toLowerCase() === "admin" ||
+      String(user.status || "active").toLowerCase() !== "active") return null;
+  return assignment;
+}
+
+async function recordSensorOnlineIfFresh(tankId, reading) {
+  const assignment = await getActiveAssignedSensorOwner(tankId);
+  // The ingestion router verifies assignment provenance before writing this
+  // owner-scoped latest document; normalizeSensorReading intentionally keeps
+  // that provenance out of the latest sensor payload.
+  if (!assignment) return;
+  const capturedAtMs = parseTimestampMillis(
+    reading.captured_at_ms ?? reading.recorded_at,
+  );
+  const ageMs = Date.now() - capturedAtMs;
+  if (!Number.isFinite(capturedAtMs) || ageMs < -60_000 ||
+      ageMs > SENSOR_STALE_MS) return;
+
+  const shouldNotify = await transitionSensorConnection(
+    assignment.uid, tankId, "online",
+  );
+  if (shouldNotify) {
+    await notifySensorConnection(
+      assignment.uid, tankId, "online", `online_${capturedAtMs}`,
+    );
+  }
+}
+
 exports.onSensorIngestionWrite = functions.region("asia-southeast1").firestore
   .document("sensorIngestion/current")
   .onWrite(async (change) => {
@@ -415,6 +511,7 @@ exports.onSensorUpdate = functions.runWith({failurePolicy: true}).region("asia-s
 
     try {
       const { tankId } = context.params;
+      await recordSensorOnlineIfFresh(tankId, afterData);
       const tankSnap = await firestoreDb.collection("tanks").doc(tankId).get();
       const ownerUid = tankSnap.exists ? (tankSnap.data() || {}).owner_uid : null;
       if (!ownerUid) return null;
@@ -568,6 +665,48 @@ exports.processSampling = functions.region("asia-southeast1").pubsub
       }));
     } catch (e) {
       functions.logger.error("processSampling error:", e.message);
+    }
+    return null;
+  });
+
+// There is no Firestore write at the moment a device goes offline, so poll the
+// currently assigned tank. State transitions are marker-backed to avoid sending
+// the same outage alert on every scheduled run.
+exports.checkSensorConnectivity = functions.region("asia-southeast1").pubsub
+  .schedule("every 1 minutes")
+  .onRun(async () => {
+    try {
+      const assignment = await getCurrentHardwareOwner();
+      if (!assignment) return null;
+      const activeAssignment = await getActiveAssignedSensorOwner(assignment.tankId);
+      if (!activeAssignment) return null;
+
+      const latestSnap = await firestoreDb.collection("tanks")
+        .doc(assignment.tankId).collection("sensor_readings")
+        .doc("latest").get();
+      if (!latestSnap.exists) return null;
+      const reading = latestSnap.data() || {};
+
+      const capturedAtMs = parseTimestampMillis(
+        reading.captured_at_ms ?? reading.recorded_at,
+      );
+      if (!Number.isFinite(capturedAtMs)) return null;
+      const ageMs = Date.now() - capturedAtMs;
+      if (ageMs < -60_000 || ageMs <= SENSOR_STALE_MS) return null;
+
+      const shouldNotify = await transitionSensorConnection(
+        assignment.uid, assignment.tankId, "offline",
+      );
+      if (shouldNotify) {
+        await notifySensorConnection(
+          assignment.uid,
+          assignment.tankId,
+          "offline",
+          `offline_${capturedAtMs}`,
+        );
+      }
+    } catch (e) {
+      functions.logger.error("checkSensorConnectivity error:", e.message);
     }
     return null;
   });

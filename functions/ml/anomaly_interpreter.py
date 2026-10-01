@@ -1,5 +1,13 @@
 """Human-readable, safety-conscious interpretation for WQAD results."""
 
+SENSOR_LABELS = {
+    "temp": "Temperature",
+    "pH": "pH Level",
+    "DO": "Dissolved Oxygen",
+    "turbidity": "Turbidity",
+    "waterLevel": "Water Level",
+}
+
 
 def interpret_anomaly(is_anomaly, anomaly_score, contributors, recommendations):
     if not contributors:
@@ -16,9 +24,10 @@ def interpret_anomaly(is_anomaly, anomaly_score, contributors, recommendations):
         }
 
     def trend_phrase(item):
+        label = SENSOR_LABELS.get(item["sensor"], item["sensor"])
         if item["direction"] == "stable":
-            return f"{item['label']} has little net change over the recent 30-minute window"
-        return f"{item['label']} is {item['direction']} over the recent 30-minute window"
+            return f"{label} has little net change over the recent 30-minute window"
+        return f"{label} is {item['direction']} over the recent 30-minute window"
 
     primary_phrase = trend_phrase(primary)
     if secondary and secondary["contribution_score"] >= primary["contribution_score"] * 0.55:

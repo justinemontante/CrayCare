@@ -111,6 +111,9 @@ data = {
     "event_type": event_type,
 }
 for sensor, scale in {"temp": 0.10, "pH": 0.025, "DO": 0.09, "turbidity": 0.35, "waterLevel": 0.04}.items():
+    if sensor == "waterLevel":
+        data["waterLevel"] = signals[sensor]
+        continue
     low, avg, high = window_triplet(sensor, scale)
     data[f"{sensor}_avg"] = avg
     data[f"{sensor}_min"] = low

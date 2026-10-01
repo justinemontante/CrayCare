@@ -36,10 +36,13 @@ class WaterQualityAnomalyDetectionTests(unittest.TestCase):
         self.assertLessEqual(result["anomaly_score"], 100)
         self.assertTrue(result["insight"])
         self.assertTrue(result["recommendation"])
-        self.assertEqual(result["primary_driver"], result["contributors"][0])
-        self.assertEqual(set(result["primary_driver"]), {
-            "sensor", "label", "value", "unit", "direction", "contribution_score"
-        })
+        self.assertEqual(
+            set(result["contributors"][0]),
+            {"sensor", "value", "direction", "contribution_score"},
+        )
+        self.assertNotIn("primary_driver", result)
+        self.assertNotIn("driver_label", result)
+        self.assertNotIn("analysis_window_minutes", result)
         self.assertFalse(
             {
                 "model_algorithm",

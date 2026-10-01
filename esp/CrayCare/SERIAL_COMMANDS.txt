@@ -93,10 +93,10 @@ PHYSICAL BUTTONS (to GND, INPUT_PULLUP)
     a 1.5 s settle window, then one feed runs with the full safety path +
     blower pre-run. Ignored while a feed runs. Cap 200 g. Live count,
     progress, and blocked reasons on LCD.
-    OVERRIDE: a bypassable block (unsafe water, low hopper, schedule)
+    OVERRIDE: a bypassable block (unsafe water, sensor unavailable, schedule)
     opens a 10 s warning (reason + "Tap 2x to force"). Two taps force
     the locked grams (logged forced + reason); silence cancels. Hard
-    blocks (tank/clock/storage/grams) abort with no override.
+    blocks (tank/clock/storage/invalid dose/critical feed level) abort with no override.
   GPIO2 blower: manual ON/OFF toggle; ignored while a feed auto-holds the
     blower. 15-minute manual safety timeout.
 
@@ -105,13 +105,13 @@ LCD (16x2, SDA 21 / SCL 22, addr 0x27)
   next schedule. Blower state via warm-up screen + relay status; SSID via
   boot screens + wifistatus. Live feed progress with source label
   (App/Schedule/Onsite), tap counter, transient banners, BLOCKED reasons,
-  and a "Fed Xg OK" banner. Disabled silently if no ACK (check wiring/
+    and a "Feeding completed" banner. Disabled silently if no ACK (check wiring/
   address; try 0x3F).
 
 SENSOR CALIBRATION
   Hopper level is ultrasonic (HC-SR04 TRIG 17 / ECHO 25) by default, with the
   GPIO39 analog sensor as automatic fallback. The app always receives the
-  same feed_level % and estimated grams either way.
+    same feed_level percentage either way.
 
   hopperempty
     With the hopper empty, saves the current echo distance as the 0% point.
@@ -134,7 +134,7 @@ SENSOR CALIBRATION
 
   feedfull
     (Analog fallback) With the hopper full, saves the GPIO39 voltage as 100%.
-    Configure hopper capacity in Settings.
+    The hopper reading is reported as a percentage.
 
   BUFSTATUS
     Offline buffer state: active backend (SD/LittleFS), per-backend counts,
@@ -187,7 +187,7 @@ HC-SR04 WATER LEVEL
 DEBUG
   raw
     Prints pH, DO, turbidity, water depth, plus hopper voltage, percentage, and
-    estimated remaining grams.
+    raw hopper distance where available.
 
   raw on / raw off
     Streams the same raw-voltage line every 1 s for calibration stability

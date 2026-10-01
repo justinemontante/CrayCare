@@ -53,7 +53,7 @@ def _run_water_quality_anomaly_detection(frame):
 
 
 def _valid_history_row(row):
-    for sensor in ("temp", "pH", "DO", "turbidity", "waterLevel"):
+    for sensor in ("temp", "pH", "DO", "turbidity"):
         keys = (f"{sensor}_min", f"{sensor}_avg", f"{sensor}_max")
         values = [row.get(key) for key in keys]
         if any(
@@ -67,7 +67,12 @@ def _valid_history_row(row):
         minimum, average, maximum = map(float, values)
         if not minimum <= average <= maximum:
             return False
-    return True
+    water_level = row.get("waterLevel", row.get("water_level"))
+    return (
+        isinstance(water_level, (int, float))
+        and math.isfinite(float(water_level))
+        and float(water_level) >= 0
+    )
 
 
 def _timestamp_seconds(value):
@@ -150,7 +155,7 @@ def _fetch_sensor_history(tank_id, hours=24):
                     ph = data.get("pH_avg", data.get("ph_level"))
                     dissolved_oxygen = data.get("DO_avg", data.get("dissolved_oxygen"))
                     turbidity = data.get("turbidity_avg", data.get("turbidity"))
-                    water_level = data.get("waterLevel_avg", data.get("water_level"))
+                    water_level = data.get("water_level", data.get("waterLevel_avg"))
                     row = {
                         "timestamp": recorded_seconds,
                         "temp_avg": temp,
@@ -165,9 +170,7 @@ def _fetch_sensor_history(tank_id, hours=24):
                         "turbidity_avg": turbidity,
                         "turbidity_min": data.get("turbidity_min", turbidity),
                         "turbidity_max": data.get("turbidity_max", turbidity),
-                        "waterLevel_avg": water_level,
-                        "waterLevel_min": data.get("waterLevel_min", water_level),
-                        "waterLevel_max": data.get("waterLevel_max", water_level),
+                        "waterLevel": water_level,
                     }
                     if _valid_history_row(row):
                         rows.append(row)
@@ -189,26 +192,18 @@ def _insufficient_result(data_status):
         "status": "Insufficient",
         "is_anomaly": False,
         "anomaly_score": 0.0,
-        "driver": "N/A",
-        "driver_label": "Sensor history is stale"
-        if stale
-        else "Collecting sensor history",
-        "driver_value": None,
-        "driver_unit": "",
-        "primary_driver": None,
         "contributors": [],
         "insight": (
             "The latest sensor record is over 20 minutes old."
             if stale
-            else "At least twelve continuous 10-minute readings are required to establish the current two-hour pattern."
+            else "At least twelve recent valid readings are required; one missed 10-minute reading is tolerated."
         ),
         "recommendation": (
-            "Check ESP32 connectivity and wait for fresh, continuous sensor history."
+            "Check ESP32 connectivity and wait for enough fresh sensor readings."
             if stale
             else "Continue collecting calibrated sensor data."
         ),
         "source": "Stale sensor history" if stale else "Insufficient data",
-        "analysis_window_minutes": 120,
     }
 
 
@@ -236,9 +231,6 @@ def _analyze_tank(tank_id):
         if source_at is not None
         else None
     )
-    result["source_age_seconds"] = (
-        max(0, int(now.timestamp() - source_at)) if source_at is not None else None
-    )
     result["tank_id"] = tank_id
     if owner_uid:
         result["uid"] = owner_uid
@@ -259,13 +251,15 @@ def _analyze_tank(tank_id):
     batch.set(history.document(now.strftime("%Y%m%dT%H%M%S")), result)
     batch.commit()
     print(
-        f"[WQAD] Tank {tank_id}: {result['status']} (score={result['anomaly_score']}, driver={result['driver']})"
+        f"[WQAD] Tank {tank_id}: {result['status']} "
+        f"(score={result['anomaly_score']}, "
+        f"main_sensor={result['contributors'][0]['sensor'] if result['contributors'] else 'N/A'})"
     )
     _prune_history(db, tank_id, now)
 
 
 def _prune_history(db, tank_id, now, retain_days=30, max_deletes=100):
-    """Cap hourly history growth in the new and legacy paths.
+    """Cap scheduled history growth in the new and legacy paths.
 
     The `current` alias is never touched. Failures are logged only so pruning
     can never break detection.
@@ -294,13 +288,23 @@ def _prune_history(db, tank_id, now, retain_days=30, max_deletes=100):
 
 
 @scheduler_fn.on_schedule(
-    schedule="every 1 hours",
+    schedule="every 30 minutes",
     timezone="Asia/Manila",
     region="asia-southeast1",
     memory=options.MemoryOption.MB_512,
 )
-def run_hourly_wqad(event) -> None:
-    """Run WQAD for the single active hardware assignment."""
+def run_wqad_analysis(event) -> None:
+    """Run scheduled WQAD analysis for the active hardware assignment."""
+    _process_assigned_tank()
+
+
+def run_wqad_now() -> None:
+    """Run the same WQAD flow from a local/manual entry point."""
+    _process_assigned_tank()
+
+
+def _process_assigned_tank() -> None:
+    """Validate and analyze the single active hardware assignment."""
     db = _get_db()
     assignment = db.collection("hardware_system").document("currentOwner").get()
     data = assignment.to_dict() if assignment.exists else {}

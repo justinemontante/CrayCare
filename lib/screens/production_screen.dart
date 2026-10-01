@@ -156,6 +156,7 @@ class ProductionScreenState extends State<ProductionScreen> {
           onShowEditModal: _showEditModal,
           onShowLogsModal: _showLogsModal,
           onShowCompleteBatchModal: _startNewBatch,
+          onViewInitialSampleDetails: _openInitialBaselineDetails,
           hasSetup: TankService.instance.isInitialized,
           lastEdited: _lastEdited,
         );
@@ -173,6 +174,17 @@ class ProductionScreenState extends State<ProductionScreen> {
       default:
         return const SizedBox.shrink();
     }
+  }
+
+  void _openInitialBaselineDetails() {
+    Future<void>(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 220));
+      if (!mounted) return;
+      setState(() => _crayfishTab = 1);
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      showSamplingHistory(context, expandBaseline: true);
+    });
   }
 
   Widget _buildHeader() {

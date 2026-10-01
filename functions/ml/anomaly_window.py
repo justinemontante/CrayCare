@@ -5,10 +5,12 @@ from numbers import Real
 
 
 def anomaly_window(frame, now_epoch):
-    """Return a contiguous 10-minute suffix, its status, and source timestamp.
+    """Return a fresh 12-reading window, its status, and source timestamp.
 
-    No interpolation: offline gaps must not masquerade as one/two-hour trends.
-    At most twelve observations are used, matching the longest feature window.
+    One missed ten-minute slot is tolerated in the trailing 12 observations.
+    Larger or repeated gaps restart the usable suffix; readings are never
+    interpolated. At most twelve observations are used, matching the longest
+    feature window.
     """
     if frame.empty or "timestamp" not in frame:
         return frame.iloc[:0], "insufficient", None
@@ -32,9 +34,13 @@ def anomaly_window(frame, now_epoch):
     if now_epoch - last_at > 20 * 60:
         return rows.iloc[:0], "stale", last_at
     gaps = rows["timestamp"].diff()
-    # A nominal 600s interval allows sensor/network jitter, not missing buckets.
-    discontinuities = [i for i in range(1, len(rows)) if not 480 <= gaps.iloc[i] <= 720]
+    # Allow normal jitter and one missed ten-minute record (up to ~22 minutes).
+    # Anything longer starts a new suffix rather than implying continuity.
+    discontinuities = [i for i in range(1, len(rows)) if not 480 <= gaps.iloc[i] <= 1320]
     if discontinuities:
         rows = rows.iloc[discontinuities[-1]:]
     rows = rows.tail(12).reset_index(drop=True)
-    return rows, "ready" if len(rows) >= 12 else "insufficient", last_at
+    trailing_gaps = rows["timestamp"].diff().dropna()
+    missed_slots = int((trailing_gaps > 720).sum())
+    ready = len(rows) >= 12 and missed_slots <= 1
+    return rows, "ready" if ready else "insufficient", last_at

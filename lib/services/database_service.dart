@@ -207,7 +207,7 @@ class DatabaseService {
       'dissolved_oxygen': {'min': 5.0, 'max': 9.0},
       'turbidity': {'min': 0.0, 'max': 25.0},
       'water_level': {'low': 15.0, 'critical': 10.0},
-      'feed_level': {'min': 20.0, 'max': 100.0, 'critical': 10.0},
+      'feed_level': {'low': 20.0, 'critical': 10.0},
     };
     final sensorRefs = defaults.keys
         .map((name) => ref.collection('sensors').doc(name))
@@ -230,15 +230,12 @@ class DatabaseService {
       final entry = defaults.entries.elementAt(index);
       final sensorRef = sensorRefs[index];
       batch.set(sensorRef, {
-        if (entry.key == 'water_level') ...{
+        if (entry.key == 'water_level' || entry.key == 'feed_level') ...{
           'low_value': entry.value['low'],
           'critical_value': entry.value['critical'],
         } else ...{
           'min_value': entry.value['min'],
           'max_value': entry.value['max'],
-        },
-        if (entry.key == 'feed_level') ...{
-          'critical_value': entry.value['critical'],
         },
         'updated_at': FieldValue.serverTimestamp(),
       });
@@ -323,7 +320,7 @@ class DatabaseService {
       if (sensorDoc == null) continue;
       final sensorRef = tankRef.collection('sensors').doc(sensorDoc);
       batch.set(sensorRef, {
-        if (entry.key == 'waterlevel') ...{
+        if (entry.key == 'waterlevel' || entry.key == 'feedlevel') ...{
           'low_value': entry.value['low'],
           'critical_value': entry.value['critical'],
           'min_value': FieldValue.delete(),
@@ -331,9 +328,6 @@ class DatabaseService {
         } else ...{
           'min_value': entry.value['min'],
           'max_value': entry.value['max'],
-        },
-        if (entry.key == 'feedlevel') ...{
-          'critical_value': entry.value['critical'],
         },
         'updated_at': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));

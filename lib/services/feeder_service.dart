@@ -119,7 +119,7 @@ class FeederService extends ChangeNotifier {
   final Map<String, Map<String, dynamic>> _legacyTodayLogDocs = {};
   StreamSubscription<User?>? _authSub;
   String _totalsDayKey = '';
-  int _completedToday = 0;
+  double _estimatedConsumptionToday = 0;
 
   bool _isRunning = false;
   DateTime? _manualRequestPendingUntil;
@@ -167,8 +167,8 @@ class FeederService extends ChangeNotifier {
   List<LogEntry> get logs => List.unmodifiable(_logs);
   List<ScheduleItem> get schedules => List.unmodifiable(_schedules);
 
-  int get completedFeedingsToday {
-    return _completedToday;
+  double get estimatedConsumptionToday {
+    return _estimatedConsumptionToday;
   }
 
   // Totals must not depend on the 50-entry history preview (which also
@@ -188,7 +188,7 @@ class FeederService extends ChangeNotifier {
     _legacyTodayLogsSub?.cancel();
     _todayTimestampLogDocs.clear();
     _legacyTodayLogDocs.clear();
-    _completedToday = 0;
+    _estimatedConsumptionToday = 0;
     final start = DateTime.utc(
       now.year,
       now.month,
@@ -239,12 +239,17 @@ class FeederService extends ChangeNotifier {
 
   void _recalculateTodayTotals() {
     final todayDocs = {..._legacyTodayLogDocs, ..._todayTimestampLogDocs};
-    var completed = 0;
+    var estimatedGrams = 0.0;
     for (final data in todayDocs.values) {
-      if (data['status'] != 'completed') continue;
-      completed++;
+      final status = (data['status'] as String? ?? '').toLowerCase();
+      if (status != 'completed' && status != 'forced') continue;
+      final rawGrams =
+          data['estimated_dispensed_grams'] ?? data['requested_grams'];
+      if (rawGrams is num && rawGrams.isFinite && rawGrams > 0) {
+        estimatedGrams += rawGrams.toDouble();
+      }
     }
-    _completedToday = completed;
+    _estimatedConsumptionToday = estimatedGrams;
     notifyListeners();
   }
 
@@ -335,7 +340,7 @@ class FeederService extends ChangeNotifier {
     _todayTimestampLogDocs.clear();
     _legacyTodayLogDocs.clear();
     _totalsDayKey = '';
-    _completedToday = 0;
+    _estimatedConsumptionToday = 0;
     _statusSub = null;
     _schedulesSub = null;
     _schedulePolicySub = null;

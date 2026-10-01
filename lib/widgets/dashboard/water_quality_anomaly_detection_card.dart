@@ -4,8 +4,17 @@ import '../../services/water_quality_anomaly_detection_service.dart';
 import '../../theme/app_colors.dart';
 import 'water_quality_anomaly_detection_history_sheet.dart';
 
-class WaterQualityAnomalyDetectionCard extends StatelessWidget {
+class WaterQualityAnomalyDetectionCard extends StatefulWidget {
   const WaterQualityAnomalyDetectionCard({super.key});
+
+  @override
+  State<WaterQualityAnomalyDetectionCard> createState() =>
+      _WaterQualityAnomalyDetectionCardState();
+}
+
+class _WaterQualityAnomalyDetectionCardState
+    extends State<WaterQualityAnomalyDetectionCard> {
+  bool _expanded = false;
 
   @override
   Widget build(BuildContext context) {
@@ -15,20 +24,28 @@ class WaterQualityAnomalyDetectionCard extends StatelessWidget {
         final service = WaterQualityAnomalyDetectionService.instance;
         final result = service.result;
         final hasData = result?.hasData ?? false;
-        final color = result?.color ?? AppColors.mutedText;
-        final lightColor = result?.lightColor ?? const Color(0xFFF8FAFC);
+        // Keep anomaly status visible without letting saturated status colors
+        // take over the whole dashboard card.
+        final color = !hasData
+            ? AppColors.mutedText
+            : result!.isAnomaly
+            ? AppColors.criticalDark
+            : const Color(0xFF4A817C);
+        const lightColor = Color(0xFFF1FAFA);
         return Container(
           margin: const EdgeInsets.symmetric(horizontal: 14),
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: color.withValues(alpha: 0.16)),
+            border: Border.all(
+              color: AppColors.darkText.withValues(alpha: 0.08),
+            ),
             boxShadow: [
               BoxShadow(
-                color: color.withValues(alpha: 0.08),
-                blurRadius: 12,
-                offset: const Offset(0, 3),
+                color: AppColors.darkText.withValues(alpha: 0.035),
+                blurRadius: 9,
+                offset: const Offset(0, 2),
               ),
             ],
           ),
@@ -44,12 +61,11 @@ class WaterQualityAnomalyDetectionCard extends StatelessWidget {
                       color: lightColor,
                       borderRadius: BorderRadius.circular(11),
                     ),
-                    child: Icon(
-                      result?.isAnomaly == true
-                          ? Icons.travel_explore_rounded
-                          : Icons.hub_outlined,
-                      size: 20,
-                      color: color,
+                    child: Image.asset(
+                      'assets/images/water_quality_analysis_icon.png',
+                      width: 25,
+                      height: 25,
+                      fit: BoxFit.contain,
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -67,7 +83,7 @@ class WaterQualityAnomalyDetectionCard extends StatelessWidget {
                         ),
                         SizedBox(height: 2),
                         Text(
-                          'Unsupervised machine-learning analysis',
+                          'Anomaly Detection',
                           style: TextStyle(
                             fontSize: 9.5,
                             color: AppColors.subtitleText,
@@ -76,144 +92,301 @@ class WaterQualityAnomalyDetectionCard extends StatelessWidget {
                       ],
                     ),
                   ),
-                  if (hasData)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 5,
-                      ),
-                      decoration: BoxDecoration(
-                        color: color,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        result!.status,
-                        style: const TextStyle(
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                        ),
+                  TextButton.icon(
+                    onPressed: () =>
+                        showWaterQualityAnomalyDetectionHistorySheet(context),
+                    icon: const Icon(Icons.history_rounded, size: 14),
+                    label: const Text('History'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.primary,
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      minimumSize: const Size(0, 28),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      visualDensity: VisualDensity.compact,
+                      textStyle: const TextStyle(
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
+                  ),
                 ],
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 10),
               if (service.loading)
                 const _LoadingState()
-              else if (!hasData)
-                Text(
-                  result?.insight ??
-                      'Collecting two hours of continuous sensor history before anomaly detection begins.',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    height: 1.45,
-                    color: AppColors.mutedText,
-                  ),
-                )
-              else ...[
-                Row(
-                  children: [
-                    Expanded(
-                      child: _MetricTile(
-                        label: 'Pattern status',
-                        value: result!.status,
-                        icon: result.isAnomaly
-                            ? Icons.warning_amber_rounded
-                            : Icons.check_circle_outline_rounded,
-                        color: color,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _MetricTile(
-                        label: 'Anomaly score',
-                        value: '${result.anomalyScore.toStringAsFixed(1)}/100',
-                        icon: Icons.analytics_outlined,
-                        color: AppColors.primary,
-                      ),
-                    ),
-                  ],
+              else
+                _ResultOverview(
+                  isAnomaly: result?.isAnomaly ?? false,
+                  score: hasData ? result!.anomalyScore : null,
+                  waitingMessage:
+                      'Waiting for 12 readings, 10 minutes apart, to analyze the latest 2-hour pattern. Analysis runs every 30 minutes.',
+                  color: color,
+                  lightColor: lightColor,
                 ),
-                const SizedBox(height: 10),
-                if (result.contributors.isNotEmpty) ...[
-                  _DirectionSummary(contributors: result.contributors),
-                  const SizedBox(height: 10),
-                ],
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: lightColor.withValues(alpha: 0.55),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _DetailRow(
-                        icon: Icons.multiline_chart_rounded,
-                        label: 'Main pattern contributor',
-                        text: result.driverLabel,
-                        color: color,
-                      ),
-                      const SizedBox(height: 10),
-                      _DetailRow(
-                        icon: Icons.lightbulb_outline_rounded,
-                        label: 'Insight',
-                        text: result.insight,
-                        color: AppColors.primary,
-                      ),
-                      const SizedBox(height: 10),
-                      _DetailRow(
-                        icon: Icons.fact_check_outlined,
-                        label: 'Suggested checks',
-                        text: result.recommendation,
-                        color: AppColors.success,
-                      ),
-                    ],
-                  ),
-                ),
-                if (result.usesPrototypeData) ...[
-                  const SizedBox(height: 10),
-                  const Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(Icons.science_outlined, size: 14, color: AppColors.warning),
-                      SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          'Prototype model · Retrain with real Cherax RAS history before field validation.',
-                          style: TextStyle(
-                            fontSize: 9.5,
-                            height: 1.35,
-                            color: AppColors.subtitleText,
+              if (!service.loading && hasData) ...[
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 260),
+                  curve: Curves.easeInOut,
+                  alignment: Alignment.topCenter,
+                  child: _expanded
+                      ? Padding(
+                          padding: const EdgeInsets.only(top: 12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (result!.contributors.isNotEmpty) ...[
+                                _DirectionSummary(
+                                  contributors: result.contributors,
+                                ),
+                                const SizedBox(height: 12),
+                              ],
+                              _ResultDetails(
+                                driver: result.driverLabel,
+                                driverValue: result.driverValue,
+                                driverUnit: result.driverUnit,
+                                insight: result.insight,
+                                recommendation: result.recommendation,
+                                color: color,
+                                lightColor: lightColor,
+                              ),
+                            ],
                           ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ],
-              const SizedBox(height: 6),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  onPressed: () =>
-                      showWaterQualityAnomalyDetectionHistorySheet(context),
-                  icon: const Icon(Icons.history, size: 16),
-                  label: const Text('View anomaly history'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: AppColors.primary,
-                    textStyle: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
+                        )
+                      : const SizedBox(width: double.infinity),
+                ),
+                const SizedBox(height: 5),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: () => setState(() => _expanded = !_expanded),
+                    icon: Icon(
+                      _expanded
+                          ? Icons.keyboard_arrow_up_rounded
+                          : Icons.keyboard_arrow_down_rounded,
+                      size: 19,
                     ),
+                    label: Text(_expanded ? 'Show less' : 'View details'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.primary,
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      minimumSize: const Size(0, 28),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      textStyle: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ResultOverview extends StatelessWidget {
+  final bool isAnomaly;
+  final double? score;
+  final String waitingMessage;
+  final Color color;
+  final Color lightColor;
+
+  const _ResultOverview({
+    required this.isAnomaly,
+    required this.score,
+    required this.waitingMessage,
+    required this.color,
+    required this.lightColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final safeScore = score?.clamp(0.0, 100.0).toDouble();
+    if (safeScore == null) {
+      return SizedBox(
+        width: double.infinity,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Row(
+            children: [
+              Icon(Icons.hourglass_top_rounded, size: 18, color: color),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  waitingMessage,
+                  style: const TextStyle(
+                    color: AppColors.subtitleText,
+                    fontSize: 11,
+                    height: 1.3,
                   ),
                 ),
               ),
             ],
           ),
-        );
-      },
+        ),
+      );
+    }
+
+    return Container(
+      constraints: const BoxConstraints(minHeight: 54),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: lightColor,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.darkText.withValues(alpha: 0.07)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                isAnomaly
+                    ? Icons.warning_amber_rounded
+                    : Icons.check_circle_rounded,
+                color: color,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  isAnomaly
+                      ? 'Unusual pattern detected'
+                      : 'Pattern looks normal',
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                safeScore.toStringAsFixed(1),
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: LinearProgressIndicator(
+              value: safeScore / 100,
+              minHeight: 4,
+              color: color,
+              backgroundColor: Colors.white.withValues(alpha: 0.8),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ResultDetails extends StatelessWidget {
+  final String driver;
+  final double? driverValue;
+  final String driverUnit;
+  final String insight;
+  final String recommendation;
+  final Color color;
+  final Color lightColor;
+
+  const _ResultDetails({
+    required this.driver,
+    required this.driverValue,
+    required this.driverUnit,
+    required this.insight,
+    required this.recommendation,
+    required this.color,
+    required this.lightColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final value = driverValue == null
+        ? null
+        : '${driverValue!.toStringAsFixed(1)}${driverUnit.isEmpty ? '' : ' $driverUnit'}';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: AppColors.darkText.withValues(alpha: 0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  color: lightColor,
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Icon(
+                  Icons.multiline_chart_rounded,
+                  size: 16,
+                  color: color,
+                ),
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Main pattern contributor',
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: AppColors.subtitleText,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      value == null ? driver : '$driver · $value',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.darkText,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 10),
+            child: Divider(height: 1, color: Color(0xFFEAF0F2)),
+          ),
+          _DetailRow(
+            icon: Icons.lightbulb_outline_rounded,
+            label: 'Insight',
+            text: insight,
+            color: AppColors.primary,
+          ),
+          const SizedBox(height: 11),
+          _DetailRow(
+            icon: Icons.fact_check_outlined,
+            label: 'Suggested checks',
+            text: recommendation,
+            color: AppColors.primary,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -246,46 +419,50 @@ class _DirectionSummary extends StatelessWidget {
         Wrap(
           spacing: 6,
           runSpacing: 6,
-          children: visible.map((item) {
-            final label = item['label']?.toString() ?? 'Sensor';
-            final direction = item['direction']?.toString() ?? 'stable';
-            final isIncreasing = direction == 'increasing';
-            final isDecreasing = direction == 'decreasing';
-            final color = isIncreasing
-                ? AppColors.warningDark
-                : isDecreasing
-                ? AppColors.primary
-                : AppColors.mutedText;
-            final icon = isIncreasing
-                ? Icons.arrow_upward_rounded
-                : isDecreasing
-                ? Icons.arrow_downward_rounded
-                : Icons.remove_rounded;
-            final directionLabel = direction[0].toUpperCase() + direction.substring(1);
-            return Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.09),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: color.withValues(alpha: 0.18)),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(icon, size: 13, color: color),
-                  const SizedBox(width: 4),
-                  Text(
-                    '$label: $directionLabel',
-                    style: TextStyle(
-                      fontSize: 9.5,
-                      fontWeight: FontWeight.w700,
-                      color: color,
-                    ),
+          children: visible
+              .map((item) {
+                final label = WaterQualityAnomalyDetectionResult.sensorLabelFor(
+                  item['sensor'],
+                );
+                final direction = item['direction']?.toString() ?? 'stable';
+                final isIncreasing = direction == 'increasing';
+                final isDecreasing = direction == 'decreasing';
+                const color = Color(0xFF718987);
+                final icon = isIncreasing
+                    ? Icons.arrow_upward_rounded
+                    : isDecreasing
+                    ? Icons.arrow_downward_rounded
+                    : Icons.remove_rounded;
+                final directionLabel =
+                    direction[0].toUpperCase() + direction.substring(1);
+                return Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 5,
                   ),
-                ],
-              ),
-            );
-          }).toList(growable: false),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF4F7F7),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFFE5ECEB)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(icon, size: 13, color: color),
+                      const SizedBox(width: 4),
+                      Text(
+                        '$label: $directionLabel',
+                        style: TextStyle(
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w700,
+                          color: color,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              })
+              .toList(growable: false),
         ),
       ],
     );
@@ -309,58 +486,6 @@ class _LoadingState extends StatelessWidget {
         style: TextStyle(fontSize: 11, color: AppColors.mutedText),
       ),
     ],
-  );
-}
-
-class _MetricTile extends StatelessWidget {
-  final String label;
-  final String value;
-  final IconData icon;
-  final Color color;
-  const _MetricTile({
-    required this.label,
-    required this.value,
-    required this.icon,
-    required this.color,
-  });
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(11),
-    decoration: BoxDecoration(
-      color: color.withValues(alpha: 0.07),
-      borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: color.withValues(alpha: 0.13)),
-    ),
-    child: Row(
-      children: [
-        Icon(icon, size: 18, color: color),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                value,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800,
-                  color: color,
-                ),
-              ),
-              Text(
-                label,
-                style: const TextStyle(
-                  fontSize: 9.5,
-                  color: AppColors.subtitleText,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    ),
   );
 }
 

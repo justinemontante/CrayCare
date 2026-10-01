@@ -149,6 +149,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       'do': GlobalKey(),
       'turb': GlobalKey(),
       'waterlevel': GlobalKey(),
+      'feedlevel': GlobalKey(),
     };
     _scrollController = ScrollController();
     _generateLive();
@@ -225,6 +226,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       'max': 'turbidity_max',
     },
     'waterlevel': {'avg': 'water_level'},
+    'feedlevel': {'avg': 'feed_level'},
   };
 
   Future<void> _generateData(String range) async {
@@ -425,8 +427,9 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       final fields = _historyFieldMap[key];
       if (fields == null) continue;
       final averages = List<double>.filled(labelTimes.length, double.nan);
-      final minima = List<double>.filled(labelTimes.length, double.nan);
-      final maxima = List<double>.filled(labelTimes.length, double.nan);
+      // Chart points and period statistics must use the stored average for
+      // each sensor-history record. The ESP's *_min/*_max fields describe
+      // variation inside one capture window, not the selected Analytics range.
 
       for (int i = 0; i < labelTimes.length; i++) {
         final usesDailyBuckets =
@@ -453,8 +456,6 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
         double sum = 0;
         int count = 0;
-        double? bucketMin;
-        double? bucketMax;
 
         for (int j = 0; j < records.length; j++) {
           final timestamp = parsedTs[j];
@@ -465,39 +466,26 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
           final avgRaw = key == 'waterlevel'
               ? records[j]['water_level']
+              : key == 'feedlevel'
+              ? records[j]['feed_level']
               : records[j][fields['avg']!];
           final avg = _historyValue(key, avgRaw);
-          final rawMin = key == 'waterlevel'
-              ? avg
-              : _historyValue(key, records[j][fields['min']!]);
-          final rawMax = key == 'waterlevel'
-              ? avg
-              : _historyValue(key, records[j][fields['max']!]);
           if (avg != null) {
             sum += avg;
             count++;
           }
-          final entryMin = rawMin ?? avg;
-          final entryMax = rawMax ?? avg;
-          if (entryMin != null) {
-            bucketMin = bucketMin == null ? entryMin : min(bucketMin, entryMin);
-          }
-          if (entryMax != null) {
-            bucketMax = bucketMax == null ? entryMax : max(bucketMax, entryMax);
-          }
         }
 
         if (count > 0) averages[i] = sum / count;
-        if (bucketMin != null) minima[i] = bucketMin;
-        if (bucketMax != null) maxima[i] = bucketMax;
       }
 
       // Keep empty buckets as NaN. AnalyticsLineChart already breaks line
       // segments at NaN, so actual sensor outages remain visible instead of
       // compressing time and joining unrelated readings together.
       _data['$key-$range'] = averages;
-      _minData['$key-$range'] = minima;
-      _maxData['$key-$range'] = maxima;
+      // Period Min/Max are calculated from these same plotted data points.
+      _minData['$key-$range'] = List<double>.from(averages);
+      _maxData['$key-$range'] = List<double>.from(averages);
     }
   }
 
@@ -519,6 +507,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       'do' => value >= 0 && value <= 15 ? value : null,
       'turb' => value >= 0 && value <= 500 ? value : null,
       'waterlevel' => value >= 0 && value <= 300 ? value : null,
+      'feedlevel' => value >= 0 && value <= 100 ? value : null,
       _ => value >= 0 ? value : null,
     };
   }
@@ -650,7 +639,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                         )
                       : const SizedBox(
                           key: ValueKey('analytics-loaded'),
-                          height: 11,
+                          height: 2,
                         ),
                 ),
                 if (!_isLoading &&
@@ -710,6 +699,11 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      _buildAnalyticsGroupHeader(
+                        'Water Quality Parameters',
+                        Icons.water_drop_rounded,
+                        topPadding: 0,
+                      ),
                       KeyedSubtree(
                         key: _chartCardKeys['temp'],
                         child: _buildChartCard(
@@ -746,6 +740,10 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                           chartKey: 'turb',
                         ),
                       ),
+                      _buildAnalyticsGroupHeader(
+                        'Physical Parameters',
+                        Icons.straighten_rounded,
+                      ),
                       KeyedSubtree(
                         key: _chartCardKeys['waterlevel'],
                         child: _buildChartCard(
@@ -753,6 +751,15 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                           title: 'Water Level',
                           iconPath: 'assets/images/waterLevel.png',
                           chartKey: 'waterlevel',
+                        ),
+                      ),
+                      KeyedSubtree(
+                        key: _chartCardKeys['feedlevel'],
+                        child: _buildChartCard(
+                          context,
+                          title: 'Feed Level',
+                          iconPath: 'assets/images/FeedingImage.png',
+                          chartKey: 'feedlevel',
                         ),
                       ),
                       const SizedBox(height: 16),
@@ -835,6 +842,42 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAnalyticsGroupHeader(
+    String title,
+    IconData icon, {
+    double topPadding = 8,
+  }) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(2, topPadding, 2, 10),
+      child: Row(
+        children: [
+          Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(9),
+            ),
+            child: Icon(icon, size: 15, color: AppColors.primary),
+          ),
+          const SizedBox(width: 9),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+              color: AppColors.primary,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Divider(color: AppColors.primary.withValues(alpha: 0.24)),
           ),
         ],
       ),
@@ -1231,6 +1274,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
         return AppColors.critical;
       case 'waterlevel':
         return AppColors.primary;
+      case 'feedlevel':
+        return const Color(0xFF14B8A6);
       default:
         return AppColors.primary;
     }
@@ -1248,12 +1293,14 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
         return 'NTU';
       case 'waterlevel':
         return 'cm';
+      case 'feedlevel':
+        return '%';
       default:
         return '';
     }
   }
 
-  int _decimalFor(String key) => 2;
+  int _decimalFor(String key) => key == 'feedlevel' ? 0 : 2;
 
   Map<String, double> _thresholdsFor(String key) {
     final range = SettingsService.instance.currentRanges[key];
@@ -1485,13 +1532,17 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   Future<void> scrollToChart(String chartKey) async {
-    _activeFilter = '24h';
-    _selectedIndices.clear();
-    _liveTimer?.cancel();
-    setState(() {});
-    await _generateData('24h');
+    if (!mounted) return;
+    setState(() {
+      _activeFilter = 'live';
+      _showCustom = false;
+      _selectedIndices.clear();
+      _isLoading = false;
+    });
+    _generateLive();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      _startLiveTimer();
       final ctx = _chartCardKeys[chartKey]?.currentContext;
       if (ctx == null) return;
       Scrollable.ensureVisible(

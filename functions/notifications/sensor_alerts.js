@@ -46,11 +46,12 @@ function stateForSensor(sensorName, value, range) {
   }
   if (sensorName === "feed_level") {
     const critical = finiteNumber(range.critical);
-    if (min === null || critical === null || critical < 0 ||
-        critical >= min || min > 100) return {state: "unknown"};
+    const low = finiteNumber(range.low ?? range.min);
+    if (low === null || critical === null || critical < 0 ||
+        critical >= low || low > 100) return {state: "unknown"};
     if (value === 0) return {state: "critical", dir: "empty", threshold: 0};
     if (value <= critical) return {state: "critical", dir: "low", threshold: critical};
-    if (value <= min) return {state: "warning", dir: "low", threshold: min};
+    if (value <= low) return {state: "warning", dir: "low", threshold: low};
     return {state: "normal"};
   }
   if (min === null || max === null || min >= max) return {state: "unknown"};

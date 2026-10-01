@@ -7,9 +7,15 @@
     "once": "node mock_sensor_data.js --once",
     "demo": "node mock_sensor_data.js --demo",
     "demo:once": "node mock_sensor_data.js --once --demo",
-    "backfill": "node mock_sensor_data.js --backfill --config",
+    "ml:seed": "node trigger_wqad.js",
+    "ml:demo": "node mock_sensor_data.js --demo --history",
+    "ml:run-now": "..\\functions\\ml\\venv\\Scripts\\python.exe ..\\functions\\ml\\run_wqad_now.py --credentials serviceAccountKey.json --project-id craycare-8436c",
+    "ml:check": "node check_water_quality_anomaly_detection.js",
+    "sensors:recent": "node inspect_sensor_readings.js",
+    "backfill": "node mock_sensor_data.js --backfill",
+    "backfill:confirm": "node mock_sensor_data.js --backfill --confirm-backfill",
     "critical": "node mock_sensor_data.js --critical",
-    "config": "node mock_sensor_data.js --config"
+    "demo:history": "node mock_sensor_data.js --demo --history"
   },
   "keywords": [],
   "author": "",

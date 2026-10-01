@@ -54,19 +54,19 @@ A valid assignment is either `uid == null && tank_id == null`, or an **active ow
 Document IDs are path identifiers, not normal fields stored inside each document. `users/{uid}` and `tanks/{tankId}` use the owner's Firebase Authentication UID. Batch IDs use `CR-YYYYMMDD-###`; that value is also intentionally stored as `batch_id`. The baseline sampling record is `baseline`, later sampling records use Firestore Auto-IDs, and mortality, harvest, schedule, and command records use Firestore Auto-IDs. Actuator logs use Auto-IDs; feeder logs use an Auto-ID for app audit entries or a durable firmware event ID for ESP32 outcomes. Fixed IDs are `currentOwner`, `latest`, `status`, and anomaly detection `current`; anomaly history uses `YYYYMMDDTHHMMSS`.
 
 ### `tanks/{tankId}/sensor_readings/latest` ✓
-`temperature`, `ph_level`, `dissolved_oxygen`, `turbidity`, `turbidity_air`, `water_level`, `feed_level`, `estimated_feed_grams`, optional `buffered_entries`, `recorded_at`.
+Direct 5-second ESP32 snapshot: `temperature`, `ph_level`, `dissolved_oxygen`, `turbidity`, `turbidity_air`, `water_level`, `feed_level` (percent), optional `buffered_entries`, `recorded_at`, `captured_at_ms`, `hardwareId`, `source_tank_id`, `source_owner_uid`, and `source_assignment_at_ms`. Rules allow writes only from the ESP32 service account when the current hardware assignment and tank owner match, and reject out-of-order readings.
 
 ### `tanks/{tankId}/sensor_readings_history/{YYYY-MM-DD}` ✓
-Daily summary parent used for long-range Analytics. Canonical maintenance fields: `summary_version` (currently `1`), `summary_sanitized`, `summary_complete`, `date_key`, `sample_count`, `processed_entry_ids`, `updated_at`, plus per-sensor `*_min`, `*_max`, `*_avg`, `*_sum`, and `*_count` fields when data exists.
+Daily summary parent used for long-range Analytics. Canonical maintenance fields: `summary_version` (currently `1`), `summary_sanitized`, `summary_complete`, `date_key`, `sample_count`, `processed_entry_ids`, and `updated_at`. Temperature, pH, dissolved oxygen, and turbidity have per-sensor `*_min`, `*_max`, `*_avg`, `*_sum`, and `*_count` fields when data exists. Water level has a single `water_level` daily mean plus `waterLevel_sum` and `waterLevel_count`; it has no min/max fields.
 
 Only completed summaries with `summary_sanitized == true` are used by the optimized Flutter long-range reader. Older summaries are rebuilt from their raw entries by the hourly backfill before being used.
 
 ### `tanks/{tankId}/sensor_readings_history/{YYYY-MM-DD}/entries/{docId}` ✓
-10-minute MIN/MAX/AVG aggregates plus optional `feed_level` and `estimated_feed_grams`, together with `recorded_at`. A sensor with zero valid samples is omitted rather than stored as a negative sentinel.
+Direct 10-minute MIN/MAX/AVG aggregates for temperature, pH, dissolved oxygen, and turbidity; a single `water_level` value in centimeters; and optional `feed_level` (percent). Records also include `recorded_at`, `captured_at_ms`, `hardwareId`, `source_tank_id`, `source_owner_uid`, and `source_assignment_at_ms`. Rules verify the active assignment. A sensor with no valid reading is omitted rather than stored as a negative sentinel. Buffered history continues through the Cloud Function staging route, where old-assignment entries are quarantined.
 
 ### `tanks/{tankId}/sensors/{sensorName}` ✓
 Sensor names: `temperature` | `ph_level` | `dissolved_oxygen` | `turbidity` | `water_level` | `feed_level`
-Fields: `min_value`, `max_value`, `updated_at`. The feed-level document also stores `critical_value` and `hopper_capacity_grams`.
+Water-quality documents use `min_value` and `max_value`. Both water-level and feed-level documents use only `low_value` and `critical_value` (water level in cm; feed level in percent). All threshold documents store `updated_at`.
 
 ### `tanks/{tankId}/actuators/{deviceId}` ✓
 Device IDs: `pump`, `aerator1`, `aerator2`
@@ -76,7 +76,7 @@ Fields: `control_mode`, `current_state`, `last_changed` (Firestore Timestamp; `n
 `actuator_type`, `action`, `type`, `logged_at` (Firestore Timestamp on new writes; readers remain compatible with legacy timestamp/epoch representations).
 
 ### `tanks/{tankId}/feeder/status` ✓
-`status`, `command_id`, `status_reason`, `dispenseCount`, `lastSeen` (Firestore Timestamp), `last_dispensed_at` (Firestore Timestamp or null), `last_dispensed_grams`, `feed_level`, `estimated_feed_grams`. Older integer `lastSeen` values remain readable.
+`status`, `command_id`, `status_reason`, `dispenseCount`, `lastSeen` (Firestore Timestamp), `last_dispensed_at` (Firestore Timestamp or null), and `feed_level` (percent). Older integer `lastSeen` values remain readable.
 
 Feeder status flow: `idle` → `checking_feed_level` → `dispensing` → `completed`, with `blocked`, `skipped_insufficient`, or `failed` terminal outcomes. `command_id` ties a manual outcome to the originating Feed Now request, while `status_reason` explains blocked or failed requests.
 
@@ -98,9 +98,9 @@ records the owner's decision but never bypasses the strict device-side block.
 Fixed-cycle firmware accepts 20–200 g in multiples of 20 g; null means the default 20 g. Other amounts are rejected, not silently rounded or clamped. Actual output requires hardware calibration.
 
 ### `tanks/{tankId}/feeder_logs/{logId}` ✓
-Canonical fields: `action`, `type`, `logged_at`. ESP outcome logs additionally store `status`, `command_id`, `requested_grams`, `estimated_available_grams`, `feed_level_before`, `feed_level_after`, and `level_change_detected`. Completed logs alone contribute to Consumption Today.
+Canonical fields: `action`, `type`, `logged_at`. ESP outcome logs additionally store `status`, `command_id`, `requested_grams`, `feed_level_before`, `feed_level_after`, and `level_change_detected`. Completed cycles (including confirmed overrides) also store `estimated_dispensed_grams` with `amount_basis: servo_cycle_estimate`; this is a servo-cycle estimate, not a directly weighed amount. Hopper inventory remains percentage-only.
 
-New device outcome logs include `occurrence_at`, `amount_basis: servo_cycle_estimate`, and (for completed cycles) `estimated_dispensed_grams`. Scheduled outcomes also include `schedule_key` and `schedule_time`. Status is `completed`, `blocked`, `skipped_insufficient`, or `failed`. Consumption Today is an estimated total from all completed logs in the Manila day, independent of the 50-entry history preview.
+New device outcome logs include `occurrence_at`. Scheduled outcomes also include `schedule_key` and `schedule_time`. Status is `completed`, `blocked`, `skipped_insufficient`, or `failed`; a critical feed-level reading is logged as a skipped outcome. `requested_grams` preserves the dose entered by the user, `estimated_dispensed_grams` reports the servo-cycle estimate after completion, and `feed_level_before` / `feed_level_after` store percentage readings.
 
 Feeder logs are append-only under Firestore security rules: the assigned ESP or tank owner may create an authorized log, but client updates and deletes are denied after creation.
 
@@ -109,31 +109,33 @@ ESP persists an execution reservation before dispensing and writes logs to a Lit
 Missed-schedule logs may additionally contain `schedule_key` and `schedule_time`. `trigger_type` is no longer written by the active runtime. New `logged_at` and `occurrence_at` values are Firestore Timestamps; the app accepts legacy `DateTime`, ISO-string, Unix-second, and Unix-millisecond values during rollout.
 
 ### `tanks/{tankId}/feeder_commands/{commandId}` ✓
-`command_type`, `grams`, `issued_by`, `issued_at`, `expires_at`, `near_schedule_confirmed`
+`command_type`, `grams`, `issued_by`, `issued_at`, `expires_at`, `near_schedule_confirmed`, optional `allow_water_quality_override`.
+The override flag applies only to that manual Feed Now command and bypasses configured range violations for temperature, pH, dissolved oxygen, and turbidity. It does not bypass missing/stale or unavailable sensors, turbidity sensor-in-air detection, critical feed level, schedule guards, or command validity checks. This is a transient Firestore command field, not a persistent user setting or SQL table column.
 
 `expires_at` prevents a queued/offline Feed Now write from becoming a fresh physical command after reconnect. `near_schedule_confirmed` records that the owner accepted the warning-window confirmation; it never overrides the ESP's strict collision block around a scheduled feeding occurrence.
 
 ### `tanks/{tankId}/water_quality_anomaly_detections/current` ✓
 **Written hourly by the Python Water Quality Anomaly Detection Cloud Function** (Admin SDK). The app reads it with snapshot listeners.
-`uid`, `tank_id`, `status` (`Normal`|`Unusual`|`Insufficient`), `is_anomaly`, `anomaly_score`, `source`, `analysis_window_minutes`, `data_status`, `source_recorded_at`, `source_age_seconds`, `primary_driver` (nullable object: `sensor`, `label`, `value`, `unit`, `direction`, `contribution_score`), `contributors` (ranked array with the same fields), `insight`, `recommendation`, and `processed_at` (Timestamp). Legacy flat `driver*` fields remain during app compatibility. The deployed detector uses an unsupervised Isolation Forest; model and training metadata are not copied into each detection document. The current prototype-model disclosure is shown by the app.
+`uid`, `tank_id`, `status` (`Normal`|`Unusual`|`Insufficient`), `is_anomaly`, `anomaly_score`, `source`, `data_status`, `source_recorded_at`, `contributors` (ranked array of `{sensor, value, direction, contribution_score}`), `insight`, `recommendation`, and `processed_at` (Timestamp). The app maps each sensor code to its display label and unit. The deployed detector uses an unsupervised Isolation Forest; model and training metadata are not copied into each detection document.
 
 Hourly history uses the valid sibling collection `tanks/{tankId}/water_quality_anomaly_detection_history/{YYYYMMDDTHHMMSS}` with the same detection fields. Existing timestamp-named documents in `water_quality_anomaly_detections` remain readable during transition. ML rejects incomplete, negative-sentinel, non-finite, or internally inconsistent min/avg/max history rows before inference. Firestore cannot have `current` as a document and `history/{detectionId}` as a subcollection path at the same collection level; the sibling collection provides the intended organization with valid collection/document path parity.
 
 The anomaly score is a 0–100 percentile showing how unusual the latest pattern is relative to reference behavior; it is not a water-safety score. Twelve complete 10-minute records are required before a detection can be produced.
 
-`data_status` (`ready`, `insufficient`, `stale`), `source_recorded_at` (nullable Firestore Timestamp), and `source_age_seconds` distinguish source freshness from processing time. Inference requires twelve contiguous readings at ten-minute cadence (±2 minutes). A newest source reading older than 20 minutes yields `status: Insufficient`, `data_status: stale`; no current pattern is inferred from old readings.
+`data_status` (`ready`, `insufficient`, `stale`) and `source_recorded_at` (nullable Firestore Timestamp) describe source freshness. Inference requires twelve contiguous readings at ten-minute cadence (±2 minutes). A newest source reading older than 20 minutes yields `status: Insufficient`, `data_status: stale`; no current pattern is inferred from old readings.
 
 ---
 
 ## 4. PRODUCTION / BATCHES ✓
 ### `tanks/{tankId}/batches/{batchId}` ✓
-Canonical stored fields are snake_case: `batch_id`, `batch_status`, `stocking_date`, `harvest_date`, `ended_at`, `initial_count`, `current_count`, `harvest_count`, `total_mortality`, `harvest_weight_grams`, `sample_count`, `initial_total_weight`, `initial_total_length`, and `created_at`. The app derives `days_in_culture` from `stocking_date` to today for active batches, or to `harvest_date` / `ended_at` for completed or superseded batches; this value is not stored.
-The app derives `initial_abw` as `initial_total_weight / sample_count` and `initial_abl` as `initial_total_length / sample_count`. Final ABW/ABL are derived from the latest sampling record in that batch. These four averages are not written to new batch documents. Legacy batch documents may still contain average fields; raw totals and sampling records take precedence when available.
+Canonical stored fields are snake_case: `batch_id`, `batch_status`, `stocking_date`, `harvest_date`, `ended_at`, `initial_count`, `current_count`, `harvest_count`, `total_mortality`, `harvest_weight_grams`, `sample_count`, and `created_at`. `sample_count` is the number of individual crayfish in the initial baseline sample. The app derives `days_in_culture` from `stocking_date` to today for active batches, or to `harvest_date` / `ended_at` for completed or superseded batches; this value is not stored. Older batch documents may contain `initial_total_weight` or `initial_total_length`; these are legacy read-compatibility fields, not canonical fields for new writes.
+Initial ABW and ABL are derived from the individual measurements in the batch's `sampling_records/baseline` document. Initial totals and ABW/ABL are not written to new batch documents. Final ABW/ABL are derived from the latest sampling record. Legacy batch documents may still contain `initial_total_weight`, `initial_total_length`, or average fields; the reader retains compatibility with them.
 
 ### `tanks/{tankId}/batches/{batchId}/sampling_records/{recordId}` ✓
-`sampling_date`, `sample_size`, `total_weight`, `total_length`, `live_count`, `is_baseline`, `created_at`
+`sampling_date`, `measurements` (array of objects: `sample_number`, `label`, `weight_g`, `length_cm`), `live_count`, `is_baseline`, `created_at`
 `sampling_date` is stored as a Firestore Timestamp. Readers remain compatible with legacy epoch-millisecond records.
-The app derives `avg_body_weight` as `total_weight / sample_size`, `avg_body_length` as `total_length / sample_size`, and `biomass` as `live_count * (total_weight / sample_size)`. These computed values are not written to new sampling records. Legacy average and biomass fields are ignored when source values are available and deleted when a record is edited.
+For new records, sample size is `measurements.length`, total weight and length are sums of `weight_g` and `length_cm`, ABW and ABL are the respective averages, and biomass is `live_count × ABW`. These values are computed by the app and are not written to new sampling records. Legacy records may still contain `sample_size`, `total_weight`, `total_length`, or cached average/biomass fields; they remain readable, and stale aggregate fields are deleted when a record is edited.
+In the logical relational ERD and Data Dictionary, each object in `measurements` is shown as one `sampling_measurements` row. This is a normalization view only; Firestore continues to store the objects embedded in the sampling record, not in a separate collection.
 
 ### `tanks/{tankId}/batches/{batchId}/mortality_records/{recordId}` ✓
 `mortality_date`, `mortality_count`, `created_at`
@@ -156,14 +158,14 @@ Completed feeder outcome logs create deterministic notification records and imme
 
 ---
 
-## 6. ESP STAGING ✓
-Both live and history payloads include `source_tank_id`, `source_owner_uid`, `source_assignment_at_ms` and `captured_at_ms`. Routing requires the capture assignment to match `hardware_system/currentOwner` (assignment timestamp truncated to milliseconds). Reassignment resets the aggregate window. Historical payloads with missing/mismatched binding remain in staging with `routing_status: quarantined` and `routing_reason`; they are not assigned to the new owner. Out-of-order live events cannot replace a newer reading.
+## 6. ESP SENSOR WRITES ✓
+The current firmware writes live readings and normal 10-minute aggregates directly to each tank's canonical sensor documents. Both carry `source_tank_id`, `source_owner_uid`, `source_assignment_at_ms`, and `captured_at_ms`. Rules compare the captured assignment with `hardware_system/currentOwner` and the tank's `owner_uid`; the ESP refreshes its assignment once per minute. Reassignment resets the aggregate window. Buffered entries still use the staging route so historical data from the prior assignment is quarantined rather than added to the new owner's tank. Out-of-order live events cannot replace a newer reading.
 
 ### `sensorIngestion/current` ✓
-5-second live ESP staging snapshot: `hardwareId`, live water-sensor values, `feed_level`, `estimated_feed_grams`, `turbidity_air`, and `buffered_entries`. Cloud Functions route the latest snapshot to the active tank.
+Legacy 5-second live staging snapshot for older firmware during rollout. Current firmware writes the live snapshot directly to `tanks/{tankId}/sensor_readings/latest`.
 
 ### `sensorIngestion/current/history/{docId}` ✓
-10-minute ESP staging aggregate: `hardwareId`, per-sensor MIN/MAX/AVG only when valid samples exist, including feed-level values when available, plus `captured_at_ms` when the NTP clock is trusted. Cloud Functions preserve the original capture instant as canonical `recorded_at`.
+Fallback staging for offline-buffered, unassigned, or older-firmware history. Cloud Functions preserve the original capture instant as canonical `recorded_at` and quarantine mismatched assignments instead of routing them to a new owner.
 
 ---
 

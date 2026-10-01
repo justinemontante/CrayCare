@@ -1,6 +1,6 @@
 # CrayCare WQAD
 
-CrayCare uses **Machine Learning-Based Water Quality Anomaly Detection (WQAD)**. The deployed `IsolationForest` learns the usual combined behavior of temperature, pH, dissolved oxygen, turbidity, and water level, including short-term changes and trends.
+CrayCare uses **Machine Learning-Based Water Quality Anomaly Detection (WQAD)**. The deployed `IsolationForest` learns the usual combined behavior of temperature, pH, dissolved oxygen, turbidity, and water level, including short-term changes and trends. Water level is represented by one centimeter reading per history record; only temperature, pH, dissolved oxygen, and turbidity use min/average/max window aggregates.
 
 It is not a Good/Moderate/Poor/Critical classifier. Sensor safety thresholds remain a separate feature for immediate alerts and actuator logic. WQAD provides an advisory `Normal`, `Unusual`, or `Insufficient` result, a reference-pattern percentile, ranked contributors, an insight, and a verification-focused recommendation.
 
@@ -15,6 +15,22 @@ venv\Scripts\python.exe -m unittest discover -p "test_*.py"
 ```
 
 `generate_dataset.py` creates reproducible ten-minute RAS-like readings and holdout operational events. Event labels are used only to evaluate the finished prototype; they are never given to the model during fitting. `train_model.py` stores the fitted artifact and its provenance in `wqad_model.joblib`.
+
+## Live Firestore integration test
+
+The ML folder has no `npm` runner; its offline prototype commands above use the
+Python virtual environment. To exercise the deployed WQAD flow with synthetic
+Firestore data, run `npm run ml:seed` from `test_tools`. It writes twelve
+ten-minute history records for the verified assigned tank. To analyze those
+records immediately, run `npm run ml:run-now` from `test_tools`; this invokes
+the same owner/tank checks and inference as the scheduled function and writes
+the current detection plus one history detection. Alternatively, wait for the
+deployed function's next 30-minute run. For a continuous sensor and history
+visualization instead, run `npm run ml:demo` and allow enough time for twelve
+valid readings. A single missed ten-minute record is tolerated by inference.
+These commands write synthetic data and/or analysis
+results to the live tank. They do not change sensor thresholds, retrain the
+model, or establish field validity.
 
 ## Production requirement
 

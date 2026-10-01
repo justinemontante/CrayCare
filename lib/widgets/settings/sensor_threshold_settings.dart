@@ -81,12 +81,7 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
     'do': {'minLow': 1.0, 'minHigh': 8.0, 'maxLow': 3.0, 'maxHigh': 15.0},
     'turb': {'minLow': 0.0, 'minHigh': 100.0, 'maxLow': 5.0, 'maxHigh': 1000.0},
     'waterlevel': {'criticalLow': 0.0, 'lowHigh': 95.0},
-    'feedlevel': {
-      'minLow': 1.0,
-      'minHigh': 50.0,
-      'maxLow': 100.0,
-      'maxHigh': 100.0,
-    },
+    'feedlevel': {'criticalLow': 0.0, 'lowHigh': 50.0},
   };
 
   static const Map<String, String> _safeUnits = {
@@ -107,7 +102,7 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
       if (changedKey != null && key != changedKey) continue;
       final bounds = _safeBounds[key];
       if (bounds == null) continue;
-      if (key == 'waterlevel') {
+      if (key == 'waterlevel' || key == 'feedlevel') {
         final critical = entry.value['critical'];
         final low = entry.value['low'];
         if (critical == null ||
@@ -117,7 +112,9 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
             critical < bounds['criticalLow']! ||
             critical >= low ||
             low > bounds['lowHigh']!) {
-          return 'Water Level: use Critical < Low ≤ ${bounds['lowHigh']!.toStringAsFixed(0)} cm.';
+          final unit = _safeUnits[key] ?? '';
+          final label = sensorMeta[key]?.label ?? key;
+          return '$label: use Critical < Low ≤ ${bounds['lowHigh']!.toStringAsFixed(0)} $unit.';
         }
         continue;
       }
@@ -129,15 +126,6 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
       }
       final unit = _safeUnits[key] ?? '';
       final label = sensorMeta[key]?.label ?? key;
-      if (key == 'feedlevel') {
-        final critical = entry.value['critical'] ?? 10.0;
-        if (!critical.isFinite) {
-          return 'Feed Level values must be finite numbers.';
-        }
-        if (critical < 0 || critical >= min) {
-          return 'Feed Level: critical threshold must be below the low threshold.';
-        }
-      }
       if (min >= max) {
         return '$label: minimum must be lower than maximum.';
       }
@@ -306,9 +294,35 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
     return max.toStringAsFixed(1);
   }
 
+  Widget _buildSensorModalTitle(String sensorKey) {
+    final info = sensorMeta[sensorKey]!;
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: info.color.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Image.asset(info.iconPath, width: 20, height: 20),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            info.label,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+              color: AppColors.dark,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Future<void> _showRangeEditor(
     String sensorKey,
-    String label,
     String unit,
     double currentMin,
     double currentMax,
@@ -330,33 +344,7 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: sensorMeta[sensorKey]!.color.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Image.asset(
-                sensorMeta[sensorKey]!.iconPath,
-                width: 20,
-                height: 20,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                label,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w900,
-                  color: AppColors.dark,
-                ),
-              ),
-            ),
-          ],
-        ),
+        title: _buildSensorModalTitle(sensorKey),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -474,11 +462,10 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
     return showDialog<({double critical, double low})>(
       context: context,
       builder: (ctx) => AlertDialog(
-        insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-        title: const Text(
-          'Water Level',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
-        ),
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: _buildSensorModalTitle('waterlevel'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -585,7 +572,7 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
   Future<void> _showFeedLevelEditor() {
     final config = SettingsService.instance.currentRanges['feedlevel']!;
     final previousCritical = config['critical'] ?? 10.0;
-    final previousLow = config['min'] ?? 20.0;
+    final previousLow = config['low'] ?? 20.0;
     final criticalCtrl = TextEditingController(
       text: previousCritical.toStringAsFixed(0),
     );
@@ -593,11 +580,10 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
     return showDialog<({double critical, double low})>(
       context: context,
       builder: (ctx) => AlertDialog(
-        insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-        title: const Text(
-          'Feed Level Settings',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
-        ),
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: _buildSensorModalTitle('feedlevel'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -748,7 +734,8 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
     final svc = SettingsService.instance;
     final range = svc.currentRanges[sensorKey] ?? {'min': 0.0, 'max': 0.0};
     final info = sensorMeta[sensorKey]!;
-    final min = (range['min'] ?? 0.0).toDouble();
+    final min = (range[sensorKey == 'feedlevel' ? 'low' : 'min'] ?? 0.0)
+        .toDouble();
     final max = (range['max'] ?? 0.0).toDouble();
 
     return Container(
@@ -765,13 +752,7 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
           borderRadius: BorderRadius.circular(12),
           onTap: _saving
               ? null
-              : () => _showRangeEditor(
-                  sensorKey,
-                  info.label,
-                  info.unit,
-                  min,
-                  max,
-                ),
+              : () => _showRangeEditor(sensorKey, info.unit, min, max),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Row(
@@ -863,14 +844,14 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
           const SizedBox(width: 9),
           Text(
             title,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w900,
-              color: AppColors.dark,
+              color: color,
             ),
           ),
           const SizedBox(width: 10),
-          Expanded(child: Divider(color: AppColors.dark.withValues(alpha: 0.1))),
+          Expanded(child: Divider(color: color.withValues(alpha: 0.24))),
         ],
       ),
     );
@@ -936,7 +917,7 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
                 _buildGroupHeader(
                   'Physical Parameters',
                   Icons.straighten_rounded,
-                  const Color(0xFF64748B),
+                  AppColors.primary,
                 ),
                 ..._physicalSensors.map(_buildSensorRow),
               ],

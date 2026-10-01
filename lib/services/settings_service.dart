@@ -53,15 +53,21 @@ class SettingsService extends ChangeNotifier {
       if (low == null || critical == null) return null;
       return {'low': low, 'critical': critical};
     }
+    if (sensorKey == 'feedlevel') {
+      // Read the old min_value as a migration fallback, but all new writes
+      // use the same Low/Critical shape as Water Level.
+      final low =
+          (data['low_value'] as num?)?.toDouble() ??
+          (data['min_value'] as num?)?.toDouble();
+      final critical = (data['critical_value'] as num?)?.toDouble();
+      if (low == null || critical == null) return null;
+      return {'low': low, 'critical': critical};
+    }
     final min = (data['min_value'] as num?)?.toDouble();
     final max = (data['max_value'] as num?)?.toDouble();
     if (min == null || max == null) return null;
     final critical = (data['critical_value'] as num?)?.toDouble();
-    return {
-      'min': min,
-      'max': max,
-      if (critical != null) 'critical': critical,
-    };
+    return {'min': min, 'max': max, if (critical != null) 'critical': critical};
   }
 
   Future<void> _loadTankCache(String tankId) async {
@@ -72,14 +78,14 @@ class SettingsService extends ChangeNotifier {
       final decoded = jsonDecode(json) as Map<String, dynamic>;
       for (final sensorEntry in decoded.entries) {
         final range = sensorEntry.value as Map<String, dynamic>;
-        if (sensorEntry.key == 'waterlevel') {
+        if (sensorEntry.key == 'waterlevel' || sensorEntry.key == 'feedlevel') {
           final oldLow = range['min'];
           final low = range['low'] ?? oldLow;
           final critical =
               range['critical'] ??
               (oldLow is num ? (oldLow - 5).clamp(0, oldLow) : null);
           if (low is num && critical is num) {
-            _ranges['waterlevel'] = {
+            _ranges[sensorEntry.key] = {
               'low': low.toDouble(),
               'critical': critical.toDouble(),
             };
@@ -249,6 +255,9 @@ class SettingsService extends ChangeNotifier {
       DocumentReference<Map<String, dynamic>>? legacyWaterDocRef;
       double? migratedWaterLow;
       double? migratedWaterCritical;
+      DocumentReference<Map<String, dynamic>>? legacyFeedDocRef;
+      double? migratedFeedLow;
+      double? migratedFeedCritical;
       for (final doc in sensorsSnap.docs) {
         final longKey = doc.id;
         foundSensorDocs.add(longKey);
@@ -269,6 +278,14 @@ class SettingsService extends ChangeNotifier {
             migratedWaterLow = next['low'];
             migratedWaterCritical = next['critical'];
           }
+          if (shortKey == 'feedlevel' &&
+              (data['low_value'] == null ||
+                  data.containsKey('min_value') ||
+                  data.containsKey('max_value'))) {
+            legacyFeedDocRef = doc.reference;
+            migratedFeedLow = next['low'];
+            migratedFeedCritical = next['critical'];
+          }
         }
       }
 
@@ -285,6 +302,21 @@ class SettingsService extends ChangeNotifier {
           }, SetOptions(merge: true));
         } catch (e) {
           debugPrint('[SettingsService] Water threshold migration failed: $e');
+        }
+      }
+      if (legacyFeedDocRef != null &&
+          migratedFeedLow != null &&
+          migratedFeedCritical != null) {
+        try {
+          await legacyFeedDocRef.set({
+            'low_value': migratedFeedLow,
+            'critical_value': migratedFeedCritical,
+            'min_value': FieldValue.delete(),
+            'max_value': FieldValue.delete(),
+            'updated_at': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+        } catch (e) {
+          debugPrint('[SettingsService] Feed threshold migration failed: $e');
         }
       }
       if (!anyApplied) {
@@ -307,15 +339,12 @@ class SettingsService extends ChangeNotifier {
         for (final entry in missingEntries) {
           final values = defaultRanges[entry.key]!;
           batch.set(tankRef.collection('sensors').doc(entry.value), {
-            if (entry.key == 'waterlevel') ...{
+            if (entry.key == 'waterlevel' || entry.key == 'feedlevel') ...{
               'low_value': values['low'],
               'critical_value': values['critical'],
             } else ...{
               'min_value': values['min'],
               'max_value': values['max'],
-            },
-            if (entry.key == 'feedlevel') ...{
-              'critical_value': values['critical'],
             },
             'updated_at': FieldValue.serverTimestamp(),
           });
@@ -356,7 +385,7 @@ class SettingsService extends ChangeNotifier {
         final longKey = _longKeyFor[e.key];
         if (longKey == null) continue;
         batch.set(tankRef.collection('sensors').doc(longKey), {
-          if (e.key == 'waterlevel') ...{
+          if (e.key == 'waterlevel' || e.key == 'feedlevel') ...{
             'low_value': e.value['low'],
             'critical_value': e.value['critical'],
             'min_value': FieldValue.delete(),
@@ -365,7 +394,6 @@ class SettingsService extends ChangeNotifier {
             'min_value': e.value['min'],
             'max_value': e.value['max'],
           },
-          if (e.key == 'feedlevel') ...{'critical_value': e.value['critical']},
           'updated_at': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
       }
@@ -377,13 +405,7 @@ class SettingsService extends ChangeNotifier {
 
   Future<void> updateRange(String sensorKey, double min, double max) async {
     if (!_ranges.containsKey(sensorKey)) return;
-    _ranges[sensorKey] = {
-      'min': min,
-      'max': max,
-      if (sensorKey == 'feedlevel') ...{
-        'critical': _ranges[sensorKey]?['critical'] ?? 10.0,
-      },
-    };
+    _ranges[sensorKey] = {'min': min, 'max': max};
     notifyListeners();
     // SensorThresholdSettings performs the canonical Firestore write; this
     // stores only the current tank's offline copy.
@@ -394,7 +416,7 @@ class SettingsService extends ChangeNotifier {
     required double critical,
     required double low,
   }) async {
-    _ranges['feedlevel'] = {'min': low, 'max': 100.0, 'critical': critical};
+    _ranges['feedlevel'] = {'low': low, 'critical': critical};
     notifyListeners();
     await _saveRanges();
   }
@@ -435,7 +457,7 @@ class SettingsService extends ChangeNotifier {
         final longKey = _longKeyFor[e.key];
         if (longKey == null) continue;
         batch.set(tankRef.collection('sensors').doc(longKey), {
-          if (e.key == 'waterlevel') ...{
+          if (e.key == 'waterlevel' || e.key == 'feedlevel') ...{
             'low_value': e.value['low'],
             'critical_value': e.value['critical'],
             'min_value': FieldValue.delete(),
@@ -444,7 +466,6 @@ class SettingsService extends ChangeNotifier {
             'min_value': e.value['min'],
             'max_value': e.value['max'],
           },
-          if (e.key == 'feedlevel') ...{'critical_value': e.value['critical']},
           'updated_at': FieldValue.serverTimestamp(),
         });
       }

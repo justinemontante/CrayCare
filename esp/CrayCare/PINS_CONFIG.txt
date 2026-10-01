@@ -79,7 +79,7 @@ HOPPER LEVEL (2nd HC-SR04, feed surface)
     `hopperdepth <1-empty>` (max feed depth).
   - Source: ultrasonic by default; `FEEDMODE 0` forces analog GPIO39.
     A bad echo falls back to analog automatically; both invalid blocks
-    feeding exactly like before. App sees identical feed_level/grams.
+    feeding exactly like before. App sees the same feed_level percentage.
 
 SD CARD (offline storage, syncs when internet returns)
   - 6-pin module mapping (module silkscreen -> ESP pin):

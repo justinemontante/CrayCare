@@ -1,0 +1,527 @@
+{
+  "version": "3.0.0",
+  "darkMode": true,
+  "gridEnabling": false,
+  "currentViewName": null,
+  "defaultView": {
+    "detailLevel": "All",
+    "relationshipMode": "All",
+    "tablePositions": [
+      {
+        "name": "users",
+        "schemaName": "public",
+        "x": 12,
+        "y": 12
+      },
+      {
+        "name": "notification_settings",
+        "schemaName": "public",
+        "x": 483.01025390625,
+        "y": 53
+      },
+      {
+        "name": "tanks",
+        "schemaName": "public",
+        "x": 483.01025390625,
+        "y": 419
+      },
+      {
+        "name": "hardware_assignments",
+        "schemaName": "public",
+        "x": 988.44697265625,
+        "y": 12
+      },
+      {
+        "name": "notifications",
+        "schemaName": "public",
+        "x": 483.01025390625,
+        "y": 657
+      },
+      {
+        "name": "sensor_thresholds",
+        "schemaName": "public",
+        "x": 988.44697265625,
+        "y": 250
+      },
+      {
+        "name": "sensor_readings_history",
+        "schemaName": "public",
+        "x": 988.44697265625,
+        "y": 552
+      },
+      {
+        "name": "sensor_readings",
+        "schemaName": "public",
+        "x": 988.44697265625,
+        "y": 1270
+      },
+      {
+        "name": "actuators",
+        "schemaName": "public",
+        "x": 988.44697265625,
+        "y": 1700
+      },
+      {
+        "name": "actuator_logs",
+        "schemaName": "public",
+        "x": 988.44697265625,
+        "y": 1938
+      },
+      {
+        "name": "feeder_status",
+        "schemaName": "public",
+        "x": 988.44697265625,
+        "y": 2208
+      },
+      {
+        "name": "feeder_schedules",
+        "schemaName": "public",
+        "x": 988.44697265625,
+        "y": 2606
+      },
+      {
+        "name": "feeder_schedule_days",
+        "schemaName": "public",
+        "x": 1584.8595703125,
+        "y": 12
+      },
+      {
+        "name": "feeder_commands",
+        "schemaName": "public",
+        "x": 988.44697265625,
+        "y": 5062
+      },
+      {
+        "name": "feeder_logs",
+        "schemaName": "public",
+        "x": 988.44697265625,
+        "y": 3132
+      },
+      {
+        "name": "water_quality_anomaly_detections",
+        "schemaName": "public",
+        "x": 988.44697265625,
+        "y": 3754
+      },
+      {
+        "name": "batches",
+        "schemaName": "public",
+        "x": 988.44697265625,
+        "y": 4472
+      },
+      {
+        "name": "sampling_records",
+        "schemaName": "public",
+        "x": 1584.8595703125,
+        "y": 218
+      },
+      {
+        "name": "mortality_records",
+        "schemaName": "public",
+        "x": 1584.8595703125,
+        "y": 648
+      },
+      {
+        "name": "harvest_records",
+        "schemaName": "public",
+        "x": 1584.8595703125,
+        "y": 950
+      },
+      {
+        "name": "sampling_measurements",
+        "schemaName": "public",
+        "x": 12,
+        "y": 5400
+      },
+      {
+        "name": "feeder_schedule_policy",
+        "schemaName": "public",
+        "x": 12,
+        "y": 5738
+      },
+      {
+        "name": "feeder_policy",
+        "schemaName": "public",
+        "x": 12,
+        "y": 5738
+      }
+    ],
+    "tableGroupCollapseStates": [],
+    "stickyNoteLayouts": [],
+    "referencePaths": [
+      {
+        "firstFieldNames": [
+          "uid"
+        ],
+        "firstTableName": "users",
+        "firstSchemaName": "public",
+        "firstRelation": "1",
+        "secondFieldNames": [
+          "uid"
+        ],
+        "secondTableName": "notification_settings",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "uid"
+        ],
+        "firstTableName": "users",
+        "firstSchemaName": "public",
+        "firstRelation": "1",
+        "secondFieldNames": [
+          "owner_uid"
+        ],
+        "secondTableName": "tanks",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "tank_id"
+        ],
+        "firstTableName": "tanks",
+        "firstSchemaName": "public",
+        "firstRelation": "1",
+        "secondFieldNames": [
+          "tank_id"
+        ],
+        "secondTableName": "hardware_assignments",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "uid"
+        ],
+        "firstTableName": "users",
+        "firstSchemaName": "public",
+        "firstRelation": "1",
+        "secondFieldNames": [
+          "assigned_by"
+        ],
+        "secondTableName": "hardware_assignments",
+        "secondSchemaName": "public",
+        "secondRelation": "*",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "uid"
+        ],
+        "firstTableName": "users",
+        "firstSchemaName": "public",
+        "firstRelation": "1",
+        "secondFieldNames": [
+          "uid"
+        ],
+        "secondTableName": "notifications",
+        "secondSchemaName": "public",
+        "secondRelation": "*",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "tank_id"
+        ],
+        "firstTableName": "tanks",
+        "firstSchemaName": "public",
+        "firstRelation": "1",
+        "secondFieldNames": [
+          "tank_id"
+        ],
+        "secondTableName": "sensor_thresholds",
+        "secondSchemaName": "public",
+        "secondRelation": "*",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "tank_id"
+        ],
+        "firstTableName": "tanks",
+        "firstSchemaName": "public",
+        "firstRelation": "1",
+        "secondFieldNames": [
+          "tank_id"
+        ],
+        "secondTableName": "sensor_readings_history",
+        "secondSchemaName": "public",
+        "secondRelation": "*",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "tank_id"
+        ],
+        "firstTableName": "tanks",
+        "firstSchemaName": "public",
+        "firstRelation": "1",
+        "secondFieldNames": [
+          "tank_id"
+        ],
+        "secondTableName": "sensor_readings",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "tank_id"
+        ],
+        "firstTableName": "tanks",
+        "firstSchemaName": "public",
+        "firstRelation": "1",
+        "secondFieldNames": [
+          "tank_id"
+        ],
+        "secondTableName": "actuators",
+        "secondSchemaName": "public",
+        "secondRelation": "*",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "tank_id"
+        ],
+        "firstTableName": "tanks",
+        "firstSchemaName": "public",
+        "firstRelation": "1",
+        "secondFieldNames": [
+          "tank_id"
+        ],
+        "secondTableName": "actuator_logs",
+        "secondSchemaName": "public",
+        "secondRelation": "*",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "tank_id"
+        ],
+        "firstTableName": "tanks",
+        "firstSchemaName": "public",
+        "firstRelation": "1",
+        "secondFieldNames": [
+          "tank_id"
+        ],
+        "secondTableName": "feeder_status",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "tank_id"
+        ],
+        "firstTableName": "tanks",
+        "firstSchemaName": "public",
+        "firstRelation": "1",
+        "secondFieldNames": [
+          "tank_id"
+        ],
+        "secondTableName": "feeder_schedules",
+        "secondSchemaName": "public",
+        "secondRelation": "*",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "tank_id"
+        ],
+        "firstTableName": "tanks",
+        "firstSchemaName": "public",
+        "firstRelation": "1",
+        "secondFieldNames": [
+          "tank_id"
+        ],
+        "secondTableName": "feeder_commands",
+        "secondSchemaName": "public",
+        "secondRelation": "*",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "uid"
+        ],
+        "firstTableName": "users",
+        "firstSchemaName": "public",
+        "firstRelation": "1",
+        "secondFieldNames": [
+          "issued_by"
+        ],
+        "secondTableName": "feeder_commands",
+        "secondSchemaName": "public",
+        "secondRelation": "*",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "tank_id"
+        ],
+        "firstTableName": "tanks",
+        "firstSchemaName": "public",
+        "firstRelation": "1",
+        "secondFieldNames": [
+          "tank_id"
+        ],
+        "secondTableName": "feeder_logs",
+        "secondSchemaName": "public",
+        "secondRelation": "*",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "tank_id",
+          "schedule_id"
+        ],
+        "firstTableName": "feeder_schedule_days",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "tank_id",
+          "schedule_id"
+        ],
+        "secondTableName": "feeder_schedules",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "tank_id"
+        ],
+        "firstTableName": "tanks",
+        "firstSchemaName": "public",
+        "firstRelation": "1",
+        "secondFieldNames": [
+          "tank_id"
+        ],
+        "secondTableName": "water_quality_anomaly_detections",
+        "secondSchemaName": "public",
+        "secondRelation": "*",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "tank_id"
+        ],
+        "firstTableName": "tanks",
+        "firstSchemaName": "public",
+        "firstRelation": "1",
+        "secondFieldNames": [
+          "tank_id"
+        ],
+        "secondTableName": "batches",
+        "secondSchemaName": "public",
+        "secondRelation": "*",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "tank_id",
+          "batch_id"
+        ],
+        "firstTableName": "sampling_records",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "tank_id",
+          "batch_id"
+        ],
+        "secondTableName": "batches",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "tank_id",
+          "batch_id"
+        ],
+        "firstTableName": "mortality_records",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "tank_id",
+          "batch_id"
+        ],
+        "secondTableName": "batches",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "tank_id",
+          "batch_id"
+        ],
+        "firstTableName": "harvest_records",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "tank_id",
+          "batch_id"
+        ],
+        "secondTableName": "batches",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "tank_id",
+          "batch_id",
+          "sampling_id"
+        ],
+        "firstTableName": "sampling_measurements",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "tank_id",
+          "batch_id",
+          "sampling_id"
+        ],
+        "secondTableName": "sampling_records",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "tank_id"
+        ],
+        "firstTableName": "tanks",
+        "firstSchemaName": "public",
+        "firstRelation": "1",
+        "secondFieldNames": [
+          "tank_id"
+        ],
+        "secondTableName": "feeder_schedule_policy",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "tank_id"
+        ],
+        "firstTableName": "tanks",
+        "firstSchemaName": "public",
+        "firstRelation": "1",
+        "secondFieldNames": [
+          "tank_id"
+        ],
+        "secondTableName": "feeder_policy",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      }
+    ]
+  },
+  "views": {}
+}

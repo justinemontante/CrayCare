@@ -26,11 +26,26 @@ class HistoryWindowTests(unittest.TestCase):
         self.assertEqual(status, "stale")
         self.assertTrue(rows.empty)
 
-    def test_gap_requires_new_contiguous_history(self):
-        frame = self.frame([self.NOW - i * 600 for i in [0, 1, 2, 8, 9, 10]])
+    def test_one_missed_ten_minute_reading_is_tolerated(self):
+        # Twelve valid readings spanning thirteen expected ten-minute slots.
+        slots = [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12]
+        frame = self.frame([self.NOW - i * 600 for i in reversed(slots)])
         rows, status, _ = anomaly_window(frame, self.NOW)
+        self.assertEqual(status, "ready")
+        self.assertEqual(len(rows), 12)
+
+    def test_two_missed_readings_in_window_remain_insufficient(self):
+        slots = [0, 1, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13]
+        frame = self.frame([self.NOW - i * 600 for i in reversed(slots)])
+        _, status, _ = anomaly_window(frame, self.NOW)
         self.assertEqual(status, "insufficient")
-        self.assertEqual(len(rows), 3)
+
+    def test_long_outage_restarts_usable_suffix(self):
+        slots = list(range(12)) + list(range(20, 32))
+        frame = self.frame([self.NOW - i * 600 for i in reversed(slots)])
+        rows, status, _ = anomaly_window(frame, self.NOW)
+        self.assertEqual(status, "ready")
+        self.assertEqual(len(rows), 12)
 
     def test_duplicates_do_not_make_six_readings(self):
         _, status, _ = anomaly_window(self.frame([self.NOW] * 12), self.NOW)
@@ -78,4 +93,6 @@ class HistoryWindowTests(unittest.TestCase):
         result = batch.set.call_args_list[0].args[1]
         self.assertEqual(result["status"], "Insufficient")
         self.assertEqual(result["data_status"], "stale")
-        self.assertGreater(result["source_age_seconds"], 7 * 3600)
+        self.assertIsNotNone(result["source_recorded_at"])
+        self.assertNotIn("source_age_seconds", result)
+        self.assertNotIn("analysis_window_minutes", result)

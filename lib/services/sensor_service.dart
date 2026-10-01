@@ -107,6 +107,7 @@ class SensorService extends ChangeNotifier {
     'do',
     'turb',
     'waterlevel',
+    'feedlevel',
   ];
 
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _subscription;
@@ -650,7 +651,7 @@ class SensorService extends ChangeNotifier {
   }
 
   bool _hasUsableDailySummary(Map<String, dynamic> data) {
-    if (data['summary_version'] != 2 ||
+    if (data['summary_version'] != 3 ||
         data['summary_complete'] != true ||
         data['summary_sanitized'] != true) {
       return false;
@@ -661,6 +662,7 @@ class SensorService extends ChangeNotifier {
       'DO_avg',
       'turbidity_avg',
       'water_level',
+      'feed_level',
     ];
     return averageFields.any((field) => data[field] is num);
   }

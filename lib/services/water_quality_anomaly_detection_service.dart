@@ -20,15 +20,25 @@ String normalizeWaterQualityAnomalyStatus(Object? value) {
 }
 
 class WaterQualityAnomalyDetectionResult {
+  static const Map<String, String> _sensorLabels = {
+    'temp': 'Temperature',
+    'pH': 'pH Level',
+    'DO': 'Dissolved Oxygen',
+    'turbidity': 'Turbidity',
+    'waterLevel': 'Water Level',
+  };
+  static const Map<String, String> _sensorUnits = {
+    'temp': '°C',
+    'pH': '',
+    'DO': 'mg/L',
+    'turbidity': 'NTU',
+    'waterLevel': 'cm',
+  };
+
   final String status;
   final bool isAnomaly;
   final double anomalyScore;
   final String source;
-  final int analysisWindowMinutes;
-  final String driver;
-  final String driverLabel;
-  final double? driverValue;
-  final String driverUnit;
   final String insight;
   final String recommendation;
   final List<Map<String, dynamic>> contributors;
@@ -39,11 +49,6 @@ class WaterQualityAnomalyDetectionResult {
     required this.isAnomaly,
     required this.anomalyScore,
     required this.source,
-    required this.analysisWindowMinutes,
-    required this.driver,
-    required this.driverLabel,
-    required this.driverValue,
-    required this.driverUnit,
     required this.insight,
     required this.recommendation,
     required this.contributors,
@@ -55,9 +60,28 @@ class WaterQualityAnomalyDetectionResult {
   ) {
     final rawContributors = data['contributors'];
     final rawPrimaryDriver = data['primary_driver'];
-    final primaryDriver = rawPrimaryDriver is Map
-        ? Map<String, dynamic>.from(rawPrimaryDriver)
-        : const <String, dynamic>{};
+    final contributors = rawContributors is List
+        ? rawContributors
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList()
+        : <Map<String, dynamic>>[];
+    if (contributors.isEmpty && rawPrimaryDriver is Map) {
+      contributors.add(Map<String, dynamic>.from(rawPrimaryDriver));
+    }
+    // Read old flat-only records during the schema transition. New Cloud
+    // Function writes persist only the compact contributors array.
+    if (contributors.isEmpty && data['driver'] is String) {
+      final oldCode = data['driver'] as String;
+      if (oldCode != 'N/A') {
+        contributors.add({
+          'sensor': oldCode,
+          'value': data['driver_value'],
+          'direction': 'stable',
+          'contribution_score': 0,
+        });
+      }
+    }
     final parsedTimestamp =
         parsePredictionTimestamp(data['processed_at']) ??
         parsePredictionTimestamp(data['timestamp']) ??
@@ -68,36 +92,31 @@ class WaterQualityAnomalyDetectionResult {
       isAnomaly: data['is_anomaly'] as bool? ?? false,
       anomalyScore: (data['anomaly_score'] as num?)?.toDouble() ?? 0,
       source: data['source'] as String? ?? 'WQAD model',
-      analysisWindowMinutes:
-          (data['analysis_window_minutes'] as num?)?.toInt() ?? 120,
-      driver:
-          data['driver'] as String? ??
-          primaryDriver['sensor'] as String? ??
-          'N/A',
-      driverLabel:
-          data['driver_label'] as String? ??
-          primaryDriver['label'] as String? ??
-          (data['driver'] as String? ?? 'Combined water pattern'),
-      driverValue:
-          (data['driver_value'] as num?)?.toDouble() ??
-          (primaryDriver['value'] as num?)?.toDouble(),
-      driverUnit:
-          data['driver_unit'] as String? ??
-          primaryDriver['unit'] as String? ??
-          '',
       insight: data['insight'] as String? ?? '',
       recommendation:
           data['recommendation'] as String? ??
           'Verify the readings and inspect the tank.',
-      contributors: rawContributors is List
-          ? rawContributors
-                .whereType<Map>()
-                .map((item) => Map<String, dynamic>.from(item))
-                .toList(growable: false)
-          : const [],
+      contributors: List.unmodifiable(contributors),
       timestamp: parsedTimestamp,
     );
   }
+
+  static String sensorLabelFor(Object? sensor) =>
+      _sensorLabels[sensor?.toString()] ?? sensor?.toString() ?? 'Sensor';
+
+  static String sensorUnitFor(Object? sensor) =>
+      _sensorUnits[sensor?.toString()] ?? '';
+
+  Map<String, dynamic>? get primaryContributor =>
+      contributors.isEmpty ? null : contributors.first;
+
+  String get driver => primaryContributor?['sensor']?.toString() ?? 'overall';
+  String get driverLabel => driver == 'overall'
+      ? 'Combined water pattern'
+      : sensorLabelFor(driver);
+  double? get driverValue =>
+      (primaryContributor?['value'] as num?)?.toDouble();
+  String get driverUnit => sensorUnitFor(driver);
 
   bool get hasData => status != 'Insufficient';
   // The currently deployed model uses synthetic bootstrap data.

@@ -13,9 +13,10 @@ from training_data import prepare_history
 class TrainingDataTests(unittest.TestCase):
     def sample(self, count=30):
         data = {'timestamp': pd.date_range('2026-08-01', periods=count, freq='10min', tz='UTC')}
-        for sensor in SENSORS:
+        for sensor in SENSORS[:-1]:
             for stat, offset in [('min', 0), ('avg', 1), ('max', 2)]:
                 data[f'{sensor}_{stat}'] = np.arange(count) * .01 + offset + 2
+        data['waterLevel'] = 18 - np.arange(count) * .001
         return pd.DataFrame(data)
 
     def test_unlabeled_and_time_units_match_inference(self):
@@ -48,6 +49,21 @@ class TrainingDataTests(unittest.TestCase):
         data.loc[20, 'DO_min'] = -1
         rows, _ = prepare_history(data)
         self.assertEqual(len(rows), 17)
+
+    def test_water_level_uses_one_reading_without_min_max(self):
+        data = self.sample(30)
+        self.assertNotIn('waterLevel_min', data)
+        self.assertNotIn('waterLevel_max', data)
+        rows, features = prepare_history(data)
+        self.assertEqual(len(rows), 19)
+        self.assertIn('waterLevel_avg', features)
+        self.assertNotIn('waterLevel_spread', features)
+
+    def test_water_level_must_be_finite_and_nonnegative(self):
+        data = self.sample(30)
+        data.loc[20, 'waterLevel'] = -1
+        rows, _ = prepare_history(data)
+        self.assertEqual(len(rows), 9)
 
     def test_unlabeled_training_cli(self):
         with tempfile.TemporaryDirectory() as directory:

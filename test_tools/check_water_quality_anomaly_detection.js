@@ -13,7 +13,7 @@ for (const keyPath of keyPaths) {
 }
 if (!serviceAccount) { console.error('No service account found.'); process.exit(1); }
 
-admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+admin.initializeApp({ credential: admin.cert(serviceAccount) });
 const db = getFirestore();
 
 async function check() {

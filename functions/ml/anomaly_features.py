@@ -10,20 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 SENSORS = ["temp", "pH", "DO", "turbidity", "waterLevel"]
-SENSOR_LABELS = {
-    "temp": "Temperature",
-    "pH": "pH Level",
-    "DO": "Dissolved Oxygen",
-    "turbidity": "Turbidity",
-    "waterLevel": "Water Level",
-}
-SENSOR_UNITS = {
-    "temp": "°C",
-    "pH": "",
-    "DO": "mg/L",
-    "turbidity": "NTU",
-    "waterLevel": "cm",
-}
+WATER_QUALITY_SENSORS = ["temp", "pH", "DO", "turbidity"]
 
 
 def build_anomaly_features(df):
@@ -33,11 +20,21 @@ def build_anomaly_features(df):
 
     feat = pd.DataFrame(index=df.index)
     for sensor in SENSORS:
-        avg = pd.to_numeric(df[f"{sensor}_avg"], errors="coerce")
-        low = pd.to_numeric(df[f"{sensor}_min"], errors="coerce")
-        high = pd.to_numeric(df[f"{sensor}_max"], errors="coerce")
+        if sensor == "waterLevel":
+            value_column = next(
+                (name for name in ("waterLevel", "water_level", "waterLevel_avg") if name in df),
+                None,
+            )
+            if value_column is None:
+                raise ValueError("Water-level readings require one waterLevel value in cm.")
+            avg = pd.to_numeric(df[value_column], errors="coerce")
+        else:
+            avg = pd.to_numeric(df[f"{sensor}_avg"], errors="coerce")
         feat[f"{sensor}_avg"] = avg
-        feat[f"{sensor}_spread"] = high - low
+        if sensor in WATER_QUALITY_SENSORS:
+            low = pd.to_numeric(df[f"{sensor}_min"], errors="coerce")
+            high = pd.to_numeric(df[f"{sensor}_max"], errors="coerce")
+            feat[f"{sensor}_spread"] = high - low
         feat[f"{sensor}_delta"] = avg.diff()
         feat[f"{sensor}_roll1h_mean"] = avg.rolling(6, min_periods=2).mean()
         feat[f"{sensor}_roll1h_std"] = avg.rolling(6, min_periods=2).std()
@@ -81,12 +78,13 @@ def _contributors(latest, bundle):
     for sensor in SENSORS:
         names = [
             f"{sensor}_avg",
-            f"{sensor}_spread",
             f"{sensor}_delta",
             f"{sensor}_trend30m",
             f"{sensor}_trend1h",
             f"{sensor}_baseline_deviation",
         ]
+        if sensor in WATER_QUALITY_SENSORS:
+            names.insert(1, f"{sensor}_spread")
         z_values = []
         for name in names:
             center = float(centers.get(name, 0.0))
@@ -102,8 +100,6 @@ def _contributors(latest, bundle):
         contributions.append(
             {
                 "sensor": sensor,
-                "label": SENSOR_LABELS[sensor],
-                "unit": SENSOR_UNITS[sensor],
                 "value": round(float(latest.get(f"{sensor}_avg", 0.0)), 3),
                 "direction": direction,
                 "contribution_score": round(contribution, 3),
@@ -121,9 +117,6 @@ def detect_water_quality_anomaly(df, bundle, recommendations):
             "status": "Insufficient",
             "is_anomaly": False,
             "anomaly_score": 0.0,
-            "driver": "N/A",
-            "driver_label": "Model unavailable",
-            "primary_driver": None,
             "insight": "The anomaly-detection model is not available.",
             "recommendation": "Deploy a trained WQAD model before interpreting sensor patterns.",
             "contributors": [],
@@ -147,22 +140,13 @@ def detect_water_quality_anomaly(df, bundle, recommendations):
     interpreted = interpret_anomaly(
         is_anomaly, anomaly_score, contributors, recommendations
     )
-    primary_driver = contributors[0] if contributors else None
     return {
         "status": "Unusual" if is_anomaly else "Normal",
         "is_anomaly": is_anomaly,
         "anomaly_score": anomaly_score,
-        "driver": primary_driver["sensor"] if primary_driver else "overall",
-        "driver_label": primary_driver["label"]
-        if primary_driver
-        else "Combined water pattern",
-        "driver_value": primary_driver["value"] if primary_driver else None,
-        "driver_unit": primary_driver["unit"] if primary_driver else "",
-        "primary_driver": primary_driver,
         "contributors": contributors[:3],
         "insight": interpreted["insight"],
         "recommendation": interpreted["recommendation"],
         "source": "WQAD model",
-        "analysis_window_minutes": bundle.get("analysis_window_minutes", 120),
         "processed_at": datetime.now(timezone.utc),
     }

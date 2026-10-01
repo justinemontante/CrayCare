@@ -1351,8 +1351,13 @@ bool syncFeedLevelConfig() {
   doc.setJsonData(fbdo.payload());
   float low = feedLevelLowThreshold;
   float critical = feedLevelCriticalThreshold;
-  const bool gotLow = readConfigFloatPath(
-    doc, "fields/min_value/doubleValue", low, 1.0f, 50.0f);
+  bool gotLow = readConfigFloatPath(
+    doc, "fields/low_value/doubleValue", low, 1.0f, 50.0f);
+  // Accept legacy documents until the app migrates them on read/save.
+  if (!gotLow) {
+    gotLow = readConfigFloatPath(
+      doc, "fields/min_value/doubleValue", low, 1.0f, 50.0f);
+  }
   const bool gotCritical = readConfigFloatPath(
     doc, "fields/critical_value/doubleValue", critical, 0.0f, 49.0f);
   if (!gotLow || !gotCritical || critical >= low) {

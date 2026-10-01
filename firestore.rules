@@ -37,24 +37,38 @@ service cloud.firestore {
         myProfile().role == 'owner' &&
         myProfile().get('status', 'active') == 'active';
     }
-    function isSafeThreshold(sensorName) {
+    function hasNoPhysicalRangeBounds() {
+      return !('min_value' in request.resource.data) &&
+        !('max_value' in request.resource.data);
+    }
+    function isWaterQualityThreshold(sensorName) {
       let min = request.resource.data.get('min_value', -1);
       let max = request.resource.data.get('max_value', -1);
       let validNumbers = (min is number) && (max is number) && (min < max);
       let tempOk = sensorName == 'temperature' && min >= 10.0 && min <= 32.0 && max >= 15.0 && max <= 38.0;
       let phOk = sensorName == 'ph_level' && min >= 4.0 && min <= 7.5 && max >= 6.5 && max <= 10.0;
       let doOk = sensorName == 'dissolved_oxygen' && min >= 1.0 && min <= 8.0 && max >= 3.0 && max <= 15.0;
-        let turbOk = sensorName == 'turbidity' && min >= 0.0 && min <= 100.0 && max >= 5.0 && max <= 1000.0;
-        let waterLow = request.resource.data.get('low_value', -1);
-        let waterCritical = request.resource.data.get('critical_value', -1);
-        let waterOk = sensorName == 'water_level' &&
-          waterLow is number && waterCritical is number &&
-          waterCritical >= 0.0 && waterCritical < waterLow && waterLow <= 95.0;
-        let feedCritical = request.resource.data.get('critical_value', -1);
-        let feedOk = sensorName == 'feed_level' &&
-          min >= 1.0 && min <= 50.0 && max == 100.0 &&
-          feedCritical is number && feedCritical >= 0.0 && feedCritical < min;
-      return waterOk || (validNumbers && (tempOk || phOk || doOk || turbOk || feedOk));
+      let turbOk = sensorName == 'turbidity' && min >= 0.0 && min <= 100.0 && max >= 5.0 && max <= 1000.0;
+      return validNumbers && (tempOk || phOk || doOk || turbOk);
+    }
+    function isWaterLevelThreshold() {
+      let low = request.resource.data.get('low_value', -1);
+      let critical = request.resource.data.get('critical_value', -1);
+      return hasNoPhysicalRangeBounds() &&
+        low is number && critical is number &&
+        critical >= 0.0 && critical < low && low <= 95.0;
+    }
+    function isFeedLevelThreshold() {
+      let low = request.resource.data.get('low_value', -1);
+      let critical = request.resource.data.get('critical_value', -1);
+      return hasNoPhysicalRangeBounds() &&
+        low is number && low >= 1.0 && low <= 50.0 &&
+        critical is number && critical >= 0.0 && critical < low;
+    }
+    function isSafeThreshold(sensorName) {
+      return (sensorName == 'water_level' && isWaterLevelThreshold()) ||
+        (sensorName == 'feed_level' && isFeedLevelThreshold()) ||
+        isWaterQualityThreshold(sensorName);
     }
     function isEspSession() {
       return isSignedIn() &&

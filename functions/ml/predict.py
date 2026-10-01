@@ -15,7 +15,8 @@ frame = pd.read_csv(os.path.join(ROOT, "sensor_dataset.csv"), parse_dates=["time
 frame["timestamp"] = frame["timestamp"].astype("int64") / 1e9
 result = detect_water_quality_anomaly(frame.tail(12), bundle, recommendations)
 print(f"WQAD status: {result['status']} (anomaly score={result['anomaly_score']}/100)")
-print(f"Main contributor: {result['driver_label']}")
+main_sensor = result["contributors"][0]["sensor"] if result["contributors"] else "N/A"
+print(f"Main contributor code: {main_sensor}")
 print(f"Insight: {result['insight']}")
 print(f"Suggested action: {result['recommendation']}")
 print(f"Model: {result['source']}")

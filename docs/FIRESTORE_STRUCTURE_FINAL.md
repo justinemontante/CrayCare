@@ -19,7 +19,7 @@
 users
 hardware_system
 notifications
-sensorIngestion       # internal ESP-to-Cloud-Function staging path
+sensorIngestion       # legacy live path and validated buffered-history fallback
 ```
 
 ## Firestore document ID conventions
@@ -97,7 +97,6 @@ tanks/{tank_id}       # tank_id is the owner's Firebase Authentication UID
     turbidity_air: boolean
     water_level: number                # centimeters
     feed_level: number                 # hopper percentage
-    estimated_feed_grams: number       # estimated remaining feed
     buffered_entries: number           # optional offline-backlog count
     recorded_at: Timestamp
 
@@ -108,7 +107,8 @@ tanks/{tank_id}       # tank_id is the owner's Firebase Authentication UID
     date_key: string
     sample_count: number
     processed_entry_ids: string[]
-    *_min, *_max, *_avg, *_sum, *_count  # only where sensor data exists
+    temperature/pH/DO/turbidity: *_min, *_max, *_avg, *_sum, *_count
+    water_level: daily mean in cm, waterLevel_sum, waterLevel_count
     updated_at: Timestamp
 
     entries/{reading_id}
@@ -116,16 +116,14 @@ tanks/{tank_id}       # tank_id is the owner's Firebase Authentication UID
       pH_min, pH_max, pH_avg
       DO_min, DO_max, DO_avg
       turbidity_min, turbidity_max, turbidity_avg
-      waterLevel_min, waterLevel_max, waterLevel_avg
+      water_level: single reading in cm (no min/max)
       feed_level: number | null
-      estimated_feed_grams: number | null
       recorded_at: Timestamp
 
   sensors/{temperature|ph_level|dissolved_oxygen|turbidity|water_level|feed_level}
-    min_value: number
-    max_value: number
-    critical_value: number             # feed-level threshold only
-    hopper_capacity_grams: number      # feed-level configuration only
+    min_value/max_value: number        # water-quality sensors only
+    low_value: number                  # water-level (cm) or feed-level (%) low threshold
+    critical_value: number             # water-level (cm) or feed-level (%) critical threshold
     updated_at: Timestamp
 
   actuators/{pump|aerator1|aerator2}
@@ -146,9 +144,7 @@ tanks/{tank_id}       # tank_id is the owner's Firebase Authentication UID
     dispenseCount: number
     lastSeen: Timestamp
     last_dispensed_at: Timestamp | null
-    last_dispensed_grams: number
     feed_level: number | null
-    estimated_feed_grams: number | null
 
   feeder_schedules/{schedule_id}
     time: string
@@ -182,12 +178,11 @@ tanks/{tank_id}       # tank_id is the owner's Firebase Authentication UID
     occurrence_at: Timestamp | null
     status: "completed" | "blocked" | "skipped_insufficient" | "failed" | null
     requested_grams: number | null
-    estimated_dispensed_grams: number | null
-    estimated_available_grams: number | null
+    estimated_dispensed_grams: number | null # servo-cycle estimate; not directly weighed
+    amount_basis: "servo_cycle_estimate" | null
     feed_level_before: number | null
     feed_level_after: number | null
     level_change_detected: boolean | null
-    amount_basis: "servo_cycle_estimate" | null
 
   water_quality_anomaly_detections/current
     uid: string
@@ -196,13 +191,9 @@ tanks/{tank_id}       # tank_id is the owner's Firebase Authentication UID
     is_anomaly: boolean
     anomaly_score: number # reference-pattern percentile, not a safety score
     source: string
-    analysis_window_minutes: number
     data_status: "ready" | "insufficient" | "stale"
     source_recorded_at: Timestamp | null
-    source_age_seconds: number | null
-    primary_driver: object | null # sensor, label, value, unit, direction, contribution_score
-    driver, driver_label, driver_value, driver_unit
-    contributors: array # ranked sensor contributions and directions
+    contributors: array # {sensor, value, direction, contribution_score}; app maps labels and units
     insight, recommendation
     processed_at: Timestamp
 
@@ -212,7 +203,7 @@ tanks/{tank_id}       # tank_id is the owner's Firebase Authentication UID
 
 `effective_at_ms` is reset when a feeding schedule is created, edited, or re-enabled. It prevents an occurrence that happened before that instant from being falsely classified as missed.
 
-The feeder log trigger sets date-scoped schedule outcomes. `isDone` is legacy compatibility only, not proof of success. Feeder history is append-only: authorized clients can create entries, but cannot update or delete an existing log. `pending_confirmation` is a non-terminal audit entry and therefore has no required `status`. Offline retries retain the original tank, occurrence timestamp and deterministic log id. Interrupted dispensing is recorded as failed and is not replayed after reboot. Supported doses are 20–200 g, in steps of 20 g; quantities and Consumption Today are servo-cycle estimates, not measured weights. Verify calibration on the actual hardware. App and ESP read all schedule pages.
+The feeder log trigger sets date-scoped schedule outcomes. `isDone` is legacy compatibility only, not proof of success. Feeder history is append-only: authorized clients can create entries, but cannot update or delete an existing log. `pending_confirmation` is a non-terminal audit entry and therefore has no required `status`. Offline retries retain the original tank, occurrence timestamp and deterministic log id. Interrupted dispensing is recorded as failed and is not replayed after reboot. Schedule and Feed Now dose values remain requested input amounts in grams. A completed cycle, including a confirmed override, may also record `estimated_dispensed_grams` from the servo-cycle estimate, not a direct weight measurement; hopper feed level remains percentage-only. The ESP blocks feeding at or below the configured critical percentage. App and ESP read all schedule pages.
 
 Machine Learning-Based Water Quality Anomaly Detection (WQAD) uses an unsupervised `IsolationForest` over multivariate readings, spreads, changes, rolling behavior, and trends. It requires twelve contiguous ten-minute readings (±2-minute cadence tolerance), representing a two-hour window. Source data older than 20 minutes is marked stale/Insufficient. Safety thresholds remain separate: they are neither model features nor training labels. Model metadata clearly identifies the current artifact as a synthetic bootstrap until it is retrained and validated using calibrated field data from the actual tank.
 
@@ -233,25 +224,23 @@ tanks/{tank_id}/batches/{batch_id}
   total_mortality: number
   harvest_weight_grams: number | null
   sample_count: number
-  initial_total_weight: number
-  initial_total_length: number
   created_at: Timestamp
-  # App derives initial_abw = initial_total_weight / sample_count
-  # and initial_abl = initial_total_length / sample_count.
-  # Final ABW/ABL come from the latest sampling record; none are stored here.
+  # sample_count is the number of individual entries in the baseline record.
+  # Initial ABW/ABL are derived from sampling_records/baseline.measurements.
+  # Initial totals and averages are not stored on new batch documents.
   # The app derives days_in_culture from stocking_date to today, or harvest_date/ended_at when complete.
 
   sampling_records/{sampling_id}
     sampling_date: Timestamp
-    sample_size: number
-    total_weight: number
-    total_length: number
+    measurements: array<object>  # sample_number, label, weight_g, length_cm
     live_count: number
     is_baseline: boolean
     created_at: Timestamp
-    # App derives avg_body_weight = total_weight / sample_size
-    # avg_body_length = total_length / sample_size, and
-    # biomass = live_count * (total_weight / sample_size); none are stored.
+    # App derives sample_size = measurements.length, total_weight and
+    # total_length as sums, ABW/ABL as averages, and biomass = live_count * ABW.
+    # These derived aggregates are not persisted in new sampling records.
+    # In the logical relational ERD, each measurements array object is shown as
+    # one sampling_measurements row; Firestore has no separate child collection.
 
   mortality_records/{mortality_id}
     mortality_date: Timestamp
@@ -267,40 +256,45 @@ tanks/{tank_id}/batches/{batch_id}
     # App derives ABW as total_weight_kg * 1000 / harvest_count; not stored.
 ```
 
-## ESP ingestion flow
+## ESP sensor flow
 
 ```text
 ESP32
-  -> sensorIngestion/current
+  -> tanks/{currentTankId}/sensor_readings/latest
        hardwareId
        source_tank_id
        source_owner_uid
        source_assignment_at_ms
        captured_at_ms
+       recorded_at
        live sensor values
        turbidity_air
        buffered_entries
 
-  -> sensorIngestion/current/history/{reading_id}
+  -> tanks/{currentTankId}/sensor_readings_history/{Manila date}/entries/{reading_id}
        hardwareId
        source_tank_id
        source_owner_uid
        source_assignment_at_ms
        captured_at_ms
+       recorded_at
        per-sensor 10-minute min/max/avg (only sensors with valid samples)
 
-Cloud Functions read hardware_system/currentOwner
-  -> tanks/{tank_id}/sensor_readings/latest
-  -> tanks/{tank_id}/sensor_readings_history/{date}/entries/{reading_id}
+Firestore Rules check hardware_system/currentOwner and the tank owner on each direct write.
+The ESP refreshes its cached assignment every 60 seconds while assigned.
+
+Offline, unassigned, and old-assignment buffered history
+  -> sensorIngestion/current/history/{reading_id}
+  -> Cloud Function validates the original assignment; mismatches are quarantined.
 ```
 
-`sensorIngestion` is internal system-managed staging data written by the dedicated ESP Email/Password service account. Invalid 10-minute sensor aggregates are omitted rather than stored as negative sentinels. The routed `recorded_at` preserves the ESP capture time when NTP was valid.
+Live snapshots and normal 10-minute history now write once to their canonical tank documents. Firestore Rules validate the current tank and owner, the capture assignment timestamp, payload fields, and that live timestamps move forward. Buffered history continues through `sensorIngestion` so the Cloud Function can quarantine entries captured under an earlier assignment instead of attributing them to the new owner. Invalid 10-minute aggregates are omitted rather than stored as negative sentinels. `recorded_at` preserves the ESP capture time when NTP is valid.
 
 ## Security note
 
 ### Capture binding and feeder reliability fields
 
-Both sensor staging paths carry `source_tank_id`, `source_owner_uid`, `source_assignment_at_ms`, and `captured_at_ms`. The assignment timestamp is compared at millisecond precision. Functions only route matching capture assignments; old or unbound history stays staged with `routing_status: quarantined` / `routing_reason`. Older live events cannot overwrite newer readings. Coordinate firmware and ingestion-function rollout.
+Direct live and history documents carry `source_tank_id`, `source_owner_uid`, `source_assignment_at_ms`, and `captured_at_ms`. Rules compare the assignment timestamp at millisecond precision. Old or unbound buffered history stays staged with `routing_status: quarantined` / `routing_reason`; it is never written into the newly assigned owner's tank. Rules reject older live readings. Deploy the updated Firestore Rules before flashing the direct-write firmware; keep the legacy staging Functions during rollout.
 
 `feeder_commands` includes `expires_at` (Timestamp, app request deadline) and `near_schedule_confirmed` (owner warning-window acknowledgement). Firmware also applies a 60-second limit from the server's `issued_at`; legacy commands without the extra deadline use that server limit. Queued offline app writes cannot restart their deadline on reconnect. `near_schedule_confirmed` never bypasses the strict device-side collision block around a scheduled feeding. Status includes `command_id` / `status_reason`; logs add optional `command_id` for exact request confirmation. Missing confirmation does not create an app-authored failure log.
 

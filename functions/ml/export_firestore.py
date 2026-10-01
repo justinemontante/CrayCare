@@ -46,9 +46,7 @@ for date_doc in date_docs:
             "turbidity_avg": data.get("turbidity_avg"),
             "turbidity_min": data.get("turbidity_min"),
             "turbidity_max": data.get("turbidity_max"),
-            "waterLevel_avg": data.get("waterLevel_avg"),
-            "waterLevel_min": data.get("waterLevel_min"),
-            "waterLevel_max": data.get("waterLevel_max"),
+            "waterLevel": data.get("water_level", data.get("waterLevel_avg")),
         })
 
 columns = [
@@ -57,7 +55,7 @@ columns = [
     "pH_avg", "pH_min", "pH_max",
     "DO_avg", "DO_min", "DO_max",
     "turbidity_avg", "turbidity_min", "turbidity_max",
-    "waterLevel_avg", "waterLevel_min", "waterLevel_max",
+    "waterLevel",
 ]
 df = pd.DataFrame(rows, columns=columns)
 if not df.empty:
@@ -66,7 +64,7 @@ if not df.empty:
     df = df.dropna(subset=columns)
 
     def valid_aggregate(row):
-        for sensor in ("temp", "pH", "DO", "turbidity", "waterLevel"):
+        for sensor in ("temp", "pH", "DO", "turbidity"):
             minimum = float(row[f"{sensor}_min"])
             average = float(row[f"{sensor}_avg"])
             maximum = float(row[f"{sensor}_max"])
@@ -79,7 +77,12 @@ if not df.empty:
                 return False
         return True
 
-    df = df[df.apply(valid_aggregate, axis=1)].sort_values("timestamp")
+    df = df[
+        df.apply(valid_aggregate, axis=1)
+        & df["waterLevel"].map(
+            lambda value: math.isfinite(float(value)) and float(value) >= 0
+        )
+    ].sort_values("timestamp")
     df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True).dt.tz_localize(None)
 
 out_path = Path(__file__).with_name("real_sensor_history.csv")

@@ -20,12 +20,15 @@ test('schedule time normalization and duplicate day/time regardless of dose', ()
 });
 
 test('bad sensor readings do not produce water-quality alarms',()=>{
-  const thresholds={dissolved_oxygen:{min:5,max:10},turbidity:{min:0,max:50},feed_level:{min:20,max:100,critical:10}};
+  const thresholds={dissolved_oxygen:{min:5,max:10},turbidity:{min:0,max:50},feed_level:{low:20,critical:10}};
   assert.deepEqual(sensorStateChanges({}, {dissolved_oxygen:-1,turbidity:999,turbidity_air:true,feed_level:-1},thresholds),[]);
   assert.equal(sensorValue('dissolved_oxygen',{dissolved_oxygen:null}),null);
   assert.equal(sensorValue('feed_level',{feed_level:101}),null);
   assert.equal(sensorStateChanges({}, {dissolved_oxygen:0},thresholds)[0].state,'critical');
   assert.equal(sensorStateChanges({}, {feed_level:7},thresholds)[0].state,'critical');
+  assert.equal(sensorStateChanges({}, {feed_level:15},thresholds)[0].state,'warning');
+  assert.equal(sensorStateChanges({}, {feed_level:0},thresholds)[0].dir,'empty');
+  assert.equal(sensorStateChanges({}, {feed_level:15},{feed_level:{min:20,critical:10}})[0].state,'warning');
   assert.equal(sensorStateChanges({dissolved_oxygen:1}, {dissolved_oxygen:7},thresholds)[0].state,'resolved');
 });
 

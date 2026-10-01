@@ -17,8 +17,14 @@ void main() {
         'is_anomaly': true,
         'anomaly_score': 99.2,
         'source': 'wqad-isolation-forest-test',
-        'driver': 'DO',
-        'driver_label': 'Dissolved Oxygen',
+        'contributors': [
+          {
+            'sensor': 'DO',
+            'value': 5.5,
+            'direction': 'decreasing',
+            'contribution_score': 2.1,
+          },
+        ],
         'insight': 'Unusual combined pattern detected.',
         'recommendation': 'Verify the reading and inspect aeration.',
         'timestamp': '2026-09-03T00:00:00Z',
@@ -26,6 +32,9 @@ void main() {
       expect(result.status, 'Unusual');
       expect(result.isAnomaly, isTrue);
       expect(result.anomalyScore, 99.2);
+      expect(result.driverLabel, 'Dissolved Oxygen');
+      expect(result.driverUnit, 'mg/L');
+      expect(result.driverValue, 5.5);
       expect(result.modelBasis, 'Isolation Forest ML');
       expect(result.usesPrototypeData, isTrue);
       expect(result.recommendation, isNotEmpty);

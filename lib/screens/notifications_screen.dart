@@ -172,27 +172,33 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   Widget _buildHeaderRow() {
     final svc = NotificationService.instance;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            '${_filtered.length} notification${_filtered.length == 1 ? '' : 's'}',
-            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.5)),
-          ),
-          if (svc.unreadCount > 0)
-            TextButton.icon(
-              onPressed: svc.markAllRead,
-              icon: const Icon(Icons.done_all_rounded, size: 14),
-              label: const Text('Mark all read'),
-              style: TextButton.styleFrom(
-                foregroundColor: AppColors.primary,
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                textStyle: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700),
-              ),
+    return SizedBox(
+      height: 36,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              '${_filtered.length} notification${_filtered.length == 1 ? '' : 's'}',
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.5)),
             ),
-        ],
+            if (svc.unreadCount > 0)
+              TextButton.icon(
+                onPressed: svc.markAllRead,
+                icon: const Icon(Icons.done_all_rounded, size: 13),
+                label: const Text('Mark all read'),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.primary,
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  minimumSize: const Size(0, 28),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  visualDensity: VisualDensity.compact,
+                  textStyle: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
