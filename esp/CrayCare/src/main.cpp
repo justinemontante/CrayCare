@@ -696,7 +696,7 @@ unsigned long lcdTransientUntilMs = 0;
 bool lcdCloudBootPending = false;
 unsigned long lcdCloudBootStartedMs = 0;
 unsigned long lcdCloudBootLastDrawMs = 0;
-void showLCDBootProgress(const String& label, uint8_t filled);
+void showLCDBootProgress(const String& label, uint8_t filledPixels);
 
 // Blower (relay module, ACTIVE-LOW like the main relays) on GPIO16.
 // Runs 5 s ahead of every feed (manual, cloud, scheduled, onsite) to warm
@@ -1097,15 +1097,15 @@ bool wifiTryOne(const String &s, const String &p) {
   for (int i = 0; i < 20; i++) {
     if (WiFi.status() == WL_CONNECTED) break;
     delay(500);
-    showLCDBootProgress("Connecting WiFi", min(15, (i + 1) * 15 / 20));
+    showLCDBootProgress("Connecting WiFi", min(75, (i + 1) * 75 / 20));
     esp_task_wdt_reset();  // 10 s worst case here; keep the watchdog fed
     Serial.print(".");
   }
   Serial.println();
   if (WiFi.status() == WL_CONNECTED) {
-    showLCDBootProgress("WiFi connected", 16);
+    showLCDBootProgress("WiFi connected", 80);
     delay(600);
-    showLCDBoot("IP address", WiFi.localIP().toString(), 1000);
+    showLCDBoot("WiFi network:", s, 1200);
   } else {
     showLCDBoot("WiFi failed", "Trying next...", 900);
   }
@@ -1143,7 +1143,7 @@ void wifiScanNetworks() {
 }
 
 void connectWiFi() {
-  showLCDBootProgress("WiFi profiles", 2);
+  showLCDBootProgress("WiFi profiles", 10);
   wifiMigrateLegacy();
   int n = wifiProfileCount();
 
@@ -1192,14 +1192,14 @@ void initTime() {
 
     if (now > 1700000000) {
       Serial.println(" OK");
-      showLCDBootProgress("Time synced", 16);
+      showLCDBootProgress("Time synced", 80);
       delay(600);
       return;
     }
 
     Serial.print(".");
     delay(500);
-    showLCDBootProgress("Syncing time", min(15, (i + 1) * 15 / 20));
+    showLCDBootProgress("Syncing time", min(75, (i + 1) * 75 / 20));
   }
 
   Serial.println(" skipped");
@@ -2167,7 +2167,7 @@ void setup() {
   esp_task_wdt_add(NULL);
 
   initLCD();
-  showLCDBootProgress("CrayCare boot", 1);
+  showLCDBootProgress("CrayCare boot", 5);
   initOnsiteButton();
 
   analogReadResolution(12);
@@ -2183,10 +2183,10 @@ void setup() {
   sensors.begin();
   loadSensorCalibrations();
 
-  showLCDBootProgress("Starting sensors", 4);
+  showLCDBootProgress("Starting sensors", 20);
   primeTemperatureBuffer();
   primeTurbidityBuffer();
-  showLCDBootProgress("Sensors ready", 16);
+  showLCDBootProgress("Sensors ready", 80);
   delay(400);
 
   connectWiFi();
@@ -2692,7 +2692,7 @@ void loop() {
   if (lcdCloudBootPending) {
     if (cloudBootstrapComplete) {
       lcdCloudBootPending = false;
-      showLCDBootProgress("CrayCare ready", 16);
+      showLCDBootProgress("CrayCare ready", 80);
     } else if (firebaseAuthAttemptFailed) {
       lcdCloudBootPending = false;
       showLCDTransient("Firebase error", "See Serial Monitor", 4000);
@@ -2702,7 +2702,7 @@ void loop() {
     } else if (now - lcdCloudBootLastDrawMs >= 400UL) {
       lcdCloudBootLastDrawMs = now;
       // Moving bar means waiting, not a fabricated authentication percentage.
-      showLCDBootProgress("Starting cloud", (now / 400UL) % 16UL + 1);
+      showLCDBootProgress("Starting cloud", (now / 100UL) % 80UL + 1);
     }
   }
 
@@ -3993,14 +3993,24 @@ void showLCDBoot(const String& line0, const String& line1, unsigned long holdMs)
   if (holdMs > 0) delay(holdMs);
 }
 
-void showLCDBootProgress(const String& label, uint8_t filled) {
+void showLCDBootProgress(const String& label, uint8_t filledPixels) {
   if (!lcdReady) return;
-  if (filled > 16) filled = 16;
-  char bar[17];
-  for (uint8_t i = 0; i < 16; ++i) bar[i] = i < filled ? '#' : '-';
-  bar[16] = '\0';
+  if (filledPixels > 80) filledPixels = 80;
+  const uint8_t fullCells = filledPixels / 5;
+  const uint8_t partialPixels = filledPixels % 5;
+  uint8_t fullGlyph[8] = {0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F};
+  lcd.createChar(1, fullGlyph);
+  if (partialPixels > 0) {
+    uint8_t partialGlyph[8];
+    const uint8_t row = (uint8_t)(0x1F << (5 - partialPixels));
+    for (uint8_t i = 0; i < 8; ++i) partialGlyph[i] = row;
+    lcd.createChar(0, partialGlyph);
+  }
   lcdPrint16(0, label);
-  lcdPrint16(1, bar);
+  lcdPrint16(1, "                ");
+  lcd.setCursor(0, 1);
+  for (uint8_t i = 0; i < fullCells; ++i) lcd.write((uint8_t)1);
+  if (partialPixels > 0 && fullCells < 16) lcd.write((uint8_t)0);
 }
 
 void showLCDTransient(const String& line0, const String& line1, unsigned long holdMs) {
