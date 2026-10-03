@@ -5,7 +5,7 @@ import unittest
 import joblib
 import pandas as pd
 
-from anomaly_features import build_anomaly_features, detect_water_quality_anomaly
+from anomaly_features import SENSORS, build_anomaly_features, detect_water_quality_anomaly
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 
@@ -20,14 +20,19 @@ class WaterQualityAnomalyDetectionTests(unittest.TestCase):
             cls.recommendations = json.load(handle)
 
     def test_features_do_not_include_threshold_labels(self):
-        features = build_anomaly_features(self.frame.head(24))
+        features = build_anomaly_features(
+            self.frame.head(24), sensors=self.bundle.get('sensors', SENSORS),
+            version=self.bundle.get('feature_version', 1),
+        )
         self.assertFalse(any("class" in name or "threshold" in name or "hazard" in name for name in features.columns))
         self.assertEqual(list(features.columns), self.bundle["features"])
 
     def test_bundle_is_unsupervised_isolation_forest(self):
         self.assertEqual(self.bundle["algorithm"], "IsolationForest")
         self.assertFalse(self.bundle["training_labels_used"])
-        self.assertEqual(self.bundle["training_data_origin"], "synthetic_bootstrap_not_field_validated")
+        self.assertEqual(self.bundle["sensors"], SENSORS)
+        self.assertFalse(any("waterLevel" in name for name in self.bundle["features"]))
+        self.assertEqual(self.bundle["training_data_origin"], "external_freshwater_fishpond_proxy_unvalidated")
 
     def test_normal_reference_window_returns_contract(self):
         result = detect_water_quality_anomaly(self.frame.iloc[500:512], self.bundle, self.recommendations)
@@ -53,15 +58,12 @@ class WaterQualityAnomalyDetectionTests(unittest.TestCase):
             & result.keys()
         )
 
-    def test_holdout_event_is_detected_somewhere(self):
-        event_rows = self.frame[self.frame["event_type"] == "organic_load_event"]
-        detected = False
-        for index in event_rows.index[11::6]:
-            result = detect_water_quality_anomaly(
-                self.frame.loc[index - 11:index], self.bundle, self.recommendations
-            )
-            detected = detected or result["is_anomaly"]
-        self.assertTrue(detected)
+    def test_inference_uses_four_water_quality_sensors_only(self):
+        result = detect_water_quality_anomaly(
+            self.frame.iloc[500:512], self.bundle, self.recommendations
+        )
+        self.assertTrue(result["contributors"])
+        self.assertFalse(any(item["sensor"] == "waterLevel" for item in result["contributors"]))
 
 
 if __name__ == "__main__":

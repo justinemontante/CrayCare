@@ -13,6 +13,13 @@ _db = None
 _ROOT = os.path.dirname(__file__)
 _MODEL_PATH = os.path.join(_ROOT, "wqad_model.joblib")
 _RECOMMENDATIONS_PATH = os.path.join(_ROOT, "anomaly_recommendations.json")
+_WQAD_SENSORS = ["temp", "pH", "DO", "turbidity"]
+_HISTORY_FIELDS = {
+    "temp": ("temp_avg", "temperature"),
+    "pH": ("pH_avg", "ph_level"),
+    "DO": ("DO_avg", "dissolved_oxygen"),
+    "turbidity": ("turbidity_avg", "turbidity"),
+}
 
 
 def _get_db():
@@ -52,9 +59,13 @@ def _run_water_quality_anomaly_detection(frame):
     return detect_water_quality_anomaly(frame, bundle, recommendations)
 
 
-def _valid_history_row(row):
-    for key in ("temp_avg", "pH_avg", "DO_avg", "turbidity_avg", "waterLevel"):
-        value = row.get(key)
+def _valid_history_row(row, sensors=None):
+    sensors = list(sensors or _WQAD_SENSORS)
+    for sensor in sensors:
+        fields = _HISTORY_FIELDS.get(sensor)
+        if fields is None:
+            return False
+        value = next((row.get(key) for key in fields if row.get(key) is not None), None)
         if (
             value is None
             or not isinstance(value, (int, float))
@@ -101,7 +112,7 @@ def _timestamp_seconds(value):
     return None
 
 
-def _fetch_sensor_history(tank_id, hours=24):
+def _fetch_sensor_history(tank_id, hours=24, sensors=None):
     import pandas as pd
 
     db = _get_db()
@@ -145,16 +156,14 @@ def _fetch_sensor_history(tank_id, hours=24):
                     ph = data.get("ph_level", data.get("pH_avg"))
                     dissolved_oxygen = data.get("dissolved_oxygen", data.get("DO_avg"))
                     turbidity = data.get("turbidity", data.get("turbidity_avg"))
-                    water_level = data.get("water_level", data.get("waterLevel_avg"))
                     row = {
                         "timestamp": recorded_seconds,
                         "temp_avg": temp,
                         "pH_avg": ph,
                         "DO_avg": dissolved_oxygen,
                         "turbidity_avg": turbidity,
-                        "waterLevel": water_level,
                     }
-                    if _valid_history_row(row):
+                    if _valid_history_row(row, sensors=sensors):
                         rows.append(row)
                     else:
                         print(f"[WQAD] Skipping invalid history document {doc.id}")
@@ -191,13 +200,17 @@ def _insufficient_result(data_status):
 
 def _analyze_tank(tank_id):
     db = _get_db()
+    bundle, _ = _load_wqad()
+    required_sensors = list(bundle.get("sensors", _WQAD_SENSORS)) if bundle else _WQAD_SENSORS
+    if required_sensors != _WQAD_SENSORS:
+        raise ValueError("Deployed WQAD model must use exactly four water-quality sensors.")
     tank_snapshot = db.collection("tanks").document(tank_id).get()
     owner_uid = (
         (tank_snapshot.to_dict() or {}).get("owner_uid", "")
         if tank_snapshot.exists
         else ""
     )
-    frame = _fetch_sensor_history(tank_id)
+    frame = _fetch_sensor_history(tank_id, sensors=required_sensors)
     from anomaly_window import anomaly_window
 
     now = datetime.now(timezone.utc)

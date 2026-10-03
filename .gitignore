@@ -87,3 +87,5 @@ venv/
 .codex_doc_review/
 functions/ml/real_sensor_history.csv
 functions/ml/wqad_candidate.joblib
+functions/ml/wqad_fishpond_candidate.joblib
+functions/ml/fishpond_four_sensor_10min.csv

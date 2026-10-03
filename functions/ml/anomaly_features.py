@@ -9,23 +9,17 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-SENSORS = ["temp", "pH", "DO", "turbidity", "waterLevel"]
-SENSOR_VALUE_FIELDS = {
-    "temp": ("temperature", "temp_avg"),
-    "pH": ("ph_level", "pH_avg"),
-    "DO": ("dissolved_oxygen", "DO_avg"),
-    "turbidity": ("turbidity", "turbidity_avg"),
-    "waterLevel": ("water_level", "waterLevel", "waterLevel_avg"),
-}
+from sensor_history import SENSORS, SENSOR_VALUE_FIELDS, normalize_history, timestamp_seconds
 
 
-def build_anomaly_features(df):
+def build_anomaly_features(df, sensors=None, version=1):
     """Create leakage-safe temporal features from 10-minute sensor windows."""
     import numpy as np
     import pandas as pd
 
+    sensors = list(sensors or SENSORS)
     feat = pd.DataFrame(index=df.index)
-    for sensor in SENSORS:
+    for sensor in sensors:
         value_column = next(
             (name for name in SENSOR_VALUE_FIELDS[sensor] if name in df), None
         )
@@ -35,19 +29,23 @@ def build_anomaly_features(df):
             )
         avg = pd.to_numeric(df[value_column], errors="coerce")
         feat[f"{sensor}_avg"] = avg
-        feat[f"{sensor}_delta"] = avg.diff()
+        delta = avg.diff()
+        if version >= 2:
+            elapsed = df['timestamp'].map(timestamp_seconds).diff() / 600.0
+            delta = delta / elapsed.where(elapsed > 0)
+        feat[f"{sensor}_delta"] = delta
         feat[f"{sensor}_roll1h_mean"] = avg.rolling(6, min_periods=2).mean()
         feat[f"{sensor}_roll1h_std"] = avg.rolling(6, min_periods=2).std()
         feat[f"{sensor}_roll2h_mean"] = avg.rolling(12, min_periods=3).mean()
         feat[f"{sensor}_roll2h_std"] = avg.rolling(12, min_periods=3).std()
-        feat[f"{sensor}_trend30m"] = avg.diff().rolling(3, min_periods=2).mean()
-        feat[f"{sensor}_trend1h"] = avg.diff().rolling(6, min_periods=3).mean()
+        feat[f"{sensor}_trend30m"] = delta.rolling(3, min_periods=2).mean()
+        feat[f"{sensor}_trend1h"] = delta.rolling(6, min_periods=3).mean()
         scale = feat[f"{sensor}_roll2h_std"].clip(lower=1e-6)
         feat[f"{sensor}_baseline_deviation"] = (
             avg - feat[f"{sensor}_roll2h_mean"]
         ) / scale
 
-    if "timestamp" in df:
+    if "timestamp" in df and version == 1:
         numeric = pd.to_numeric(df["timestamp"], errors="coerce")
         timestamp = pd.to_datetime(numeric, unit="s", utc=True, errors="coerce")
         if timestamp.isna().all():
@@ -69,13 +67,13 @@ def _percentile_score(raw_value, calibration_scores):
     return round(float(rank / scores.size * 100.0), 1)
 
 
-def _contributors(latest, bundle):
+def _contributors(latest, bundle, sensors):
     import numpy as np
 
     centers = bundle.get("robust_centers", {})
     scales = bundle.get("robust_scales", {})
     contributions = []
-    for sensor in SENSORS:
+    for sensor in sensors:
         names = [
             f"{sensor}_avg",
             f"{sensor}_delta",
@@ -108,6 +106,34 @@ def _contributors(latest, bundle):
     )
 
 
+def _model_contributors(latest, bundle, raw_value):
+    """Score reduction when a sensor's features are replaced by fit medians.
+
+    This sensitivity diagnostic is not a causal explanation or a SHAP value.
+    Correlated feature replacement can be outside the observed distribution.
+    """
+    import pandas as pd
+    variants = []
+    for sensor in SENSORS:
+        replaced = latest.copy()
+        for name in latest.columns:
+            if name.startswith(sensor + '_'):
+                replaced[name] = bundle['feature_medians'][name]
+        variants.append(replaced)
+    scores = -bundle['model'].score_samples(pd.concat(variants, ignore_index=True))
+    items = []
+    for sensor, score in zip(SENSORS, scores):
+        effect = max(0.0, raw_value - float(score))
+        if effect <= 1e-10:
+            continue
+        trend = float(latest.iloc[0][sensor + '_trend30m'])
+        deadband = float(bundle.get('trend_deadbands', {}).get(sensor, 0.0))
+        direction = 'stable' if abs(trend) <= deadband else ('increasing' if trend > 0 else 'decreasing')
+        items.append({'sensor': sensor, 'value': round(float(latest.iloc[0][sensor + '_avg']), 3),
+                      'direction': direction, 'contribution_score': round(effect, 6)})
+    return sorted(items, key=lambda item: item['contribution_score'], reverse=True)
+
+
 def detect_water_quality_anomaly(df, bundle, recommendations):
     """Return a WQAD result for the latest complete sensor window."""
     if bundle is None:
@@ -121,17 +147,40 @@ def detect_water_quality_anomaly(df, bundle, recommendations):
             "source": "Model unavailable",
         }
 
-    features = build_anomaly_features(df)
+    # WQAD uses only the four water-quality sensors. Never fall back to
+    # water-level inputs for older model bundles.
+    sensors = list(bundle.get("sensors", SENSORS))
+    if sensors != SENSORS:
+        raise ValueError("WQAD model must use exactly temp, pH, DO, and turbidity.")
+    version = int(bundle.get('feature_version', 1))
+    if version >= 2:
+        from anomaly_window import anomaly_window
+        try:
+            df = normalize_history(df)
+        except (ValueError, TypeError):
+            df = df.iloc[:0]
+        if not df.empty:
+            df, status, _ = anomaly_window(df, float(df.timestamp.iloc[-1]))
+        else:
+            status = 'insufficient'
+        if status != 'ready':
+            return {'status': 'Insufficient', 'is_anomaly': False, 'anomaly_score': 0.0,
+                    'contributors': [], 'source': 'Insufficient data',
+                    'insight': 'A complete recent window of valid sensor readings is required.',
+                    'recommendation': 'Check sensor connectivity and calibration, then collect more readings.'}
+    features = build_anomaly_features(df, sensors=sensors, version=version)
     expected = bundle["features"]
     latest = features.iloc[[-1]].copy()
-    for missing in set(expected) - set(latest.columns):
-        latest[missing] = 0.0
+    if set(expected) - set(latest.columns):
+        raise ValueError('Model feature schema does not match inference; retrain the bundle.')
     latest = latest[expected]
     model = bundle["model"]
-    raw_value = -float(model.decision_function(latest)[0])
+    raw_value = -float(model.score_samples(latest)[0] if version >= 2 else model.decision_function(latest)[0])
     anomaly_score = _percentile_score(raw_value, bundle.get("calibration_scores", []))
-    is_anomaly = raw_value >= float(bundle["decision_threshold_raw"])
-    contributors = _contributors(latest.iloc[0], bundle)
+    is_anomaly = (raw_value > float(bundle["decision_threshold_raw"]) if version >= 2
+                  else raw_value >= float(bundle["decision_threshold_raw"]))
+    contributors = (_model_contributors(latest, bundle, raw_value) if version >= 2
+                    else _contributors(latest.iloc[0], bundle, sensors))
 
     from anomaly_interpreter import interpret_anomaly
 

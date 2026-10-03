@@ -34,7 +34,7 @@ def main():
     )
 
     # Reuse the same owner/tank validation, inference, and Firestore writes as
-    # the deployed hourly scheduled function.
+    # the deployed function, which is scheduled every 30 minutes.
     from main import run_wqad_now
 
     run_wqad_now()

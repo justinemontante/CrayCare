@@ -5,29 +5,30 @@ SENSOR_LABELS = {
     "pH": "pH Level",
     "DO": "Dissolved Oxygen",
     "turbidity": "Turbidity",
-    "waterLevel": "Water Level",
 }
 
 
 def interpret_anomaly(is_anomaly, anomaly_score, contributors, recommendations):
+    if not is_anomaly:
+        return {
+            "insight": "The combined readings are within the model's usual pattern. Continue checking the separate sensor safety alerts.",
+            "recommendation": recommendations["overall"]["normal"],
+        }
     if not contributors:
         return {
-            "insight": "No complete sensor contribution profile is available.",
+            "insight": "The combined readings differ from the reference pattern; no single sensor explains the score clearly.",
             "recommendation": recommendations["overall"]["verify"],
         }
     primary = contributors[0]
     secondary = contributors[1] if len(contributors) > 1 else None
-    if not is_anomaly:
-        return {
-            "insight": "The latest combined sensor pattern is consistent with the model reference data. This does not establish that all readings are within the configured safety limits.",
-            "recommendation": recommendations["overall"]["normal"],
-        }
 
     def trend_phrase(item):
         label = SENSOR_LABELS.get(item["sensor"], item["sensor"])
+        unit = {"temp": "°C", "DO": " mg/L", "turbidity": " NTU"}.get(item["sensor"], "")
+        reading = f"{label} ({item['value']:g}{unit})"
         if item["direction"] == "stable":
-            return f"{label} has little net change over the recent 30-minute window"
-        return f"{label} is {item['direction']} over the recent 30-minute window"
+            return f"{reading} shows little recent net change"
+        return f"{reading} is {item['direction']} in recent readings"
 
     primary_phrase = trend_phrase(primary)
     if secondary and secondary["contribution_score"] >= primary["contribution_score"] * 0.55:
@@ -35,17 +36,21 @@ def interpret_anomaly(is_anomaly, anomaly_score, contributors, recommendations):
     else:
         pattern = primary_phrase
     by_sensor = {item["sensor"]: item for item in contributors}
-    if (by_sensor.get("DO", {}).get("direction") == "decreasing"
+    if (primary["sensor"] in {"DO", "turbidity"}
+            and by_sensor.get("DO", {}).get("direction") == "decreasing"
             and by_sensor.get("turbidity", {}).get("direction") == "increasing"):
         recommendation = recommendations["combined_do_turbidity"]["action"]
+    elif (primary["sensor"] in {"DO", "temp"}
+            and by_sensor.get("DO", {}).get("direction") == "decreasing"
+            and by_sensor.get("temp", {}).get("direction") == "increasing"):
+        recommendation = recommendations["combined_temp_do"]["action"]
     else:
         sensor_rec = recommendations.get(primary["sensor"], recommendations["overall"])
         recommendation = sensor_rec.get(primary["direction"], sensor_rec.get("verify"))
     return {
         "insight": (
-            f"An unusual combined sensor pattern was detected: {pattern}. "
-            "The combination differs from the model reference data. "
-            "These observations do not establish the cause or prove an unsafe condition."
+            f"An unusual combined pattern was detected. Among the readings associated with the score, {pattern}. "
+            "Check the readings and tank conditions to establish the cause."
         ),
         "recommendation": recommendation,
     }

@@ -20,6 +20,18 @@ class HistoryWindowTests(unittest.TestCase):
         self.assertEqual(len(rows), 12)
         self.assertEqual(source, self.NOW)
 
+    def test_four_sensor_history_does_not_require_water_level(self):
+        import main
+
+        row = {
+            "temp_avg": 27.0,
+            "pH_avg": 7.2,
+            "DO_avg": 6.0,
+            "turbidity_avg": 15.0,
+        }
+        self.assertTrue(main._valid_history_row(row))
+        self.assertFalse(main._valid_history_row(row, ["temp", "pH", "DO", "turbidity", "waterLevel"]))
+
     def test_eight_hour_old_readings_are_not_reassessed(self):
         frame = self.frame([self.NOW - 8 * 3600 - i * 600 for i in range(12)])
         rows, status, _ = anomaly_window(frame, self.NOW)

@@ -1,39 +1,95 @@
 {
   "overall": {
-    "normal": "Continue routine monitoring. Safety decisions must still follow the configured sensor thresholds and direct tank inspection.",
-    "verify": "Verify the latest readings using calibrated instruments and inspect the tank before changing feeding, aeration, or water-management routines."
+    "normal": "Continue routine monitoring, sensor maintenance, and checks against the configured safety limits.",
+    "verify": "Confirm the readings with an independent calibrated instrument, inspect probes for fouling, and review recent tank maintenance."
   },
   "DO": {
-    "decreasing": "Inspect aerator operation, airflow, circulation, recent feeding, and accumulated organic waste. Confirm dissolved oxygen with a calibrated meter before intervention.",
-    "increasing": "Check whether aeration, circulation, photosynthetic activity, or sensor bubbles explain the unusual increase. Verify the probe placement and calibration.",
+    "decreasing": "Confirm DO with a calibrated meter and check aerator airflow, circulation, recent feeding, and waste buildup. Oxygen demand from decomposition is a possible explanation to investigate.",
+    "increasing": "Verify DO and probe condition, then review recent aeration changes and daylight or algae activity. Photosynthesis can increase oxygen; an increase alone does not identify a fault.",
     "stable": "Compare dissolved oxygen with a calibrated meter and review recent readings. Little net change alone does not establish a sensor fault.",
     "verify": "Verify dissolved oxygen with a calibrated meter and inspect aeration."
   },
   "turbidity": {
-    "increasing": "Inspect filtration, uneaten feed, suspended waste, and recent maintenance activity. Confirm the reading before performing any water-management action.",
-    "decreasing": "Check whether filtration, settling, cleaning, or a recent water change explains the unusual decrease and confirm sensor cleanliness.",
+    "increasing": "Inspect the probe, filter, suspended particles, and recent feeding or cleaning. Sediment, algae, and organic particles can raise turbidity; the reading alone cannot identify which is present.",
+    "decreasing": "Confirm probe condition and review settling, filtration, cleaning, or water replacement. Clearer water alone does not establish safe water chemistry.",
     "stable": "Compare turbidity with a manual sample and review recent filtration or cleaning. Little net change alone does not establish a sensor fault.",
     "verify": "Inspect filtration and verify turbidity manually."
   },
   "pH": {
-    "increasing": "Verify pH using a calibrated test, inspect recent water additions and biological activity, and avoid rapid chemical correction based on one reading.",
-    "decreasing": "Verify pH using a calibrated test and review recent water changes, organic loading, and source-water condition before corrective action.",
+    "increasing": "Confirm pH with a calibrated test and review source water and recent additions. If the change persists, measure alkalinity; buffering affects pH stability. Seek aquaculture guidance before chemical adjustment.",
+    "decreasing": "Confirm pH with a calibrated test, review source water and recent additions, and measure alkalinity if the change persists. Obtain aquaculture advice before adding a buffer or changing water chemistry.",
     "stable": "Compare pH with a calibrated test and review recent readings. Little net change alone does not establish a sensor fault.",
     "verify": "Verify pH with a calibrated test before adjustment."
   },
   "temp": {
-    "increasing": "Inspect shading, room and water temperature, pump heat, and circulation. Confirm the sensor reading before changing the system.",
-    "decreasing": "Inspect ambient conditions, incoming water, circulation, and sensor placement. Confirm the reading with a second thermometer.",
+    "increasing": "Confirm temperature with a second thermometer and inspect sunlight exposure, incoming water, and circulation. Check DO too: warmer water holds less oxygen at saturation.",
+    "decreasing": "Confirm temperature with a second thermometer and review ambient cooling, incoming water, and probe placement. Compare the confirmed value with the tank's configured temperature limits.",
     "stable": "Compare water temperature with a second thermometer and review ambient conditions. Little net change alone does not establish a sensor fault.",
     "verify": "Confirm temperature using a calibrated thermometer."
   },
-  "waterLevel": {
-    "increasing": "Inspect the inlet, recent refill or rainfall, overflow path, and level-sensor placement before changing water flow.",
-    "decreasing": "Inspect for leakage, evaporation, pump routing, and level-sensor placement before refilling.",
-    "stable": "Verify the physical water depth and review recent refills or drainage. Little net change alone does not establish a sensor fault.",
-    "verify": "Measure the physical water depth and inspect the level sensor."
-  },
   "combined_do_turbidity": {
-    "action": "Inspect aeration, circulation, filtration, uneaten feed, and accumulated waste. Confirm both readings manually; use the separate safety thresholds for any immediate actuator decision."
+    "action": "Confirm DO and turbidity, then inspect aeration, filtration, and leftover feed or waste. Suspended organic material may increase oxygen demand, but these readings do not establish its presence or the cause."
+  },
+  "combined_temp_do": {
+    "action": "Confirm temperature and DO, then check heat exposure, incoming water, and aeration. Warmer water holds less oxygen at saturation; these readings alone do not establish the cause of the change."
+  },
+  "_references": {
+    "redclaw_qld": {
+      "title": "Queensland Government: Redclaw crayfish aquaculture",
+      "url": "https://www.business.qld.gov.au/industries/farms-fishing-forestry/fisheries/aquaculture/species/redclaw-crayfish",
+      "scope": "Species-specific husbandry context for Cherax quadricarinatus."
+    },
+    "ras_qld": {
+      "title": "Queensland Government: Recirculating aquaculture systems",
+      "url": "https://www.business.qld.gov.au/industries/farms-fishing-forestry/fisheries/aquaculture/production/recirculate",
+      "scope": "RAS mechanical filtration removes solids such as uneaten feed and faeces."
+    },
+    "usgs_do": {
+      "title": "USGS: Dissolved Oxygen and Water",
+      "url": "https://www.usgs.gov/water-science-school/science/dissolved-oxygen-and-water",
+      "scope": "Temperature changes oxygen solubility; photosynthesis affects dissolved oxygen."
+    },
+    "usgs_turbidity": {
+      "title": "USGS: Turbidity and Water",
+      "url": "https://www.usgs.gov/water-science-school/science/turbidity-and-water",
+      "scope": "Turbidity can come from sediment, organic particles, algae, or plankton."
+    },
+    "monitoring_usgs": {
+      "title": "Wagner et al. (2006), Guidelines and standard procedures for continuous water-quality monitors",
+      "url": "https://doi.org/10.3133/tm1D3",
+      "scope": "Sensor calibration, fouling checks, maintenance, and quality assurance."
+    },
+    "buffering_ufifas": {
+      "title": "UF/IFAS: Water Quality Notes: Alkalinity and Hardness",
+      "url": "https://edis.ifas.ufl.edu/publication/SS540",
+      "scope": "General buffering chemistry; it does not prescribe crayfish treatment or dosing."
+    },
+    "crawfish_lsu": {
+      "title": "LSU AgCenter: Digital Precision Water Technology for Crawfish Research and Extension",
+      "url": "https://www.lsuagcenter.com/articles/page1764106138989",
+      "scope": "Crawfish-pond context for heat, decomposing vegetation, and low-oxygen events; production systems may differ."
+    }
+  },
+  "_evidence": {
+    "overall.normal": ["redclaw_qld", "monitoring_usgs"],
+    "overall.verify": ["monitoring_usgs"],
+    "DO.decreasing": ["crawfish_lsu", "ras_qld", "monitoring_usgs"],
+    "DO.increasing": ["usgs_do", "monitoring_usgs"],
+    "DO.stable": ["monitoring_usgs"],
+    "DO.verify": ["redclaw_qld", "monitoring_usgs"],
+    "turbidity.increasing": ["usgs_turbidity", "ras_qld", "monitoring_usgs"],
+    "turbidity.decreasing": ["usgs_turbidity", "ras_qld", "monitoring_usgs"],
+    "turbidity.stable": ["usgs_turbidity", "monitoring_usgs"],
+    "turbidity.verify": ["usgs_turbidity", "monitoring_usgs"],
+    "pH.increasing": ["buffering_ufifas", "redclaw_qld", "monitoring_usgs"],
+    "pH.decreasing": ["buffering_ufifas", "redclaw_qld", "monitoring_usgs"],
+    "pH.stable": ["monitoring_usgs"],
+    "pH.verify": ["monitoring_usgs"],
+    "temp.increasing": ["usgs_do", "redclaw_qld", "monitoring_usgs"],
+    "temp.decreasing": ["redclaw_qld", "monitoring_usgs"],
+    "temp.stable": ["monitoring_usgs"],
+    "temp.verify": ["monitoring_usgs"],
+    "combined_do_turbidity.action": ["usgs_turbidity", "ras_qld", "crawfish_lsu", "monitoring_usgs"],
+    "combined_temp_do.action": ["usgs_do", "monitoring_usgs"]
   }
 }

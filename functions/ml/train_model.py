@@ -1,126 +1,134 @@
-"""Train the CrayCare WQAD Isolation Forest prototype.
+"""Fit Isolation Forest, calibrate on later unseen rows, then evaluate holdout.
 
-The Isolation Forest fit receives sensor-derived features only. The synthetic
-event columns are used after fitting to evaluate the bootstrap prototype and
-are never used as model inputs or training labels.
+The model and its cutoff never fit the final evaluation partition. No class
+labels or safety thresholds enter fitting/calibration. Existing output paths
+require --replace so an experiment cannot silently overwrite the active model.
 """
-
-import os
 import argparse
+import hashlib
+import json
+from pathlib import Path
+
 import joblib
 import numpy as np
 import pandas as pd
 import sklearn
 from sklearn.ensemble import IsolationForest
-from sklearn.metrics import precision_recall_fscore_support, confusion_matrix
 
+from anomaly_features import SENSORS
 from training_data import prepare_history
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
-DATASET_PATH = os.path.join(ROOT, "sensor_dataset.csv")
-MODEL_PATH = os.path.join(ROOT, "wqad_model.joblib")
-TRAIN_DAYS = 60
-REFERENCE_ALERT_PERCENTILE = 98.0
 
-parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--dataset', default=DATASET_PATH)
-parser.add_argument('--output', default=MODEL_PATH)
-parser.add_argument('--train-days', type=int, default=TRAIN_DAYS)
-parser.add_argument('--origin', required=True, choices=['real_field_unvalidated', 'synthetic_bootstrap_not_field_validated'])
-args = parser.parse_args()
-if args.train_days <= 0:
-    parser.error('--train-days must be positive')
-TRAIN_DAYS = args.train_days
-df, features = prepare_history(pd.read_csv(args.dataset))
-split_at = df["timestamp"].min() + pd.Timedelta(days=TRAIN_DAYS)
-train_mask = df["timestamp"] < split_at
-test_mask = ~train_mask
-
-X_train = features.loc[train_mask].copy()
-X_test = features.loc[test_mask].copy()
-if len(X_train) < 100 or X_test.empty:
-    raise ValueError('Need at least 100 prepared reference rows and a later holdout; adjust --train-days.')
-# Synthetic labels are evaluation-only and never required to fit real history.
-has_labels = args.origin.startswith('synthetic') and 'is_injected_anomaly' in df
-y_test = df.loc[test_mask, 'is_injected_anomaly'].astype(int).to_numpy() if has_labels else None
-event_test = df.loc[test_mask, 'event_type'].astype(str).to_numpy() if has_labels and 'event_type' in df else np.array(['normal'] * len(X_test))
-
-model = IsolationForest(
-    n_estimators=600,
-    max_samples=min(4096, len(X_train)),
-    max_features=0.85,
-    contamination="auto",
-    bootstrap=False,
-    random_state=42,
-    n_jobs=-1,
-)
-model.fit(X_train)
-
-train_raw = -model.decision_function(X_train)
-threshold = float(np.percentile(train_raw, REFERENCE_ALERT_PERCENTILE))
-test_raw = -model.decision_function(X_test)
-pred = (test_raw >= threshold).astype(int)
-precision = recall = f1 = tn = fp = fn = tp = None
-if has_labels:
-    precision, recall, f1, _ = precision_recall_fscore_support(
-        y_test, pred, average="binary", zero_division=0
-    )
-    tn, fp, fn, tp = confusion_matrix(y_test, pred, labels=[0, 1]).ravel()
-
-event_detection = {}
-for event_name in sorted(set(event_test) - {"normal"}):
-    mask = event_test == event_name
-    event_detection[event_name] = {
-        "rows": int(mask.sum()),
-        "detected_rows": int(pred[mask].sum()),
-        "detection_rate": round(float(pred[mask].mean()), 4),
-        "event_detected": bool(pred[mask].any()),
+def train(dataset, train_days=5, calibration_fraction=.25, percentile=98.0,
+          origin='external_freshwater_fishpond_proxy_unvalidated'):
+    dataset = Path(dataset)
+    source = pd.read_csv(dataset)
+    rows, features = prepare_history(source, version=2)
+    # Use the first usable endpoint, as the previous trainer did. It is not a
+    # label-selected healthy period. Input selection must be documented.
+    test_at = rows.timestamp.min() + pd.Timedelta(days=train_days)
+    reference = rows.timestamp < test_at
+    reference_positions = np.flatnonzero(reference)
+    fit_count = int(len(reference_positions) * (1 - calibration_fraction))
+    if fit_count < 100 or fit_count >= len(reference_positions):
+        raise ValueError('Need at least 100 fit rows and a later calibration block.')
+    calibration_at = rows.timestamp.iloc[reference_positions[fit_count]]
+    # At most one missed 10-minute slot: earliest point in a 12-row window
+    # can be 132 minutes earlier (11 intervals at the maximum allowed jitter).
+    # A 144-minute purge is conservative; no raw input windows cross splits.
+    purge = pd.Timedelta(minutes=144)
+    fit_mask = rows.timestamp < calibration_at
+    cal_mask = (rows.timestamp >= calibration_at + purge) & (rows.timestamp < test_at)
+    test_mask = rows.timestamp >= test_at + purge
+    fit, cal, test = features[fit_mask], features[cal_mask], features[test_mask]
+    if len(cal) < 30 or len(test) < 30:
+        raise ValueError('Need at least 30 calibration and 30 later evaluation rows after purging.')
+    model = IsolationForest(n_estimators=300, max_samples=min(256, len(fit)),
+                            max_features=1.0, contamination='auto', random_state=42, n_jobs=-1)
+    model.fit(fit)
+    scores = -model.score_samples(cal)
+    # Strict greater-than handles ties without making identical baseline
+    # readings anomalous. Quantile policy is fixed before holdout evaluation.
+    cutoff = float(np.quantile(scores, percentile / 100.0, method='higher'))
+    test_scores = -model.score_samples(test)
+    predicted = test_scores > cutoff
+    medians = fit.median()
+    scales = (fit - medians).abs().median() * 1.4826
+    scales = scales.where(scales > 1e-8, fit.std()).replace(0, 1.0).fillna(1.0)
+    bundle = {
+        'model': model, 'feature_version': 2, 'sensors': SENSORS,
+        'features': list(features.columns), 'algorithm': 'IsolationForest',
+        'trained_at_utc': pd.Timestamp.now(tz='UTC').isoformat(),
+        'training_data_origin': origin, 'training_labels_used': False,
+        'training_rows': len(fit), 'calibration_rows': len(cal), 'holdout_rows': len(test),
+        'decision_basis': 'independent_chronological_calibration_percentile',
+        'decision_percentile': percentile, 'decision_threshold_raw': cutoff,
+        'raw_score_method': 'negative_score_samples',
+        'calibration_scores': np.sort(scores),
+        'feature_medians': medians.to_dict(),
+        'robust_centers': medians.to_dict(), 'robust_scales': scales.to_dict(),
+        'trend_deadbands': {s: float(fit[s + '_trend30m'].abs().quantile(.25)) for s in SENSORS},
+        'contributor_method': 'positive_sensor_block_median_replacement_score_reduction',
+        'analysis_window_minutes': 120, 'minimum_history_rows': 12,
+        'validation_strategy': 'chronological_fit_then_calibration_then_purged_holdout',
+        'calibration_start_utc': calibration_at.isoformat(), 'split_at_utc': test_at.isoformat(),
+        'purge_minutes': 144, 'holdout_alert_fraction': float(predicted.mean()),
+        'evaluation_label_origin': 'none',
+        'dataset_sha256': hashlib.sha256(dataset.read_bytes()).hexdigest(),
+        'sklearn_version': sklearn.__version__,
+        'prototype_metrics': {'precision': None, 'recall': None, 'f1': None},
     }
+    daily = pd.DataFrame({'day': rows.loc[test_mask, 'timestamp'].dt.strftime('%Y-%m-%d'),
+                          'unusual': predicted}).groupby('day').unusual.agg(['count', 'sum', 'mean'])
+    drift = ((test.median() - fit.median()) / scales).abs().sort_values(ascending=False)
+    report = {
+        'algorithm': bundle['algorithm'], 'feature_version': 2,
+        'data_origin': origin, 'dataset_sha256': bundle['dataset_sha256'],
+        'fit_rows': len(fit), 'calibration_rows': len(cal), 'holdout_rows': len(test),
+        'fit_end_utc': rows.loc[fit_mask, 'timestamp'].max().isoformat(),
+        'calibration_first_utc': rows.loc[cal_mask, 'timestamp'].min().isoformat(),
+        'calibration_last_utc': rows.loc[cal_mask, 'timestamp'].max().isoformat(),
+        'holdout_first_utc': rows.loc[test_mask, 'timestamp'].min().isoformat(),
+        'holdout_last_utc': rows.loc[test_mask, 'timestamp'].max().isoformat(),
+        'cutoff_percentile': percentile, 'cutoff_raw': cutoff,
+        'calibration_alert_fraction': float(np.mean(scores > cutoff)),
+        'holdout_alert_fraction': float(predicted.mean()),
+        'holdout_daily': daily.reset_index().to_dict(orient='records'),
+        'largest_holdout_reference_shifts': drift.head(8).to_dict(),
+        'limitations': ['Alert fraction is not accuracy or a measured false-positive rate.',
+            'Reference data may contain degraded conditions; class labels were not used.',
+            'Temporal dependence and distribution shift invalidate an assumed fixed false-alarm guarantee.',
+            'Public fishpond proxy has not been validated on the target crayfish tank.'],
+    }
+    return bundle, report
 
-centers = X_train.median()
-mad = (X_train - centers).abs().median() * 1.4826
-fallback_scale = X_train.std().replace(0, 1.0).fillna(1.0)
-scales = mad.where(mad > 1e-8, fallback_scale).replace(0, 1.0).fillna(1.0)
 
-bundle = {
-    "model": model,
-    "features": list(X_train.columns),
-    "algorithm": "IsolationForest",
-    "trained_at_utc": pd.Timestamp.now(tz="UTC").isoformat(),
-    "training_rows": len(X_train),
-    "training_data_origin": args.origin,
-    "training_labels_used": False,
-    "decision_basis": "98th_percentile_of_unsupervised_training_anomaly_scores",
-    "decision_threshold_raw": threshold,
-    "calibration_scores": np.sort(train_raw).astype(float),
-    "robust_centers": centers.astype(float).to_dict(),
-    "robust_scales": scales.astype(float).to_dict(),
-    "analysis_window_minutes": 120,
-    "minimum_history_rows": 12,
-    "validation_strategy": f"chronological_{TRAIN_DAYS}_day_reference_then_holdout",
-    "split_at_utc": split_at.isoformat(),
-    "holdout_rows": len(X_test),
-    "holdout_alert_fraction": float(pred.mean()),
-    "evaluation_label_origin": "synthetic_injected_events" if has_labels else "none",
-    "prototype_metrics": {
-        "precision": round(float(precision), 4) if has_labels else None,
-        "recall": round(float(recall), 4) if has_labels else None,
-        "f1": round(float(f1), 4) if has_labels else None,
-        "true_negative": int(tn) if has_labels else None, "false_positive": int(fp) if has_labels else None,
-        "false_negative": int(fn) if has_labels else None, "true_positive": int(tp) if has_labels else None,
-        "event_detection": event_detection,
-    },
-}
-joblib.dump(bundle, args.output, compress=3)
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--dataset', required=True)
+    parser.add_argument('--output', default=str(Path(__file__).with_name('wqad_candidate.joblib')))
+    parser.add_argument('--report', help='JSON evaluation report path')
+    parser.add_argument('--train-days', type=float, default=5)
+    parser.add_argument('--calibration-fraction', type=float, default=.25)
+    parser.add_argument('--percentile', type=float, default=98)
+    parser.add_argument('--sensors', default=','.join(SENSORS))
+    parser.add_argument('--replace', action='store_true')
+    parser.add_argument('--origin', required=True, choices=['real_field_unvalidated',
+        'synthetic_bootstrap_not_field_validated', 'external_freshwater_fishpond_proxy_unvalidated'])
+    args = parser.parse_args()
+    if args.sensors.split(',') != SENSORS:
+        parser.error('Use exactly temp,pH,DO,turbidity.')
+    if args.train_days <= 0 or not 0 < args.calibration_fraction < .5 or not 90 <= args.percentile < 100:
+        parser.error('Check positive train-days, calibration fraction (0,.5), and percentile [90,100).')
+    if Path(args.output).exists() and not args.replace:
+        parser.error('Output already exists; use a new candidate path or explicitly pass --replace.')
+    bundle, report = train(args.dataset, args.train_days, args.calibration_fraction, args.percentile, args.origin)
+    joblib.dump(bundle, args.output, compress=3)
+    if args.report:
+        Path(args.report).write_text(json.dumps(report, indent=2, allow_nan=False) + '\n', encoding='utf-8')
+    print(json.dumps(report, indent=2, allow_nan=False))
+    print(f'Saved {args.output}. Holdout alert fraction is not accuracy.')
 
-print("CrayCare Machine Learning-Based Water Quality Anomaly Detection")
-print(f"Algorithm: Isolation Forest; features: {len(X_train.columns)}; training rows: {len(X_train):,}")
-if has_labels:
-    print(f"Synthetic holdout precision={precision:.3f}, recall={recall:.3f}, F1={f1:.3f}")
-else:
-    print('Unlabeled holdout: accuracy/precision/recall cannot be established.')
-print(f"Confusion matrix: TN={tn}, FP={fp}, FN={fn}, TP={tp}")
-for name, metrics in event_detection.items():
-    print(f"  {name}: {metrics['detected_rows']}/{metrics['rows']} rows ({metrics['detection_rate']:.1%})")
-print(f"Saved {args.output}")
-print('WARNING: model is not field-validated; independently verify events before claiming performance.')
+
+if __name__ == '__main__':
+    main()

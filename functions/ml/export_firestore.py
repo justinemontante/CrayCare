@@ -38,10 +38,9 @@ for date_doc in date_docs:
             "ph_level": data.get("ph_level", data.get("pH_avg")),
             "dissolved_oxygen": data.get("dissolved_oxygen", data.get("DO_avg")),
             "turbidity": data.get("turbidity", data.get("turbidity_avg")),
-            "water_level": data.get("water_level", data.get("waterLevel_avg")),
         })
 
-columns = ["timestamp", "temperature", "ph_level", "dissolved_oxygen", "turbidity", "water_level"]
+columns = ["timestamp", "temperature", "ph_level", "dissolved_oxygen", "turbidity"]
 df = pd.DataFrame(rows, columns=columns)
 if not df.empty:
     for column in columns[1:]:
