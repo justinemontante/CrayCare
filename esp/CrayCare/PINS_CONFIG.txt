@@ -1,7 +1,7 @@
 
 ============================================
   CRAYCARE ESP32 ALL-IN-ONE — PINOUT
-  Last Updated: 2026-09-27
+  Last Updated: 2026-10-04
 ============================================
 
 RELAYS (Active LOW = LOW turns ON)
@@ -31,12 +31,12 @@ SENSORS
 │   36   │ SVP   │ Dissolved Oxygen     │ DFRobot SEN0237          │
 │   35   │       │ pH Sensor            │ DFRobot SEN0161          │
 │   34   │       │ Turbidity            │ DFRobot SEN0189          │
-│    4   │       │ DS18B20 (Water Temp) │ 5.1k pull-up to 3.3V     │
+│    4   │       │ DS18B20 (Water Temp) │ module shows 472 (~4.7k)│
 │   32   │ TRIG  │ HC-SR04 (Water Level)│ Ultrasonic Trig         │
 │   33   │ ECHO  │ HC-SR04 (Water Level)│ Ultrasonic Echo         │
 │   39   │ VN    │ Feed Level Sensor    │ Analog hopper fallback   │
-│   17   │       │ HC-SR04 Hopper TRIG  │ Ultrasonic Trig (feed)   │
-│   25   │       │ HC-SR04 Hopper ECHO  │ Echo via 1k+2k divider   │
+│   17   │ TRIG  │ HC-SR04 Hopper       │ Ultrasonic Trig (feed)   │
+│   25   │ ECHO  │ HC-SR04 Hopper       │ Echo via 2k+1k divider   │
 └────────┴───────┴──────────────────────┴──────────────────────────┘
 
 OTHER PERIPHERALS
@@ -47,15 +47,14 @@ OTHER PERIPHERALS
 │   22   │ SCL   │ LCD I2C              │ VCC 5V + contrast trim  │
 │   12   │       │ Onsite feed button   │ To GND, INPUT_PULLUP     │
 │    2   │       │ Blower button        │ To GND, INPUT_PULLUP     │
-│    5   │       │ Gate servo SG90 180  │ PWM, LEDC ch 0, 1 g/act  │
-│   25   │       │ HC-SR04 Hopper ECHO  │ (see SENSORS table)      │
+│   13   │       │ Gate servo SG92R     │ PWM, current wiring      │
 │   18   │       │ SD card SCK (VSPI)   │ Keep SPI wires < 20 cm   │
 │   19   │       │ SD card MISO (VSPI)  │ Keep SPI wires < 20 cm   │
 │   23   │       │ SD card MOSI (VSPI)  │ Keep SPI wires < 20 cm   │
 │   15   │       │ SD card CS (future)  │ Idles HIGH (pull-up)     │
 └────────┴───────┴──────────────────────┴──────────────────────────┘
 
-FEEDER GATE — SG90 180-DEGREE SERVO ON GPIO5 (LEDC ch 0, ONLY servo)
+FEEDER GATE — SG92R SERVO (latest reported signal GPIO13)
   - 1 g-only model: 1 open/close actuation = 1 g, always. Feed grams from
     the app decide the count: 5 g = exactly 5 actuations.
   - Motion per actuation: 0 -> GATE_OPEN_ANGLE (default 90) -> hold
@@ -66,13 +65,19 @@ FEEDER GATE — SG90 180-DEGREE SERVO ON GPIO5 (LEDC ch 0, ONLY servo)
     Adjust GATE_ANGLE / GATE_MS until 10 actuations land near 10 g.
     Test a single swing with GATE_TEST.
   - Parks at 0 on boot and after FEEDER_DONE. Never actuates at boot.
-  - GPIO25 door servo retired (spare). GPIO13 retired (dead output).
+  - Wiring/code mismatch to resolve: firmware still sets GATE_SERVO_PIN to
+    GPIO5; latest reported physical wiring uses GPIO13.
   - Power from separate 5V supply with common GND + ~470 uF cap on
     the servo rail. Never power servos from the ESP 5V pin.
 
 HOPPER LEVEL (2nd HC-SR04, feed surface)
-  - TRIG GPIO17 (direct), ECHO GPIO25 via 1kΩ (ECHO->GPIO) + 2kΩ
-    (GPIO->GND) divider — never direct, same rule as GPIO33.
+  - Firmware pin assignment: TRIG GPIO17 (direct), ECHO GPIO25 through
+    the 2kΩ + 1kΩ divider. Divider order matters: ECHO -> 2kΩ -> GPIO node,
+    then GPIO node -> 1kΩ -> GND gives only about 1.67V from a 5V Echo
+    (1.77V at 5.3V), which may not be detected reliably as HIGH. Prefer
+    ECHO -> 1kΩ -> GPIO node -> 2kΩ -> GND (about 3.33V from 5V), or use
+    a 5V-to-3.3V level shifter. Confirm the physical Echo wire is on GPIO25
+    and the physical TRIG wire is on GPIO17 to match this documented map.
   - No ruler needed: empty hopper -> `hopperempty`, full hopper ->
     `hopperfull`. Percent = (empty - echo) / (empty - full).
     Manual values: `hopperheight <5-200>` (empty point),
@@ -114,25 +119,29 @@ exclusively for the dissolved-oxygen analog input.
 Sensor powered at 5V — verify each before connecting:
 
 ┌──────────────┬────────────┬───────────────────────────────────┐
-│ Sensor       │ Divider    │ Ratio in Code   │ Status          │
+│ Sensor       │ Divider    │ ADC ratio       │ Status          │
 ├──────────────┼────────────┼─────────────────┼─────────────────┤
-│ DO (SEN0237) │ 10k + 10k  │ 0.5f            │ KEEP RESISTORS  │
-│ pH (SEN0161) │ 10k + 10k  │ 0.5f            │ KEEP RESISTORS  │
-│ Turbidity    │ None needed│ N/A             │ Direct connect  │
-│              │ (if 3.3V)  │                 │ at 3.3V only    │
+│ DO (SEN0237) │ None       │ N/A             │ Direct A/O;     │
+│              │            │                 │ output 0-3.0V   │
+│ pH (SEN0161) │ None*      │ N/A             │ Direct A/O per  │
+│              │            │                 │ latest wiring*  │
+│ Turbidity    │ 2.2k + 3.3k│ 0.60            │ Divider at 5V   │
 └──────────────┴────────────┴─────────────────┴─────────────────┘
+  * Latest reported wiring; DFRobot's SEN0161 page does not publish the
+    maximum A/O voltage, so verify the exact V1.1 board output is within
+    the ESP32 input limit.
 
-⚠️  IMPORTANT: SEN0189 Turbidity at 5V outputs ~3.8-4.2V.
-    If powered at 5V, add voltage divider. Direct connect only
-    if powered at 3.3V.
+⚠️  IMPORTANT: DFRobot SEN0189 specifies analog output up to 4.5V.
+    For 5V module power, use the latest reported 2.2kΩ upper + 3.3kΩ
+    lower divider (output -> 2.2k -> ADC node; ADC node -> 3.3k -> GND).
     After adding ANY divider, reteach turbclear + turbdirty: the NTU
     scale interpolates between the taught voltages, so old taught
     values (taken undivided) become wrong the moment a divider lands.
 
 SEPARATE 5V ADAPTER RULES (sensors, ultrasonics, servo, LCD)
   A separate adapter changes NOTHING about resistors: dividers care about
-  SIGNAL voltage, not SUPPLY source. HC-SR04 ECHO still outputs ~5V, so the
-  1k+2k dividers stay mandatory, as do all dividers/pull-ups below.
+  SIGNAL voltage, not SUPPLY source. HC-SR04 ECHO still outputs ~5V, so a
+  divider/level shifter remains mandatory; use the orientation specified below.
   - COMMON GND IS MANDATORY. Tie the adapter GND to ESP32 GND (best: star
     grounding at one point). Without it every sensor reading floats
     (garbage values) and TRIG/ECHO/servo signals have no reference.
@@ -143,58 +152,63 @@ SEPARATE 5V ADAPTER RULES (sensors, ultrasonics, servo, LCD)
     ultrasonic modules. Servo signal likewise stays direct (3.3V).
 
 HOW TO CONNECT EACH RESISTOR (signal -> resistors -> ESP -> GND)
-  Stock on hand: 10k, 5.1k, 1k, 2k (+ 220, 10, 100, 330, 100k, 1M).
-  Use ONLY 10k / 5.1k / 1k / 2k for the circuits below. Avoid 100k/1M
-  (too high: ADC leakage skews readings) and 220 and below (too low:
+  Resistor inventory previously reported: 10k, 5.1k, 1k, 2k (+ 220, 10,
+  100, 330, 100k, 1M). Use appropriate values for each divider below.
+  Avoid 100k/1M (too high: ADC leakage skews readings) and 220Ω and below (too low:
   loads the sensor output and wastes current).
-  DO (GPIO36) and pH (GPIO35), 10k + 10k each:
-    module SIG -> 10k -> GPIO pin; GPIO pin -> 10k -> GND.
-    Why kept: both DFRobot modules output 0-3.0V, so the divider gives
-    0-1.5V at the ADC — comfortable headroom, never clips, and safe
-    against 5V-supply overshoot. Firmware compensates (/0.5), so readings
-    stay correct. Removing them would need a code change AND a full
-    recalibration (pH slope, DO point, all taught voltages) for ~1 mV
-    of extra resolution — not worth it. Leave them alone.
-  Turbidity (GPIO34, 5V supply), 10k + 10k:
-    module SIG -> 10k -> GPIO34; GPIO34 -> 10k -> GND.
+  DO (GPIO36): latest reported wiring is direct A/O -> GPIO36, common GND.
+    DFRobot specifies SEN0237 board supply 3.3-5.5V and output 0-3.0V;
+    no divider is required by that output specification.
+  pH (GPIO35): latest reported wiring is direct A/O -> GPIO35, common GND.
+    DFRobot specifies 5.00V module power but its SEN0161 page does not list
+    the analog-output maximum. Verify the exact V1.1 board output stays
+    within ESP32 input limits. Recalibrate after any signal-path change.
+  Turbidity (GPIO34, 5V supply), 2.2k + 3.3k:
+    module SIG -> 2.2k -> GPIO34; GPIO34 -> 3.3k -> GND.
     Then reteach turbclear + turbdirty (see above). No code change:
     the 2:1 scale is absorbed by the taught points.
-  DS18B20 temp (GPIO4), one 5.1k pull-up (ideal value, in stock):
-    DQ -> 5.1k -> 3.3V; DQ -> GPIO4; VCC -> 3.3V; GND -> GND.
-    REQUIRED for reliable OneWire. Symptom of a weak/missing pull-up:
+  DS18B20 module (GPIO4): the previously shared module photo shows a
+    resistor marked 472 (nominal 4.7kΩ). If it is wired as a pull-up from
+    DATA/DQ to VCC, use that onboard resistor and do not add another one.
+    Power VCC from 3.3V, connect DATA to GPIO4 and GND to common GND.
+    If the resistor is not actually between DATA and 3.3V, add one external
+    4.7kΩ (or 5.1kΩ) from DATA to 3.3V. Symptom of a weak/missing pull-up:
     -127 C / 85 C readings or dropouts. (Backup: 10k on short wires
     < 1 m, or 2x10k in parallel = ~5k.)
-  HC-SR04 ECHO (GPIO33 water, GPIO25 hopper), 1k + 2k each:
-    ECHO -> 1k -> GPIO pin; GPIO pin -> 2k -> GND. Never direct.
+  HC-SR04 ECHO (water/hopper), latest reported resistors are 2k and 1k.
+    Higher-output order: ECHO -> 1k -> GPIO node; GPIO node ->
+    2k -> GND. This gives 3.33V from 5V Echo. If instead wired ECHO ->
+    2k -> GPIO node -> 1k -> GND, GPIO sees only 1.67V (1.77V at 5.3V),
+    too low for guaranteed HIGH recognition. Never connect Echo directly.
   Buttons/SD/LCD/servo need no extra resistors (internal pull-ups /
   module-level shifting; see LCD 5V pull-up advisory in project notes).
 
 DIVIDER CONNECTION DIAGRAMS (ASCII, signal flows left to right)
-  10k + 10k divider (DO->GPIO36, pH->GPIO35, turbidity->GPIO34 @5V):
+  2.2k + 3.3k divider (turbidity->GPIO34 @5V):
 
-      module SIG o----[ 10k ]----+----o GPIO pin
+      module SIG o----[ 2.2k ]--+----o GPIO34
                                   |
-                             [ 10k ]
+                             [ 3.3k ]
                                   |
                                  GND
-      GPIO reads HALF the module voltage; firmware compensates (/0.5
-      for DO/pH; turbidity absorbs it via reteach). Either 10k can be
-      on either side — the ratio is what matters.
+      The sensor's specified 4.5V maximum becomes about 2.7V at GPIO34.
 
-  1k + 2k divider (HC-SR04 ECHO -> GPIO33 water / GPIO25 hopper):
+  2k + 1k resistors (HC-SR04 ECHO):
 
-      ECHO (5V) o----[ 1k ]----+----o GPIO pin
+      ECHO (5V) o----[ 1k ]----+----o GPIO pin (recommended order)
                                 |
                                [ 2k ]
                                 |
                                GND
-      GPIO sees 5V * 2k/(1k+2k) = 3.3V. Do NOT swap the values: 2k on
-      top would give 1.7V (weak echo reads); direct wire gives 5V
-      (damages the pin).
+      GPIO sees 5V * 2k/(1k+2k) = 3.33V. If 2k is upper and 1k lower,
+      it sees only 1.67V and Echo may fail to read. At a 5.3V Echo the
+      higher-output order yields 3.53V nominal, very near the 3.6V GPIO
+      limit. With supply/resistor tolerances this has little margin; use a
+      proper 5V-to-3.3V level shifter for the robust design.
 
-  DS18B20 pull-up (DQ -> GPIO4):
+  DS18B20 pull-up only if the module does not already provide it:
 
-      3.3V o----[ 5.1k ]----+----o DQ / GPIO4
+      3.3V o----[ 4.7k-5.1k ]+----o DQ / GPIO4
       (VCC -> 3.3V, GND -> GND; DQ doubles as the data line.)
 
 ============================================
@@ -206,9 +220,11 @@ Tank configuration:
   - Tank water depth:  23cm max
   - Water depth = 65cm − measured_distance
 
-⚠️ HC-SR04 ECHO is normally 5V. Never connect ECHO directly to ESP32 GPIO33.
-   Use a 5V→3.3V level shifter or resistor divider (for example 1kΩ from ECHO
-   to GPIO33 and 2kΩ from GPIO33 to GND). TRIG may connect to GPIO32.
+⚠️ HC-SR04 ECHO is 5V logic. Never connect ECHO directly to an ESP32 GPIO.
+   The latest reported 2kΩ/1kΩ values only provide a useful HIGH in the
+   order 1kΩ from ECHO to GPIO node and 2kΩ from node to GND. A proper
+   5V-to-3.3V level shifter is more robust. Water sensor is TRIG GPIO32 /
+   ECHO GPIO33. Hopper mapping needs confirmation against the installed wires.
 
 LCD display: boot progress, then 4 rotating screens (Temp/pH, DO/Turb,
 Water/Hopper, next schedule); blower state via warm-up screen + relay
@@ -254,7 +270,7 @@ RELAYS
   n4on / n4off         Blower ON/OFF           (GPIO 16)
   relay status         Show relay states
 
-FEEDER (SG90 gate on GPIO5, 1 g per actuation)
+FEEDER (SG92R gate, latest reported signal GPIO13, 1 g per actuation)
   FEED                  Request one manual feed (1-200 whole g, default 1 g)
   GATE_TEST             One gate actuation 0 -> angle -> 0
   GATECAL               10 actuations for weighing (expect ~10 g)
