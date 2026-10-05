@@ -21,20 +21,43 @@ void main() {
   );
 
   test('only supported fixed-cycle doses are accepted', () {
-    for (final dose in <double?>[null, 20, 40, 200]) {
+    for (final dose in <double?>[null, 1, 20, 25, 35, 40, 200]) {
       expect(validateFeederGrams(dose), isNull);
     }
     for (final dose in [
       0.0,
       -20.0,
-      25.0,
-      35.0,
+      0.5,
+      1.5,
+      25.5,
+      35.5,
+      200.5,
       201.0,
       double.nan,
       double.infinity,
     ]) {
       expect(validateFeederGrams(dose), isNotNull);
     }
+  });
+  test('schedule time uses canonical 24-hour Firestore value', () {
+    expect(feederScheduleMinuteFromFields({'scheduled_time': '19:30'}), 1170);
+    expect(feederScheduleTime24(ScheduleItem('7:30', 'PM')), '19:30');
+    expect(
+      feederScheduleMinuteFromFields({
+        'time': '7:30',
+        'ampm': 'PM',
+        'timeValue': 1170,
+      }),
+      1170,
+    );
+    expect(feederScheduleMinuteFromFields({'scheduled_time': '24:00'}), isNull);
+    expect(
+      feederScheduleMinuteFromFields({
+        'scheduled_time': '24:00',
+        'timeValue': 450,
+      }),
+      isNull,
+    );
   });
   test('legacy done flag alone cannot claim completed feeding', () {
     expect(feederRecordedOutcome(schedule(done: true), today, []), isNull);

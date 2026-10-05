@@ -1,5 +1,7 @@
 "use strict";
 
+const {parseScheduleMinute, formatScheduleMinute, formatScheduleLabel} = require("./schedule_time");
+
 class ScheduleMutationError extends Error {
   constructor(code, message, details) {
     super(message);
@@ -9,12 +11,9 @@ class ScheduleMutationError extends Error {
 }
 
 function scheduleFields(data) {
-  if (typeof data.time !== "string" || !/^\d{1,2}:\d{2}$/.test(data.time) ||
-      !["AM", "PM"].includes(data.ampm)) {
-    throw new ScheduleMutationError("invalid-argument", "Choose a valid feeding time.");
-  }
-  const [hour, minute] = data.time.split(":").map(Number);
-  if (hour < 1 || hour > 12 || minute > 59) {
+  const minuteOfDay = parseScheduleMinute(data);
+  const scheduledTime = formatScheduleMinute(minuteOfDay);
+  if (!scheduledTime) {
     throw new ScheduleMutationError("invalid-argument", "Choose a valid feeding time.");
   }
   if (typeof data.days !== "string" || !/^[01]{7}$/.test(data.days) || !data.days.includes("1")) {
@@ -32,9 +31,7 @@ function scheduleFields(data) {
     throw new ScheduleMutationError("invalid-argument", "Schedule enabled must be true or false.");
   }
   return {
-    time: `${hour}:${String(minute).padStart(2, "0")}`,
-    ampm: data.ampm,
-    timeValue: (hour % 12 + (data.ampm === "PM" ? 12 : 0)) * 60 + minute,
+    scheduled_time: scheduledTime,
     days: data.days,
     grams,
     enabled: data.enabled !== false,
@@ -42,15 +39,13 @@ function scheduleFields(data) {
 }
 
 function scheduleMinutes(data) {
-  if (Number.isInteger(data.timeValue) && data.timeValue >= 0 && data.timeValue < 1440) {
-    return data.timeValue;
-  }
-  try { return scheduleFields({...data, days: "1111111"}).timeValue; }
-  catch (_) { return null; }
+  return parseScheduleMinute(data);
 }
 
 function overlaps(first, second) {
-  if (scheduleMinutes(first) !== scheduleMinutes(second)) return false;
+  const firstMinute = scheduleMinutes(first);
+  const secondMinute = scheduleMinutes(second);
+  if (firstMinute == null || firstMinute !== secondMinute) return false;
   // Matches the existing app/device treatment of missing legacy day masks.
   const days = typeof second.days === "string" && second.days.length >= 7
     ? second.days : "1111111";
@@ -101,7 +96,7 @@ async function mutateSchedule({db, uid, input, timestamp, deleteField, now = Dat
   }
   if (operation === "set_schedule_water_quality_policy") {
     if (typeof input.allowWaterQualityOverride !== "boolean") {
-      throw new ScheduleMutationError("invalid-argument", "Scheduled water-quality override must be true or false.");
+      throw new ScheduleMutationError("invalid-argument", "The shared feeding water-quality override must be true or false.");
     }
     const tank = db.collection("tanks").doc(uid);
     const profile = db.collection("users").doc(uid);
@@ -135,7 +130,7 @@ async function mutateSchedule({db, uid, input, timestamp, deleteField, now = Dat
         updated_at: timestamp(),
       });
       tx.create(audit, {
-        action: `Scheduled water-quality range override ${input.allowWaterQualityOverride ? "enabled" : "disabled"}`,
+        action: `Manual and scheduled water-quality range override ${input.allowWaterQualityOverride ? "enabled" : "disabled"}`,
         type: "auto",
         logged_at: timestamp(),
       });
@@ -190,16 +185,16 @@ async function mutateSchedule({db, uid, input, timestamp, deleteField, now = Dat
       grams: previous.grams == null ? 20 : previous.grams,
       enabled: input.enabled,
     } : null);
-    if (operation === "toggle" && input.enabled) {
-      // Validate and normalize legacy entries before enabling them on hardware.
-      Object.assign(desired, scheduleFields(desired));
-    }
+    const normalized = desired ? scheduleFields(desired) : null;
     if (desired && (operation !== "toggle" || input.enabled)) {
-      const conflict = snapshot.docs.find(doc => doc.id !== scheduleRef.id && overlaps(desired, doc.data()));
+      const conflict = snapshot.docs.find(doc => doc.id !== scheduleRef.id && overlaps(normalized, doc.data()));
       if (conflict) {
         const fields = conflict.data();
         throw new ScheduleMutationError("already-exists", "That day and time already have a feeding schedule.", {
-          conflictingSchedule: {time: fields.time, ampm: fields.ampm, days: fields.days || "1111111"},
+          conflictingSchedule: {
+            scheduled_time: formatScheduleMinute(scheduleMinutes(fields)),
+            days: fields.days || "1111111",
+          },
         });
       }
     }
@@ -208,26 +203,32 @@ async function mutateSchedule({db, uid, input, timestamp, deleteField, now = Dat
     let action;
     if (operation === "delete") {
       tx.delete(scheduleRef);
-      action = `Removed schedule at ${previous.time} ${previous.ampm}`;
+      action = `Removed schedule at ${formatScheduleLabel(previous)}`;
     } else if (operation === "toggle") {
       tx.update(scheduleRef, {
-        ...(input.enabled ? scheduleFields(desired) : {}),
+        ...normalized,
+        time: deleteField(),
+        ampm: deleteField(),
+        timeValue: deleteField(),
         allow_high_turbidity: deleteField(),
         enabled: input.enabled,
         isDone: false,
         ...(input.enabled ? {effective_at_ms: nowMs, last_outcome: deleteField(), last_occurrence_at: deleteField()} : {}),
       });
-      action = `Schedule ${input.enabled ? "enabled" : "disabled"}: ${previous.time} ${previous.ampm}`;
+      action = `Schedule ${input.enabled ? "enabled" : "disabled"}: ${formatScheduleLabel(normalized)}`;
     } else {
-      const data = {...desired, isDone: false, effective_at_ms: nowMs};
+      const data = {...normalized, isDone: false, effective_at_ms: nowMs};
       if (operation === "add") tx.create(scheduleRef, {...data, created_at: timestamp()});
       else tx.update(scheduleRef, {
         ...data,
+        time: deleteField(),
+        ampm: deleteField(),
+        timeValue: deleteField(),
         allow_high_turbidity: deleteField(),
         last_outcome: deleteField(),
         last_occurrence_at: deleteField(),
       });
-      action = `${operation === "add" ? "Scheduled auto feed at" : "Edited schedule to"} ${desired.time} ${desired.ampm}`;
+      action = `${operation === "add" ? "Scheduled auto feed at" : "Edited schedule to"} ${formatScheduleLabel(normalized)}`;
     }
     const oldRevision = guardSnap.exists ? guardSnap.data().revision : 0;
     tx.set(guard, {revision: (Number.isSafeInteger(oldRevision) ? oldRevision : 0) + 1, updated_at: timestamp()});

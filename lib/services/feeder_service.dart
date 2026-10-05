@@ -120,6 +120,7 @@ class FeederService extends ChangeNotifier {
   StreamSubscription<User?>? _authSub;
   String _totalsDayKey = '';
   double _estimatedConsumptionToday = 0;
+  int _completedFeedingsToday = 0;
 
   bool _isRunning = false;
   DateTime? _manualRequestPendingUntil;
@@ -133,9 +134,9 @@ class FeederService extends ChangeNotifier {
   String? _lastError;
   String? _lastFeedRequestError;
   bool _schedulesLoaded = false;
-  bool _allowWaterQualitySchedules = false;
+  bool _allowWaterQualityFeeding = false;
 
-  bool get allowWaterQualitySchedules => _allowWaterQualitySchedules;
+  bool get allowWaterQualityFeeding => _allowWaterQualityFeeding;
 
   final List<LogEntry> _logs = [];
   final List<ScheduleItem> _schedules = [];
@@ -171,6 +172,8 @@ class FeederService extends ChangeNotifier {
     return _estimatedConsumptionToday;
   }
 
+  int get completedFeedingsToday => _completedFeedingsToday;
+
   // Totals must not depend on the 50-entry history preview (which also
   // contains schedule edits, skipped feeds and other non-consumption events).
   void _listenTodayTotals() {
@@ -189,6 +192,8 @@ class FeederService extends ChangeNotifier {
     _todayTimestampLogDocs.clear();
     _legacyTodayLogDocs.clear();
     _estimatedConsumptionToday = 0;
+    _completedFeedingsToday = 0;
+    notifyListeners();
     final start = DateTime.utc(
       now.year,
       now.month,
@@ -240,9 +245,11 @@ class FeederService extends ChangeNotifier {
   void _recalculateTodayTotals() {
     final todayDocs = {..._legacyTodayLogDocs, ..._todayTimestampLogDocs};
     var estimatedGrams = 0.0;
+    var completedFeeds = 0;
     for (final data in todayDocs.values) {
       final status = (data['status'] as String? ?? '').toLowerCase();
       if (status != 'completed' && status != 'forced') continue;
+      completedFeeds++;
       final rawGrams =
           data['estimated_dispensed_grams'] ?? data['requested_grams'];
       if (rawGrams is num && rawGrams.isFinite && rawGrams > 0) {
@@ -250,6 +257,7 @@ class FeederService extends ChangeNotifier {
       }
     }
     _estimatedConsumptionToday = estimatedGrams;
+    _completedFeedingsToday = completedFeeds;
     notifyListeners();
   }
 
@@ -294,10 +302,7 @@ class FeederService extends ChangeNotifier {
     _listenTodayTotals();
   }
 
-  String feedSafetyIssue({
-    double? grams,
-    bool allowWaterQualityOverride = false,
-  }) {
+  String feedSafetyIssue({double? grams}) {
     final sensors = SensorService.instance;
     const keys = ['temp', 'do', 'ph', 'turb', 'feedlevel'];
     return feederPreflightIssue(
@@ -313,7 +318,7 @@ class FeederService extends ChangeNotifier {
       },
       ranges: SettingsService.instance.currentRanges,
       grams: grams,
-      allowWaterQualityOverride: allowWaterQualityOverride,
+      allowWaterQualityOverride: _allowWaterQualityFeeding,
     );
   }
 
@@ -341,6 +346,7 @@ class FeederService extends ChangeNotifier {
     _legacyTodayLogDocs.clear();
     _totalsDayKey = '';
     _estimatedConsumptionToday = 0;
+    _completedFeedingsToday = 0;
     _statusSub = null;
     _schedulesSub = null;
     _schedulePolicySub = null;
@@ -362,7 +368,7 @@ class FeederService extends ChangeNotifier {
     _lastError = null;
     _lastFeedRequestError = null;
     _schedulesLoaded = false;
-    _allowWaterQualitySchedules = false;
+    _allowWaterQualityFeeding = false;
     FeedState.schedules.value = [];
     FeedState.feederLogs.value = [];
     notifyListeners();
@@ -437,16 +443,13 @@ class FeederService extends ChangeNotifier {
     try {
       _schedulesSub = tankDoc
           .collection('feeder_schedules')
-          .orderBy('timeValue')
           .snapshots()
           .listen(
             (snapshot) {
               try {
-                _schedules.clear();
-                _scheduleKeys.clear();
+                final parsedSchedules = <MapEntry<String, ScheduleItem>>[];
                 for (final doc in snapshot.docs) {
                   final data = doc.data();
-                  _scheduleKeys.add(doc.id);
                   DateTime? effectiveAt;
                   final effectiveRaw = data['effective_at_ms'];
                   if (effectiveRaw is num && effectiveRaw.toInt() > 0) {
@@ -465,27 +468,49 @@ class FeederService extends ChangeNotifier {
                       );
                     }
                   }
-                  _schedules.add(
-                    ScheduleItem(
-                      data['time'] as String? ?? '6:00',
-                      data['ampm'] as String? ?? 'AM',
-                      enabled: data['enabled'] as bool? ?? true,
-                      isDone: data['isDone'] as bool? ?? false,
-                      grams: (data['grams'] as num?)?.toDouble(),
-                      days: data['days'] as String? ?? '1111111',
-                      id: doc.id,
-                      effectiveAt: effectiveAt,
-                      lastOutcome: data['last_outcome'] as String?,
-                      lastOccurrenceAt:
-                          _parseLoggedAtMillis(data['last_occurrence_at']) > 0
-                          ? DateTime.fromMillisecondsSinceEpoch(
-                              _parseLoggedAtMillis(data['last_occurrence_at']),
-                              isUtc: true,
-                            )
-                          : null,
+                  final minute = feederScheduleMinuteFromFields(data);
+                  if (minute == null) {
+                    debugPrint(
+                      '[FeederService] Ignoring schedule ${doc.id} with an invalid time.',
+                    );
+                    continue;
+                  }
+                  parsedSchedules.add(
+                    MapEntry(
+                      doc.id,
+                      ScheduleItem.fromMinuteOfDay(
+                        minute,
+                        enabled: data['enabled'] as bool? ?? true,
+                        isDone: data['isDone'] as bool? ?? false,
+                        grams: (data['grams'] as num?)?.toDouble(),
+                        days: data['days'] as String? ?? '1111111',
+                        id: doc.id,
+                        effectiveAt: effectiveAt,
+                        lastOutcome: data['last_outcome'] as String?,
+                        lastOccurrenceAt:
+                            _parseLoggedAtMillis(data['last_occurrence_at']) > 0
+                            ? DateTime.fromMillisecondsSinceEpoch(
+                                _parseLoggedAtMillis(
+                                  data['last_occurrence_at'],
+                                ),
+                                isUtc: true,
+                              )
+                            : null,
+                      ),
                     ),
                   );
                 }
+                parsedSchedules.sort(
+                  (a, b) => feederScheduleMinutes(
+                    a.value,
+                  ).compareTo(feederScheduleMinutes(b.value)),
+                );
+                _scheduleKeys
+                  ..clear()
+                  ..addAll(parsedSchedules.map((entry) => entry.key));
+                _schedules
+                  ..clear()
+                  ..addAll(parsedSchedules.map((entry) => entry.value));
                 FeedState.schedules.value = List.from(_schedules);
                 _schedulesLoaded = true;
               } catch (e) {
@@ -515,8 +540,9 @@ class FeederService extends ChangeNotifier {
         .snapshots()
         .listen(
           (snapshot) {
-            _allowWaterQualitySchedules =
-                snapshot.data()?['allow_water_quality_override'] as bool? ?? false;
+            _allowWaterQualityFeeding =
+                snapshot.data()?['allow_water_quality_override'] as bool? ??
+                false;
             notifyListeners();
           },
           onError: (Object error) {
@@ -606,14 +632,10 @@ class FeederService extends ChangeNotifier {
   Future<bool> feedNow({
     double? grams,
     bool nearScheduleConfirmed = false,
-    bool allowWaterQualityOverride = false,
   }) async {
     // Recheck after any confirmation dialog, immediately before dispatch.
     // Callers outside ControlsScreen receive exactly the same protections.
-    final issue = feedSafetyIssue(
-      grams: grams,
-      allowWaterQualityOverride: allowWaterQualityOverride,
-    );
+    final issue = feedSafetyIssue(grams: grams);
     if (issue.isNotEmpty) {
       _lastFeedRequestError = issue;
       return false;
@@ -645,10 +667,6 @@ class FeederService extends ChangeNotifier {
         'issued_by': uid,
         'issued_at': FieldValue.serverTimestamp(),
         'near_schedule_confirmed': nearScheduleConfirmed,
-        // One-time manual command flag; does not persist a user preference.
-        // ESP may bypass water-quality range limits only, never sensor faults,
-        // stale readings, critical feed level, or schedule/command guards.
-        'allow_water_quality_override': allowWaterQualityOverride,
         // A queued offline write must not become a fresh motor command when
         // Firestore finally commits its server timestamp after reconnect.
         'expires_at': Timestamp.fromDate(
@@ -728,8 +746,7 @@ class FeederService extends ChangeNotifier {
     _throwIfScheduleConflicts(requested);
     await _mutateSchedule({
       'operation': 'add',
-      'time': time,
-      'ampm': ampm,
+      'scheduled_time': feederScheduleTime24(requested),
       'grams': grams,
       'days': days,
       'enabled': true,
@@ -845,8 +862,7 @@ class FeederService extends ChangeNotifier {
     await _mutateSchedule({
       'operation': 'edit',
       'scheduleId': _scheduleKeys[index],
-      'time': time,
-      'ampm': ampm,
+      'scheduled_time': feederScheduleTime24(requested),
       'enabled': requested.enabled,
       'grams': clearGrams ? null : grams,
       'days': days,
@@ -854,12 +870,12 @@ class FeederService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setAllowWaterQualitySchedules(bool enabled) async {
+  Future<void> setAllowWaterQualityFeeding(bool enabled) async {
     if (_tankDoc() == null) {
       throw StateError('No tank is connected to this account.');
     }
-    final previous = _allowWaterQualitySchedules;
-    _allowWaterQualitySchedules = enabled;
+    final previous = _allowWaterQualityFeeding;
+    _allowWaterQualityFeeding = enabled;
     notifyListeners();
     try {
       await _mutateSchedule({
@@ -867,7 +883,7 @@ class FeederService extends ChangeNotifier {
         'allowWaterQualityOverride': enabled,
       });
     } catch (_) {
-      _allowWaterQualitySchedules = previous;
+      _allowWaterQualityFeeding = previous;
       notifyListeners();
       rethrow;
     }
@@ -949,11 +965,13 @@ class FeederService extends ChangeNotifier {
       if (error.code == 'already-exists' &&
           requested != null &&
           conflict is Map) {
+        final conflictMinute = feederScheduleMinuteFromFields(
+          Map<String, dynamic>.from(conflict),
+        );
         throw FeederScheduleConflictException(
           requested,
-          ScheduleItem(
-            conflict['time']?.toString() ?? requested.time,
-            conflict['ampm']?.toString() ?? requested.ampm,
+          ScheduleItem.fromMinuteOfDay(
+            conflictMinute ?? feederScheduleMinutes(requested),
             days: conflict['days']?.toString() ?? '1111111',
           ),
         );

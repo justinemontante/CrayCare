@@ -105,6 +105,47 @@ DateTime manilaWallClock([DateTime? instant]) {
   );
 }
 
+int? parseCanonicalFeederScheduleMinute(String? value) {
+  if (value == null) return null;
+  final match = RegExp(r'^([01]\d|2[0-3]):([0-5]\d)$').firstMatch(value);
+  if (match == null) return null;
+  return int.parse(match.group(1)!) * 60 + int.parse(match.group(2)!);
+}
+
+/// Reads the canonical Firestore value and falls back to legacy schedule fields
+/// until existing documents have been migrated.
+int? feederScheduleMinuteFromFields(Map<String, dynamic> data) {
+  if (data.containsKey('scheduled_time')) {
+    final value = data['scheduled_time'];
+    return parseCanonicalFeederScheduleMinute(value is String ? value : null);
+  }
+
+  final oldMinute = data['timeValue'];
+  if (oldMinute is num &&
+      oldMinute.isFinite &&
+      oldMinute == oldMinute.roundToDouble() &&
+      oldMinute >= 0 &&
+      oldMinute < 1440) {
+    return oldMinute.toInt();
+  }
+
+  final time = data['time'];
+  final ampm = data['ampm'];
+  if (time is! String || (ampm != 'AM' && ampm != 'PM')) return null;
+  final match = RegExp(r'^(\d{1,2}):([0-5]\d)$').firstMatch(time);
+  if (match == null) return null;
+  final hour = int.parse(match.group(1)!);
+  if (hour < 1 || hour > 12) return null;
+  final minute = int.parse(match.group(2)!);
+  return (hour % 12 + (ampm == 'PM' ? 12 : 0)) * 60 + minute;
+}
+
+String feederScheduleTime24(ScheduleItem schedule) {
+  final minute = feederScheduleMinutes(schedule);
+  final hour24 = minute ~/ 60;
+  return '${hour24.toString().padLeft(2, '0')}:${(minute % 60).toString().padLeft(2, '0')}';
+}
+
 class ScheduleItem {
   final String time;
   final String ampm;
@@ -136,6 +177,34 @@ class ScheduleItem {
     this.lastOutcome,
     this.lastOccurrenceAt,
   });
+
+  factory ScheduleItem.fromMinuteOfDay(
+    int minute, {
+    bool enabled = true,
+    bool isDone = false,
+    double? grams,
+    String days = '1111111',
+    String? id,
+    DateTime? effectiveAt,
+    String? lastOutcome,
+    DateTime? lastOccurrenceAt,
+  }) {
+    final hour24 = minute ~/ 60;
+    final hour12 = hour24 % 12 == 0 ? 12 : hour24 % 12;
+    final time = '$hour12:${(minute % 60).toString().padLeft(2, '0')}';
+    return ScheduleItem(
+      time,
+      hour24 >= 12 ? 'PM' : 'AM',
+      enabled: enabled,
+      isDone: isDone,
+      grams: grams,
+      days: days,
+      id: id,
+      effectiveAt: effectiveAt,
+      lastOutcome: lastOutcome,
+      lastOccurrenceAt: lastOccurrenceAt,
+    );
+  }
 }
 
 /// Date-scoped terminal outcome. Legacy isDone alone is not proof of dispensing.

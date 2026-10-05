@@ -214,17 +214,11 @@ def _analyze_tank(tank_id):
     from anomaly_window import anomaly_window
 
     now = datetime.now(timezone.utc)
-    frame, data_status, source_at = anomaly_window(frame, now.timestamp())
+    frame, data_status, _ = anomaly_window(frame, now.timestamp())
     result = (
         _run_water_quality_anomaly_detection(frame)
         if data_status == "ready"
         else _insufficient_result(data_status)
-    )
-    result["data_status"] = data_status
-    result["source_recorded_at"] = (
-        datetime.fromtimestamp(source_at, timezone.utc)
-        if source_at is not None
-        else None
     )
     result["tank_id"] = tank_id
     if owner_uid:

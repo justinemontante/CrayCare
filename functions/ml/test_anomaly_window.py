@@ -104,7 +104,8 @@ class HistoryWindowTests(unittest.TestCase):
         self.assertEqual(batch.set.call_count, 2)
         result = batch.set.call_args_list[0].args[1]
         self.assertEqual(result["status"], "Insufficient")
-        self.assertEqual(result["data_status"], "stale")
-        self.assertIsNotNone(result["source_recorded_at"])
+        self.assertEqual(result["source"], "Stale sensor history")
+        self.assertNotIn("data_status", result)
+        self.assertNotIn("source_recorded_at", result)
         self.assertNotIn("source_age_seconds", result)
         self.assertNotIn("analysis_window_minutes", result)

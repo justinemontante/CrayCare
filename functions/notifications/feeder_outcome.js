@@ -1,6 +1,7 @@
 "use strict";
 
 const TERMINAL_OUTCOMES = new Set(["completed", "skipped_insufficient", "blocked", "failed"]);
+const {parseScheduleMinute} = require("./schedule_time");
 
 function timestampMillis(value) {
   if (value && typeof value.toMillis === "function") return value.toMillis();
@@ -20,7 +21,7 @@ function scheduleOutcomePatch(schedule, log) {
       timestampMillis(schedule.last_occurrence_at || 0) > at) return null;
   const local = new Date(at + 8 * 3600000);
   const minute = local.getUTCHours() * 60 + local.getUTCMinutes();
-  if (Number(schedule.timeValue) !== minute) return null;
+  if (parseScheduleMinute(schedule) !== minute) return null;
   return {
     isDone: status === "completed",
     last_outcome: status,

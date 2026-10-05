@@ -8,6 +8,7 @@ import '../widgets/dashboard/water_quality_anomaly_detection_card.dart';
 import '../services/sensor_service.dart';
 import '../services/settings_service.dart';
 import '../services/tank_service.dart';
+import '../services/feeder_service.dart';
 import '../models/control_types.dart';
 import '../models/crayfish_batch.dart';
 import '../widgets/production/crayfish/grow_out_report_export_button.dart';
@@ -53,6 +54,7 @@ class DashboardScreenState extends State<DashboardScreen>
     SensorService.instance.addListener(_refreshUI);
     SettingsService.instance.addListener(_refreshUI);
     TankService.instance.addListener(_refreshUI);
+    FeederService.instance.addListener(_refreshUI);
     FeedState.schedules.addListener(_refreshUI);
     FeedState.feederLogs.addListener(_refreshUI);
     _refreshUI();
@@ -96,6 +98,7 @@ class DashboardScreenState extends State<DashboardScreen>
     SensorService.instance.removeListener(_refreshUI);
     SettingsService.instance.removeListener(_refreshUI);
     TankService.instance.removeListener(_refreshUI);
+    FeederService.instance.removeListener(_refreshUI);
     FeedState.schedules.removeListener(_refreshUI);
     FeedState.feederLogs.removeListener(_refreshUI);
     _countdownTimer?.cancel();
@@ -1394,7 +1397,6 @@ class DashboardScreenState extends State<DashboardScreen>
         (a, b) => feederScheduleMinutes(a).compareTo(feederScheduleMinutes(b)),
       );
 
-    ScheduleItem? lastFed;
     final statuses = <ScheduleItem, String>{};
     int completed = 0;
     int activeToday = 0;
@@ -1414,8 +1416,20 @@ class DashboardScreenState extends State<DashboardScreen>
         if (feederScheduleWasEffectiveAt(s, occurrence)) activeToday++;
       }
       if (status == 'completed') {
-        lastFed = s;
         completed++;
+      }
+    }
+
+    // The schedule progress below is schedule-only, but LAST FED must reflect
+    // every real completed dispense, including the ESP's physical button.
+    LogEntry? lastFedLog;
+    for (final log in FeedState.feederLogs.value) {
+      final status = log.status?.toLowerCase();
+      if ((status != 'completed' && status != 'forced') || log.timestamp <= 0) {
+        continue;
+      }
+      if (lastFedLog == null || log.timestamp > lastFedLog.timestamp) {
+        lastFedLog = log;
       }
     }
 
@@ -1429,13 +1443,18 @@ class DashboardScreenState extends State<DashboardScreen>
     final nextFeedAt = nextOccurrence?.at;
 
     final progress = activeToday > 0 ? completed / activeToday : 0.0;
+    final totalCompletedToday = FeederService.instance.completedFeedingsToday;
 
     String lastFedTime = '--';
     String lastFedDate = 'No feedings';
-    if (lastFed != null) {
-      lastFedTime = '${lastFed.time} ${lastFed.ampm}';
-      lastFedDate = 'Today';
+    if (lastFedLog != null) {
+      lastFedTime = lastFedLog.time.isEmpty ? '--' : lastFedLog.time;
+      lastFedDate = lastFedLog.date.isEmpty
+          ? 'Date unavailable'
+          : lastFedLog.date;
     }
+    final lastFedGrams =
+        lastFedLog?.estimatedDispensedGrams ?? lastFedLog?.requestedGrams;
 
     String nextTime = '--';
     String nextLabel = 'No enabled schedule';
@@ -1546,7 +1565,7 @@ class DashboardScreenState extends State<DashboardScreen>
                         color: AppColors.dark,
                       ),
                     ),
-                    if (lastFed?.grams != null) ...[
+                    if (lastFedGrams != null) ...[
                       const SizedBox(height: 4),
                       Container(
                         padding: const EdgeInsets.symmetric(
@@ -1558,7 +1577,7 @@ class DashboardScreenState extends State<DashboardScreen>
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(
-                          '${lastFed!.grams!.toStringAsFixed(1)}g',
+                          '${lastFedGrams.toStringAsFixed(1)}g',
                           style: const TextStyle(
                             fontSize: 9,
                             fontWeight: FontWeight.w700,
@@ -1663,7 +1682,7 @@ class DashboardScreenState extends State<DashboardScreen>
             ),
             const SizedBox(height: 8),
             Text(
-              '$completed of $activeToday feedings today completed',
+              '$completed of $activeToday scheduled feeds completed today',
               style: const TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.w500,
@@ -1681,6 +1700,15 @@ class DashboardScreenState extends State<DashboardScreen>
               ),
             ),
           ],
+          const SizedBox(height: 8),
+          Text(
+            'Total completed today: $totalCompletedToday (including manual)',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w500,
+              color: AppColors.darkWith(0.55),
+            ),
+          ),
         ],
       ),
     );

@@ -1,11 +1,11 @@
-// CrayCare — Normalized Relational Schema (3NF logical model)
+// CrayCare — Normalized Relational Schema (3NF)
 // Field names mirror the Firestore runtime field names used by the Flutter
 // app, Cloud Functions, and ESP32 firmware (documented in the Data
 // Dictionary deliverable). Import in dbdiagram.io as DBML.
 
 Project CrayCare {
   database_type: 'PostgreSQL'
-  Note: 'Normalized SQL logical model. Source facts are stored once; calculated values are produced by queries or views. Operational read/staging models are identified explicitly. Firestore persistence notes are attached per table. Logical keys representing Firestore document IDs are path identifiers and may not be stored fields.'
+  Note: 'Normalized SQL relational schema. Source facts are stored once; calculated values are produced by queries or views. Operational read/staging models are identified explicitly. Firestore persistence notes are attached per table. Keys representing Firestore document IDs are path identifiers and may not be stored fields.'
 }
 
 Table users {
@@ -137,36 +137,33 @@ Table feeder_status [note: 'Operational current-state projection; one row per ta
   feed_level decimal(6,2)
 }
 
-Table feeder_policy [note: 'Shared schedule policy persisted at tanks/{tankId}/feeder/schedule_policy; one owner-level setting applies to all schedules, not per schedule'] {
+Table feeder_policy [note: 'Shared feeding policy persisted at tanks/{tankId}/feeder/schedule_policy; one owner-level setting applies to manual Feed Now and all schedules'] {
   tank_id varchar [pk, ref: - tanks.tank_id]
-  allow_water_quality_override boolean [not null, default: false, note: 'Allows scheduled feeding despite out-of-range temperature, pH, dissolved oxygen, or turbidity only; sensor faults, stale readings, turbidity-in-air, and critical feed level still block']
+  allow_water_quality_override boolean [not null, default: false, note: 'Allows manual Feed Now and scheduled feeding despite out-of-range temperature, pH, dissolved oxygen, or turbidity only; sensor faults, stale readings, turbidity-in-air, critical feed level, and other guards still block']
   updated_at timestamp
 }
 
-Table feeder_schedules [note: 'Persisted at tanks/{tankId}/feeder_schedules/{scheduleId}; the weekly day mask is stored as one days string on this document (logical model also normalizes it below)'] {
+Table feeder_schedules [note: 'SQL-style normalized schedule model. In Firestore, the selected weekdays are stored as a 7-character days mask on tanks/{tankId}/feeder_schedules/{scheduleId}; feeder_schedule_days is the relational representation.'] {
   tank_id varchar [not null, ref: > tanks.tank_id]
   schedule_id varchar [not null, note: 'Document ID; not a stored field']
-  time varchar [not null, note: 'HH:MM 12-hour; paired with ampm']
-  ampm varchar [not null, note: 'AM | PM']
-  timeValue int [not null, note: 'Minutes since midnight; used for sorting']
-  grams decimal(8,2) [not null, default: 20]
+  scheduled_time time [not null, note: 'Canonical 24-hour HH:mm; app displays AM/PM; Firestore stores a string']
+  grams smallint [not null, default: 20, note: 'Whole grams only; CHECK (grams BETWEEN 1 AND 200)']
   enabled boolean [not null, default: true]
-  days varchar [not null, note: '7-character Sunday-first mask (e.g. 0111110)']
   isDone boolean [not null, default: false, note: 'Legacy compatibility; true only for the completed current occurrence']
-  effective_at_ms int [not null, note: 'Integer epoch-ms; prevents new/edited schedules from being treated as retroactively due']
+  effective_at_ms bigint [not null, note: 'Integer epoch-ms; prevents new/edited schedules from being treated as retroactively due']
   last_outcome varchar [note: 'completed | blocked | skipped_insufficient | failed']
   last_occurrence_at timestamp [note: 'Firestore Timestamp; legacy integer epoch-ms may exist']
   created_at timestamp [not null]
   Indexes {
     (tank_id, schedule_id) [pk]
-    (tank_id, timeValue)
+    (tank_id, scheduled_time)
   }
 }
 
-Table feeder_schedule_days [note: 'Logical normalization of the days mask only; Firestore stores days once on the schedule document (no separate collection)'] {
+Table feeder_schedule_days [note: 'One row per selected weekday in the SQL-style normalized model. Firestore does not store this as a separate collection; it stores the weekdays as a 7-character days mask on the schedule document.'] {
   tank_id varchar [not null]
   schedule_id varchar [not null]
-  day_of_week smallint [not null, note: '0=Sunday through 6=Saturday']
+  day_of_week smallint [not null, note: '0=Sunday through 6=Saturday; one row for each selected day']
   Indexes {
     (tank_id, schedule_id, day_of_week) [pk]
   }
@@ -181,7 +178,7 @@ Table feeder_commands [note: 'Manual Feed Now commands persisted at tanks/{tankI
   issued_at timestamp [not null]
   expires_at timestamp [not null]
   near_schedule_confirmed boolean [not null, default: false, note: 'Owner acknowledged warning-window proximity; never bypasses device collision block']
-  allow_water_quality_override boolean [note: 'Optional one-time Feed Now override for water-quality ranges only; does not bypass sensor faults, stale readings, or critical feed level']
+  allow_water_quality_override boolean [note: 'Deprecated legacy field; current app does not write it and firmware ignores it. Manual and scheduled feeding use feeder_policy.allow_water_quality_override instead']
   Indexes {
     (tank_id, command_id) [pk]
   }
@@ -223,16 +220,14 @@ TableGroup "Feeding Control" {
 
 Ref: feeder_schedule_days.(tank_id, schedule_id) > feeder_schedules.(tank_id, schedule_id)
 
-Table water_quality_anomaly_detections [note: 'Logical anomaly-detection record model. The current result and hourly history use the same fields in separate Firestore locations for fast dashboard access and historical retrieval.'] {
+Table water_quality_anomaly_detections [note: 'Water-quality anomaly-detection record. The current result and 30-minute scheduled history use the same fields in separate Firestore locations for dashboard access and historical retrieval.'] {
   tank_id varchar [not null, ref: > tanks.tank_id]
   uid varchar [note: 'Owner UID attached by the Cloud Function']
-  detection_id varchar [not null, note: 'Logical child-record identifier; maps to the Firestore document ID: current for latest or YYYYMMDDTHHMMSS for history']
+  detection_id varchar [not null, note: 'Result-record identifier; Firestore document ID: current for latest or YYYYMMDDTHHMMSS for history; not stored as a document field']
   status varchar [not null, note: 'Normal | Unusual | Insufficient']
   is_anomaly boolean [not null]
   anomaly_score decimal(5,2) [not null, note: '0–100 percentile relative to reference patterns; not a safety score']
   source varchar [not null, note: 'WQAD model | Model unavailable | Insufficient data | Stale sensor history']
-  data_status varchar [not null, note: 'ready | insufficient | stale']
-  source_recorded_at timestamp [note: 'Firestore Timestamp; null when no source reading exists']
   insight text [not null]
   recommendation text [not null]
   processed_at timestamp [not null, note: 'Firestore Timestamp; app orders history by it']

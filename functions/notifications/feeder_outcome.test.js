@@ -3,7 +3,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { scheduleOutcomePatch } = require("./feeder_outcome");
 const at = Date.parse("2026-08-26T08:00:00Z"); // Manila 4 PM
-const schedule = {timeValue: 960, effective_at_ms: at - 60000};
+const schedule = {scheduled_time: "16:00", effective_at_ms: at - 60000};
 const event = {type: "auto", status: "completed", occurrence_at: at};
 
 test("Firestore Timestamp occurrence writes a Timestamp-compatible schedule result", () => {
@@ -31,5 +31,6 @@ test("older and pre-edit events cannot replace current results", () => {
 test("manual, malformed, and changed-time events do not complete schedules", () => {
   assert.equal(scheduleOutcomePatch(schedule, {...event, type: "manual"}), null);
   assert.equal(scheduleOutcomePatch(schedule, {...event, occurrence_at: null}), null);
-  assert.equal(scheduleOutcomePatch({...schedule, timeValue: 360}, event), null);
+  assert.equal(scheduleOutcomePatch({...schedule, scheduled_time: "06:00"}, event), null);
+  assert.equal(scheduleOutcomePatch({timeValue: 960, effective_at_ms: at - 60000}, event).isDone, true);
 });

@@ -15,8 +15,8 @@ class FeederTab extends StatelessWidget {
   final TextEditingController timeCtl;
   final VoidCallback onFeedNow;
   final Future<bool> Function(double? grams, String days) onAddSchedule;
-  final bool allowWaterQualitySchedules;
-  final Future<void> Function(bool enabled) onSetAllowWaterQualitySchedules;
+  final bool allowWaterQualityFeeding;
+  final Future<void> Function(bool enabled) onSetAllowWaterQualityFeeding;
   final void Function(int index) onDeleteSchedule;
   final Future<bool> Function(int index, ScheduleItem item) onEditSchedule;
   final void Function(int index, bool enabled) onToggleSchedule;
@@ -28,6 +28,7 @@ class FeederTab extends StatelessWidget {
   final bool canFeed;
   final String feedBlockedReason;
   final double? feedLevelPercent;
+  final String? feedLevelZone;
   final double estimatedConsumptionToday;
 
   const FeederTab({
@@ -36,8 +37,8 @@ class FeederTab extends StatelessWidget {
     required this.timeCtl,
     required this.onFeedNow,
     required this.onAddSchedule,
-    this.allowWaterQualitySchedules = false,
-    required this.onSetAllowWaterQualitySchedules,
+    this.allowWaterQualityFeeding = false,
+    required this.onSetAllowWaterQualityFeeding,
     required this.onDeleteSchedule,
     required this.onEditSchedule,
     required this.onToggleSchedule,
@@ -48,6 +49,7 @@ class FeederTab extends StatelessWidget {
     this.canFeed = true,
     this.feedBlockedReason = '',
     this.feedLevelPercent,
+    this.feedLevelZone,
     this.estimatedConsumptionToday = 0,
   });
 
@@ -60,18 +62,14 @@ class FeederTab extends StatelessWidget {
   }
 
   Widget _buildFeederCardBody(BuildContext ctx) {
-    final daytime = schedules
-        .where((s) {
-          final minutes = feederScheduleMinutes(s);
-          return minutes >= 6 * 60 && minutes < 18 * 60;
-        })
-        .toList();
-    final nighttime = schedules
-        .where((s) {
-          final minutes = feederScheduleMinutes(s);
-          return minutes < 6 * 60 || minutes >= 18 * 60;
-        })
-        .toList();
+    final daytime = schedules.where((s) {
+      final minutes = feederScheduleMinutes(s);
+      return minutes >= 6 * 60 && minutes < 18 * 60;
+    }).toList();
+    final nighttime = schedules.where((s) {
+      final minutes = feederScheduleMinutes(s);
+      return minutes < 6 * 60 || minutes >= 18 * 60;
+    }).toList();
     final hasEnabledSchedules = schedules.any((s) => s.enabled);
 
     return Container(
@@ -192,9 +190,7 @@ class FeederTab extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             _buildFeedInventorySummary(),
-            if (schedules.isNotEmpty) ...[
-              _buildCountdown(),
-            ],
+            if (schedules.isNotEmpty) ...[_buildCountdown()],
             const SizedBox(height: 12),
             _buildFeedNowButton(ctx),
             const SizedBox(height: 12),
@@ -255,19 +251,20 @@ class FeederTab extends StatelessWidget {
               child: Material(
                 color: Colors.transparent,
                 child: CheckboxListTile(
-                  value: allowWaterQualitySchedules,
+                  value: allowWaterQualityFeeding,
                   onChanged: (value) {
                     if (value != null) {
-                      onSetAllowWaterQualitySchedules(value);
+                      onSetAllowWaterQualityFeeding(value);
                     }
                   },
                   activeColor: AppColors.primary,
                   checkColor: Colors.white,
                   side: const BorderSide(color: AppColors.dark, width: 1.5),
-                  fillColor: WidgetStateProperty.resolveWith((states) =>
-                      states.contains(WidgetState.selected)
-                          ? AppColors.primary
-                          : Colors.transparent),
+                  fillColor: WidgetStateProperty.resolveWith(
+                    (states) => states.contains(WidgetState.selected)
+                        ? AppColors.primary
+                        : Colors.transparent,
+                  ),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 6),
                   horizontalTitleGap: 2,
                   minLeadingWidth: 26,
@@ -278,7 +275,7 @@ class FeederTab extends StatelessWidget {
                   ),
                   controlAffinity: ListTileControlAffinity.leading,
                   title: const Text(
-                    'Allow scheduled feeding outside safe water-quality ranges',
+                    'Allow manual and scheduled feeding outside safe water-quality ranges',
                     style: TextStyle(
                       fontSize: 9.5,
                       fontWeight: FontWeight.w600,
@@ -349,42 +346,54 @@ class FeederTab extends StatelessWidget {
 
   Widget _buildFeedInventorySummary() {
     final level = feedLevelPercent;
+    final zone = feedLevelZone;
 
     Color levelColor = AppColors.darkWith(0.35);
     String levelLabel = 'Waiting for sensor';
     if (level != null) {
-      if (level <= 0) {
-        levelColor = AppColors.critical;
-        levelLabel = 'Empty';
-      } else if (level <= 10) {
-        levelColor = AppColors.critical;
-        levelLabel = 'Critical Feed Level';
-      } else if (level <= 20) {
-        levelColor = AppColors.warning;
-        levelLabel = 'Low Feed';
-      } else {
-        levelColor = AppColors.success;
-        levelLabel = 'Normal';
+      switch (zone) {
+        case 'EMPTY':
+          levelColor = AppColors.critical;
+          levelLabel = 'EMPTY';
+        case 'CRITICAL':
+          levelColor = AppColors.critical;
+          levelLabel = 'CRITICAL';
+        case 'WARNING':
+          levelColor = AppColors.warning;
+          levelLabel = 'LOW';
+        case 'OPTIMAL':
+          levelColor = AppColors.success;
+          levelLabel = 'NORMAL';
+        default:
+          levelLabel = 'UNKNOWN';
       }
     }
 
-    final isCritical = level != null && level <= 10;
-    final isLow = level != null && level <= 20;
+    final isCritical = zone == 'CRITICAL' || zone == 'EMPTY';
+    final isLow = isCritical || zone == 'WARNING';
+    final hasKnownStatus = const {
+      'EMPTY',
+      'CRITICAL',
+      'WARNING',
+      'OPTIMAL',
+    }.contains(zone);
     final availabilityText = level == null
         ? 'Waiting for a feed-level sensor reading'
+        : !hasKnownStatus
+        ? 'Feed-level status is unavailable.'
         : isCritical
         ? 'Critical feed level. Feeding is blocked until the hopper is refilled.'
         : isLow
         ? 'Feed level is low. Refill the hopper soon.'
         : 'Feed level is within the configured operating range.';
-    final availabilityColor = level == null
+    final availabilityColor = level == null || !hasKnownStatus
         ? AppColors.darkWith(0.45)
         : isCritical
         ? AppColors.critical
         : isLow
         ? AppColors.warning
         : AppColors.success;
-    final availabilityIcon = level == null
+    final availabilityIcon = level == null || !hasKnownStatus
         ? Icons.sensors_off_outlined
         : isCritical
         ? Icons.error_outline_rounded
@@ -757,6 +766,25 @@ class FeederTab extends StatelessWidget {
     if (!feederScheduleWasEffectiveAt(s, scheduleDt)) return 'upcoming';
     if (now.isBefore(scheduleDt)) return 'upcoming';
     return 'pending';
+  }
+
+  String _feedStatusLabel(String? status) {
+    switch (status?.toLowerCase()) {
+      case 'completed':
+        return 'Completed';
+      case 'forced':
+        return 'Completed (confirmed override)';
+      case 'blocked':
+        return 'Blocked';
+      case 'failed':
+        return 'Failed';
+      case 'skipped_insufficient':
+        return 'Skipped (low feed level)';
+      case 'pending_confirmation':
+        return 'Needs confirmation';
+      default:
+        return status?.replaceAll('_', ' ') ?? '';
+    }
   }
 
   Widget _buildSchedulePeriod(
@@ -1349,6 +1377,26 @@ class FeederTab extends StatelessWidget {
                                                     ),
                                                   ),
                                                 ),
+                                                if (_feedStatusLabel(
+                                                  l.status,
+                                                ).isNotEmpty) ...[
+                                                  const SizedBox(height: 3),
+                                                  Text(
+                                                    _feedStatusLabel(l.status),
+                                                    style: TextStyle(
+                                                      fontSize: 9,
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                      color:
+                                                          l.status ==
+                                                                  'completed' ||
+                                                              l.status ==
+                                                                  'forced'
+                                                          ? AppColors.success
+                                                          : AppColors.critical,
+                                                    ),
+                                                  ),
+                                                ],
                                                 if (l.requestedGrams !=
                                                     null) ...[
                                                   const SizedBox(height: 4),
@@ -1451,9 +1499,16 @@ class FeederTab extends StatelessWidget {
     } else {
       selectedTime = const TimeOfDay(hour: 6, minute: 0);
     }
-    final gramsCtl = TextEditingController(
-      text: existing?.grams != null ? existing!.grams!.toStringAsFixed(1) : '',
-    );
+    final existingGrams = existing?.grams;
+    final initialGramsText = existingGrams == null
+        ? ''
+        : (existingGrams.isFinite &&
+                  existingGrams >= 1 &&
+                  existingGrams <= 200 &&
+                  existingGrams == existingGrams.roundToDouble()
+              ? existingGrams.toInt().toString()
+              : existingGrams.toString());
+    final gramsCtl = TextEditingController(text: initialGramsText);
     // Day-of-week mask, Sunday first: index 0..6. Default = every day.
     final selectedDays = <int>{
       for (var i = 0; i < 7; i++)
@@ -1562,18 +1617,22 @@ class FeederTab extends StatelessWidget {
                     TextField(
                       controller: gramsCtl,
                       keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
+                        decimal: false,
                         signed: false,
                       ),
                       inputFormatters: [
-                        FilteringTextInputFormatter.allow(
-                          RegExp(r'^\d*\.?\d*$'),
-                        ),
+                        TextInputFormatter.withFunction((oldValue, newValue) {
+                          if (newValue.text.isEmpty ||
+                              RegExp(r'^\d+$').hasMatch(newValue.text)) {
+                            return newValue;
+                          }
+                          return oldValue;
+                        }),
                       ],
                       onChanged: (_) => setSheetState(() {}),
                       decoration: InputDecoration(
                         labelText: 'Grams (optional)',
-                        hintText: '20, 40, 60 … 200 (default: 20)',
+                        hintText: '1, 2, 3 … 200 (default: 20)',
                         suffixText: 'g',
                         errorText: gramsError,
                         enabledBorder: OutlineInputBorder(

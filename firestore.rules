@@ -296,7 +296,8 @@ service cloud.firestore {
           request.resource.data.command_type == 'feed_now' &&
           request.resource.data.grams is number &&
           request.resource.data.grams >= 1.0 &&
-          request.resource.data.grams <= 5000.0 &&
+          request.resource.data.grams <= 200.0 &&
+          request.resource.data.grams % 1 == 0 &&
           request.resource.data.issued_by == request.auth.uid &&
           request.resource.data.issued_at is timestamp &&
           request.resource.data.expires_at is timestamp &&

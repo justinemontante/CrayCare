@@ -71,11 +71,9 @@ GrowthStage classifyGrowthStage({required double abw, required double abl}) {
   return GrowthStage.marketSize;
 }
 
-/// Keeps the planned batch sample size while allowing sampling to continue
-/// when fewer crayfish remain in the tank.
-int effectiveSamplingSize(int plannedSampleSize, int inTankCount) {
-  if (plannedSampleSize <= 0 || inTankCount <= 0) return 0;
-  return plannedSampleSize < inTankCount ? plannedSampleSize : inTankCount;
+/// Keeps every later sample at the batch's baseline sample size.
+int baselineSamplingSize(int plannedSampleSize) {
+  return plannedSampleSize > 0 ? plannedSampleSize : 0;
 }
 
 /// Computes a sample average from its persisted source measurements.
@@ -293,7 +291,6 @@ class TankService extends ChangeNotifier {
   int _initialCount = 0;
   int _mortality = 0;
   bool _isInitialized = false;
-  bool _setupComplete = false;
   bool _hasTankDocument = false;
   DateTime _stockingDate = DateTime.now();
 
@@ -405,8 +402,7 @@ class TankService extends ChangeNotifier {
   }
 
   int get sampleCount => _sampleCount;
-  int get currentSamplingSize =>
-      effectiveSamplingSize(_sampleCount, inTankCount);
+  int get currentSamplingSize => baselineSamplingSize(_sampleCount);
   double get initialWeight => _initialWeight;
   double get initialLength => _initialLength;
   double get initialTotalWeight => _totalSampleWeight;
@@ -651,7 +647,6 @@ class TankService extends ChangeNotifier {
           : rawBatchId.trim();
       _isInitialized =
           data['is_initialized'] == true && _selectedBatchId != null;
-      _setupComplete = _isInitialized;
       if (!_isInitialized) _selectedBatchId = null;
       if (_selectedBatchId != null) {
         final batchDoc = await _batchesRef.doc(_selectedBatchId).get();
@@ -665,7 +660,6 @@ class TankService extends ChangeNotifier {
         } else {
           _selectedBatchId = null;
           _isInitialized = false;
-          _setupComplete = false;
         }
       }
       notifyListeners();
@@ -684,7 +678,6 @@ class TankService extends ChangeNotifier {
     _totalSampleWeight = 0.0;
     _totalSampleLength = 0.0;
     _isInitialized = false;
-    _setupComplete = false;
     _selectedBatchId = null;
     _isArchiveView = false;
     _samplingHistory.clear();
@@ -900,7 +893,6 @@ class TankService extends ChangeNotifier {
     _mortality = batch.totalMortality;
     _totalHarvested = batch.harvestCount;
     _isInitialized = true;
-    _setupComplete = true;
   }
 
   void _listenFirebase() {
@@ -1127,29 +1119,11 @@ class TankService extends ChangeNotifier {
     _initialWeight = batch.initialAbw;
     _initialLength = batch.initialAbl;
     _isInitialized = true;
-    _setupComplete = true;
     _sampleCount = batch.sampleCount;
     _totalSampleWeight = batch.initialTotalWeight;
     _totalSampleLength = batch.initialTotalLength;
     _resubscribeToBatch();
     notifyListeners();
-  }
-
-  Future<void> _saveConfig() async {
-    if (!_setupComplete) return;
-    if (_tankOwnerUid.isEmpty) return;
-    try {
-      await _tankRef.set({
-        'owner_uid': _currentUserUid.isNotEmpty
-            ? _currentUserUid
-            : _tankOwnerUid,
-        'current_batch_id': _selectedBatchId ?? '',
-        'is_initialized': _isInitialized,
-      }, SetOptions(merge: true));
-    } catch (e) {
-      debugPrint('[TankService] _saveConfig error: $e');
-      rethrow;
-    }
   }
 
   Future<void> initializeGrowOut(
@@ -1281,7 +1255,6 @@ class TankService extends ChangeNotifier {
     _initialWeight = sampleCount > 0 ? (totalWeight / sampleCount) : 0.0;
     _initialLength = sampleCount > 0 ? (totalLength / sampleCount) : 0.0;
     _isInitialized = true;
-    _setupComplete = true;
     _mortality = 0;
     _totalHarvested = 0;
     _samplingHistory.clear();
@@ -1358,11 +1331,16 @@ class TankService extends ChangeNotifier {
 
   Future<void> addSamplingEntry(List<CrayfishMeasurement> measurements) async {
     validateCrayfishMeasurements(measurements, population: inTankCount);
+    final expectedSampleSize = _sampleCount;
+    if (measurements.length != expectedSampleSize) {
+      throw ArgumentError(
+        'Sampling must use the full baseline sample size of $expectedSampleSize.',
+      );
+    }
     if (_selectedBatchId == null || _selectedBatchId!.isEmpty) {
       throw ArgumentError('No batch selected');
     }
 
-    _setupComplete = true;
     final now = DateTime.now();
     final count = measurements.length;
     final weight = measurements.fold<double>(
@@ -1375,24 +1353,30 @@ class TankService extends ChangeNotifier {
     );
     final abw = weight / count;
     final avgLength = length / count;
-    final entry = SamplingEntry(
-      date: now,
-      abw: abw,
-      avgLength: avgLength,
-      sampleSize: count,
-      totalWeight: weight,
-      totalLength: length,
-      liveCount: inTankCount,
-      measurements: measurements,
-    );
     try {
-      await _samplingRef(_selectedBatchId!).add({
-        'sampling_date': _writeTankTimestamp(entry.date),
+      final document = await _samplingRef(_selectedBatchId!).add({
+        'sampling_date': _writeTankTimestamp(now),
         'measurements': measurements.map((item) => item.toMap()).toList(),
-        'live_count': entry.liveCount,
+        'live_count': inTankCount,
         'is_baseline': false,
         'created_at': FieldValue.serverTimestamp(),
       });
+      final entry = SamplingEntry(
+        id: document.id,
+        date: now,
+        abw: abw,
+        avgLength: avgLength,
+        sampleSize: count,
+        totalWeight: weight,
+        totalLength: length,
+        liveCount: inTankCount,
+        measurements: measurements,
+      );
+      if (!_samplingHistory.any((saved) => saved.id == document.id)) {
+        _samplingHistory.add(entry);
+        _samplingHistory.sort((a, b) => a.date.compareTo(b.date));
+      }
+      _lastSamplingDocId = document.id;
       _addActivity(
         'Recorded sampling: ${abw.toStringAsFixed(2)}g ABW, ${avgLength.toStringAsFixed(2)}cm ABL',
         'sampling',
@@ -1400,7 +1384,6 @@ class TankService extends ChangeNotifier {
         abw: abw,
         avgLength: avgLength,
       );
-      await _saveConfig();
     } catch (e) {
       debugPrint('[TankService] Error saving sampling entry: $e');
       rethrow;
@@ -1411,14 +1394,36 @@ class TankService extends ChangeNotifier {
   Future<void> updateLastSamplingEntry(
     List<CrayfishMeasurement> measurements,
   ) async {
-    if (_lastSamplingDocId == null || _samplingHistory.isEmpty) return;
-    if (_samplingHistory.last.isBaseline) {
+    if (_lastSamplingDocId == null || _samplingHistory.isEmpty) {
+      throw StateError('The saved sampling record is not ready to edit yet.');
+    }
+    final existing = _samplingHistory.last;
+    final samplingDocumentId = existing.id;
+    if (samplingDocumentId.isEmpty ||
+        samplingDocumentId != _lastSamplingDocId) {
+      throw StateError(
+        'The latest saved sampling record could not be located.',
+      );
+    }
+    if (existing.isBaseline) {
       throw StateError('No weekly sampling record is available to edit.');
     }
-    if (_selectedBatchId == null) return;
-    validateCrayfishMeasurements(measurements, population: inTankCount);
+    if (_selectedBatchId == null || _selectedBatchId!.isEmpty) {
+      throw StateError('No batch selected');
+    }
+    validateCrayfishMeasurements(
+      measurements,
+      population: inTankCount < existing.sampleSize
+          ? existing.sampleSize
+          : inTankCount,
+    );
 
     final count = measurements.length;
+    if (count != existing.sampleSize) {
+      throw ArgumentError(
+        'Keep the saved sample size at ${existing.sampleSize}; only correct its measurements.',
+      );
+    }
     final weight = measurements.fold<double>(
       0,
       (total, item) => total + item.weightGrams,
@@ -1430,19 +1435,18 @@ class TankService extends ChangeNotifier {
     final abw = weight / count;
     final avgLength = length / count;
     final updated = SamplingEntry(
-      id: _lastSamplingDocId!,
-      date: _samplingHistory.last.date,
+      id: samplingDocumentId,
+      date: existing.date,
       abw: abw,
       avgLength: avgLength,
       sampleSize: count,
       totalWeight: weight,
       totalLength: length,
-      liveCount: inTankCount,
+      liveCount: existing.liveCount,
       measurements: measurements,
     );
-    _samplingHistory.last = updated;
     try {
-      await _samplingRef(_selectedBatchId!).doc(_lastSamplingDocId!).update({
+      await _samplingRef(_selectedBatchId!).doc(samplingDocumentId).update({
         'avg_body_weight': FieldValue.delete(),
         'avg_body_length': FieldValue.delete(),
         'biomass': FieldValue.delete(),
@@ -1451,9 +1455,16 @@ class TankService extends ChangeNotifier {
         'total_weight': FieldValue.delete(),
         'total_length': FieldValue.delete(),
         'live_count': updated.liveCount,
-        'created_at': FieldValue.serverTimestamp(),
       });
-      await _saveConfig();
+      final updatedIndex = _samplingHistory.indexWhere(
+        (entry) => entry.id == updated.id,
+      );
+      if (updatedIndex == -1) {
+        _samplingHistory.add(updated);
+        _samplingHistory.sort((a, b) => a.date.compareTo(b.date));
+      } else {
+        _samplingHistory[updatedIndex] = updated;
+      }
     } catch (e) {
       debugPrint('[TankService] Error updating sampling entry: $e');
       rethrow;
@@ -1473,7 +1484,6 @@ class TankService extends ChangeNotifier {
       throw ArgumentError('No batch selected');
     }
 
-    _setupComplete = true;
     final mEntry = MortalityEntry(date: date ?? DateTime.now(), count: val);
     final batchRef = _batchesRef.doc(batchId);
     final recordRef = _mortalityRef(batchId).doc();

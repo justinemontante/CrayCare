@@ -6,12 +6,12 @@ const {feedingReminderOccurrence} = require('./feeding_reminder');
 const {deliverNotificationOnce, notificationEventId} = require('./notification_delivery');
 
 test('schedule time normalization and duplicate day/time regardless of dose', () => {
-  const first = scheduleFields({time:'6:00',ampm:'PM',days:'0110000',grams:20});
-  assert.equal(first.timeValue,1080);
+  const first = scheduleFields({scheduled_time:'18:00',days:'0110000',grams:20});
+  assert.equal(first.scheduled_time,'18:00');
   assert.ok(overlaps(first,{...first,days:'0101000',grams:40}));
   assert.ok(!overlaps(first,{...first,days:'0001000'}));
   assert.ok(overlaps(first,{time:'6:00',ampm:'PM',grams:60}));
-  assert.equal(scheduleFields({time:'12:00',ampm:'AM',days:'1111111'}).timeValue,0);
+  assert.equal(scheduleFields({time:'12:00',ampm:'AM',days:'1111111'}).scheduled_time,'00:00');
   assert.equal(scheduleFields({time:'6:00',ampm:'AM',days:'1111111',grams:5}).grams,5);
   assert.equal(scheduleFields({time:'6:00',ampm:'AM',days:'1111111',grams:21}).grams,21);
   for(const grams of [0,-5,2.5,201,Infinity,'20'])

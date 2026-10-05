@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import '../firebase_options.dart';
 import '../models/notification_item.dart';
 import '../utils/prediction_timestamp.dart';
+import '../utils/notification_snapshot_reconciliation.dart';
 
 @pragma('vm:entry-point')
 Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
@@ -180,6 +181,7 @@ class NotificationService extends ChangeNotifier {
   _profileFirestoreSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _notifSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _prefsSub;
+  String? _notificationListenerUid;
   final FlutterLocalNotificationsPlugin _localNotifications =
       FlutterLocalNotificationsPlugin();
   static const MethodChannel _appSettingsChannel = MethodChannel(
@@ -257,7 +259,10 @@ class NotificationService extends ChangeNotifier {
           _userRole = profile['role']?.toString().trim().toLowerCase();
           if (_userRole == 'admin') {
             _notifSub?.cancel();
+            _notifSub = null;
+            _notificationListenerUid = null;
             _prefsSub?.cancel();
+            _prefsSub = null;
             _notifications.clear();
             try {
               final token = await FirebaseMessaging.instance.getToken();
@@ -484,8 +489,12 @@ class NotificationService extends ChangeNotifier {
     _foregroundMessageSub?.cancel();
     _foregroundMessageSub = null;
     _notifSub?.cancel();
+    _notifSub = null;
+    _notificationListenerUid = null;
     _prefsSub?.cancel();
+    _prefsSub = null;
     _profileFirestoreSub?.cancel();
+    _profileFirestoreSub = null;
     _initialized = false;
     super.dispose();
   }
@@ -520,6 +529,7 @@ class NotificationService extends ChangeNotifier {
     _prefsSub?.cancel();
     _profileFirestoreSub?.cancel();
     _notifSub = null;
+    _notificationListenerUid = null;
     _prefsSub = null;
     _profileFirestoreSub = null;
   }
@@ -528,42 +538,67 @@ class NotificationService extends ChangeNotifier {
     if (_userRole != 'owner') return;
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (uid.isEmpty) return;
+
+    // Profile snapshots can fire for unrelated profile changes. Keep the
+    // existing query listener instead of restarting it and leaving old
+    // in-memory notifications behind.
+    if (_notificationListenerUid == uid && _notifSub != null) return;
+
     _notifSub?.cancel();
+    _notificationListenerUid = uid;
     _notifSub = FirebaseFirestore.instance
         .collection('notifications')
         .where('uid', isEqualTo: uid)
         .orderBy('created_at', descending: true)
         .limit(100)
-        .snapshots()
+        // Metadata events let us distinguish a possibly partial offline-cache
+        // snapshot from a server-confirmed snapshot used to prune stale rows.
+        .snapshots(includeMetadataChanges: true)
         .listen((snap) {
           for (final change in snap.docChanges) {
             final doc = change.doc;
+            final key = doc.id;
+            if (change.type == DocumentChangeType.removed) {
+              _notifications.removeWhere((n) => n.id == key);
+              continue;
+            }
+
             final data = doc.data();
             if (data == null) continue;
-            final key = doc.id;
-            final isReadRaw = data['is_read'] as bool? ?? false;
-            if (change.type == DocumentChangeType.added) {
-              if (_notifications.any((n) => n.id == key)) continue;
-              final createdDt =
+            final notification = NotificationItem(
+              id: key,
+              notif_type: data['notif_type']?.toString() ?? 'operational',
+              title: data['title']?.toString() ?? '',
+              body: data['body']?.toString() ?? '',
+              created_at:
                   parsePredictionTimestamp(data['created_at'])?.toLocal() ??
-                  DateTime.fromMillisecondsSinceEpoch(0);
-              _notifications.add(
-                NotificationItem(
-                  id: key,
-                  notif_type: data['notif_type'] ?? 'operational',
-                  title: data['title'] ?? '',
-                  body: data['body'] ?? '',
-                  created_at: createdDt,
-                  is_read: isReadRaw,
-                ),
-              );
-            } else if (change.type == DocumentChangeType.modified) {
-              final idx = _notifications.indexWhere((n) => n.id == key);
-              if (idx != -1) _notifications[idx].is_read = isReadRaw;
-            } else if (change.type == DocumentChangeType.removed) {
-              _notifications.removeWhere((n) => n.id == key);
+                  DateTime.fromMillisecondsSinceEpoch(0),
+              is_read: data['is_read'] as bool? ?? false,
+            );
+            final idx = _notifications.indexWhere((n) => n.id == key);
+            if (idx == -1) {
+              _notifications.add(notification);
+            } else {
+              // Rebuild modified items too, so removing/changing a Firestore
+              // field (title, body, type, timestamp, or read status) is
+              // reflected instead of only refreshing is_read.
+              _notifications[idx] = notification;
             }
           }
+
+          // A newly attached query starts with "added" events for documents
+          // that still exist, not "removed" events for stale items already in
+          // memory. Reconcile only when Firestore confirms the complete server
+          // result. Cache-only snapshots can be incomplete while offline, so
+          // keep cached notifications until the server syncs again.
+          final reconciled = reconcileNotificationsForSnapshot(
+            current: _notifications,
+            snapshotIds: snap.docs.map((doc) => doc.id),
+            isFromCache: snap.metadata.isFromCache,
+          );
+          _notifications
+            ..clear()
+            ..addAll(reconciled);
           _notifications.sort((a, b) => b.created_at.compareTo(a.created_at));
           notifyListeners();
         });

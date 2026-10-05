@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../theme/app_colors.dart';
@@ -343,14 +344,7 @@ class ControlsScreenState extends State<ControlsScreen> {
 
   String get _feedSafetyIssue => FeederService.instance.feedSafetyIssue();
 
-  bool _isWaterQualityRangeIssue(String issue) =>
-      issue.startsWith('Temperature outside range') ||
-      issue.startsWith('Dissolved oxygen too low') ||
-      issue.startsWith('pH outside range') ||
-      issue.startsWith('Turbidity too high');
-
-  bool get _canFeed =>
-      _feedSafetyIssue.isEmpty || _isWaterQualityRangeIssue(_feedSafetyIssue);
+  bool get _canFeed => _feedSafetyIssue.isEmpty;
 
   String get _feedBlockedReason {
     final issue = _feedSafetyIssue;
@@ -500,10 +494,7 @@ class ControlsScreenState extends State<ControlsScreen> {
     return result ?? false;
   }
 
-  Future<void> _feedNow({
-    double? grams,
-    bool allowWaterQualityOverride = false,
-  }) async {
+  Future<void> _feedNow({double? grams}) async {
     final svc = FeederService.instance;
     if (svc.isRunning ||
         _feedState == _FeedState.waiting ||
@@ -513,10 +504,7 @@ class ControlsScreenState extends State<ControlsScreen> {
     // Empty field = single 1 g dose: normalize once so preflight math and
     // the dispatched command agree.
     grams ??= 1.0;
-    final preflightIssue = svc.feedSafetyIssue(
-      grams: grams,
-      allowWaterQualityOverride: allowWaterQualityOverride,
-    );
+    final preflightIssue = svc.feedSafetyIssue(grams: grams);
     if (preflightIssue.isNotEmpty) {
       _feedNotice = 'Feed blocked: $preflightIssue';
       setState(() => _feedState = _FeedState.failed);
@@ -553,10 +541,7 @@ class ControlsScreenState extends State<ControlsScreen> {
       }
     }
     if (svc.isRunning || !mounted) return;
-    final refreshedIssue = svc.feedSafetyIssue(
-      grams: grams,
-      allowWaterQualityOverride: allowWaterQualityOverride,
-    );
+    final refreshedIssue = svc.feedSafetyIssue(grams: grams);
     if (refreshedIssue.isNotEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -593,7 +578,6 @@ class ControlsScreenState extends State<ControlsScreen> {
     final request = svc.feedNow(
       grams: grams,
       nearScheduleConfirmed: nearScheduleConfirmed,
-      allowWaterQualityOverride: allowWaterQualityOverride,
     );
     _activeCommandId = svc.lastQueuedCommandId;
     final requestId = _activeCommandId;
@@ -627,7 +611,6 @@ class ControlsScreenState extends State<ControlsScreen> {
 
   void _showFeedNowDialog() {
     final gramsCtl = TextEditingController();
-    var allowWaterQualityOverride = false;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -712,8 +695,18 @@ class ControlsScreenState extends State<ControlsScreen> {
                   TextField(
                     controller: gramsCtl,
                     keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
+                      decimal: false,
+                      signed: false,
                     ),
+                    inputFormatters: [
+                      TextInputFormatter.withFunction((oldValue, newValue) {
+                        if (newValue.text.isEmpty ||
+                            RegExp(r'^\d+$').hasMatch(newValue.text)) {
+                          return newValue;
+                        }
+                        return oldValue;
+                      }),
+                    ],
                     onChanged: (_) => setModalState(() {}),
                     decoration: InputDecoration(
                       labelText: 'Grams (optional)',
@@ -747,25 +740,13 @@ class ControlsScreenState extends State<ControlsScreen> {
                     ),
                   ),
                   const SizedBox(height: 6),
-                  CheckboxListTile(
-                    contentPadding: EdgeInsets.zero,
-                    controlAffinity: ListTileControlAffinity.leading,
-                    value: allowWaterQualityOverride,
-                    onChanged: (value) => setModalState(
-                      () => allowWaterQualityOverride = value ?? false,
+                  Text(
+                    'Water-quality override follows the shared setting for Feed Now and scheduled feeding. Sensor freshness and critical feed-level safety checks still apply.',
+                    style: TextStyle(
+                      fontSize: 11,
+                      height: 1.35,
+                      color: AppColors.darkWith(0.65),
                     ),
-                    title: const Text(
-                      'Allow feeding when water quality is outside safe ranges',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    subtitle: const Text(
-                      'One-time override for temperature, pH, dissolved oxygen, and turbidity. Fresh sensors and a noncritical feed level are still required.',
-                      style: TextStyle(fontSize: 11),
-                    ),
-                    activeColor: AppColors.primary,
                   ),
                   const SizedBox(height: 16),
                   SizedBox(
@@ -782,11 +763,7 @@ class ControlsScreenState extends State<ControlsScreen> {
                                 const Duration(milliseconds: 180),
                               );
                               if (!mounted) return;
-                              await _feedNow(
-                                grams: grams,
-                                allowWaterQualityOverride:
-                                    allowWaterQualityOverride,
-                              );
+                              await _feedNow(grams: grams);
                             },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
@@ -905,9 +882,9 @@ class ControlsScreenState extends State<ControlsScreen> {
     }
   }
 
-  Future<void> _setAllowWaterQualitySchedules(bool enabled) async {
+  Future<void> _setAllowWaterQualityFeeding(bool enabled) async {
     try {
-      await FeederService.instance.setAllowWaterQualitySchedules(enabled);
+      await FeederService.instance.setAllowWaterQualityFeeding(enabled);
       // The checkbox updates optimistically; avoid waiting for the callable
       // just to show a delayed success snackbar. Only failures need feedback.
     } catch (error) {
@@ -982,6 +959,9 @@ class ControlsScreenState extends State<ControlsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final sensors = SensorService.instance;
+    final hasFeedLevel = sensors.hasSensorData('feedlevel');
+
     return Container(
       color: Colors.white,
       child: Stack(
@@ -1000,10 +980,10 @@ class ControlsScreenState extends State<ControlsScreen> {
                       onFeedNow: _showFeedNowDialog,
                       onAddSchedule: (grams, days) =>
                           _addSchedule(grams: grams, days: days),
-                      allowWaterQualitySchedules:
-                          FeederService.instance.allowWaterQualitySchedules,
-                      onSetAllowWaterQualitySchedules:
-                          _setAllowWaterQualitySchedules,
+                      allowWaterQualityFeeding:
+                          FeederService.instance.allowWaterQualityFeeding,
+                      onSetAllowWaterQualityFeeding:
+                          _setAllowWaterQualityFeeding,
                       onDeleteSchedule: (index) =>
                           unawaited(_deleteSchedule(index)),
                       onEditSchedule: (index, item) =>
@@ -1016,13 +996,12 @@ class ControlsScreenState extends State<ControlsScreen> {
                       isRunning: FeederService.instance.isRunning,
                       canFeed: _canFeed,
                       feedBlockedReason: _feedBlockedReason,
-                      feedLevelPercent:
-                          FeederService.instance.feedLevelPercent ??
-                          (SensorService.instance.hasSensorData('feedlevel')
-                              ? SensorService.instance.getLatestValue(
-                                  'feedlevel',
-                                )
-                              : null),
+                      feedLevelPercent: hasFeedLevel
+                          ? sensors.getLatestValue('feedlevel')
+                          : null,
+                      feedLevelZone: hasFeedLevel
+                          ? sensors.getZone('feedlevel')
+                          : null,
                       estimatedConsumptionToday:
                           FeederService.instance.estimatedConsumptionToday,
                     ),

@@ -153,9 +153,7 @@ tanks/{tank_id}       # tank_id is the owner's Firebase Authentication UID
     feed_level: number | null
 
   feeder_schedules/{schedule_id}
-    time: string
-    ampm: string
-    timeValue: number
+    scheduled_time: string             # Zero-padded 24-hour HH:mm; app presents AM/PM
     grams: number | null
     days: string                       # 7-char Sunday-first mask
     enabled: boolean
@@ -164,6 +162,8 @@ tanks/{tank_id}       # tank_id is the owner's Firebase Authentication UID
     effective_at_ms: epoch milliseconds
     last_outcome: "completed" | "blocked" | "skipped_insufficient" | "failed" | null
     last_occurrence_at: Timestamp | null
+
+The app and deployed Cloud Function write only `scheduled_time`. App, backend, and ESP readers temporarily accept legacy `time` + `ampm` and `timeValue` fields while existing schedules are upgraded; editing or toggling a legacy schedule writes the canonical field and removes those aliases. The writer is deployed; flash the updated ESP32 firmware before using the updated app to create or edit schedules. The SQL-style ERD uses `TIME` for this logical field, while Firestore stores it as an `HH:mm` string.
 
   feeder_commands/{command_id}
     command_type: "feed_now"
@@ -209,7 +209,7 @@ tanks/{tank_id}       # tank_id is the owner's Firebase Authentication UID
 
 `effective_at_ms` is reset when a feeding schedule is created, edited, or re-enabled. It prevents an occurrence that happened before that instant from being falsely classified as missed.
 
-The feeder log trigger sets date-scoped schedule outcomes. `isDone` is legacy compatibility only, not proof of success. Feeder history is append-only: authorized clients can create entries, but cannot update or delete an existing log. `pending_confirmation` is a non-terminal audit entry and therefore has no required `status`. Offline retries retain the original tank, occurrence timestamp and deterministic log id. Interrupted dispensing is recorded as failed and is not replayed after reboot. Schedule and Feed Now dose values remain requested input amounts in grams. A completed cycle, including a confirmed override, may also record `estimated_dispensed_grams` from the servo-cycle estimate, not a direct weight measurement; hopper feed level remains percentage-only. The ESP blocks feeding at or below the configured critical percentage. App and ESP read all schedule pages.
+The feeder log trigger sets date-scoped schedule outcomes. `isDone` is legacy compatibility only, not proof of success. Feeder history is append-only: authorized clients can create entries, but cannot update or delete an existing log. `pending_confirmation` is a non-terminal audit entry and therefore has no required `status`. Offline retries retain the original tank, occurrence timestamp and deterministic log id. Interrupted dispensing is recorded as failed and is not replayed after reboot. Schedule and Feed Now dose values remain requested whole-gram amounts from 1–200. A completed cycle, including a confirmed override, may also record `estimated_dispensed_grams` from the servo-cycle estimate, not a direct weight measurement; hopper feed level remains percentage-only. The ESP blocks feeding at or below the configured critical percentage. App and ESP read all schedule pages.
 
 Machine Learning-Based Water Quality Anomaly Detection (WQAD) uses an unsupervised `IsolationForest` over multivariate readings, spreads, changes, rolling behavior, and trends. It requires twelve contiguous ten-minute readings (±2-minute cadence tolerance), representing a two-hour window. Source data older than 20 minutes is marked stale/Insufficient. Safety thresholds remain separate: they are neither model features nor training labels. Model metadata clearly identifies the current artifact as a synthetic bootstrap until it is retrained and validated using calibrated field data from the actual tank.
 
@@ -245,7 +245,7 @@ tanks/{tank_id}/batches/{batch_id}
     # App derives sample_size = measurements.length, total_weight and
     # total_length as sums, ABW/ABL as averages, and biomass = live_count * ABW.
     # These derived aggregates are not persisted in new sampling records.
-    # In the logical relational ERD, each measurements array object is shown as
+    # In the normalized relational ERD, each measurements array object is shown as
     # one sampling_measurements row; Firestore has no separate child collection.
 
   mortality_records/{mortality_id}

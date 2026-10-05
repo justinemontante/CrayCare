@@ -10,9 +10,10 @@ void main() {
     WidgetTester tester, {
     List<ScheduleItem> schedules = const [],
     Future<bool> Function(double?, String)? onAdd,
-    bool allowWaterQualitySchedules = false,
-    Future<void> Function(bool)? onSetSchedulePolicy,
+    bool allowWaterQualityFeeding = false,
+    Future<void> Function(bool)? onSetFeedingPolicy,
     Future<bool> Function(int, ScheduleItem)? onEdit,
+    List<LogEntry> feederLogs = const [],
   }) async {
     final errorHandler = FlutterError.onError;
     FlutterError.onError = (details) {
@@ -34,13 +35,12 @@ void main() {
             timeCtl: controller,
             onFeedNow: () {},
             onAddSchedule: onAdd ?? (_, _) async => true,
-            allowWaterQualitySchedules: allowWaterQualitySchedules,
-            onSetAllowWaterQualitySchedules:
-                onSetSchedulePolicy ?? (_) async {},
+            allowWaterQualityFeeding: allowWaterQualityFeeding,
+            onSetAllowWaterQualityFeeding: onSetFeedingPolicy ?? (_) async {},
             onDeleteSchedule: (_) {},
             onEditSchedule: onEdit ?? (_, _) async => true,
             onToggleSchedule: (_, _) {},
-            feederLogs: const [],
+            feederLogs: feederLogs,
           ),
         ),
       ),
@@ -74,6 +74,34 @@ void main() {
     expect(find.text('SKIPPED'), findsOneWidget);
     expect(find.text('COMPLETED'), findsNothing);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('physical button log shows its time, dose, and completion', (
+    tester,
+  ) async {
+    await pumpFeeder(
+      tester,
+      feederLogs: [
+        LogEntry(
+          'Dispensed feed (Onsite Button)',
+          'manual',
+          '2:30 PM',
+          'Oct 4, 2026',
+          timestamp: DateTime(2026, 10, 4, 14, 30).millisecondsSinceEpoch,
+          status: 'completed',
+          requestedGrams: 1,
+          estimatedDispensedGrams: 1,
+        ),
+      ],
+    );
+    await tester.tap(find.text('Log'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Dispensed feed (Onsite Button)'), findsOneWidget);
+    expect(find.text('Oct 4, 2026 · 2:30 PM'), findsOneWidget);
+    expect(find.text('Completed'), findsOneWidget);
+    expect(find.textContaining('Dose 1g'), findsOneWidget);
+    expect(find.textContaining('Est. dispensed ~1g'), findsOneWidget);
   });
 
   testWidgets('add schedule rejects unsupported dose and waits for save', (
@@ -116,12 +144,12 @@ void main() {
   });
 
   testWidgets(
-    'global schedule turbidity checkbox is shown outside the editor',
+    'shared manual and scheduled feeding policy is shown outside the editor',
     (tester) async {
       bool? savedPolicy;
       await pumpFeeder(
         tester,
-        onSetSchedulePolicy: (enabled) async {
+        onSetFeedingPolicy: (enabled) async {
           savedPolicy = enabled;
         },
       );

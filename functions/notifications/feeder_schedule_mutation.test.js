@@ -72,7 +72,7 @@ test('add writes the schedule, bumps the shared guard, and leaves an audit log',
   const stored = {...doc.data()};
   delete stored.created_at;
   assert.deepEqual(stored, {
-      time: '7:30', ampm: 'AM', timeValue: 450, days: '1111111', grams: 40,
+      scheduled_time: '07:30', days: '1111111', grams: 40,
       enabled: true, isDone: false, effective_at_ms: NOW,
     },
   );
@@ -101,7 +101,7 @@ test('a rejected mutation writes nothing, so replaying after an auth failure is 
   // A conflicting slot is rejected inside the transaction, after the guard read.
   const err = await call(h, valid({grams: 20})).then(() => null, (e) => e);
   assert.equal(err.code, 'already-exists');
-  assert.deepEqual(err.details.conflictingSchedule, {time: '7:30', ampm: 'AM', days: '1111111'});
+  assert.deepEqual(err.details.conflictingSchedule, {scheduled_time: '07:30', days: '1111111'});
   assert.equal(h.snapshot(), before, 'guard revision, schedules and logs must be untouched');
 });
 
@@ -121,6 +121,10 @@ test('schedule enable/disable does not carry a per-schedule turbidity setting', 
   assert.equal(h.store[key].enabled, false);
   assert.equal(h.store[key].isDone, false);
   assert.equal(h.store[key].grams, 20);
+  assert.equal(h.store[key].scheduled_time, '18:15');
+  assert.deepEqual(h.store[key].time, {__delete: true});
+  assert.deepEqual(h.store[key].ampm, {__delete: true});
+  assert.deepEqual(h.store[key].timeValue, {__delete: true});
   assert.deepEqual(h.store[key].allow_high_turbidity, {__delete: true});
   assert.equal(h.store[key].effective_at_ms, NOW);
 
@@ -133,7 +137,7 @@ test('schedule enable/disable does not carry a per-schedule turbidity setting', 
   assert.deepEqual(h.store[key].last_occurrence_at, {__delete: true});
 });
 
-test('legacy schedule rows are normalized when enabled', async () => {
+test('legacy schedule rows are normalized to the single time field when toggled', async () => {
   const h = makeHarness();
   h.addScheduleDoc('legacy-1', {time: '5:00', ampm: 'AM', enabled: false, timeValue: 300});
   const result = await call(h, {operation: 'toggle', scheduleId: 'legacy-1', enabled: true});
@@ -142,8 +146,11 @@ test('legacy schedule rows are normalized when enabled', async () => {
   assert.equal(stored.enabled, true);
   assert.equal(stored.days, '1111111');
   assert.equal(stored.grams, 20);
+  assert.equal(stored.scheduled_time, '05:00');
   assert.deepEqual(stored.allow_high_turbidity, {__delete: true});
-  assert.equal(stored.timeValue, 300);
+  assert.deepEqual(stored.time, {__delete: true});
+  assert.deepEqual(stored.ampm, {__delete: true});
+  assert.deepEqual(stored.timeValue, {__delete: true});
 });
 
 test('delete of an already-removed schedule is idempotent', async () => {
@@ -170,9 +177,10 @@ test('role and status are normalized like the app treats them', async () => {
 });
 
 test('scheduleFields enforces the time shape and 1-200 g whole-gram doses', () => {
-  assert.equal(scheduleFields({time: '12:00', ampm: 'AM', days: '1111111'}).timeValue, 0);
-  assert.equal(scheduleFields({time: '12:30', ampm: 'PM', days: '1111111'}).timeValue, 750);
-  assert.equal(scheduleFields({time: '07:30', ampm: 'AM', days: '1111111'}).time, '7:30');
+  assert.equal(scheduleFields({time: '12:00', ampm: 'AM', days: '1111111'}).scheduled_time, '00:00');
+  assert.equal(scheduleFields({time: '12:30', ampm: 'PM', days: '1111111'}).scheduled_time, '12:30');
+  assert.equal(scheduleFields({time: '6:00', ampm: 'PM', timeValue: null, days: '1111111'}).scheduled_time, '18:00');
+  assert.equal(scheduleFields({scheduled_time: '07:30', days: '1111111'}).scheduled_time, '07:30');
   assert.equal(scheduleFields({time: '7:30', ampm: 'AM', days: '1111111'}).grams, 20);
   assert.equal(scheduleFields({time: '7:30', ampm: 'AM', days: '1111111', grams: 5}).grams, 5);
   assert.equal(scheduleFields({time: '7:30', ampm: 'AM', days: '1111111', grams: 30}).grams, 30);
@@ -188,6 +196,9 @@ test('scheduleFields enforces the time shape and 1-200 g whole-gram doses', () =
     {time: '7:30', ampm: 'AM', days: '1111111', grams: 2.5},
     {time: '7:30', ampm: 'AM', days: '1111111', grams: 220},
     {time: '7:30', ampm: 'AM', days: '1111111', enabled: 'yes'},
+    {scheduled_time: '24:00', days: '1111111'},
+    {scheduled_time: '24:00', time: '7:30', ampm: 'AM', timeValue: 450, days: '1111111'},
+    {scheduled_time: '7:30 PM', days: '1111111'},
   ];
   for (const input of bad) {
     let code = null;
@@ -210,13 +221,13 @@ test('shared schedule turbidity policy is stored once at tank feeder settings', 
   assert.equal(listLogs(h).length, 2);
 });
 
-test('unified scheduled water-quality override is stored once and clears legacy turbidity policy', async () => {
+test('shared manual and scheduled water-quality override is stored once and clears legacy turbidity policy', async () => {
   const h = makeHarness();
   await call(h, {operation: 'set_schedule_water_quality_policy', allowWaterQualityOverride: true});
   const path = `${tankPrefix}/feeder/schedule_policy`;
   assert.equal(h.store[path].allow_water_quality_override, true);
   assert.equal(h.store[path].allow_high_turbidity, false);
-  assert.equal(listLogs(h)[0].action, 'Scheduled water-quality range override enabled');
+  assert.equal(listLogs(h)[0].action, 'Manual and scheduled water-quality range override enabled');
   const before = h.snapshot();
   const result = await call(h, {operation: 'set_schedule_water_quality_policy', allowWaterQualityOverride: true});
   assert.deepEqual(result, {updated: false});
@@ -232,4 +243,10 @@ test('same minute on an overlapping day is a conflict even when grams differ', a
   assert.equal(await codeOf(() => call(h, valid({days: '0000001'}))), 'already-exists');
   assert.equal(await codeOf(() => call(h, valid({days: '0100000'}))), 'already-exists');
   assert.equal(await codeOf(() => call(h, valid({days: '0000000'.replace('0', '1'), time: '8:30'}))), null);
+});
+
+test('canonical 24-hour field conflicts with legacy schedule times', async () => {
+  const h = makeHarness();
+  h.addScheduleDoc('legacy', {time: '7:30', ampm: 'PM', days: '1111111'});
+  assert.equal(await codeOf(() => call(h, valid({scheduled_time: '19:30'}))), 'already-exists');
 });

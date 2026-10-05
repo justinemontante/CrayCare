@@ -3,6 +3,7 @@
 const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const REMINDER_WINDOW_MS = 5 * 60 * 1000;
+const {parseScheduleMinute} = require("./schedule_time");
 
 // Consider any upcoming occurrence in the next five minutes. This tolerates a
 // delayed scheduler tick and a schedule added inside the reminder window, while
@@ -10,8 +11,8 @@ const REMINDER_WINDOW_MS = 5 * 60 * 1000;
 function feedingReminderOccurrence(schedule, nowMs) {
   // The schedule contract uses `enabled`; there is no `is_active` field.
   if (schedule.enabled === false || !Number.isFinite(nowMs)) return null;
-  const minute = schedule.timeValue;
-  if (!Number.isInteger(minute) || minute < 0 || minute >= 1440) return null;
+  const minute = parseScheduleMinute(schedule);
+  if (minute == null) return null;
   const days = schedule.days ?? "1111111";
   if (typeof days !== "string" || !/^[01]{7}$/.test(days)) return null;
   const effectiveAt = schedule.effective_at_ms ?? 0;

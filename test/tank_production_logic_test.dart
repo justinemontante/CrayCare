@@ -3,13 +3,9 @@ import 'package:craycare/services/tank_service.dart';
 
 void main() {
   group('tank production logic', () {
-    test('sampling size uses the planned size when enough crayfish remain', () {
-      expect(effectiveSamplingSize(10, 80), 10);
-    });
-
-    test('sampling size safely follows a smaller in-tank population', () {
-      expect(effectiveSamplingSize(10, 8), 8);
-      expect(effectiveSamplingSize(10, 0), 0);
+    test('sampling size stays fixed to the baseline size', () {
+      expect(baselineSamplingSize(10), 10);
+      expect(baselineSamplingSize(0), 0);
     });
 
     test('sampling averages derive from raw totals and sample size', () {

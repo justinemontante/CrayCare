@@ -5,7 +5,7 @@
 
 > **Important:** Ito ang aktwal na NoSQL/Firestore structure. May ilang cached at
 > duplicated fields para sa mabilis na real-time reads, offline support, at security
-> checks. Ang hiwalay na `craycare_erd.dbml` ang normalized 3NF SQL logical ERD;
+> checks. Ang hiwalay na `craycare_erd.dbml` ang normalized 3NF SQL ERD;
 > hindi kailangang magkapareho ang physical NoSQL documents at SQL tables.
 
 > **Timestamp convention:** Event/record date-times use Firestore `Timestamp`.
@@ -81,7 +81,9 @@ Fields: `control_mode`, `current_state`, `last_changed` (Firestore Timestamp; `n
 Feeder status flow: `idle` → `checking_feed_level` → `dispensing` → `completed`, with `blocked`, `skipped_insufficient`, or `failed` terminal outcomes. `command_id` ties a manual outcome to the originating Feed Now request, while `status_reason` explains blocked or failed requests.
 
 ### `tanks/{tankId}/feeder_schedules/{scheduleId}` ✓
-`time`, `ampm`, `timeValue`, `grams`, `days`, `enabled`, `isDone`, `created_at`, `effective_at_ms`
+Existing production documents may still contain legacy `time`, `ampm`, and `timeValue`, alongside `grams`, `days`, `enabled`, `isDone`, `created_at`, `effective_at_ms`, `last_outcome`, and `last_occurrence_at`. New writes use `scheduled_time` (zero-padded 24-hour `HH:mm` string); legacy aliases are removed when a schedule is edited or toggled.
+
+The app may display AM/PM, but converts the selected time to `scheduled_time` before saving. The deployed `processFeeding` and `onFeederLogCreate` functions read both canonical and legacy schedule fields, and the deployed schedule-writing callable writes the canonical field. Flash the matching ESP32 firmware before using the updated app to create or edit schedules; existing legacy documents remain readable during this transition. `feeder_schedule_days` is the normalized SQL representation, not a separate Firestore collection.
 
 `effective_at_ms` records when a schedule becomes effective after creation, edit, or re-enable, preventing an occurrence earlier than that instant from being incorrectly marked as missed.
 
@@ -95,7 +97,7 @@ records the owner's decision but never bypasses the strict device-side block.
 
 `last_outcome` (`completed`, `blocked`, `skipped_insufficient`, `failed`) and `last_occurrence_at` (Firestore Timestamp; legacy integer epoch ms is read during rollout) are reconciled by `onFeederLogCreate`. `isDone` remains a legacy compatibility field, true only for a completed outcome; the app does not infer completion from this flag alone or reset it at startup. Late backfills cannot overwrite newer occurrences or edited configurations. App reads all schedules; ESP fetches every 20-document page before replacing its cache. `effective_at_ms` remains an integer because it is an explicit millisecond scheduling boundary.
 
-Fixed-cycle firmware accepts 20–200 g in multiples of 20 g; null means the default 20 g. Other amounts are rejected, not silently rounded or clamped. Actual output requires hardware calibration.
+Firmware accepts whole-gram schedule and Feed Now amounts from 1–200 g; missing legacy amounts default to 20 g. Fractions and out-of-range amounts are rejected, not silently rounded or clamped. Actual output requires hardware calibration.
 
 ### `tanks/{tankId}/feeder_logs/{logId}` ✓
 Canonical fields: `action`, `type`, `logged_at`. ESP outcome logs additionally store `status`, `command_id`, `requested_grams`, `feed_level_before`, `feed_level_after`, and `level_change_detected`. Completed cycles (including confirmed overrides) also store `estimated_dispensed_grams` with `amount_basis: servo_cycle_estimate`; this is a servo-cycle estimate, not a directly weighed amount. Hopper inventory remains percentage-only.
@@ -109,8 +111,9 @@ ESP persists an execution reservation before dispensing and writes logs to a Lit
 Missed-schedule logs may additionally contain `schedule_key` and `schedule_time`. `trigger_type` is no longer written by the active runtime. New `logged_at` and `occurrence_at` values are Firestore Timestamps; the app accepts legacy `DateTime`, ISO-string, Unix-second, and Unix-millisecond values during rollout.
 
 ### `tanks/{tankId}/feeder_commands/{commandId}` ✓
-`command_type`, `grams`, `issued_by`, `issued_at`, `expires_at`, `near_schedule_confirmed`, optional `allow_water_quality_override`.
-The override flag applies only to that manual Feed Now command and bypasses configured range violations for temperature, pH, dissolved oxygen, and turbidity. It does not bypass missing/stale or unavailable sensors, turbidity sensor-in-air detection, critical feed level, schedule guards, or command validity checks. This is a transient Firestore command field, not a persistent user setting or SQL table column.
+`command_type`, `grams`, `issued_by`, `issued_at`, `expires_at`, and `near_schedule_confirmed`. Older command documents may still contain the deprecated `allow_water_quality_override` field, but the current app does not write it and firmware ignores it.
+
+Manual Feed Now and scheduled feeding both use the shared owner-level setting at `tanks/{tankId}/feeder/schedule_policy.allow_water_quality_override`. When enabled, it permits feeding despite configured temperature, pH, dissolved oxygen, or turbidity range violations only. Missing/stale or unavailable sensors, turbidity sensor-in-air detection, critical feed level, schedule guards, and command validity checks still block feeding.
 
 `expires_at` prevents a queued/offline Feed Now write from becoming a fresh physical command after reconnect. `near_schedule_confirmed` records that the owner accepted the warning-window confirmation; it never overrides the ESP's strict collision block around a scheduled feeding occurrence.
 
@@ -135,7 +138,7 @@ Initial ABW and ABL are derived from the individual measurements in the batch's 
 `sampling_date`, `measurements` (array of objects: `sample_number`, `label`, `weight_g`, `length_cm`), `live_count`, `is_baseline`, `created_at`
 `sampling_date` is stored as a Firestore Timestamp. Readers remain compatible with legacy epoch-millisecond records.
 For new records, sample size is `measurements.length`, total weight and length are sums of `weight_g` and `length_cm`, ABW and ABL are the respective averages, and biomass is `live_count × ABW`. These values are computed by the app and are not written to new sampling records. Legacy records may still contain `sample_size`, `total_weight`, `total_length`, or cached average/biomass fields; they remain readable, and stale aggregate fields are deleted when a record is edited.
-In the logical relational ERD and Data Dictionary, each object in `measurements` is shown as one `sampling_measurements` row. This is a normalization view only; Firestore continues to store the objects embedded in the sampling record, not in a separate collection.
+Sa normalized relational ERD at Data Dictionary, bawat object sa `measurements` ay ipinapakita bilang isang `sampling_measurements` row. Sa aktuwal na Firestore, naka-embed pa rin ang mga object sa sampling record at walang hiwalay na collection para rito.
 
 ### `tanks/{tankId}/batches/{batchId}/mortality_records/{recordId}` ✓
 `mortality_date`, `mortality_count`, `created_at`

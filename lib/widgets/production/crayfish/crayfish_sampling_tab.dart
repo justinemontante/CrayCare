@@ -340,10 +340,7 @@ class SamplingHistoryShortcut extends StatelessWidget {
   }
 }
 
-void showSamplingHistory(
-  BuildContext context, {
-  bool expandBaseline = false,
-}) {
+void showSamplingHistory(BuildContext context, {bool expandBaseline = false}) {
   var baselineExpansionReady = false;
   var expansionScheduled = false;
   final history = TankService.instance.samplingHistory.toList()
@@ -370,147 +367,151 @@ void showSamplingHistory(
           });
         }
         return Container(
-      height: MediaQuery.of(sheetContext).size.height * 0.72,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 10, bottom: 8),
-            child: Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.dark.withValues(alpha: 0.18),
-                borderRadius: BorderRadius.circular(3),
+          height: MediaQuery.of(sheetContext).size.height * 0.72,
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 10, bottom: 8),
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.dark.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                ),
               ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
-            child: Row(
-              children: [
-                const Icon(Icons.history_rounded, color: AppColors.primary),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Text(
-                    'Sampling History',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.dark,
-                    ),
-                  ),
-                ),
-                Text(
-                  '${history.length} recorded',
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: AppColors.dark.withValues(alpha: 0.55),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-          Expanded(
-            child: history.isEmpty
-                ? Center(
-                    child: Text(
-                      'No sampling records yet.',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: AppColors.dark.withValues(alpha: 0.5),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
+                child: Row(
+                  children: [
+                    const Icon(Icons.history_rounded, color: AppColors.primary),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'Sampling History',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.dark,
+                        ),
                       ),
                     ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: history.length,
-                    itemBuilder: (context, index) {
-                      final entry = history[index];
-                      final totalWeekly = history
-                          .where((item) => !item.isBaseline)
-                          .length;
-                      final newerWeekly = history
-                          .take(index)
-                          .where((item) => !item.isBaseline)
-                          .length;
-                      final weeklyNumber = totalWeekly - newerWeekly;
-                      final title = entry.isBaseline
-                          ? 'Initial Baseline'
-                          : 'Week $weeklyNumber';
-                      final date = _samplingDateLabel(entry.date);
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: AppColors.primary.withValues(alpha: 0.18),
+                    Text(
+                      '${history.length} recorded',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: AppColors.dark.withValues(alpha: 0.55),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: history.isEmpty
+                    ? Center(
+                        child: Text(
+                          'No sampling records yet.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: AppColors.dark.withValues(alpha: 0.5),
                           ),
                         ),
-                        child: ExpansionTile(
-                          key: ValueKey(
-                            'top_sampling_history_${entry.id}_${entry.isBaseline && baselineExpansionReady}',
-                          ),
-                          initiallyExpanded:
-                              expandBaseline &&
-                              baselineExpansionReady &&
-                              entry.isBaseline,
-                          backgroundColor: Colors.transparent,
-                          collapsedBackgroundColor: Colors.transparent,
-                          tilePadding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                          ),
-                          childrenPadding: const EdgeInsets.fromLTRB(
-                            12,
-                            0,
-                            12,
-                            12,
-                          ),
-                          shape: const Border(),
-                          collapsedShape: const Border(),
-                          title: Text(
-                            title,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.dark,
-                            ),
-                          ),
-                          subtitle: Text(
-                            '$date  •  ${entry.sampleSize} sampled\nABW ${entry.abw.toStringAsFixed(2)} g  •  ABL ${entry.avgLength.toStringAsFixed(2)} cm',
-                            style: TextStyle(
-                              fontSize: 10,
-                              height: 1.4,
-                              color: AppColors.dark.withValues(alpha: 0.6),
-                            ),
-                          ),
-                          children: [
-                            if (entry.measurements.isEmpty)
-                              const Align(
-                                alignment: Alignment.centerLeft,
-                                child: Text(
-                                  'Individual measurements are unavailable for this record.',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: AppColors.dark,
-                                  ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: history.length,
+                        itemBuilder: (context, index) {
+                          final entry = history[index];
+                          final totalWeekly = history
+                              .where((item) => !item.isBaseline)
+                              .length;
+                          final newerWeekly = history
+                              .take(index)
+                              .where((item) => !item.isBaseline)
+                              .length;
+                          final weeklyNumber = totalWeekly - newerWeekly;
+                          final title = entry.isBaseline
+                              ? 'Initial Baseline'
+                              : 'Week $weeklyNumber';
+                          final date = _samplingDateLabel(entry.date);
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: AppColors.primary.withValues(
+                                  alpha: 0.18,
                                 ),
-                              )
-                            else
-                              _SamplingMeasurementsTable(entry.measurements),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
+                              ),
+                            ),
+                            child: ExpansionTile(
+                              key: ValueKey(
+                                'top_sampling_history_${entry.id}_${entry.isBaseline && baselineExpansionReady}',
+                              ),
+                              initiallyExpanded:
+                                  expandBaseline &&
+                                  baselineExpansionReady &&
+                                  entry.isBaseline,
+                              backgroundColor: Colors.transparent,
+                              collapsedBackgroundColor: Colors.transparent,
+                              tilePadding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                              ),
+                              childrenPadding: const EdgeInsets.fromLTRB(
+                                12,
+                                0,
+                                12,
+                                12,
+                              ),
+                              shape: const Border(),
+                              collapsedShape: const Border(),
+                              title: Text(
+                                title,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.dark,
+                                ),
+                              ),
+                              subtitle: Text(
+                                '$date  •  ${entry.sampleSize} sampled\nABW ${entry.abw.toStringAsFixed(2)} g  •  ABL ${entry.avgLength.toStringAsFixed(2)} cm',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  height: 1.4,
+                                  color: AppColors.dark.withValues(alpha: 0.6),
+                                ),
+                              ),
+                              children: [
+                                if (entry.measurements.isEmpty)
+                                  const Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: Text(
+                                      'Individual measurements are unavailable for this record.',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: AppColors.dark,
+                                      ),
+                                    ),
+                                  )
+                                else
+                                  _SamplingMeasurementsTable(
+                                    entry.measurements,
+                                  ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
           ),
-        ],
-      ),
         );
       },
     ),
@@ -1351,9 +1352,12 @@ class _SamplingEntryLauncherState extends State<SamplingEntryLauncher> {
       backgroundColor: Colors.transparent,
       builder: (sheetContext) {
         final media = MediaQuery.of(sheetContext);
-        final sheetHeight = (media.size.height * 0.88 - media.viewInsets.bottom)
-            .clamp(320.0, media.size.height)
-            .toDouble();
+        final availableHeight = (media.size.height - media.viewInsets.bottom)
+            .clamp(0.0, media.size.height);
+        final desiredHeight = media.size.height * 0.88;
+        final sheetHeight = desiredHeight < availableHeight
+            ? desiredHeight
+            : availableHeight;
         return Container(
           height: sheetHeight,
           decoration: const BoxDecoration(
@@ -1375,15 +1379,32 @@ class _SamplingEntryLauncherState extends State<SamplingEntryLauncher> {
                     ),
                   ),
                 ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 0, 10, 4),
+                  child: Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Sampling Record',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.dark,
+                          ),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () => Navigator.of(sheetContext).pop(),
+                        child: const Text('Cancel'),
+                      ),
+                    ],
+                  ),
+                ),
                 Expanded(
                   child: SingleChildScrollView(
                     keyboardDismissBehavior:
                         ScrollViewKeyboardDismissBehavior.onDrag,
-                    padding: EdgeInsets.only(
-                      left: 14,
-                      right: 14,
-                      bottom: media.viewInsets.bottom + 20,
-                    ),
+                    padding: EdgeInsets.only(left: 14, right: 14, bottom: 20),
                     child: SamplingFormPanel(
                       onSaved: (wasEditing) => Navigator.of(
                         sheetContext,
@@ -1465,6 +1486,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
   final _lengthControllers = <TextEditingController>[];
   bool _isRecorded = false;
   bool _isEditing = false;
+  bool _hasUnsavedChanges = false;
   bool _showValidationErrors = false;
   String? _countError;
   String? _measurementError;
@@ -1479,13 +1501,21 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
       if (mounted) setState(() {});
     });
     _serviceListener = () {
-      if (mounted) setState(() => _checkLastSampling());
+      if (!mounted) return;
+      setState(() {
+        if (_hasUnsavedChanges || _isEditing) {
+          _revalidateCount();
+        } else {
+          _checkLastSampling();
+        }
+      });
     };
     TankService.instance.addListener(_serviceListener);
   }
 
   void _checkLastSampling() {
     _isEditing = false;
+    _hasUnsavedChanges = false;
     final history = TankService.instance.samplingHistory
         .where((entry) => !entry.isBaseline)
         .toList();
@@ -1567,16 +1597,20 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
     final countText = _countController.text.trim();
     final count = int.tryParse(countText);
     final inTankCount = TankService.instance.inTankCount;
-    if (countText.isEmpty) {
-      _countError = _showValidationErrors
-          ? 'Enter a sample size greater than zero.'
-          : null;
+    if (!_isEditing && TankService.instance.sampleCount <= 0) {
+      _countError = 'Set a baseline sample size before sampling.';
+    } else if (countText.isEmpty) {
+      _countError = TankService.instance.sampleCount <= 0
+          ? 'Set a baseline sample size before sampling.'
+          : (_showValidationErrors
+                ? 'Enter a sample size greater than zero.'
+                : null);
     } else if (count == null || count <= 0) {
       _countError = 'Sample size must be a positive whole number.';
     } else if (count > maxCrayfishMeasurementsPerSample) {
       _countError =
           'A sample can contain up to $maxCrayfishMeasurementsPerSample individual entries.';
-    } else if (inTankCount < count) {
+    } else if (!_isEditing && inTankCount < count) {
       _countError = 'Needs $count crayfish, but only $inTankCount remain.';
     } else {
       _countError = null;
@@ -1622,14 +1656,20 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
       controller: controller,
       enabled: enabled,
       textAlign: TextAlign.center,
-      keyboardType: const TextInputType.numberWithOptions(
-        decimal: true,
-        signed: true,
-      ),
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
       inputFormatters: [
-        FilteringTextInputFormatter.allow(RegExp(r'^-?\d*\.?\d*$')),
+        TextInputFormatter.withFunction((oldValue, newValue) {
+          if (!newValue.composing.isCollapsed) return newValue;
+          return RegExp(r'^\d*\.?\d*$').hasMatch(newValue.text)
+              ? newValue
+              : oldValue;
+        }),
       ],
-      onChanged: (_) => setState(_revalidateCount),
+      textInputAction: TextInputAction.next,
+      onChanged: (_) {
+        _hasUnsavedChanges = true;
+        setState(_revalidateCount);
+      },
       decoration: InputDecoration(
         hintText: '0.0',
         isDense: true,
@@ -1672,7 +1712,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
         );
         return;
       }
-      if (service.inTankCount < count) {
+      if (!wasEditing && service.inTankCount < count) {
         showBeautifulSnackbar(
           context,
           'Sampling needs $count crayfish, but only ${service.inTankCount} remain in the tank.',
@@ -1708,16 +1748,10 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
       setState(() {
         _isRecorded = true;
         _isEditing = false;
+        _hasUnsavedChanges = false;
       });
       widget.onSaved?.call(wasEditing);
     }
-  }
-
-  bool _isToday(DateTime date) {
-    final now = DateTime.now();
-    return date.year == now.year &&
-        date.month == now.month &&
-        date.day == now.day;
   }
 
   void _handleEdit() {
@@ -1725,15 +1759,6 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
         .where((entry) => !entry.isBaseline)
         .toList();
     if (weekly.isEmpty) return;
-    final lastEntry = weekly.last.date;
-    if (!_isToday(lastEntry)) {
-      showBeautifulSnackbar(
-        context,
-        'Sampling data can only be edited on the same day it was recorded.',
-        false,
-      );
-      return;
-    }
     final entry = weekly.last;
     if (!entry.hasIndividualMeasurements) {
       showBeautifulSnackbar(
@@ -1749,6 +1774,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
       _showValidationErrors = false;
       _isRecorded = false;
       _isEditing = true;
+      _hasUnsavedChanges = false;
     });
   }
 
@@ -1759,10 +1785,6 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
     final weeklySampling = service.samplingHistory
         .where((entry) => !entry.isBaseline)
         .toList();
-    final lastEntryIsToday = weeklySampling.isNotEmpty
-        ? _isToday(weeklySampling.last.date)
-        : false;
-
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -1791,7 +1813,8 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
                 'Record Sampling',
                 style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
               ),
-              if (_isRecorded && lastEntryIsToday)
+              if (weeklySampling.isNotEmpty &&
+                  weeklySampling.last.hasIndividualMeasurements)
                 TextButton(
                   onPressed: _handleEdit,
                   child: const Text(
@@ -1806,47 +1829,9 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
             ],
           ),
           const SizedBox(height: 12),
-          _buildInputCard(
-            Image.asset('assets/images/SampleCount.png', width: 20, height: 20),
-            'Sample Size',
-            'Enter the number of crayfish to measure this session',
-            '${service.sampleCount}',
-            _countController,
-            enabled: (!_isRecorded && canSample) || _isEditing,
-            hasError: _countError != null,
-            onChanged: () {
-              setState(() {
-                final count = int.tryParse(_countController.text) ?? 0;
-                _resizeMeasurementControllers(count);
-                _revalidateCount();
-              });
-            },
-            subtitleBottomSpacing: 8,
-          ),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              onPressed:
-                  (!_isRecorded && (canSample || _isEditing)) &&
-                      _weightControllers.length <
-                          maxCrayfishMeasurementsPerSample &&
-                      _weightControllers.length < service.inTankCount
-                  ? () {
-                      final next = _weightControllers.length + 1;
-                      setState(() {
-                        _countController.text = '$next';
-                        _resizeMeasurementControllers(next);
-                        _revalidateCount();
-                      });
-                    }
-                  : null,
-              icon: const Icon(Icons.add_circle_outline, size: 18),
-              label: const Text('Add next crayfish'),
-              style: TextButton.styleFrom(
-                foregroundColor: AppColors.primary,
-                visualDensity: VisualDensity.compact,
-              ),
-            ),
+          _buildSampleSizeCard(
+            int.tryParse(_countController.text) ?? 0,
+            isEditing: _isEditing,
           ),
           const SizedBox(height: 8),
           Text(
@@ -2098,126 +2083,74 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
     );
   }
 
-  Widget _buildInputCard(
-    Widget iconWidget,
-    String label,
-    String subtitle,
-    String hint,
-    TextEditingController controller, {
-    bool enabled = true,
-    bool hasError = false,
-    VoidCallback? onChanged,
-    double subtitleBottomSpacing = 8,
-  }) {
-    final borderColor = hasError && enabled
-        ? AppColors.critical.withValues(alpha: 0.6)
-        : AppColors.dark.withValues(alpha: 0.15);
+  Widget _buildSampleSizeCard(int sampleSize, {required bool isEditing}) {
     return Container(
-      padding: const EdgeInsets.all(10),
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: enabled
-            ? AppColors.primaryWith(0.03)
-            : AppColors.primaryWith(0.01),
+        color: AppColors.primary.withValues(alpha: 0.045),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: hasError && enabled
-              ? AppColors.critical.withValues(alpha: 0.35)
-              : (enabled ? AppColors.darkWith(0.08) : AppColors.darkWith(0.04)),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.darkWith(0.06),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.16)),
       ),
-      child: Column(
+      child: Row(
         children: [
-          Opacity(
-            opacity: enabled ? 1.0 : 0.5,
-            child: Container(
-              width: 36,
-              height: 36,
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: iconWidget,
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Image.asset(
+              'assets/images/SampleCount.png',
+              width: 22,
+              height: 22,
             ),
           ),
-          const SizedBox(height: 8),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              color: hasError && enabled
-                  ? AppColors.critical
-                  : (enabled ? AppColors.dark : AppColors.darkWith(0.4)),
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 2),
-          Text(
-            subtitle,
-            style: TextStyle(
-              fontSize: 9,
-              fontWeight: FontWeight.w500,
-              color: hasError && enabled
-                  ? AppColors.critical.withValues(alpha: 0.6)
-                  : (enabled
-                        ? AppColors.darkWith(0.5)
-                        : AppColors.darkWith(0.3)),
-            ),
-            textAlign: TextAlign.center,
-          ),
-          SizedBox(height: subtitleBottomSpacing),
-          TextField(
-            controller: controller,
-            onChanged: (_) => onChanged?.call(),
-            keyboardType: TextInputType.number,
-            inputFormatters: [
-              FilteringTextInputFormatter.allow(RegExp(r'^-?\d*\.?\d*$')),
-            ],
-            textAlign: TextAlign.center,
-            enabled: enabled,
-            decoration: InputDecoration(
-              hintText: hint,
-              filled: true,
-              fillColor: enabled ? Colors.white : AppColors.darkWith(0.04),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 4,
-                vertical: 8,
-              ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: BorderSide(color: borderColor),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: BorderSide(color: borderColor),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: BorderSide(
-                  color: hasError && enabled
-                      ? AppColors.critical
-                      : AppColors.primary,
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Sample Size',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.dark,
+                  ),
                 ),
-              ),
-              hintStyle: TextStyle(
-                fontSize: 12,
-                color: AppColors.darkWith(0.3),
+                const SizedBox(height: 2),
+                Text(
+                  isEditing
+                      ? 'Locked to this saved record’s sample size.'
+                      : 'Locked to the initial baseline sample size.',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: AppColors.dark.withValues(alpha: 0.58),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            constraints: const BoxConstraints(minWidth: 48),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: AppColors.primary.withValues(alpha: 0.2),
               ),
             ),
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-              color: hasError && enabled
-                  ? AppColors.critical
-                  : (enabled ? AppColors.dark : AppColors.darkWith(0.4)),
+            child: Text(
+              '$sampleSize',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w900,
+                color: AppColors.primary,
+              ),
             ),
           ),
         ],

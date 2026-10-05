@@ -588,7 +588,7 @@ unsigned long lastFeederCmdCheckMs = 0;
 unsigned long lastFeederStatusMs = 0;
 unsigned long lastFeederScheduleSyncMs = 0;
 unsigned long lastFeederScheduleCheckMs = 0;
-bool allowWaterQualityScheduledFeeding = false;
+bool allowWaterQualityFeeding = false;
 unsigned long lastSchedulePolicySyncMs = 0;
 
 // ============================================================
@@ -2118,7 +2118,7 @@ void saveCachedFeederSchedules();
 void loadFeederState();
 bool saveFeederState();
 void checkScheduledFeed();
-void startFeed(String source, float grams = 1.0f, String commandId = "", long long issuedAtMs = 0, long long expiresAtMs = 0, bool forceOverride = false, bool allowHighTurbidityOverride = false, bool allowWaterQualityOverride = false);
+void startFeed(String source, float grams = 1.0f, String commandId = "", long long issuedAtMs = 0, long long expiresAtMs = 0, bool forceOverride = false, bool allowHighTurbidityOverride = false);
 void processFeederTick();
 void pushFeederLog(String action, String type, String status = "",
                    float requestedGrams = -1.0f,
@@ -2908,7 +2908,6 @@ void processFeederCommands() {
     long long issuedAtMs = 0;
     long long expiresAtMs = 0;
     bool allowHighTurbidityOverride = false;
-    bool allowWaterQualityOverride = false;
   };
   CmdEntry entries[20];
   int entryCount = 0;
@@ -2935,9 +2934,6 @@ void processFeederCommands() {
     if (response.get(d, base + "allow_high_turbidity/booleanValue")) {
       e.allowHighTurbidityOverride = d.boolValue;
     }
-    if (response.get(d, base + "allow_water_quality_override/booleanValue")) {
-      e.allowWaterQualityOverride = d.boolValue;
-    }
 
     if (e.action != "") entryCount++;
   }
@@ -2951,8 +2947,7 @@ void processFeederCommands() {
 
     if (e.action == "feed_now") {
       startFeed("manual", e.grams, e.docId, e.issuedAtMs, e.expiresAtMs,
-                false, e.allowHighTurbidityOverride,
-                e.allowWaterQualityOverride);
+                false, e.allowHighTurbidityOverride);
       break;
     }
   }
@@ -3080,8 +3075,8 @@ void syncFeederSchedules() {
   if (!ensureFirebaseReady()) return;
   if (currentTankId.length() == 0) return;   // no tank assigned -> nothing to sync
 
-  // One owner-level policy applies to every schedule. Do not trust an old
-  // opt-in indefinitely while offline; the safety bypass expires after three
+  // One owner-level policy applies to manual Feed Now and every schedule. Do
+  // not trust an old opt-in indefinitely while offline; it expires after three
   // normal schedule-sync intervals (30 seconds).
   String policyPath = "tanks/" + currentTankId + "/feeder/schedule_policy";
   if (firestoreGetDoc(policyPath.c_str())) {
@@ -3091,16 +3086,16 @@ void syncFeederSchedules() {
     bool enabled = policyResponse.get(
         policyValue, "fields/allow_water_quality_override/booleanValue") &&
         policyValue.boolValue;
-    if (enabled != allowWaterQualityScheduledFeeding) {
-      Serial.printf("[FEEDER] Global scheduled water-quality range override %s\n",
+    if (enabled != allowWaterQualityFeeding) {
+      Serial.printf("[FEEDER] Shared water-quality range override %s\n",
                     enabled ? "enabled" : "disabled");
     }
-    allowWaterQualityScheduledFeeding = enabled;
-    // Retired policy is deliberately ignored. New schedules use one unified
-    // explicit opt-in for all four water-quality sensor ranges.
+    allowWaterQualityFeeding = enabled;
+    // Retired policy is deliberately ignored. The shared opt-in covers all
+    // four water-quality sensor ranges for manual and scheduled feedings.
     lastSchedulePolicySyncMs = millis();
   } else if (fbdo.httpCode() == 404) {
-    allowWaterQualityScheduledFeeding = false;
+    allowWaterQualityFeeding = false;
     lastSchedulePolicySyncMs = millis();
   } else {
     Serial.printf("[FEEDER] Schedule policy sync failed; retaining the last value temporarily, http=%d\n",
@@ -3113,7 +3108,7 @@ void syncFeederSchedules() {
   int pages = 0;
   do {
   if (!Firebase.Firestore.listDocuments(&fbdo, FIREBASE_PROJECT_ID, "",
-        schedCol.c_str(), FEEDER_SCHEDULE_PAGE_SIZE, pageToken.c_str(), "timeValue", "", false)) {
+        schedCol.c_str(), FEEDER_SCHEDULE_PAGE_SIZE, pageToken.c_str(), "", "", false)) {
     // Keep the last valid in-memory/NVS schedule set on transient failures.
     Serial.printf("[FEEDER] Schedule sync failed; retaining %d cached schedule(s)\n",
                   feederScheduleCount);
@@ -3141,23 +3136,50 @@ void syncFeederSchedules() {
     String timeStr = "6:00";
     String ampm    = "AM";
     int timeValue  = -1;
+    bool hasCanonicalTime = false;
 
-    // Preferred source: timeValue (minutes since midnight) written by Flutter.
-    if (response.get(d, base + "timeValue/integerValue")) {
-      timeValue = d.stringValue.toInt();
+    // Canonical Firestore value is one zero-padded 24-hour "HH:mm" string.
+    const bool hasScheduledTimeField = response.get(d, base + "scheduled_time");
+    if (hasScheduledTimeField) {
+      if (!response.get(d, base + "scheduled_time/stringValue")) {
+        Serial.printf("[FEEDER] Skipping schedule %s with non-string scheduled_time\n",
+                      docId.c_str());
+        continue;
+      }
+      const String scheduledTime = d.stringValue;
+      if (scheduledTime.length() == 5 && scheduledTime.charAt(2) == ':' &&
+          isDigit(scheduledTime.charAt(0)) && isDigit(scheduledTime.charAt(1)) &&
+          isDigit(scheduledTime.charAt(3)) && isDigit(scheduledTime.charAt(4))) {
+        const int hour24 = scheduledTime.substring(0, 2).toInt();
+        const int minuteOfHour = scheduledTime.substring(3, 5).toInt();
+        if (hour24 >= 0 && hour24 <= 23 && minuteOfHour >= 0 && minuteOfHour <= 59) {
+          timeValue = hour24 * 60 + minuteOfHour;
+          hasCanonicalTime = true;
+        }
+      }
+      if (!hasCanonicalTime) {
+        Serial.printf("[FEEDER] Skipping schedule %s with invalid scheduled_time\n",
+                      docId.c_str());
+        continue;
+      }
     }
 
-    // Fallbacks during migration/older app versions.
-    if (response.get(d, base + "time/stringValue"))         timeStr = d.stringValue;
-    if (response.get(d, base + "ampm/stringValue"))         ampm = d.stringValue;
-    if (response.get(d, base + "feed_time/stringValue") && timeStr == "6:00") {
-      timeStr = d.stringValue;
+    // Read legacy fields during rollout so pre-migration schedules still run.
+    if (!hasScheduledTimeField) {
+      if (response.get(d, base + "timeValue/integerValue")) {
+        timeValue = d.stringValue.toInt();
+      }
+      if (response.get(d, base + "time/stringValue")) timeStr = d.stringValue;
+      if (response.get(d, base + "ampm/stringValue")) ampm = d.stringValue;
+      if (response.get(d, base + "feed_time/stringValue") && timeStr == "6:00") {
+        timeStr = d.stringValue;
+      }
     }
 
     int hour = 6;
     int minute = 0;
 
-    if (timeValue >= 0) {
+    if (timeValue >= 0 && timeValue < 1440) {
       hour = timeValue / 60;
       minute = timeValue % 60;
     } else {
@@ -3319,10 +3341,7 @@ void checkScheduledFeed() {
         feederLastScheduleKey = s.key;
         const int hour12 = s.hour24 % 12 == 0 ? 12 : s.hour24 % 12;
         feederScheduleTime = String(hour12) + ":" + (s.minute < 10 ? "0" : "") + String(s.minute) + (s.hour24 >= 12 ? " PM" : " AM");
-        const bool schedulePolicyFresh = lastSchedulePolicySyncMs > 0 &&
-            millis() - lastSchedulePolicySyncMs <= FEEDER_SCHEDULE_SYNC_MS * 3UL;
-        startFeed("scheduled", s.grams, "", 0, 0, false, false,
-                  allowWaterQualityScheduledFeeding && schedulePolicyFresh);
+        startFeed("scheduled", s.grams, "", 0, 0, false, false);
         return;
       }
     }
@@ -3330,7 +3349,12 @@ void checkScheduledFeed() {
 }
 
 // ─── Start Feed — kicks off non-blocking state machine ───
-void startFeed(String source, float grams, String commandId, long long issuedAtMs, long long expiresAtMs, bool forceOverride, bool allowHighTurbidityOverride, bool allowWaterQualityOverride) {
+void startFeed(String source, float grams, String commandId, long long issuedAtMs, long long expiresAtMs, bool forceOverride, bool allowHighTurbidityOverride) {
+  const bool sharedPolicyFresh = lastSchedulePolicySyncMs > 0 &&
+      millis() - lastSchedulePolicySyncMs <= FEEDER_SCHEDULE_SYNC_MS * 3UL;
+  const bool allowWaterQualityOverride =
+      (source == "manual" || source == "scheduled") &&
+      allowWaterQualityFeeding && sharedPolicyFresh;
   feederHighTurbidityOverrideUsed = false;
   feederWaterQualityOverrideUsed = false;
   if (!forceOverride) { feederForced = false; feederForceReason = ""; }
@@ -3832,7 +3856,7 @@ void applyTankAssignment(const String& tankId, const String& ownerUid, long long
   // never carry a previous owner's schedules/counters into the next account.
   feederSchedules.clear();
   feederScheduleCount = 0;
-  allowWaterQualityScheduledFeeding = false;
+  allowWaterQualityFeeding = false;
   lastSchedulePolicySyncMs = 0;
   feederLastScheduleKey = "";
   feederScheduleTime = "";
