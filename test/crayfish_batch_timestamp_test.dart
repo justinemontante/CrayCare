@@ -90,6 +90,28 @@ void main() {
       expect(batch.daysInCulture, 7);
     });
 
+    test('partial harvest does not stop an active batch culture clock', () {
+      final now = DateTime.now();
+      final stocked = DateTime(
+        now.year,
+        now.month,
+        now.day,
+      ).subtract(const Duration(days: 3));
+      final partialHarvestDate = DateTime(
+        now.year,
+        now.month,
+        now.day,
+      ).subtract(const Duration(days: 1));
+      final batch = CrayfishBatch(
+        batchId: 'batch-active-harvest',
+        status: 'active',
+        stockingDate: stocked,
+        harvestDate: partialHarvestDate,
+      );
+
+      expect(batch.daysInCulture, 3);
+    });
+
     test('batch averages derive from raw totals and are not serialized', () {
       final batch = CrayfishBatch.fromJson({
         'batch_id': 'batch-1',

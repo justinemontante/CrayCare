@@ -14,63 +14,6 @@ DateTime? _readTankDate(dynamic value) =>
 Timestamp _writeTankTimestamp(DateTime value) =>
     Timestamp.fromDate(value.toUtc());
 
-enum GrowthStage {
-  earlyJuvenile(
-    'Early Juvenile',
-    '1-5g',
-    '2-4cm',
-    'Nursery / Initial Stocking',
-    'SRAC Pub 244',
-  ),
-  advancedJuvenile(
-    'Advanced Juvenile',
-    '5-15g',
-    '4-6cm',
-    'Pre-Grow-out',
-    'Queensland Gov',
-  ),
-  preAdult('Pre-Adult', '15-50g', '6-10cm', 'Active Growth', 'FAO / SRAC'),
-  marketSize(
-    'Market Size / Adult',
-    '50-120g+',
-    '10cm+',
-    'Harvest / Broodstock',
-    'Queensland Gov / SRAC',
-  );
-
-  final String label;
-  final String weightRange;
-  final String lengthRange;
-  final String subPhase;
-  final String source;
-
-  const GrowthStage(
-    this.label,
-    this.weightRange,
-    this.lengthRange,
-    this.subPhase,
-    this.source,
-  );
-}
-
-/// Classifies the production stage using ABW as the primary measurement.
-/// ABL is only a fallback when no valid weight measurement is available;
-/// mixing both with OR conditions can incorrectly force a heavy crayfish into
-/// an early stage because of one short or noisy length measurement.
-GrowthStage classifyGrowthStage({required double abw, required double abl}) {
-  if (abw > 0) {
-    if (abw < 5) return GrowthStage.earlyJuvenile;
-    if (abw < 15) return GrowthStage.advancedJuvenile;
-    if (abw < 50) return GrowthStage.preAdult;
-    return GrowthStage.marketSize;
-  }
-
-  if (abl < 4) return GrowthStage.earlyJuvenile;
-  if (abl < 6) return GrowthStage.advancedJuvenile;
-  if (abl < 10) return GrowthStage.preAdult;
-  return GrowthStage.marketSize;
-}
-
 /// Keeps every later sample at the batch's baseline sample size.
 int baselineSamplingSize(int plannedSampleSize) {
   return plannedSampleSize > 0 ? plannedSampleSize : 0;
@@ -510,13 +453,6 @@ class TankService extends ChangeNotifier {
 
   int get totalMortalityFromHistory =>
       _mortalityHistory.fold(0, (acc, e) => acc + e.count);
-
-  GrowthStage get currentGrowthStage {
-    final latest = _samplingHistory.isNotEmpty ? _samplingHistory.last : null;
-    final abw = latest?.abw ?? _initialWeight;
-    final abl = latest?.avgLength ?? _initialLength;
-    return classifyGrowthStage(abw: abw, abl: abl);
-  }
 
   // ─── Nested tank/batch collection references ─────────────────────
 

@@ -1024,7 +1024,7 @@ class DashboardScreenState extends State<DashboardScreen>
     final isSelected = batch != null && tank.selectedBatchId == batch.batchId;
 
     double abw, abl;
-    String stageLabel, daysStr, lastSamplingStr;
+    String daysStr, lastSamplingStr;
     bool showSampling;
 
     if (hasActive && batch != null) {
@@ -1054,22 +1054,6 @@ class DashboardScreenState extends State<DashboardScreen>
       showSampling = false;
     }
 
-    if (abw <= 0) {
-      stageLabel = '--';
-    } else if (hasActive && isSelected) {
-      stageLabel = tank.currentGrowthStage.label;
-    } else {
-      if (abw < 5 || abl < 4) {
-        stageLabel = 'Early Juvenile';
-      } else if (abw < 15 || abl < 6) {
-        stageLabel = 'Advanced Juvenile';
-      } else if (abw < 50 || abl < 10) {
-        stageLabel = 'Pre-Adult';
-      } else {
-        stageLabel = 'Market Size';
-      }
-    }
-
     final biomassKg = hasActive && isSelected && abw > 0
         ? tank.inTankCount * abw / 1000
         : 0.0;
@@ -1085,18 +1069,17 @@ class DashboardScreenState extends State<DashboardScreen>
         children: [
           Row(
             children: [
-              Expanded(child: _grayItem(Icons.eco, 'Stage', stageLabel)),
               Expanded(
                 child: _grayItem(
                   Icons.monitor_weight_outlined,
-                  'ABW',
+                  'Average Body Weight',
                   abw > 0 ? '${abw.toStringAsFixed(2)}g' : '--',
                 ),
               ),
               Expanded(
                 child: _grayItem(
                   Icons.straighten,
-                  'ABL',
+                  'Average Body Length',
                   abl > 0 ? '${abl.toStringAsFixed(2)}cm' : '--',
                 ),
               ),
@@ -1178,7 +1161,7 @@ class DashboardScreenState extends State<DashboardScreen>
         Text(
           value,
           textAlign: TextAlign.center,
-          maxLines: label == 'Stage' ? 2 : 1,
+          maxLines: 2,
           softWrap: true,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(
@@ -1191,8 +1174,12 @@ class DashboardScreenState extends State<DashboardScreen>
         const SizedBox(height: 1),
         Text(
           label,
+          textAlign: TextAlign.center,
+          maxLines: 2,
+          softWrap: true,
+          overflow: TextOverflow.ellipsis,
           style: TextStyle(
-            fontSize: 7,
+            fontSize: 8,
             fontWeight: FontWeight.w600,
             color: AppColors.darkWith(0.5),
           ),
@@ -1922,6 +1909,7 @@ class DashboardScreenState extends State<DashboardScreen>
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
+      sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 260), reverseDuration: Duration(milliseconds: 220)),
       builder: (ctx) {
         return ListenableBuilder(
           listenable: Listenable.merge([

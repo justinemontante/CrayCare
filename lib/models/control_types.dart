@@ -36,9 +36,6 @@ String feederPreflightIssue({
   if (busy) return 'A feeding request is already in progress';
   if (!feederOnline) return 'Feeder is offline';
   if (!schedulesLoaded) return 'Waiting for feeding schedules';
-  if (turbidityAir) {
-    return 'Turbidity sensor is in air';
-  }
   for (final entry in const {
     'temp': 'temperature',
     'do': 'dissolved oxygen',
@@ -46,6 +43,12 @@ String feederPreflightIssue({
     'turb': 'turbidity',
     'feedlevel': 'feed-level',
   }.entries) {
+    // The shared override may proceed without a turbidity reading specifically
+    // when the device reports the probe is in air. Other sensors remain
+    // required and must still have fresh, valid readings.
+    if (entry.key == 'turb' && turbidityAir && allowWaterQualityOverride) {
+      continue;
+    }
     final value = values[entry.key];
     if (!freshSensors.contains(entry.key) ||
         value == null ||

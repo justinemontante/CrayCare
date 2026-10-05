@@ -357,6 +357,10 @@ void showSamplingHistory(BuildContext context, {bool expandBaseline = false}) {
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
+    sheetAnimationStyle: const AnimationStyle(
+      duration: Duration(milliseconds: 260),
+      reverseDuration: Duration(milliseconds: 220),
+    ),
     builder: (sheetContext) => StatefulBuilder(
       builder: (sheetContext, setSheetState) {
         if (expandBaseline && !expansionScheduled) {
@@ -769,8 +773,10 @@ class GrowthOverviewPanel extends StatelessWidget {
   ) {
     showDialog(
       context: context,
-      barrierDismissible: true,
-      barrierColor: Colors.black.withValues(alpha: 0.4),
+      animationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 220),
+        reverseDuration: Duration(milliseconds: 180),
+      ),
       builder: (ctx) => Dialog(
         insetPadding: const EdgeInsets.symmetric(horizontal: 24),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -1383,75 +1389,86 @@ class _SamplingEntryLauncherState extends State<SamplingEntryLauncher> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      sheetAnimationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 260),
+        reverseDuration: Duration(milliseconds: 220),
+      ),
       builder: (sheetContext) {
-        final media = MediaQuery.of(sheetContext);
-        // Keep the sheet's frame tied to the screen, not the keyboard inset.
-        // The scroll view can move its fields above the keyboard without the
-        // whole modal collapsing when a measurement field receives focus.
-        final sheetHeight = media.size.height * 0.88;
-        return Container(
-          height: sheetHeight,
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          child: SafeArea(
-            top: false,
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(top: 10, bottom: 8),
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: AppColors.dark.withValues(alpha: 0.18),
-                      borderRadius: BorderRadius.circular(3),
+        final keyboardInset = MediaQuery.of(sheetContext).viewInsets.bottom;
+        return AnimatedPadding(
+          // ModalBottomSheetRoute does not move the sheet for the IME itself.
+          // Lift it above the keyboard and let its content viewport shrink.
+          padding: EdgeInsets.only(bottom: keyboardInset),
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final sheetHeight = constraints.maxHeight * 0.94;
+              return SizedBox(
+                height: sheetHeight,
+                child: Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.vertical(
+                      top: Radius.circular(24),
                     ),
                   ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 0, 10, 4),
-                  child: Row(
-                    children: [
-                      const Expanded(
-                        child: Text(
-                          'Sampling Record',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.dark,
+                  child: SafeArea(
+                    top: false,
+                    child: Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(top: 10, bottom: 8),
+                          child: Container(
+                            width: 40,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: AppColors.dark.withValues(alpha: 0.18),
+                              borderRadius: BorderRadius.circular(3),
+                            ),
                           ),
                         ),
-                      ),
-                      TextButton(
-                        onPressed: () => Navigator.of(sheetContext).pop(),
-                        child: const Text('Cancel'),
-                      ),
-                    ],
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(18, 0, 10, 4),
+                          child: Row(
+                            children: [
+                              const Expanded(
+                                child: Text(
+                                  'Sampling Record',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppColors.dark,
+                                  ),
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: () =>
+                                    Navigator.of(sheetContext).pop(),
+                                child: const Text('Cancel'),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+                            child: SamplingFormPanel(
+                              initialDraft: initialDraft,
+                              draftPrefs: draftPrefs,
+                              draftKey: draftKey,
+                              onSaved: (wasEditing) => Navigator.of(
+                                sheetContext,
+                              ).pop(wasEditing ? 'updated' : 'recorded'),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-                Expanded(
-                  child: SingleChildScrollView(
-                    keyboardDismissBehavior:
-                        ScrollViewKeyboardDismissBehavior.onDrag,
-                    padding: EdgeInsets.only(
-                      left: 14,
-                      right: 14,
-                      bottom: media.viewInsets.bottom + 20,
-                    ),
-                    child: SamplingFormPanel(
-                      initialDraft: initialDraft,
-                      draftPrefs: draftPrefs,
-                      draftKey: draftKey,
-                      onSaved: (wasEditing) => Navigator.of(
-                        sheetContext,
-                      ).pop(wasEditing ? 'updated' : 'recorded'),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+              );
+            },
           ),
         );
       },
@@ -1532,7 +1549,10 @@ class _SamplingFormPanelState extends State<SamplingFormPanel>
   final _countController = TextEditingController();
   final _weightControllers = <TextEditingController>[];
   final _lengthControllers = <TextEditingController>[];
+  final _weightFocusNodes = <FocusNode>[];
+  final _lengthFocusNodes = <FocusNode>[];
   final _fieldErrors = <TextEditingController, ValueNotifier<String?>>{};
+  final _invalidMeasurementControllers = <TextEditingController>{};
   final _validationRevision = ValueNotifier<int>(0);
   bool _isRecorded = false;
   bool _isEditing = false;
@@ -1540,9 +1560,11 @@ class _SamplingFormPanelState extends State<SamplingFormPanel>
   bool _showValidationErrors = false;
   String? _countError;
   String? _measurementError;
+  String? _editingRecordId;
   late final VoidCallback _serviceListener;
   Timer? _refreshTimer;
   Timer? _draftSaveTimer;
+  Timer? _fieldRevealTimer;
   Future<void> _draftWriteQueue = Future<void>.value();
 
   @override
@@ -1569,6 +1591,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel>
 
   void _checkLastSampling() {
     _isEditing = false;
+    _editingRecordId = null;
     _hasUnsavedChanges = false;
     final history = TankService.instance.samplingHistory
         .where((entry) => !entry.isBaseline)
@@ -1611,12 +1634,19 @@ class _SamplingFormPanelState extends State<SamplingFormPanel>
       final length = TextEditingController();
       _weightControllers.add(weight);
       _lengthControllers.add(length);
+      _weightFocusNodes.add(FocusNode());
+      _lengthFocusNodes.add(FocusNode());
       _fieldErrors[weight] = ValueNotifier<String?>(null);
       _fieldErrors[length] = ValueNotifier<String?>(null);
     }
     while (_weightControllers.length > requested) {
       final weight = _weightControllers.removeLast();
       final length = _lengthControllers.removeLast();
+      _weightFocusNodes.removeLast().dispose();
+      _lengthFocusNodes.removeLast().dispose();
+      _invalidMeasurementControllers
+        ..remove(weight)
+        ..remove(length);
       _fieldErrors.remove(weight)?.dispose();
       _fieldErrors.remove(length)?.dispose();
       weight.dispose();
@@ -1657,6 +1687,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel>
         return;
       }
       _isEditing = true;
+      _editingRecordId = latest.id;
       _isRecorded = false;
     } else if (_isRecorded) {
       return;
@@ -1687,23 +1718,44 @@ class _SamplingFormPanelState extends State<SamplingFormPanel>
   }
 
   void _refreshFieldErrors() {
+    _invalidMeasurementControllers.clear();
     for (final entry in _fieldErrors.entries) {
-      entry.value.value = _measurementFieldError(entry.key);
+      final error = _measurementFieldError(entry.key);
+      entry.value.value = error;
+      if (error != null) _invalidMeasurementControllers.add(entry.key);
     }
+    _refreshMeasurementError();
   }
 
   void _onMeasurementChanged(TextEditingController controller) {
     _hasUnsavedChanges = true;
-    _revalidateCount();
-    _fieldErrors[controller]?.value = _measurementFieldError(controller);
+    final error = _measurementFieldError(controller);
+    _fieldErrors[controller]?.value = error;
+    if (error == null) {
+      _invalidMeasurementControllers.remove(controller);
+    } else {
+      _invalidMeasurementControllers.add(controller);
+    }
+    _refreshMeasurementError();
     _validationRevision.value++;
     _scheduleDraftSave();
+  }
+
+  void _refreshMeasurementError() {
+    final count = int.tryParse(_countController.text.trim()) ?? 0;
+    final controllerCountMismatch =
+        _weightControllers.length != count ||
+        _lengthControllers.length != count;
+    _measurementError =
+        _invalidMeasurementControllers.isNotEmpty || controllerCountMismatch
+        ? 'Enter a positive weight and length for every crayfish.'
+        : null;
   }
 
   void _scheduleDraftSave() {
     if (widget.draftPrefs == null || widget.draftKey == null) return;
     _draftSaveTimer?.cancel();
-    _draftSaveTimer = Timer(const Duration(milliseconds: 250), () {
+    _draftSaveTimer = Timer(const Duration(milliseconds: 700), () {
       unawaited(_persistDraft());
     });
   }
@@ -1714,9 +1766,6 @@ class _SamplingFormPanelState extends State<SamplingFormPanel>
     if (prefs == null || key == null || !_hasUnsavedChanges) {
       return Future<void>.value();
     }
-    final latest = TankService.instance.samplingHistory
-        .where((entry) => !entry.isBaseline)
-        .toList();
     final payload = jsonEncode({
       'sampleSize': int.tryParse(_countController.text),
       'weights': _weightControllers
@@ -1726,7 +1775,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel>
           .map((controller) => controller.text)
           .toList(),
       'isEditing': _isEditing,
-      'recordId': _isEditing && latest.isNotEmpty ? latest.last.id : null,
+      'recordId': _isEditing ? _editingRecordId : null,
       'savedAt': DateTime.now().millisecondsSinceEpoch,
     });
     _draftWriteQueue = _draftWriteQueue.then((_) async {
@@ -1767,6 +1816,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel>
   void dispose() {
     _refreshTimer?.cancel();
     _draftSaveTimer?.cancel();
+    _fieldRevealTimer?.cancel();
     if (_hasUnsavedChanges) unawaited(_persistDraft());
     WidgetsBinding.instance.removeObserver(this);
     TankService.instance.removeListener(_serviceListener);
@@ -1781,6 +1831,12 @@ class _SamplingFormPanelState extends State<SamplingFormPanel>
     }
     for (final controller in _lengthControllers) {
       controller.dispose();
+    }
+    for (final focusNode in _weightFocusNodes) {
+      focusNode.dispose();
+    }
+    for (final focusNode in _lengthFocusNodes) {
+      focusNode.dispose();
     }
     super.dispose();
   }
@@ -1807,25 +1863,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel>
     } else {
       _countError = null;
     }
-    final invalidEnteredValue = [..._weightControllers, ..._lengthControllers]
-        .any((controller) {
-          final text = controller.text.trim();
-          if (text.isEmpty) return false;
-          final value = double.tryParse(text);
-          return value == null || !value.isFinite || value <= 0;
-        });
-    final incompleteMeasurements =
-        _weightControllers.length != (count ?? 0) ||
-        _weightControllers.any((controller) {
-          return controller.text.trim().isEmpty;
-        }) ||
-        _lengthControllers.any((controller) {
-          return controller.text.trim().isEmpty;
-        });
-    _measurementError =
-        invalidEnteredValue || (_showValidationErrors && incompleteMeasurements)
-        ? 'Enter a positive weight and length for every crayfish.'
-        : null;
+    _refreshFieldErrors();
   }
 
   String? _measurementFieldError(TextEditingController controller) {
@@ -1840,41 +1878,129 @@ class _SamplingFormPanelState extends State<SamplingFormPanel>
     return null;
   }
 
+  Widget _buildMeasurementRow(int index, {required bool enabled}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: index.isOdd
+            ? AppColors.dark.withValues(alpha: 0.02)
+            : Colors.white,
+        border: Border(
+          top: BorderSide(color: AppColors.dark.withValues(alpha: 0.06)),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 76,
+            height: 42,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Crayfish ${index + 1}',
+                style: const TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.dark,
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: _measurementInput(
+              controller: _weightControllers[index],
+              focusNode: _weightFocusNodes[index],
+              enabled: enabled,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _measurementInput(
+              controller: _lengthControllers[index],
+              focusNode: _lengthFocusNodes[index],
+              enabled: enabled,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _measurementInput({
     required TextEditingController controller,
+    required FocusNode focusNode,
     required bool enabled,
   }) {
-    return ValueListenableBuilder<String?>(
-      valueListenable: _fieldErrors[controller]!,
-      builder: (context, errorText, _) => TextField(
-        controller: controller,
-        enabled: enabled,
-        textAlign: TextAlign.center,
-        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        inputFormatters: [
-          TextInputFormatter.withFunction((oldValue, newValue) {
-            if (!newValue.composing.isCollapsed) return newValue;
-            return RegExp(r'^\d*\.?\d*$').hasMatch(newValue.text)
-                ? newValue
-                : oldValue;
-          }),
-        ],
-        textInputAction: TextInputAction.next,
-        onChanged: (_) => _onMeasurementChanged(controller),
-        decoration: InputDecoration(
-          hintText: '0.0',
-          isDense: true,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 6,
-            vertical: 11,
+    return Builder(
+      builder: (fieldContext) => ValueListenableBuilder<String?>(
+        valueListenable: _fieldErrors[controller]!,
+        builder: (context, errorText, _) => TextField(
+          controller: controller,
+          focusNode: focusNode,
+          enabled: enabled,
+          textAlign: TextAlign.center,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          inputFormatters: [
+            TextInputFormatter.withFunction((oldValue, newValue) {
+              if (!newValue.composing.isCollapsed) return newValue;
+              return RegExp(r'^\d*\.?\d*$').hasMatch(newValue.text)
+                  ? newValue
+                  : oldValue;
+            }),
+          ],
+          textInputAction: TextInputAction.next,
+          onTap: () => _scheduleMeasurementReveal(
+            fieldContext,
+            delay: const Duration(milliseconds: 280),
           ),
-          border: const OutlineInputBorder(),
-          errorMaxLines: 1,
-          errorStyle: const TextStyle(fontSize: 8, height: 1),
-          errorText: errorText,
+          onChanged: (_) => _onMeasurementChanged(controller),
+          decoration: InputDecoration(
+            hintText: '0.0',
+            isDense: true,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 6,
+              vertical: 11,
+            ),
+            border: const OutlineInputBorder(),
+            errorMaxLines: 1,
+            errorStyle: const TextStyle(fontSize: 8, height: 1),
+            errorText: errorText,
+          ),
         ),
       ),
     );
+  }
+
+  void _scheduleMeasurementReveal(
+    BuildContext fieldContext, {
+    required Duration delay,
+  }) {
+    // Throttle reveal work while typing so the field follows the keyboard
+    // without starting a new scroll animation on every keystroke.
+    if (_fieldRevealTimer?.isActive ?? false) return;
+    _fieldRevealTimer = Timer(delay, () {
+      if (!mounted || !fieldContext.mounted) return;
+      final media = MediaQuery.maybeOf(fieldContext);
+      final renderObject = fieldContext.findRenderObject();
+      if (media != null && renderObject is RenderBox) {
+        final keyboardTop = media.size.height - media.viewInsets.bottom;
+        final fieldBottom = renderObject
+            .localToGlobal(Offset(0, renderObject.size.height))
+            .dy;
+        // Avoid repeatedly animating the scroll view for keystrokes when the
+        // focused field is already fully above the keyboard.
+        if (media.viewInsets.bottom > 0 && fieldBottom <= keyboardTop - 12) {
+          return;
+        }
+      }
+      Scrollable.ensureVisible(
+        fieldContext,
+        alignment: 0.28,
+        duration: const Duration(milliseconds: 140),
+        curve: Curves.easeOut,
+      );
+    });
   }
 
   Future<void> _handleCompute() async {
@@ -1945,6 +2071,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel>
       setState(() {
         _isRecorded = true;
         _isEditing = false;
+        _editingRecordId = null;
         _hasUnsavedChanges = false;
       });
       await _clearDraft();
@@ -1972,6 +2099,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel>
       _showValidationErrors = false;
       _isRecorded = false;
       _isEditing = true;
+      _editingRecordId = entry.id;
       _hasUnsavedChanges = false;
     });
   }
@@ -2026,130 +2154,101 @@ class _SamplingFormPanelState extends State<SamplingFormPanel>
                 ),
             ],
           ),
-          const SizedBox(height: 12),
-          _buildSampleSizeCard(
-            int.tryParse(_countController.text) ?? 0,
-            isEditing: _isEditing,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Individual measurements (${_weightControllers.length})',
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w800,
-              color: AppColors.dark,
-            ),
-          ),
-          const SizedBox(height: 6),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                border: Border.all(
-                  color: AppColors.dark.withValues(alpha: 0.08),
-                ),
-                borderRadius: BorderRadius.circular(12),
-              ),
+          Expanded(
+            child: SingleChildScrollView(
+              keyboardDismissBehavior:
+                  ScrollViewKeyboardDismissBehavior.manual,
+              padding: const EdgeInsets.only(bottom: 8),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 9,
-                    ),
-                    color: AppColors.primary.withValues(alpha: 0.06),
-                    child: const Row(
-                      children: [
-                        SizedBox(
-                          width: 76,
-                          child: Text(
-                            'Crayfish',
-                            style: TextStyle(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.primary,
-                            ),
-                          ),
-                        ),
-                        Expanded(
-                          child: Text(
-                            'Weight (g)',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.primary,
-                            ),
-                          ),
-                        ),
-                        SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Length (cm)',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.primary,
-                            ),
-                          ),
-                        ),
-                      ],
+                  const SizedBox(height: 12),
+                  _buildSampleSizeCard(
+                    int.tryParse(_countController.text) ?? 0,
+                    isEditing: _isEditing,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Individual measurements (${_weightControllers.length})',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.dark,
                     ),
                   ),
-                  ...List.generate(_weightControllers.length, (index) {
-                    final enabled = (!_isRecorded && canSample) || _isEditing;
-                    return Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 5,
-                      ),
+                  const SizedBox(height: 6),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
                       decoration: BoxDecoration(
-                        color: index.isOdd
-                            ? AppColors.dark.withValues(alpha: 0.02)
-                            : Colors.white,
-                        border: Border(
-                          top: BorderSide(
-                            color: AppColors.dark.withValues(alpha: 0.06),
-                          ),
+                        color: Colors.white,
+                        border: Border.all(
+                          color: AppColors.dark.withValues(alpha: 0.08),
                         ),
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      child: Column(
                         children: [
-                          SizedBox(
-                            width: 76,
-                            height: 42,
-                            child: Align(
-                              alignment: Alignment.centerLeft,
-                              child: Text(
-                                'Crayfish ${index + 1}',
-                                style: const TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppColors.dark,
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 9,
+                            ),
+                            color: AppColors.primary.withValues(alpha: 0.06),
+                            child: const Row(
+                              children: [
+                                SizedBox(
+                                  width: 76,
+                                  child: Text(
+                                    'Crayfish',
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w800,
+                                      color: AppColors.primary,
+                                    ),
+                                  ),
                                 ),
-                              ),
+                                Expanded(
+                                  child: Text(
+                                    'Weight (g)',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w800,
+                                      color: AppColors.primary,
+                                    ),
+                                  ),
+                                ),
+                                SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Length (cm)',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w800,
+                                      color: AppColors.primary,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          Expanded(
-                            child: _measurementInput(
-                              controller: _weightControllers[index],
-                              enabled: enabled,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: _measurementInput(
-                              controller: _lengthControllers[index],
-                              enabled: enabled,
+                          ListView.builder(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: _weightControllers.length,
+                            itemBuilder: (context, index) =>
+                                _buildMeasurementRow(
+                              index,
+                              enabled: (!_isRecorded && canSample) ||
+                                  _isEditing,
                             ),
                           ),
                         ],
                       ),
-                    );
-                  }),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -2374,242 +2473,6 @@ class _SamplingFormPanelState extends State<SamplingFormPanel>
   }
 }
 
-class GrowthStagePanel extends StatelessWidget {
-  final VoidCallback onInfoTap;
-
-  const GrowthStagePanel({super.key, required this.onInfoTap});
-
-  static const List<_StageRange> _stages = [
-    _StageRange(abwMin: 1, abwMax: 5, ablMin: 2, ablMax: 4),
-    _StageRange(abwMin: 5, abwMax: 15, ablMin: 4, ablMax: 6),
-    _StageRange(abwMin: 15, abwMax: 50, ablMin: 6, ablMax: 10),
-    _StageRange(abwMin: 50, abwMax: 120, ablMin: 10, ablMax: 14),
-  ];
-
-  static const List<String> _labels = [
-    'Early Juvenile',
-    'Advanced Juvenile',
-    'Pre-Adult',
-    'Market Size',
-  ];
-
-  int _indexOf(GrowthStage stage) {
-    switch (stage) {
-      case GrowthStage.earlyJuvenile:
-        return 0;
-      case GrowthStage.advancedJuvenile:
-        return 1;
-      case GrowthStage.preAdult:
-        return 2;
-      case GrowthStage.marketSize:
-        return 3;
-    }
-  }
-
-  double _calcProgress(double value, double min, double max) {
-    if (value <= min) return 0.0;
-    if (value >= max) return 1.0;
-    return (value - min) / (max - min);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final service = TankService.instance;
-    final history = service.samplingHistory;
-
-    final currentAbw = history.isNotEmpty
-        ? history.last.abw
-        : service.initialWeight;
-
-    final currentAbl = history.isNotEmpty
-        ? history.last.avgLength
-        : service.initialLength;
-
-    final currentStage = service.currentGrowthStage;
-    final activeIndex = _indexOf(currentStage);
-    final range = _stages[activeIndex];
-
-    final abwProgress = _calcProgress(currentAbw, range.abwMin, range.abwMax);
-    final ablProgress = currentAbl > 0
-        ? _calcProgress(currentAbl, range.ablMin, range.ablMax)
-        : 1.0;
-    final stageProgress =
-        (abwProgress < ablProgress ? abwProgress : ablProgress).clamp(0.0, 1.0);
-
-    // Scale progress across the entire bar (4 stages, each represents 25% or 0.25)
-    final progress = ((activeIndex * 0.25) + (stageProgress * 0.25)).clamp(
-      0.0,
-      1.0,
-    );
-
-    return Container(
-      width: double.infinity,
-      clipBehavior: Clip.antiAlias,
-      padding: const EdgeInsets.only(top: 20),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFCFCFC),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.darkWith(0.08)),
-        boxShadow: AppShadows.card,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Growth Stage',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.dark,
-                      ),
-                    ),
-                    Text(
-                      'Current: ${_labels[activeIndex]}',
-                      style: const TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.primary,
-                      ),
-                    ),
-                  ],
-                ),
-                GestureDetector(
-                  onTap: onInfoTap,
-                  child: const Icon(
-                    Icons.info_outline,
-                    size: 16,
-                    color: AppColors.primary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 20),
-
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: LinearProgressIndicator(
-                value: progress,
-                minHeight: 8,
-                backgroundColor: AppColors.darkWith(0.06),
-                valueColor: const AlwaysStoppedAnimation<Color>(
-                  AppColors.primary,
-                ),
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 12),
-
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: List.generate(_labels.length, (i) {
-                final isThisActive = i == activeIndex;
-                final isReached = i <= activeIndex;
-
-                return Expanded(
-                  child: Text(
-                    _labels[i],
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 9,
-                      fontWeight: isThisActive
-                          ? FontWeight.w800
-                          : FontWeight.w600,
-                      color: isThisActive
-                          ? AppColors.primary
-                          : isReached
-                          ? AppColors.darkWith(0.7)
-                          : AppColors.darkWith(0.3),
-                    ),
-                  ),
-                );
-              }),
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.06),
-            ),
-            child: Column(
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      'ABW: ${currentAbw.toStringAsFixed(1)}g',
-                      style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.primary,
-                      ),
-                    ),
-                    Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 12),
-                      width: 1,
-                      height: 14,
-                      color: AppColors.primary.withValues(alpha: 0.2),
-                    ),
-                    Text(
-                      'ABL: ${currentAbl.toStringAsFixed(1)}cm',
-                      style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.primary,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Stage is based on both ABW and ABL.',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w500,
-                    color: AppColors.darkWith(0.45),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StageRange {
-  final double abwMin;
-  final double abwMax;
-  final double ablMin;
-  final double ablMax;
-
-  const _StageRange({
-    required this.abwMin,
-    required this.abwMax,
-    required this.ablMin,
-    required this.ablMax,
-  });
-}
-
 class _HistoryEntry {
   final String title;
   final String dateLabel;
@@ -2710,6 +2573,10 @@ class SamplingHistoryPanel extends StatelessWidget {
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      sheetAnimationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 260),
+        reverseDuration: Duration(milliseconds: 220),
       ),
       builder: (ctx) {
         return Container(

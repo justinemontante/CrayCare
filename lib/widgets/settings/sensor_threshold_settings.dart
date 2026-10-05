@@ -160,7 +160,10 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
   void _showSuccessModal(String message) {
     showDialog(
       context: context,
-      barrierDismissible: false,
+      animationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 220),
+        reverseDuration: Duration(milliseconds: 180),
+      ),
       builder: (ctx) => _buildSuccessDialog(ctx, message),
     );
   }
@@ -340,6 +343,10 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
 
     return showDialog<({double min, double max})>(
       context: context,
+      animationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 220),
+        reverseDuration: Duration(milliseconds: 180),
+      ),
       builder: (ctx) => AlertDialog(
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
@@ -461,6 +468,10 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
     final lowCtrl = TextEditingController(text: previousLow.toStringAsFixed(0));
     return showDialog<({double critical, double low})>(
       context: context,
+      animationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 220),
+        reverseDuration: Duration(milliseconds: 180),
+      ),
       builder: (ctx) => AlertDialog(
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
@@ -579,6 +590,10 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
     final lowCtrl = TextEditingController(text: previousLow.toStringAsFixed(0));
     return showDialog<({double critical, double low})>(
       context: context,
+      animationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 220),
+        reverseDuration: Duration(milliseconds: 180),
+      ),
       builder: (ctx) => AlertDialog(
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,

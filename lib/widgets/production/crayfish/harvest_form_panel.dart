@@ -275,6 +275,7 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 260), reverseDuration: Duration(milliseconds: 220)),
       builder: (sheetCtx) => Container(
         height: MediaQuery.of(sheetCtx).size.height * 0.55,
         decoration: const BoxDecoration(

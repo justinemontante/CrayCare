@@ -182,10 +182,13 @@ class CrayfishBatch {
   }
 
   /// Calendar days elapsed since stocking, recalculated whenever the model is
-  /// read. Completed batches stop at their harvest date; active batches use
-  /// today's local calendar date.
+  /// read. Partial harvests can set [harvestDate] while a batch is still
+  /// active, so only closed batches use their recorded end date.
   int get daysInCulture {
-    final end = harvestDate ?? endedAt ?? DateTime.now();
+    final isClosed = status != 'active';
+    final end = isClosed
+        ? (endedAt ?? harvestDate ?? DateTime.now())
+        : DateTime.now();
     final startDay = DateTime(
       stockingDate.year,
       stockingDate.month,

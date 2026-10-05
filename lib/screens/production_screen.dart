@@ -169,7 +169,6 @@ class ProductionScreenState extends State<ProductionScreen> {
         return TrendsTab(
           key: ValueKey('trends_$batchKey'),
           lastEdited: _lastEdited,
-          onInfoTap: _showGrowthStageReferenceModal,
         );
       default:
         return const SizedBox.shrink();
@@ -328,267 +327,6 @@ class ProductionScreenState extends State<ProductionScreen> {
     );
   }
 
-  void _showGrowthStageReferenceModal() {
-    final scrollCtrl = ScrollController();
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      builder: (ctx) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      color: AppColors.dark.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                const Text(
-                  'Growth Classification',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w900,
-                    color: AppColors.dark,
-                    letterSpacing: -0.2,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                SizedBox(
-                  width: double.infinity,
-                  child: Scrollbar(
-                    controller: scrollCtrl,
-                    thumbVisibility: true,
-                    child: SingleChildScrollView(
-                      controller: scrollCtrl,
-                      scrollDirection: Axis.horizontal,
-                      child: Container(
-                        constraints: BoxConstraints(minWidth: 510),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: AppColors.dark.withValues(alpha: 0.08),
-                          ),
-                          color: Colors.white,
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 12,
-                              ),
-                              decoration: BoxDecoration(
-                                color: AppColors.primary.withValues(
-                                  alpha: 0.06,
-                                ),
-                                borderRadius: const BorderRadius.vertical(
-                                  top: Radius.circular(15),
-                                ),
-                              ),
-                              child: const Row(
-                                children: [
-                                  SizedBox(width: 12),
-                                  SizedBox(
-                                    width: 120,
-                                    child: Text(
-                                      'Growth Stage',
-                                      style: _tableHeaderStyle,
-                                    ),
-                                  ),
-                                  SizedBox(width: 12),
-                                  SizedBox(
-                                    width: 65,
-                                    child: Text(
-                                      'ABW',
-                                      style: _tableHeaderStyle,
-                                    ),
-                                  ),
-                                  SizedBox(width: 12),
-                                  SizedBox(
-                                    width: 65,
-                                    child: Text(
-                                      'ABL',
-                                      style: _tableHeaderStyle,
-                                    ),
-                                  ),
-                                  SizedBox(width: 12),
-                                  SizedBox(
-                                    width: 200,
-                                    child: Text(
-                                      'System Classification',
-                                      style: _tableHeaderStyle,
-                                    ),
-                                  ),
-                                  SizedBox(width: 12),
-                                ],
-                              ),
-                            ),
-                            for (var i = 0; i < _stageLabels.length; i++)
-                              _buildTableRow(
-                                _stageLabels[i],
-                                _stageAbwRanges[i],
-                                _stageAblRanges[i],
-                                _stageDescriptions[i],
-                                isStriped: i.isOdd,
-                                isLast: i == _stageLabels.length - 1,
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 32),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
-                    child: const Text(
-                      'Got it, thanks!',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    ).whenComplete(() => scrollCtrl.dispose());
-  }
-
-  static const _stageLabels = [
-    'Early Juvenile',
-    'Advanced Juvenile',
-    'Pre-Adult',
-    'Market Size',
-  ];
-  static const _stageDescriptions = [
-    'Newly stocked young crayfish',
-    'Active early growth',
-    'Preparing for full maturity',
-    'Ready for harvest',
-  ];
-  static const _stageAbwRanges = [
-    '1\u20135g',
-    '5\u201315g',
-    '15\u201350g',
-    '50\u2013120g+',
-  ];
-  static const _stageAblRanges = [
-    '2\u20134cm',
-    '4\u20136cm',
-    '6\u201310cm',
-    '10cm+',
-  ];
-
-  static const _tableHeaderStyle = TextStyle(
-    fontSize: 9,
-    fontWeight: FontWeight.w800,
-    color: AppColors.primary,
-    letterSpacing: 0.8,
-  );
-
-  Widget _buildTableRow(
-    String stage,
-    String abw,
-    String abl,
-    String classification, {
-    required bool isStriped,
-    bool isLast = false,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: isStriped
-            ? AppColors.dark.withValues(alpha: 0.02)
-            : Colors.white,
-        borderRadius: isLast
-            ? const BorderRadius.vertical(bottom: Radius.circular(15))
-            : null,
-      ),
-      child: Row(
-        children: [
-          const SizedBox(width: 12),
-          SizedBox(
-            width: 120,
-            child: Text(
-              stage,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: AppColors.dark,
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          SizedBox(
-            width: 65,
-            child: Text(
-              abw,
-              style: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: AppColors.primary,
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          SizedBox(
-            width: 65,
-            child: Text(
-              abl,
-              style: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: AppColors.primary,
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          SizedBox(
-            width: 200,
-            child: Text(
-              classification,
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w500,
-                color: AppColors.dark.withValues(alpha: 0.55),
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-        ],
-      ),
-    );
-  }
-
   void _showInitModal() => _showSetupForm(isEdit: false);
 
   void _startNewBatch() {
@@ -740,6 +478,7 @@ class ProductionScreenState extends State<ProductionScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
+      sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 260), reverseDuration: Duration(milliseconds: 220)),
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setLocalState) {
@@ -1510,6 +1249,7 @@ class ProductionScreenState extends State<ProductionScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
+      sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 260), reverseDuration: Duration(milliseconds: 220)),
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setLocalState) {
@@ -1673,6 +1413,7 @@ class ProductionScreenState extends State<ProductionScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
+      sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 260), reverseDuration: Duration(milliseconds: 220)),
       builder: (ctx) {
         final halfHeight = MediaQuery.of(ctx).size.height * 0.5;
         return SizedBox(

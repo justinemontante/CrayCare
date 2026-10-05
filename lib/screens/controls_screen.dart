@@ -391,6 +391,10 @@ class ControlsScreenState extends State<ControlsScreen> {
     final result = await showDialog<bool>(
       context: context,
       barrierDismissible: !blocked,
+      animationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 220),
+        reverseDuration: Duration(milliseconds: 180),
+      ),
       builder: (dialogContext) => Dialog(
         backgroundColor: Colors.white,
         insetPadding: const EdgeInsets.symmetric(horizontal: 28),
@@ -629,6 +633,7 @@ class ControlsScreenState extends State<ControlsScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
+      sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 260), reverseDuration: Duration(milliseconds: 220)),
       builder: (sheetCtx) {
         return StatefulBuilder(
           builder: (sheetCtx, setModalState) {
@@ -1329,6 +1334,7 @@ class ControlsScreenState extends State<ControlsScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
+      sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 260), reverseDuration: Duration(milliseconds: 220)),
       builder: (ctx) {
         return SafeArea(
           child: Padding(

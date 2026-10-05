@@ -13,6 +13,10 @@ Future<void> showWaterQualityAnomalyDetectionHistorySheet(
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
     ),
+    sheetAnimationStyle: const AnimationStyle(
+      duration: Duration(milliseconds: 260),
+      reverseDuration: Duration(milliseconds: 220),
+    ),
     builder: (_) => const _WaterQualityAnomalyDetectionHistorySheet(),
   );
 }
@@ -212,6 +216,10 @@ class _WaterQualityAnomalyDetectionHistorySheet extends StatelessWidget {
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      sheetAnimationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 260),
+        reverseDuration: Duration(milliseconds: 220),
       ),
       builder: (context) => SafeArea(
         child: SingleChildScrollView(

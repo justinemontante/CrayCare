@@ -3329,7 +3329,11 @@ bool canFeedSafely(String &reason, bool allowHighTurbidityRange = false,
     reason = "tank sensor settings have not finished syncing";
     return false;
   }
-  if (!tempSensorOK || !doSensorOK || !phSensorOK || !turbiditySensorOK) {
+  const bool turbidityAirAllowed =
+      allowWaterQualityRanges && !turbiditySensorOK &&
+      turbidityVoltage < turbidityVAirMax;
+  if (!tempSensorOK || !doSensorOK || !phSensorOK ||
+      (!turbiditySensorOK && !turbidityAirAllowed)) {
     reason = "required water-quality sensor unavailable";
     return false;
   }
@@ -3536,7 +3540,9 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
       const bool waterQualityRangeOverride =
           (source == "manual" || source == "scheduled") &&
           allowWaterQualityOverride &&
-          (sensorRangeReason == "temperature outside range" ||
+          ((sensorRangeReason == "required water-quality sensor unavailable" &&
+            !turbiditySensorOK && turbidityVoltage < turbidityVAirMax) ||
+           sensorRangeReason == "temperature outside range" ||
            sensorRangeReason == "dissolved oxygen too low" ||
            sensorRangeReason == "dissolved oxygen too high" ||
            sensorRangeReason == "pH outside range" ||
@@ -3558,6 +3564,7 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
   }
   if (blockedReason.length() > 0) {
     if (forceOverride && feedBlockBypassable(blockedReason)) {
+      feederForced = true;
       Serial.printf("[FEEDER] Override confirmed — bypassing: %s\n", blockedReason.c_str());
     } else {
       feederStatusReason = blockedReason;

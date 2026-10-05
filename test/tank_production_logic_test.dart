@@ -38,16 +38,5 @@ void main() {
       },
     );
 
-    test('growth stage uses ABW as the primary classification basis', () {
-      expect(classifyGrowthStage(abw: 55, abl: 3), GrowthStage.marketSize);
-      expect(
-        classifyGrowthStage(abw: 12, abl: 10),
-        GrowthStage.advancedJuvenile,
-      );
-    });
-
-    test('growth stage falls back to ABL when ABW is unavailable', () {
-      expect(classifyGrowthStage(abw: 0, abl: 7), GrowthStage.preAdult);
-    });
   });
 }

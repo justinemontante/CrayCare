@@ -182,6 +182,10 @@ class _LoginScreenState extends State<LoginScreen> {
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
+      animationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 220),
+        reverseDuration: Duration(milliseconds: 180),
+      ),
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => PopScope(
           canPop: !_isResetLoading,

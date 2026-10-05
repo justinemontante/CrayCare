@@ -76,10 +76,17 @@ void main() {
       ),
       contains('Waiting for fresh turbidity data'),
     );
-    expect(check(turbidityAir: true), contains('sensor is in air'));
     expect(
-      check(turbidityAir: true, allowWaterQualityOverride: true),
-      contains('sensor is in air'),
+      check(turbidityAir: true, fresh: {'temp', 'do', 'ph', 'feedlevel'}),
+      contains('Waiting for fresh turbidity data'),
+    );
+    expect(
+      check(
+        turbidityAir: true,
+        fresh: {'temp', 'do', 'ph', 'feedlevel'},
+        allowWaterQualityOverride: true,
+      ),
+      isEmpty,
     );
     expect(
       check(

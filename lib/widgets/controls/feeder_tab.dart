@@ -882,6 +882,7 @@ class FeederTab extends StatelessWidget {
       context: ctx,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 260), reverseDuration: Duration(milliseconds: 220)),
       builder: (sheetCtx) => FractionallySizedBox(
         heightFactor: 0.76,
         child: Container(
@@ -1197,6 +1198,10 @@ class FeederTab extends StatelessWidget {
   void _confirmDelete(BuildContext ctx, int index) {
     showDialog(
       context: ctx,
+      animationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 220),
+        reverseDuration: Duration(milliseconds: 180),
+      ),
       builder: (dialogCtx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Row(
@@ -1247,6 +1252,7 @@ class FeederTab extends StatelessWidget {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
+      sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 260), reverseDuration: Duration(milliseconds: 220)),
       builder: (sheetCtx) {
         return SafeArea(
           child: Padding(
@@ -1526,6 +1532,7 @@ class FeederTab extends StatelessWidget {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
+      sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 260), reverseDuration: Duration(milliseconds: 220)),
       builder: (sheetCtx) {
         return StatefulBuilder(
           builder: (sheetCtx, setSheetState) {

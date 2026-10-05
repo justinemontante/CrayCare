@@ -1558,6 +1558,10 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       context: context,
       barrierDismissible: true,
       barrierColor: Colors.black.withValues(alpha: 0.4),
+      animationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 220),
+        reverseDuration: Duration(milliseconds: 180),
+      ),
       builder: (ctx) {
         bool closePressed = false;
         int? modalSelectedIndex;

@@ -217,6 +217,10 @@ class _AdminScreenState extends State<AdminScreen> {
   }) {
     return showDialog<bool>(
       context: context,
+      animationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 220),
+        reverseDuration: Duration(milliseconds: 180),
+      ),
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
@@ -322,6 +326,7 @@ class _AdminScreenState extends State<AdminScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
+      sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 260), reverseDuration: Duration(milliseconds: 220)),
       builder: (ctx) {
         final currentStatus = status;
         final bool isLinked = _currentOwnerUid == uid;

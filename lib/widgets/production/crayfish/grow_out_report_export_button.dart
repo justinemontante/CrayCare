@@ -29,6 +29,7 @@ Future<void> showGrowOutReportExport(BuildContext context) async {
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
+    sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 260), reverseDuration: Duration(milliseconds: 220)),
     builder: (sheetContext) => SafeArea(
       top: false,
       child: Padding(
@@ -126,6 +127,7 @@ class GrowOutReportExportButton extends StatelessWidget {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
+      sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 260), reverseDuration: Duration(milliseconds: 220)),
       builder: (sheetContext) => StatefulBuilder(
         builder: (sheetContext, setSheetState) {
           final hasSelectedBatch = selectedBatchIds.isNotEmpty;
@@ -450,6 +452,7 @@ class GrowOutReportExportButton extends StatelessWidget {
           shape: const RoundedRectangleBorder(
             borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
           ),
+          sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 260), reverseDuration: Duration(milliseconds: 220)),
           builder: (sheetContext) => SafeArea(
             top: false,
             child: SizedBox(

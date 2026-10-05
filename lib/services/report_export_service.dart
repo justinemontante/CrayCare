@@ -74,10 +74,11 @@ class ReportExportService {
     return startText == endText ? startText : '$startText to $endText';
   }
 
-  static DateTime _culturePeriodEnd(TankService tank) =>
-      tank.selectedBatch?.harvestDate ??
-      tank.selectedBatch?.endedAt ??
-      DateTime.now();
+  static DateTime _culturePeriodEnd(TankService tank) {
+    final batch = tank.selectedBatch;
+    if (batch == null || batch.status == 'active') return DateTime.now();
+    return batch.endedAt ?? batch.harvestDate ?? DateTime.now();
+  }
 
   static String _samplingPeriod(List<SamplingEntry> samples) {
     if (samples.isEmpty) return '-';
@@ -181,6 +182,7 @@ class ReportExportService {
 
   String buildGrowthCsv({
     GrowOutReportSections sections = const GrowOutReportSections(),
+    bool includeIndividualMeasurements = true,
   }) {
     final t = TankService.instance;
     final buf = StringBuffer();
@@ -219,6 +221,24 @@ class ReportExportService {
         buf.write(_row(row));
       }
       buf.writeln();
+      if (includeIndividualMeasurements) {
+        buf.writeln(_row(['Individual Crayfish Measurements']));
+        for (final entry in samples) {
+          if (entry.measurements.isEmpty) continue;
+          buf.writeln(_row([samplingGroupTitle(entry, t.stockingDate)]));
+          buf.write(_row(['Crayfish No.', 'Weight (g)', 'Length (cm)']));
+          for (final measurement in entry.measurements) {
+            buf.write(
+              _row([
+                measurement.sampleNumber,
+                measurement.weightGrams.toStringAsFixed(2),
+                measurement.lengthCm.toStringAsFixed(2),
+              ]),
+            );
+          }
+        }
+        buf.writeln();
+      }
     }
 
     final mortality = t.mortalityHistory;
@@ -279,8 +299,11 @@ class ReportExportService {
         : recordsTotal;
   }
 
-  static DateTime _snapshotPeriodEnd(BatchRecordSnapshot snapshot) =>
-      snapshot.batch.harvestDate ?? snapshot.batch.endedAt ?? DateTime.now();
+  static DateTime _snapshotPeriodEnd(BatchRecordSnapshot snapshot) {
+    final batch = snapshot.batch;
+    if (batch.status == 'active') return DateTime.now();
+    return batch.endedAt ?? batch.harvestDate ?? DateTime.now();
+  }
 
   static double _snapshotSurvivalRate(BatchRecordSnapshot snapshot) {
     final initial = snapshot.batch.initialCount;
@@ -304,6 +327,7 @@ class ReportExportService {
     List<BatchRecordSnapshot> snapshots, {
     GrowOutReportSections sections = const GrowOutReportSections(),
     bool includeSummary = true,
+    bool includeIndividualMeasurements = true,
   }) {
     final buf = StringBuffer();
     final ordered = List<BatchRecordSnapshot>.of(snapshots)
@@ -388,6 +412,24 @@ class ReportExportService {
         for (final row in growthRows(snapshot.sampling, batch.stockingDate)) {
           buf.write(_row(row));
         }
+        if (includeIndividualMeasurements) {
+          buf.writeln();
+          buf.writeln(_row(['Individual Crayfish Measurements']));
+          for (final entry in snapshot.sampling) {
+            if (entry.measurements.isEmpty) continue;
+            buf.writeln(_row([samplingGroupTitle(entry, batch.stockingDate)]));
+            buf.write(_row(['Crayfish No.', 'Weight (g)', 'Length (cm)']));
+            for (final measurement in entry.measurements) {
+              buf.write(
+                _row([
+                  measurement.sampleNumber,
+                  measurement.weightGrams.toStringAsFixed(2),
+                  measurement.lengthCm.toStringAsFixed(2),
+                ]),
+              );
+            }
+          }
+        }
       }
       if (sections.includeMortality) {
         buf.writeln(_row(['Mortality Records']));
@@ -449,6 +491,13 @@ class ReportExportService {
     backgroundColorHex: xl.ExcelColor.fromHexString('FF1FA5A5'),
     fontColorHex: xl.ExcelColor.white,
     bold: true,
+    horizontalAlign: xl.HorizontalAlign.Center,
+    verticalAlign: xl.VerticalAlign.Center,
+  );
+
+  static final xl.CellStyle _excelCenteredStyle = xl.CellStyle(
+    horizontalAlign: xl.HorizontalAlign.Center,
+    verticalAlign: xl.VerticalAlign.Center,
   );
 
   static void _appendExcelLabelRow(
@@ -492,6 +541,18 @@ class ReportExportService {
     }
     for (final row in rows) {
       _appendExcelRow(sheet, row);
+      final rowIndex = sheet.maxRows - 1;
+      for (var column = 0; column < row.length; column++) {
+        sheet
+                .cell(
+                  xl.CellIndex.indexByColumnRow(
+                    columnIndex: column,
+                    rowIndex: rowIndex,
+                  ),
+                )
+                .cellStyle =
+            _excelCenteredStyle;
+      }
     }
   }
 
@@ -768,7 +829,7 @@ class ReportExportService {
         footer: (context) => pw.Align(
           alignment: pw.Alignment.centerRight,
           child: pw.Text(
-            'Generated ${_fmtDateTime(DateTime.now())}  ·  Page ${context.pageNumber} of ${context.pagesCount}',
+            'Generated ${_fmtDateTime(DateTime.now())}  |  Page ${context.pageNumber} of ${context.pagesCount}',
             style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
           ),
         ),
@@ -954,6 +1015,8 @@ class ReportExportService {
       ),
       headerDecoration: const pw.BoxDecoration(color: _careColor),
       cellStyle: pw.TextStyle(fontSize: fontSize),
+      cellAlignment: pw.Alignment.center,
+      headerAlignment: pw.Alignment.center,
       cellPadding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 6),
       border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
       oddRowDecoration: const pw.BoxDecoration(color: PdfColors.grey100),
@@ -984,13 +1047,13 @@ class ReportExportService {
           footer: (context) => pw.Align(
             alignment: pw.Alignment.centerRight,
             child: pw.Text(
-              'Generated ${_fmtDateTime(DateTime.now())}  ·  Page ${context.pageNumber} of ${context.pagesCount}',
+              'Generated ${_fmtDateTime(DateTime.now())}  |  Page ${context.pageNumber} of ${context.pagesCount}',
               style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
             ),
           ),
           build: (context) => [
             pw.Text(
-              '${ordered.length} selected batch${ordered.length == 1 ? '' : 'es'} · '
+              '${ordered.length} selected batch${ordered.length == 1 ? '' : 'es'} | '
               'Detailed sections: ${sections.selectedSectionsLabel}',
               style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
             ),
@@ -1059,22 +1122,23 @@ class ReportExportService {
         pw.MultiPage(
           pageFormat: PdfPageFormat.a4.landscape,
           margin: const pw.EdgeInsets.all(36),
-          header: (context) => pw.Text(
-            'CrayCare Batch Report · ${_pdfSafe(batch.batchId)}',
-            style: pw.TextStyle(
-              fontSize: 18,
-              fontWeight: pw.FontWeight.bold,
-              color: _crayColor,
-            ),
-          ),
           footer: (context) => pw.Align(
             alignment: pw.Alignment.centerRight,
             child: pw.Text(
-              'Generated ${_fmtDateTime(DateTime.now())}  ·  Page ${context.pageNumber} of ${context.pagesCount}',
+              'Generated ${_fmtDateTime(DateTime.now())}  |  Page ${context.pageNumber} of ${context.pagesCount}',
               style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
             ),
           ),
           build: (context) => [
+            pw.Text(
+              'CrayCare Batch Report | ${_pdfSafe(batch.batchId)}',
+              style: pw.TextStyle(
+                fontSize: 18,
+                fontWeight: pw.FontWeight.bold,
+                color: _crayColor,
+              ),
+            ),
+            pw.SizedBox(height: 12),
             if (includeSummary) ...[
               sectionTitle('Batch Summary'),
               pw.SizedBox(height: 8),
@@ -1139,7 +1203,9 @@ class ReportExportService {
                 ),
               for (final entry in individualEntries) ...[
                 if (entry.measurements.isNotEmpty) ...[
-                  sectionTitle(samplingGroupTitle(entry, batch.stockingDate)),
+                  sectionTitle(
+                    _pdfSafe(samplingGroupTitle(entry, batch.stockingDate)),
+                  ),
                   pw.SizedBox(height: 5),
                   table(
                     headers: const [
@@ -1225,12 +1291,18 @@ class ReportExportService {
 
   Future<void> shareGrowthCsv({
     GrowOutReportSections sections = const GrowOutReportSections(),
+    bool includeIndividualMeasurements = true,
   }) async {
     final name = 'craycare_growth_${_stamp()}.csv';
     await _writeAndShare(
       name,
       'text/csv',
-      utf8.encode(buildGrowthCsv(sections: sections)),
+      utf8.encode(
+        buildGrowthCsv(
+          sections: sections,
+          includeIndividualMeasurements: includeIndividualMeasurements,
+        ),
+      ),
     );
   }
 
@@ -1249,6 +1321,7 @@ class ReportExportService {
     required Iterable<String> batchIds,
     GrowOutReportSections sections = const GrowOutReportSections(),
     bool includeSummary = true,
+    bool includeIndividualMeasurements = true,
     String fileName = 'craycare_all_batches',
   }) async {
     final snapshots = await TankService.instance.loadBatchRecordSnapshots(
@@ -1266,6 +1339,7 @@ class ReportExportService {
           snapshots,
           sections: sections,
           includeSummary: includeSummary,
+          includeIndividualMeasurements: includeIndividualMeasurements,
         ),
       ),
     );

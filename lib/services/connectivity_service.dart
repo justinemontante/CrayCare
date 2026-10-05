@@ -34,11 +34,11 @@ class ConnectivityService extends ChangeNotifier {
     _initialized = true;
     try {
       _isOnline = await _checkConnectivity();
-      _subscription = _connectivity.onConnectivityChanged.listen(
-        (ConnectivityResult result) async {
-          await _refreshStatus(networkResult: result);
-        },
-      );
+      _subscription = _connectivity.onConnectivityChanged.listen((
+        ConnectivityResult result,
+      ) async {
+        await _refreshStatus(networkResult: result);
+      });
 
       // A Wi-Fi/mobile connection can remain enabled even after its internet
       // access is lost (for example, when mobile data has no remaining load).
@@ -58,16 +58,23 @@ class ConnectivityService extends ChangeNotifier {
   Future<bool> _checkConnectivity() async {
     final result = await _connectivity.checkConnectivity();
     if (result == ConnectivityResult.none) return false;
+    if (await _hasInternetAccess()) return true;
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    if (await _connectivity.checkConnectivity() == ConnectivityResult.none) {
+      return false;
+    }
     return _hasInternetAccess();
   }
 
   Future<bool> _hasInternetAccess() async {
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 4);
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
     try {
       final request = await client
           .getUrl(Uri.parse('https://clients3.google.com/generate_204'))
-          .timeout(const Duration(seconds: 5));
-      final response = await request.close().timeout(const Duration(seconds: 5));
+          .timeout(const Duration(seconds: 2));
+      final response = await request.close().timeout(
+        const Duration(seconds: 2),
+      );
       await response.drain<void>();
       return response.statusCode == HttpStatus.noContent ||
           (response.statusCode >= 200 && response.statusCode < 400);
@@ -85,7 +92,18 @@ class ConnectivityService extends ChangeNotifier {
       final hasNetwork = networkResult != null
           ? networkResult != ConnectivityResult.none
           : await _connectivity.checkConnectivity() != ConnectivityResult.none;
-      final isOnline = hasNetwork && await _hasInternetAccess();
+      var isOnline = hasNetwork && await _hasInternetAccess();
+      // Mobile/Wi-Fi can briefly report a route before internet access is
+      // ready again after the phone wakes. Confirm a failed probe once before
+      // exposing an offline state; a successful probe still returns at once.
+      if (hasNetwork && !isOnline) {
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        final stillHasNetwork = networkResult != null
+            ? networkResult != ConnectivityResult.none
+            : await _connectivity.checkConnectivity() !=
+                  ConnectivityResult.none;
+        if (stillHasNetwork) isOnline = await _hasInternetAccess();
+      }
       if (isOnline == _isOnline) return;
 
       final wasOffline = !_isOnline;

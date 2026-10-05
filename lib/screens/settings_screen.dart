@@ -260,6 +260,10 @@ class _SettingsScreenState extends State<SettingsScreen>
     showDialog(
       context: context,
       barrierDismissible: false,
+      animationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 220),
+        reverseDuration: Duration(milliseconds: 180),
+      ),
       builder: (ctx) => AlertDialog(
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
@@ -435,6 +439,7 @@ class _SettingsScreenState extends State<SettingsScreen>
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
+      sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 260), reverseDuration: Duration(milliseconds: 220)),
       builder: (ctx) => LogoutSheet(
         onLogout: () async {
           try {

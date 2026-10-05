@@ -3,12 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../../../theme/app_colors.dart';
 import '../../../services/tank_service.dart';
-import 'crayfish_sampling_tab.dart';
 
 class TrendsTab extends StatefulWidget {
   final DateTime lastEdited;
-  final VoidCallback? onInfoTap;
-  const TrendsTab({super.key, required this.lastEdited, this.onInfoTap});
+  const TrendsTab({super.key, required this.lastEdited});
 
   @override
   State<TrendsTab> createState() => _TrendsTabState();
@@ -48,8 +46,6 @@ class _TrendsTabState extends State<TrendsTab> {
             _buildBiomassChartContainer(),
             const SizedBox(height: 16),
             _buildMortalityChartContainer(),
-            const SizedBox(height: 16),
-            GrowthStagePanel(onInfoTap: widget.onInfoTap ?? () {}),
           ],
         ],
       ),
@@ -140,7 +136,9 @@ class _TrendsTabState extends State<TrendsTab> {
                     ),
                   ),
                   Text(
-                    isAbw ? 'Average Weight' : 'Average Length',
+                    isAbw
+                        ? 'Average Body Weight'
+                        : 'Average Body Length',
                     style: TextStyle(
                       fontSize: 10,
                       color: AppColors.darkWith(0.5),
@@ -159,22 +157,11 @@ class _TrendsTabState extends State<TrendsTab> {
           const SizedBox(height: 24),
           SizedBox(
             height: 200,
-            child: data.length == 1
-                ? Center(
-                    child: Text(
-                      '${data[0].toStringAsFixed(1)} $unit',
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w800,
-                        color: lineColor,
-                      ),
-                    ),
-                  )
-                : _scrollableChart(
-                    pointCount: data.length,
-                    height: 200,
-                    child: _buildLineChart(data, lineColor, unit, labels),
-                  ),
+            child: _scrollableChart(
+              pointCount: data.length,
+              height: 200,
+              child: _buildLineChart(data, lineColor, unit, labels),
+            ),
           ),
           const SizedBox(height: 12),
           _buildGrowthFooter(data, dates, unit),
@@ -196,8 +183,8 @@ class _TrendsTabState extends State<TrendsTab> {
 
     return LineChart(
       LineChartData(
-        minX: 0,
-        maxX: (data.length - 1).toDouble(),
+        minX: data.length == 1 ? -0.5 : 0,
+        maxX: data.length == 1 ? 0.5 : (data.length - 1).toDouble(),
         minY: 0,
         maxY: chartMaxY,
         gridData: FlGridData(

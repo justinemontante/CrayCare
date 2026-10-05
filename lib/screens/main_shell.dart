@@ -45,6 +45,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   bool _notificationPromptCheckStarted = false;
   bool _connectivityWasOnline = true;
   bool _showConnectedMessage = false;
+  DateTime? _offlineNoticeStartedAt;
   Timer? _connectedMessageTimer;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _profileSub;
 
@@ -107,6 +108,9 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     _connectivityWasOnline = ConnectivityService.instance.isOnline;
     ConnectivityService.instance.addListener(_onConnectivityChange);
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !ConnectivityService.instance.isOnline) {
+        _offlineNoticeStartedAt ??= DateTime.now();
+      }
       _syncActiveScreenWork();
       unawaited(_maybeShowNotificationPermissionPrompt());
     });
@@ -143,8 +147,22 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     _connectivityWasOnline = isOnline;
     _connectedMessageTimer?.cancel();
 
+    final offlineDuration = _offlineNoticeStartedAt == null
+        ? Duration.zero
+        : DateTime.now().difference(_offlineNoticeStartedAt!);
+    if (isOnline) {
+      _offlineNoticeStartedAt = null;
+    } else {
+      _offlineNoticeStartedAt ??= DateTime.now();
+    }
+
     if (!mounted) return;
-    setState(() => _showConnectedMessage = wasOffline && isOnline);
+    setState(
+      () => _showConnectedMessage =
+          wasOffline &&
+          isOnline &&
+          offlineDuration >= const Duration(seconds: 2),
+    );
     if (_showConnectedMessage) {
       _connectedMessageTimer = Timer(const Duration(milliseconds: 2600), () {
         if (mounted) setState(() => _showConnectedMessage = false);
@@ -216,6 +234,10 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       final shouldEnable = await showDialog<bool>(
         context: context,
         barrierDismissible: false,
+        animationStyle: const AnimationStyle(
+          duration: Duration(milliseconds: 220),
+          reverseDuration: Duration(milliseconds: 180),
+        ),
         builder: (context) => const _NotificationPermissionDialog(),
       );
       await prefs.setBool(promptKey, true);
@@ -224,7 +246,9 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
         await NotificationService.instance.requestNotificationPermission();
       }
     } catch (e, stack) {
-      debugPrint('[MainShell] Notification permission prompt error: $e\n$stack');
+      debugPrint(
+        '[MainShell] Notification permission prompt error: $e\n$stack',
+      );
     }
   }
 
