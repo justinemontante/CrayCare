@@ -121,14 +121,30 @@ class ControlsScreenState extends State<ControlsScreen> {
         .snapshots()
         .listen((snapshot) {
           final modes = <String, String>{};
+          final reportedStates = <String, String>{};
+          final lastChangedAt = <String, DateTime?>{};
           for (final doc in snapshot.docs) {
             final data = doc.data();
             modes[doc.id] =
                 data['control_mode'] as String? ??
                 data['mode'] as String? ??
                 'auto';
+            reportedStates[doc.id] =
+                data['current_state']?.toString().trim().toLowerCase() ??
+                'unknown';
+            final rawChangedAt = data['last_changed'];
+            lastChangedAt[doc.id] = rawChangedAt is Timestamp
+                ? rawChangedAt.toDate().toLocal()
+                : rawChangedAt is DateTime
+                ? rawChangedAt.toLocal()
+                : null;
           }
-          _updateState(() => _actuatorModes = modes);
+          _updateState(() {
+            _actuatorModes = modes;
+            _actuatorReportedStates = reportedStates;
+            _actuatorLastChangedAt = lastChangedAt;
+            _computeRuntimeLabels();
+          });
         });
   }
 
@@ -136,28 +152,21 @@ class ControlsScreenState extends State<ControlsScreen> {
     final now = DateTime.now().millisecondsSinceEpoch;
     final labels = <String, String>{};
 
-    for (final actuatorId in _actuatorModes.keys) {
-      final logs = ActuatorLogService.instance.getLogs(actuatorId);
-      int? lastOnTs;
-      int? lastOffTs;
-
-      for (final log in logs) {
-        if (log.action.contains('Switched ON')) {
-          if (lastOnTs == null || log.timestamp > lastOnTs) {
-            lastOnTs = log.timestamp;
-          }
-        } else if (log.action.contains('Switched OFF')) {
-          if (lastOffTs == null || log.timestamp > lastOffTs) {
-            lastOffTs = log.timestamp;
-          }
+    for (final actuatorId in _actuatorReportedStates.keys) {
+      final state = _actuatorReportedStates[actuatorId];
+      if (state == 'off') {
+        labels[actuatorId] = 'OFF';
+      } else if (state == 'on') {
+        final changedAt = _actuatorLastChangedAt[actuatorId];
+        if (changedAt == null) {
+          labels[actuatorId] = 'ON';
+        } else {
+          final elapsed = now - changedAt.millisecondsSinceEpoch;
+          labels[actuatorId] =
+              'ON · ${_formatDuration(elapsed < 0 ? 0 : elapsed ~/ 1000)}';
         }
-      }
-
-      if (lastOnTs != null && (lastOffTs == null || lastOnTs > lastOffTs)) {
-        final elapsed = now - lastOnTs;
-        labels[actuatorId] = _formatDuration(elapsed ~/ 1000);
       } else {
-        labels[actuatorId] = '';
+        labels[actuatorId] = 'Unknown';
       }
     }
 
@@ -338,6 +347,8 @@ class ControlsScreenState extends State<ControlsScreen> {
     'aerator2': 'auto',
     'pump': 'auto',
   };
+  Map<String, String> _actuatorReportedStates = {};
+  Map<String, DateTime?> _actuatorLastChangedAt = {};
   StreamSubscription? _actuatorsSub;
   Map<String, String> _actuatorRuntimeLabels = {};
   Timer? _runtimeTimer;
@@ -1007,6 +1018,7 @@ class ControlsScreenState extends State<ControlsScreen> {
                     ),
                     ActuatorsTab(
                       actuatorModes: _actuatorModes,
+                      actuatorReportedStates: _actuatorReportedStates,
                       onSetActuatorMode: _setActuatorMode,
                       onShowGroupLog: _showActuatorGroupLog,
                       actuatorRuntimeLabels: _actuatorRuntimeLabels,

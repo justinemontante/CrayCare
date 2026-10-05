@@ -7,6 +7,7 @@ class ActuatorGroup extends StatelessWidget {
   final IconData icon;
   final List<(String, String, String, String?)> actuators;
   final Map<String, String> actuatorModes;
+  final Map<String, String> actuatorReportedStates;
   final void Function(String actuatorId, String mode) onSetActuatorMode;
   final void Function(
     BuildContext context,
@@ -24,6 +25,7 @@ class ActuatorGroup extends StatelessWidget {
     required this.icon,
     required this.actuators,
     required this.actuatorModes,
+    required this.actuatorReportedStates,
     required this.onSetActuatorMode,
     required this.onShowGroupLog,
     required this.actuatorRuntimeLabels,
@@ -241,14 +243,14 @@ class ActuatorGroup extends StatelessWidget {
   Widget _buildRuntimeIndicator(String actuatorId) {
     final offline = !isOnline;
     final runtime = actuatorRuntimeLabels[actuatorId];
-    if (runtime == null || runtime.isEmpty || offline) return const SizedBox.shrink();
+    if (runtime == null || offline) return const SizedBox.shrink();
 
-    final mode = actuatorModes[actuatorId] ?? 'auto';
-    final color = mode == 'on'
+    final state = actuatorReportedStates[actuatorId];
+    final color = state == 'on'
         ? AppColors.primary
-        : mode == 'auto'
-        ? AppColors.warning
-        : AppColors.darkWith(0.4);
+        : state == 'off'
+        ? AppColors.darkWith(0.4)
+        : AppColors.warning;
 
     return Row(
       children: [
@@ -258,7 +260,7 @@ class ActuatorGroup extends StatelessWidget {
           // Ensures long runtime strings don't overflow
           child: Text.rich(
             TextSpan(
-              text: 'Running: ',
+              text: 'Relay: ',
               style: TextStyle(
                 fontSize: 9,
                 fontWeight: FontWeight.w400,

@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../theme/app_colors.dart';
 import '../../../services/tank_service.dart';
 import '../../../utils/snackbar_helper.dart';
@@ -1346,18 +1349,46 @@ class SamplingEntryLauncher extends StatefulWidget {
 
 class _SamplingEntryLauncherState extends State<SamplingEntryLauncher> {
   Future<void> _openSamplingForm() async {
+    SharedPreferences? draftPrefs;
+    String? draftKey;
+    Map<String, dynamic>? initialDraft;
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final batchId = TankService.instance.selectedBatchId;
+    if (uid != null && batchId != null && batchId.isNotEmpty) {
+      draftKey = 'sampling_entry_draft_${uid}_${Uri.encodeComponent(batchId)}';
+      try {
+        draftPrefs = await SharedPreferences.getInstance();
+        final raw = draftPrefs.getString(draftKey);
+        if (raw != null) {
+          final decoded = jsonDecode(raw);
+          if (decoded is Map<String, dynamic>) {
+            final savedAt = decoded['savedAt'];
+            final isRecent =
+                savedAt is int &&
+                DateTime.now().millisecondsSinceEpoch - savedAt <=
+                    const Duration(days: 30).inMilliseconds;
+            if (isRecent) {
+              initialDraft = decoded;
+            } else {
+              await draftPrefs.remove(draftKey);
+            }
+          }
+        }
+      } catch (_) {
+        initialDraft = null;
+      }
+    }
+    if (!mounted) return;
     final saveResult = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (sheetContext) {
         final media = MediaQuery.of(sheetContext);
-        final availableHeight = (media.size.height - media.viewInsets.bottom)
-            .clamp(0.0, media.size.height);
-        final desiredHeight = media.size.height * 0.88;
-        final sheetHeight = desiredHeight < availableHeight
-            ? desiredHeight
-            : availableHeight;
+        // Keep the sheet's frame tied to the screen, not the keyboard inset.
+        // The scroll view can move its fields above the keyboard without the
+        // whole modal collapsing when a measurement field receives focus.
+        final sheetHeight = media.size.height * 0.88;
         return Container(
           height: sheetHeight,
           decoration: const BoxDecoration(
@@ -1404,8 +1435,15 @@ class _SamplingEntryLauncherState extends State<SamplingEntryLauncher> {
                   child: SingleChildScrollView(
                     keyboardDismissBehavior:
                         ScrollViewKeyboardDismissBehavior.onDrag,
-                    padding: EdgeInsets.only(left: 14, right: 14, bottom: 20),
+                    padding: EdgeInsets.only(
+                      left: 14,
+                      right: 14,
+                      bottom: media.viewInsets.bottom + 20,
+                    ),
                     child: SamplingFormPanel(
+                      initialDraft: initialDraft,
+                      draftPrefs: draftPrefs,
+                      draftKey: draftKey,
                       onSaved: (wasEditing) => Navigator.of(
                         sheetContext,
                       ).pop(wasEditing ? 'updated' : 'recorded'),
@@ -1473,17 +1511,29 @@ class _SamplingEntryLauncherState extends State<SamplingEntryLauncher> {
 
 class SamplingFormPanel extends StatefulWidget {
   final ValueChanged<bool>? onSaved;
+  final Map<String, dynamic>? initialDraft;
+  final SharedPreferences? draftPrefs;
+  final String? draftKey;
 
-  const SamplingFormPanel({super.key, this.onSaved});
+  const SamplingFormPanel({
+    super.key,
+    this.onSaved,
+    this.initialDraft,
+    this.draftPrefs,
+    this.draftKey,
+  });
 
   @override
   State<SamplingFormPanel> createState() => _SamplingFormPanelState();
 }
 
-class _SamplingFormPanelState extends State<SamplingFormPanel> {
+class _SamplingFormPanelState extends State<SamplingFormPanel>
+    with WidgetsBindingObserver {
   final _countController = TextEditingController();
   final _weightControllers = <TextEditingController>[];
   final _lengthControllers = <TextEditingController>[];
+  final _fieldErrors = <TextEditingController, ValueNotifier<String?>>{};
+  final _validationRevision = ValueNotifier<int>(0);
   bool _isRecorded = false;
   bool _isEditing = false;
   bool _hasUnsavedChanges = false;
@@ -1492,11 +1542,15 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
   String? _measurementError;
   late final VoidCallback _serviceListener;
   Timer? _refreshTimer;
+  Timer? _draftSaveTimer;
+  Future<void> _draftWriteQueue = Future<void>.value();
 
   @override
   void initState() {
     super.initState();
     _checkLastSampling();
+    WidgetsBinding.instance.addObserver(this);
+    _restoreDraft(widget.initialDraft);
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted) setState(() {});
     });
@@ -1553,12 +1607,20 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
   void _resizeMeasurementControllers(int requested) {
     if (requested < 0 || requested > maxCrayfishMeasurementsPerSample) return;
     while (_weightControllers.length < requested) {
-      _weightControllers.add(TextEditingController());
-      _lengthControllers.add(TextEditingController());
+      final weight = TextEditingController();
+      final length = TextEditingController();
+      _weightControllers.add(weight);
+      _lengthControllers.add(length);
+      _fieldErrors[weight] = ValueNotifier<String?>(null);
+      _fieldErrors[length] = ValueNotifier<String?>(null);
     }
     while (_weightControllers.length > requested) {
-      _weightControllers.removeLast().dispose();
-      _lengthControllers.removeLast().dispose();
+      final weight = _weightControllers.removeLast();
+      final length = _lengthControllers.removeLast();
+      _fieldErrors.remove(weight)?.dispose();
+      _fieldErrors.remove(length)?.dispose();
+      weight.dispose();
+      length.dispose();
     }
   }
 
@@ -1569,6 +1631,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
     for (final controller in _lengthControllers) {
       controller.clear();
     }
+    _refreshFieldErrors();
   }
 
   void _loadMeasurements(List<CrayfishMeasurement> measurements) {
@@ -1577,13 +1640,142 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
       _weightControllers[i].text = measurements[i].weightGrams.toString();
       _lengthControllers[i].text = measurements[i].lengthCm.toString();
     }
+    _refreshFieldErrors();
+  }
+
+  void _restoreDraft(Map<String, dynamic>? draft) {
+    if (draft == null) return;
+    final history = TankService.instance.samplingHistory
+        .where((entry) => !entry.isBaseline)
+        .toList();
+    final isEditingDraft = draft['isEditing'] == true;
+    final latest = history.isEmpty ? null : history.last;
+    if (isEditingDraft) {
+      if (latest == null ||
+          !latest.hasIndividualMeasurements ||
+          latest.id != draft['recordId']) {
+        return;
+      }
+      _isEditing = true;
+      _isRecorded = false;
+    } else if (_isRecorded) {
+      return;
+    }
+
+    final expectedCount = isEditingDraft
+        ? latest!.sampleSize
+        : TankService.instance.sampleCount;
+    if (expectedCount <= 0 || draft['sampleSize'] != expectedCount) return;
+    final weights = draft['weights'];
+    final lengths = draft['lengths'];
+    if (weights is! List || lengths is! List) return;
+
+    _countController.text = expectedCount.toString();
+    _resizeMeasurementControllers(expectedCount);
+    for (var i = 0; i < expectedCount; i++) {
+      _weightControllers[i].text = i < weights.length
+          ? weights[i]?.toString() ?? ''
+          : '';
+      _lengthControllers[i].text = i < lengths.length
+          ? lengths[i]?.toString() ?? ''
+          : '';
+    }
+    _hasUnsavedChanges = true;
+    _revalidateCount();
+    _refreshFieldErrors();
+    _validationRevision.value++;
+  }
+
+  void _refreshFieldErrors() {
+    for (final entry in _fieldErrors.entries) {
+      entry.value.value = _measurementFieldError(entry.key);
+    }
+  }
+
+  void _onMeasurementChanged(TextEditingController controller) {
+    _hasUnsavedChanges = true;
+    _revalidateCount();
+    _fieldErrors[controller]?.value = _measurementFieldError(controller);
+    _validationRevision.value++;
+    _scheduleDraftSave();
+  }
+
+  void _scheduleDraftSave() {
+    if (widget.draftPrefs == null || widget.draftKey == null) return;
+    _draftSaveTimer?.cancel();
+    _draftSaveTimer = Timer(const Duration(milliseconds: 250), () {
+      unawaited(_persistDraft());
+    });
+  }
+
+  Future<void> _persistDraft() {
+    final prefs = widget.draftPrefs;
+    final key = widget.draftKey;
+    if (prefs == null || key == null || !_hasUnsavedChanges) {
+      return Future<void>.value();
+    }
+    final latest = TankService.instance.samplingHistory
+        .where((entry) => !entry.isBaseline)
+        .toList();
+    final payload = jsonEncode({
+      'sampleSize': int.tryParse(_countController.text),
+      'weights': _weightControllers
+          .map((controller) => controller.text)
+          .toList(),
+      'lengths': _lengthControllers
+          .map((controller) => controller.text)
+          .toList(),
+      'isEditing': _isEditing,
+      'recordId': _isEditing && latest.isNotEmpty ? latest.last.id : null,
+      'savedAt': DateTime.now().millisecondsSinceEpoch,
+    });
+    _draftWriteQueue = _draftWriteQueue.then((_) async {
+      try {
+        await prefs.setString(key, payload);
+      } catch (_) {
+        // Keep typing responsive if local storage is temporarily unavailable.
+      }
+    });
+    return _draftWriteQueue;
+  }
+
+  Future<void> _clearDraft() async {
+    _draftSaveTimer?.cancel();
+    final prefs = widget.draftPrefs;
+    final key = widget.draftKey;
+    if (prefs == null || key == null) return;
+    await _draftWriteQueue;
+    try {
+      await prefs.remove(key);
+    } catch (_) {
+      // The database save has completed; a stale local draft is harmless.
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _draftSaveTimer?.cancel();
+      unawaited(_persistDraft());
+    }
   }
 
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _draftSaveTimer?.cancel();
+    if (_hasUnsavedChanges) unawaited(_persistDraft());
+    WidgetsBinding.instance.removeObserver(this);
     TankService.instance.removeListener(_serviceListener);
     _countController.dispose();
+    _validationRevision.dispose();
+    for (final notifier in _fieldErrors.values) {
+      notifier.dispose();
+    }
+    _fieldErrors.clear();
     for (final controller in _weightControllers) {
       controller.dispose();
     }
@@ -1652,32 +1844,35 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
     required TextEditingController controller,
     required bool enabled,
   }) {
-    return TextField(
-      controller: controller,
-      enabled: enabled,
-      textAlign: TextAlign.center,
-      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      inputFormatters: [
-        TextInputFormatter.withFunction((oldValue, newValue) {
-          if (!newValue.composing.isCollapsed) return newValue;
-          return RegExp(r'^\d*\.?\d*$').hasMatch(newValue.text)
-              ? newValue
-              : oldValue;
-        }),
-      ],
-      textInputAction: TextInputAction.next,
-      onChanged: (_) {
-        _hasUnsavedChanges = true;
-        setState(_revalidateCount);
-      },
-      decoration: InputDecoration(
-        hintText: '0.0',
-        isDense: true,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 11),
-        border: const OutlineInputBorder(),
-        errorMaxLines: 1,
-        errorStyle: const TextStyle(fontSize: 8, height: 1),
-        errorText: _measurementFieldError(controller),
+    return ValueListenableBuilder<String?>(
+      valueListenable: _fieldErrors[controller]!,
+      builder: (context, errorText, _) => TextField(
+        controller: controller,
+        enabled: enabled,
+        textAlign: TextAlign.center,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        inputFormatters: [
+          TextInputFormatter.withFunction((oldValue, newValue) {
+            if (!newValue.composing.isCollapsed) return newValue;
+            return RegExp(r'^\d*\.?\d*$').hasMatch(newValue.text)
+                ? newValue
+                : oldValue;
+          }),
+        ],
+        textInputAction: TextInputAction.next,
+        onChanged: (_) => _onMeasurementChanged(controller),
+        decoration: InputDecoration(
+          hintText: '0.0',
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 6,
+            vertical: 11,
+          ),
+          border: const OutlineInputBorder(),
+          errorMaxLines: 1,
+          errorStyle: const TextStyle(fontSize: 8, height: 1),
+          errorText: errorText,
+        ),
       ),
     );
   }
@@ -1694,7 +1889,9 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
     setState(() {
       _showValidationErrors = true;
       _revalidateCount();
+      _refreshFieldErrors();
     });
+    _validationRevision.value++;
     if (_countError != null) return;
     if (_measurementError != null) {
       showBeautifulSnackbar(context, _measurementError!, false);
@@ -1750,6 +1947,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
         _isEditing = false;
         _hasUnsavedChanges = false;
       });
+      await _clearDraft();
       widget.onSaved?.call(wasEditing);
     }
   }
@@ -1956,128 +2154,145 @@ class _SamplingFormPanelState extends State<SamplingFormPanel> {
               ),
             ),
           ),
-          if (_measurementError != null && !_isRecorded) ...[
-            const SizedBox(height: 4),
-            Text(
-              _measurementError!,
-              style: TextStyle(fontSize: 10, color: AppColors.critical),
-            ),
-          ],
-          if (_countError != null && !_isRecorded) ...[
-            const SizedBox(height: 8),
-            Padding(
-              padding: const EdgeInsets.only(left: 4),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: AppColors.critical.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Icon(
-                      Icons.error_outline_rounded,
-                      size: 14,
-                      color: AppColors.critical,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
+          ValueListenableBuilder<int>(
+            valueListenable: _validationRevision,
+            builder: (context, _, _) => Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (_measurementError != null && !_isRecorded) ...[
+                  const SizedBox(height: 4),
                   Text(
-                    _countError!,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.critical.withValues(alpha: 0.85),
+                    _measurementError!,
+                    style: TextStyle(fontSize: 10, color: AppColors.critical),
+                  ),
+                ],
+                if (_countError != null && !_isRecorded) ...[
+                  const SizedBox(height: 8),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: AppColors.critical.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Icon(
+                            Icons.error_outline_rounded,
+                            size: 14,
+                            color: AppColors.critical,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          _countError!,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.critical.withValues(alpha: 0.85),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
-              ),
+                const SizedBox(height: 10),
+                if (!_isRecorded && (canSample || _isEditing))
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed:
+                          _countError == null && _measurementError == null
+                          ? _handleCompute
+                          : null,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _countError == null
+                            ? AppColors.primary
+                            : AppColors.dark.withValues(alpha: 0.2),
+                        foregroundColor: _countError == null
+                            ? Colors.white
+                            : Colors.white.withValues(alpha: 0.4),
+                        disabledBackgroundColor: AppColors.dark.withValues(
+                          alpha: 0.2,
+                        ),
+                        disabledForegroundColor: Colors.white.withValues(
+                          alpha: 0.4,
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text(
+                        'Compute Results',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ),
+                if (!_isRecorded && !canSample && !_isEditing)
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: null,
+                      icon: const Icon(Icons.lock_rounded, size: 16),
+                      label: Text(
+                        'Sampling available in ${(7 - TankService.instance.daysSinceLastSampling).clamp(0, 7)} days',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.dark.withValues(alpha: 0.15),
+                        foregroundColor: AppColors.dark.withValues(alpha: 0.5),
+                        disabledBackgroundColor: AppColors.dark.withValues(
+                          alpha: 0.15,
+                        ),
+                        disabledForegroundColor: AppColors.dark.withValues(
+                          alpha: 0.5,
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                if (_isRecorded)
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: null,
+                      icon: const Icon(Icons.check_circle_rounded, size: 18),
+                      label: const Text(
+                        'Recorded',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.success,
+                        foregroundColor: Colors.white,
+                        disabledBackgroundColor: AppColors.success,
+                        disabledForegroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
-          ],
-          const SizedBox(height: 10),
-          if (!_isRecorded && (canSample || _isEditing))
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _countError == null && _measurementError == null
-                    ? _handleCompute
-                    : null,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _countError == null
-                      ? AppColors.primary
-                      : AppColors.dark.withValues(alpha: 0.2),
-                  foregroundColor: _countError == null
-                      ? Colors.white
-                      : Colors.white.withValues(alpha: 0.4),
-                  disabledBackgroundColor: AppColors.dark.withValues(
-                    alpha: 0.2,
-                  ),
-                  disabledForegroundColor: Colors.white.withValues(alpha: 0.4),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: const Text(
-                  'Compute Results',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                ),
-              ),
-            ),
-          if (!_isRecorded && !canSample && !_isEditing)
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: null,
-                icon: const Icon(Icons.lock_rounded, size: 16),
-                label: Text(
-                  'Sampling available in ${(7 - TankService.instance.daysSinceLastSampling).clamp(0, 7)} days',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
-                  ),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.dark.withValues(alpha: 0.15),
-                  foregroundColor: AppColors.dark.withValues(alpha: 0.5),
-                  disabledBackgroundColor: AppColors.dark.withValues(
-                    alpha: 0.15,
-                  ),
-                  disabledForegroundColor: AppColors.dark.withValues(
-                    alpha: 0.5,
-                  ),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-            ),
-          if (_isRecorded)
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: null,
-                icon: const Icon(Icons.check_circle_rounded, size: 18),
-                label: const Text(
-                  'Recorded',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.success,
-                  foregroundColor: Colors.white,
-                  disabledBackgroundColor: AppColors.success,
-                  disabledForegroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-            ),
+          ),
         ],
       ),
     );

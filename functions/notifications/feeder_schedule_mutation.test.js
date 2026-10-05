@@ -36,7 +36,7 @@ function makeHarness(seed = {}) {
     collection: root,
     runTransaction: (fn) => fn({
       get: (r) => r.get(),
-      set: (r, d) => { store[r.path] = {...(store[r.path] || {}), ...d}; },
+      set: (r, d) => { store[r.path] = {...d}; },
       create: (r, d) => { store[r.path] = {...d}; },
       update: (r, d) => { store[r.path] = {...(store[r.path] || {}), ...d}; },
       delete: (r) => { delete store[r.path]; },
@@ -207,33 +207,33 @@ test('scheduleFields enforces the time shape and 1-200 g whole-gram doses', () =
   }
 });
 
-test('shared schedule turbidity policy is stored once at tank feeder settings', async () => {
+test('retired high-turbidity-only operation is rejected', async () => {
   const h = makeHarness();
-  await call(h, {operation: 'set_schedule_turbidity_policy', allowHighTurbidity: true});
-  assert.equal(h.store[`${tankPrefix}/feeder/schedule_policy`].allow_high_turbidity, true);
-  assert.equal(listLogs(h)[0].action, 'Scheduled high-turbidity feeding enabled');
-  const before = h.snapshot();
-  const result = await call(h, {operation: 'set_schedule_turbidity_policy', allowHighTurbidity: true});
-  assert.deepEqual(result, {updated: false});
-  assert.equal(h.snapshot(), before, 'setting the existing value should not add a duplicate audit entry');
-  await call(h, {operation: 'set_schedule_turbidity_policy', allowHighTurbidity: false});
-  assert.equal(h.store[`${tankPrefix}/feeder/schedule_policy`].allow_high_turbidity, false);
-  assert.equal(listLogs(h).length, 2);
+  assert.equal(await codeOf(() => call(h, {
+    operation: 'set_schedule_turbidity_policy', allowHighTurbidity: true,
+  })), 'invalid-argument');
+  assert.equal(Object.keys(h.store).some((key) => key.endsWith('/feeder/feeder_policy')), false);
 });
 
-test('shared manual and scheduled water-quality override is stored once and clears legacy turbidity policy', async () => {
-  const h = makeHarness();
+test('shared water-quality policy uses feeder_policy and mirrors legacy path without retired field', async () => {
+  const legacyPath = `${tankPrefix}/feeder/schedule_policy`;
+  const canonicalPath = `${tankPrefix}/feeder/feeder_policy`;
+  const h = makeHarness({
+    [legacyPath]: {allow_high_turbidity: false, allow_water_quality_override: false},
+  });
   await call(h, {operation: 'set_schedule_water_quality_policy', allowWaterQualityOverride: true});
-  const path = `${tankPrefix}/feeder/schedule_policy`;
-  assert.equal(h.store[path].allow_water_quality_override, true);
-  assert.equal(h.store[path].allow_high_turbidity, false);
+  assert.equal(h.store[canonicalPath].allow_water_quality_override, true);
+  assert.equal(h.store[legacyPath].allow_water_quality_override, true);
+  assert.equal('allow_high_turbidity' in h.store[canonicalPath], false);
+  assert.equal('allow_high_turbidity' in h.store[legacyPath], false);
   assert.equal(listLogs(h)[0].action, 'Manual and scheduled water-quality range override enabled');
   const before = h.snapshot();
   const result = await call(h, {operation: 'set_schedule_water_quality_policy', allowWaterQualityOverride: true});
   assert.deepEqual(result, {updated: false});
   assert.equal(h.snapshot(), before, 'setting the existing value should not add a duplicate audit entry');
   await call(h, {operation: 'set_schedule_water_quality_policy', allowWaterQualityOverride: false});
-  assert.equal(h.store[path].allow_water_quality_override, false);
+  assert.equal(h.store[canonicalPath].allow_water_quality_override, false);
+  assert.equal(h.store[legacyPath].allow_water_quality_override, false);
   assert.equal(listLogs(h).length, 2);
 });
 

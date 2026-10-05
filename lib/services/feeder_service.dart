@@ -111,7 +111,9 @@ class FeederService extends ChangeNotifier {
 
   StreamSubscription? _statusSub;
   StreamSubscription? _schedulesSub;
-  StreamSubscription? _schedulePolicySub;
+  StreamSubscription? _feederPolicySub;
+  StreamSubscription? _legacySchedulePolicySub;
+  bool _hasCanonicalFeederPolicy = false;
   StreamSubscription? _logsSub;
   StreamSubscription? _todayLogsSub;
   StreamSubscription? _legacyTodayLogsSub;
@@ -297,7 +299,7 @@ class FeederService extends ChangeNotifier {
     }
     _listenStatus();
     _listenSchedules();
-    _listenSchedulePolicy();
+    _listenFeederPolicy();
     _listenLogs();
     _listenTodayTotals();
   }
@@ -336,7 +338,8 @@ class FeederService extends ChangeNotifier {
     _listenerGeneration++;
     _statusSub?.cancel();
     _schedulesSub?.cancel();
-    _schedulePolicySub?.cancel();
+    _feederPolicySub?.cancel();
+    _legacySchedulePolicySub?.cancel();
     _logsSub?.cancel();
     _todayLogsSub?.cancel();
     _legacyTodayLogsSub?.cancel();
@@ -349,7 +352,9 @@ class FeederService extends ChangeNotifier {
     _completedFeedingsToday = 0;
     _statusSub = null;
     _schedulesSub = null;
-    _schedulePolicySub = null;
+    _feederPolicySub = null;
+    _legacySchedulePolicySub = null;
+    _hasCanonicalFeederPolicy = false;
     _logsSub = null;
     _schedules.clear();
     _scheduleKeys.clear();
@@ -530,20 +535,44 @@ class FeederService extends ChangeNotifier {
     }
   }
 
-  void _listenSchedulePolicy() {
-    _schedulePolicySub?.cancel();
+  void _listenFeederPolicy() {
+    _feederPolicySub?.cancel();
+    _legacySchedulePolicySub?.cancel();
+    _legacySchedulePolicySub = null;
+    _hasCanonicalFeederPolicy = false;
     final tankDoc = _tankDoc();
     if (tankDoc == null) return;
-    _schedulePolicySub = tankDoc
+    _feederPolicySub = tankDoc
         .collection('feeder')
-        .doc('schedule_policy')
+        .doc('feeder_policy')
         .snapshots()
         .listen(
           (snapshot) {
-            _allowWaterQualityFeeding =
-                snapshot.data()?['allow_water_quality_override'] as bool? ??
-                false;
-            notifyListeners();
+            _hasCanonicalFeederPolicy = snapshot.exists;
+            if (snapshot.exists) {
+              _legacySchedulePolicySub?.cancel();
+              _legacySchedulePolicySub = null;
+              _allowWaterQualityFeeding =
+                  snapshot.data()?['allow_water_quality_override'] as bool? ??
+                  false;
+              notifyListeners();
+              return;
+            }
+
+            // Migration fallback until the canonical feeder_policy document
+            // is created. Only one policy stream is used once migration lands.
+            _legacySchedulePolicySub ??= tankDoc
+                .collection('feeder')
+                .doc('schedule_policy')
+                .snapshots()
+                .listen((legacySnapshot) {
+                  if (_hasCanonicalFeederPolicy) return;
+                  _allowWaterQualityFeeding =
+                      legacySnapshot.data()?['allow_water_quality_override']
+                          as bool? ??
+                      false;
+                  notifyListeners();
+                });
           },
           onError: (Object error) {
             debugPrint('[FeederService] Schedule policy stream error: $error');
@@ -1138,7 +1167,8 @@ class FeederService extends ChangeNotifier {
     _legacyTodayLogsSub?.cancel();
     _statusSub?.cancel();
     _schedulesSub?.cancel();
-    _schedulePolicySub?.cancel();
+    _feederPolicySub?.cancel();
+    _legacySchedulePolicySub?.cancel();
     _logsSub?.cancel();
     _authSub?.cancel();
     _authSub = null;
