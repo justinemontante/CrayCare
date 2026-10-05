@@ -712,27 +712,33 @@ async function getSamplingDue(tankId, ownerUid) {
     if (currentBatchId) {
       const batchRef = firestoreDb.collection("tanks").doc(tankId)
         .collection("batches").doc(currentBatchId);
-      const [batchSnap, weekly] = await Promise.all([
-        batchRef.get(),
-        batchRef
-        .collection("sampling_records")
-        .where("is_baseline", "==", false)
-        .get(),
-      ]);
-      // During the Timestamp migration, old records may still contain epoch
-      // milliseconds. Compare normalized instants in application code so the
-      // reminder remains correct while both representations coexist.
-      let latestSampleMs = -1;
-      for (const doc of weekly.docs) {
-        const raw = doc.data().sampling_date;
-        const ms = parseTimestampMillis(raw);
-        if (Number.isFinite(ms) && ms > latestSampleMs) {
-          latestSampleMs = ms;
-          lastSampleTs = raw;
+      const batchSnap = await batchRef.get();
+      if (batchSnap.exists) {
+        // Only inspect the newest Timestamp and newest legacy numeric epoch.
+        // Firestore sorts numbers and Timestamps in separate type groups, so
+        // taking just one unfiltered limit(1) result could pick the wrong
+        // record while old epoch values and newer Timestamps coexist.
+        const weeklyRef = batchRef.collection("sampling_records")
+          .where("is_baseline", "==", false);
+        const [timestampLatest, numericLatest] = await Promise.all([
+          weeklyRef.orderBy("sampling_date", "desc").limit(1).get(),
+          weeklyRef.where("sampling_date", ">=", 0)
+            .where("sampling_date", "<=", Number.MAX_SAFE_INTEGER)
+            .orderBy("sampling_date", "desc").limit(1).get(),
+        ]);
+
+        let latestSampleMs = -1;
+        for (const snap of [timestampLatest, numericLatest]) {
+          if (snap.empty) continue;
+          const ms = parseTimestampMillis(snap.docs[0].data().sampling_date);
+          if (Number.isFinite(ms) && ms > latestSampleMs) {
+            latestSampleMs = ms;
+            lastSampleTs = snap.docs[0].data().sampling_date;
+          }
         }
-      }
-      if (!lastSampleTs && batchSnap.exists) {
-        lastSampleTs = (batchSnap.data() || {}).stocking_date || null;
+        if (!lastSampleTs) {
+          lastSampleTs = (batchSnap.data() || {}).stocking_date || null;
+        }
       }
     }
   } catch (e) {

@@ -3,6 +3,7 @@ import 'actuator_group.dart';
 
 class ActuatorsTab extends StatelessWidget {
   final Map<String, String> actuatorModes;
+  final Map<String, String> actuatorReportedStates;
   final void Function(String actuatorId, String mode) onSetActuatorMode;
   final void Function(
     BuildContext context,
@@ -16,6 +17,7 @@ class ActuatorsTab extends StatelessWidget {
   const ActuatorsTab({
     super.key,
     required this.actuatorModes,
+    required this.actuatorReportedStates,
     required this.onSetActuatorMode,
     required this.onShowGroupLog,
     required this.actuatorRuntimeLabels,
@@ -37,6 +39,7 @@ class ActuatorsTab extends StatelessWidget {
               ('aerator2', 'Aerator 2', 'Air Pump', 'assets/images/aerator.png'),
             ],
             actuatorModes: actuatorModes,
+            actuatorReportedStates: actuatorReportedStates,
             onSetActuatorMode: onSetActuatorMode,
             onShowGroupLog: onShowGroupLog,
             actuatorRuntimeLabels: actuatorRuntimeLabels,
@@ -50,6 +53,7 @@ class ActuatorsTab extends StatelessWidget {
               ('pump', 'Water Pump', 'For Filtration System', 'assets/images/waterPump.png'),
             ],
             actuatorModes: actuatorModes,
+            actuatorReportedStates: actuatorReportedStates,
             onSetActuatorMode: onSetActuatorMode,
             onShowGroupLog: onShowGroupLog,
             actuatorRuntimeLabels: actuatorRuntimeLabels,

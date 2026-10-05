@@ -54,53 +54,20 @@ function overlaps(first, second) {
 
 async function mutateSchedule({db, uid, input, timestamp, deleteField, now = Date.now}) {
   if (!uid) throw new ScheduleMutationError("unauthenticated", "Sign in before changing schedules.");
-  if (!input || !["add", "edit", "toggle", "delete", "set_schedule_turbidity_policy", "set_schedule_water_quality_policy"].includes(input.operation)) {
+  if (!input || !["add", "edit", "toggle", "delete", "set_schedule_water_quality_policy"].includes(input.operation)) {
     throw new ScheduleMutationError("invalid-argument", "Unknown schedule action.");
   }
   const operation = input.operation;
-  if (operation === "set_schedule_turbidity_policy") {
-    if (typeof input.allowHighTurbidity !== "boolean") {
-      throw new ScheduleMutationError("invalid-argument", "Scheduled turbidity setting must be true or false.");
-    }
-    const tank = db.collection("tanks").doc(uid);
-    const profile = db.collection("users").doc(uid);
-    const policy = tank.collection("feeder").doc("schedule_policy");
-    const audit = tank.collection("feeder_logs").doc();
-    return db.runTransaction(async tx => {
-      const profileSnap = await tx.get(profile);
-      const tankSnap = await tx.get(tank);
-      const user = profileSnap.exists ? profileSnap.data() : {};
-      const tankData = tankSnap.exists ? tankSnap.data() : {};
-      const role = String(user.role || "owner").trim().toLowerCase();
-      const status = String(user.status || "active").trim().toLowerCase();
-      if (role !== "owner" || status !== "active" || tankData.owner_uid !== uid) {
-        throw new ScheduleMutationError("permission-denied", "Only the active tank owner can change feeding settings.");
-      }
-      if (tankData.is_initialized !== true) {
-        throw new ScheduleMutationError("failed-precondition", "Initialize your tank before changing feeding settings.");
-      }
-      const policySnap = await tx.get(policy);
-      const previous = policySnap.exists && policySnap.data().allow_high_turbidity === true;
-      if (previous === input.allowHighTurbidity) return {updated: false};
-      tx.set(policy, {
-        allow_high_turbidity: input.allowHighTurbidity,
-        updated_at: timestamp(),
-      });
-      tx.create(audit, {
-        action: `Scheduled high-turbidity feeding ${input.allowHighTurbidity ? "enabled" : "disabled"}`,
-        type: "auto",
-        logged_at: timestamp(),
-      });
-      return {updated: true};
-    });
-  }
   if (operation === "set_schedule_water_quality_policy") {
     if (typeof input.allowWaterQualityOverride !== "boolean") {
       throw new ScheduleMutationError("invalid-argument", "The shared feeding water-quality override must be true or false.");
     }
     const tank = db.collection("tanks").doc(uid);
     const profile = db.collection("users").doc(uid);
-    const policy = tank.collection("feeder").doc("schedule_policy");
+    const policy = tank.collection("feeder").doc("feeder_policy");
+    // Keep the old document mirrored temporarily: deployed ESP32 firmware may
+    // still read schedule_policy until the owner uploads the updated firmware.
+    const legacyPolicy = tank.collection("feeder").doc("schedule_policy");
     const audit = tank.collection("feeder_logs").doc();
     return db.runTransaction(async tx => {
       const profileSnap = await tx.get(profile);
@@ -115,19 +82,29 @@ async function mutateSchedule({db, uid, input, timestamp, deleteField, now = Dat
       if (tankData.is_initialized !== true) {
         throw new ScheduleMutationError("failed-precondition", "Initialize your tank before changing feeding settings.");
       }
-      const policySnap = await tx.get(policy);
+      const [policySnap, legacySnap] = await Promise.all([
+        tx.get(policy),
+        tx.get(legacyPolicy),
+      ]);
       const policyData = policySnap.exists ? policySnap.data() : {};
-      const previous = policyData.allow_water_quality_override === true;
-      const legacyTurbidityOverride = policyData.allow_high_turbidity === true;
-      if (previous === input.allowWaterQualityOverride && !legacyTurbidityOverride) {
+      const legacyData = legacySnap.exists ? legacySnap.data() : {};
+      const canonicalMatches = policySnap.exists &&
+        policyData.allow_water_quality_override === input.allowWaterQualityOverride;
+      const legacyMatches = legacySnap.exists &&
+        legacyData.allow_water_quality_override === input.allowWaterQualityOverride &&
+        !Object.prototype.hasOwnProperty.call(legacyData, "allow_high_turbidity");
+      if (canonicalMatches && legacyMatches) {
         return {updated: false};
       }
-      tx.set(policy, {
+      const savedPolicy = {
         allow_water_quality_override: input.allowWaterQualityOverride,
-        // Clear the retired, narrower policy so it cannot be mistaken for
-        // or accidentally coexist with the unified all-sensor override.
-        allow_high_turbidity: false,
         updated_at: timestamp(),
+      };
+      tx.set(policy, {
+        ...savedPolicy,
+      });
+      tx.set(legacyPolicy, {
+        ...savedPolicy,
       });
       tx.create(audit, {
         action: `Manual and scheduled water-quality range override ${input.allowWaterQualityOverride ? "enabled" : "disabled"}`,

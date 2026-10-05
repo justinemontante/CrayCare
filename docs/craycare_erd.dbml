@@ -137,7 +137,7 @@ Table feeder_status [note: 'Operational current-state projection; one row per ta
   feed_level decimal(6,2)
 }
 
-Table feeder_policy [note: 'Shared feeding policy persisted at tanks/{tankId}/feeder/schedule_policy; one owner-level setting applies to manual Feed Now and all schedules'] {
+Table feeder_policy [note: 'Shared feeding policy persisted at tanks/{tankId}/feeder/feeder_policy; the legacy schedule_policy document is mirrored temporarily during ESP firmware migration'] {
   tank_id varchar [pk, ref: - tanks.tank_id]
   allow_water_quality_override boolean [not null, default: false, note: 'Allows manual Feed Now and scheduled feeding despite out-of-range temperature, pH, dissolved oxygen, or turbidity only; sensor faults, stale readings, turbidity-in-air, critical feed level, and other guards still block']
   updated_at timestamp
@@ -178,7 +178,6 @@ Table feeder_commands [note: 'Manual Feed Now commands persisted at tanks/{tankI
   issued_at timestamp [not null]
   expires_at timestamp [not null]
   near_schedule_confirmed boolean [not null, default: false, note: 'Owner acknowledged warning-window proximity; never bypasses device collision block']
-  allow_water_quality_override boolean [note: 'Deprecated legacy field; current app does not write it and firmware ignores it. Manual and scheduled feeding use feeder_policy.allow_water_quality_override instead']
   Indexes {
     (tank_id, command_id) [pk]
   }
