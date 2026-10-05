@@ -58,6 +58,8 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>  // 16x2 status LCD (SDA 21 / SCL 22)
 #include <vector>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 #include "esp_task_wdt.h"  // task watchdog: reboot (with trail) on silent hang
 #include "addons/TokenHelper.h"
 #include "addons/RTDBHelper.h"
@@ -782,6 +784,26 @@ DallasTemperature sensors(&oneWire);
 // ============================================================
 //  SENSOR STATES
 // ============================================================
+SemaphoreHandle_t sensorStateMutex = nullptr;
+SemaphoreHandle_t sensorIoMutex = nullptr;
+SemaphoreHandle_t lcdMutex = nullptr;
+SemaphoreHandle_t feederScheduleMutex = nullptr;
+bool sensorTaskRunning = false;
+bool lcdTaskRunning = false;
+
+class MutexGuard {
+ public:
+  explicit MutexGuard(SemaphoreHandle_t mutex) : mutex_(mutex) {
+    if (mutex_) xSemaphoreTake(mutex_, portMAX_DELAY);
+  }
+  ~MutexGuard() {
+    if (mutex_) xSemaphoreGive(mutex_);
+  }
+
+ private:
+  SemaphoreHandle_t mutex_;
+};
+
 float tempBuffer[SMOOTH_WINDOW];
 uint8_t tempCount = 0;
 uint8_t tempIndex = 0;
@@ -791,7 +813,7 @@ bool tempSensorOK = false;
 uint8_t tempSkipCount = 0;
 // Serial output is opt-in so continuous readings never interfere with commands.
 // Sampling, Firestore uploads, buffering, and automation remain active.
-bool sensorOutputEnabled = false;
+volatile bool sensorOutputEnabled = false;
 bool rawStreamEnabled = false;      // `raw on` 1 s voltage stream for calibration
 unsigned long lastRawStreamMs = 0;
 
@@ -816,13 +838,18 @@ float winPHSum = 0.0f; uint16_t winPHN = 0;
 float winWaterLevelSum = 0.0f; uint16_t winWaterLevelN = 0;
 float winFeedLevelSum = 0.0f; uint16_t winFeedLevelN = 0;
 
-void resetWindowAggregates() {
+void resetWindowAggregatesUnlocked() {
   winTempSum = 0.0f; winTempN = 0;
   winTurbSum = 0.0f; winTurbN = 0;
   winDOSum = 0.0f; winDON = 0;
   winPHSum = 0.0f; winPHN = 0;
   winWaterLevelSum = 0.0f; winWaterLevelN = 0;
   winFeedLevelSum = 0.0f; winFeedLevelN = 0;
+}
+
+void resetWindowAggregates() {
+  MutexGuard sensorLock(sensorStateMutex);
+  resetWindowAggregatesUnlocked();
 }
 
 // Accumulate one accepted reading into the 10-min window aggregates.
@@ -863,6 +890,7 @@ struct TurbidityResult {
 //  GENERIC HELPERS
 // ============================================================
 float readAnalogVoltage(uint8_t pin) {
+  MutexGuard ioLock(sensorIoMutex);
   long sum = 0;
 
   for (int i = 0; i < SAMPLE_COUNT; i++) {
@@ -1588,7 +1616,10 @@ bool sendLatestToFirestore() {
   FirebaseJson content;
   time_t capturedAt;
   time(&capturedAt);
-  buildFirestorePayload(content, false, capturedAt);
+  {
+    MutexGuard sensorLock(sensorStateMutex);
+    buildFirestorePayload(content, false, capturedAt);
+  }
   if (capturedAt < 1577836800 || firestoreTimestampString(capturedAt).length() == 0) {
     Serial.println("[FIRESTORE] Latest skipped: device clock is not synchronized");
     return false;
@@ -1631,7 +1662,13 @@ void sendHistoryToFirestore() {
   FirebaseJson content;
   time_t capturedAt;
   time(&capturedAt);
-  buildFirestorePayload(content, true, capturedAt);
+  {
+    // Snapshot and clear atomically. The sensor task keeps accumulating into
+    // the next history window while the synchronous Firestore request runs.
+    MutexGuard sensorLock(sensorStateMutex);
+    buildFirestorePayload(content, true, capturedAt);
+    resetWindowAggregatesUnlocked();
+  }
 
   // WiFi/Firebase down: buffer the reading for later flush. (Previously we
   // returned early here and the reading was LOST — the whole point of the
@@ -1641,7 +1678,6 @@ void sendHistoryToFirestore() {
       Serial.printf("[BUF] Offline — buffered entry #%u\n",
                     (unsigned)countBufferedEntries());
     }
-    resetWindowAggregates();  // values already captured into content
     return;
   }
 
@@ -1650,7 +1686,6 @@ void sendHistoryToFirestore() {
       Serial.printf("[BUF] Clock unsynchronized; buffered entry #%u\n",
                     (unsigned)countBufferedEntries());
     }
-    resetWindowAggregates();
     return;
   }
 
@@ -1669,7 +1704,6 @@ void sendHistoryToFirestore() {
       Serial.printf("[BUF] Unassigned history buffered #%u\n",
                     (unsigned)countBufferedEntries());
     }
-    resetWindowAggregates();
     return;
   }
 
@@ -1684,7 +1718,6 @@ void sendHistoryToFirestore() {
       Serial.printf("[BUF] Could not resolve history date; buffered #%u\n",
                     (unsigned)countBufferedEntries());
     }
-    resetWindowAggregates();
     return;
   }
   snprintf(entryId, sizeof(entryId), "r_%llu",
@@ -1708,7 +1741,6 @@ void sendHistoryToFirestore() {
                     (unsigned)countBufferedEntries());
     }
   }
-  resetWindowAggregates();  // values captured -> start a fresh 10-min window
 }
 
 // ============================================================
@@ -2012,7 +2044,13 @@ void readFeedLevelSensor() {
   ACCUM_WINDOW(winFeedLevelSum, winFeedLevelN, feedLevelPercent);
 }
 
+void readFeedLevelSensorSafely() {
+  MutexGuard sensorLock(sensorStateMutex);
+  readFeedLevelSensor();
+}
+
 void readAllSensors() {
+  MutexGuard sensorLock(sensorStateMutex);
   readTemperatureSensor();
   readTurbiditySensor();
   readDissolvedOxygenSensor();
@@ -2022,6 +2060,7 @@ void readAllSensors() {
 }
 
 void printSensorReading() {
+  MutexGuard sensorLock(sensorStateMutex);
   Serial.printf("[SENSOR] Temp: %.1f C | Turb: %.0f NTU (%.3fV) | DO: %.1f mg/L | pH: %.2f | Level: %.1f cm | Feed: %.1f%%\n",
                 smoothedTemp, smoothedTurbidityNTU, turbidityVoltage,
                 dissolvedOxygen, phLevel, waterLevelCm, feedLevelPercent);
@@ -2031,6 +2070,7 @@ void printSensorReading() {
 // latest smoothed values (no extra ADC traffic); called by `raw` and by
 // the 1 s `raw on` stream.
 void printRawReading() {
+  MutexGuard sensorLock(sensorStateMutex);
   Serial.printf("[RAW] pH=%.3fV DO=%.3fV Turb=%.3fV HC-SR04=%.1fcm Water=%.1fcm Feed=%.3fV/%.0f%% Hopper=%.1fcm(%s)\n",
                 phVoltage, dissolvedOxygenVoltage, turbidityVoltage,
                 waterDistanceCm, waterLevelCm, feedLevelVoltage,
@@ -2103,7 +2143,10 @@ void blowerSafetyTick();
 void initBlowerButton();
 void pollBlowerButton();
 void initLCD();
+extern bool lcdReady;
 void updateLCD();
+void sensorPollingTask(void*);
+void lcdDisplayTask(void*);
 void showLCDBoot(const String& line0, const String& line1, unsigned long holdMs);
 void showLCDTransient(const String& line0, const String& line1, unsigned long holdMs = 1800);
 void initOnsiteButton();
@@ -2166,6 +2209,14 @@ void setup() {
   esp_task_wdt_init(60, true);
   esp_task_wdt_add(NULL);
 
+  sensorStateMutex = xSemaphoreCreateMutex();
+  sensorIoMutex = xSemaphoreCreateMutex();
+  lcdMutex = xSemaphoreCreateMutex();
+  feederScheduleMutex = xSemaphoreCreateMutex();
+  if (!sensorStateMutex || !sensorIoMutex || !lcdMutex || !feederScheduleMutex) {
+    Serial.println("[TASK] Mutex allocation failed; using loop-based sensor/LCD updates");
+  }
+
   initLCD();
   showLCDBootProgress("CrayCare boot", 5);
   initOnsiteButton();
@@ -2223,6 +2274,24 @@ void setup() {
   if (!lcdCloudBootPending) {
     showLCDBoot("CrayCare ready", "Local mode", 1200);
   }
+
+  if (sensorStateMutex && sensorIoMutex &&
+      xTaskCreatePinnedToCore(sensorPollingTask, "sensor_poll", 8192, nullptr,
+                              2, nullptr, 1) == pdPASS) {
+    sensorTaskRunning = true;
+    Serial.println("[SENSOR] Background polling task started (2 s interval)");
+  } else {
+    Serial.println("[SENSOR] Background task unavailable; polling in main loop");
+  }
+
+  if (lcdReady && lcdMutex && feederScheduleMutex &&
+      xTaskCreatePinnedToCore(lcdDisplayTask, "lcd_display", 6144, nullptr,
+                              1, nullptr, 1) == pdPASS) {
+    lcdTaskRunning = true;
+    Serial.println("[LCD] Background display task started (3 s page rotation)");
+  } else {
+    Serial.println("[LCD] Background task unavailable; display in main loop");
+  }
 }
 
 // ============================================================
@@ -2236,7 +2305,7 @@ void loop() {
   // Motor timing must never wait behind a blocking cloud/sensor operation.
   if (feederRunState != FEEDER_IDLE) {
     processFeederTick();
-    updateLCD();
+    if (!lcdTaskRunning) updateLCD();
     delay(1);
     return;
   }
@@ -2726,7 +2795,7 @@ void loop() {
 
   // ─── Sensors + live Latest (first: the realtime path never queues) ───
 
-  if (now - lastPollTime >= SENSOR_POLL_MS) {
+  if (!sensorTaskRunning && now - lastPollTime >= SENSOR_POLL_MS) {
     readAllSensors();
     lastPollTime = millis();
     now = lastPollTime;
@@ -2742,6 +2811,9 @@ void loop() {
   }
 
   if (now - lastFirebaseSendTime >= FIREBASE_SEND_INTERVAL_MS) {
+    // Firestore is synchronous, so maintain at least a 5-second interval
+    // between attempts. A slow request coalesces missed intervals; never
+    // queue catch-up writes. Sensor and LCD tasks continue during the request.
     // Sensor writes go to Firestore; Cloud Functions add recorded_at server timestamps.
     // Whether this succeeds or fails, wait for the next normal slot. Immediate
     // retries amplify weak-link TLS failures and can exhaust the SSL layer.
@@ -2802,7 +2874,7 @@ void loop() {
   blowerSafetyTick();
 
   // ─── LCD status screens (non-blocking) ───
-  updateLCD();
+  if (!lcdTaskRunning) updateLCD();
 
   // ─── Actuators (pump + aerators) ───
   if (now - lastActuatorSyncMs >= ACTUATOR_SYNC_INTERVAL_MS) {
@@ -3016,6 +3088,7 @@ void saveCachedFeederSchedules() {
 }
 
 void loadCachedFeederSchedules() {
+  MutexGuard scheduleLock(feederScheduleMutex);
   prefs.begin("feedsched", true);
   if (currentTankId.isEmpty() || prefs.getString("tank", "") != currentTankId ||
       prefs.getLong64("assignment", 0) != currentAssignmentAtMs) {
@@ -3213,17 +3286,20 @@ void syncFeederSchedules() {
     esp_task_wdt_reset();  // multi-page syncs must not trip the watchdog
     if (++pages >= 5) break;  // hard cap: 100 schedules is plenty
   } while (pageToken.length() > 0);
-  bool unchanged = synced.size() == feederSchedules.size();
-  for (size_t i = 0; unchanged && i < synced.size(); ++i) {
-    const FeedSchedule& a = synced[i];
-    const FeedSchedule& b = feederSchedules[i];
-    unchanged = a.key == b.key && a.hour24 == b.hour24 && a.minute == b.minute &&
-        a.enabled == b.enabled && a.grams == b.grams && a.days == b.days &&
-        a.effectiveEpoch == b.effectiveEpoch;
+  {
+    MutexGuard scheduleLock(feederScheduleMutex);
+    bool unchanged = synced.size() == feederSchedules.size();
+    for (size_t i = 0; unchanged && i < synced.size(); ++i) {
+      const FeedSchedule& a = synced[i];
+      const FeedSchedule& b = feederSchedules[i];
+      unchanged = a.key == b.key && a.hour24 == b.hour24 && a.minute == b.minute &&
+          a.enabled == b.enabled && a.grams == b.grams && a.days == b.days &&
+          a.effectiveEpoch == b.effectiveEpoch;
+    }
+    if (unchanged) return; // Avoid rewriting NVS on every poll.
+    feederSchedules.swap(synced);
+    feederScheduleCount = feederSchedules.size();
   }
-  if (unchanged) return; // Avoid rewriting NVS on every poll.
-  feederSchedules.swap(synced);
-  feederScheduleCount = feederSchedules.size();
 
   saveCachedFeederSchedules();
   Serial.printf("[FEEDER] Synced %d schedules from Firestore\n", feederScheduleCount);
@@ -3388,7 +3464,10 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
   feederCommandId = commandId;
   feederStatusReason = "";
   feederRequestedGrams = grams;
-  feederFeedSource = source;
+  {
+    MutexGuard lcdLock(lcdMutex);
+    feederFeedSource = source;
+  }
   feederEventTank = currentTankId;
   feederOccurrenceEpoch = source == "scheduled" ? startedAt - startedAt % 60 : startedAt;
   if (source != "scheduled") {
@@ -3430,7 +3509,7 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
     }
   }
   feederStatus = "checking_feed_level";
-  readFeedLevelSensor();
+  readFeedLevelSensorSafely();
   sendFeederStatus();
   String blockedReason;
   time_t checkedAt;
@@ -3560,7 +3639,10 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
     }
   }
   feederLastFeedEpoch = (unsigned long)checkedAt;
-  feederFeedSource = source;
+  {
+    MutexGuard lcdLock(lcdMutex);
+    feederFeedSource = source;
+  }
   feederIsRunning = true;
   feederStatus = "dispensing";
   feederCurrentCycle = 0;
@@ -3643,7 +3725,7 @@ void processFeederTick() {
 
       // Confirm the level change after dispensing. This is a confirmation aid,
       // not a direct measurement of the exact grams dispensed.
-      readFeedLevelSensor();
+      readFeedLevelSensorSafely();
       const float levelAfter = feedLevelSensorOK ? feedLevelPercent : -1.0f;
       // Make the schedule-level opt-in visible in the audit log/notification.
       String completionAction = feederFeedSource == "scheduled"
@@ -3670,7 +3752,10 @@ void processFeederTick() {
       sendFeederStatus();
       // The log trigger updates the date-scoped outcome, including backfills.
 
-      feederFeedSource = "";
+      {
+        MutexGuard lcdLock(lcdMutex);
+        feederFeedSource = "";
+      }
       feederLastScheduleKey = "";
       feederForced = false;
       feederForceReason = "";
@@ -3854,8 +3939,11 @@ void applyTankAssignment(const String& tankId, const String& ownerUid, long long
   if (!feederInitialized) return;
   // Loop defers cloud work until the servo is parked. Revoke the cached plan;
   // never carry a previous owner's schedules/counters into the next account.
-  feederSchedules.clear();
-  feederScheduleCount = 0;
+  {
+    MutexGuard scheduleLock(feederScheduleMutex);
+    feederSchedules.clear();
+    feederScheduleCount = 0;
+  }
   allowWaterQualityFeeding = false;
   lastSchedulePolicySyncMs = 0;
   feederLastScheduleKey = "";
@@ -4012,6 +4100,7 @@ void initLCD() {
 
 void showLCDBoot(const String& line0, const String& line1, unsigned long holdMs) {
   if (!lcdReady) return;
+  MutexGuard lcdLock(lcdMutex);
   lcdPrint16(0, line0);
   lcdPrint16(1, line1);
   if (holdMs > 0) delay(holdMs);
@@ -4019,6 +4108,7 @@ void showLCDBoot(const String& line0, const String& line1, unsigned long holdMs)
 
 void showLCDBootProgress(const String& label, uint8_t filledPixels) {
   if (!lcdReady) return;
+  MutexGuard lcdLock(lcdMutex);
   if (filledPixels > 80) filledPixels = 80;
   const uint8_t fullCells = filledPixels / 5;
   const uint8_t partialPixels = filledPixels % 5;
@@ -4039,6 +4129,7 @@ void showLCDBootProgress(const String& label, uint8_t filledPixels) {
 
 void showLCDTransient(const String& line0, const String& line1, unsigned long holdMs) {
   if (!lcdReady) return;
+  MutexGuard lcdLock(lcdMutex);
   lcdTransientLine0 = line0;
   lcdTransientLine1 = line1;
   lcdTransientUntilMs = millis() + holdMs;
@@ -4068,7 +4159,10 @@ void initOnsiteButton() {
 
 void armFeedOverride(float grams, const String& reason) {
   overrideGrams = grams;
-  overrideWarnReason = reason;
+  {
+    MutexGuard lcdLock(lcdMutex);
+    overrideWarnReason = reason;
+  }
   overrideConfirmTaps = 0;
   overrideDeadlineMs = millis() + OVERRIDE_WINDOW_MS;
   Serial.printf("[FEEDER] BLOCKED (bypassable): %s — tap 2x within 10 s to force-dispense\n",
@@ -4076,7 +4170,10 @@ void armFeedOverride(float grams, const String& reason) {
 }
 
 void clearFeedOverride() {
-  overrideWarnReason = "";
+  {
+    MutexGuard lcdLock(lcdMutex);
+    overrideWarnReason = "";
+  }
   overrideGrams = 0;
   overrideConfirmTaps = 0;
   overrideDeadlineMs = 0;
@@ -4154,6 +4251,7 @@ void processOnsiteButton() {
 }
 
 void getNextScheduleLines(String& line0, String& line1) {
+  MutexGuard scheduleLock(feederScheduleMutex);
   time_t now;
   time(&now);
   if (now < 1700000000) {
@@ -4210,6 +4308,8 @@ void getNextScheduleLines(String& line0, String& line1) {
 // Non-blocking: refresh at most every LCD_ROTATE_MS, immediate on feed events.
 void updateLCD() {
   if (!lcdReady) return;
+  MutexGuard sensorLock(sensorStateMutex);
+  MutexGuard lcdLock(lcdMutex);
   unsigned long now = millis();
   if (lcdCloudBootPending && feederRunState == FEEDER_IDLE &&
       onsiteButtonTapCount == 0 && overrideWarnReason.length() == 0) return;
@@ -4265,6 +4365,27 @@ void updateLCD() {
   lcdPrint16(0, l0);
   lcdPrint16(1, l1);
   lastLcdRenderMs = now;
+}
+
+// Keep sensor acquisition and LCD rotation off the Firebase/control loop.
+// The network library's WiFiClient is not safe to use from multiple FreeRTOS
+// tasks, so all Firebase calls remain serialized in loop(); these tasks never
+// perform network work.
+void sensorPollingTask(void*) {
+  for (;;) {
+    readAllSensors();
+    if (sensorOutputEnabled) printSensorReading();
+    // Match the prior loop behavior: wait the configured interval after the
+    // completed scan, so a long scan never triggers a catch-up burst.
+    vTaskDelay(pdMS_TO_TICKS(SENSOR_POLL_MS));
+  }
+}
+
+void lcdDisplayTask(void*) {
+  for (;;) {
+    updateLCD();
+    vTaskDelay(pdMS_TO_TICKS(50));
+  }
 }
 
 
