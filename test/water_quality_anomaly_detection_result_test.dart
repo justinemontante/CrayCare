@@ -36,7 +36,6 @@ void main() {
       expect(result.driverUnit, 'mg/L');
       expect(result.driverValue, 5.5);
       expect(result.modelBasis, 'Isolation Forest ML');
-      expect(result.usesPrototypeData, isTrue);
       expect(result.recommendation, isNotEmpty);
     });
     test('does not expose former threshold assessment labels', () {
@@ -65,5 +64,24 @@ void main() {
       });
       expect(legacy.timestamp.year, 2024);
     });
+
+    test(
+      'stale current analysis cannot appear live, but remains history data',
+      () {
+        final now = DateTime.utc(2026, 10, 10, 12);
+        final result = WaterQualityAnomalyDetectionResult.fromMap({
+          'status': 'Normal',
+          'processed_at': Timestamp.fromDate(
+            now.subtract(const Duration(minutes: 91)),
+          ),
+        });
+        expect(result.hasData, isTrue);
+        expect(result.isFreshAt(now), isFalse);
+        expect(
+          result.isFreshAt(now.subtract(const Duration(minutes: 30))),
+          isTrue,
+        );
+      },
+    );
   });
 }

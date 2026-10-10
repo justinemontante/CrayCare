@@ -2,7 +2,7 @@
 
 Flutter + Firebase smart-aquaculture app for crayfish farming. The system
 monitors water conditions from ESP32 sensors, controls actuators and feeding,
-and produces an hourly Machine Learning-Based Water Quality Anomaly Detection.
+and produces scheduled Machine Learning-Based Water Quality Anomaly Detection.
 
 ## Stack
 
@@ -22,7 +22,7 @@ ESP32
   → notification Cloud Functions route readings to the assigned tank
   → tanks/{tankId}/sensor_readings/latest
   → tanks/{tankId}/sensor_readings_history/{date}/entries/{id}
-  → hourly Python run_hourly_wqad
+  → every-30-minute Python run_wqad_analysis
   → Machine Learning-Based Water Quality Anomaly Detection
   → tanks/{tankId}/water_quality_anomaly_detections/current + timestamped history
   → WaterQualityAnomalyDetectionService
@@ -31,27 +31,26 @@ ESP32
 
 ## Water Quality Anomaly Detection
 
-WQAD learns the usual combined pattern of five water sensors and their recent
+WQAD learns the usual combined pattern of four water-quality sensors and their recent
 temporal features without class labels. It returns `Normal`, `Unusual`, or
 `Insufficient`, together with an anomaly percentile, ranked contributors, an
 insight, and a verification-focused recommendation. The statistical anomaly
 boundary is not a biological safety threshold. Immediate alerts and actuator
 decisions remain in the separate sensor-threshold layer.
 
-The model artifact is `functions/ml/wqad_model.joblib`. Its provenance is stored
-with every result so the synthetic bootstrap artifact cannot be mistaken for a
-field-validated Cherax model.
+The model artifact is `functions/ml/trained_wqad_model.joblib`. Its provenance
+is stored with every result. The current model is an external fishpond proxy
+and has not been validated as a crayfish model.
 
 Important files:
 
 | File | Role |
 |---|---|
-| `functions/ml/generate_dataset.py` | Generates the synthetic development dataset |
 | `functions/ml/train_model.py` | Trains and saves the WQAD model artifact |
-| `functions/ml/anomaly_features.py` | Builds 52 multivariate and temporal features and runs anomaly inference |
+| `functions/ml/Dataset.csv` | Four-sensor source dataset used for model training |
+| `functions/ml/anomaly_features.py` | Builds 36 multivariate and temporal features and runs anomaly inference |
 | `functions/ml/anomaly_interpreter.py` | Produces insights and verification-focused recommendations |
-| `functions/ml/main.py` | Exports the hourly `run_hourly_wqad` Cloud Function |
-| `functions/ml/predict.py` | Runs a local end-to-end WQAD preview |
+| `functions/ml/main.py` | Exports the scheduled `run_wqad_analysis` Cloud Function |
 | `functions/ml/test_anomaly_detection.py` | Unsupervised-contract and detection tests |
 | `functions/ml/test_anomaly_window.py` | Freshness and continuous-history tests |
 

@@ -23,7 +23,7 @@ class _WaterQualityAnomalyDetectionCardState
       builder: (context, _) {
         final service = WaterQualityAnomalyDetectionService.instance;
         final result = service.result;
-        final hasData = result?.hasData ?? false;
+        final hasData = result?.isCurrent ?? false;
         // Keep anomaly status visible without letting saturated status colors
         // take over the whole dashboard card.
         final color = !hasData
@@ -118,8 +118,12 @@ class _WaterQualityAnomalyDetectionCardState
                 _ResultOverview(
                   isAnomaly: result?.isAnomaly ?? false,
                   score: hasData ? result!.anomalyScore : null,
-                  waitingMessage:
-                      'Waiting for 12 readings, 10 minutes apart, to analyze the latest 2-hour pattern. Analysis runs every 30 minutes.',
+                  waitingMessage: result?.hasData == true && !hasData
+                      ? 'The latest ML analysis is over 90 minutes old. Check the connection and analysis service.'
+                      : result?.status == 'Insufficient' &&
+                            result?.insight.isNotEmpty == true
+                      ? result!.insight
+                      : 'Waiting for 12 readings, 10 minutes apart, to analyze the latest 2-hour pattern. Analysis runs every 30 minutes.',
                   color: color,
                   lightColor: lightColor,
                 ),

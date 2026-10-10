@@ -4,17 +4,15 @@ CrayCare uses **Machine Learning-Based Water Quality Anomaly Detection (WQAD)**.
 
 It is not a Good/Moderate/Poor/Critical classifier. Sensor safety thresholds remain a separate feature for immediate alerts and actuator logic. WQAD provides an advisory `Normal`, `Unusual`, or `Insufficient` result, a reference-pattern percentile, ranked contributors, an insight, and a verification-focused recommendation. `Normal` means “fits the model's learned reference pattern,” not “water is safe.” The displayed percentile is a relative rarity rank, not a probability or confidence that the water is unsafe. Contributor ranking is a model-score sensitivity check, not a causal explanation.
 
-## Prototype workflow
+## Local tests
 
 From this directory, run:
 
 ```powershell
-venv\Scripts\python.exe generate_dataset.py
-venv\Scripts\python.exe train_model.py --dataset sensor_dataset.csv --output "$env:TEMP\wqad_synthetic_candidate.joblib" --train-days 60 --origin synthetic_bootstrap_not_field_validated
 venv\Scripts\python.exe -m unittest discover -p "test_*.py"
 ```
 
-`generate_dataset.py` creates reproducible ten-minute example readings and holdout events for software tests only. Their event labels are not supplied to model fitting. Training writes a separate candidate artifact and report; it does not overwrite the runtime model unless `--replace` is explicitly provided. Synthetic data are not field evidence.
+Unit tests create small deterministic readings in memory. Model training uses `Dataset.csv` as described below.
 
 ## Live Firestore integration test
 
@@ -32,53 +30,49 @@ These commands write synthetic data and/or analysis
 results to the live tank. They do not change sensor thresholds, retrain the
 model, or establish field validity.
 
-## External freshwater-fishpond candidate
+## Training dataset and active model
 
-`prepare_fishpond_candidate.py` creates a derived four-sensor training file from
-the public Zenodo freshwater-fishpond CSV. It keeps timestamp, temperature, pH,
-dissolved oxygen, and turbidity. It excludes `class`, sample ID, EC, TDS, and
-ORP. Each complete 10-minute bucket is the arithmetic mean of its two 5-minute
-records; incomplete buckets are discarded and never interpolated. The original
-CSV is not modified or stored in this repository. The Zenodo record identifies
-the source as CC BY 4.0. Attribute the authors (Giva Andriana Mutiara, Muhammad
-Rizqy Alfarisi, and Lisda Meisaroh), link DOI 10.5281/zenodo.19210095 and the
-license, and describe the changes (four selected sensors, complete-pair
-ten-minute means, excluded fields). Keep that attribution beside any shared
-derived dataset; this is project guidance, not legal advice.
+`Dataset.csv` is the original `Ponds1.csv` member selected from the supplied
+archive. It contains 74,796 source rows from three stations. The trainer calls
+`dataset_preparation.py` in memory and retains 74,729 complete four-sensor rows.
+It keeps station, timestamp, temperature, pH, dissolved oxygen, and turbidity;
+station and timestamp organize each time series but are not raw model features.
+Nitrate, ammonia, manganese, and any labels are excluded. Invalid rows are
+removed, duplicate station timestamps keep their last reading, stations remain
+separate, and no missing reading is interpolated.
 
-Example PowerShell workflow from this directory:
+The source cadence is normally 20 minutes. Feature version 3 uses time-based
+30-minute, one-hour, and two-hour windows, so the training source and live
+ten-minute inference use the same real-time horizons despite different sampling
+cadences. The two-hour statistics still contain roughly six source readings
+versus twelve live readings, so equal horizons do not prove equal feature
+distributions. Train the local model directly from the named dataset:
 
 ```powershell
-$prepared = Join-Path $env:TEMP 'fishpond_four_sensor_10min.csv'
-$candidate = Join-Path $env:TEMP 'wqad_fishpond_candidate.joblib'
-venv\Scripts\python.exe prepare_fishpond_candidate.py --dataset "D:\Users\SLUMDUNK\Downloads\fishpond_dataset_multiclass_2153.csv" --output $prepared
-venv\Scripts\python.exe train_model.py --dataset $prepared --output $candidate --report "$env:TEMP\wqad_fishpond_evaluation.json" --sensors temp,pH,DO,turbidity --train-days 5 --origin external_freshwater_fishpond_proxy_unvalidated
-venv\Scripts\python.exe evaluate_source_classes.py --dataset "D:\Users\SLUMDUNK\Downloads\fishpond_dataset_multiclass_2153.csv" --model $candidate --report "$env:TEMP\wqad_source_label_audit.json"
+venv\Scripts\python.exe train_model.py --dataset Dataset.csv --output trained_wqad_model.joblib --origin external_freshwater_fishpond_proxy_unvalidated --replace
 ```
 
-The fit, separate calibration period, and final chronological holdout are
-purged by 144 minutes so overlapping two-hour windows do not cross splits. The
-fixed 98th-percentile cutoff is calibrated without labels. `evaluation.json`
-reports alert frequency and distribution shifts; neither is accuracy or a
-guaranteed 2% false-alarm rate under temporal drift. A separate
-`evaluate_source_classes.py` audit can compare final holdout alerts with the
-dataset's `class` labels after training. Those labels are rule-generated from
-seven sensors, not independent biological truth, and never affect fitting or
-cutoff selection.
-
-The dataset covers about 7.5 days and represents freshwater fishponds, not
-CrayCare's crayfish tank. The current chronological holdout has no `Normal`
-source-label rows; it therefore cannot estimate normal-water specificity or
-meaningful overall accuracy. On this holdout, the candidate flagged 90 of 330
-source-labeled `Warning`/`Severe` records (27.3%), missing the other 240. This
-is only a post-hoc comparison to the source's rule labels, not a biological
-accuracy claim. The candidate is deployed only for monitored integration
-testing, not validated production use. Do not lower or raise its cutoff merely
-to make the dashboard show fewer alerts.
+By default, the first 60% of unique timestamps fit the Isolation Forest, the
+next 20% calibrate its cutoff, and the final 20% form the chronological holdout.
+A 144-minute purge separates partitions. All three stations contribute within
+each period. Holdout rows never fit the model or select its cutoff.
 
 ## Production requirement
 
-For testing, feature-version-2 is now the checked-in and deployed runtime bundle for `run_wqad_analysis` in Firebase project `craycare-8436c` (deployed 2026-10-03). It runs on the existing 30-minute schedule and writes only the WQAD `current` and detection-history results for the active assigned tank; this deployment did not seed or alter sensor readings. The earlier version-1 rollback copy was intentionally removed after version 2 became the test model. The deployed version-2 bundle remains an unvalidated freshwater-fishpond proxy, not a validated crayfish detector; the deployment is for monitored testing only.
+The local `trained_wqad_model.joblib` runtime bundle is feature version 3,
+trained directly from `Dataset.csv`. It used 45,814 fit rows, 15,245
+later calibration rows, and 13,560 final chronological holdout rows. The fixed
+98th-percentile cutoff flagged 2.19% of holdout rows. This percentage is an
+alert rate, not accuracy. `Dataset.csv` has no outcome labels, so sensitivity,
+specificity, precision, and recall cannot be reproduced or established from
+the retained project data. Local checks also showed that stable inputs with
+pH 14, dissolved oxygen 0 mg/L, or turbidity 250 NTU can still receive a
+`Normal` anomaly result. This detector must not replace the separate sensor
+safety alerts, and its field sensitivity requires prospective validation on
+the target crayfish tank. The local model has not been
+deployed by this training workflow. Any existing cloud deployment remains on
+its previously deployed bundle until the Firebase function is explicitly
+redeployed.
 
 Before final field claims:
 
@@ -93,13 +87,13 @@ The 98th-percentile decision boundary is a statistical rarity cutoff learned fro
 
 ## Training from collected history
 
-`export_firestore.py` exports the selected tank to `real_sensor_history.csv`, without overwriting the synthetic dataset. It reads canonical sensor fields and remains compatible with older average-field records. Configure `CRAYCARE_TANK_ID` and application credentials before exporting. Exported timestamps are UTC. Export one tank at a time; do not mix tanks in a single reference history.
+`export_firestore.py` exports the selected tank to `real_sensor_history.csv`, without overwriting `Dataset.csv`. It reads canonical sensor fields and remains compatible with older average-field records, including entries whose day-summary parent does not yet exist. Configure `CRAYCARE_TANK_ID` and application credentials before exporting. Exported timestamps are UTC. Export one tank at a time; do not mix tanks in a single reference history.
 
 ```powershell
 venv\Scripts\python.exe train_model.py --dataset real_sensor_history.csv --origin real_field_unvalidated --train-days 40 --output wqad_candidate.joblib
 ```
 
-The 40-day reference period is an example, not a required biological duration. Select it before inspecting the later holdout. The pipeline requires a later holdout and at least 100 usable reference rows. It rejects invalid aggregates, sorts and deduplicates timestamps, and restarts the twelve-row warm-up after a gap greater than one missed ten-minute slot, matching inference. One missed slot is tolerated; repeated or longer gaps restart the usable suffix. No future interpolation is used. Real-history fitting does not require labels. Without independent labels, the report contains alert frequency and drift diagnostics, not accuracy, precision, or recall. Synthetic event metrics are explicitly simulation-only. Back up the current runtime bundle before any future model replacement and document target-tank validation before production claims.
+The 40-day reference period is an example, not a required biological duration. Select it before inspecting the later holdout. The pipeline requires a later holdout and at least 100 usable reference rows. It rejects invalid aggregates, sorts and deduplicates timestamps per series, and rebuilds the two-hour warm-up after a material cadence gap. Live inference still requires twelve recent ten-minute readings and tolerates one missed slot. No future interpolation is used. Real-history fitting does not require labels. Without independent labels, the report contains alert frequency and drift diagnostics, not accuracy, precision, or recall. Synthetic event metrics are explicitly simulation-only. Back up the current runtime bundle before any future model replacement and document target-tank validation before production claims.
 
 ## Evidence behind user-facing checks
 
@@ -123,4 +117,3 @@ configured safety thresholds.
 - [USGS continuous-monitoring guidance (Wagner et al., 2006)](https://doi.org/10.3133/tm1D3)
 - [scikit-learn: IsolationForest](https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.IsolationForest.html)
 - [UF/IFAS: Alkalinity and Hardness](https://edis.ifas.ufl.edu/publication/SS540)
-- [Zenodo dataset record, DOI 10.5281/zenodo.19210095](https://zenodo.org/records/19210095) and [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)

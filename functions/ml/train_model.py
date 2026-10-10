@@ -16,23 +16,33 @@ import sklearn
 from sklearn.ensemble import IsolationForest
 
 from anomaly_features import SENSORS
+from dataset_preparation import prepare_dataset
 from training_data import prepare_history
 
 
-def train(dataset, train_days=5, calibration_fraction=.25, percentile=98.0,
+def train(dataset, train_days=None, reference_fraction=.80,
+          calibration_fraction=.25, percentile=98.0,
           origin='external_freshwater_fishpond_proxy_unvalidated'):
     dataset = Path(dataset)
-    source = pd.read_csv(dataset)
-    rows, features = prepare_history(source, version=2)
+    source = pd.read_csv(dataset, low_memory=False)
+    if {'Date', 'Time', 'TEMP', 'PH', 'DO', 'TURBIDITY'}.issubset(source.columns):
+        source = prepare_dataset(source)
+    rows, features = prepare_history(source, version=3)
     # Use the first usable endpoint, as the previous trainer did. It is not a
     # label-selected healthy period. Input selection must be documented.
-    test_at = rows.timestamp.min() + pd.Timedelta(days=train_days)
-    reference = rows.timestamp < test_at
-    reference_positions = np.flatnonzero(reference)
-    fit_count = int(len(reference_positions) * (1 - calibration_fraction))
-    if fit_count < 100 or fit_count >= len(reference_positions):
+    unique_times = rows.timestamp.drop_duplicates().sort_values().reset_index(drop=True)
+    if train_days is None:
+        if not .5 <= reference_fraction <= .9:
+            raise ValueError('reference_fraction must be between 0.5 and 0.9.')
+        split_position = min(len(unique_times) - 1, int(len(unique_times) * reference_fraction))
+        test_at = unique_times.iloc[split_position]
+    else:
+        test_at = rows.timestamp.min() + pd.Timedelta(days=train_days)
+    reference_times = unique_times[unique_times < test_at].reset_index(drop=True)
+    fit_time_count = int(len(reference_times) * (1 - calibration_fraction))
+    if fit_time_count < 100 or fit_time_count >= len(reference_times):
         raise ValueError('Need at least 100 fit rows and a later calibration block.')
-    calibration_at = rows.timestamp.iloc[reference_positions[fit_count]]
+    calibration_at = reference_times.iloc[fit_time_count]
     # At most one missed 10-minute slot: earliest point in a 12-row window
     # can be 132 minutes earlier (11 intervals at the maximum allowed jitter).
     # A 144-minute purge is conservative; no raw input windows cross splits.
@@ -56,7 +66,7 @@ def train(dataset, train_days=5, calibration_fraction=.25, percentile=98.0,
     scales = (fit - medians).abs().median() * 1.4826
     scales = scales.where(scales > 1e-8, fit.std()).replace(0, 1.0).fillna(1.0)
     bundle = {
-        'model': model, 'feature_version': 2, 'sensors': SENSORS,
+        'model': model, 'feature_version': 3, 'sensors': SENSORS,
         'features': list(features.columns), 'algorithm': 'IsolationForest',
         'trained_at_utc': pd.Timestamp.now(tz='UTC').isoformat(),
         'training_data_origin': origin, 'training_labels_used': False,
@@ -69,7 +79,9 @@ def train(dataset, train_days=5, calibration_fraction=.25, percentile=98.0,
         'robust_centers': medians.to_dict(), 'robust_scales': scales.to_dict(),
         'trend_deadbands': {s: float(fit[s + '_trend30m'].abs().quantile(.25)) for s in SENSORS},
         'contributor_method': 'positive_sensor_block_median_replacement_score_reduction',
-        'analysis_window_minutes': 120, 'minimum_history_rows': 12,
+        'analysis_window_minutes': 120, 'minimum_live_history_rows': 12,
+        'training_series_count': int(rows['series_id'].nunique()) if 'series_id' in rows else 1,
+        'source_reference_fraction': reference_fraction if train_days is None else None,
         'validation_strategy': 'chronological_fit_then_calibration_then_purged_holdout',
         'calibration_start_utc': calibration_at.isoformat(), 'split_at_utc': test_at.isoformat(),
         'purge_minutes': 144, 'holdout_alert_fraction': float(predicted.mean()),
@@ -82,7 +94,7 @@ def train(dataset, train_days=5, calibration_fraction=.25, percentile=98.0,
                           'unusual': predicted}).groupby('day').unusual.agg(['count', 'sum', 'mean'])
     drift = ((test.median() - fit.median()) / scales).abs().sort_values(ascending=False)
     report = {
-        'algorithm': bundle['algorithm'], 'feature_version': 2,
+        'algorithm': bundle['algorithm'], 'feature_version': 3,
         'data_origin': origin, 'dataset_sha256': bundle['dataset_sha256'],
         'fit_rows': len(fit), 'calibration_rows': len(cal), 'holdout_rows': len(test),
         'fit_end_utc': rows.loc[fit_mask, 'timestamp'].max().isoformat(),
@@ -108,7 +120,8 @@ def main():
     parser.add_argument('--dataset', required=True)
     parser.add_argument('--output', default=str(Path(__file__).with_name('wqad_candidate.joblib')))
     parser.add_argument('--report', help='JSON evaluation report path')
-    parser.add_argument('--train-days', type=float, default=5)
+    parser.add_argument('--train-days', type=float)
+    parser.add_argument('--reference-fraction', type=float, default=.80)
     parser.add_argument('--calibration-fraction', type=float, default=.25)
     parser.add_argument('--percentile', type=float, default=98)
     parser.add_argument('--sensors', default=','.join(SENSORS))
@@ -118,11 +131,14 @@ def main():
     args = parser.parse_args()
     if args.sensors.split(',') != SENSORS:
         parser.error('Use exactly temp,pH,DO,turbidity.')
-    if args.train_days <= 0 or not 0 < args.calibration_fraction < .5 or not 90 <= args.percentile < 100:
-        parser.error('Check positive train-days, calibration fraction (0,.5), and percentile [90,100).')
+    if ((args.train_days is not None and args.train_days <= 0) or
+            not .5 <= args.reference_fraction <= .9 or
+            not 0 < args.calibration_fraction < .5 or not 90 <= args.percentile < 100):
+        parser.error('Check train-days, reference fraction [.5,.9], calibration fraction (0,.5), and percentile [90,100).')
     if Path(args.output).exists() and not args.replace:
         parser.error('Output already exists; use a new candidate path or explicitly pass --replace.')
-    bundle, report = train(args.dataset, args.train_days, args.calibration_fraction, args.percentile, args.origin)
+    bundle, report = train(args.dataset, args.train_days, args.reference_fraction,
+                           args.calibration_fraction, args.percentile, args.origin)
     joblib.dump(bundle, args.output, compress=3)
     if args.report:
         Path(args.report).write_text(json.dumps(report, indent=2, allow_nan=False) + '\n', encoding='utf-8')

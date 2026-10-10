@@ -11,7 +11,7 @@ _bundle = None
 _recommendations = None
 _db = None
 _ROOT = os.path.dirname(__file__)
-_MODEL_PATH = os.path.join(_ROOT, "wqad_model.joblib")
+_MODEL_PATH = os.path.join(_ROOT, "trained_wqad_model.joblib")
 _RECOMMENDATIONS_PATH = os.path.join(_ROOT, "anomaly_recommendations.json")
 _WQAD_SENSORS = ["temp", "pH", "DO", "turbidity"]
 _HISTORY_FIELDS = {
@@ -46,7 +46,13 @@ def _load_wqad():
         import joblib
 
         try:
-            _bundle = joblib.load(_MODEL_PATH)
+            loaded = joblib.load(_MODEL_PATH)
+            if (not isinstance(loaded, dict)
+                    or loaded.get("feature_version") != 3
+                    or loaded.get("algorithm") != "IsolationForest"
+                    or loaded.get("sensors") != _WQAD_SENSORS):
+                raise ValueError("The deployed WQAD artifact is not the current four-sensor model.")
+            _bundle = loaded
         except Exception as error:
             print(f"[WQAD] Model unavailable: {error}")
     return _bundle, _recommendations

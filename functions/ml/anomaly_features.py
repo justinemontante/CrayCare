@@ -19,6 +19,17 @@ def build_anomaly_features(df, sensors=None, version=1):
 
     sensors = list(sensors or SENSORS)
     feat = pd.DataFrame(index=df.index)
+    time_index = None
+    if version >= 3:
+        time_index = pd.to_datetime(
+            df["timestamp"].map(timestamp_seconds), unit="s", utc=True, errors="coerce"
+        )
+
+    def time_rolling(values, window, min_periods, operation):
+        """Return a time-based rolling statistic without changing row indexes."""
+        series = pd.Series(values.to_numpy(), index=time_index)
+        rolled = getattr(series.rolling(window, min_periods=min_periods), operation)()
+        return pd.Series(rolled.to_numpy(), index=df.index)
     for sensor in sensors:
         value_column = next(
             (name for name in SENSOR_VALUE_FIELDS[sensor] if name in df), None
@@ -34,12 +45,20 @@ def build_anomaly_features(df, sensors=None, version=1):
             elapsed = df['timestamp'].map(timestamp_seconds).diff() / 600.0
             delta = delta / elapsed.where(elapsed > 0)
         feat[f"{sensor}_delta"] = delta
-        feat[f"{sensor}_roll1h_mean"] = avg.rolling(6, min_periods=2).mean()
-        feat[f"{sensor}_roll1h_std"] = avg.rolling(6, min_periods=2).std()
-        feat[f"{sensor}_roll2h_mean"] = avg.rolling(12, min_periods=3).mean()
-        feat[f"{sensor}_roll2h_std"] = avg.rolling(12, min_periods=3).std()
-        feat[f"{sensor}_trend30m"] = delta.rolling(3, min_periods=2).mean()
-        feat[f"{sensor}_trend1h"] = delta.rolling(6, min_periods=3).mean()
+        if version >= 3:
+            feat[f"{sensor}_roll1h_mean"] = time_rolling(avg, "60min", 2, "mean")
+            feat[f"{sensor}_roll1h_std"] = time_rolling(avg, "60min", 2, "std")
+            feat[f"{sensor}_roll2h_mean"] = time_rolling(avg, "120min", 3, "mean")
+            feat[f"{sensor}_roll2h_std"] = time_rolling(avg, "120min", 3, "std")
+            feat[f"{sensor}_trend30m"] = time_rolling(delta, "30min", 2, "mean")
+            feat[f"{sensor}_trend1h"] = time_rolling(delta, "60min", 3, "mean")
+        else:
+            feat[f"{sensor}_roll1h_mean"] = avg.rolling(6, min_periods=2).mean()
+            feat[f"{sensor}_roll1h_std"] = avg.rolling(6, min_periods=2).std()
+            feat[f"{sensor}_roll2h_mean"] = avg.rolling(12, min_periods=3).mean()
+            feat[f"{sensor}_roll2h_std"] = avg.rolling(12, min_periods=3).std()
+            feat[f"{sensor}_trend30m"] = delta.rolling(3, min_periods=2).mean()
+            feat[f"{sensor}_trend1h"] = delta.rolling(6, min_periods=3).mean()
         scale = feat[f"{sensor}_roll2h_std"].clip(lower=1e-6)
         feat[f"{sensor}_baseline_deviation"] = (
             avg - feat[f"{sensor}_roll2h_mean"]
@@ -152,7 +171,9 @@ def detect_water_quality_anomaly(df, bundle, recommendations):
     sensors = list(bundle.get("sensors", SENSORS))
     if sensors != SENSORS:
         raise ValueError("WQAD model must use exactly temp, pH, DO, and turbidity.")
-    version = int(bundle.get('feature_version', 1))
+    version = int(bundle.get('feature_version', -1))
+    if version != 3 or bundle.get('algorithm') != 'IsolationForest':
+        raise ValueError('WQAD requires the trained feature-version-3 Isolation Forest bundle.')
     if version >= 2:
         from anomaly_window import anomaly_window
         try:
