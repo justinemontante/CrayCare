@@ -117,13 +117,13 @@ class WaterQualityAnomalyDetectionResult {
   String get driverUnit => sensorUnitFor(driver);
 
   bool get hasData => status != 'Insufficient';
-  // The scheduled analysis runs every 30 minutes. After three missed runs,
+  // The scheduled analysis runs every 15 minutes. After three missed runs,
   // the last result must not continue to look like a live assessment.
   bool isFreshAt(DateTime now) {
     if (!hasData) return false;
     final age = now.toUtc().difference(timestamp.toUtc());
     return age >= const Duration(minutes: -5) &&
-        age < const Duration(minutes: 90);
+        age < const Duration(minutes: 45);
   }
 
   bool get isCurrent => isFreshAt(DateTime.now());
@@ -178,7 +178,7 @@ class WaterQualityAnomalyDetectionService extends ChangeNotifier {
     if (result == null || !result.isCurrent) return;
     final delay = result.timestamp
         .toUtc()
-        .add(const Duration(minutes: 90))
+        .add(const Duration(minutes: 45))
         .difference(DateTime.now().toUtc());
     if (delay > Duration.zero) {
       _freshnessTimer = Timer(
