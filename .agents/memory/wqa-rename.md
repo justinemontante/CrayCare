@@ -15,8 +15,8 @@ Immediate safety thresholds remain a separate app/firmware feature.
 
 ## Canonical implementation
 
-- Firebase function: `run_hourly_wqad`
-- Model artifact: `functions/ml/wqad_model.joblib`
+- Firebase function: `run_wqad_analysis`
+- Model artifact: `functions/ml/trained_wqad_model.joblib`
 - Algorithm: `IsolationForest`
 - Flutter service: `WaterQualityAnomalyDetectionService`
 - Flutter result: `WaterQualityAnomalyDetectionResult`
@@ -24,6 +24,7 @@ Immediate safety thresholds remain a separate app/firmware feature.
 - Current document: `tanks/{tankId}/water_quality_anomaly_detections/current`
 - UI terminology: `Water Quality Anomaly Detection` / `WQAD`
 
-The bundled model is a synthetic bootstrap prototype and must not be described
-as field-validated until retrained and prospectively checked against calibrated
-real tank history.
+The bundled model is trained from an external real freshwater fishpond dataset
+used as a proxy for CrayCare. It must not be described as field-validated for
+the target crayfish tank until it is prospectively checked against calibrated
+real CrayCare tank history.
