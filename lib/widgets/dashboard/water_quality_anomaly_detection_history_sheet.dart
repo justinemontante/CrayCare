@@ -330,7 +330,7 @@ class _WaterQualityAnomalyDetectionHistorySheet extends StatelessWidget {
               const SizedBox(height: 16),
               _DetailSection(
                 icon: Icons.fact_check_outlined,
-                label: 'Suggested checks',
+                label: 'Recommended Action',
                 text: item.recommendation,
               ),
             ],
