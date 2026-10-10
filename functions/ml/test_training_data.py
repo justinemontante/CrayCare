@@ -89,6 +89,42 @@ class TrainingDataTests(unittest.TestCase):
         self.assertIn('turbidity_avg', features)
         self.assertFalse(any('waterLevel' in name for name in features.columns))
 
+    def test_v3_keeps_station_series_separate_at_twenty_minute_cadence(self):
+        first = self.sample(30).iloc[::2].copy()
+        first['series_id'] = 'pond-a'
+        second = first.copy()
+        second['series_id'] = 'pond-b'
+        second['temperature'] += 10
+        combined = pd.concat([first, second], ignore_index=True)
+        rows, features = prepare_history(combined, version=3)
+        self.assertEqual(set(rows['series_id']), {'pond-a', 'pond-b'})
+        self.assertEqual(len(rows), 18)
+        self.assertEqual(len(features), len(rows))
+        self.assertTrue((rows.loc[rows.series_id == 'pond-b', 'temperature'] > 10).all())
+
+    def test_v3_time_horizons_support_ten_and_twenty_minute_sources(self):
+        ten_minute = self.sample(30)
+        twenty_minute = ten_minute.iloc[::2].copy()
+        _, ten_features = prepare_history(ten_minute, version=3)
+        _, twenty_features = prepare_history(twenty_minute, version=3)
+        self.assertEqual(list(ten_features.columns), list(twenty_features.columns))
+        self.assertEqual(len(ten_features.columns), 36)
+
+    def test_v3_last_training_row_matches_live_window_features(self):
+        source = self.sample(40)
+        _, training_features = prepare_history(source, version=3)
+        live_window = source.tail(12).copy()
+        live_window['timestamp'] = live_window['timestamp'].map(
+            lambda value: value.timestamp()
+        )
+        live_features = build_anomaly_features(
+            live_window, sensors=SENSORS, version=3
+        )
+        np.testing.assert_allclose(
+            training_features.iloc[-1], live_features.iloc[-1],
+            rtol=1e-10, atol=1e-10,
+        )
+
     def test_fishpond_proxy_origin_and_four_sensor_candidate_train_without_labels(self):
         with tempfile.TemporaryDirectory() as directory:
             dataset = Path(directory) / 'history.csv'

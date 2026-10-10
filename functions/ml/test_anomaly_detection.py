@@ -3,6 +3,7 @@ import os
 import unittest
 
 import joblib
+import numpy as np
 import pandas as pd
 
 from anomaly_features import SENSORS, build_anomaly_features, detect_water_quality_anomaly
@@ -13,9 +14,17 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 class WaterQualityAnomalyDetectionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.frame = pd.read_csv(os.path.join(ROOT, "sensor_dataset.csv"), parse_dates=["timestamp"])
-        cls.frame["timestamp"] = pd.to_datetime(cls.frame["timestamp"], utc=True).map(lambda value: value.timestamp())
-        cls.bundle = joblib.load(os.path.join(ROOT, "wqad_model.joblib"))
+        count = 600
+        phase = np.arange(count) * 2 * np.pi / 144
+        cls.frame = pd.DataFrame({
+            "timestamp": pd.date_range("2026-08-01", periods=count, freq="10min", tz="UTC"),
+            "temperature": 25.0 + 0.8 * np.sin(phase),
+            "ph_level": 7.4 + 0.08 * np.sin(phase / 2),
+            "dissolved_oxygen": 6.5 + 0.4 * np.cos(phase),
+            "turbidity": 20.0 + 1.8 * np.sin(phase * 1.5),
+        })
+        cls.frame["timestamp"] = cls.frame["timestamp"].map(lambda value: value.timestamp())
+        cls.bundle = joblib.load(os.path.join(ROOT, "trained_wqad_model.joblib"))
         with open(os.path.join(ROOT, "anomaly_recommendations.json"), encoding="utf-8") as handle:
             cls.recommendations = json.load(handle)
 
@@ -64,6 +73,13 @@ class WaterQualityAnomalyDetectionTests(unittest.TestCase):
         )
         self.assertTrue(result["contributors"])
         self.assertFalse(any(item["sensor"] == "waterLevel" for item in result["contributors"]))
+
+    def test_old_artifact_cannot_silently_run_as_current_model(self):
+        old_bundle = dict(self.bundle, feature_version=2)
+        with self.assertRaisesRegex(ValueError, "feature-version-3"):
+            detect_water_quality_anomaly(
+                self.frame.iloc[500:512], old_bundle, self.recommendations
+            )
 
 
 if __name__ == "__main__":

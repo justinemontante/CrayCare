@@ -111,16 +111,22 @@ class WaterQualityAnomalyDetectionResult {
       contributors.isEmpty ? null : contributors.first;
 
   String get driver => primaryContributor?['sensor']?.toString() ?? 'overall';
-  String get driverLabel => driver == 'overall'
-      ? 'Combined water pattern'
-      : sensorLabelFor(driver);
-  double? get driverValue =>
-      (primaryContributor?['value'] as num?)?.toDouble();
+  String get driverLabel =>
+      driver == 'overall' ? 'Combined water pattern' : sensorLabelFor(driver);
+  double? get driverValue => (primaryContributor?['value'] as num?)?.toDouble();
   String get driverUnit => sensorUnitFor(driver);
 
   bool get hasData => status != 'Insufficient';
-  // The currently deployed model uses synthetic bootstrap data.
-  bool get usesPrototypeData => true;
+  // The scheduled analysis runs every 30 minutes. After three missed runs,
+  // the last result must not continue to look like a live assessment.
+  bool isFreshAt(DateTime now) {
+    if (!hasData) return false;
+    final age = now.toUtc().difference(timestamp.toUtc());
+    return age >= const Duration(minutes: -5) &&
+        age < const Duration(minutes: 90);
+  }
+
+  bool get isCurrent => isFreshAt(DateTime.now());
 
   String get modelBasis {
     if (!hasData) return 'Insufficient Data';
@@ -158,12 +164,29 @@ class WaterQualityAnomalyDetectionService extends ChangeNotifier {
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _currentSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _historySub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _legacyHistorySub;
+  Timer? _freshnessTimer;
 
   WaterQualityAnomalyDetectionResult? get result => _result;
   List<WaterQualityAnomalyDetectionResult> get history =>
       List.unmodifiable(_history);
   bool get loading => _loading;
-  bool get hasData => _result?.hasData ?? false;
+  bool get hasData => _result?.isCurrent ?? false;
+
+  void _refreshWhenStale() {
+    _freshnessTimer?.cancel();
+    final result = _result;
+    if (result == null || !result.isCurrent) return;
+    final delay = result.timestamp
+        .toUtc()
+        .add(const Duration(minutes: 90))
+        .difference(DateTime.now().toUtc());
+    if (delay > Duration.zero) {
+      _freshnessTimer = Timer(
+        delay + const Duration(seconds: 1),
+        notifyListeners,
+      );
+    }
+  }
 
   void init() {
     if (_initialized) return;
@@ -176,15 +199,16 @@ class WaterQualityAnomalyDetectionService extends ChangeNotifier {
 
   void _restartForUser(User? user) {
     final generation = ++_listenGeneration;
+    _freshnessTimer?.cancel();
     _currentSub?.cancel();
     _historySub?.cancel();
     _legacyHistorySub?.cancel();
     _currentSub = null;
     _historySub = null;
     _legacyHistorySub = null;
+    _result = null;
+    _history = [];
     if (user == null) {
-      _result = null;
-      _history = [];
       _loading = true;
       notifyListeners();
       return;
@@ -237,6 +261,7 @@ class WaterQualityAnomalyDetectionService extends ChangeNotifier {
               _result = snapshot.exists && snapshot.data() != null
                   ? WaterQualityAnomalyDetectionResult.fromMap(snapshot.data()!)
                   : null;
+              _refreshWhenStale();
               _loading = false;
               notifyListeners();
             },
@@ -315,6 +340,7 @@ class WaterQualityAnomalyDetectionService extends ChangeNotifier {
     _currentSub?.cancel();
     _historySub?.cancel();
     _legacyHistorySub?.cancel();
+    _freshnessTimer?.cancel();
     ConnectivityService.instance.removeOnConnectCallback(_onReconnect);
     _initialized = false;
     super.dispose();

@@ -84,11 +84,15 @@ class HomeWidgetService {
 
     snapshot['widget_signed_in'] = true;
     snapshot['widget_online'] = sensors.isEspOnline;
-    snapshot['widget_wqad'] = anomaly?.hasData == true
+    snapshot['widget_wqad'] = anomaly?.isCurrent == true
         ? anomaly!.status.toUpperCase()
+        : anomaly?.hasData == true
+        ? 'STALE'
         : 'WAITING';
-    snapshot['widget_concern'] = anomaly?.hasData == true
+    snapshot['widget_concern'] = anomaly?.isCurrent == true
         ? _formatConcern(anomaly!)
+        : anomaly?.hasData == true
+        ? 'ML analysis is over 90 minutes old'
         : anomaly?.source == 'Stale sensor history'
         ? 'Sensor history is stale; check connectivity'
         : 'Collecting anomaly baseline';
