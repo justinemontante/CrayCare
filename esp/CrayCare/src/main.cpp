@@ -270,7 +270,21 @@ void initOfflineBuffer() {
     littlefsMounted = false;
   } else {
     littlefsMounted = true;
-    LittleFS.mkdir("/buf");  // parent dir must exist or appends can never create the file
+    if (!LittleFS.exists("/buf") && !LittleFS.mkdir("/buf")) {
+      Serial.println("[BUF] Could not create /buf on LittleFS");
+      littlefsMounted = false;
+    }
+    // Create the append target up front. Some ESP32 VFS/LittleFS builds fail
+    // FILE_APPEND on a missing file and emit "no permits for creation".
+    if (littlefsMounted && !LittleFS.exists(BUFFER_PATH)) {
+      File emptyBuffer = LittleFS.open(BUFFER_PATH, "w");
+      if (emptyBuffer) {
+        emptyBuffer.close();
+      } else {
+        Serial.println("[BUF] Could not initialize LittleFS history buffer");
+        littlefsMounted = false;
+      }
+    }
   }
   initSDCard();  // optional — LittleFS remains the fallback when no card is present
   Serial.printf("[BUF] backend=%s buffered=%u\n",
@@ -304,6 +318,7 @@ void migrateLittleFSToSD() {
     if (!LittleFS.exists(BUFFER_PATH)) return;
     File src = LittleFS.open(BUFFER_PATH, "r");
     if (!src) return;
+    if (src.size() == 0) { src.close(); return; }
     File dst = SD.open(SD_BUFFER_PATH, FILE_APPEND);
     if (!dst) { src.close(); return; }
     size_t moved = 0;
@@ -366,6 +381,11 @@ bool bufferAppend(const String& jsonLine) {
   if (jsonLine.length() < 10) return false;
   fs::FS& fs = bufFS();
   if (!sdMounted && !littlefsMounted) return false;
+  if (!sdMounted && !LittleFS.exists(BUFFER_PATH)) {
+    File emptyBuffer = LittleFS.open(BUFFER_PATH, "w");
+    if (!emptyBuffer) return false;
+    emptyBuffer.close();
+  }
   File f = fs.open(bufPath(), FILE_APPEND);
   if (!f) return false;
   f.println(jsonLine);
@@ -701,15 +721,17 @@ void showLCDBootProgress(const String& label, uint8_t filledPixels);
 
 // Blower (relay module, ACTIVE-LOW like the main relays) on GPIO16.
 // Runs 5 s ahead of every feed (manual, cloud, scheduled, onsite) to warm
-// up, stays ON through dispensing, then auto-OFF at DONE unless manually ON.
+// up, stays ON through dispensing and for 10 s after the final gate closes.
 // Manual control: n4on/n4off serial + GPIO2 physical toggle button.
 #define BLOWER_PIN 16
 #define BLOWER_PRE_SEC 5              // warm-up lead before every feed
-#define BLOWER_POST_SEC 0             // tail after DONE (0 = off immediately)
+#define BLOWER_POST_SEC 10            // stay ON after the final gate actuation
 #define BLOWER_MAX_ON_MS (15UL * 60UL * 1000UL)  // safety timeout for manual runs
 bool blowerOn = false;
 bool blowerAutoHeld = false;          // true only when auto logic turned it ON
+bool blowerPostRunPending = false;
 unsigned long blowerOnSinceMs = 0;
+unsigned long blowerPostRunStartedMs = 0;
 
 // Actuator pins are defined with the ACTUATOR STATE block above.
 
@@ -753,6 +775,7 @@ float doVoltageScale = 4.0;
 float doVoltageOffset = 0.0;
 float phVoltageSlope = -5.70;
 float phVoltageIntercept = 21.34;
+int phFitPointCount = 2;  // NVS "phFitN"; 3 means provisional three-buffer regression
 // HC-SR04 mounting calibration (centimetres). The sensor is mounted above
 // the tank bottom; depth = sensorHeight - measured air gap.
 float waterSensorHeightCm = 65.0;
@@ -765,6 +788,21 @@ float waterLevelCmMax = 23.0;
 #define SMOOTH_WINDOW 10
 #define SAMPLE_COUNT 50
 #define SAMPLE_DELAY_MS 5
+#define CAL_STREAM_DEFAULT_MS 100
+#define CAL_STREAM_MIN_MS 20
+#define CAL_STREAM_MAX_MS 2000
+#define CAL_PH_STABLE_MS 60000UL
+#define CAL_DO_STABLE_MS 30000UL
+#define CAL_TURB_STABLE_MS 10000UL
+#define CAL_PH_STABLE_SPREAD_V 0.010f
+#define CAL_DO_STABLE_SPREAD_V 0.010f
+#define CAL_TURB_STABLE_SPREAD_V 0.010f
+#define CAL_STABLE_MAX_BLOCKS 3200  // >60 s at the minimum 20 ms stream interval
+#define CAL_CAPTURE_MATCH_V 0.010f
+#define SENSOR_FILTER_WINDOW 5
+#define LIVE_PH_STABLE_SPREAD_V 0.010f
+#define LIVE_DO_STABLE_SPREAD_V 0.020f
+#define LIVE_TURB_STABLE_SPREAD_V 0.020f
 
 #define TEMP_JUMP_MAX 3.0
 #define TURB_NTU_JUMP_MAX 100.0
@@ -815,14 +853,46 @@ uint8_t tempSkipCount = 0;
 volatile bool sensorOutputEnabled = false;
 bool rawStreamEnabled = false;      // `raw on` 1 s voltage stream for calibration
 unsigned long lastRawStreamMs = 0;
+volatile bool calibrationMode = false;
+enum CalibrationSensor : uint8_t { CAL_SENSOR_NONE, CAL_SENSOR_PH, CAL_SENSOR_DO, CAL_SENSOR_TURB };
+volatile uint8_t calibrationStreamSensor = CAL_SENSOR_NONE;
+uint16_t calibrationStreamIntervalMs = CAL_STREAM_DEFAULT_MS;
+unsigned long calibrationLastAdcMs = 0;
+unsigned long calibrationLastPrintMs = 0;
+unsigned long calibrationStableSinceMs = 0;
+uint32_t calibrationAdcSum = 0;
+uint32_t calibrationMilliVoltSum = 0;
+uint16_t calibrationAdcCount = 0;
+uint16_t calibrationAdcMin = 4095;
+uint16_t calibrationAdcMax = 0;
+uint16_t calibrationMilliVoltMin = UINT16_MAX;
+uint16_t calibrationMilliVoltMax = 0;
+float calibrationStableVoltage = 0.0f;
+float calibrationStableMinVoltage = 0.0f;
+float calibrationStableMaxVoltage = 0.0f;
+bool calibrationStable = false;
+float calibrationBlockAvgVoltage[CAL_STABLE_MAX_BLOCKS];
+unsigned long calibrationBlockMs[CAL_STABLE_MAX_BLOCKS];
+uint16_t calibrationBlockHead = 0;
+uint16_t calibrationBlockCount = 0;
 
-float turbidityBuffer[SMOOTH_WINDOW];
-uint8_t turbidityCount = 0;
-uint8_t turbidityIndex = 0;
+float phVoltageSamples[SENSOR_FILTER_WINDOW] = {};
+uint8_t phVoltageSampleCount = 0;
+uint8_t phVoltageSampleNext = 0;
+float phFilteredVoltage = 0.0f;
+bool phReadingStable = false;
+float doVoltageSamples[SENSOR_FILTER_WINDOW] = {};
+uint8_t doVoltageSampleCount = 0;
+uint8_t doVoltageSampleNext = 0;
+float doFilteredVoltage = 0.0f;
+bool doReadingStable = false;
+float turbidityVoltageSamples[SENSOR_FILTER_WINDOW] = {};
+uint8_t turbidityVoltageSampleCount = 0;
+uint8_t turbidityVoltageSampleNext = 0;
+float turbidityFilteredVoltage = 0.0f;
+bool turbidityReadingStable = false;
 float smoothedTurbidityNTU = 0.0;
-float lastValidTurbidityNTU = -1.0;
 bool turbiditySensorOK = false;
-uint8_t turbiditySkipCount = 0;
 float turbidityVoltage = 0.0;
 
 // ─── 10-min window means ───────────────────────────────────────────────
@@ -901,6 +971,19 @@ float readAnalogVoltage(uint8_t pin) {
   return avg * (3.3f / 4095.0f);
 }
 
+// Use the ESP32's eFuse/ADC-characterized millivolt conversion for the pH
+// channel. Keep the legacy conversion above for other sensors until their
+// existing voltage calibrations are explicitly migrated.
+float readPHVoltage() {
+  MutexGuard ioLock(sensorIoMutex);
+  uint32_t sumMilliVolts = 0;
+  for (int i = 0; i < SAMPLE_COUNT; i++) {
+    sumMilliVolts += analogReadMilliVolts(PH_PIN);
+    delay(SAMPLE_DELAY_MS);
+  }
+  return ((float)sumMilliVolts / SAMPLE_COUNT) / 1000.0f;
+}
+
 float saturationDOmgL(float tempC) {
   // Freshwater oxygen saturation approximation near sea level.
   const float t = constrain(tempC, 0.0f, 40.0f);
@@ -908,31 +991,44 @@ float saturationDOmgL(float tempC) {
          0.000077774f * t * t * t;
 }
 
-void saveSensorCalibrations() {
-  prefs.begin("sensorcal", false);
-  prefs.putFloat("phSlope", phVoltageSlope);
-  prefs.putFloat("phIntercept", phVoltageIntercept);
-  prefs.putFloat("doScale", doVoltageScale);
-  prefs.putFloat("doOffset", doVoltageOffset);
-  prefs.putFloat("tankHeight", waterSensorHeightCm);
-  prefs.putFloat("tankDepth", waterLevelCmMax);
-  prefs.putFloat("turbClear", turbidityVClear);
-  prefs.putFloat("turbDirty", turbidityVDirty);
-  prefs.putFloat("turbAir", turbidityVAirMax);
-  prefs.putFloat("feedEmpty", feedLevelEmptyVoltage);
-  prefs.putFloat("feedFull", feedLevelFullVoltage);
-  prefs.putFloat("hopEmpty", hopperEmptyCm);
-  prefs.putFloat("hopFull", hopperFullCm);
-  prefs.putInt("feedMode", feedLevelMode);
-  prefs.putInt("gateAngle", gateOpenAngle);
-  prefs.putInt("gateHold", gateHoldMs);
+bool saveSensorCalibrations() {
+  if (!prefs.begin("sensorcal", false)) return false;
+  bool saved = true;
+  saved &= prefs.putFloat("phV4Ref", 4.01f) == sizeof(float);
+  saved &= prefs.putFloat("phSlope", phVoltageSlope) == sizeof(float);
+  saved &= prefs.putFloat("phIntercept", phVoltageIntercept) == sizeof(float);
+  saved &= prefs.putInt("phFitN", phFitPointCount) == sizeof(int32_t);
+  saved &= prefs.putFloat("doScale", doVoltageScale) == sizeof(float);
+  saved &= prefs.putFloat("doOffset", doVoltageOffset) == sizeof(float);
+  saved &= prefs.putFloat("tankHeight", waterSensorHeightCm) == sizeof(float);
+  saved &= prefs.putFloat("tankDepth", waterLevelCmMax) == sizeof(float);
+  saved &= prefs.putFloat("turbClear", turbidityVClear) == sizeof(float);
+  saved &= prefs.putFloat("turbDirty", turbidityVDirty) == sizeof(float);
+  saved &= prefs.putFloat("turbAir", turbidityVAirMax) == sizeof(float);
+  saved &= prefs.putFloat("feedEmpty", feedLevelEmptyVoltage) == sizeof(float);
+  saved &= prefs.putFloat("feedFull", feedLevelFullVoltage) == sizeof(float);
+  saved &= prefs.putFloat("hopEmpty", hopperEmptyCm) == sizeof(float);
+  saved &= prefs.putFloat("hopFull", hopperFullCm) == sizeof(float);
+  saved &= prefs.putInt("feedMode", feedLevelMode) == sizeof(int32_t);
+  saved &= prefs.putInt("gateAngle", gateOpenAngle) == sizeof(int32_t);
+  saved &= prefs.putInt("gateHold", gateHoldMs) == sizeof(int32_t);
   prefs.end();
+  return saved;
+}
+
+uint32_t saveCalibrationPoint(const char* key, float value) {
+  if (!prefs.begin("sensorcal", false)) return 0;
+  const uint32_t written = prefs.putFloat(key, value);
+  prefs.end();
+  return written;
 }
 
 void loadSensorCalibrations() {
   prefs.begin("sensorcal", true);
   phVoltageSlope = prefs.getFloat("phSlope", phVoltageSlope);
   phVoltageIntercept = prefs.getFloat("phIntercept", phVoltageIntercept);
+  phFitPointCount = prefs.getInt("phFitN", 2);
+  if (phFitPointCount != 3) phFitPointCount = 2;
   doVoltageScale = prefs.getFloat("doScale", doVoltageScale);
   doVoltageOffset = prefs.getFloat("doOffset", doVoltageOffset);
   waterSensorHeightCm = prefs.getFloat("tankHeight", waterSensorHeightCm);
@@ -964,6 +1060,62 @@ float computeAverage(float buffer[], uint8_t count) {
   return sum / n;
 }
 
+float pushMedianVoltage(float samples[], uint8_t& count, uint8_t& next,
+                        float voltage) {
+  samples[next] = voltage;
+  next = (next + 1) % SENSOR_FILTER_WINDOW;
+  if (count < SENSOR_FILTER_WINDOW) count++;
+
+  float sorted[SENSOR_FILTER_WINDOW];
+  for (uint8_t i = 0; i < count; ++i) sorted[i] = samples[i];
+  for (uint8_t i = 1; i < count; ++i) {
+    const float value = sorted[i];
+    int j = i - 1;
+    while (j >= 0 && sorted[j] > value) {
+      sorted[j + 1] = sorted[j];
+      --j;
+    }
+    sorted[j + 1] = value;
+  }
+  return sorted[count / 2];
+}
+
+float voltageWindowSpread(const float samples[], uint8_t count) {
+  if (count == 0) return 0.0f;
+  float low = samples[0];
+  float high = samples[0];
+  for (uint8_t i = 1; i < count; ++i) {
+    low = min(low, samples[i]);
+    high = max(high, samples[i]);
+  }
+  return high - low;
+}
+
+bool turbidityCalibrationValid() {
+  return isfinite(turbidityVClear) && isfinite(turbidityVDirty) &&
+      isfinite(turbidityVAirMax) && turbidityVClear <= 3.25f &&
+      turbidityVDirty > turbidityVAirMax &&
+      turbidityVClear > turbidityVDirty && turbidityVAirMax >= 0.0f;
+}
+
+unsigned long calibrationStableWindowMs(uint8_t sensor) {
+  switch (sensor) {
+    case CAL_SENSOR_PH: return CAL_PH_STABLE_MS;
+    case CAL_SENSOR_DO: return CAL_DO_STABLE_MS;
+    case CAL_SENSOR_TURB: return CAL_TURB_STABLE_MS;
+    default: return CAL_PH_STABLE_MS;
+  }
+}
+
+float calibrationStableSpreadV(uint8_t sensor) {
+  switch (sensor) {
+    case CAL_SENSOR_PH: return CAL_PH_STABLE_SPREAD_V;
+    case CAL_SENSOR_DO: return CAL_DO_STABLE_SPREAD_V;
+    case CAL_SENSOR_TURB: return CAL_TURB_STABLE_SPREAD_V;
+    default: return CAL_PH_STABLE_SPREAD_V;
+  }
+}
+
 // ============================================================
 //  TURBIDITY: VOLTAGE -> NTU CONVERSION
 //  Based on calibrated field data:
@@ -974,7 +1126,7 @@ float computeAverage(float buffer[], uint8_t count) {
 TurbidityResult classifyTurbidity(float v) {
   TurbidityResult r;
 
-  if (v < turbidityVAirMax) {
+  if (!turbidityCalibrationValid() || !isfinite(v) || v < turbidityVAirMax) {
     r.ntu = 0.0;
     r.valid = false;
     return r;
@@ -1765,17 +1917,14 @@ void primeTemperatureBuffer() {
 
 void primeTurbidityBuffer() {
   float fv = readAnalogVoltage(TURBIDITY_PIN);
-  TurbidityResult tr = classifyTurbidity(fv);
-
   turbidityVoltage = fv;
-  lastValidTurbidityNTU = tr.ntu;
-
-  for (uint8_t i = 0; i < SMOOTH_WINDOW; i++) {
-    turbidityBuffer[i] = tr.ntu;
-  }
-
-  turbidityCount = SMOOTH_WINDOW;
-  turbidityIndex = 0;
+  turbidityFilteredVoltage = fv;
+  turbidityVoltageSampleCount = 0;
+  turbidityVoltageSampleNext = 0;
+  for (uint8_t i = 0; i < SENSOR_FILTER_WINDOW; i++)
+    turbidityVoltageSamples[i] = fv;
+  turbidityVoltageSampleCount = SENSOR_FILTER_WINDOW;
+  TurbidityResult tr = classifyTurbidity(fv);
   smoothedTurbidityNTU = tr.ntu;
   turbiditySensorOK = tr.valid;
 }
@@ -1827,49 +1976,25 @@ void readTemperatureSensor() {
 }
 
 void readTurbiditySensor() {
-  float voltage = readAnalogVoltage(TURBIDITY_PIN);
+  const float rawVoltage = readAnalogVoltage(TURBIDITY_PIN);
+  turbidityVoltage = rawVoltage;
+  const float voltage = pushMedianVoltage(turbidityVoltageSamples,
+      turbidityVoltageSampleCount, turbidityVoltageSampleNext, rawVoltage);
+  turbidityFilteredVoltage = voltage;
+  turbidityReadingStable = turbidityVoltageSampleCount == SENSOR_FILTER_WINDOW &&
+      voltageWindowSpread(turbidityVoltageSamples, turbidityVoltageSampleCount) <=
+          LIVE_TURB_STABLE_SPREAD_V;
   TurbidityResult tr = classifyTurbidity(voltage);
-
-  turbidityVoltage = voltage;
 
   if (!tr.valid) {
     turbiditySensorOK = false;
     smoothedTurbidityNTU = 0.0;
-    if (sensorOutputEnabled) Serial.printf("[TURB] Air/no water (V=%.3f)\n", voltage);
+    if (sensorOutputEnabled) Serial.printf("[TURB] Invalid/air or calibration incomplete (V=%.3f)\n", voltage);
     return;
   }
-
-  bool accept = true;
-
-  if (lastValidTurbidityNTU >= 0.0) {
-    float jump = fabs(tr.ntu - lastValidTurbidityNTU);
-
-    if (jump > TURB_NTU_JUMP_MAX) {
-      accept = false;
-      if (sensorOutputEnabled) Serial.printf("[TURB SKIP] NTU jump too large: %.1f\n", jump);
-    }
-  }
-
-  if (accept) {
-    turbiditySkipCount = 0;
-    turbidityBuffer[turbidityIndex] = tr.ntu;
-    turbidityIndex = (turbidityIndex + 1) % SMOOTH_WINDOW;
-
-    if (turbidityCount < SMOOTH_WINDOW) turbidityCount++;
-
-    lastValidTurbidityNTU = tr.ntu;
-    turbiditySensorOK = true;
-    smoothedTurbidityNTU = computeAverage(turbidityBuffer, turbidityCount);
-    ACCUM_WINDOW(winTurbSum, winTurbN, tr.ntu);
-  } else {
-    turbiditySkipCount++;
-
-    if (turbiditySkipCount >= MAX_SKIP_COUNT) {
-      if (sensorOutputEnabled) Serial.println("[TURB] Watchdog override — forcing new baseline.");
-      lastValidTurbidityNTU = tr.ntu;
-      turbiditySkipCount = 0;
-    }
-  }
+  turbiditySensorOK = true;
+  smoothedTurbidityNTU = tr.ntu;
+  ACCUM_WINDOW(winTurbSum, winTurbN, tr.ntu);
 }
 
 void readDissolvedOxygenSensor() {
@@ -1878,14 +2003,21 @@ void readDissolvedOxygenSensor() {
     return;
   }
 
-  dissolvedOxygenVoltage = readAnalogVoltage(DO_PIN);
-  if (dissolvedOxygenVoltage < 0.05f || dissolvedOxygenVoltage > 3.25f) {
+  const float rawVoltage = readAnalogVoltage(DO_PIN);
+  dissolvedOxygenVoltage = rawVoltage;
+  const float voltage = pushMedianVoltage(doVoltageSamples,
+      doVoltageSampleCount, doVoltageSampleNext, rawVoltage);
+  doFilteredVoltage = voltage;
+  doReadingStable = doVoltageSampleCount == SENSOR_FILTER_WINDOW &&
+      voltageWindowSpread(doVoltageSamples, doVoltageSampleCount) <=
+          LIVE_DO_STABLE_SPREAD_V;
+  if (voltage < 0.05f || voltage > 3.25f) {
     dissolvedOxygen = -1.0f;
     doSensorOK = false;
     if (sensorOutputEnabled) Serial.printf("[DO] Invalid/disconnected voltage: %.3fV\n", dissolvedOxygenVoltage);
     return;
   }
-  dissolvedOxygen = dissolvedOxygenVoltage * doVoltageScale + doVoltageOffset;
+  dissolvedOxygen = voltage * doVoltageScale + doVoltageOffset;
   if (!isfinite(dissolvedOxygen) || dissolvedOxygen < 0.0f || dissolvedOxygen > 20.0f) {
     dissolvedOxygen = -1.0f;
     doSensorOK = false;
@@ -1901,14 +2033,21 @@ void readPHSensor() {
     return;
   }
 
-  phVoltage = readAnalogVoltage(PH_PIN);
-  if (phVoltage < 0.05f || phVoltage > 3.25f) {
+  const float rawVoltage = readPHVoltage();
+  phVoltage = rawVoltage;
+  const float voltage = pushMedianVoltage(phVoltageSamples,
+      phVoltageSampleCount, phVoltageSampleNext, rawVoltage);
+  phFilteredVoltage = voltage;
+  phReadingStable = phVoltageSampleCount == SENSOR_FILTER_WINDOW &&
+      voltageWindowSpread(phVoltageSamples, phVoltageSampleCount) <=
+          LIVE_PH_STABLE_SPREAD_V;
+  if (voltage < 0.05f || voltage > 3.25f) {
     phLevel = -1.0f;
     phSensorOK = false;
     if (sensorOutputEnabled) Serial.printf("[PH] Invalid/disconnected voltage: %.3fV\n", phVoltage);
     return;
   }
-  phLevel = phVoltageSlope * phVoltage + phVoltageIntercept;
+  phLevel = phVoltageSlope * voltage + phVoltageIntercept;
   if (!isfinite(phLevel) || phLevel < 0.0f || phLevel > 14.0f) {
     phLevel = -1.0f;
     phSensorOK = false;
@@ -2060,9 +2199,13 @@ void readAllSensors() {
 
 void printSensorReading() {
   MutexGuard sensorLock(sensorStateMutex);
-  Serial.printf("[SENSOR] Temp: %.1f C | Turb: %.0f NTU (%.3fV) | DO: %.1f mg/L | pH: %.2f | Level: %.1f cm | Feed: %.1f%%\n",
+  Serial.printf("[SENSOR] Temp: %.1f C | Turb: %.0f NTU (%.3fV,%s) | DO: %.1f mg/L (%.3fV,%s) | pH: %.2f (%.3fV,%s) | Level: %.1f cm | Feed: %.1f%%\n",
                 smoothedTemp, smoothedTurbidityNTU, turbidityVoltage,
-                dissolvedOxygen, phLevel, waterLevelCm, feedLevelPercent);
+                turbidityReadingStable ? "STABLE" : "SETTLING",
+                dissolvedOxygen, dissolvedOxygenVoltage,
+                doReadingStable ? "STABLE" : "SETTLING",
+                phLevel, phVoltage, phReadingStable ? "STABLE" : "SETTLING",
+                waterLevelCm, feedLevelPercent);
 }
 
 // One raw-voltage snapshot for calibration stability checks. Reuses the
@@ -2079,14 +2222,19 @@ void printRawReading() {
 
 void printCalibrationHelp() {
   Serial.println("\n=== CALIBRATION COMMANDS ===");
-  Serial.println("phcal7                  Save voltage in pH 7 buffer");
-  Serial.println("phcal4                  Save voltage in pH 4 buffer");
-  Serial.println("phcal9 [VALUE]          Save pH 9 buffer (default 9.00; e.g. 9.18)");
+  Serial.println("CALMODE ON/OFF          Pause Wi-Fi/Firebase for calibration");
+  Serial.println("CALSTREAM PH|DO|TURB [ms] Stream one ADC (20-2000 ms; default 100)");
+  Serial.println("CALSTOP / CALSTATUS     Stop stream / show calibration state");
+  Serial.println("CALSHOW                 Show saved calibration values from NVM");
+  Serial.println("phcal4                  Save stable-average voltage in pH 4.01 buffer");
+  Serial.println("phcal9 9.18             Save stable-average voltage in pH 9.18 buffer");
+  Serial.println("phfit                   Apply 2-point pH 4.01 + 9.18 calibration");
+  Serial.println("phrefit                 Alias for phfit / refit saved points");
   Serial.println("doread                   Show current DO voltage/value");
   Serial.println("doclear                  Calibrate DO in air-saturated water");
-  Serial.println("turbclear <VOLTS>        Set clear-water voltage");
-  Serial.println("turbdirty <VOLTS>        Set dirty-water voltage");
-  Serial.println("turbair <VOLTS>          Set out-of-water threshold");
+  Serial.println("turbclear [VOLTS]        Save stable clear-water voltage");
+  Serial.println("turbdirty [VOLTS]        Save stable dirty-water voltage");
+  Serial.println("turbair [VOLTS]          Save stable out-of-water threshold");
   Serial.println("feedempty                Save voltage with an empty hopper");
   Serial.println("feedfull                 Save voltage with a full hopper");
   Serial.println("hopperempty              Teach ultrasonic empty-hopper echo");
@@ -2098,7 +2246,460 @@ void printCalibrationHelp() {
   Serial.println("tankheight <CM>          Sensor-to-tank-bottom distance");
   Serial.println("tankdepth <CM>           Maximum water depth");
   Serial.println("tankcal                  Show tank calibration");
-  Serial.println("raw [on|off]             One raw reading / 1 s stream for cal");
+  Serial.println("raw [on|off]             Legacy raw snapshot / 1 s stream (normal mode)");
+}
+
+void resetCalibrationStream() {
+  calibrationStreamSensor = CAL_SENSOR_NONE;
+  calibrationLastAdcMs = millis();
+  calibrationLastPrintMs = millis();
+  calibrationStableSinceMs = 0;
+  calibrationAdcSum = 0;
+  calibrationMilliVoltSum = 0;
+  calibrationAdcCount = 0;
+  calibrationAdcMin = 4095;
+  calibrationAdcMax = 0;
+  calibrationMilliVoltMin = UINT16_MAX;
+  calibrationMilliVoltMax = 0;
+  calibrationStableVoltage = 0.0f;
+  calibrationStableMinVoltage = 0.0f;
+  calibrationStableMaxVoltage = 0.0f;
+  calibrationStable = false;
+  calibrationBlockHead = 0;
+  calibrationBlockCount = 0;
+}
+
+uint8_t calibrationSensorForName(const String& name) {
+  if (name == "PH") return CAL_SENSOR_PH;
+  if (name == "DO") return CAL_SENSOR_DO;
+  if (name == "TURB" || name == "TURBIDITY") return CAL_SENSOR_TURB;
+  return CAL_SENSOR_NONE;
+}
+
+const char* calibrationSensorName(uint8_t sensor) {
+  switch (sensor) {
+    case CAL_SENSOR_PH: return "PH";
+    case CAL_SENSOR_DO: return "DO";
+    case CAL_SENSOR_TURB: return "TURB";
+    default: return "NONE";
+  }
+}
+
+uint8_t calibrationSensorPin(uint8_t sensor) {
+  switch (sensor) {
+    case CAL_SENSOR_PH: return PH_PIN;
+    case CAL_SENSOR_DO: return DO_PIN;
+    case CAL_SENSOR_TURB: return TURBIDITY_PIN;
+    default: return 0;
+  }
+}
+
+bool isSensorCalibrationCommand(const String& cmd) {
+  return cmd == "phcal4" || cmd == "phcal7" || cmd == "phcal686" || cmd == "phcal9" ||
+      cmd.startsWith("phcal9 ") || cmd == "phfit" || cmd == "phrefit" || cmd == "doread" || cmd == "doclear" ||
+      cmd == "turbclear" || cmd.startsWith("turbclear ") ||
+      cmd == "turbdirty" || cmd.startsWith("turbdirty ") ||
+      cmd == "turbair" || cmd.startsWith("turbair ");
+}
+
+bool isAllowedDuringCalibration(const String& cmd) {
+  return cmd == "HELP" || cmd == "help" || cmd == "?" ||
+      cmd == "CAL_HELP" || cmd == "cal help" || cmd == "CALSTATUS" ||
+      cmd == "CALSHOW" || cmd == "CALMODE OFF" || cmd == "CALSTOP" ||
+      cmd.startsWith("CALSTREAM ") || isSensorCalibrationCommand(cmd);
+}
+
+void printSavedSensorCalibrations() {
+  if (!prefs.begin("sensorcal", true)) {
+    Serial.println("[CAL NVM] Could not open sensor calibration storage.");
+    return;
+  }
+  const float ref4 = prefs.getFloat("phV4Ref", 4.01f);
+  const float v4 = prefs.getFloat("phV4", -1.0f);
+  const float v7 = prefs.getFloat("phV7", -1.0f);
+  const float ref7 = prefs.getFloat("phV7Ref", 7.0f);
+  const float v9 = prefs.getFloat("phV9", -1.0f);
+  const float ref9 = prefs.getFloat("phV9Ref", 9.0f);
+  const int pair = prefs.getInt("phPair", 4);
+  prefs.end();
+  Serial.printf("[CAL NVM] pH V4=%.4f (ref %.2f) V7=%.4f (ref %.2f) V9=%.4f (ref %.2f), pair=%d, fit=%d-point, slope=%.5f intercept=%.5f\n",
+                v4, ref4, v7, ref7, v9, ref9, pair, phFitPointCount,
+                phVoltageSlope, phVoltageIntercept);
+  Serial.printf("[CAL NVM] DO scale=%.5f offset=%.5f | Turb clear=%.4f dirty=%.4f air=%.4f V mapping=%s\n",
+                doVoltageScale, doVoltageOffset, turbidityVClear,
+                turbidityVDirty, turbidityVAirMax,
+                turbidityCalibrationValid() ? "VALID" : "INVALID/INCOMPLETE");
+}
+
+bool applySavedPHFit() {
+  if (!prefs.begin("sensorcal", true)) {
+    Serial.println("[CAL NVM] Cannot read saved pH points.");
+    return false;
+  }
+  const float v4 = prefs.getFloat("phV4", -1.0f);
+  const float ref4 = prefs.getFloat("phV4Ref", 4.01f);
+  const float v7 = prefs.getFloat("phV7", -1.0f);
+  const float ref7 = prefs.getFloat("phV7Ref", 7.0f);
+  const float v9 = prefs.getFloat("phV9", -1.0f);
+  const float ref9 = prefs.getFloat("phV9Ref", 9.0f);
+  const int pair = prefs.getInt("phPair", 4);
+  prefs.end();
+
+  float nextSlope = 0.0f;
+  float nextIntercept = 0.0f;
+  int nextFitPointCount = 2;
+  float appliedSpan = 0.0f;
+  bool endpointTwoPointFit = false;
+  const bool have3 = v4 > 0.05f && v4 <= 3.25f &&
+      v7 > 0.05f && v7 <= 3.25f && v9 > 0.05f && v9 <= 3.25f &&
+      isfinite(ref4) && isfinite(ref7) && isfinite(ref9);
+  const bool haveEndpoints = v4 > 0.05f && v4 <= 3.25f &&
+      v9 > 0.05f && v9 <= 3.25f && isfinite(ref4) && isfinite(ref9);
+  const float totalSpan = max(v4, max(v7, v9)) - min(v4, min(v7, v9));
+
+  // New pH calibration path: when phcal9 selected pair 9 and both endpoints
+  // exist, use exactly pH 4.01 and 9.18 (ignore any stale legacy pH 7 point).
+  if (pair == 9 && haveEndpoints) {
+    const float voltageDelta = v9 - v4;
+    appliedSpan = fabsf(voltageDelta);
+    if (appliedSpan < 0.001f) {
+      Serial.printf("[CAL] pH 4.01/9.18 points differ by only %.2fmV; cannot calculate a safe fit.\n",
+                    appliedSpan * 1000.0f);
+      return false;
+    }
+    nextSlope = (ref9 - ref4) / voltageDelta;
+    nextIntercept = ref4 - nextSlope * v4;
+    endpointTwoPointFit = true;
+  } else if (pair != 9 && have3 && totalSpan > 0.05f &&
+             ((v4 < v7 && v7 < v9) || (v4 > v7 && v7 > v9))) {
+    const float meanV = (v4 + v7 + v9) / 3.0f;
+    const float meanPH = (ref4 + ref7 + ref9) / 3.0f;
+    const float numerator = (v4 - meanV) * (ref4 - meanPH) +
+        (v7 - meanV) * (ref7 - meanPH) +
+        (v9 - meanV) * (ref9 - meanPH);
+    const float denominator = (v4 - meanV) * (v4 - meanV) +
+        (v7 - meanV) * (v7 - meanV) +
+        (v9 - meanV) * (v9 - meanV);
+    if (denominator <= 0.0f) return false;
+    nextSlope = numerator / denominator;
+    nextIntercept = meanPH - nextSlope * meanV;
+    nextFitPointCount = 3;
+    appliedSpan = totalSpan;
+  } else if (pair == 4) {
+    const float otherV = v4;
+    const float otherPH = ref4;
+    if (v7 <= 0.05f || v7 > 3.25f || otherV <= 0.05f || otherV > 3.25f ||
+        fabsf(v7 - otherV) <= 0.05f) {
+      Serial.printf("[CAL] No fit applied: selected points differ by %.1fmV; need >50mV. Three-point fallback needs ordered points spanning >50mV.\n",
+                    fabsf(v7 - otherV) * 1000.0f);
+      return false;
+    }
+    nextSlope = (ref7 - otherPH) / (v7 - otherV);
+    nextIntercept = ref7 - nextSlope * v7;
+    appliedSpan = fabsf(v7 - otherV);
+  } else {
+    Serial.println("[CAL] No fit applied: pH 4.01/9.18 endpoint points are incomplete or invalid; previous fit retained.");
+    return false;
+  }
+
+  const float oldSlope = phVoltageSlope;
+  const float oldIntercept = phVoltageIntercept;
+  const int oldFitPointCount = phFitPointCount;
+  phVoltageSlope = nextSlope;
+  phVoltageIntercept = nextIntercept;
+  phFitPointCount = nextFitPointCount;
+  if (!saveSensorCalibrations()) {
+    phVoltageSlope = oldSlope;
+    phVoltageIntercept = oldIntercept;
+    phFitPointCount = oldFitPointCount;
+    Serial.println("[CAL NVM] Could not save the new pH fit; previous active fit retained.");
+    return false;
+  }
+  if (endpointTwoPointFit) {
+    Serial.printf("[CAL NVM] Applied 2-point pH 4.01/9.18 fit: slope=%.5f intercept=%.5f; predictions=%.2f / %.2f; span=%.1fmV.\n",
+                  phVoltageSlope, phVoltageIntercept,
+                  phVoltageSlope * v4 + phVoltageIntercept,
+                  phVoltageSlope * v9 + phVoltageIntercept,
+                  appliedSpan * 1000.0f);
+  } else {
+    Serial.printf("[CAL NVM] Applied %d-point pH fit: slope=%.5f intercept=%.5f; predicted pH at saved V4/V7/V9 = %.2f / %.2f / %.2f.\n",
+                  phFitPointCount, phVoltageSlope, phVoltageIntercept,
+                  phVoltageSlope * v4 + phVoltageIntercept,
+                  phVoltageSlope * v7 + phVoltageIntercept,
+                  phVoltageSlope * v9 + phVoltageIntercept);
+  }
+  if (endpointTwoPointFit && appliedSpan < 0.05f) {
+    Serial.printf("[CAL WARNING] 4.01/9.18 span is only %.1fmV; 10mV noise can shift pH by about %.2f. Fit saved, but verify carefully.\n",
+                  appliedSpan * 1000.0f, fabsf(phVoltageSlope) * 0.010f);
+  }
+  if (phFitPointCount == 3 && totalSpan < 0.10f) {
+    Serial.printf("[CAL WARNING] Three-point span is only %.1fmV; voltage noise can cause large pH changes. Treat as temporary; verify against buffers before using tank readings.\n",
+                  totalSpan * 1000.0f);
+  }
+  return true;
+}
+
+void applyOfflineActuatorDefaults();
+
+bool handleCalibrationControlCommand(String& cmd) {
+  String upper = cmd;
+  upper.toUpperCase();
+  if (upper == "CALMODE ON") {
+    if (calibrationMode) {
+      Serial.println("[CAL] Already in calibration mode.");
+    } else if (feederRunState != FEEDER_IDLE || feederIsRunning) {
+      Serial.println("[CAL] Cannot enter while a feed is active; wait for it to finish.");
+    } else {
+      rawStreamEnabled = false;
+      sensorOutputEnabled = false;
+      resetCalibrationStream();
+      calibrationMode = true;
+      // Wait for any in-progress background scan to finish before starting a
+      // selected-pin stream; subsequent polling cycles see calibrationMode.
+      { MutexGuard sensorLock(sensorStateMutex); }
+      // Drop Wi-Fi as well as pausing the main loop, so Firebase/auth traffic
+      // cannot continue in the background during calibration.
+      Firebase.reconnectWiFi(false);
+      WiFi.disconnect(false, false);
+      applyOfflineActuatorDefaults();
+      Serial.println("[CAL] MODE ON — Wi-Fi/Firebase paused; serial calibration commands ready.");
+      Serial.println("[CAL] Start with CALSTREAM PH|DO|TURB [20-2000 ms].");
+    }
+    cmd = "";
+    return true;
+  }
+  if (upper == "CALMODE OFF") {
+    if (!calibrationMode) {
+      Serial.println("[CAL] Calibration mode is already OFF.");
+    } else {
+      calibrationStable = false;
+      resetWindowAggregates();  // Do not mix calibration time with history means.
+      resetCalibrationStream();
+      calibrationMode = false;
+      lastHistorySendTime = millis();
+      lastFirebaseSendTime = millis();
+      lastWifiReconnectTime = millis();
+      Firebase.reconnectWiFi(true);
+      WiFi.reconnect();
+      Serial.println("[CAL] MODE OFF — normal sensing/cloud operation resuming; waiting for Wi-Fi.");
+    }
+    cmd = "";
+    return true;
+  }
+  if (upper == "CALSTOP") {
+    resetCalibrationStream();
+    Serial.println("[CAL] Raw stream stopped; calibration mode remains ON.");
+    cmd = "";
+    return true;
+  }
+  if (upper == "CALSTATUS") {
+    Serial.printf("[CAL] mode=%s stream=%s interval=%u ms stable=%s value=%.4fV Wi-Fi=%s\n",
+                  calibrationMode ? "ON" : "OFF",
+                  calibrationSensorName(calibrationStreamSensor),
+                  calibrationStreamIntervalMs,
+                  calibrationStable ? "YES" : "NO", calibrationStableVoltage,
+                  WiFi.status() == WL_CONNECTED ? "connected" : "offline");
+    cmd = "";
+    return true;
+  }
+  if (upper == "CALSHOW") {
+    printSavedSensorCalibrations();
+    cmd = "";
+    return true;
+  }
+  if (upper.startsWith("CALSTREAM ")) {
+    if (!calibrationMode) {
+      Serial.println("[CAL] Run CALMODE ON first; calibration stream is offline-only.");
+    } else {
+      String args = upper.substring(10);
+      args.trim();
+      const int split = args.indexOf(' ');
+      const String sensorName = split < 0 ? args : args.substring(0, split);
+      const uint8_t sensor = calibrationSensorForName(sensorName);
+      if (sensor == CAL_SENSOR_NONE) {
+        Serial.println("Usage: CALSTREAM PH|DO|TURB [20-2000 ms]");
+      } else {
+        int interval = CAL_STREAM_DEFAULT_MS;
+        if (split >= 0) {
+          String intervalText = args.substring(split + 1);
+          intervalText.trim();
+          interval = intervalText.toInt();
+          if (interval < CAL_STREAM_MIN_MS || interval > CAL_STREAM_MAX_MS) {
+            Serial.println("[CAL] Interval must be 20-2000 ms (default 100 ms).");
+            cmd = "";
+            return true;
+          }
+        }
+        calibrationStreamIntervalMs = (uint16_t)interval;
+        calibrationStreamSensor = sensor;
+        phVoltageSampleCount = doVoltageSampleCount = turbidityVoltageSampleCount = 0;
+        phVoltageSampleNext = doVoltageSampleNext = turbidityVoltageSampleNext = 0;
+        calibrationLastAdcMs = millis();
+        calibrationLastPrintMs = millis();
+        calibrationStableSinceMs = 0;
+        calibrationAdcSum = 0;
+        calibrationMilliVoltSum = 0;
+        calibrationAdcCount = 0;
+        calibrationAdcMin = 4095;
+        calibrationAdcMax = 0;
+        calibrationMilliVoltMin = UINT16_MAX;
+        calibrationMilliVoltMax = 0;
+        calibrationStable = false;
+        calibrationStableSinceMs = 0;
+        calibrationStableMinVoltage = 0.0f;
+        calibrationStableMaxVoltage = 0.0f;
+        calibrationBlockHead = 0;
+        calibrationBlockCount = 0;
+        Serial.printf("[CAL] Streaming %s GPIO%u every %u ms; stable needs %lu s within %.0f mV across block averages.\n",
+                      calibrationSensorName(sensor), calibrationSensorPin(sensor),
+                      calibrationStreamIntervalMs,
+                      calibrationStableWindowMs(sensor) / 1000UL,
+                      calibrationStableSpreadV(sensor) * 1000.0f);
+        Serial.println("[CALRAW] ms,sensor,adc_avg,Vadc,blockMinAvgV,blockMaxAvgV,rawMinV,rawMaxV,n,blocks,stable");
+      }
+    }
+    cmd = "";
+    return true;
+  }
+  return false;
+}
+
+bool calibrationCaptureReady(uint8_t sensor) {
+  if (!calibrationMode) {
+    Serial.println("[CAL] Enter CALMODE ON first; sensor calibration is offline-only.");
+    return false;
+  }
+  if (calibrationStreamSensor != sensor) {
+    Serial.printf("[CAL] Select this sensor first: CALSTREAM %s\n",
+                  calibrationSensorName(sensor));
+    return false;
+  }
+  if (!calibrationStable) {
+    Serial.println("[CAL] Not stable yet — keep the probe in its reference and wait for stable=YES.");
+    return false;
+  }
+  return true;
+}
+
+bool calibrationVoltageMatchesStable(float measuredVoltage) {
+  const float tolerance = calibrationStableSpreadV(calibrationStreamSensor);
+  if (fabsf(measuredVoltage - calibrationStableVoltage) > tolerance) {
+    Serial.printf("[CAL] Capture rejected: entered %.4fV differs from stable-window average %.4fV by more than %.0fmV.\n",
+                  measuredVoltage, calibrationStableVoltage,
+                  tolerance * 1000.0f);
+    return false;
+  }
+  return true;
+}
+
+float analogVoltageForCalibration(uint8_t sensor) {
+  // Match the live pH path's eFuse-calibrated conversion rather than the
+  // nominal 3.3/4095 scale used for the other ADC channels.
+  if (sensor == CAL_SENSOR_PH) {
+    uint32_t sumMilliVolts = 0;
+    for (uint8_t i = 0; i < SAMPLE_COUNT; ++i) {
+      sumMilliVolts += analogReadMilliVolts(PH_PIN);
+      delay(SAMPLE_DELAY_MS);
+    }
+    return ((float)sumMilliVolts / SAMPLE_COUNT) / 1000.0f;
+  }
+  return readAnalogVoltage(calibrationSensorPin(sensor));
+}
+
+void runCalibrationStream() {
+  const uint8_t sensor = calibrationStreamSensor;
+  if (!calibrationMode || sensor == CAL_SENSOR_NONE) return;
+  const unsigned long now = millis();
+  if (now - calibrationLastAdcMs >= 2UL) {
+    calibrationLastAdcMs = now;
+    MutexGuard ioLock(sensorIoMutex);
+    const uint16_t raw = analogRead(calibrationSensorPin(sensor));
+    calibrationAdcSum += raw;
+    calibrationAdcCount++;
+    if (raw < calibrationAdcMin) calibrationAdcMin = raw;
+    if (raw > calibrationAdcMax) calibrationAdcMax = raw;
+    if (sensor == CAL_SENSOR_PH) {
+      const uint16_t milliVolts = (uint16_t)analogReadMilliVolts(PH_PIN);
+      calibrationMilliVoltSum += milliVolts;
+      if (milliVolts < calibrationMilliVoltMin) calibrationMilliVoltMin = milliVolts;
+      if (milliVolts > calibrationMilliVoltMax) calibrationMilliVoltMax = milliVolts;
+    }
+  }
+  if (now - calibrationLastPrintMs < calibrationStreamIntervalMs ||
+      calibrationAdcCount == 0) return;
+
+  const float adcAvg = (float)calibrationAdcSum / calibrationAdcCount;
+  const bool calibratedPH = sensor == CAL_SENSOR_PH && calibrationAdcCount > 0;
+  const float avgV = calibratedPH
+      ? ((float)calibrationMilliVoltSum / calibrationAdcCount) / 1000.0f
+      : adcAvg * (3.3f / 4095.0f);
+  const float rawMinV = calibratedPH
+      ? calibrationMilliVoltMin / 1000.0f
+      : calibrationAdcMin * (3.3f / 4095.0f);
+  const float rawMaxV = calibratedPH
+      ? calibrationMilliVoltMax / 1000.0f
+      : calibrationAdcMax * (3.3f / 4095.0f);
+
+  // Judge stability from successive interval averages, not individual ADC
+  // extrema. A rolling 5-second range tolerates isolated raw spikes while
+  // still detecting sustained drift in the averaged signal.
+  if (calibrationBlockCount == CAL_STABLE_MAX_BLOCKS) {
+    calibrationBlockHead = (calibrationBlockHead + 1) % CAL_STABLE_MAX_BLOCKS;
+    calibrationBlockCount--;
+  }
+  const uint16_t tail = (calibrationBlockHead + calibrationBlockCount) % CAL_STABLE_MAX_BLOCKS;
+  calibrationBlockAvgVoltage[tail] = avgV;
+  calibrationBlockMs[tail] = now;
+  calibrationBlockCount++;
+
+  // Keep at least one sample that is >=5 s old. If we evict as soon as the
+  // oldest block crosses 5 s, normal print-interval jitter can leave only 50
+  // blocks spanning ~4.9 s forever, so stable=YES is never reached. Drop the
+  // oldest only once the next-oldest block also preserves the full window.
+  const unsigned long stableWindowMs = calibrationStableWindowMs(sensor);
+  while (calibrationBlockCount > 1) {
+    const uint16_t nextHead = (calibrationBlockHead + 1) % CAL_STABLE_MAX_BLOCKS;
+    if (now - calibrationBlockMs[nextHead] < stableWindowMs) break;
+    calibrationBlockHead = nextHead;
+    calibrationBlockCount--;
+  }
+
+  calibrationStableMinVoltage = avgV;
+  calibrationStableMaxVoltage = avgV;
+  for (uint16_t i = 0; i < calibrationBlockCount; ++i) {
+    const uint16_t index = (calibrationBlockHead + i) % CAL_STABLE_MAX_BLOCKS;
+    calibrationStableMinVoltage = min(calibrationStableMinVoltage,
+                                      calibrationBlockAvgVoltage[index]);
+    calibrationStableMaxVoltage = max(calibrationStableMaxVoltage,
+                                      calibrationBlockAvgVoltage[index]);
+  }
+  const bool fullStabilityWindow = calibrationBlockCount > 1 &&
+      now - calibrationBlockMs[calibrationBlockHead] >= stableWindowMs;
+  float blockSum = 0.0f;
+  calibrationStable = fullStabilityWindow &&
+      calibrationStableMaxVoltage - calibrationStableMinVoltage <=
+          calibrationStableSpreadV(sensor);
+  for (uint16_t i = 0; i < calibrationBlockCount; ++i) {
+    const uint16_t index = (calibrationBlockHead + i) % CAL_STABLE_MAX_BLOCKS;
+    blockSum += calibrationBlockAvgVoltage[index];
+  }
+  calibrationStableSinceMs = calibrationStable
+      ? calibrationBlockMs[calibrationBlockHead] : 0;
+  calibrationStableVoltage = calibrationBlockCount > 0
+      ? blockSum / calibrationBlockCount : avgV;
+  Serial.printf("[CALRAW] %lu,%s,%.1f,%.4f,%.4f,%.4f,%.4f,%.4f,%u,%u,%s\n",
+                now, calibrationSensorName(sensor), adcAvg, avgV,
+                calibrationStableMinVoltage, calibrationStableMaxVoltage,
+                rawMinV, rawMaxV, calibrationAdcCount, calibrationBlockCount,
+                calibrationStable ? "YES" : "NO");
+  calibrationLastPrintMs = now;
+  calibrationAdcSum = 0;
+  calibrationMilliVoltSum = 0;
+  calibrationAdcCount = 0;
+  calibrationAdcMin = 4095;
+  calibrationAdcMax = 0;
+  calibrationMilliVoltMin = UINT16_MAX;
+  calibrationMilliVoltMax = 0;
 }
 
 void printSerialHelp() {
@@ -2108,6 +2709,8 @@ void printSerialHelp() {
   Serial.println("SENSOR_OFF               Stop periodic sensor printing");
   Serial.println("SENSOR_READ              Take and print one fresh reading");
   Serial.println("CAL_HELP                 Show calibration commands");
+  Serial.println("CALMODE ON/OFF           Pause Wi-Fi/Firebase during sensor calibration");
+  Serial.println("CALSTREAM PH|DO|TURB [ms] Stream selected ADC (20-2000 ms)");
   Serial.println("WIFI_HELP                Show Wi-Fi commands");
   Serial.println("FIREBASE_STATUS          Show cloud authentication status");
   Serial.println("FEED                     Start a 1 g manual feed");
@@ -2117,6 +2720,9 @@ void printSerialHelp() {
   Serial.println("GATE_MS <100-5000>       Gate hold ms (NVS)");
   Serial.println("GPIO12 button            Onsite feed: taps = grams (1-200)");
   Serial.println("GPIO2 button             Blower manual ON/OFF toggle");
+  Serial.println("n1on / n1off             Water pump (offline fallback forces ON)");
+  Serial.println("n2on / n2off             Aerator 1 (offline fallback forces ON)");
+  Serial.println("n3on / n3off             Aerator 2 (offline fallback forces ON)");
   Serial.println("n4on / n4off             Blower ON/OFF (GPIO16)");
   Serial.println("relay status             Show relay states");
 }
@@ -2216,6 +2822,8 @@ void setup() {
     Serial.println("[TASK] Mutex allocation failed; using loop-based sensor/LCD updates");
   }
 
+  // Energize life-support relays before sensor warm-up and network startup.
+  initActuators();
   initLCD();
   showLCDBootProgress("CrayCare boot", 5);
   initOnsiteButton();
@@ -2232,6 +2840,16 @@ void setup() {
 
   sensors.begin();
   loadSensorCalibrations();
+  // Main firmware must keep using the saved 4.01/9.18 calibration pair.
+  // The calibration command saves points and fit in NVS; rebuild once at boot
+  // so stale legacy pH6.86 data cannot silently become the active curve.
+  if (prefs.begin("sensorcal", true)) {
+    const int savedPHCalibrationPair = prefs.getInt("phPair", 4);
+    prefs.end();
+    if (savedPHCalibrationPair == 9) {
+      applySavedPHFit();
+    }
+  }
 
   showLCDBootProgress("Starting sensors", 20);
   primeTemperatureBuffer();
@@ -2243,7 +2861,6 @@ void setup() {
   initOfflineBuffer();  // LittleFS store-and-forward (mounted before loop)
   getHardwareId();  // resolve MAC-based ID after WiFi is up
   initFeeder();
-  initActuators();
   initBlower();
   initBlowerButton();
   // Larger read side for Firestore payloads: fewer -6 payload timeouts.
@@ -2314,6 +2931,15 @@ void loop() {
   if (Serial.available()) {
     String cmd = Serial.readStringUntil('\n');
     cmd.trim();
+    if (!handleCalibrationControlCommand(cmd)) {
+      if (calibrationMode && !isAllowedDuringCalibration(cmd)) {
+        Serial.println("[CAL] Command blocked while calibrating; use CALMODE OFF to resume normal commands.");
+        cmd = "";
+      } else if (!calibrationMode && isSensorCalibrationCommand(cmd)) {
+        Serial.println("[CAL] Enter CALMODE ON first so Firebase/Wi-Fi are paused during calibration.");
+        cmd = "";
+      }
+    }
     if (cmd == "HELP" || cmd == "help" || cmd == "?") {
       printSerialHelp();
     }
@@ -2501,8 +3127,10 @@ void loop() {
       Serial.printf("[CAL] sensorHeight=%.1fcm maxDepth=%.1fcm lastDistance=%.1fcm\n",
                     waterSensorHeightCm, waterLevelCmMax, waterDistanceCm);
     }
-    if (cmd == "phcal7" || cmd == "phcal4" || cmd == "phcal9" ||
+    if (cmd == "phcal7" || cmd == "phcal686" || cmd == "phcal4" || cmd == "phcal9" ||
         cmd.startsWith("phcal9 ")) {
+      const bool isNeutral = cmd == "phcal7" || cmd == "phcal686";
+      const float neutralReference = cmd == "phcal686" ? 6.86f : 7.00f;
       const bool isNine = cmd == "phcal9" || cmd.startsWith("phcal9 ");
       float nineReference = 9.0f;
       if (cmd.startsWith("phcal9 ")) {
@@ -2517,83 +3145,143 @@ void loop() {
           return;
         }
       }
-      const float v = readAnalogVoltage(PH_PIN);
-      prefs.begin("sensorcal", false);
-      prefs.putFloat(cmd == "phcal7" ? "phV7" : isNine ? "phV9" : "phV4", v);
+      if (!calibrationCaptureReady(CAL_SENSOR_PH)) return;
+      const float v = calibrationStableVoltage;
+      if (v <= 0.05f || v > 3.25f) {
+        Serial.printf("[CAL] pH point rejected: stable-window voltage %.4fV is outside ADC range.\n", v);
+        return;
+      }
+      if (!prefs.begin("sensorcal", false)) {
+        Serial.println("[CAL NVM] Could not open sensor calibration storage; pH point not saved.");
+        return;
+      }
+      bool pointSaved = prefs.putFloat(isNeutral ? "phV7" : isNine ? "phV9" : "phV4", v) == sizeof(float);
+      if (cmd == "phcal4") prefs.putFloat("phV4Ref", 4.01f);
+      if (isNeutral) prefs.putFloat("phV7Ref", neutralReference);
       if (isNine) {
         prefs.putFloat("phV9Ref", nineReference);
         prefs.putInt("phPair", 9);
       } else if (cmd == "phcal4") {
         prefs.putInt("phPair", 4);
       }
-      const float v7 = prefs.getFloat("phV7", -1.0f);
-      const float v4 = prefs.getFloat("phV4", -1.0f);
-      const float v9 = prefs.getFloat("phV9", -1.0f);
-      const float ref9 = prefs.getFloat("phV9Ref", 9.0f);
-      const int selectedPair = prefs.getInt("phPair", 4);
+      pointSaved &= prefs.getFloat(isNeutral ? "phV7" : isNine ? "phV9" : "phV4", -1.0f) == v;
       prefs.end();
-      const float otherVoltage = selectedPair == 9 ? v9 : v4;
-      const float otherPH = selectedPair == 9 ? ref9 : 4.0f;
-      if (v7 > 0.0f && otherVoltage > 0.0f &&
-          fabs(v7 - otherVoltage) > 0.05f) {
-        phVoltageSlope = (7.0f - otherPH) / (v7 - otherVoltage);
-        phVoltageIntercept = 7.0f - phVoltageSlope * v7;
-        saveSensorCalibrations();
-        Serial.printf("[CAL] pH 7.00 / %.2f saved: slope=%.4f intercept=%.4f\n",
-                      otherPH, phVoltageSlope, phVoltageIntercept);
+      if (!pointSaved) {
+        Serial.println("[CAL NVM] pH calibration point write failed; check NVS and retry.");
+        return;
+      }
+      Serial.printf("[CAL NVM] Saved stable-average %.4fV for %s; attempting fit from saved buffer points.\n",
+                    v, cmd.c_str());
+      applySavedPHFit();
+    }
+    if (cmd == "phrefit" || cmd == "phfit") {
+      if (!calibrationMode) {
+        Serial.println("[CAL] Enter CALMODE ON first; sensor calibration is offline-only.");
       } else {
-        Serial.printf("[CAL] Saved %s voltage %.3fV; calibrate pH %.2f next (points must differ by >0.05V).\n",
-                      cmd.c_str(), v, cmd == "phcal7" ? otherPH : 7.0f);
+        if (cmd == "phfit") {
+          if (!prefs.begin("sensorcal", false)) {
+            Serial.println("[CAL NVM] Could not select the pH 4.01/9.18 endpoint pair.");
+            return;
+          }
+          prefs.putInt("phPair", 9);
+          prefs.end();
+        }
+        applySavedPHFit();
       }
     }
     if (cmd == "doread") {
-      Serial.printf("[CAL] DO raw=%.3fV current=%.2fmg/L temp=%.1fC\n",
-                    dissolvedOxygenVoltage, dissolvedOxygen, smoothedTemp);
+      if (!calibrationMode) {
+        Serial.println("[CAL] Enter CALMODE ON first.");
+      } else if (calibrationStreamSensor != CAL_SENSOR_DO) {
+        Serial.println("[CAL] Select DO first: CALSTREAM DO");
+      } else {
+        const float v = calibrationStable
+            ? calibrationStableVoltage
+            : doVoltageSampleCount ? doFilteredVoltage : readAnalogVoltage(DO_PIN);
+        float tempC;
+        {
+          MutexGuard sensorLock(sensorStateMutex);
+          tempC = smoothedTemp;
+        }
+        const float oxygen = v > 0.05f
+            ? v * doVoltageScale + doVoltageOffset : -1.0f;
+        Serial.printf("[CAL] DO voltage=%.4fV current=%.2fmg/L temp=%.1fC calibration-stable=%s\n",
+                      v, oxygen, tempC, calibrationStable ? "YES" : "NO");
+      }
     }
     if (cmd == "doclear") {
-      const float v = readAnalogVoltage(DO_PIN);
-      if (v > 0.05f) {
-        doVoltageScale = saturationDOmgL(smoothedTemp) / v;
+      if (!calibrationCaptureReady(CAL_SENSOR_DO)) return;
+      const float v = calibrationStableVoltage;
+      float tempC;
+      bool tempValid;
+      {
+        MutexGuard sensorLock(sensorStateMutex);
+        readTemperatureSensor();
+        tempC = smoothedTemp;
+        tempValid = tempSensorOK && isfinite(tempC) && tempC > -10.0f && tempC < 60.0f;
+      }
+      if (!tempValid) {
+        Serial.println("[CAL] DO calibration not saved: water temperature sensor is not valid.");
+      } else if (v > 0.05f && v <= 3.25f) {
+        doVoltageScale = saturationDOmgL(tempC) / v;
         doVoltageOffset = 0.0f;
-        saveSensorCalibrations();
-        Serial.printf("[CAL] DO air calibration saved: scale=%.4f\n", doVoltageScale);
+        if (saveSensorCalibrations()) {
+          Serial.printf("[CAL NVM] DO saved from stable-window average %.4fV at %.1fC, scale=%.4f\n",
+                        v, tempC, doVoltageScale);
+        } else {
+          Serial.println("[CAL NVM] DO fit could not be saved; check NVS and retry.");
+        }
+      } else if (v <= 0.05f || v > 3.25f) {
+        Serial.printf("[CAL] DO calibration not saved: invalid ADC voltage %.4fV\n", v);
       }
     }
-    // Turbidity calibration must keep VClear > VDirty > VAirMax within the
-    // 0-3.3V ADC range; otherwise the NTU map inverts or divides by zero
-    // and pins readings at 0/1000. Rejected values are never saved.
-    if (cmd.startsWith("turbclear ")) {
-      const float v = cmd.substring(10).toFloat();
-      if (v <= 0.0f || v > 3.3f || v <= turbidityVDirty) {
-        Serial.printf("[CAL] turbclear rejected: need 0 < V <= 3.3 and V > VDirty (%.3fV), got %.3fV\n",
-                      turbidityVDirty, v);
-      } else {
-        turbidityVClear = v;
-        saveSensorCalibrations();
-        Serial.printf("[CAL] turbclear saved: %.3fV\n", v);
+    // Calibration commands capture the rolling stable-window voltage when no
+    // explicit value is supplied. Saving points independently supports sensor
+    // divider values that differ greatly from the original factory defaults.
+    if (cmd == "turbclear" || cmd.startsWith("turbclear ")) {
+      const bool hasArgument = cmd.length() > 9;
+      if (!calibrationCaptureReady(CAL_SENSOR_TURB)) return;
+      const float v = hasArgument ? cmd.substring(10).toFloat() : calibrationStableVoltage;
+      if (hasArgument && !calibrationVoltageMatchesStable(v)) return;
+      if (!isfinite(v) || v <= 0.0f || v > 3.3f) {
+        Serial.printf("[CAL] turbclear rejected: stable/entered value must be 0 < V <= 3.25, got %.4fV\n", v);
+        return;
       }
+      const float previous = turbidityVClear;
+      turbidityVClear = v;
+      if (!saveSensorCalibrations()) { turbidityVClear = previous; Serial.println("[CAL NVM] Turbidity point not saved."); return; }
+      Serial.printf("[CAL NVM] Clear-water point saved: %.4fV. Mapping %s.\n", v,
+                    turbidityCalibrationValid() ? "VALID" : "incomplete; save dirty and air points");
     }
-    if (cmd.startsWith("turbdirty ")) {
-      const float v = cmd.substring(10).toFloat();
-      if (v <= 0.0f || v > 3.3f || v >= turbidityVClear || v <= turbidityVAirMax) {
-        Serial.printf("[CAL] turbdirty rejected: need VAir (%.3fV) < V < VClear (%.3fV), got %.3fV\n",
-                      turbidityVAirMax, turbidityVClear, v);
-      } else {
-        turbidityVDirty = v;
-        saveSensorCalibrations();
-        Serial.printf("[CAL] turbdirty saved: %.3fV\n", v);
+    if (cmd == "turbdirty" || cmd.startsWith("turbdirty ")) {
+      const bool hasArgument = cmd.length() > 9;
+      if (!calibrationCaptureReady(CAL_SENSOR_TURB)) return;
+      const float v = hasArgument ? cmd.substring(10).toFloat() : calibrationStableVoltage;
+      if (hasArgument && !calibrationVoltageMatchesStable(v)) return;
+      if (!isfinite(v) || v <= 0.0f || v > 3.3f) {
+        Serial.printf("[CAL] turbdirty rejected: stable/entered value must be 0 < V <= 3.25, got %.4fV\n", v);
+        return;
       }
+      const float previous = turbidityVDirty;
+      turbidityVDirty = v;
+      if (!saveSensorCalibrations()) { turbidityVDirty = previous; Serial.println("[CAL NVM] Turbidity point not saved."); return; }
+      Serial.printf("[CAL NVM] Dirty-water point saved: %.4fV. Mapping %s.\n", v,
+                    turbidityCalibrationValid() ? "VALID" : "incomplete; save clear and air points");
     }
-    if (cmd.startsWith("turbair ")) {
-      const float v = cmd.substring(8).toFloat();
-      if (v <= 0.0f || v > 3.3f || v >= turbidityVDirty) {
-        Serial.printf("[CAL] turbair rejected: need 0 < V < VDirty (%.3fV), got %.3fV\n",
-                      turbidityVDirty, v);
-      } else {
-        turbidityVAirMax = v;
-        saveSensorCalibrations();
-        Serial.printf("[CAL] turbair saved: %.3fV\n", v);
+    if (cmd == "turbair" || cmd.startsWith("turbair ")) {
+      const bool hasArgument = cmd.length() > 7;
+      if (!calibrationCaptureReady(CAL_SENSOR_TURB)) return;
+      const float v = hasArgument ? cmd.substring(8).toFloat() : calibrationStableVoltage;
+      if (hasArgument && !calibrationVoltageMatchesStable(v)) return;
+      if (!isfinite(v) || v < 0.0f || v > 3.3f) {
+        Serial.printf("[CAL] turbair rejected: stable/entered threshold must be 0 <= V <= 3.25, got %.4fV\n", v);
+        return;
       }
+      const float previous = turbidityVAirMax;
+      turbidityVAirMax = v;
+      if (!saveSensorCalibrations()) { turbidityVAirMax = previous; Serial.println("[CAL NVM] Turbidity threshold not saved."); return; }
+      Serial.printf("[CAL NVM] Air/no-water threshold saved: %.4fV. Mapping %s.\n", v,
+                    turbidityCalibrationValid() ? "VALID" : "incomplete; save all points in Vclear > Vdirty > Vair order");
     }
     if (cmd == "feedempty") {
       feedLevelEmptyVoltage = readAnalogVoltage(FEED_LEVEL_PIN);
@@ -2711,6 +3399,13 @@ void loop() {
       Serial.printf("  Blower (GPIO %d): %s%s\n", BLOWER_PIN, blowerOn ? "ON" : "OFF",
                     blowerAutoHeld ? " (auto)" : "");
     }
+  }
+
+  if (calibrationMode) {
+    runCalibrationStream();
+    if (!lcdTaskRunning) updateLCD();
+    delay(1);
+    return;  // Do not reconnect Wi-Fi or run any cloud/control work in CALMODE.
   }
 
   // Never stop sensing/local automation just because Wi-Fi is down. The old
@@ -3084,6 +3779,19 @@ void saveCachedFeederSchedules() {
 void loadCachedFeederSchedules() {
   MutexGuard scheduleLock(feederScheduleMutex);
   prefs.begin("feedsched", true);
+  const String cachedTank = prefs.getString("tank", "");
+  const long long cachedAssignment = prefs.getLong64("assignment", 0);
+  const int cachedCount = max(0, prefs.getInt("count", 0));
+  // On an offline cold boot, restore the assignment identity stored alongside
+  // the last complete cloud schedule snapshot so that local execution can
+  // identify which tank the cached schedule belongs to. A later successful
+  // Firebase assignment read replaces or clears this identity as needed.
+  if (currentTankId.isEmpty() && !cachedTank.isEmpty() && cachedCount > 0) {
+    currentTankId = cachedTank;
+    currentAssignmentAtMs = cachedAssignment;
+    Serial.printf("[FEEDER] Offline boot: restored cached tank %s for local schedules\n",
+                  currentTankId.c_str());
+  }
   if (currentTankId.isEmpty() || prefs.getString("tank", "") != currentTankId ||
       prefs.getLong64("assignment", 0) != currentAssignmentAtMs) {
     prefs.end();
@@ -3689,6 +4397,9 @@ void processFeederTick() {
       // single long open. GATECAL has the same 300 ms gap per actuation.
       if (now - feederStepMs >= GATE_CLOSE_DWELL_MS) {
         if (feederCurrentCycle >= feederMaxCycles) {
+          // Begin the blower tail as soon as the final gate has closed, not
+          // later when the completion log/status work finishes.
+          blowerAutoOff();
           feederRunState = FEEDER_DONE;
         } else {
           // Next 1 g actuation
@@ -3702,7 +4413,6 @@ void processFeederTick() {
       if (now - feederStartMs < 1000) break;
 
       setGateAngle(0);
-      blowerAutoOff();
       // Update feed count and persist it so a reboot doesn't reset the total
       // the app displays as "feeds completed".
       feederDispenseCount++;
@@ -3957,20 +4667,18 @@ void applyTankAssignment(const String& tankId, const String& ownerUid, long long
 //  Note: relays are ACTIVE-LOW — digitalWrite(LOW) turns the relay ON.
 // ============================================================
 
-// ─── Initialize relay pins (everything OFF at boot) ───
+// ─── Initialize life-support relays ON as the offline-safe default ───
 void initActuators() {
   for (int i = 0; i < 3; i++) {
     pinMode(actuators[i].pin, OUTPUT);
-    digitalWrite(actuators[i].pin, HIGH);   // active-LOW: HIGH = relay OFF
-    actuators[i].relayOn = false;
-    // Force the first cloud sync to publish the boot-time output state. The
-    // previous session may have left current_state="on" in Firestore even
-    // though this boot initializes the active-LOW relay output to OFF.
+    digitalWrite(actuators[i].pin, LOW);   // active-LOW: LOW = relay ON
+    actuators[i].relayOn = true;
+    // The cloud may override this safe default as soon as its modes are read.
     actuators[i].cloudReported = false;
     actuators[i].cloudReportedState = "";
     actuators[i].lastChangeMs = 0;
   }
-  Serial.println("[ACT] Relays initialized: pump=GPIO26, aerator1=GPIO27, aerator2=GPIO14 (all OFF)");
+  Serial.println("[ACT] Offline-safe startup: pump=GPIO26, aerator1=GPIO27, aerator2=GPIO14 (all ON until cloud modes load)");
 }
 
 // ─── Apply physical relay state (active-LOW; no-op if unchanged) ───
@@ -3999,27 +4707,48 @@ void initBlower() {
 
 void setBlower(bool on, bool autoHeld) {
   if (blowerOn == on) {
-    if (on && autoHeld) blowerAutoHeld = true;
+    if (on && autoHeld) {
+      blowerAutoHeld = true;
+      blowerPostRunPending = false;  // a new feed cancels the prior tail timer
+    }
     return;
   }
   blowerOn = on;
   digitalWrite(BLOWER_PIN, on ? LOW : HIGH);
   if (on) {
     blowerOnSinceMs = millis();
+    blowerPostRunPending = false;
     if (autoHeld) blowerAutoHeld = true;
   } else {
+    blowerPostRunPending = false;
     blowerAutoHeld = false;
   }
   Serial.printf("[BLOWER] -> %s%s\n", on ? "ON" : "OFF", autoHeld ? " (auto)" : " (manual)");
 }
 
 void blowerAutoOff() {
-  if (blowerOn && blowerAutoHeld) setBlower(false, true);
+  if (!blowerOn || !blowerAutoHeld) return;
+  if (BLOWER_POST_SEC == 0) {
+    setBlower(false, true);
+    return;
+  }
+  blowerPostRunStartedMs = millis();
+  blowerPostRunPending = true;
+  Serial.printf("[BLOWER] Final gate closed; staying ON for %u s\n",
+                (unsigned)BLOWER_POST_SEC);
 }
 
 // Safety timeout for manual runs — call every loop().
 void blowerSafetyTick() {
-  if (blowerOn && !blowerAutoHeld && millis() - blowerOnSinceMs >= BLOWER_MAX_ON_MS) {
+  const unsigned long now = millis();
+  if (blowerOn && blowerAutoHeld && blowerPostRunPending &&
+      now - blowerPostRunStartedMs >= (unsigned long)BLOWER_POST_SEC * 1000UL) {
+    blowerPostRunPending = false;
+    setBlower(false, true);
+    Serial.println("[BLOWER] Post-feed 10 s run complete — OFF");
+    return;
+  }
+  if (blowerOn && !blowerAutoHeld && now - blowerOnSinceMs >= BLOWER_MAX_ON_MS) {
     setBlower(false, false);
     Serial.println("[BLOWER] Manual safety timeout — OFF");
   }
@@ -4172,6 +4901,10 @@ void clearFeedOverride() {
 
 // Expiry watchdog for the warning window — call every loop().
 void pollFeedOverride() {
+  if (calibrationMode) {
+    if (overrideWarnReason.length() > 0) clearFeedOverride();
+    return;
+  }
   if (overrideWarnReason.length() == 0) return;
   if ((long)(millis() - overrideDeadlineMs) >= 0) {
     Serial.println("[FEEDER] Override expired — feed cancelled");
@@ -4180,6 +4913,12 @@ void pollFeedOverride() {
 }
 
 void processOnsiteButton() {
+  if (calibrationMode) {
+    portENTER_CRITICAL(&onsiteButtonMux);
+    onsiteButtonTapCount = 0;
+    portEXIT_CRITICAL(&onsiteButtonMux);
+    return;
+  }
   if (!onsiteButtonEnabled) return;
   // Confirmation taps inside an override warning window: counted
   // immediately (no settle) and never converted to grams.
@@ -4302,11 +5041,15 @@ void updateLCD() {
   MutexGuard sensorLock(sensorStateMutex);
   MutexGuard lcdLock(lcdMutex);
   unsigned long now = millis();
-  if (lcdCloudBootPending && feederRunState == FEEDER_IDLE &&
-      onsiteButtonTapCount == 0 && overrideWarnReason.length() == 0) return;
   if (lastLcdRenderMs != 0 && now - lastLcdRenderMs < 250UL) return;
   String l0, l1;
-  if (feederRunState == FEEDER_PRE_BLOW) {
+  if (calibrationMode) {
+    l0 = "CALIBRATION MODE";
+    l1 = WiFi.status() == WL_CONNECTED ? "Cloud paused" : "Wi-Fi offline";
+  } else if (lcdCloudBootPending && feederRunState == FEEDER_IDLE &&
+             onsiteButtonTapCount == 0 && overrideWarnReason.length() == 0) {
+    return;
+  } else if (feederRunState == FEEDER_PRE_BLOW) {
     l0 = "Blower warm-up";
     l1 = "Please wait...";
   } else if (feederRunState != FEEDER_IDLE) {
@@ -4364,8 +5107,10 @@ void updateLCD() {
 // perform network work.
 void sensorPollingTask(void*) {
   for (;;) {
-    readAllSensors();
-    if (sensorOutputEnabled) printSensorReading();
+    if (!calibrationMode) {
+      readAllSensors();
+      if (sensorOutputEnabled) printSensorReading();
+    }
     // Match the prior loop behavior: wait the configured interval after the
     // completed scan, so a long scan never triggers a catch-up burst.
     vTaskDelay(pdMS_TO_TICKS(SENSOR_POLL_MS));
@@ -4535,14 +5280,29 @@ void applyActuatorDevice(int idx) {
 
 // ─── Sync all 3 actuators from Firestore: read mode -> apply -> report ───
 void syncActuatorsFromFirestore() {
-  if (currentTankId.length() == 0) return;   // no tank assigned yet
+  // Offline/unassigned operation must keep water circulation and aeration on;
+  // stale cached cloud modes must not switch these life-support outputs off.
+  if (WiFi.status() != WL_CONNECTED || cloudOutage || !ensureFirebaseReady() ||
+      currentTankId.length() == 0) {
+    applyOfflineActuatorDefaults();
+    return;
+  }
 
   for (int i = 0; i < 3; i++) {
     String mode;
     if (readActuatorMode(i, mode)) {
       actuators[i].controlMode = mode;
+    } else if (cloudOutage) {
+      applyOfflineActuatorDefaults();
+      return;
     }
     if (actuators[i].controlMode.isEmpty()) continue;
     applyActuatorDevice(i);
+  }
+}
+
+void applyOfflineActuatorDefaults() {
+  for (int i = 0; i < 3; i++) {
+    setActuatorRelay(i, true);
   }
 }

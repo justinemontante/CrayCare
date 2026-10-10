@@ -49,7 +49,7 @@ OTHER PERIPHERALS
 │    2   │       │ Blower button        │ To GND, INPUT_PULLUP     │
 │   13   │       │ Gate servo SG92R     │ PWM, current wiring      │
 │   18   │       │ SD card SCK (VSPI)   │ Keep SPI wires < 20 cm   │
-│   19   │       │ SD card MISO (VSPI)  │ Keep SPI wires < 20 cm   │
+│   19   │       │ SD card MOSO (VSPI)  │ Keep SPI wires < 20 cm   │
 │   23   │       │ SD card MOSI (VSPI)  │ Keep SPI wires < 20 cm   │
 │   15   │       │ SD card CS (future)  │ Idles HIGH (pull-up)     │
 └────────┴───────┴──────────────────────┴──────────────────────────┘

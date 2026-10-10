@@ -1,383 +1,415 @@
+/*
+ * CrayCare standalone pH calibration utility
+ * Board: ESP32 Dev Module / ESP32-S
+ * Sensor: DFRobot Gravity Analog pH SEN0161 V1.1
+ *
+ * Offline only: no Wi-Fi, Firebase, LCD, or other sensors.
+ * Upload with: pio run -e esp32dev_ph_calibrator -t upload
+ *
+ * Wiring for this standalone test:
+ *   pH board VCC -> regulated 5V
+ *   pH board GND -> ESP32 GND (common ground)
+ *   pH board A/O -> ESP32 GPIO35, only if A/O is <= 3.3V
+ * GPIO35 is not 5V tolerant. Check A/O to ESP32 GND with a meter first.
+ *
+ * Calibration points are saved in the same NVS namespace/keys consumed by
+ * CrayCare main firmware: sensorcal / phV4, phV7, phV9, phSlope,
+ * phIntercept, phFitN, phPair, and buffer reference keys.
+ * Reflashing the normal firmware does not erase these NVS values.
+ *
+ * Serial Monitor: 115200 baud, line ending = Newline.
+ *   phread      read ADC voltage; show pH if a fit exists
+ *   phcal4      capture pH 4.01 buffer point
+ *   phcal9 9.18 capture pH 9.18 buffer point
+ *   phfit       fit pH 4.01 and 9.18 points and save the formula
+ *   phshow      show saved buffer points and fit
+ *   raw on      stream raw voltage and stability status
+ *   raw off     stop live voltage stream
+ *   phdisplay   stream calibrated pH values only
+ *   phdisplay off stop calibrated pH display
+ *   help        list commands
+ */
+
 #include <Arduino.h>
 #include <Preferences.h>
+#include <math.h>
 
-// =============================================================================
-// pH CALIBRATOR — Standalone
-// Buffers: pH 6.86 & pH 4.01 @ 25°C
-// Hardware: 10k+10k voltage divider (ratio 0.5), GPIO 35
-// =============================================================================
+static constexpr uint8_t PH_PIN = 35;
+static constexpr uint16_t SAMPLE_COUNT = 120;
+static constexpr uint16_t SAMPLE_DELAY_MS = 20;
+static constexpr float MAX_ADC_V = 3.25f;  // Match main firmware's accepted pH range.
+static constexpr float MAX_CAPTURE_SPREAD_V = 0.080f;
+static constexpr float WARN_CAPTURE_SPREAD_V = 0.010f;
+static constexpr float MIN_TWO_POINT_SPAN_V = 0.001f;
+static constexpr uint8_t RAW_BLOCK_SAMPLE_COUNT = 8;
+static constexpr uint8_t STABILITY_WINDOW_BLOCKS = 12;
+static constexpr uint16_t RAW_BLOCK_SAMPLE_DELAY_MS = 10;
+static constexpr uint32_t RAW_PRINT_INTERVAL_MS = 200;
+static constexpr uint32_t PH_DISPLAY_INTERVAL_MS = 500;
+static constexpr float LIVE_STABLE_SPREAD_V = 0.010f;
 
-#define PH_PIN 35
-#define PH_DIVIDER_RATIO 0.5f
-
-// NVS
 static Preferences prefs;
-static const char* NVS_NS = "phcal";
+static float activeSlope = NAN;
+static float activeIntercept = NAN;
+static int activeFitCount = 2;
+static bool rawStreamEnabled = false;
+static bool phDisplayEnabled = false;
+static float rawVoltageBlocks[STABILITY_WINDOW_BLOCKS] = {};
+static uint8_t rawVoltageBlockCount = 0;
+static uint8_t rawVoltageBlockNext = 0;
+static uint32_t lastRawPrintMs = 0;
+static uint32_t lastPHDisplayMs = 0;
 
-// Calibration values
-static float v686 = 0.0f;
-static float v401 = 0.0f;
-static float neutralV = 0.0f;
-static float slope = 0.18f;
-static bool calibrated = false;
+struct ReadingWindow {
+  float trimmedMeanV;
+  float minV;
+  float maxV;
+  float spreadV;
+};
 
-// Moving average filter
-#define BUF_SIZE 20
-static float buf[BUF_SIZE];
-static int bufIdx = 0;
-static int bufCount = 0;
-
-// Stability detection
-#define STABLE_SAMPLES   15
-#define STABLE_WINDOW_MS 3000
-#define STABLE_THRESH_V  0.008f
-#define DIP_THRESHOLD    50
-
-// =============================================================================
-// HELPERS
-// =============================================================================
-
-static float readRawVoltage() {
-    uint32_t sum = 0;
-    for (int i = 0; i < 10; i++) {
-        sum += analogRead(PH_PIN);
-        delay(1);
+static void sortSamples(uint16_t *samples, size_t count) {
+  for (size_t i = 1; i < count; ++i) {
+    const uint16_t value = samples[i];
+    size_t j = i;
+    while (j > 0 && samples[j - 1] > value) {
+      samples[j] = samples[j - 1];
+      --j;
     }
-    return (sum / 10.0f) * (3.3f / 4095.0f) / PH_DIVIDER_RATIO;
+    samples[j] = value;
+  }
 }
 
-static float readFiltered() {
-    float v = readRawVoltage();
-    buf[bufIdx++] = v;
-    if (bufIdx >= BUF_SIZE) bufIdx = 0;
-    if (bufCount < BUF_SIZE) bufCount++;
-    float sum = 0;
-    for (int i = 0; i < bufCount; i++) sum += buf[i];
-    return sum / bufCount;
+static ReadingWindow readVoltageWindow() {
+  uint16_t samples[SAMPLE_COUNT];
+  uint16_t minMv = UINT16_MAX;
+  uint16_t maxMv = 0;
+
+  for (uint16_t i = 0; i < SAMPLE_COUNT; ++i) {
+    const uint16_t mv = analogReadMilliVolts(PH_PIN);
+    samples[i] = mv;
+    if (mv < minMv) minMv = mv;
+    if (mv > maxMv) maxMv = mv;
+    delay(SAMPLE_DELAY_MS);
+  }
+
+  sortSamples(samples, SAMPLE_COUNT);
+  // Trim the lowest/highest 10% to reject occasional ADC spikes.
+  constexpr uint16_t TRIM = SAMPLE_COUNT / 10;
+  uint32_t sumMv = 0;
+  for (uint16_t i = TRIM; i < SAMPLE_COUNT - TRIM; ++i) sumMv += samples[i];
+
+  ReadingWindow result;
+  result.trimmedMeanV = (sumMv / float(SAMPLE_COUNT - 2 * TRIM)) / 1000.0f;
+  result.minV = minMv / 1000.0f;
+  result.maxV = maxMv / 1000.0f;
+  result.spreadV = result.maxV - result.minV;
+  return result;
 }
 
-static float calcPH(float v) {
-    if (!calibrated || slope < 0.001f) return -1;
-    float ph = 7.0f + (neutralV - v) / slope;
-    if (ph < 0) ph = 0;
-    if (ph > 14) ph = 14;
-    return ph;
+static float readQuickVoltageBlock() {
+  uint32_t sumMilliVolts = 0;
+  for (uint8_t i = 0; i < RAW_BLOCK_SAMPLE_COUNT; ++i) {
+    sumMilliVolts += analogReadMilliVolts(PH_PIN);
+    delay(RAW_BLOCK_SAMPLE_DELAY_MS);
+  }
+  return (sumMilliVolts / float(RAW_BLOCK_SAMPLE_COUNT)) / 1000.0f;
 }
 
-// =============================================================================
-// NVS
-// =============================================================================
-
-static void loadCal() {
-    prefs.begin(NVS_NS, false);
-    v686 = prefs.getFloat("v686", 0.0f);
-    v401 = prefs.getFloat("v401", 0.0f);
-    slope = prefs.getFloat("slope", 0.18f);
-    neutralV = prefs.getFloat("neutralV", 0.0f);
-    calibrated = prefs.getBool("cal", false);
-    prefs.end();
+static void resetRawStabilityWindow() {
+  rawVoltageBlockCount = 0;
+  rawVoltageBlockNext = 0;
+  lastRawPrintMs = 0;
 }
 
-static void saveCal() {
-    prefs.begin(NVS_NS, false);
-    prefs.putFloat("v686", v686);
-    prefs.putFloat("v401", v401);
-    prefs.putFloat("slope", slope);
-    prefs.putFloat("neutralV", neutralV);
-    prefs.putBool("cal", calibrated);
-    prefs.end();
+static void printRawBlock() {
+  const float blockVoltage = readQuickVoltageBlock();
+  rawVoltageBlocks[rawVoltageBlockNext] = blockVoltage;
+  rawVoltageBlockNext = (rawVoltageBlockNext + 1) % STABILITY_WINDOW_BLOCKS;
+  if (rawVoltageBlockCount < STABILITY_WINDOW_BLOCKS) ++rawVoltageBlockCount;
+
+  float minV = rawVoltageBlocks[0];
+  float maxV = rawVoltageBlocks[0];
+  float sumV = 0.0f;
+  for (uint8_t i = 0; i < rawVoltageBlockCount; ++i) {
+    const float v = rawVoltageBlocks[i];
+    if (v < minV) minV = v;
+    if (v > maxV) maxV = v;
+    sumV += v;
+  }
+  const float averageV = sumV / rawVoltageBlockCount;
+  const float spreadMv = (maxV - minV) * 1000.0f;
+  const bool stable = rawVoltageBlockCount == STABILITY_WINDOW_BLOCKS &&
+      (maxV - minV) <= LIVE_STABLE_SPREAD_V;
+
+  Serial.printf("[RAW] block=%.4fV avg=%.4fV min=%.4fV max=%.4fV spread=%.1fmV n=%u %s\n",
+                blockVoltage, averageV, minV, maxV, spreadMv,
+                rawVoltageBlockCount, stable ? "STABLE" : "SETTLING");
+  if (averageV > MAX_ADC_V) {
+    Serial.println(F("[SAFETY] A/O reading is above the ESP32 GPIO limit; disconnect GPIO35 and check signal voltage."));
+  }
+  lastRawPrintMs = millis();
 }
 
-// =============================================================================
-// AUTO-DETECT + MANUAL SAVE
-// =============================================================================
+static void printCalibratedPH() {
+  const float blockVoltage = readQuickVoltageBlock();
+  rawVoltageBlocks[rawVoltageBlockNext] = blockVoltage;
+  rawVoltageBlockNext = (rawVoltageBlockNext + 1) % STABILITY_WINDOW_BLOCKS;
+  if (rawVoltageBlockCount < STABILITY_WINDOW_BLOCKS) ++rawVoltageBlockCount;
 
-static bool waitForDip(unsigned long timeoutMs) {
-    int baseline = analogRead(PH_PIN);
-    unsigned long start = millis();
-    Serial.println("  Watching for dip (ADC jump > 50)...");
-    delay(2000);
+  float sumV = 0.0f;
+  for (uint8_t i = 0; i < rawVoltageBlockCount; ++i) sumV += rawVoltageBlocks[i];
+  const float averageV = sumV / rawVoltageBlockCount;
 
-    while (millis() - start < timeoutMs) {
-        int adc = analogRead(PH_PIN);
-        if (abs(adc - baseline) > DIP_THRESHOLD) {
-            Serial.printf("  ⏺ Dip detected! (ADC %d → %d)\n", baseline, adc);
-            delay(500);
-            return true;
-        }
-        if ((millis() - start) % 1000 < 20) {
-            Serial.printf("  Waiting... ADC=%d | ", adc);
-        }
-        delay(100);
-    }
-    Serial.println("  No dip detected, proceeding from current reading...");
+  if (!isfinite(activeSlope) || !isfinite(activeIntercept)) {
+    Serial.println(F("[PH] --"));
+  } else if (averageV <= 0.05f || averageV > MAX_ADC_V) {
+    Serial.println(F("[PH] --"));
+  } else {
+    const float ph = activeSlope * averageV + activeIntercept;
+    if (ph >= 0.0f && ph <= 14.0f) Serial.printf("[PH] %.2f\n", ph);
+    else Serial.println(F("[PH] --"));
+  }
+  lastPHDisplayMs = millis();
+}
+
+static bool beginCalNvs(bool readOnly) {
+  if (!prefs.begin("sensorcal", readOnly)) {
+    Serial.println(F("[NVS] Could not open the 'sensorcal' namespace."));
     return false;
+  }
+  return true;
 }
 
-static float monitorUntilSave(unsigned long timeoutMs) {
-    float ring[STABLE_SAMPLES];
-    int ri = 0, rc = 0;
-    unsigned long start = millis();
-    unsigned long lastPrint = 0;
-    bool wasStable = false;
+static void showSavedCalibration() {
+  if (!beginCalNvs(true)) return;
+  const float v4 = prefs.getFloat("phV4", NAN);
+  const float v686 = prefs.getFloat("phV7", NAN);
+  const float v918 = prefs.getFloat("phV9", NAN);
+  const float ref4 = prefs.getFloat("phV4Ref", 4.01f);
+  const float ref686 = prefs.getFloat("phV7Ref", 7.00f);
+  const float ref918 = prefs.getFloat("phV9Ref", 9.00f);
+  activeSlope = prefs.getFloat("phSlope", NAN);
+  activeIntercept = prefs.getFloat("phIntercept", NAN);
+  activeFitCount = prefs.getInt("phFitN", 2);
+  prefs.end();
 
-    Serial.println("  Monitoring — type 'save' when stable, 'abort' to cancel");
-
-    while (millis() - start < timeoutMs) {
-        if (Serial.available()) {
-            String line = Serial.readStringUntil('\n');
-            line.trim();
-            if (line == "save") {
-                float v = readFiltered();
-                Serial.printf("  → Manually saved: V=%.3f V\n", v);
-                return v;
-            }
-            if (line == "abort") {
-                Serial.println("  ⛔ Aborted by user");
-                return -1;
-            }
-        }
-
-        float v = readFiltered();
-        ring[ri++] = v;
-        if (ri >= STABLE_SAMPLES) ri = 0;
-        if (rc < STABLE_SAMPLES) rc++;
-
-        float drift = 0;
-        if (rc >= 3) {
-            float vmin = v, vmax = v;
-            for (int i = 0; i < rc; i++) {
-                if (ring[i] < vmin) vmin = ring[i];
-                if (ring[i] > vmax) vmax = ring[i];
-            }
-            drift = vmax - vmin;
-        }
-
-        if (millis() - lastPrint >= 500) {
-            lastPrint = millis();
-            bool stable = (drift <= STABLE_THRESH_V && rc >= STABLE_SAMPLES);
-            char tag[6] = "⏳";
-            if (stable && !wasStable) {
-                strcpy(tag, "✅");
-                Serial.printf("  V=%.3f drift=%.0fmV %s STABLE — type 'save' to record\n", v, drift * 1000, tag);
-            } else if (stable) {
-                strcpy(tag, "✅");
-                Serial.printf("  V=%.3f drift=%.0fmV %s (still stable)\n", v, drift * 1000, tag);
-            } else {
-                Serial.printf("  V=%.3f drift=%.0fmV %s\n", v, drift * 1000, tag);
-            }
-            wasStable = stable;
-        }
-        delay(50);
-    }
-
-    float v = readFiltered();
-    Serial.printf("  ⚠ Timeout (%lums) — auto-using V=%.3f\n", timeoutMs, v);
-    return v;
+  Serial.printf("[NVS] pH4 %.4fV (ref %.2f), legacy pH6.86 %.4fV (ref %.2f), pH9 %.4fV (ref %.2f)\n",
+                v4, ref4, v686, ref686, v918, ref918);
+  Serial.printf("[NVS] active fit=%d-point, slope=%.5f, intercept=%.5f\n",
+                activeFitCount, activeSlope, activeIntercept);
+  if (isfinite(v4) && isfinite(v686) && isfinite(v918) &&
+      isfinite(activeSlope) && isfinite(activeIntercept)) {
+    Serial.printf("[NVS] Fit predictions at pH4/pH9 captured voltages: %.2f / %.2f\n",
+                  activeSlope * v4 + activeIntercept,
+                  activeSlope * v918 + activeIntercept);
+  }
 }
 
-static float waitDipAndMonitorUntilSave(unsigned long timeoutMs) {
-    waitForDip(timeoutMs);
-    return monitorUntilSave(timeoutMs);
+static bool captureBuffer(const String &command) {
+  const char *voltageKey = nullptr;
+  const char *referenceKey = nullptr;
+  float referencePH = 0.0f;
+
+  if (command == "phcal4") {
+    voltageKey = "phV4";
+    referenceKey = "phV4Ref";
+    referencePH = 4.01f;
+  } else if (command == "phcal9" || command.startsWith("phcal9 ")) {
+    voltageKey = "phV9";
+    referenceKey = "phV9Ref";
+    referencePH = 9.18f;
+    if (command.startsWith("phcal9 ")) {
+      String valueText = command.substring(7);
+      valueText.trim();
+      char *end = nullptr;
+      const float enteredPH = strtof(valueText.c_str(), &end);
+      if (end == valueText.c_str() || *end != '\0' || !isfinite(enteredPH) ||
+          fabsf(enteredPH - 9.18f) > 0.02f) {
+        Serial.println(F("[CMD] This 2-point calibrator expects the pH 9.18 buffer: use phcal9 or phcal9 9.18."));
+        return true;
+      }
+    }
+  } else {
+    return false;
+  }
+
+  Serial.printf("[CAPTURE] Probe in pH %.2f buffer; taking 120 ADC samples (~2.4 seconds)...\n",
+                referencePH);
+  const ReadingWindow reading = readVoltageWindow();
+  Serial.printf("[CAPTURE] mean=%.4fV min=%.4fV max=%.4fV spread=%.1fmV\n",
+                reading.trimmedMeanV, reading.minV, reading.maxV,
+                reading.spreadV * 1000.0f);
+
+  if (reading.trimmedMeanV <= 0.05f || reading.trimmedMeanV > MAX_ADC_V) {
+    Serial.println(F("[REJECTED] Voltage is invalid or above 3.25V. Check A/O wiring and protect GPIO35."));
+    return true;
+  }
+  if (reading.spreadV > MAX_CAPTURE_SPREAD_V) {
+    Serial.println(F("[REJECTED] More than 80mV variation during capture. Wait for the probe to settle and check connections."));
+    return true;
+  }
+  if (reading.spreadV > WARN_CAPTURE_SPREAD_V) {
+    Serial.println(F("[WARNING] Spread is above 10mV. Robust average will be saved, but repeat after readings settle for better accuracy."));
+  }
+
+  if (!beginCalNvs(false)) return true;
+  const size_t savedVoltage = prefs.putFloat(voltageKey, reading.trimmedMeanV);
+  const size_t savedReference = prefs.putFloat(referenceKey, referencePH);
+  prefs.end();
+  if (savedVoltage != sizeof(float) || savedReference != sizeof(float)) {
+    Serial.println(F("[NVS] Save failed; repeat this calibration point."));
+  } else {
+    Serial.printf("[NVS] Saved pH %.2f point = %.4fV. Rinse the probe before moving to another buffer.\n",
+                  referencePH, reading.trimmedMeanV);
+  }
+  return true;
 }
 
-// =============================================================================
-// CALIBRATION ACTIONS
-// =============================================================================
+static bool fitAndSave() {
+  if (!beginCalNvs(false)) return false;
+  const float v4 = prefs.getFloat("phV4", NAN);
+  const float v9 = prefs.getFloat("phV9", NAN);
+  const float ph4 = prefs.getFloat("phV4Ref", 4.01f);
+  const float ph9 = prefs.getFloat("phV9Ref", 9.18f);
+  if (!isfinite(v4) || !isfinite(v9)) {
+    prefs.end();
+    Serial.println(F("[FIT] Missing endpoint(s). Capture pH 4.01 with phcal4 and pH 9.18 with phcal9."));
+    return false;
+  }
+  const float span = v9 - v4;
+  if (fabsf(span) < MIN_TWO_POINT_SPAN_V) {
+    prefs.end();
+    Serial.printf("[FIT] pH4 and pH9 voltages are too close to calculate safely: %.4fmV apart.\n", span * 1000.0f);
+    return false;
+  }
+  const float newSlope = (ph9 - ph4) / span;
+  const float newIntercept = ph4 - newSlope * v4;
 
-static void showCal();
+  const bool saved =
+      prefs.putFloat("phSlope", newSlope) == sizeof(float) &&
+      prefs.putFloat("phIntercept", newIntercept) == sizeof(float) &&
+      prefs.putInt("phFitN", 2) == sizeof(int32_t) &&
+      prefs.putInt("phPair", 9) == sizeof(int32_t);
+  prefs.end();
+  if (!saved) {
+    Serial.println(F("[FIT] Could not save calibration to NVS."));
+    return false;
+  }
 
-static void calibrate686() {
-    Serial.println("\n=== pH 6.86 Calibration ===");
-    Serial.println("  Dip probe in pH 6.86 buffer now...");
-    float v = waitDipAndMonitorUntilSave(300000);
-    if (v < 0) { Serial.println("  Calibration cancelled."); return; }
-    v686 = v;
-
-    if (v401 > 0) {
-        float m = (v686 - v401) / (6.86f - 4.01f);
-        slope = fabs(m);
-        if (slope < 0.001f || slope > 1.0f) slope = 0.18f;
-        neutralV = v686 + m * (7.0f - 6.86f);
-        calibrated = true;
-    }
-
-    saveCal();
-    Serial.println("  → V686 = " + String(v686, 3) + " V saved");
-    if (v401 > 0) {
-        Serial.printf("  → Slope = %.4f V/pH, NeutralV (pH7) = %.3f V\n", slope, neutralV);
-        Serial.println("  ✅ Calibration COMPLETE!");
-    } else {
-        Serial.println("  Status: 1/2 (need pH 4.01)");
-    }
-    showCal();
-}
-
-static void calibrate401() {
-    Serial.println("\n=== pH 4.01 Calibration ===");
-    Serial.println("  Rinse probe, then dip in pH 4.01 buffer now...");
-    float v = waitDipAndMonitorUntilSave(300000);
-    if (v < 0) { Serial.println("  Calibration cancelled."); return; }
-    v401 = v;
-
-    if (v686 > 0) {
-        float m = (v686 - v401) / (6.86f - 4.01f);
-        slope = fabs(m);
-        if (slope < 0.001f || slope > 1.0f) slope = 0.18f;
-        neutralV = v686 + m * (7.0f - 6.86f);
-        calibrated = true;
-    }
-
-    saveCal();
-    Serial.println("  → V401 = " + String(v401, 3) + " V saved");
-    if (v686 > 0) {
-        Serial.printf("  → Slope = %.4f V/pH, NeutralV (pH7) = %.3f V\n", slope, neutralV);
-        Serial.println("  ✅ Calibration COMPLETE!");
-    } else {
-        Serial.println("  Status: 1/2 (need pH 6.86)");
-    }
-    showCal();
-}
-
-static void runVerify() {
-    if (!calibrated) {
-        Serial.println("⚠ Calibrate first (type 686 then 401)");
-        return;
-    }
-
-    Serial.println("\n=== Verify pH 6.86 ===");
-    Serial.println("  Dip probe in pH 6.86 buffer, type 'save' when stable...");
-    float v1 = waitDipAndMonitorUntilSave(300000);
-    if (v1 < 0) { Serial.println("  Verify cancelled."); return; }
-    float ph1 = calcPH(v1);
-    Serial.printf("  V=%.3f  pH=%.2f  (expected 6.86, error=%.2f)\n", v1, ph1, ph1 - 6.86);
-
-    Serial.println("\n  Press any key to continue to pH 4.01...");
-    while (!Serial.available()) { delay(50); }
-    while (Serial.available()) Serial.read();
-
-    Serial.println("\n=== Verify pH 4.01 ===");
-    Serial.println("  Rinse probe, then dip in pH 4.01 buffer, type 'save' when stable...");
-    float v2 = waitDipAndMonitorUntilSave(300000);
-    float ph2 = calcPH(v2);
-    Serial.printf("  V=%.3f  pH=%.2f  (expected 4.01, error=%.2f)\n", v2, ph2, ph2 - 4.01);
-
-    Serial.println("\n=== Verification Results ===");
-    Serial.printf("  pH 6.86: measured=%.2f  error=%.2f  %s\n",
-        ph1, ph1 - 6.86, fabs(ph1 - 6.86) < 0.15 ? "✅ PASS" : "⚠ FAIL");
-    Serial.printf("  pH 4.01: measured=%.2f  error=%.2f  %s\n",
-        ph2, ph2 - 4.01, fabs(ph2 - 4.01) < 0.15 ? "✅ PASS" : "⚠ FAIL");
-}
-
-static void showCal() {
-    Serial.println("\n--- pH Calibration Status ---");
-    Serial.printf("  V686 (pH 6.86): %.3f V\n", v686);
-    Serial.printf("  V401 (pH 4.01): %.3f V\n", v401);
-    if (v686 > 0 && v401 > 0) {
-        Serial.printf("  Slope: %.4f V/pH\n", slope);
-        Serial.printf("  NeutralV (pH7): %.3f V\n", neutralV);
-    }
-    Serial.printf("  Calibrated: %s\n", calibrated ? "YES" : "NO");
-    if (calibrated) {
-        Serial.printf("  Formula: pH = 7.0 + (%.3f - V) / %.4f\n", neutralV, slope);
-    }
-    Serial.println("-----------------------------\n");
-}
-
-static void resetCal() {
-    v686 = 0; v401 = 0;
-    slope = 0.18f; neutralV = 0; calibrated = false;
-    saveCal();
-    Serial.println("[CAL] Reset to defaults");
+  activeSlope = newSlope;
+  activeIntercept = newIntercept;
+  activeFitCount = 2;
+  Serial.printf("[FIT] Saved 2-point fit (pH 4.01 + 9.18): pH = %.5f * V + %.5f\n",
+                activeSlope, activeIntercept);
+  Serial.printf("[FIT] Checkpoints: pH4=%.2f, pH9=%.2f; voltage span=%.1fmV\n",
+                activeSlope * v4 + activeIntercept,
+                activeSlope * v9 + activeIntercept,
+                fabsf(span) * 1000.0f);
+  if (fabsf(span) < 0.050f) {
+    Serial.printf("[WARNING] Small %.1fmV span: 10mV of voltage noise can shift the pH by about %.2f. Fit was saved as requested, but verify readings carefully.\n",
+                  fabsf(span) * 1000.0f, fabsf(activeSlope) * 0.010f);
+  }
+  Serial.println(F("[FIT] Run phshow and verify both buffers. Re-upload normal CrayCare firmware; NVS calibration persists."));
+  return true;
 }
 
 static void printHelp() {
-    Serial.println();
-    Serial.println("========== pH Sensor Calibrator ==========");
-    Serial.println("  Buffer: pH 6.86 & pH 4.01 @ 25°C");
-    Serial.println("  Divider: 10k+10k (ratio 0.5), GPIO 35");
-    Serial.println("------------------------------------------");
-    Serial.println("  686     Auto-calibrate at pH 6.86");
-    Serial.println("  401     Auto-calibrate at pH 4.01");
-    Serial.println("  read    One-shot pH reading");
-    Serial.println("  raw     Toggle live voltage stream");
-    Serial.println("  verify  Test calibration on both buffers");
-    Serial.println("  show    Display saved calibration values");
-    Serial.println("  reset   Reset calibration to defaults");
-    Serial.println("  help/?  This list");
-    Serial.println("=========================================");
-    Serial.println();
+  Serial.println(F("\n=== CrayCare offline pH calibrator ==="));
+  Serial.println(F("phread      Read voltage and current fitted pH"));
+  Serial.println(F("phcal4      Capture pH 4.01 buffer"));
+  Serial.println(F("phcal9 9.18 Capture pH 9.18 buffer point"));
+  Serial.println(F("phfit       Fit only pH 4.01 and 9.18, then save to NVS"));
+  Serial.println(F("phshow      Show saved buffer points and active formula"));
+  Serial.println(F("raw on      Stream raw voltage blocks and STABLE/SETTLING status"));
+  Serial.println(F("raw off     Stop the voltage stream"));
+  Serial.println(F("phdisplay   Stream calibrated pH values only"));
+  Serial.println(F("phdisplay off  Stop calibrated pH display"));
+  Serial.println(F("help        Show commands"));
+  Serial.println(F("Serial: 115200 baud, line ending Newline"));
 }
 
-// =============================================================================
-// SETUP / LOOP
-// =============================================================================
-
 void setup() {
-    Serial.begin(115200);
-    delay(1500);
+  Serial.begin(115200);
+  delay(800);
+  analogReadResolution(12);
+  analogSetPinAttenuation(PH_PIN, ADC_11db);
+  pinMode(PH_PIN, INPUT);
 
-    Serial.println();
-    Serial.println("======================================");
-    Serial.println("  pH Sensor Calibrator");
-    Serial.println("  Buffers: pH 6.86 & pH 4.01 @ 25°C");
-    Serial.println("  Divider: 10k+10k (ratio 0.5)");
-    Serial.println("======================================");
-
-    pinMode(PH_PIN, INPUT);
-    analogSetAttenuation(ADC_11db);
-    analogSetWidth(12);
-    analogSetPinAttenuation(PH_PIN, ADC_11db);
-
-    loadCal();
-    showCal();
-    printHelp();
+  Serial.println(F("\n[BOOT] Standalone ESP32 pH calibration; Wi-Fi/Firebase are not included."));
+  Serial.println(F("[BOOT] SEN0161 V1.1 A/O -> GPIO35; board powered from regulated 5V."));
+  Serial.println(F("[SAFETY] Common GND required; confirm A/O <=3.3V before connecting to GPIO35."));
+  if (beginCalNvs(true)) {
+    activeSlope = prefs.getFloat("phSlope", NAN);
+    activeIntercept = prefs.getFloat("phIntercept", NAN);
+    activeFitCount = prefs.getInt("phFitN", 2);
+    prefs.end();
+  }
+  printHelp();
+  showSavedCalibration();
 }
 
 void loop() {
-    static bool rawMode = false;
-    static unsigned long lastRaw = 0;
+  if (Serial.available()) {
+    String command = Serial.readStringUntil('\n');
+    command.trim();
+    command.toLowerCase();
 
-    if (Serial.available()) {
-        String line = Serial.readStringUntil('\n');
-        line.trim();
-
-        if (line == "686") {
-            calibrate686();
-        } else if (line == "401") {
-            calibrate401();
-        } else if (line == "read") {
-            float v = readFiltered();
-            float ph = calcPH(v);
-            Serial.printf("V=%.3f  pH=", v);
-            if (ph < 0) Serial.println("-- (not calibrated)");
-            else Serial.printf("%.2f\n", ph);
-        } else if (line == "raw") {
-            rawMode = !rawMode;
-            Serial.printf("Raw mode: %s\n", rawMode ? "ON" : "OFF");
-        } else if (line == "verify") {
-            runVerify();
-        } else if (line == "show") {
-            showCal();
-        } else if (line == "reset") {
-            resetCal();
-        } else if (line == "help" || line == "?") {
-            printHelp();
-        } else if (line.length() > 0) {
-            Serial.println("Unknown — type 'help'");
+    if (command == "help") printHelp();
+    else if (command == "raw on" || command == "raw") {
+      phDisplayEnabled = false;
+      rawStreamEnabled = true;
+      resetRawStabilityWindow();
+      Serial.println(F("[RAW] Stream ON: one voltage block about every 200ms; STABLE requires a full rolling window with <=10mV spread. Type 'raw off' to stop."));
+    } else if (command == "raw off") {
+      rawStreamEnabled = false;
+      resetRawStabilityWindow();
+      Serial.println(F("[RAW] Stream OFF."));
+    } else if (command == "phdisplay" || command == "phdisplay on") {
+      rawStreamEnabled = false;
+      phDisplayEnabled = true;
+      resetRawStabilityWindow();
+      lastPHDisplayMs = 0;
+      if (isfinite(activeSlope) && isfinite(activeIntercept)) {
+        Serial.println(F("[PHDISPLAY] ON — calibrated pH values only; type 'phdisplay off' to stop."));
+      } else {
+        Serial.println(F("[PHDISPLAY] No calibration fit saved yet; output will show -- until phfit succeeds."));
+      }
+    } else if (command == "phdisplay off") {
+      phDisplayEnabled = false;
+      resetRawStabilityWindow();
+      Serial.println(F("[PHDISPLAY] OFF."));
+    } else if (command == "phread") {
+      Serial.println(F("[READ] Sampling (~2.4 seconds)..."));
+      const ReadingWindow reading = readVoltageWindow();
+      Serial.printf("[READ] V=%.4fV min=%.4fV max=%.4fV spread=%.1fmV",
+                    reading.trimmedMeanV, reading.minV, reading.maxV,
+                    reading.spreadV * 1000.0f);
+      if (reading.trimmedMeanV > MAX_ADC_V) {
+        Serial.println(F(" [OVER ESP32 INPUT LIMIT]"));
+      } else {
+        Serial.println();
+        if (isfinite(activeSlope) && isfinite(activeIntercept)) {
+          Serial.printf("[READ] pH=%.2f using saved %d-point fit\n",
+                        activeSlope * reading.trimmedMeanV + activeIntercept,
+                        activeFitCount);
+        } else {
+          Serial.println(F("[READ] No saved pH fit yet; capture all buffers and run phfit."));
         }
+      }
+      resetRawStabilityWindow();
+    } else if (command == "phshow") {
+      showSavedCalibration();
+    } else if (command == "phfit") {
+      fitAndSave();
+    } else if (!captureBuffer(command) && command.length() > 0) {
+      Serial.println(F("[CMD] Unknown command. Type help."));
     }
+    if (rawStreamEnabled || phDisplayEnabled) resetRawStabilityWindow();
+  }
 
-    if (rawMode) {
-        unsigned long now = millis();
-        if (now - lastRaw >= 500) {
-            lastRaw = now;
-            float v = readFiltered();
-            int adc = analogRead(PH_PIN);
-            float ph = calcPH(v);
-            Serial.printf("ADC=%4d  V=%.3f  pH=", adc, v);
-            if (ph < 0) Serial.println("--");
-            else Serial.printf("%.2f\n", ph);
-        }
-    }
+  if (rawStreamEnabled && millis() - lastRawPrintMs >= RAW_PRINT_INTERVAL_MS) {
+    printRawBlock();
+  } else if (phDisplayEnabled && millis() - lastPHDisplayMs >= PH_DISPLAY_INTERVAL_MS) {
+    printCalibratedPH();
+  }
 }

@@ -26,6 +26,30 @@ COMMAND MENU / SENSOR DISPLAY
   CAL_HELP  (alias: cal help)
     Shows calibration commands in the Serial Monitor.
 
+  CALMODE ON / CALMODE OFF
+    Enter/exit focused sensor calibration. CALMODE ON disconnects Wi-Fi,
+    disables Firebase reconnect, pauses routine sensor polling/cloud control,
+    and blocks feeding; serial calibration commands remain available. Enter is
+    refused while a feed is active. CALMODE OFF resumes sensor polling and
+    reconnects Wi-Fi; calibration-period samples are excluded from history.
+
+  CALSTREAM PH|DO|TURB [interval_ms]
+    Stream just one ADC input as CSV: elapsed ms, sensor, average ADC count,
+    ADC-pin volts, 5-second block-average min/max, current-block raw min/max,
+    sample count, block count, and stable flag. Default is 100 ms; allowed
+    output intervals are 20-2000 ms. `stable=YES` requires at least five
+    seconds of consecutive block averages with a total spread no greater than
+    20 mV. Raw min/max remain visible for troubleshooting but do not determine
+    stability by themselves. For PH, `Vadc` and its voltage ranges use the
+    ESP32 calibrated millivolt API; the raw ADC count remains diagnostic.
+    A 1 ms text stream is not supported at 115200 baud; use 20 ms for a short
+    fast check or 100 ms for readable calibration. Turbidity volts are the
+    ESP32 ADC-pin volts after its divider.
+
+  CALSTOP / CALSTATUS / CALSHOW
+    Stop the raw stream while staying offline / show mode and stability / show
+    calibration values saved in NVS.
+
   WIFI_HELP  (alias: wifi help)
     Shows Wi-Fi commands in the Serial Monitor.
 
@@ -142,35 +166,52 @@ SENSOR CALIBRATION
     /craycare/history.jsonl when present and syncs oldest-first on
     reconnect; LittleFS is the fallback.
 
-  phcal7
-    Place the pH probe in pH 7.00 buffer, wait for a stable voltage, then run.
-
   phcal4
-    Place the pH probe in pH 4.00 buffer, wait for a stable voltage, then run.
+    In CALMODE, run CALSTREAM PH, place the probe in pH 4.01 buffer, wait for
+    stable=YES (60 s window within 10 mV), then run. Saves the stable-window
+    average voltage to NVS as the acidic endpoint.
 
   phcal9 [VALUE]
-    Optional third point: pH 9.00 buffer (or pass your buffer's exact pH,
-    e.g. phcal9 9.18, range 8.00-10.00). Selects the 7/9 pair instead of
-    7/4 for alkaline water.
+    For this 2-point calibration, place the probe in pH 9.18 buffer, wait for
+    stable=YES (60 s window within 10 mV), then type `phcal9 9.18`. Saves the
+    stable-window average and selects the pH 4.01 / 9.18 endpoints.
 
-    Two points are required (7 + 4 or 7 + 9). After the second point,
-    firmware computes and saves the two-point voltage slope/intercept.
+  phfit
+    In CALMODE, fit only the saved pH 4.01 and pH 9.18 endpoint voltages and
+    store slope/intercept in NVS. It accepts distinct endpoints separated by
+    at least 1 mV; below 50 mV it still saves but prints a noise-sensitivity
+    warning. This small-span fit is provisional and must be checked in both
+    buffers before using tank readings.
+
+  phrefit
+    Backward-compatible alias for phfit; recomputes the selected pH calibration
+    from saved NVS points. For pair 9 with both endpoints saved, uses pH 4.01
+    and 9.18 only.
 
   doread
-    Shows current DO raw voltage, converted mg/L, and water temperature.
+    In CALMODE with CALSTREAM DO selected, shows filtered voltage, estimated
+    mg/L, current temperature, and whether the live voltage window is stable.
 
   doclear
-    Calibrates the DO probe at 100% air saturation using the current temperature.
-    Use a sealed humid-air calibration bottle and wait for a stable reading first.
+    In CALMODE with CALSTREAM DO stable (30 s within 10 mV), calibrates at the
+    documented 100% saturation reference using the stable-window voltage and
+    refreshed water temperature. Prepare the probe/reference using the exact
+    procedure for your DO module.
 
-  turbclear <volts>
-    Saves the measured clear-water voltage (0 NTU reference).
+  turbclear [volts]
+    In CALMODE with CALSTREAM TURB stable (10 s within 10 mV), save the
+    stable-window voltage as the clear-water (0 NTU) point. Optional voltage
+    must be within 10 mV of the stable-window average.
 
-  turbdirty <volts>
-    Saves the measured dirty-water voltage (500 NTU field reference).
+  turbdirty [volts]
+    Save the stable-window voltage as the dirty-water (500 NTU field reference).
+    Optional voltage must be within 10 mV of the stable-window average.
 
-  turbair <volts>
-    Saves the below-this-voltage air/no-water threshold.
+  turbair [volts]
+    Save the stable-window voltage as the air/no-water threshold. Optional
+    voltage must be within 10 mV of the stable-window average. Mapping is
+    valid only when clear voltage > dirty voltage > air threshold; CALSHOW
+    reports whether the mapping is complete and valid.
 
 HC-SR04 WATER LEVEL
   tankheight <cm>
@@ -190,9 +231,8 @@ DEBUG
     raw hopper distance where available.
 
   raw on / raw off
-    Streams the same raw-voltage line every 1 s for calibration stability
-    checks (watch the 3-decimal volts sit still before teaching a point).
-    Bare `raw` stays a one-shot. Reuses cached values; no extra ADC load.
+    Legacy normal-mode stream of cached raw readings every 1 s. For focused
+    sensor calibration use CALMODE + CALSTREAM instead.
 
 RELAYS — LOCAL TEST
   n1on / n1off       Water pump, GPIO26
@@ -201,14 +241,21 @@ RELAYS — LOCAL TEST
   n4on / n4off       Blower, GPIO16 (15-min manual safety timeout)
   relay status       Shows physical relay states and cloud control modes
                      (plus blower state)
+  Offline behavior: pump and both aerators default to ON at boot and are
+    forced ON when Wi-Fi/Firebase is unavailable. Cloud modes take over again
+    after Firebase is reachable; local OFF commands do not override offline
+    life-support fallback.
 
 NOTES
 - Local relay test state can be replaced by the next Firestore control sync.
+- Cached schedules are restored from NVS for offline use. A cold boot without
+  network still requires a valid clock (for example, an external RTC) and the
+  normal feed safety/configuration checks must pass before dispensing.
 - Sensor thresholds are configured in the Flutter app and synchronized from
   tanks/{tankId}/sensors/*.
 - Scheduled feeding is executed by the ESP32. Cloud Functions send reminders;
   the mobile app does not enqueue duplicate scheduled feed commands.
-- The last cloud-synced schedules are cached in NVS and continue during a Wi-Fi
-  outage. Ten-minute sensor history is buffered in LittleFS and uploaded after
-  reconnect. A cold boot without network still needs an external RTC for correct
-  wall-clock schedule time.
+- The latest complete cloud-synced schedules are cached in NVS and continue
+  during a Wi-Fi outage. Ten-minute sensor history is buffered in LittleFS and
+  uploaded after reconnect. A cold boot without network still needs an external
+  RTC for correct wall-clock schedule time.
