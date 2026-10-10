@@ -1,37 +1,37 @@
 {
   "overall": {
-    "normal": "Continue routine monitoring, sensor maintenance, and checks against the configured safety limits.",
-    "verify": "Confirm the readings with an independent calibrated instrument, inspect probes for fouling, and review recent tank maintenance."
+    "normal": "Continue routine monitoring and normal tank maintenance. No corrective action is needed from the ML result alone; use the separate sensor safety alerts for any configured limit violation.",
+    "verify": "Continue monitoring the next readings and review recent changes in feeding, water replacement, aeration, filtration, or tank conditions. If the unusual pattern persists or a separate safety alert appears, inspect the relevant tank condition before taking corrective action."
   },
   "DO": {
-    "decreasing": "Confirm DO with a calibrated meter and check aerator airflow, circulation, recent feeding, and waste buildup. Oxygen demand from decomposition is a possible explanation to investigate.",
-    "increasing": "Verify DO and probe condition, then review recent aeration changes and daylight or algae activity. Photosynthesis can increase oxygen; an increase alone does not identify a fault.",
-    "stable": "Compare dissolved oxygen with a calibrated meter and review recent readings. Little net change alone does not establish a sensor fault.",
-    "verify": "Verify dissolved oxygen with a calibrated meter and inspect aeration."
+    "decreasing": "Check aerator operation and airflow, water circulation, recent feeding, leftover feed, and waste buildup. Continue monitoring whether dissolved oxygen keeps decreasing. If a configured DO safety alert is triggered, treat the separate threshold alert as the priority.",
+    "increasing": "Review recent aeration changes and daylight or algae activity, then continue monitoring the trend. Stronger aeration or photosynthesis can increase dissolved oxygen, but the ML result alone does not identify the cause.",
+    "stable": "Review aeration, circulation, recent feeding, and the recent dissolved-oxygen history. If the pattern remains unusual or a configured DO safety alert appears, inspect the tank and probe condition.",
+    "verify": "Review aeration, circulation, recent feeding, and the recent dissolved-oxygen history. Continue monitoring the next readings and prioritize any configured DO safety alert."
   },
   "turbidity": {
-    "increasing": "Inspect the probe, filter, suspended particles, and recent feeding or cleaning. Sediment, algae, and organic particles can raise turbidity; the reading alone cannot identify which is present.",
-    "decreasing": "Confirm probe condition and review settling, filtration, cleaning, or water replacement. Clearer water alone does not establish safe water chemistry.",
-    "stable": "Compare turbidity with a manual sample and review recent filtration or cleaning. Little net change alone does not establish a sensor fault.",
-    "verify": "Inspect filtration and verify turbidity manually."
+    "increasing": "Check filtration, suspended particles, leftover feed, waste buildup, and any recent cleaning or tank disturbance. Continue monitoring whether turbidity keeps increasing. If a configured turbidity safety alert is triggered, treat the separate threshold alert as the priority.",
+    "decreasing": "Review recent filtration, settling, cleaning, or water replacement and continue routine monitoring. Lower turbidity alone does not confirm that all water-quality conditions are safe.",
+    "stable": "Inspect filtration, probe placement, and recent tank conditions, then review the recent turbidity history. If the pattern remains unusual or a configured safety alert appears, inspect the tank and probe condition.",
+    "verify": "Inspect filtration, probe placement, and recent tank conditions, then continue monitoring the next turbidity readings."
   },
   "pH": {
-    "increasing": "Confirm pH with a calibrated test and review source water and recent additions. If the change persists, measure alkalinity; buffering affects pH stability. Seek aquaculture guidance before chemical adjustment.",
-    "decreasing": "Confirm pH with a calibrated test, review source water and recent additions, and measure alkalinity if the change persists. Obtain aquaculture advice before adding a buffer or changing water chemistry.",
-    "stable": "Compare pH with a calibrated test and review recent readings. Little net change alone does not establish a sensor fault.",
-    "verify": "Verify pH with a calibrated test before adjustment."
+    "increasing": "Review recent water changes, source water, and any substances introduced into the tank. Continue monitoring whether pH keeps rising. Avoid chemical adjustment based on the ML result alone; prioritize the separate pH safety alert if a configured limit is reached.",
+    "decreasing": "Review recent water changes, source water, and any substances introduced into the tank. Continue monitoring whether pH keeps falling. Avoid chemical adjustment based on the ML result alone; prioritize the separate pH safety alert if a configured limit is reached.",
+    "stable": "Review the recent pH history, recent water changes, source water, and probe condition. If the pattern remains unusual or a configured pH safety alert appears, inspect the tank before making any chemical adjustment.",
+    "verify": "Review recent water changes, source water, and the recent pH history. Continue monitoring the next readings and avoid chemical adjustment based on the ML result alone."
   },
   "temp": {
-    "increasing": "Confirm temperature with a second thermometer and inspect sunlight exposure, incoming water, and circulation. Check DO too: warmer water holds less oxygen at saturation.",
-    "decreasing": "Confirm temperature with a second thermometer and review ambient cooling, incoming water, and probe placement. Compare the confirmed value with the tank's configured temperature limits.",
-    "stable": "Compare water temperature with a second thermometer and review ambient conditions. Little net change alone does not establish a sensor fault.",
-    "verify": "Confirm temperature using a calibrated thermometer."
+    "increasing": "Check sunlight or heat exposure, incoming water temperature, and water circulation. Monitor dissolved oxygen at the same time because warmer water holds less oxygen at saturation. If a configured temperature safety alert is triggered, treat the separate threshold alert as the priority.",
+    "decreasing": "Review ambient cooling, incoming water temperature, water circulation, and probe placement. Continue monitoring whether the temperature keeps decreasing and prioritize any configured temperature safety alert.",
+    "stable": "Review ambient conditions, incoming water, circulation, probe placement, and the recent temperature history. If the pattern remains unusual or a safety alert appears, inspect the tank and probe condition.",
+    "verify": "Review ambient conditions, incoming water, circulation, and the recent temperature history, then continue monitoring the next readings."
   },
   "combined_do_turbidity": {
-    "action": "Confirm DO and turbidity, then inspect aeration, filtration, and leftover feed or waste. Suspended organic material may increase oxygen demand, but these readings do not establish its presence or the cause."
+    "action": "Check aeration, water circulation, filtration, leftover feed, and waste buildup while monitoring both dissolved oxygen and turbidity. Suspended organic material can be associated with higher oxygen demand, but these readings do not establish the cause. Prioritize the separate safety alert if either parameter reaches a configured limit."
   },
   "combined_temp_do": {
-    "action": "Confirm temperature and DO, then check heat exposure, incoming water, and aeration. Warmer water holds less oxygen at saturation; these readings alone do not establish the cause of the change."
+    "action": "Check heat exposure, incoming water temperature, water circulation, and aeration while monitoring both temperature and dissolved oxygen. Warmer water holds less oxygen at saturation, but these readings alone do not establish the cause. Prioritize the separate safety alert if either parameter reaches a configured limit."
   },
   "_references": {
     "redclaw_qld": {
