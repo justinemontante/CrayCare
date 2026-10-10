@@ -24,8 +24,6 @@ class _WaterQualityAnomalyDetectionCardState
         final service = WaterQualityAnomalyDetectionService.instance;
         final result = service.result;
         final hasData = result?.isCurrent ?? false;
-        // Keep anomaly status visible without letting saturated status colors
-        // take over the whole dashboard card.
         final color = !hasData
             ? AppColors.mutedText
             : result!.isAnomaly
@@ -119,11 +117,11 @@ class _WaterQualityAnomalyDetectionCardState
                   isAnomaly: result?.isAnomaly ?? false,
                   score: hasData ? result!.anomalyScore : null,
                   waitingMessage: result?.hasData == true && !hasData
-                      ? 'The latest ML analysis is over 90 minutes old. Check the connection and analysis service.'
+                      ? 'The latest ML analysis is over 45 minutes old. Check the connection and analysis service.'
                       : result?.status == 'Insufficient' &&
                             result?.insight.isNotEmpty == true
                       ? result!.insight
-                      : 'Waiting for 12 readings, 10 minutes apart, to analyze the latest 2-hour pattern. Analysis runs every 30 minutes.',
+                      : 'Waiting for 12 readings, 10 minutes apart, to analyze the latest 2-hour pattern. Analysis runs every 15 minutes.',
                   color: color,
                   lightColor: lightColor,
                 ),
@@ -260,7 +258,7 @@ class _ResultOverview extends StatelessWidget {
                 child: Text(
                   isAnomaly
                       ? 'Unusual pattern detected'
-                      : 'Pattern looks normal',
+                      : 'No unusual pattern detected',
                   style: TextStyle(
                     color: color,
                     fontSize: 12,
@@ -385,7 +383,7 @@ class _ResultDetails extends StatelessWidget {
           const SizedBox(height: 11),
           _DetailRow(
             icon: Icons.fact_check_outlined,
-            label: 'Suggested checks',
+            label: 'Recommended Action',
             text: recommendation,
             color: AppColors.primary,
           ),
