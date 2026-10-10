@@ -11,12 +11,18 @@ SENSOR_LABELS = {
 def interpret_anomaly(is_anomaly, anomaly_score, contributors, recommendations):
     if not is_anomaly:
         return {
-            "insight": "The combined readings are within the model's usual pattern. Continue checking the separate sensor safety alerts.",
+            "insight": (
+                "The recent combined water-quality pattern is consistent with the model's "
+                "learned reference pattern. No unusual multivariate behavior was detected."
+            ),
             "recommendation": recommendations["overall"]["normal"],
         }
     if not contributors:
         return {
-            "insight": "The combined readings differ from the reference pattern; no single sensor explains the score clearly.",
+            "insight": (
+                "The recent combined water-quality pattern differs from the model's learned "
+                "reference pattern, but no single sensor is a clear dominant contributor."
+            ),
             "recommendation": recommendations["overall"]["verify"],
         }
     primary = contributors[0]
@@ -49,8 +55,9 @@ def interpret_anomaly(is_anomaly, anomaly_score, contributors, recommendations):
         recommendation = sensor_rec.get(primary["direction"], sensor_rec.get("verify"))
     return {
         "insight": (
-            f"An unusual combined pattern was detected. Among the readings associated with the score, {pattern}. "
-            "Check the readings and tank conditions to establish the cause."
+            f"An unusual combined water-quality pattern was detected. {pattern}. "
+            "These readings contributed most to the anomaly score, but the model does not "
+            "diagnose a definite cause."
         ),
         "recommendation": recommendation,
     }
