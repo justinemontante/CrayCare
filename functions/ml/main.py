@@ -283,7 +283,7 @@ def _prune_history(db, tank_id, now, retain_days=30, max_deletes=100):
 
 
 @scheduler_fn.on_schedule(
-    schedule="every 30 minutes",
+    schedule="every 15 minutes",
     timezone="Asia/Manila",
     region="asia-southeast1",
     memory=options.MemoryOption.MB_512,
