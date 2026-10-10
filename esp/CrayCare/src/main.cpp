@@ -119,7 +119,7 @@ long long firestoreTimestampMillis(const String& value) {
   return (days * 86400 + hour * 3600 + minute * 60 + second) * 1000 + millisPart;
 }
 
-#define FIREBASE_SEND_INTERVAL_MS 5000
+#define FIREBASE_SEND_INTERVAL_MS 10000
 #define HISTORY_SEND_INTERVAL_MS 600000  // 10 minutes; matches the documented schema
 #define CONFIG_SYNC_INTERVAL_MS 60000   // thresholds re-sync; switch forces immediate
 #define FLUSH_INTERVAL_MS 1000           // flush backlog at 1 entry/sec (max)
@@ -129,7 +129,7 @@ long long firestoreTimestampMillis(const String& value) {
 
 // Feeder timing
 #define FEEDER_CMD_INTERVAL_MS 1000
-#define FEEDER_STATUS_INTERVAL_MS 5000
+#define FEEDER_STATUS_INTERVAL_MS 15000
 #define FEEDER_SCHEDULE_SYNC_MS 10000
 #define FEEDER_SCHEDULE_CHECK_MS 1000
 #define FEEDER_SERVO_PULSE_WIDTH 2000   // microseconds for full rotation

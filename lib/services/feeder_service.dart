@@ -164,7 +164,7 @@ class FeederService extends ChangeNotifier {
 
   bool get isOnline {
     final age = DateTime.now().difference(_lastSeen);
-    return !age.isNegative && age < const Duration(seconds: 30);
+    return !age.isNegative && age < const Duration(seconds: 45);
   }
 
   List<LogEntry> get logs => List.unmodifiable(_logs);
