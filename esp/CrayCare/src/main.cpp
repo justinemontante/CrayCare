@@ -853,6 +853,14 @@ uint8_t tempSkipCount = 0;
 volatile bool sensorOutputEnabled = false;
 bool rawStreamEnabled = false;      // `raw on` 1 s voltage stream for calibration
 unsigned long lastRawStreamMs = 0;
+// Non-CALMODE pH calibration is allowed only after a 60 s stable raw window.
+bool rawPHCalibrationStable = false;
+unsigned long rawPHCalibrationStartMs = 0;
+float rawPHCalibrationMinV = 0.0f;
+float rawPHCalibrationMaxV = 0.0f;
+float rawPHCalibrationSumV = 0.0f;
+uint16_t rawPHCalibrationSamples = 0;
+float rawPHCalibrationAverageV = 0.0f;
 volatile bool calibrationMode = false;
 enum CalibrationSensor : uint8_t { CAL_SENSOR_NONE, CAL_SENSOR_PH, CAL_SENSOR_DO, CAL_SENSOR_TURB };
 volatile uint8_t calibrationStreamSensor = CAL_SENSOR_NONE;
@@ -2213,23 +2221,81 @@ void printSensorReading() {
 // the 1 s `raw on` stream.
 void printRawReading() {
   MutexGuard sensorLock(sensorStateMutex);
-  Serial.printf("[RAW] pH=%.3fV DO=%.3fV Turb=%.3fV HC-SR04=%.1fcm Water=%.1fcm Feed=%.3fV/%.0f%% Hopper=%.1fcm(%s)\n",
+  Serial.printf("[RAW] pH=%.3fV DO=%.3fV Turb=%.3fV HC-SR04=%.1fcm Water=%.1fcm Feed=%.3fV/%.0f%% Hopper=%.1fcm(%s)",
                 phVoltage, dissolvedOxygenVoltage, turbidityVoltage,
                 waterDistanceCm, waterLevelCm, feedLevelVoltage,
                 feedLevelPercent,
                 hopperDistanceCm, feedLevelSource);
+  if (rawStreamEnabled) {
+    Serial.printf(" | pHcal=%s avg=%.4fV span=%.1fmV",
+                  rawPHCalibrationStable ? "STABLE" : "WAIT",
+                  rawPHCalibrationAverageV,
+                  (rawPHCalibrationMaxV - rawPHCalibrationMinV) * 1000.0f);
+  }
+  Serial.println();
+}
+
+void resetRawPHCalibrationWindow() {
+  rawPHCalibrationStable = false;
+  rawPHCalibrationStartMs = 0;
+  rawPHCalibrationMinV = 0.0f;
+  rawPHCalibrationMaxV = 0.0f;
+  rawPHCalibrationSumV = 0.0f;
+  rawPHCalibrationSamples = 0;
+  rawPHCalibrationAverageV = 0.0f;
+}
+
+void updateRawPHCalibrationWindow() {
+  float voltage = 0.0f;
+  bool readingStable = false;
+  {
+    MutexGuard sensorLock(sensorStateMutex);
+    voltage = phFilteredVoltage;
+    readingStable = phReadingStable;
+  }
+  if (!rawStreamEnabled || !readingStable ||
+      !isfinite(voltage) || voltage <= 0.05f || voltage > 3.25f) {
+    resetRawPHCalibrationWindow();
+    return;
+  }
+
+  const unsigned long now = millis();
+  if (rawPHCalibrationSamples == 0 ||
+      max(rawPHCalibrationMaxV, voltage) - min(rawPHCalibrationMinV, voltage) >
+          CAL_PH_STABLE_SPREAD_V) {
+    rawPHCalibrationStartMs = now;
+    rawPHCalibrationMinV = voltage;
+    rawPHCalibrationMaxV = voltage;
+    rawPHCalibrationSumV = voltage;
+    rawPHCalibrationSamples = 1;
+    rawPHCalibrationAverageV = voltage;
+    rawPHCalibrationStable = false;
+    return;
+  }
+
+  rawPHCalibrationMinV = min(rawPHCalibrationMinV, voltage);
+  rawPHCalibrationMaxV = max(rawPHCalibrationMaxV, voltage);
+  rawPHCalibrationSumV += voltage;
+  if (rawPHCalibrationSamples < UINT16_MAX) rawPHCalibrationSamples++;
+  rawPHCalibrationAverageV = rawPHCalibrationSumV / rawPHCalibrationSamples;
+  rawPHCalibrationStable = rawPHCalibrationSamples >= 30 &&
+      now - rawPHCalibrationStartMs >= CAL_PH_STABLE_MS &&
+      rawPHCalibrationMaxV - rawPHCalibrationMinV <= CAL_PH_STABLE_SPREAD_V;
 }
 
 void printCalibrationHelp() {
   Serial.println("\n=== CALIBRATION COMMANDS ===");
   Serial.println("CALMODE ON/OFF          Pause Wi-Fi/Firebase for calibration");
   Serial.println("CALSTREAM PH|DO|TURB [ms] Stream one ADC (20-2000 ms; default 100)");
+  Serial.println("raw on                  Optional online pH calibration stream (Firebase stays active)");
   Serial.println("CALSTOP / CALSTATUS     Stop stream / show calibration state");
   Serial.println("CALSHOW                 Show saved calibration values from NVM");
-  Serial.println("phcal4                  Save stable-average voltage in pH 4.01 buffer");
-  Serial.println("phcal9 9.18             Save stable-average voltage in pH 9.18 buffer");
-  Serial.println("phfit                   Apply 2-point pH 4.01 + 9.18 calibration");
-  Serial.println("phrefit                 Alias for phfit / refit saved points");
+  Serial.println("phcal4 [force]          Save pH 4.01; force skips stability check");
+  Serial.println("phcal9 9.18 [force]     Save pH 9.18; force skips stability check");
+  Serial.println("phcal686 [force]        Save pH 6.86; force skips stability check");
+  Serial.println("phpair 9.18|6.86        Select second point paired with pH 4.01");
+  Serial.println("phfit                   Apply selected 2-point pH fit");
+  Serial.println("phrefit                 Alias for phfit / refit selected pair");
   Serial.println("doread                   Show current DO voltage/value");
   Serial.println("doclear                  Calibrate DO in air-saturated water");
   Serial.println("turbclear [VOLTS]        Save stable clear-water voltage");
@@ -2240,12 +2306,13 @@ void printCalibrationHelp() {
   Serial.println("hopperempty              Teach ultrasonic empty-hopper echo");
   Serial.println("hopperfull               Teach ultrasonic full-hopper echo");
   Serial.println("FEEDMODE <0|1>           0=analog GPIO39, 1=ultrasonic");
-  Serial.println("hopperheight <cm>        Manual sensor height (empty point)");
-  Serial.println("hopperdepth <cm>         Manual max feed depth");
+  Serial.println("hopperheight <cm>        Manual sensor-face to hopper-bottom distance");
+  Serial.println("hopperdepth <cm>         Manual bottom-to-full-feed-surface depth");
+  Serial.println("hoppercal                Show hopper geometry, echo, and fill reading");
   Serial.println("BUFSTATUS                Offline buffer backend + counts");
-  Serial.println("tankheight <CM>          Sensor-to-tank-bottom distance");
-  Serial.println("tankdepth <CM>           Maximum water depth");
-  Serial.println("tankcal                  Show tank calibration");
+  Serial.println("tankheight <CM>          Manual sensor-face to tank-bottom distance");
+  Serial.println("tankdepth <CM>           Bottom-to-target-full-water-surface depth");
+  Serial.println("tankcal                  Show geometry, echo, and computed water depth");
   Serial.println("raw [on|off]             Legacy raw snapshot / 1 s stream (normal mode)");
 }
 
@@ -2294,9 +2361,18 @@ uint8_t calibrationSensorPin(uint8_t sensor) {
   }
 }
 
+bool isPHCalibrationCommand(const String& cmd) {
+  String lower = cmd;
+  lower.toLowerCase();
+  return lower == "phcal4" || lower == "phcal4 force" ||
+      lower == "phcal7" || lower == "phcal686" ||
+      lower == "phcal686 force" || lower == "phcal9" ||
+      lower.startsWith("phcal9 ") || lower == "phfit" ||
+      lower == "phrefit" || lower == "phpair" || lower.startsWith("phpair ");
+}
+
 bool isSensorCalibrationCommand(const String& cmd) {
-  return cmd == "phcal4" || cmd == "phcal7" || cmd == "phcal686" || cmd == "phcal9" ||
-      cmd.startsWith("phcal9 ") || cmd == "phfit" || cmd == "phrefit" || cmd == "doread" || cmd == "doclear" ||
+  return isPHCalibrationCommand(cmd) || cmd == "doread" || cmd == "doclear" ||
       cmd == "turbclear" || cmd.startsWith("turbclear ") ||
       cmd == "turbdirty" || cmd.startsWith("turbdirty ") ||
       cmd == "turbair" || cmd.startsWith("turbair ");
@@ -2318,12 +2394,17 @@ void printSavedSensorCalibrations() {
   const float v4 = prefs.getFloat("phV4", -1.0f);
   const float v7 = prefs.getFloat("phV7", -1.0f);
   const float ref7 = prefs.getFloat("phV7Ref", 7.0f);
+  const float savedV686 = prefs.getFloat("phV686", -1.0f);
+  const float v686 = savedV686 > 0.05f ? savedV686 :
+      (fabsf(ref7 - 6.86f) < 0.01f ? v7 : -1.0f);
   const float v9 = prefs.getFloat("phV9", -1.0f);
-  const float ref9 = prefs.getFloat("phV9Ref", 9.0f);
-  const int pair = prefs.getInt("phPair", 4);
+  const float ref9 = prefs.getFloat("phV9Ref", 9.18f);
+  const int pair = prefs.getInt("phPair", 9);
   prefs.end();
-  Serial.printf("[CAL NVM] pH V4=%.4f (ref %.2f) V7=%.4f (ref %.2f) V9=%.4f (ref %.2f), pair=%d, fit=%d-point, slope=%.5f intercept=%.5f\n",
-                v4, ref4, v7, ref7, v9, ref9, pair, phFitPointCount,
+  const char* pairName = pair == 9 ? "4.01+9.18" :
+      pair == 686 ? "4.01+6.86" : "legacy/unknown";
+  Serial.printf("[CAL NVM] pH4=%.4fV (ref %.2f), pH6.86=%.4fV, pH9.18=%.4fV (ref %.2f), selected=%s, fit=%d-point, slope=%.5f intercept=%.5f\n",
+                v4, ref4, v686, v9, ref9, pairName, phFitPointCount,
                 phVoltageSlope, phVoltageIntercept);
   Serial.printf("[CAL NVM] DO scale=%.5f offset=%.5f | Turb clear=%.4f dirty=%.4f air=%.4f V mapping=%s\n",
                 doVoltageScale, doVoltageOffset, turbidityVClear,
@@ -2340,9 +2421,14 @@ bool applySavedPHFit() {
   const float ref4 = prefs.getFloat("phV4Ref", 4.01f);
   const float v7 = prefs.getFloat("phV7", -1.0f);
   const float ref7 = prefs.getFloat("phV7Ref", 7.0f);
+  const float savedV686 = prefs.getFloat("phV686", -1.0f);
+  // Read older installations where phcal686 was stored in the legacy phV7 key.
+  const float v686 = savedV686 > 0.05f ? savedV686 :
+      (fabsf(ref7 - 6.86f) < 0.01f ? v7 : -1.0f);
+  const float ref686 = prefs.getFloat("phV686Ref", 6.86f);
   const float v9 = prefs.getFloat("phV9", -1.0f);
-  const float ref9 = prefs.getFloat("phV9Ref", 9.0f);
-  const int pair = prefs.getInt("phPair", 4);
+  const float ref9 = prefs.getFloat("phV9Ref", 9.18f);
+  const int pair = prefs.getInt("phPair", 9);
   prefs.end();
 
   float nextSlope = 0.0f;
@@ -2354,23 +2440,30 @@ bool applySavedPHFit() {
       v7 > 0.05f && v7 <= 3.25f && v9 > 0.05f && v9 <= 3.25f &&
       isfinite(ref4) && isfinite(ref7) && isfinite(ref9);
   const bool haveEndpoints = v4 > 0.05f && v4 <= 3.25f &&
-      v9 > 0.05f && v9 <= 3.25f && isfinite(ref4) && isfinite(ref9);
+      isfinite(ref4);
   const float totalSpan = max(v4, max(v7, v9)) - min(v4, min(v7, v9));
 
-  // New pH calibration path: when phcal9 selected pair 9 and both endpoints
-  // exist, use exactly pH 4.01 and 9.18 (ignore any stale legacy pH 7 point).
-  if (pair == 9 && haveEndpoints) {
-    const float voltageDelta = v9 - v4;
+  // Apply exactly one user-selected second point with the pH 4.01 endpoint.
+  if (pair == 9 || pair == 686) {
+    const float vSecond = pair == 9 ? v9 : v686;
+    const float refSecond = pair == 9 ? ref9 : ref686;
+    if (!haveEndpoints || vSecond <= 0.05f || vSecond > 3.25f ||
+        !isfinite(refSecond)) {
+      Serial.printf("[CAL] Selected pH pair 4.01+%.2f is incomplete; save both buffer points first.\n",
+                    refSecond);
+      return false;
+    }
+    const float voltageDelta = vSecond - v4;
     appliedSpan = fabsf(voltageDelta);
     if (appliedSpan < 0.001f) {
-      Serial.printf("[CAL] pH 4.01/9.18 points differ by only %.2fmV; cannot calculate a safe fit.\n",
+      Serial.printf("[CAL] Selected pH points differ by only %.2fmV; cannot calculate a fit.\n",
                     appliedSpan * 1000.0f);
       return false;
     }
-    nextSlope = (ref9 - ref4) / voltageDelta;
+    nextSlope = (refSecond - ref4) / voltageDelta;
     nextIntercept = ref4 - nextSlope * v4;
     endpointTwoPointFit = true;
-  } else if (pair != 9 && have3 && totalSpan > 0.05f &&
+  } else if (pair == 4 && have3 && totalSpan > 0.05f &&
              ((v4 < v7 && v7 < v9) || (v4 > v7 && v7 > v9))) {
     const float meanV = (v4 + v7 + v9) / 3.0f;
     const float meanPH = (ref4 + ref7 + ref9) / 3.0f;
@@ -2416,10 +2509,13 @@ bool applySavedPHFit() {
     return false;
   }
   if (endpointTwoPointFit) {
-    Serial.printf("[CAL NVM] Applied 2-point pH 4.01/9.18 fit: slope=%.5f intercept=%.5f; predictions=%.2f / %.2f; span=%.1fmV.\n",
+    const float vSecond = pair == 9 ? v9 : v686;
+    const float refSecond = pair == 9 ? ref9 : ref686;
+    Serial.printf("[CAL NVM] Applied 2-point pH 4.01/%.2f fit: slope=%.5f intercept=%.5f; predictions=%.2f / %.2f; span=%.1fmV.\n",
+                  refSecond,
                   phVoltageSlope, phVoltageIntercept,
                   phVoltageSlope * v4 + phVoltageIntercept,
-                  phVoltageSlope * v9 + phVoltageIntercept,
+                  phVoltageSlope * vSecond + phVoltageIntercept,
                   appliedSpan * 1000.0f);
   } else {
     Serial.printf("[CAL NVM] Applied %d-point pH fit: slope=%.5f intercept=%.5f; predicted pH at saved V4/V7/V9 = %.2f / %.2f / %.2f.\n",
@@ -2429,7 +2525,7 @@ bool applySavedPHFit() {
                   phVoltageSlope * v9 + phVoltageIntercept);
   }
   if (endpointTwoPointFit && appliedSpan < 0.05f) {
-    Serial.printf("[CAL WARNING] 4.01/9.18 span is only %.1fmV; 10mV noise can shift pH by about %.2f. Fit saved, but verify carefully.\n",
+    Serial.printf("[CAL WARNING] Selected pH pair span is only %.1fmV; 10mV noise can shift pH by about %.2f. Fit saved, but verify carefully.\n",
                   appliedSpan * 1000.0f, fabsf(phVoltageSlope) * 0.010f);
   }
   if (phFitPointCount == 3 && totalSpan < 0.10f) {
@@ -2451,6 +2547,7 @@ bool handleCalibrationControlCommand(String& cmd) {
       Serial.println("[CAL] Cannot enter while a feed is active; wait for it to finish.");
     } else {
       rawStreamEnabled = false;
+      resetRawPHCalibrationWindow();
       sensorOutputEnabled = false;
       resetCalibrationStream();
       calibrationMode = true;
@@ -2564,9 +2661,54 @@ bool handleCalibrationControlCommand(String& cmd) {
   return false;
 }
 
-bool calibrationCaptureReady(uint8_t sensor) {
+bool calibrationCaptureReady(uint8_t sensor, bool force = false) {
+  if (force) {
+    if (sensor != CAL_SENSOR_PH) {
+      Serial.println("[CAL] Force capture is currently supported for pH points only.");
+      return false;
+    }
+    if (!calibrationMode && !rawStreamEnabled) {
+      Serial.println("[CAL] Start raw on, or enter CALMODE ON and run CALSTREAM PH first.");
+      return false;
+    }
+    if (calibrationMode && calibrationStreamSensor != CAL_SENSOR_PH) {
+      Serial.println("[CAL] Select pH first: CALSTREAM PH");
+      return false;
+    }
+
+    float capturedVoltage = 0.0f;
+    if (!calibrationMode && rawPHCalibrationSamples > 0) {
+      capturedVoltage = rawPHCalibrationAverageV;
+    } else if (calibrationMode && calibrationBlockCount > 0) {
+      capturedVoltage = calibrationStableVoltage;
+    } else {
+      MutexGuard sensorLock(sensorStateMutex);
+      if (phVoltageSampleCount > 0) capturedVoltage = phFilteredVoltage;
+    }
+    if (!isfinite(capturedVoltage) || capturedVoltage <= 0.05f ||
+        capturedVoltage > 3.25f) {
+      Serial.println("[CAL] Force capture has no valid recent pH voltage; wait for at least one pH reading/block.");
+      return false;
+    }
+    calibrationStableVoltage = capturedVoltage;
+    Serial.printf("[CAL WARNING] FORCE CAPTURE: saving current pH average %.4fV without a stable-window guarantee. The fit may be inaccurate; verify in both buffers.\n",
+                  capturedVoltage);
+    if (!calibrationMode) {
+      Serial.println("[CAL WARNING] CALMODE is OFF; Wi-Fi/Firebase remain active and may upload buffer readings.");
+    }
+    return true;
+  }
+  if (sensor == CAL_SENSOR_PH && !calibrationMode && rawStreamEnabled) {
+    if (!rawPHCalibrationStable) {
+      Serial.println("[CAL] Raw-mode pH window is not stable yet; keep raw on and wait for pHcal=STABLE (60 s within 10 mV).");
+      return false;
+    }
+    calibrationStableVoltage = rawPHCalibrationAverageV;
+    Serial.println("[CAL WARNING] CALMODE is OFF; Wi-Fi/Firebase remain active during this pH calibration.");
+    return true;
+  }
   if (!calibrationMode) {
-    Serial.println("[CAL] Enter CALMODE ON first; sensor calibration is offline-only.");
+    Serial.println("[CAL] For online pH calibration, start raw on and wait for pHcal=STABLE; otherwise use CALMODE ON.");
     return false;
   }
   if (calibrationStreamSensor != sensor) {
@@ -2711,6 +2853,7 @@ void printSerialHelp() {
   Serial.println("CAL_HELP                 Show calibration commands");
   Serial.println("CALMODE ON/OFF           Pause Wi-Fi/Firebase during sensor calibration");
   Serial.println("CALSTREAM PH|DO|TURB [ms] Stream selected ADC (20-2000 ms)");
+  Serial.println("raw on / raw off         Stream readings; raw mode permits online pH calibration");
   Serial.println("WIFI_HELP                Show Wi-Fi commands");
   Serial.println("FIREBASE_STATUS          Show cloud authentication status");
   Serial.println("FEED                     Start a 1 g manual feed");
@@ -2840,13 +2983,12 @@ void setup() {
 
   sensors.begin();
   loadSensorCalibrations();
-  // Main firmware must keep using the saved 4.01/9.18 calibration pair.
-  // The calibration command saves points and fit in NVS; rebuild once at boot
-  // so stale legacy pH6.86 data cannot silently become the active curve.
+  // Main firmware rebuilds the explicitly selected two-point fit at boot,
+  // preventing stale unselected buffer points from becoming active.
   if (prefs.begin("sensorcal", true)) {
-    const int savedPHCalibrationPair = prefs.getInt("phPair", 4);
+    const int savedPHCalibrationPair = prefs.getInt("phPair", 9);
     prefs.end();
-    if (savedPHCalibrationPair == 9) {
+    if (savedPHCalibrationPair == 9 || savedPHCalibrationPair == 686) {
       applySavedPHFit();
     }
   }
@@ -2935,7 +3077,8 @@ void loop() {
       if (calibrationMode && !isAllowedDuringCalibration(cmd)) {
         Serial.println("[CAL] Command blocked while calibrating; use CALMODE OFF to resume normal commands.");
         cmd = "";
-      } else if (!calibrationMode && isSensorCalibrationCommand(cmd)) {
+      } else if (!calibrationMode && isSensorCalibrationCommand(cmd) &&
+                 !(rawStreamEnabled && isPHCalibrationCommand(cmd))) {
         Serial.println("[CAL] Enter CALMODE ON first so Firebase/Wi-Fi are paused during calibration.");
         cmd = "";
       }
@@ -3112,7 +3255,9 @@ void loop() {
       if (v > 5.0f && v < 400.0f) {
         waterSensorHeightCm = v;
         saveSensorCalibrations();
-        Serial.printf("[CAL] HC-SR04 height = %.1f cm\n", v);
+        Serial.printf("[CAL] Tank sensor-face to bottom = %.1f cm saved to NVS.\n", v);
+      } else {
+        Serial.println("Usage: tankheight <5-400> cm (sensor face to tank bottom)");
       }
     }
     if (cmd.startsWith("tankdepth ")) {
@@ -3120,21 +3265,48 @@ void loop() {
       if (v > 1.0f && v < waterSensorHeightCm) {
         waterLevelCmMax = v;
         saveSensorCalibrations();
-        Serial.printf("[CAL] Tank max depth = %.1f cm\n", v);
+        Serial.printf("[CAL] Tank bottom to target full-water surface = %.1f cm saved to NVS.\n", v);
+      } else {
+        Serial.printf("Usage: tankdepth <1-%.1f> cm (tank bottom to target water surface)\n",
+                      waterSensorHeightCm);
       }
     }
     if (cmd == "tankcal") {
-      Serial.printf("[CAL] sensorHeight=%.1fcm maxDepth=%.1fcm lastDistance=%.1fcm\n",
-                    waterSensorHeightCm, waterLevelCmMax, waterDistanceCm);
+      const float computedDepth = waterDistanceCm >= 0.0f
+          ? waterSensorHeightCm - waterDistanceCm : -1.0f;
+      Serial.printf("[CAL] Tank sensor->bottom=%.2fcm; bottom->target surface=%.2fcm; latest sensor->surface echo=%.2fcm; computed water depth=%.2fcm\n",
+                    waterSensorHeightCm, waterLevelCmMax, waterDistanceCm,
+                    computedDepth);
     }
-    if (cmd == "phcal7" || cmd == "phcal686" || cmd == "phcal4" || cmd == "phcal9" ||
-        cmd.startsWith("phcal9 ")) {
-      const bool isNeutral = cmd == "phcal7" || cmd == "phcal686";
-      const float neutralReference = cmd == "phcal686" ? 6.86f : 7.00f;
-      const bool isNine = cmd == "phcal9" || cmd.startsWith("phcal9 ");
-      float nineReference = 9.0f;
-      if (cmd.startsWith("phcal9 ")) {
-        String valueText = cmd.substring(7);
+    if (cmd == "hoppercal") {
+      Serial.printf("[CAL] Hopper sensor->bottom/empty echo=%.2fcm; bottom->target full-feed surface=%.2fcm; derived full echo=%.2fcm; latest echo=%.2fcm; fill=%.1f%% (%s)\n",
+                    hopperEmptyCm,
+                    hopperEmptyCm >= 0.0f && hopperFullCm >= 0.0f
+                        ? hopperEmptyCm - hopperFullCm : -1.0f,
+                    hopperFullCm, hopperDistanceCm, feedLevelPercent,
+                    feedLevelSource);
+    }
+    String phCalibrationCommand = cmd;
+    phCalibrationCommand.toLowerCase();
+    if (phCalibrationCommand == "phcal7" || phCalibrationCommand == "phcal686" ||
+        phCalibrationCommand == "phcal686 force" || phCalibrationCommand == "phcal4" ||
+        phCalibrationCommand == "phcal4 force" || phCalibrationCommand == "phcal9" ||
+        phCalibrationCommand.startsWith("phcal9 ")) {
+      bool forceCapture = false;
+      if (phCalibrationCommand.endsWith(" force")) {
+        forceCapture = true;
+        phCalibrationCommand.remove(phCalibrationCommand.length() - 6);
+        phCalibrationCommand.trim();
+      }
+      const bool isNeutral = phCalibrationCommand == "phcal7" ||
+          phCalibrationCommand == "phcal686";
+      const float neutralReference = phCalibrationCommand == "phcal686" ? 6.86f : 7.00f;
+      const bool isPH686 = phCalibrationCommand == "phcal686";
+      const bool isNine = phCalibrationCommand == "phcal9" ||
+          phCalibrationCommand.startsWith("phcal9 ");
+      float nineReference = 9.18f;
+      if (phCalibrationCommand.startsWith("phcal9 ")) {
+        String valueText = phCalibrationCommand.substring(7);
         valueText.trim();
         char* end = nullptr;
         nineReference = strtof(valueText.c_str(), &end);
@@ -3145,7 +3317,7 @@ void loop() {
           return;
         }
       }
-      if (!calibrationCaptureReady(CAL_SENSOR_PH)) return;
+      if (!calibrationCaptureReady(CAL_SENSOR_PH, forceCapture)) return;
       const float v = calibrationStableVoltage;
       if (v <= 0.05f || v > 3.25f) {
         Serial.printf("[CAL] pH point rejected: stable-window voltage %.4fV is outside ADC range.\n", v);
@@ -3155,37 +3327,59 @@ void loop() {
         Serial.println("[CAL NVM] Could not open sensor calibration storage; pH point not saved.");
         return;
       }
-      bool pointSaved = prefs.putFloat(isNeutral ? "phV7" : isNine ? "phV9" : "phV4", v) == sizeof(float);
-      if (cmd == "phcal4") prefs.putFloat("phV4Ref", 4.01f);
-      if (isNeutral) prefs.putFloat("phV7Ref", neutralReference);
+      const char* pointKey = isPH686 ? "phV686" :
+          isNeutral ? "phV7" : isNine ? "phV9" : "phV4";
+      bool pointSaved = prefs.putFloat(pointKey, v) == sizeof(float);
+      if (phCalibrationCommand == "phcal4") prefs.putFloat("phV4Ref", 4.01f);
+      if (isNeutral && !isPH686) prefs.putFloat("phV7Ref", neutralReference);
+      if (isPH686) prefs.putFloat("phV686Ref", 6.86f);
       if (isNine) {
         prefs.putFloat("phV9Ref", nineReference);
         prefs.putInt("phPair", 9);
-      } else if (cmd == "phcal4") {
-        prefs.putInt("phPair", 4);
+      } else if (isPH686) {
+        prefs.putInt("phPair", 686);
       }
-      pointSaved &= prefs.getFloat(isNeutral ? "phV7" : isNine ? "phV9" : "phV4", -1.0f) == v;
+      pointSaved &= prefs.getFloat(pointKey, -1.0f) == v;
       prefs.end();
       if (!pointSaved) {
         Serial.println("[CAL NVM] pH calibration point write failed; check NVS and retry.");
         return;
       }
-      Serial.printf("[CAL NVM] Saved stable-average %.4fV for %s; attempting fit from saved buffer points.\n",
-                    v, cmd.c_str());
+      Serial.printf("[CAL NVM] Saved %s pH average %.4fV for %s; attempting fit from saved buffer points.\n",
+                    forceCapture ? "FORCED" : "stable", v,
+                    phCalibrationCommand.c_str());
       applySavedPHFit();
     }
-    if (cmd == "phrefit" || cmd == "phfit") {
-      if (!calibrationMode) {
-        Serial.println("[CAL] Enter CALMODE ON first; sensor calibration is offline-only.");
+    if (cmd == "phpair" || cmd.startsWith("phpair ")) {
+      if (!calibrationMode && !rawStreamEnabled) {
+        Serial.println("[CAL] Start raw on first, or enter CALMODE ON.");
       } else {
-        if (cmd == "phfit") {
-          if (!prefs.begin("sensorcal", false)) {
-            Serial.println("[CAL NVM] Could not select the pH 4.01/9.18 endpoint pair.");
-            return;
-          }
-          prefs.putInt("phPair", 9);
+        String requestedPair = cmd == "phpair" ? "" : cmd.substring(7);
+        requestedPair.trim();
+        int pair = 0;
+        if (requestedPair == "9.18" || requestedPair == "9") pair = 9;
+        else if (requestedPair == "6.86") pair = 686;
+        if (pair == 0) {
+          Serial.println("Usage: phpair 9.18 | phpair 6.86");
+        } else if (!prefs.begin("sensorcal", false)) {
+          Serial.println("[CAL NVM] Could not save selected pH calibration pair.");
+        } else {
+          const bool saved = prefs.putInt("phPair", pair) == sizeof(int32_t);
           prefs.end();
+          if (!saved) {
+            Serial.println("[CAL NVM] Selected pH pair was not saved.");
+          } else {
+            Serial.printf("[CAL NVM] Selected 2-point pair: pH 4.01 + %.2f. Running fit from saved points.\n",
+                          pair == 9 ? 9.18f : 6.86f);
+            applySavedPHFit();
+          }
         }
+      }
+    }
+    if (cmd == "phrefit" || cmd == "phfit") {
+      if (!calibrationMode && !rawStreamEnabled) {
+        Serial.println("[CAL] Start raw on first, or enter CALMODE ON.");
+      } else {
         applySavedPHFit();
       }
     }
@@ -3332,9 +3526,9 @@ void loop() {
       if (v > 5.0f && v < 200.0f) {
         hopperEmptyCm = v;
         saveSensorCalibrations();
-        Serial.printf("[CAL] Hopper sensor height = %.1f cm (empty point)\n", v);
+        Serial.printf("[CAL] Hopper sensor-face to floor = %.1f cm (empty echo) saved to NVS.\n", v);
       } else {
-        Serial.println("Usage: hopperheight <5-200>  (sensor height above hopper floor, cm)");
+        Serial.println("Usage: hopperheight <5-200> cm (sensor face to hopper floor)");
       }
     }
     if (cmd.startsWith("hopperdepth ")) {
@@ -3342,9 +3536,11 @@ void loop() {
       if (v > 1.0f && v < hopperEmptyCm) {
         hopperFullCm = hopperEmptyCm - v;
         saveSensorCalibrations();
-        Serial.printf("[CAL] Hopper max depth = %.1f cm (full echo %.1fcm)\n", v, hopperFullCm);
+        Serial.printf("[CAL] Hopper floor to target full-feed surface = %.1f cm (derived full echo %.1f cm), saved to NVS.\n",
+                      v, hopperFullCm);
       } else {
-        Serial.println("Usage: hopperdepth <1-empty>  (max feed depth, cm)");
+        Serial.printf("Usage: hopperdepth <1-%.1f> cm (floor to target full-feed surface)\n",
+                      hopperEmptyCm);
       }
     }
     if (cmd == "raw") {
@@ -3352,12 +3548,14 @@ void loop() {
     }
     if (cmd == "raw on" || cmd == "raw stream") {
       rawStreamEnabled = true;
+      resetRawPHCalibrationWindow();
       lastRawStreamMs = 0;  // stream prints on the next loop pass
-      Serial.println("[RAW] Stream ON (1 s, 'raw off' to stop)");
+      Serial.println("[RAW] Stream ON (1 s, 'raw off' to stop); pH calibration is available after a 60 s stable window. Wi-Fi/Firebase remain active.");
       printRawReading();
     }
     if (cmd == "raw off" || cmd == "raw stop") {
       rawStreamEnabled = false;
+      resetRawPHCalibrationWindow();
       Serial.println("[RAW] Stream OFF");
     }
     if (cmd == "BUFSTATUS" || cmd == "bufstatus") {
@@ -3501,6 +3699,7 @@ void loop() {
   // (`raw on` / `raw off`). Reuses cached values; zero extra ADC load.
   if (rawStreamEnabled && now - lastRawStreamMs >= 1000UL) {
     lastRawStreamMs = now;
+    updateRawPHCalibrationWindow();
     printRawReading();
   }
 
@@ -5084,10 +5283,10 @@ void updateLCD() {
       return;
     }
     if (lcdScreen == 0) {
-      l0 = String("Temp: ") + (smoothedTemp > -100 ? String(smoothedTemp, 1) + " C" : "--");
-      l1 = String("pH: ") + (phLevel >= 0 ? String(phLevel, 1) : "--");
+      l0 = String("Temp: ") + (smoothedTemp > -100 ? String(smoothedTemp, 2) + " C" : "--");
+      l1 = String("pH: ") + (phLevel >= 0 ? String(phLevel, 2) : "--");
     } else if (lcdScreen == 1) {
-      l0 = String("DO:") + (dissolvedOxygen >= 0 ? String(dissolvedOxygen, 1) : "--") + "mg/L";
+      l0 = String("DO:") + (dissolvedOxygen >= 0 ? String(dissolvedOxygen, 2) : "--") + "mg/L";
       l1 = String("Turb:") + (smoothedTurbidityNTU >= 0 ? String(smoothedTurbidityNTU, 0) : "--") + " NTU";
     } else if (lcdScreen == 2) {
       l0 = String("Water:") + (waterLevelCm >= 0 ? String(waterLevelCm, 0) + "cm" : "--");

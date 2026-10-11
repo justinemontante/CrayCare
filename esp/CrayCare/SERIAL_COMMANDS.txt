@@ -148,10 +148,16 @@ SENSOR CALIBRATION
     0 = analog GPIO39 only, 1 = ultrasonic with analog fallback (default).
 
   hopperheight <5-200>
-    Manual sensor height above the hopper floor in cm (sets the 0% point).
+    Enter the measured distance in cm from ultrasonic sensor face to hopper
+    floor. This defines the empty-hopper echo/0% point.
 
   hopperdepth <1-empty>
-    Manual max feed depth in cm (sets the 100% point from the empty point).
+    Enter floor-to-target-full-feed-surface depth in cm. Firmware derives the
+    full echo point = hopperheight - hopperdepth. Run hopperheight first.
+
+  hoppercal
+    Show saved sensor-to-floor distance, derived full echo, latest echo, and
+    current fill percentage.
 
   feedempty
     (Analog fallback) With the hopper empty, saves the GPIO39 voltage as 0%.
@@ -167,26 +173,54 @@ SENSOR CALIBRATION
     reconnect; LittleFS is the fallback.
 
   phcal4
-    In CALMODE, run CALSTREAM PH, place the probe in pH 4.01 buffer, wait for
-    stable=YES (60 s window within 10 mV), then run. Saves the stable-window
-    average voltage to NVS as the acidic endpoint.
+    Offline path: CALMODE ON, CALSTREAM PH, wait for stable=YES. Online path:
+    keep CALMODE OFF, run raw on, and wait for pHcal=STABLE (60 s within
+    10 mV). Place the probe in pH 4.01 buffer and run this command. Saves the
+    stable-window average voltage to NVS as the acidic endpoint.
+
+    Optional override: `phcal4 force` saves the latest averaged pH voltage
+    without waiting for stable=YES. Use only when you accept that noise/drift
+    can make the saved point and resulting fit inaccurate.
 
   phcal9 [VALUE]
-    For this 2-point calibration, place the probe in pH 9.18 buffer, wait for
-    stable=YES (60 s window within 10 mV), then type `phcal9 9.18`. Saves the
-    stable-window average and selects the pH 4.01 / 9.18 endpoints.
+    Use either the CALMODE stable=YES or normal raw-mode pHcal=STABLE window.
+    Place the probe in pH 9.18 buffer, then type `phcal9 9.18`. Saves the
+    stable-window average and selects pH 4.01 / 9.18.
+
+    Optional override: `phcal9 9.18 force` (or `phcal9 force` for 9.18) saves
+    the latest averaged voltage without the stability check.
+
+  phcal686
+    Use either the CALMODE stable=YES or normal raw-mode pHcal=STABLE window.
+    Place the probe in pH 6.86 buffer, then type this command. Saves a
+    separate pH 6.86 point and selects pH 4.01 / 6.86.
+
+    Optional override: `phcal686 force` saves the latest averaged voltage
+    without the stability check.
+
+    Force commands still require a recent valid pH reading. In online mode,
+    start `raw on` first; in offline mode, start `CALMODE ON` and `CALSTREAM PH`.
+    Force skips only the stability requirement—it does not validate that the
+    probe is actually in the named buffer.
+
+    Warning: raw-mode calibration keeps Wi-Fi/Firebase online, so pH readings
+    taken in buffer solution may be sent to the app/cloud. Use CALMODE ON to
+    pause cloud traffic during calibration.
+
+  phpair 9.18 | phpair 6.86
+    Select which saved second point is paired with pH 4.01. Switching selects
+    only; it does not overwrite either saved point. It attempts to apply the
+    fit and reports if a required point is missing.
 
   phfit
-    In CALMODE, fit only the saved pH 4.01 and pH 9.18 endpoint voltages and
-    store slope/intercept in NVS. It accepts distinct endpoints separated by
+    Fit only pH 4.01 and the selected pH 9.18 or 6.86 point, then store
+    slope/intercept in NVS. It accepts distinct endpoints separated by
     at least 1 mV; below 50 mV it still saves but prints a noise-sensitivity
-    warning. This small-span fit is provisional and must be checked in both
-    buffers before using tank readings.
+    warning. Verify both buffers before relying on tank readings.
 
   phrefit
-    Backward-compatible alias for phfit; recomputes the selected pH calibration
-    from saved NVS points. For pair 9 with both endpoints saved, uses pH 4.01
-    and 9.18 only.
+    Backward-compatible alias for phfit; recomputes the selected two-point pH
+    calibration from saved NVS points.
 
   doread
     In CALMODE with CALSTREAM DO selected, shows filtered voltage, estimated
@@ -215,13 +249,17 @@ SENSOR CALIBRATION
 
 HC-SR04 WATER LEVEL
   tankheight <cm>
-    Saves distance from sensor face to tank bottom.
+    Enter distance from ultrasonic sensor face to tank bottom.
 
   tankdepth <cm>
-    Saves maximum valid water depth.
+    Enter vertical distance from tank bottom to the target/full water surface.
+    This must be less than tankheight. Firmware derives water depth as
+    tankheight minus the live sensor-to-water-surface echo distance.
 
   tankcal
-    Shows sensor height, maximum depth, and latest measured air gap.
+    Shows saved tank geometry, latest sensor-to-water-surface echo, and
+    computed water depth. Measure both values, then confirm the sensor is
+    mounted vertically above the water.
 
   Formula: waterDepth = sensorHeight - measuredDistance
 

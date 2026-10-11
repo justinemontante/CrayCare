@@ -78,10 +78,12 @@ HOPPER LEVEL (2nd HC-SR04, feed surface)
     ECHO -> 1kΩ -> GPIO node -> 2kΩ -> GND (about 3.33V from 5V), or use
     a 5V-to-3.3V level shifter. Confirm the physical Echo wire is on GPIO25
     and the physical TRIG wire is on GPIO17 to match this documented map.
-  - No ruler needed: empty hopper -> `hopperempty`, full hopper ->
-    `hopperfull`. Percent = (empty - echo) / (empty - full).
-    Manual values: `hopperheight <5-200>` (empty point),
-    `hopperdepth <1-empty>` (max feed depth).
+  - Manual geometry calibration: measure sensor face to hopper floor and enter
+    `hopperheight <cm>`. Measure hopper floor to desired full-feed surface and
+    enter `hopperdepth <cm>`. Firmware derives the empty/full echo points and
+    percent = (emptyEcho - liveEcho) / (emptyEcho - fullEcho). `hoppercal`
+    shows saved geometry and current readings. Alternatively, use
+    `hopperempty` and `hopperfull` to teach live echoes at each condition.
   - Source: ultrasonic by default; `FEEDMODE 0` forces analog GPIO39.
     A bad echo falls back to analog automatically; both invalid blocks
     feeding exactly like before. App sees the same feed_level percentage.
@@ -216,9 +218,13 @@ DIVIDER CONNECTION DIAGRAMS (ASCII, signal flows left to right)
 ============================================
 
 Tank configuration:
-  - Sensor mounted at: 65cm above tank bottom
-  - Tank water depth:  23cm max
-  - Water depth = 65cm − measured_distance
+  - Firmware defaults (until manually calibrated): sensor-to-bottom 65cm,
+    maximum water depth 23cm. Enter actual measured values with
+    `tankheight <sensor-face-to-bottom-cm>` and
+    `tankdepth <bottom-to-target-water-surface-cm>`.
+  - `tankcal` reports saved geometry, live echo, and computed water depth.
+  - Formula: water depth = measured sensor-to-bottom distance − measured
+    sensor-to-water-surface echo distance.
 
 ⚠️ HC-SR04 ECHO is 5V logic. Never connect ECHO directly to an ESP32 GPIO.
    The latest reported 2kΩ/1kΩ values only provide a useful HIGH in the
