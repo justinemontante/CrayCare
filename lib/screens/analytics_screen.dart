@@ -40,7 +40,6 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   Timer? _autoRefreshTimer;
   Timer? _liveTimer;
   final ValueNotifier<int> _liveRefresh = ValueNotifier<int>(0);
-  static const _liveReadingTimeout = Duration(seconds: 10);
   bool _isTabActive = false;
 
   bool get _showCritical => _activeFilter != 'live' && _activeFilter == '24h';
@@ -66,40 +65,43 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   void _startLiveTimer() {
     _liveTimer?.cancel();
     if (!_isTabActive) return;
-    _liveTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted &&
-          _activeFilter == 'live' &&
-          SensorService.sensorKeys.any((key) {
-            if (_data['$key-live']?.isEmpty ?? true) return false;
-            final times = SensorService.instance.getDataTimes(key);
-            return times.isEmpty ||
-                DateTime.now().difference(times.last) > _liveReadingTimeout;
-          })) {
+    // SensorService normally redraws immediately when Firestore changes.
+    // This slower fallback also picks up restored local cache/lifecycle changes
+    // without treating a short publish delay as "no sensor reading".
+    _liveTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (mounted && _activeFilter == 'live') {
         _generateLive();
       }
     });
   }
 
   void _generateLive() {
-    final now = DateTime.now();
     for (final key in SensorService.sensorKeys) {
       final history = SensorService.instance.getData(key);
       final historyTimes = SensorService.instance.getDataTimes(key);
       final hasMatchingTimes = historyTimes.length == history.length;
-      final hasFreshReading =
-          hasMatchingTimes &&
-          historyTimes.isNotEmpty &&
-          !now.isBefore(historyTimes.last) &&
-          now.difference(historyTimes.last) <= _liveReadingTimeout;
-      if (!hasFreshReading) {
-        _data['$key-live'] = <double>[];
-        _minData['$key-live'] = <double>[];
-        _maxData['$key-live'] = <double>[];
-        _labels['$key-live'] = <String>[];
+
+      if (!hasMatchingTimes || history.isEmpty || historyTimes.isEmpty) {
+        // Keep already-rendered points during a temporary Firestore/lifecycle
+        // gap. Only clear them when SensorService itself has been fully reset
+        // (for example account/tank reset) and has no prior reading state.
+        final service = SensorService.instance;
+        final hasNoReadingState =
+            !service.hasLiveData &&
+            service.lastUpdated.millisecondsSinceEpoch == 0;
+        if (hasNoReadingState) {
+          _data['$key-live'] = <double>[];
+          _minData['$key-live'] = <double>[];
+          _maxData['$key-live'] = <double>[];
+          _labels['$key-live'] = <String>[];
+        }
         continue;
       }
+
       // Live view is intentionally limited to the newest eight actual sensor
       // readings so the points and their timestamps stay readable together.
+      // Older points remain in SensorService/local cache and can repopulate the
+      // graph after navigation or a short app restart.
       final last8 = history.length > 8
           ? history.sublist(history.length - 8)
           : history;
@@ -1054,6 +1056,9 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
         : validMaxData.reduce(max).toStringAsFixed(dp);
     const curLabel = 'Selected period';
     final unit = _unitFor(chartKey);
+    final liveReadingLabel = SensorService.instance.isEspOnline
+        ? 'Current Reading'
+        : 'Last Reading';
 
     int minIdx = -1, maxIdx = -1;
     if (validMinData.isNotEmpty) {
@@ -1184,7 +1189,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                 Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    'Current Reading: ${validData.last.toStringAsFixed(dp)} $unit',
+                    '$liveReadingLabel: ${validData.last.toStringAsFixed(dp)} $unit',
                     style: const TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
@@ -1221,14 +1226,18 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   Widget _buildLiveSensorStatus(String chartKey, bool hasReading) {
-    final zone = hasReading
-        ? SensorService.instance.getZone(chartKey)
-        : 'NO READING';
+    final service = SensorService.instance;
+    final zone = !hasReading
+        ? 'NO READING'
+        : !service.isEspOnline
+        ? 'OFFLINE'
+        : service.getZone(chartKey);
     final label = switch (zone) {
       'OPTIMAL' => 'NORMAL',
       'WARNING' => 'WARNING',
       'CRITICAL' => 'CRITICAL',
       'EMPTY' => 'EMPTY',
+      'OFFLINE' => 'OFFLINE',
       _ => 'NO READING',
     };
     final color = switch (zone) {
@@ -1878,7 +1887,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                                 Expanded(
                                   child: Text(
                                     hasValid
-                                        ? 'Current Reading: ${validData.last.toStringAsFixed(dp)} $unit'
+                                        ? '${SensorService.instance.isEspOnline ? 'Current Reading' : 'Last Reading'}: ${validData.last.toStringAsFixed(dp)} $unit'
                                         : 'Current Reading: -- $unit',
                                     style: const TextStyle(
                                       fontSize: 11,
