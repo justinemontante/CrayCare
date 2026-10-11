@@ -13,7 +13,10 @@ COMMAND MENU / SENSOR DISPLAY
     Shows the main command menu.
 
   SENSOR_ON  (alias: sensor on)
-    Prints a complete sensor reading every 2 seconds.
+    Prints the latest complete sensor reading after each 10-second sensor poll.
+    Sensor values are also sent to Firebase on its 10-second send interval.
+    pH/DO/turbidity use five-sample filters; after startup, allow about 50 s
+    for those filters to fill at this polling rate.
 
   SENSOR_OFF  (alias: sensor off)
     Stops periodic sensor printing so commands are easy to type. This is the

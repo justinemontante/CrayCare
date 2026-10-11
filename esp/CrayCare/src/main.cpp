@@ -123,7 +123,7 @@ long long firestoreTimestampMillis(const String& value) {
 #define HISTORY_SEND_INTERVAL_MS 600000  // 10 minutes; matches the documented schema
 #define CONFIG_SYNC_INTERVAL_MS 60000   // thresholds re-sync; switch forces immediate
 #define FLUSH_INTERVAL_MS 1000           // flush backlog at 1 entry/sec (max)
-#define SENSOR_POLL_MS 2000
+#define SENSOR_POLL_MS 10000
 #define ASSIGNMENT_RECHECK_MS 60000      // refresh hardware assignment once per minute
 #define ASSIGNMENT_SEARCH_MS 10000      // aggressive search while missing
 
@@ -2847,7 +2847,7 @@ void runCalibrationStream() {
 void printSerialHelp() {
   Serial.println("\n=== SERIAL COMMANDS ===");
   Serial.println("HELP                     Show this menu");
-  Serial.println("SENSOR_ON                Print readings every 2 seconds");
+  Serial.println("SENSOR_ON                Print readings every 10 seconds");
   Serial.println("SENSOR_OFF               Stop periodic sensor printing");
   Serial.println("SENSOR_READ              Take and print one fresh reading");
   Serial.println("CAL_HELP                 Show calibration commands");
@@ -3037,7 +3037,7 @@ void setup() {
       xTaskCreatePinnedToCore(sensorPollingTask, "sensor_poll", 8192, nullptr,
                               2, nullptr, 1) == pdPASS) {
     sensorTaskRunning = true;
-    Serial.println("[SENSOR] Background polling task started (2 s interval)");
+    Serial.println("[SENSOR] Background polling task started (10 s interval)");
   } else {
     Serial.println("[SENSOR] Background task unavailable; polling in main loop");
   }
