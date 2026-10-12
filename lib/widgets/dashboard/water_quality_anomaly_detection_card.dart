@@ -258,7 +258,7 @@ class _ResultOverview extends StatelessWidget {
                 child: Text(
                   isAnomaly
                       ? 'Unusual pattern detected'
-                      : 'No unusual pattern detected',
+                      : 'Pattern matches reference',
                   style: TextStyle(
                     color: color,
                     fontSize: 12,
@@ -268,9 +268,9 @@ class _ResultOverview extends StatelessWidget {
               ),
               const SizedBox(width: 6),
               Text(
-                safeScore.toStringAsFixed(1),
+                'Rarity ${safeScore.toStringAsFixed(1)}%',
                 style: TextStyle(
-                  fontSize: 15,
+                  fontSize: 11,
                   fontWeight: FontWeight.w800,
                   color: color,
                 ),
@@ -383,7 +383,7 @@ class _ResultDetails extends StatelessWidget {
           const SizedBox(height: 11),
           _DetailRow(
             icon: Icons.fact_check_outlined,
-            label: 'Recommended Action',
+            label: 'Suggested Checks',
             text: recommendation,
             color: AppColors.primary,
           ),

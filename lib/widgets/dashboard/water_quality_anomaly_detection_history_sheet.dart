@@ -170,7 +170,7 @@ class _WaterQualityAnomalyDetectionHistorySheet extends StatelessWidget {
                                       ),
                                       if (item.hasData)
                                         Text(
-                                          'Score ${item.anomalyScore.toStringAsFixed(1)} / 100',
+                                          'Reference rarity ${item.anomalyScore.toStringAsFixed(1)}%',
                                           style: TextStyle(
                                             fontSize: 10.5,
                                             fontWeight: FontWeight.w700,
@@ -284,7 +284,7 @@ class _WaterQualityAnomalyDetectionHistorySheet extends StatelessWidget {
                   _StatusBadge(status: item.status, color: item.color),
                   if (item.hasData)
                     Text(
-                      'Anomaly score: ${item.anomalyScore.toStringAsFixed(1)} / 100',
+                      'Reference rarity: ${item.anomalyScore.toStringAsFixed(1)}%',
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
@@ -330,7 +330,7 @@ class _WaterQualityAnomalyDetectionHistorySheet extends StatelessWidget {
               const SizedBox(height: 16),
               _DetailSection(
                 icon: Icons.fact_check_outlined,
-                label: 'Recommended Action',
+                label: 'Suggested Checks',
                 text: item.recommendation,
               ),
             ],
