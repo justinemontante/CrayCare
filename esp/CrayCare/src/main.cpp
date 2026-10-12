@@ -123,7 +123,8 @@ long long firestoreTimestampMillis(const String& value) {
 #define HISTORY_SEND_INTERVAL_MS 600000  // 10 minutes; matches the documented schema
 #define CONFIG_SYNC_INTERVAL_MS 60000   // thresholds re-sync; switch forces immediate
 #define FLUSH_INTERVAL_MS 1000           // flush backlog at 1 entry/sec (max)
-#define SENSOR_POLL_MS 10000
+#define NON_PH_SENSOR_POLL_MS 2000
+#define PH_SENSOR_POLL_MS 5000
 #define ASSIGNMENT_RECHECK_MS 60000      // refresh hardware assignment once per minute
 #define ASSIGNMENT_SEARCH_MS 10000      // aggressive search while missing
 
@@ -503,7 +504,8 @@ bool flushOneBufferedEntry() {
 }
 unsigned long lastConfigSyncTime = 0;
 unsigned long lastAssignmentCheckMs = 0;
-unsigned long lastPollTime = 0;
+unsigned long lastNonPhPollTime = 0;
+unsigned long lastPhPollTime = 0;
 unsigned long lastWifiReconnectTime = 0;
 bool ntpEverSynced = false;            // set once time() passes the epoch gate
 unsigned long lastNtpSyncMs = 0;
@@ -906,7 +908,7 @@ float turbidityVoltage = 0.0;
 // ─── 10-min window means ───────────────────────────────────────────────
 // Accumulated from ACCEPTED readings between history saves, so brief
 // each ten-minute history entry stores one average per valid sensor. The ESP
-// polls every 2 s, so each window can collect up to ~300 samples per sensor.
+// polls every 5 s, so each window can collect up to ~120 samples per sensor.
 // Reset after every history write (or buffer append).
 float winTempSum = 0.0f; uint16_t winTempN = 0;
 float winTurbSum = 0.0f; uint16_t winTurbN = 0;
@@ -1097,6 +1099,19 @@ float voltageWindowSpread(const float samples[], uint8_t count) {
     high = max(high, samples[i]);
   }
   return high - low;
+}
+
+// The live pH formula and offline CALSTREAM must pass their voltage samples
+// through this exact same median/stability pipeline. The fit is evaluated
+// against this filtered voltage, not the one-batch diagnostic voltage.
+float updatePHFitVoltage(float batchVoltage) {
+  phVoltage = batchVoltage;
+  phFilteredVoltage = pushMedianVoltage(phVoltageSamples,
+      phVoltageSampleCount, phVoltageSampleNext, batchVoltage);
+  phReadingStable = phVoltageSampleCount == SENSOR_FILTER_WINDOW &&
+      voltageWindowSpread(phVoltageSamples, phVoltageSampleCount) <=
+          LIVE_PH_STABLE_SPREAD_V;
+  return phFilteredVoltage;
 }
 
 bool turbidityCalibrationValid() {
@@ -2042,13 +2057,7 @@ void readPHSensor() {
   }
 
   const float rawVoltage = readPHVoltage();
-  phVoltage = rawVoltage;
-  const float voltage = pushMedianVoltage(phVoltageSamples,
-      phVoltageSampleCount, phVoltageSampleNext, rawVoltage);
-  phFilteredVoltage = voltage;
-  phReadingStable = phVoltageSampleCount == SENSOR_FILTER_WINDOW &&
-      voltageWindowSpread(phVoltageSamples, phVoltageSampleCount) <=
-          LIVE_PH_STABLE_SPREAD_V;
+  const float voltage = updatePHFitVoltage(rawVoltage);
   if (voltage < 0.05f || voltage > 3.25f) {
     phLevel = -1.0f;
     phSensorOK = false;
@@ -2195,6 +2204,20 @@ void readFeedLevelSensorSafely() {
   readFeedLevelSensor();
 }
 
+void readNonPHSensors() {
+  MutexGuard sensorLock(sensorStateMutex);
+  readTemperatureSensor();
+  readTurbiditySensor();
+  readDissolvedOxygenSensor();
+  readWaterLevelSensor();
+  readFeedLevelSensor();
+}
+
+void readPHSensorSafely() {
+  MutexGuard sensorLock(sensorStateMutex);
+  readPHSensor();
+}
+
 void readAllSensors() {
   MutexGuard sensorLock(sensorStateMutex);
   readTemperatureSensor();
@@ -2221,8 +2244,8 @@ void printSensorReading() {
 // the 1 s `raw on` stream.
 void printRawReading() {
   MutexGuard sensorLock(sensorStateMutex);
-  Serial.printf("[RAW] pH=%.3fV DO=%.3fV Turb=%.3fV HC-SR04=%.1fcm Water=%.1fcm Feed=%.3fV/%.0f%% Hopper=%.1fcm(%s)",
-                phVoltage, dissolvedOxygenVoltage, turbidityVoltage,
+  Serial.printf("[RAW] pH=%.3fV FIT V=%.4fV DO=%.3fV Turb=%.3fV HC-SR04=%.1fcm Water=%.1fcm Feed=%.3fV/%.0f%% Hopper=%.1fcm(%s)",
+                phVoltage, phFilteredVoltage, dissolvedOxygenVoltage, turbidityVoltage,
                 waterDistanceCm, waterLevelCm, feedLevelVoltage,
                 feedLevelPercent,
                 hopperDistanceCm, feedLevelSource);
@@ -2286,7 +2309,7 @@ void updateRawPHCalibrationWindow() {
 void printCalibrationHelp() {
   Serial.println("\n=== CALIBRATION COMMANDS ===");
   Serial.println("CALMODE ON/OFF          Pause Wi-Fi/Firebase for calibration");
-  Serial.println("CALSTREAM PH|DO|TURB [ms] Stream one ADC (20-2000 ms; default 100)");
+  Serial.println("CALSTREAM PH|DO|TURB [ms] PH FIT V uses live filter/rate (PH min 5000 ms)");
   Serial.println("raw on                  Optional online pH calibration stream (Firebase stays active)");
   Serial.println("CALSTOP / CALSTATUS     Stop stream / show calibration state");
   Serial.println("CALSHOW                 Show saved calibration values from NVM");
@@ -2313,7 +2336,7 @@ void printCalibrationHelp() {
   Serial.println("tankheight <CM>          Manual sensor-face to tank-bottom distance");
   Serial.println("tankdepth <CM>           Bottom-to-target-full-water-surface depth");
   Serial.println("tankcal                  Show geometry, echo, and computed water depth");
-  Serial.println("raw [on|off]             Legacy raw snapshot / 1 s stream (normal mode)");
+  Serial.println("raw [on|off]             Raw snapshot / 1 s stream; FIT V is used by pH formula");
 }
 
 void resetCalibrationStream() {
@@ -2627,6 +2650,18 @@ bool handleCalibrationControlCommand(String& cmd) {
             return true;
           }
         }
+        if (sensor == CAL_SENSOR_PH) {
+          // Keep the median's time span comparable to live reads: the normal
+          // pH polls every PH_SENSOR_POLL_MS after completing its batch.
+          const uint16_t minPHBatchMs = max(
+              (uint16_t)(SAMPLE_COUNT * SAMPLE_DELAY_MS),
+              (uint16_t)PH_SENSOR_POLL_MS);
+          if (interval < minPHBatchMs) {
+            Serial.printf("[CAL] PH interval raised from %d to %u ms to match the live sensor polling cadence and complete its %u-sample batch.\n",
+                          interval, minPHBatchMs, SAMPLE_COUNT);
+            interval = minPHBatchMs;
+          }
+        }
         calibrationStreamIntervalMs = (uint16_t)interval;
         calibrationStreamSensor = sensor;
         phVoltageSampleCount = doVoltageSampleCount = turbidityVoltageSampleCount = 0;
@@ -2652,7 +2687,11 @@ bool handleCalibrationControlCommand(String& cmd) {
                       calibrationStreamIntervalMs,
                       calibrationStableWindowMs(sensor) / 1000UL,
                       calibrationStableSpreadV(sensor) * 1000.0f);
-        Serial.println("[CALRAW] ms,sensor,adc_avg,Vadc,blockMinAvgV,blockMaxAvgV,rawMinV,rawMaxV,n,blocks,stable");
+        if (sensor == CAL_SENSOR_PH) {
+          Serial.println("[CALRAW] ms,PH,rawV,FIT_V,fitWindowAvgV,fitMinV,fitMaxV,filterN,blocks,stable");
+        } else {
+          Serial.println("[CALRAW] ms,sensor,adc_avg,Vadc,blockMinAvgV,blockMaxAvgV,rawMinV,rawMaxV,n,blocks,stable");
+        }
       }
     }
     cmd = "";
@@ -2738,12 +2777,7 @@ float analogVoltageForCalibration(uint8_t sensor) {
   // Match the live pH path's eFuse-calibrated conversion rather than the
   // nominal 3.3/4095 scale used for the other ADC channels.
   if (sensor == CAL_SENSOR_PH) {
-    uint32_t sumMilliVolts = 0;
-    for (uint8_t i = 0; i < SAMPLE_COUNT; ++i) {
-      sumMilliVolts += analogReadMilliVolts(PH_PIN);
-      delay(SAMPLE_DELAY_MS);
-    }
-    return ((float)sumMilliVolts / SAMPLE_COUNT) / 1000.0f;
+    return readPHVoltage();
   }
   return readAnalogVoltage(calibrationSensorPin(sensor));
 }
@@ -2751,8 +2785,26 @@ float analogVoltageForCalibration(uint8_t sensor) {
 void runCalibrationStream() {
   const uint8_t sensor = calibrationStreamSensor;
   if (!calibrationMode || sensor == CAL_SENSOR_NONE) return;
-  const unsigned long now = millis();
-  if (now - calibrationLastAdcMs >= 2UL) {
+  unsigned long now = millis();
+  float currentPHFitVoltage = 0.0f;
+  bool newPHFitSample = false;
+
+  if (sensor == CAL_SENSOR_PH) {
+    // Match the live reader: one 50-sample eFuse-millivolt batch, then the
+    // same five-sample median. CALSTREAM's requested cadence is clamped to
+    // the time needed for this batch, so each printed block is a real sample.
+    if (now - calibrationLastAdcMs >= calibrationStreamIntervalMs) {
+      calibrationLastAdcMs = now;
+      const float batchVoltage = analogVoltageForCalibration(CAL_SENSOR_PH);
+      currentPHFitVoltage = updatePHFitVoltage(batchVoltage);
+      now = millis();
+      calibrationAdcCount = 1;
+      calibrationMilliVoltSum = (uint32_t)lroundf(currentPHFitVoltage * 1000.0f);
+      calibrationMilliVoltMin = calibrationMilliVoltMax =
+          (uint16_t)lroundf(currentPHFitVoltage * 1000.0f);
+      newPHFitSample = true;
+    }
+  } else if (now - calibrationLastAdcMs >= 2UL) {
     calibrationLastAdcMs = now;
     MutexGuard ioLock(sensorIoMutex);
     const uint16_t raw = analogRead(calibrationSensorPin(sensor));
@@ -2760,27 +2812,25 @@ void runCalibrationStream() {
     calibrationAdcCount++;
     if (raw < calibrationAdcMin) calibrationAdcMin = raw;
     if (raw > calibrationAdcMax) calibrationAdcMax = raw;
-    if (sensor == CAL_SENSOR_PH) {
-      const uint16_t milliVolts = (uint16_t)analogReadMilliVolts(PH_PIN);
-      calibrationMilliVoltSum += milliVolts;
-      if (milliVolts < calibrationMilliVoltMin) calibrationMilliVoltMin = milliVolts;
-      if (milliVolts > calibrationMilliVoltMax) calibrationMilliVoltMax = milliVolts;
-    }
   }
-  if (now - calibrationLastPrintMs < calibrationStreamIntervalMs ||
-      calibrationAdcCount == 0) return;
+  if (sensor == CAL_SENSOR_PH) {
+    if (!newPHFitSample) return;
+    // The pH block itself is the current FIT V, already filtered by the same
+    // five-reading median used by readPHSensor().
+    calibrationStableVoltage = currentPHFitVoltage;
+  } else if (now - calibrationLastPrintMs < calibrationStreamIntervalMs ||
+             calibrationAdcCount == 0) {
+    return;
+  }
 
-  const float adcAvg = (float)calibrationAdcSum / calibrationAdcCount;
-  const bool calibratedPH = sensor == CAL_SENSOR_PH && calibrationAdcCount > 0;
-  const float avgV = calibratedPH
-      ? ((float)calibrationMilliVoltSum / calibrationAdcCount) / 1000.0f
-      : adcAvg * (3.3f / 4095.0f);
-  const float rawMinV = calibratedPH
-      ? calibrationMilliVoltMin / 1000.0f
-      : calibrationAdcMin * (3.3f / 4095.0f);
-  const float rawMaxV = calibratedPH
-      ? calibrationMilliVoltMax / 1000.0f
-      : calibrationAdcMax * (3.3f / 4095.0f);
+  const float adcAvg = sensor == CAL_SENSOR_PH ? 0.0f :
+      (float)calibrationAdcSum / calibrationAdcCount;
+  const float avgV = sensor == CAL_SENSOR_PH ? currentPHFitVoltage :
+      adcAvg * (3.3f / 4095.0f);
+  const float rawMinV = sensor == CAL_SENSOR_PH ? phVoltage :
+      calibrationAdcMin * (3.3f / 4095.0f);
+  const float rawMaxV = sensor == CAL_SENSOR_PH ? phVoltage :
+      calibrationAdcMax * (3.3f / 4095.0f);
 
   // Judge stability from successive interval averages, not individual ADC
   // extrema. A rolling 5-second range tolerates isolated raw spikes while
@@ -2829,11 +2879,19 @@ void runCalibrationStream() {
       ? calibrationBlockMs[calibrationBlockHead] : 0;
   calibrationStableVoltage = calibrationBlockCount > 0
       ? blockSum / calibrationBlockCount : avgV;
-  Serial.printf("[CALRAW] %lu,%s,%.1f,%.4f,%.4f,%.4f,%.4f,%.4f,%u,%u,%s\n",
-                now, calibrationSensorName(sensor), adcAvg, avgV,
-                calibrationStableMinVoltage, calibrationStableMaxVoltage,
-                rawMinV, rawMaxV, calibrationAdcCount, calibrationBlockCount,
-                calibrationStable ? "YES" : "NO");
+  if (sensor == CAL_SENSOR_PH) {
+    Serial.printf("[CALRAW] %lu,PH,rawV=%.4f,FIT_V=%.4f,fitWindowAvgV=%.4f,fitMinV=%.4f,fitMaxV=%.4f,filterN=%u,blocks=%u,stable=%s\n",
+                  now, phVoltage, currentPHFitVoltage, calibrationStableVoltage,
+                  calibrationStableMinVoltage, calibrationStableMaxVoltage,
+                  phVoltageSampleCount, calibrationBlockCount,
+                  calibrationStable ? "YES" : "NO");
+  } else {
+    Serial.printf("[CALRAW] %lu,%s,%.1f,%.4f,%.4f,%.4f,%.4f,%.4f,%u,%u,%s\n",
+                  now, calibrationSensorName(sensor), adcAvg, avgV,
+                  calibrationStableMinVoltage, calibrationStableMaxVoltage,
+                  rawMinV, rawMaxV, calibrationAdcCount, calibrationBlockCount,
+                  calibrationStable ? "YES" : "NO");
+  }
   calibrationLastPrintMs = now;
   calibrationAdcSum = 0;
   calibrationMilliVoltSum = 0;
@@ -2847,7 +2905,7 @@ void runCalibrationStream() {
 void printSerialHelp() {
   Serial.println("\n=== SERIAL COMMANDS ===");
   Serial.println("HELP                     Show this menu");
-  Serial.println("SENSOR_ON                Print readings every 10 seconds");
+  Serial.println("SENSOR_ON                Print readings every 5 seconds");
   Serial.println("SENSOR_OFF               Stop periodic sensor printing");
   Serial.println("SENSOR_READ              Take and print one fresh reading");
   Serial.println("CAL_HELP                 Show calibration commands");
@@ -3037,7 +3095,7 @@ void setup() {
       xTaskCreatePinnedToCore(sensorPollingTask, "sensor_poll", 8192, nullptr,
                               2, nullptr, 1) == pdPASS) {
     sensorTaskRunning = true;
-    Serial.println("[SENSOR] Background polling task started (10 s interval)");
+    Serial.println("[SENSOR] Background polling started (non-pH=2 s, pH=5 s)");
   } else {
     Serial.println("[SENSOR] Background task unavailable; polling in main loop");
   }
@@ -3687,12 +3745,29 @@ void loop() {
 
   // ─── Sensors + live Latest (first: the realtime path never queues) ───
 
-  if (!sensorTaskRunning && now - lastPollTime >= SENSOR_POLL_MS) {
-    readAllSensors();
-    lastPollTime = millis();
-    now = lastPollTime;
-
-    if (sensorOutputEnabled) printSensorReading();
+  if (!sensorTaskRunning) {
+    bool sampled = false;
+    if (now - lastNonPhPollTime >= NON_PH_SENSOR_POLL_MS) {
+      const unsigned long scanStartedMs = now;
+      lastNonPhPollTime = scanStartedMs;
+      readNonPHSensors();
+      now = millis();
+      if (now - scanStartedMs >= NON_PH_SENSOR_POLL_MS) {
+        lastNonPhPollTime = now;  // Long scan: wait a full interval, no catch-up.
+      }
+      sampled = true;
+    }
+    if (now - lastPhPollTime >= PH_SENSOR_POLL_MS) {
+      const unsigned long scanStartedMs = now;
+      lastPhPollTime = scanStartedMs;
+      readPHSensorSafely();
+      now = millis();
+      if (now - scanStartedMs >= PH_SENSOR_POLL_MS) {
+        lastPhPollTime = now;
+      }
+      sampled = true;
+    }
+    if (sampled && sensorOutputEnabled) printSensorReading();
   }
 
   // Continuous raw-voltage stream for calibration stability checks
@@ -5307,12 +5382,34 @@ void updateLCD() {
 void sensorPollingTask(void*) {
   for (;;) {
     if (!calibrationMode) {
-      readAllSensors();
-      if (sensorOutputEnabled) printSensorReading();
+      unsigned long now = millis();
+      bool sampled = false;
+      if (now - lastNonPhPollTime >= NON_PH_SENSOR_POLL_MS) {
+        const unsigned long scanStartedMs = now;
+        lastNonPhPollTime = scanStartedMs;
+        readNonPHSensors();
+        now = millis();
+        if (now - scanStartedMs >= NON_PH_SENSOR_POLL_MS) {
+          lastNonPhPollTime = now;  // Long scan: wait a full interval, no catch-up.
+        }
+        sampled = true;
+      }
+      now = millis();
+      if (now - lastPhPollTime >= PH_SENSOR_POLL_MS) {
+        const unsigned long scanStartedMs = now;
+        lastPhPollTime = scanStartedMs;
+        readPHSensorSafely();
+        now = millis();
+        if (now - scanStartedMs >= PH_SENSOR_POLL_MS) {
+          lastPhPollTime = now;
+        }
+        sampled = true;
+      }
+      if (sampled && sensorOutputEnabled) printSensorReading();
     }
-    // Match the prior loop behavior: wait the configured interval after the
-    // completed scan, so a long scan never triggers a catch-up burst.
-    vTaskDelay(pdMS_TO_TICKS(SENSOR_POLL_MS));
+    // Check frequently, but schedule each group from its own last completion
+    // time so a slow scan never causes catch-up bursts.
+    vTaskDelay(pdMS_TO_TICKS(10));
   }
 }
 

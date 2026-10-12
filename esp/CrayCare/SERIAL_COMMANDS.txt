@@ -13,10 +13,12 @@ COMMAND MENU / SENSOR DISPLAY
     Shows the main command menu.
 
   SENSOR_ON  (alias: sensor on)
-    Prints the latest complete sensor reading after each 10-second sensor poll.
-    Sensor values are also sent to Firebase on its 10-second send interval.
-    pH/DO/turbidity use five-sample filters; after startup, allow about 50 s
-    for those filters to fill at this polling rate.
+    Prints readings as sensors are sampled: temperature, turbidity, DO, and
+    ultrasonic levels every 2 seconds; pH every 5 seconds.
+    Sensor values are sent to Firebase on its separate 10-second send interval.
+    pH/DO/turbidity use five-sample filters; after startup, allow about 25 s
+    for pH and about 10-15 s for DO/turbidity filters to fill, depending on
+    the time needed to complete each sensor scan.
 
   SENSOR_OFF  (alias: sensor off)
     Stops periodic sensor printing so commands are easy to type. This is the
@@ -37,17 +39,22 @@ COMMAND MENU / SENSOR DISPLAY
     reconnects Wi-Fi; calibration-period samples are excluded from history.
 
   CALSTREAM PH|DO|TURB [interval_ms]
-    Stream just one ADC input as CSV: elapsed ms, sensor, average ADC count,
-    ADC-pin volts, 5-second block-average min/max, current-block raw min/max,
-    sample count, block count, and stable flag. Default is 100 ms; allowed
-    output intervals are 20-2000 ms. `stable=YES` requires at least five
-    seconds of consecutive block averages with a total spread no greater than
-    20 mV. Raw min/max remain visible for troubleshooting but do not determine
-    stability by themselves. For PH, `Vadc` and its voltage ranges use the
-    ESP32 calibrated millivolt API; the raw ADC count remains diagnostic.
+    Stream one ADC input. For DO/TURB, output remains CSV: elapsed ms, sensor,
+    average ADC count, ADC-pin volts, block-average min/max, raw min/max, sample
+    count, block count, and stable flag. For PH, output is labeled fields:
+    `rawV` is the newest 50-sample calibrated-voltage average, `FIT_V` is the
+    same five-sample median used by the live pH formula, and `fitWindowAvgV` is
+    the rolling stable-window average saved by phcal commands. The PH stream
+    uses at least a 5000 ms interval to match the live sensor polling cadence
+    and finish its 50-sample batch; DO/TURB allow 20-2000 ms. PH stability
+    requires 60 s within 10 mV; DO/TURB use their sensor-specific windows. For
+    all channels, stability is judged from successive filtered/block averages,
+    not raw min/max alone.
     A 1 ms text stream is not supported at 115200 baud; use 20 ms for a short
-    fast check or 100 ms for readable calibration. Turbidity volts are the
-    ESP32 ADC-pin volts after its divider.
+    fast check or 100 ms for readable DO/TURB calibration. For PH, the stream
+    automatically raises shorter intervals to the live 5-second cadence.
+    Turbidity
+    volts are the ESP32 ADC-pin volts after its divider.
 
   CALSTOP / CALSTATUS / CALSHOW
     Stop the raw stream while staying offline / show mode and stability / show
@@ -179,7 +186,8 @@ SENSOR CALIBRATION
     Offline path: CALMODE ON, CALSTREAM PH, wait for stable=YES. Online path:
     keep CALMODE OFF, run raw on, and wait for pHcal=STABLE (60 s within
     10 mV). Place the probe in pH 4.01 buffer and run this command. Saves the
-    stable-window average voltage to NVS as the acidic endpoint.
+    stable-window average of `FIT_V` to NVS as the acidic endpoint. `FIT_V`
+    is the same filtered voltage used by the live pH conversion.
 
     Optional override: `phcal4 force` saves the latest averaged pH voltage
     without waiting for stable=YES. Use only when you accept that noise/drift
@@ -188,7 +196,7 @@ SENSOR CALIBRATION
   phcal9 [VALUE]
     Use either the CALMODE stable=YES or normal raw-mode pHcal=STABLE window.
     Place the probe in pH 9.18 buffer, then type `phcal9 9.18`. Saves the
-    stable-window average and selects pH 4.01 / 9.18.
+    stable-window average of `FIT_V` and selects pH 4.01 / 9.18.
 
     Optional override: `phcal9 9.18 force` (or `phcal9 force` for 9.18) saves
     the latest averaged voltage without the stability check.
@@ -196,7 +204,7 @@ SENSOR CALIBRATION
   phcal686
     Use either the CALMODE stable=YES or normal raw-mode pHcal=STABLE window.
     Place the probe in pH 6.86 buffer, then type this command. Saves a
-    separate pH 6.86 point and selects pH 4.01 / 6.86.
+    separate stable-window average of `FIT_V` and selects pH 4.01 / 6.86.
 
     Optional override: `phcal686 force` saves the latest averaged voltage
     without the stability check.
@@ -272,8 +280,10 @@ DEBUG
     raw hopper distance where available.
 
   raw on / raw off
-    Legacy normal-mode stream of cached raw readings every 1 s. For focused
-    sensor calibration use CALMODE + CALSTREAM instead.
+    Normal-mode stream of cached readings every 1 s. `FIT V` is the current
+    filtered voltage used by the live pH formula; `pHcal avg` is the stable
+    window of that same signal used by online pH calibration. For offline
+    calibration use CALMODE + CALSTREAM PH, which now uses the same filter.
 
 RELAYS — LOCAL TEST
   n1on / n1off       Water pump, GPIO26

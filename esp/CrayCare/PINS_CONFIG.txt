@@ -14,6 +14,7 @@ RELAYS (Active LOW = LOW turns ON)
 │   16   │       │ Blower               │ serial n4, feed pre-run  │
 └────────┴───────┴──────────────────────┴──────────────────────────┘
 
+
 BLOWER (GPIO16, active-LOW relay module)
   - Wiring: GPIO16 -> relay IN, common GND, blower on its own supply.
     Relay module must trigger on 3.3V logic. Initializes OFF at boot.
@@ -263,7 +264,7 @@ if no ACK at 0x27 — if your backpack is 0x3F, change LCD_ADDR in main.cpp.
 
 COMMAND MENU / SENSOR DISPLAY
   HELP / help / ?        Show the main command menu
-  SENSOR_ON              Print readings every 10 seconds
+  SENSOR_ON              Print readings every 5 seconds
   SENSOR_OFF             Hide periodic readings (default after boot)
   SENSOR_READ            Take and print one fresh reading
   CAL_HELP               Show calibration commands
