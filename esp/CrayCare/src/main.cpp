@@ -452,7 +452,7 @@ size_t countBufferedEntries() {
   return n;
 }
 
-bool bufferAppend(const String& jsonLine) {
+bool bufferAppend(const String& jsonLine, long long capturedAtMs = 0) {
   if (jsonLine.length() < 10) return false;
   fs::FS& fs = bufFS();
   if (!sdMounted && !littlefsMounted) return false;
@@ -463,7 +463,17 @@ bool bufferAppend(const String& jsonLine) {
   }
   File f = fs.open(bufPath(), FILE_APPEND);
   if (!f) return false;
-  f.println(jsonLine);
+  // Keep the deterministic history key beside the JSON in the device-local
+  // queue. This prefix is stripped before upload, so it is never a Firestore
+  // field. Older buffered rows without the prefix remain supported below.
+  String queuedLine = jsonLine;
+  if (capturedAtMs > 0) {
+    char prefix[32];
+    snprintf(prefix, sizeof(prefix), "@%llu\t",
+             static_cast<unsigned long long>(capturedAtMs));
+    queuedLine = String(prefix) + jsonLine;
+  }
+  f.println(queuedLine);
   f.close();
   return true;
 }
@@ -538,19 +548,34 @@ bool flushOneBufferedEntry() {
   size_t n = bufferReadAll(lines, 32);
   if (n == 0) return true;
 
-  // Deterministic doc ID from the original capture instant (dedup: a buffered
-  // fallback uses this same ID as the direct canonical history write).
-  // The buffered line is Firestore wire-format JSON, e.g.
-  //   {"fields":{"captured_at_ms":{"integerValue":"1755122400000"},...}}
-  // so dig into the nested integerValue for the epoch-ms.
+  // Deterministic doc ID from local queue metadata. The metadata is not part
+  // of the Firestore payload. Old buffer rows used captured_at_ms in their
+  // payload, so retain that parser for rows queued by previous firmware.
   long long capMs = 0;
-  int idx = lines[0].indexOf("\"captured_at_ms\"");
+  String payloadLine = lines[0];
+  int separator = payloadLine.indexOf('\t');
+  if (payloadLine.startsWith("@") && separator > 1) {
+    capMs = atoll(payloadLine.substring(1, separator).c_str());
+    payloadLine = payloadLine.substring(separator + 1);
+  }
+  int idx = payloadLine.indexOf("\"captured_at_ms\"");
   if (idx >= 0) {
-    int st = lines[0].indexOf("\"integerValue\":\"", idx);
+    int st = payloadLine.indexOf("\"integerValue\":\"", idx);
     if (st >= 0) {
       st += 17;  // length of "\"integerValue\":\"" (17 chars)
-      int en = lines[0].indexOf('"', st);
-      if (en > st) capMs = atoll(lines[0].substring(st, en).c_str());
+      int en = payloadLine.indexOf('"', st);
+      if (en > st && capMs <= 0) capMs = atoll(payloadLine.substring(st, en).c_str());
+    }
+  }
+  // Previous firmware queued both timestamps. When recorded_at is present,
+  // remove the redundant field before staging the old payload. Truly legacy
+  // rows without recorded_at keep their only timestamp for the router's
+  // compatibility fallback.
+  if (idx >= 0 && payloadLine.indexOf("\"recorded_at\"") >= 0) {
+    FirebaseJson legacyPayload;
+    if (legacyPayload.setJsonData(payloadLine) &&
+        legacyPayload.remove("fields/captured_at_ms")) {
+      payloadLine = legacyPayload.raw();
     }
   }
   char docIdBuffer[32];
@@ -569,7 +594,7 @@ bool flushOneBufferedEntry() {
   // 6-arg overload (documentPath+content vs collectionId+documentId).
   if (Firebase.Firestore.createDocument(&fbdo, FIREBASE_PROJECT_ID, "(default)",
                                         "sensorIngestion/current/history",
-                                        docId.c_str(), lines[0].c_str(), "")) {
+                                        docId.c_str(), payloadLine.c_str(), "")) {
     Serial.printf("[BUF] Flushed entry -> %s\n", docPath.c_str());
     return bufferDropFirst(lines, n);
   }
@@ -1791,7 +1816,6 @@ void buildFirestorePayload(FirebaseJson &json, bool includeTimestamp, time_t cap
   json.set("fields/source_owner_uid/stringValue", currentOwnerUid);
   json.set("fields/source_assignment_at_ms/integerValue", String(currentAssignmentAtMs));
   if (capturedAt <= 0) time(&capturedAt);
-  json.set("fields/captured_at_ms/integerValue", epochMillisString(capturedAt));
   const String recordedAt = firestoreTimestampString(capturedAt);
   if (recordedAt.length() > 0) {
     json.set("fields/recorded_at/timestampValue", recordedAt);
@@ -1850,8 +1874,9 @@ void buildFirestorePayload(FirebaseJson &json, bool includeTimestamp, time_t cap
     json.set("fields/feed_level/doubleValue", winFeedLevelSum / (float)winFeedLevelN);
   }
 
-  // captured_at_ms and recorded_at share the same NTP capture instant so
-  // Firestore Rules can validate both direct and staged history documents.
+  // recorded_at is the canonical capture instant for both live and history
+  // records. The assignment time remains a separate millisecond field because
+  // it identifies the hardware-to-owner assignment, not this reading.
 }
 
 
@@ -1888,6 +1913,8 @@ bool sendLatestToFirestore() {
   // Include every optional sensor field in the mask so omitted values are
   // removed instead of lingering as apparently fresh values from an older
   // reading.
+  // Keep captured_at_ms in the update mask solely to delete it from legacy
+  // latest documents. New payloads and rules use recorded_at only.
   const char* updateMask = "hardwareId,source_tank_id,source_owner_uid,source_assignment_at_ms,captured_at_ms,recorded_at,buffered_entries,temperature,turbidity,turbidity_air,dissolved_oxygen,ph_level,water_level,feed_level";
 
   bool latestOk = Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "(default)",
@@ -1923,12 +1950,13 @@ void sendHistoryToFirestore() {
     buildFirestorePayload(content, true, capturedAt);
     resetWindowAggregatesUnlocked();
   }
+  const long long capturedMs = atoll(epochMillisString(capturedAt).c_str());
 
   // WiFi/Firebase down: buffer the reading for later flush. (Previously we
   // returned early here and the reading was LOST — the whole point of the
   // store-and-forward buffer is to survive exactly this case.)
   if (WiFi.status() != WL_CONNECTED || !ensureFirebaseReady()) {
-    if (bufferAppend(content.raw())) {
+    if (bufferAppend(content.raw(), capturedMs)) {
       Serial.printf("[BUF] Offline — buffered entry #%u\n",
                     (unsigned)countBufferedEntries());
     }
@@ -1936,7 +1964,7 @@ void sendHistoryToFirestore() {
   }
 
   if (capturedAt < 1577836800 || firestoreTimestampString(capturedAt).length() == 0) {
-    if (bufferAppend(content.raw())) {
+    if (bufferAppend(content.raw(), capturedMs)) {
       Serial.printf("[BUF] Clock unsynchronized; buffered entry #%u\n",
                     (unsigned)countBufferedEntries());
     }
@@ -1947,28 +1975,26 @@ void sendHistoryToFirestore() {
   // Function can retain/quarantine this record safely.
   if (currentTankId.length() == 0 || currentOwnerUid.length() == 0 ||
       currentAssignmentAtMs < 1577836800000LL) {
-    const long long capturedMs = atoll(epochMillisString(capturedAt).c_str());
     char fallbackId[32];
     snprintf(fallbackId, sizeof(fallbackId), "r_%llu",
              static_cast<unsigned long long>(capturedMs));
     if (Firebase.Firestore.createDocument(&fbdo, FIREBASE_PROJECT_ID, "(default)",
           "sensorIngestion/current/history", fallbackId, content.raw(), "")) {
       Serial.println("[FIRESTORE] Unassigned history staged for safe routing");
-    } else if (bufferAppend(content.raw())) {
+    } else if (bufferAppend(content.raw(), capturedMs)) {
       Serial.printf("[BUF] Unassigned history buffered #%u\n",
                     (unsigned)countBufferedEntries());
     }
     return;
   }
 
-  const long long capturedMs = atoll(epochMillisString(capturedAt).c_str());
   const time_t manilaEpoch = capturedAt + 8 * 60 * 60;
   struct tm manilaTm;
   char dateKey[11] = {0};
   char entryId[32];
   if (gmtime_r(&manilaEpoch, &manilaTm) == nullptr ||
       strftime(dateKey, sizeof(dateKey), "%Y-%m-%d", &manilaTm) == 0) {
-    if (bufferAppend(content.raw())) {
+    if (bufferAppend(content.raw(), capturedMs)) {
       Serial.printf("[BUF] Could not resolve history date; buffered #%u\n",
                     (unsigned)countBufferedEntries());
     }
@@ -1990,7 +2016,7 @@ void sendHistoryToFirestore() {
     Serial.println("[FIRESTORE] History saved directly");
   } else {
     Serial.printf("[FIRESTORE HISTORY ERROR] %s\n", fbdo.errorReason().c_str());
-    if (bufferAppend(content.raw())) {
+    if (bufferAppend(content.raw(), capturedMs)) {
       Serial.printf("[BUF] Buffered entry #%u for validated history routing\n",
                     (unsigned)countBufferedEntries());
     }
@@ -3917,7 +3943,8 @@ void loop() {
     // Firestore is synchronous, so maintain at least a 5-second interval
     // between attempts. A slow request coalesces missed intervals; never
     // queue catch-up writes. Sensor and LCD tasks continue during the request.
-    // Sensor writes go to Firestore; Cloud Functions add recorded_at server timestamps.
+    // ESP supplies the capture-time recorded_at Timestamp; Functions normalize
+    // legacy staged events before routing them into canonical sensor records.
     // Whether this succeeds or fails, wait for the next normal slot. Immediate
     // retries amplify weak-link TLS failures and can exhaust the SSL layer.
     sendLatestToFirestore();
