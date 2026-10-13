@@ -194,7 +194,6 @@ Table feeder_logs [note: 'Feeding lifecycle/audit logs at tanks/{tankId}/feeder_
   feed_level_before decimal(6,2)
   feed_level_after decimal(6,2)
   level_change_detected boolean
-  water_quality_warning text [note: 'Optional warning string on completed ESP feed when valid sensor values were outside configured ranges; does not indicate a blocked feed']
   verification_note text [note: 'Optional warning when a completed cycle has no detectable feed-level decrease']
   logged_at timestamp [not null]
   Indexes {
