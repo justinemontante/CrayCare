@@ -199,8 +199,7 @@
           "amount_basis (servo_cycle_estimate, optional)",
           "feed_level_before (double, optional)",
           "feed_level_after (double, optional)",
-          "level_change_detected (bool, optional)",
-          "water_quality_warning (string, optional; valid out-of-range readings observed during a successfully dispensed ESP feed; warning only)"
+          "level_change_detected (bool, optional)"
         ]
       },
       "feeder_commands/{commandId}": {
