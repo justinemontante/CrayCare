@@ -21,7 +21,8 @@ void main() {
   );
 
   test('only supported fixed-cycle doses are accepted', () {
-    for (final dose in <double?>[null, 1, 20, 25, 35, 40, 200]) {
+    expect(validateFeederGrams(null), 'Grams is required.');
+    for (final dose in <double?>[1, 20, 25, 35, 40, 200]) {
       expect(validateFeederGrams(dose), isNull);
     }
     for (final dose in [

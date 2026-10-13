@@ -94,10 +94,15 @@ void main() {
       expect(check(oxygen: -1), contains('fresh'));
       expect(check(grams: 21), isEmpty);
       expect(check(grams: 5), isEmpty);
+      // General readiness can be checked before the owner opens the dose form.
       expect(check(grams: null), isEmpty);
       expect(check(grams: 0), isNotEmpty);
       expect(check(grams: 2.5), isNotEmpty);
       expect(check(grams: 201), isNotEmpty);
     },
   );
+
+  test('a missing dose is invalid when validating a feeding input', () {
+    expect(validateFeederGrams(null), 'Grams is required.');
+  });
 }

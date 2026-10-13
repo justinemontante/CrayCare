@@ -99,14 +99,14 @@ void main() {
       );
 
       expect(feederSchedulesConflict(first, second), isTrue);
-      expect(feederScheduleConflictMessage(second, first), contains('Monday'));
+      expect(feederScheduleConflictMessage(second, first), contains('4:00 PM'));
     });
 
-    test('allows the same time on completely different days', () {
+    test('blocks the same time even on completely different days', () {
       final monday = ScheduleItem('4:00', 'PM', days: '0100000');
       final wednesday = ScheduleItem('4:00', 'PM', days: '0001000');
 
-      expect(feederSchedulesConflict(monday, wednesday), isFalse);
+      expect(feederSchedulesConflict(monday, wednesday), isTrue);
     });
 
     test('allows different times on the same day', () {

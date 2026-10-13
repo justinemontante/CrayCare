@@ -118,6 +118,15 @@ void main() {
     await tester.ensureVisible(find.text('Add Schedule'));
     await tester.tap(find.text('Add Schedule'));
     await tester.pumpAndSettle();
+    expect(find.text('Grams *'), findsOneWidget);
+    expect(find.text('Required · 1 swing per gram'), findsOneWidget);
+    expect(
+      tester
+          .widget<ElevatedButton>(find.widgetWithText(ElevatedButton, 'Add'))
+          .onPressed,
+      isNull,
+      reason: 'A schedule without a gram amount must not be submittable.',
+    );
     await tester.enterText(find.byType(TextField), '0');
     await tester.pump();
     expect(find.textContaining('Use 1–200 g'), findsOneWidget);
@@ -185,6 +194,39 @@ void main() {
     saved.complete(false);
     await tester.pumpAndSettle();
     expect(find.text('Edit Schedule'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('editing a legacy schedule requires an explicit gram amount', (
+    tester,
+  ) async {
+    var calls = 0;
+    await pumpFeeder(
+      tester,
+      schedules: [ScheduleItem('8:00', 'AM')],
+      onEdit: (_, _) async {
+        calls++;
+        return true;
+      },
+    );
+    await tester.ensureVisible(find.byTooltip('Schedule actions'));
+    await tester.tap(find.byTooltip('Schedule actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Edit schedule'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Grams *'), findsOneWidget);
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller!.text,
+      '',
+    );
+    expect(
+      tester
+          .widget<ElevatedButton>(find.widgetWithText(ElevatedButton, 'Save'))
+          .onPressed,
+      isNull,
+    );
+    expect(calls, 0);
     expect(tester.takeException(), isNull);
   });
 }

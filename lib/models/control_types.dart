@@ -1,12 +1,15 @@
 import 'package:flutter/foundation.dart';
 
 const manilaUtcOffset = Duration(hours: 8);
+// Read/execute fallback for legacy schedules; new manual feeds and schedules
+// must always provide grams explicitly.
 const defaultFeederGrams = 20.0;
 
 /// Matches the 1 g-only production firmware: 1 actuation = 1 g, so whole
 /// grams 1-200 map 1:1 to gate swings. Never silently round a dose up.
 String? validateFeederGrams(double? grams) {
-  final amount = grams ?? defaultFeederGrams;
+  if (grams == null) return 'Grams is required.';
+  final amount = grams;
   if (!amount.isFinite ||
       amount < 1 ||
       amount > 200 ||
@@ -29,7 +32,10 @@ String feederPreflightIssue({
   required Map<String, Map<String, double>> ranges,
   double? grams,
 }) {
-  final doseError = validateFeederGrams(grams);
+  // This helper also drives the general feeder-readiness indicator, which is
+  // shown before the owner opens the dose form. Validate a dose when one is
+  // supplied; the actual Feed Now command requires it at its entry point.
+  final doseError = grams == null ? null : validateFeederGrams(grams);
   if (doseError != null) return doseError;
   if (!internetOnline) return 'No internet connection';
   if (busy) return 'A feeding request is already in progress';
@@ -335,22 +341,16 @@ List<int> overlappingFeederDays(String first, String second) {
   ];
 }
 
-/// Two schedules conflict when they would dispense at the same time on at
-/// least one common day. Feed amount intentionally does not affect this rule.
+/// Each wall-clock time has one schedule, regardless of repeat days or dose.
 bool feederSchedulesConflict(ScheduleItem first, ScheduleItem second) =>
-    feederScheduleMinutes(first) == feederScheduleMinutes(second) &&
-    overlappingFeederDays(first.days, second.days).isNotEmpty;
+    feederScheduleMinutes(first) == feederScheduleMinutes(second);
 
 String feederScheduleConflictMessage(
   ScheduleItem requested,
   ScheduleItem existing,
 ) {
-  final days = overlappingFeederDays(
-    requested.days,
-    existing.days,
-  ).map((index) => feederDayNames[index]).join(', ');
-  return 'A feeding schedule already exists for $days at '
-      '${requested.time} ${requested.ampm}. Please select a different day or time, or edit the existing schedule.';
+  return 'A feeding schedule already exists at '
+      '${requested.time} ${requested.ampm}. Choose a different time or edit the existing schedule.';
 }
 
 class FeederScheduleConflictException implements Exception {

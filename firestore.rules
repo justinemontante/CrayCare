@@ -79,6 +79,28 @@ service cloud.firestore {
       return isEspSession() &&
         get(/databases/$(database)/documents/hardware_system/currentOwner).data.tank_id == tankId;
     }
+    function validFeederSchedule(scheduleId) {
+      let data = request.resource.data;
+      return data.keys().hasOnly([
+          'scheduled_time', 'days', 'grams', 'enabled', 'isDone',
+          'effective_at_ms', 'created_at'
+        ]) &&
+        data.keys().hasAll([
+          'scheduled_time', 'days', 'grams', 'enabled', 'isDone',
+          'effective_at_ms', 'created_at'
+        ]) &&
+        data.scheduled_time is string &&
+        data.scheduled_time.matches('([01][0-9]|2[0-3]):[0-5][0-9]') &&
+        scheduleId == data.scheduled_time &&
+        data.days is string && data.days.matches('[01]{7}') &&
+        data.days.matches('.*1.*') &&
+        data.grams is int && data.grams >= 1 && data.grams <= 200 &&
+        data.enabled is bool && data.isDone == false &&
+        data.effective_at_ms is int &&
+        data.effective_at_ms >= request.time.toMillis() - 300000 &&
+        data.effective_at_ms <= request.time.toMillis() + 60000 &&
+        data.created_at is timestamp;
+    }
     function assignmentTankMatches(tankId, assignment) {
       let tankPath = /databases/$(database)/documents/tanks/$(tankId);
       return exists(tankPath) && get(tankPath).data.owner_uid == assignment.uid;
@@ -274,12 +296,32 @@ service cloud.firestore {
       }
       match /feeder_schedules/{scheduleId} {
         allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId) || isAssignedEsp(tankId);
-        // The callable serializes owner changes and rejects overlapping days
-        // and times. Direct/offline writes would bypass that shared lock.
-        allow create, delete: if false;
+        // One document per HH:mm. Its deterministic ID prevents concurrent
+        // owners/devices from creating two schedules at the same time.
+        allow create: if isTankOwner(tankId) &&
+          get(/databases/$(database)/documents/tanks/$(tankId)).data.is_initialized == true &&
+          validFeederSchedule(scheduleId) &&
+          request.resource.data.created_at == request.time;
+        allow delete: if isTankOwner(tankId);
         allow update: if (isAssignedEsp(tankId) &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isDone']) &&
-            request.resource.data.isDone == true);
+            request.resource.data.isDone == true) ||
+          (isTankOwner(tankId) &&
+            get(/databases/$(database)/documents/tanks/$(tankId)).data.is_initialized == true &&
+            validFeederSchedule(scheduleId) &&
+            request.resource.data.created_at == resource.data.created_at &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'days', 'grams', 'enabled', 'isDone', 'effective_at_ms',
+              'time', 'ampm', 'timeValue', 'allow_high_turbidity',
+              'last_outcome', 'last_occurrence_at'
+            ])) ||
+          (isTankOwner(tankId) &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'enabled', 'isDone', 'effective_at_ms'
+            ]) &&
+            request.resource.data.enabled is bool &&
+            request.resource.data.isDone == false &&
+            request.resource.data.get('effective_at_ms', 0) is int);
       }
       match /feeder_commands/{commandId} {
         // Validate manual feed requests so a stale/offline write cannot

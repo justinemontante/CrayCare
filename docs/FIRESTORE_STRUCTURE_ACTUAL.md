@@ -54,7 +54,7 @@ A valid assignment is either `uid == null && tank_id == null`, or an **active ow
 Document IDs are path identifiers, not normal fields stored inside each document. `users/{uid}` and `tanks/{tankId}` use the owner's Firebase Authentication UID. Batch IDs use `CR-YYYYMMDD-###`; that value is also intentionally stored as `batch_id`. The baseline sampling record is `baseline`, later sampling records use Firestore Auto-IDs, and mortality, harvest, schedule, and command records use Firestore Auto-IDs. Actuator logs use Auto-IDs; feeder logs use an Auto-ID for app audit entries or a durable firmware event ID for ESP32 outcomes. Fixed IDs are `currentOwner`, `latest`, `status`, and anomaly detection `current`; anomaly history uses `YYYYMMDDTHHMMSS`.
 
 ### `tanks/{tankId}/sensor_readings/latest` ✓
-Direct 5-second ESP32 snapshot: `temperature`, `ph_level`, `dissolved_oxygen`, `turbidity`, `turbidity_air`, `water_level`, `feed_level` (percent), optional `buffered_entries`, `recorded_at`, `captured_at_ms`, `hardwareId`, `source_tank_id`, `source_owner_uid`, and `source_assignment_at_ms`. Rules allow writes only from the ESP32 service account when the current hardware assignment and tank owner match, and reject out-of-order readings.
+Direct 5-second ESP32 snapshot: `temperature`, `ph_level`, `dissolved_oxygen`, `turbidity`, `turbidity_air`, `water_level`, `feed_level` (percent), optional `buffered_entries`, `recorded_at` (the single capture-time field), `hardwareId`, `source_tank_id`, `source_owner_uid`, and `source_assignment_at_ms`. Rules allow writes only from the ESP32 service account when the current hardware assignment and tank owner match, and reject out-of-order readings.
 
 ### `tanks/{tankId}/sensor_readings_history/{YYYY-MM-DD}` ✓
 Daily summary parent used for long-range Analytics. Canonical maintenance fields: `summary_version` (currently `4`), `summary_sanitized`, `summary_complete`, `date_key`, `sample_count`, `processed_entry_ids`, and `updated_at`. Temperature, pH, dissolved oxygen, and turbidity have per-sensor `*_min`, `*_max`, `*_avg`, `*_sum`, and `*_count` fields when data exists; daily min/max are calculated across the 10-minute history means, not across the readings inside each window. Water and feed levels have daily means plus sums/counts, with no daily min/max fields.
@@ -62,7 +62,7 @@ Daily summary parent used for long-range Analytics. Canonical maintenance fields
 Only completed summaries with `summary_sanitized == true` are used by the optimized Flutter long-range reader. Older summaries are rebuilt from their raw entries by the hourly backfill before being used.
 
 ### `tanks/{tankId}/sensor_readings_history/{YYYY-MM-DD}/entries/{docId}` ✓
-Each 10-minute history record stores one mean of valid readings for each available sensor: `temperature`, `ph_level`, `dissolved_oxygen`, `turbidity`, `water_level` (cm), and `feed_level` (percent). It does not store per-window min/max or legacy `*_avg` names. Records also include `recorded_at`, `captured_at_ms`, `hardwareId`, `source_tank_id`, `source_owner_uid`, and `source_assignment_at_ms` for timestamping and assignment validation. Rules verify the active assignment. A sensor with no valid reading is omitted rather than stored as a negative sentinel. Buffered history continues through the Cloud Function staging route, where old-assignment entries are quarantined. Existing older records remain supported by app and ML readers.
+Each 10-minute history record stores one mean of valid readings for each available sensor: `temperature`, `ph_level`, `dissolved_oxygen`, `turbidity`, `water_level` (cm), and `feed_level` (percent). It does not store per-window min/max or legacy `*_avg` names. Records also include `recorded_at` (the single capture-time field), `hardwareId`, `source_tank_id`, `source_owner_uid`, and `source_assignment_at_ms` for timestamping and assignment validation. Rules verify the active assignment. A sensor with no valid reading is omitted rather than stored as a negative sentinel. Buffered history continues through the Cloud Function staging route, where old-assignment entries are quarantined. Existing older records remain supported by app and ML readers.
 
 ### `tanks/{tankId}/sensors/{sensorName}` ✓
 Sensor names: `temperature` | `ph_level` | `dissolved_oxygen` | `turbidity` | `water_level` | `feed_level`
@@ -81,7 +81,7 @@ Fields: `control_mode`, `current_state`, `last_changed` (Firestore Timestamp; `n
 Feeder status flow: `idle` → `checking_feed_level` → `dispensing` → `completed`, with `blocked`, `skipped_insufficient`, or `failed` terminal outcomes. `command_id` ties a manual outcome to the originating Feed Now request, while `status_reason` explains blocked or failed requests.
 
 ### `tanks/{tankId}/feeder_schedules/{scheduleId}` ✓
-Existing production documents may still contain legacy `time`, `ampm`, and `timeValue`, alongside `grams`, `days`, `enabled`, `isDone`, `created_at`, `effective_at_ms`, `last_outcome`, and `last_occurrence_at`. New writes use `scheduled_time` (zero-padded 24-hour `HH:mm` string); legacy aliases are removed when a schedule is edited or toggled.
+Existing production documents may still have Auto-IDs and legacy `time`, `ampm`, and `timeValue`, alongside `grams`, `days`, `enabled`, `isDone`, `created_at`, `effective_at_ms`, `last_outcome`, and `last_occurrence_at`. New direct app writes use `scheduled_time` (zero-padded 24-hour `HH:mm`) as both the field and document ID. One schedule is allowed per time regardless of repeat days. Editing a legacy schedule migrates it to the time-keyed ID; legacy aliases are removed. The app checks existing legacy IDs before saving.
 
 The app may display AM/PM, but converts the selected time to `scheduled_time` before saving. The deployed `processFeeding` and `onFeederLogCreate` functions read both canonical and legacy schedule fields, and the deployed schedule-writing callable writes the canonical field. Flash the matching ESP32 firmware before using the updated app to create or edit schedules; existing legacy documents remain readable during this transition. `feeder_schedule_days` is the normalized SQL representation, not a separate Firestore collection.
 
@@ -161,13 +161,13 @@ Completed feeder outcome logs create deterministic notification records and imme
 ---
 
 ## 6. ESP SENSOR WRITES ✓
-The current firmware writes live readings and normal 10-minute mean records directly to each tank's canonical sensor documents. Both carry `source_tank_id`, `source_owner_uid`, `source_assignment_at_ms`, and `captured_at_ms`. Rules compare the captured assignment with `hardware_system/currentOwner` and the tank's `owner_uid`; the ESP refreshes its assignment once per minute. Reassignment resets the averaging window. Buffered entries still use the staging route so historical data from the prior assignment is quarantined rather than added to the new owner's tank. Out-of-order live events cannot replace a newer reading.
+The current firmware writes live readings and normal 10-minute mean records directly to each tank's canonical sensor documents. Both carry `source_tank_id`, `source_owner_uid`, `source_assignment_at_ms`, and `recorded_at`. Rules compare the assignment with `hardware_system/currentOwner` and the tank's `owner_uid`; the ESP refreshes its assignment once per minute. Reassignment resets the averaging window. Buffered entries still use the staging route so historical data from the prior assignment is quarantined rather than added to the new owner's tank. Out-of-order live events cannot replace a newer reading. Legacy staging remains compatible with `captured_at_ms` from older firmware, while new canonical records store only `recorded_at`.
 
 ### `sensorIngestion/current` ✓
 Legacy 5-second live staging snapshot for older firmware during rollout. Current firmware writes the live snapshot directly to `tanks/{tankId}/sensor_readings/latest`.
 
 ### `sensorIngestion/current/history/{docId}` ✓
-Fallback staging for offline-buffered, unassigned, or older-firmware history. Cloud Functions preserve the original capture instant as canonical `recorded_at` and quarantine mismatched assignments instead of routing them to a new owner.
+Fallback staging for offline-buffered, unassigned, or older-firmware history. New firmware stages the canonical `recorded_at` Timestamp; Cloud Functions also accept legacy `captured_at_ms` values, preserve the original capture instant, and quarantine mismatched assignments instead of routing them to a new owner.
 
 ---
 

@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../theme/app_colors.dart';
 import '../widgets/controls/feeder_tab.dart';
+import '../widgets/controls/feed_now_sheet.dart';
 import '../widgets/controls/actuators_tab.dart';
 import '../models/control_types.dart';
 import '../services/feeder_service.dart';
@@ -109,8 +109,9 @@ class ControlsScreenState extends State<ControlsScreen> {
         .collection('users')
         .doc(uid)
         .get();
-    if (profileDoc.data()?['role']?.toString().trim().toLowerCase() == 'admin')
+    if (profileDoc.data()?['role']?.toString().trim().toLowerCase() == 'admin') {
       return;
+    }
     final tankId = uid;
 
     _actuatorsSub = FirebaseFirestore.instance
@@ -509,16 +510,13 @@ class ControlsScreenState extends State<ControlsScreen> {
     return result ?? false;
   }
 
-  Future<void> _feedNow({double? grams}) async {
+  Future<void> _feedNow({required double grams}) async {
     final svc = FeederService.instance;
     if (svc.isRunning ||
         _feedState == _FeedState.waiting ||
         _feedState == _FeedState.dispensing) {
       return;
     }
-    // Empty field = single 1 g dose: normalize once so preflight math and
-    // the dispatched command agree.
-    grams ??= 1.0;
     final preflightIssue = svc.feedSafetyIssue(grams: grams);
     if (preflightIssue.isNotEmpty) {
       _feedNotice = 'Feed blocked: $preflightIssue';
@@ -624,9 +622,8 @@ class ControlsScreenState extends State<ControlsScreen> {
     if (mounted) _onFeederUpdate();
   }
 
-  void _showFeedNowDialog() {
-    final gramsCtl = TextEditingController();
-    showModalBottomSheet(
+  Future<void> _showFeedNowDialog() async {
+    final grams = await showModalBottomSheet<double>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.white,
@@ -637,180 +634,12 @@ class ControlsScreenState extends State<ControlsScreen> {
         duration: Duration(milliseconds: 260),
         reverseDuration: Duration(milliseconds: 220),
       ),
-      builder: (sheetCtx) {
-        return StatefulBuilder(
-          builder: (sheetCtx, setModalState) {
-            String? gramsError;
-            if (gramsCtl.text.isNotEmpty) {
-              final raw = double.tryParse(gramsCtl.text);
-              if (raw == null) {
-                gramsError = 'Please enter a valid number';
-              } else {
-                gramsError = validateFeederGrams(raw);
-              }
-            }
-            return Padding(
-              padding: EdgeInsets.fromLTRB(
-                20,
-                10,
-                20,
-                20 + MediaQuery.of(sheetCtx).viewInsets.bottom,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 36,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade300,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Container(
-                        width: 42,
-                        height: 42,
-                        decoration: BoxDecoration(
-                          color: AppColors.primary.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(
-                          Icons.play_arrow_rounded,
-                          size: 22,
-                          color: AppColors.primary,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      const Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Feed Now',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.dark,
-                            ),
-                          ),
-                          SizedBox(height: 2),
-                          Text(
-                            'Requested dose · grams set feeder cycles',
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: Color(0x80000000),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  TextField(
-                    controller: gramsCtl,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: false,
-                      signed: false,
-                    ),
-                    inputFormatters: [
-                      TextInputFormatter.withFunction((oldValue, newValue) {
-                        if (newValue.text.isEmpty ||
-                            RegExp(r'^\d+$').hasMatch(newValue.text)) {
-                          return newValue;
-                        }
-                        return oldValue;
-                      }),
-                    ],
-                    onChanged: (_) => setModalState(() {}),
-                    decoration: InputDecoration(
-                      labelText: 'Grams (optional)',
-                      hintText: '1, 2, 3 … 200 (empty = 1 g)',
-                      suffixText: 'g',
-                      errorText: gramsError,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(
-                          color: AppColors.primary,
-                          width: 2,
-                        ),
-                      ),
-                      errorBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(
-                          color: AppColors.critical,
-                          width: 1.5,
-                        ),
-                      ),
-                      focusedErrorBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(
-                          color: AppColors.critical,
-                          width: 2,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Out-of-range readings show a warning but do not block feeding. Missing or invalid sensor data (including a turbidity probe in air) and critical feed level still block dispensing.',
-                    style: TextStyle(
-                      fontSize: 11,
-                      height: 1.35,
-                      color: AppColors.darkWith(0.65),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: gramsError != null
-                          ? null
-                          : () async {
-                              final grams = gramsCtl.text.isNotEmpty
-                                  ? double.tryParse(gramsCtl.text)
-                                  : null;
-                              Navigator.pop(sheetCtx);
-                              await Future<void>.delayed(
-                                const Duration(milliseconds: 180),
-                              );
-                              if (!mounted) return;
-                              await _feedNow(grams: grams);
-                            },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        disabledBackgroundColor: Colors.grey.shade300,
-                        foregroundColor: Colors.white,
-                        disabledForegroundColor: Colors.grey.shade500,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: const Text(
-                        'Dispense Feed',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    ).whenComplete(gramsCtl.dispose);
+      builder: (_) => const FeedNowSheet(),
+    );
+    if (!mounted || grams == null) return;
+    // The modal owns its input lifecycle. Start the request only after the
+    // sheet has returned, never from a context being deactivated.
+    await _feedNow(grams: grams);
   }
 
   String _formatTimeInput(String val) {
@@ -823,7 +652,10 @@ class ControlsScreenState extends State<ControlsScreen> {
     return '$h12:$m $ampm';
   }
 
-  Future<bool> _addSchedule({double? grams, String days = '1111111'}) async {
+  Future<bool> _addSchedule({
+    required double grams,
+    String days = '1111111',
+  }) async {
     if (_timeCtl.text.isEmpty) return false;
     final formatted = _formatTimeInput(_timeCtl.text);
     final isPM = formatted.contains('PM');
@@ -873,14 +705,25 @@ class ControlsScreenState extends State<ControlsScreen> {
   }
 
   Future<bool> _editSchedule(int index, ScheduleItem item) async {
+    final grams = item.grams;
+    if (grams == null) {
+      if (mounted) {
+        showBeautifulSnackbar(
+          context,
+          'Enter the feeding amount before saving this schedule.',
+          false,
+          title: 'Grams required',
+        );
+      }
+      return false;
+    }
     try {
       await FeederService.instance.editSchedule(
         index,
         time: item.time,
         ampm: item.ampm,
         enabled: item.enabled,
-        grams: item.grams,
-        clearGrams: item.grams == null,
+        grams: grams,
         days: item.days,
       );
       return true;

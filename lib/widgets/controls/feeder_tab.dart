@@ -14,7 +14,7 @@ class FeederTab extends StatelessWidget {
   final List<ScheduleItem> schedules;
   final TextEditingController timeCtl;
   final VoidCallback onFeedNow;
-  final Future<bool> Function(double? grams, String days) onAddSchedule;
+  final Future<bool> Function(double grams, String days) onAddSchedule;
   final void Function(int index) onDeleteSchedule;
   final Future<bool> Function(int index, ScheduleItem item) onEditSchedule;
   final void Function(int index, bool enabled) onToggleSchedule;
@@ -1544,6 +1544,7 @@ class FeederTab extends StatelessWidget {
           i,
     };
     var isSaving = false;
+    String? saveError;
 
     showModalBottomSheet(
       context: ctx,
@@ -1560,8 +1561,8 @@ class FeederTab extends StatelessWidget {
         return StatefulBuilder(
           builder: (sheetCtx, setSheetState) {
             String? gramsError;
-            if (gramsCtl.text.isNotEmpty) {
-              final v = double.tryParse(gramsCtl.text);
+            if (gramsCtl.text.trim().isNotEmpty) {
+              final v = double.tryParse(gramsCtl.text.trim());
               if (v == null) {
                 gramsError = 'Enter a valid number';
               } else {
@@ -1661,8 +1662,9 @@ class FeederTab extends StatelessWidget {
                       ],
                       onChanged: (_) => setSheetState(() {}),
                       decoration: InputDecoration(
-                        labelText: 'Grams (optional)',
-                        hintText: '1, 2, 3 … 200 (default: 20)',
+                        labelText: 'Grams *',
+                        hintText: 'Enter 1–200 whole grams',
+                        helperText: 'Required · 1 swing per gram',
                         suffixText: 'g',
                         errorText: gramsError,
                         enabledBorder: OutlineInputBorder(
@@ -1768,7 +1770,8 @@ class FeederTab extends StatelessWidget {
                       width: double.infinity,
                       child: ElevatedButton(
                         onPressed:
-                            gramsError != null ||
+                            gramsCtl.text.trim().isEmpty ||
+                                gramsError != null ||
                                 selectedDays.isEmpty ||
                                 isSaving
                             ? null
@@ -1779,7 +1782,13 @@ class FeederTab extends StatelessWidget {
                                 final h12 = h % 12 == 0 ? 12 : h % 12;
                                 final timeStr =
                                     '$h12:${m.toString().padLeft(2, '0')}';
-                                final grams = double.tryParse(gramsCtl.text);
+                                final grams = double.tryParse(
+                                  gramsCtl.text.trim(),
+                                );
+                                if (grams == null ||
+                                    validateFeederGrams(grams) != null) {
+                                  return;
+                                }
                                 final daysMask = String.fromCharCodes(
                                   List.generate(
                                     7,
@@ -1803,23 +1812,20 @@ class FeederTab extends StatelessWidget {
                                   }
                                 }
                                 if (conflict != null) {
-                                  ScaffoldMessenger.of(ctx).showSnackBar(
-                                    SnackBar(
-                                      content: Text(
+                                  setSheetState(
+                                    () => saveError =
                                         feederScheduleConflictMessage(
                                           requested,
-                                          conflict,
+                                          conflict!,
                                         ),
-                                      ),
-                                      behavior: SnackBarBehavior.floating,
-                                      backgroundColor: AppColors.critical,
-                                      duration: const Duration(seconds: 2),
-                                    ),
                                   );
                                   return;
                                 }
                                 if (isEdit) {
-                                  setSheetState(() => isSaving = true);
+                                  setSheetState(() {
+                                    isSaving = true;
+                                    saveError = null;
+                                  });
                                   final saved = await onEditSchedule(
                                     index!,
                                     ScheduleItem(
@@ -1832,20 +1838,31 @@ class FeederTab extends StatelessWidget {
                                   );
                                   if (!sheetCtx.mounted) return;
                                   if (!saved) {
-                                    setSheetState(() => isSaving = false);
+                                    setSheetState(() {
+                                      isSaving = false;
+                                      saveError =
+                                          'Schedule was not saved. Check your connection and try again.';
+                                    });
                                     return;
                                   }
                                   Navigator.pop(sheetCtx);
                                 } else {
                                   timeCtl.text = '$timeStr:$ampm';
-                                  setSheetState(() => isSaving = true);
+                                  setSheetState(() {
+                                    isSaving = true;
+                                    saveError = null;
+                                  });
                                   final saved = await onAddSchedule(
                                     grams,
                                     daysMask,
                                   );
                                   if (!sheetCtx.mounted) return;
                                   if (!saved) {
-                                    setSheetState(() => isSaving = false);
+                                    setSheetState(() {
+                                      isSaving = false;
+                                      saveError =
+                                          'Schedule was not saved. Check your connection and try again.';
+                                    });
                                     return;
                                   }
                                   Navigator.pop(sheetCtx);
@@ -1880,6 +1897,16 @@ class FeederTab extends StatelessWidget {
                               ),
                       ),
                     ),
+                    if (saveError != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        saveError!,
+                        style: const TextStyle(
+                          color: AppColors.critical,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),

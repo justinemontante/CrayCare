@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/control_types.dart';
 import 'connectivity_service.dart';
@@ -614,7 +613,7 @@ class FeederService extends ChangeNotifier {
   }
 
   Future<bool> feedNow({
-    double? grams,
+    required double grams,
     bool nearScheduleConfirmed = false,
   }) async {
     // Recheck after any confirmation dialog, immediately before dispatch.
@@ -657,10 +656,8 @@ class FeederService extends ChangeNotifier {
           DateTime.now().add(const Duration(seconds: 60)),
         ),
       };
-      // Rules require grams on every command; the empty field means a
-      // single 1 g test dose (1 g-only model). Never omit it or the write
-      // is denied.
-      cmd['grams'] = grams ?? 1.0;
+      // Every Feed Now command must carry the dose explicitly.
+      cmd['grams'] = grams;
       final ref = tankDoc.collection('feeder_commands').doc();
       _lastQueuedCommandId = ref.id;
       await ref.set(cmd);
@@ -716,7 +713,7 @@ class FeederService extends ChangeNotifier {
   Future<void> addSchedule(
     String time,
     String ampm, {
-    double? grams,
+    required double grams,
     String days = '1111111',
   }) async {
     if (_tankDoc() == null) {
@@ -767,7 +764,9 @@ class FeederService extends ChangeNotifier {
     final previous = _schedules[index];
 
     if (enabled) {
-      final doseError = validateFeederGrams(previous.grams);
+      final doseError = validateFeederGrams(
+        previous.grams ?? defaultFeederGrams,
+      );
       if (doseError != null) throw ArgumentError(doseError);
       _throwIfScheduleConflicts(
         ScheduleItem(
@@ -827,8 +826,7 @@ class FeederService extends ChangeNotifier {
     required String time,
     required String ampm,
     bool? enabled,
-    double? grams,
-    bool clearGrams = false,
+    required double grams,
     String days = '1111111',
   }) async {
     if (index < 0 || index >= _scheduleKeys.length) return;
@@ -848,15 +846,15 @@ class FeederService extends ChangeNotifier {
       'scheduleId': _scheduleKeys[index],
       'scheduled_time': feederScheduleTime24(requested),
       'enabled': requested.enabled,
-      'grams': clearGrams ? null : grams,
+      'grams': grams,
       'days': days,
     }, requested: requested);
     notifyListeners();
   }
 
-  /// The callable validates against current schedules inside a server
-  /// transaction. The local conflict check only provides immediate feedback.
-  /// All schedule and audit writes commit together, including two-phone edits.
+  /// Spark-compatible schedule mutation. New documents use their HH:mm time
+  /// as the ID, so concurrent clients cannot create two schedules at one time.
+  /// A server read also checks pre-existing random-ID schedules before writes.
   Future<void> _mutateSchedule(
     Map<String, dynamic> payload, {
     ScheduleItem? requested,
@@ -864,111 +862,136 @@ class FeederService extends ChangeNotifier {
     if (!ConnectivityService.instance.isOnline) {
       throw StateError('Connect to the internet to update feeding schedules.');
     }
-    // Use the cached token for the normal fast path. If the server rejects it
-    // as unauthenticated, retry once with a freshly minted token below.
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
+    final tank = _tankDoc();
+    if (tank == null || FirebaseAuth.instance.currentUser == null) {
       throw StateError(
-        'Your session expired. Sign in again to update feeding schedules.',
+        'Sign in to the assigned tank before changing schedules.',
       );
     }
-    final String idToken;
-    try {
-      final token = await user.getIdToken();
-      if (token == null || token.isEmpty) throw StateError('empty token');
-      idToken = token;
-    } catch (_) {
-      throw StateError(
-        'Could not read your session. Check your connection and sign in again.',
-      );
-    }
+    final operation = payload['operation'] as String?;
+    final oldId = payload['scheduleId'] as String?;
+    final schedules = tank.collection('feeder_schedules');
+    final requestedTime = payload['scheduled_time'] as String?;
+    final targetId = requestedTime ?? oldId;
+    if (targetId == null) throw ArgumentError('Choose a valid schedule.');
+    final targetRef = schedules.doc(targetId);
+    final oldRef = oldId == null ? null : schedules.doc(oldId);
 
-    // Sending the ID token in the payload too covers the case where the auth
-    // context is stripped in transit: the server verifies it directly instead
-    // of rejecting the call as unauthenticated.
-    Future<void> invoke(String token) async {
-      await FirebaseFunctions.instanceFor(region: 'asia-southeast1')
-          .httpsCallable('mutateFeederSchedule')
-          .call({...payload, 'idToken': token});
-    }
-
+    // The original backend used random IDs. Check those legacy rows from the
+    // server before the transaction; all new writes are serialized by time ID.
     try {
-      try {
-        await invoke(idToken);
-      } on FirebaseFunctionsException catch (error) {
-        if (error.code != 'unauthenticated') rethrow;
-        // The cached token may have expired or been revoked. Force a refresh
-        // and retry once; the rejected request did not mutate the schedule.
-        final String refreshed;
-        try {
-          // Typed as String?: firebase_auth declares getIdToken() as
-          // Future<String?> in some versions and Future<String> in others, and
-          // Dart has no `?? throw`. Reading it through a nullable local then
-          // null-checking compiles cleanly against both.
-          final String? token = await user.getIdToken(true);
-          if (token == null) throw StateError('empty token');
-          refreshed = token;
-        } catch (_) {
-          throw StateError(
-            'Could not refresh your session. Check your connection and sign in again.',
+      if (requested != null) {
+        final existing = await schedules
+            .get(const GetOptions(source: Source.server))
+            .timeout(const Duration(seconds: 12));
+        for (final doc in existing.docs) {
+          if (doc.id == oldId || doc.id == targetId) continue;
+          final minute = feederScheduleMinuteFromFields(doc.data());
+          if (minute == null || minute != feederScheduleMinutes(requested)) {
+            continue;
+          }
+          throw FeederScheduleConflictException(
+            requested,
+            ScheduleItem.fromMinuteOfDay(minute),
           );
         }
-        if (refreshed.isEmpty) {
-          throw StateError(
-            'Your session expired. Sign in again to update feeding schedules.',
-          );
-        }
-        await invoke(refreshed);
       }
-    } on FirebaseFunctionsException catch (error) {
+      await FirebaseFirestore.instance
+          .runTransaction((tx) async {
+            final targetSnap = await tx.get(targetRef);
+            final oldSnap = oldRef == null || oldId == targetId
+                ? targetSnap
+                : await tx.get(oldRef);
+            if (operation == 'add' && targetSnap.exists) {
+              throw FeederScheduleConflictException(
+                requested!,
+                ScheduleItem.fromMinuteOfDay(feederScheduleMinutes(requested)),
+              );
+            }
+            if (operation != 'add' && !oldSnap.exists) {
+              throw StateError(
+                'This schedule was removed. Refresh and try again.',
+              );
+            }
+            final nowMs = DateTime.now().millisecondsSinceEpoch;
+            String action;
+            if (operation == 'delete') {
+              tx.delete(oldRef!);
+              action = 'Removed feeding schedule';
+            } else if (operation == 'toggle') {
+              final enabled = payload['enabled'] == true;
+              tx.update(oldRef!, {
+                'enabled': enabled,
+                'isDone': false,
+                if (enabled) 'effective_at_ms': nowMs,
+              });
+              action = enabled
+                  ? 'Enabled feeding schedule'
+                  : 'Disabled feeding schedule';
+            } else if (operation == 'add' || operation == 'edit') {
+              if (operation == 'edit' &&
+                  oldId != targetId &&
+                  targetSnap.exists) {
+                throw FeederScheduleConflictException(
+                  requested!,
+                  ScheduleItem.fromMinuteOfDay(
+                    feederScheduleMinutes(requested),
+                  ),
+                );
+              }
+              final data = <String, dynamic>{
+                'scheduled_time': targetId,
+                'days': payload['days'],
+                'grams': (payload['grams'] as num).toInt(),
+                'enabled': payload['enabled'] == true,
+                'isDone': false,
+                'effective_at_ms': nowMs,
+              };
+              if (operation == 'add' || oldId != targetId) {
+                tx.set(targetRef, {
+                  ...data,
+                  'created_at': FieldValue.serverTimestamp(),
+                });
+                if (operation == 'edit') tx.delete(oldRef!);
+              } else {
+                tx.update(targetRef, {
+                  ...data,
+                  'time': FieldValue.delete(),
+                  'ampm': FieldValue.delete(),
+                  'timeValue': FieldValue.delete(),
+                  'allow_high_turbidity': FieldValue.delete(),
+                  'last_outcome': FieldValue.delete(),
+                  'last_occurrence_at': FieldValue.delete(),
+                });
+              }
+              action = operation == 'add'
+                  ? 'Added feeding schedule'
+                  : 'Edited feeding schedule';
+            } else {
+              throw ArgumentError('Unknown schedule action.');
+            }
+            tx.set(tank.collection('feeder_logs').doc(), {
+              'action': action,
+              'type': 'auto',
+              'logged_at': FieldValue.serverTimestamp(),
+            });
+          }, maxAttempts: 3)
+          .timeout(const Duration(seconds: 20));
+    } on TimeoutException {
+      throw StateError(
+        'Could not confirm the schedule update. Refresh schedules before retrying.',
+      );
+    } on FirebaseException catch (error) {
       debugPrint(
-        '[FeederService] mutate failed code=${error.code} '
-        'message=${error.message} details=${error.details}',
+        '[FeederService] schedule write failed: ${error.code} ${error.message}',
       );
-      final details = error.details;
-      final conflict = details is Map ? details['conflictingSchedule'] : null;
-      if (error.code == 'already-exists' &&
-          requested != null &&
-          conflict is Map) {
-        final conflictMinute = feederScheduleMinuteFromFields(
-          Map<String, dynamic>.from(conflict),
-        );
-        throw FeederScheduleConflictException(
-          requested,
-          ScheduleItem.fromMinuteOfDay(
-            conflictMinute ?? feederScheduleMinutes(requested),
-            days: conflict['days']?.toString() ?? '1111111',
-          ),
-        );
-      }
-      if (error.code == 'unavailable' || error.code == 'deadline-exceeded') {
+      if (error.code == 'permission-denied') {
         throw StateError(
-          'Could not confirm the schedule update. Check the schedules before retrying.',
-        );
-      }
-      if (error.code == 'not-found') {
-        // Rules deny direct schedule writes, so an unreachable callable means
-        // the backend has not been deployed yet, not that the user is wrong.
-        throw StateError(
-          'The feeding-schedule service is not available yet. '
-          'Deploy the Cloud Functions and try again.',
-        );
-      }
-      if (error.code == 'unauthenticated') {
-        debugPrint('[FeederService] mutate rejected as unauthenticated.');
-        throw StateError(
-          'Your session was not accepted. Sign out, sign in again, then retry.',
-        );
-      }
-      if (error.code == 'permission-denied' ||
-          error.code == 'failed-precondition' ||
-          error.code == 'invalid-argument') {
-        throw StateError(
-          '[${error.code}] ${error.message ?? 'Could not update the feeding schedule.'}',
+          'Schedule save was denied. Check that the tank is initialized and the new Firestore rules are published.',
         );
       }
       throw StateError(
-        '[${error.code}] ${error.message ?? 'Could not update the feeding schedule.'}',
+        'Could not save the schedule (${error.code}). Refresh schedules before retrying.',
       );
     }
   }

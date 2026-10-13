@@ -3,7 +3,7 @@
     "users_and_tanks": "Firebase Authentication UID of the owner; document IDs are not duplicated as stored uid or tank_id fields.",
     "batches": "CR-YYYYMMDD-###; intentionally duplicated in the batch_id field.",
     "sampling_records": "baseline for the initial record; Firestore Auto-ID for later records.",
-    "auto_id_collections": "mortality_records, harvest_records, feeder_schedules, feeder_commands, and actuator_logs.",
+    "auto_id_collections": "mortality_records, harvest_records, feeder_commands, and actuator_logs. Legacy feeder_schedules may have Auto-IDs; new schedules use HH:mm as the document ID.",
     "feeder_logs": "Firestore Auto-ID for app audit entries or durable firmware event ID for ESP32 outcome entries.",
     "fixed_or_time_keyed": "currentOwner, latest, status, current; WQAD history uses YYYYMMDDTHHMMSS."
   },
@@ -69,7 +69,6 @@
           "source_tank_id (string)",
           "source_owner_uid (string)",
           "source_assignment_at_ms (int epoch-ms)",
-          "captured_at_ms (int epoch-ms)",
           "temperature (double, when present)",
           "ph_level (double, when present)",
           "dissolved_oxygen (double, when present)",
@@ -105,7 +104,6 @@
           "source_tank_id (string)",
           "source_owner_uid (string)",
           "source_assignment_at_ms (int epoch-ms)",
-          "captured_at_ms (int epoch-ms)",
           "temperature (mean of valid samples in the 10-minute window, when available)",
           "ph_level (mean of valid samples in the 10-minute window, when available)",
           "dissolved_oxygen (mean of valid samples in the 10-minute window, when available)",
@@ -333,13 +331,13 @@
     ]
   },
   "sensorIngestion/current/history/{docId}": {
-    "_description": "Dedicated ESP Email/Password service-account fallback for buffered 10-minute sensor means. Cloud Functions preserve captured_at_ms as recorded_at, validate the original assignment binding, and quarantine mismatches rather than attributing them to a new owner.",
+    "_description": "Dedicated ESP Email/Password service-account fallback for buffered 10-minute sensor means. New firmware sends recorded_at as the single capture-time field; Cloud Functions accept captured_at_ms only for legacy buffered uploads, validate the original assignment binding, and quarantine mismatches rather than attributing them to a new owner.",
     "fields": [
       "hardwareId (string)",
       "source_tank_id (string)",
       "source_owner_uid (string)",
       "source_assignment_at_ms (int epoch-ms)",
-      "captured_at_ms (int epoch-ms when NTP is synced)",
+      "recorded_at (Timestamp; original capture time)",
       "routing_status (string, optional server result)",
       "routing_reason (string, optional server result)",
       "temperature (mean of valid samples in the 10-minute window)",

@@ -31,7 +31,7 @@ duplicated as fields inside that document. The only intentional duplicate is
 - `users/{uid}` and `tanks/{tankId}` use the owner's Firebase Authentication UID.
 - `batches/{batchId}` uses `CR-YYYYMMDD-###` (for example, `CR-20260912-001`).
 - `sampling_records/{recordId}` uses `baseline` for the initial record and a Firestore Auto-ID for later samples.
-- `mortality_records`, `harvest_records`, `feeder_schedules`, and `feeder_commands` use Firestore Auto-IDs.
+- `mortality_records`, `harvest_records`, and `feeder_commands` use Firestore Auto-IDs. New `feeder_schedules` documents use their `HH:mm` time as the ID; older schedules may still have Auto-IDs.
 - `actuator_logs` use Firestore Auto-IDs. `feeder_logs` use a Firestore Auto-ID for app audit entries or a durable firmware event ID for ESP32 outcome entries.
 - Fixed document IDs include `sensor_readings/latest`, `feeder/status`, `hardware_system/currentOwner`, and anomaly detection `current`. Historical anomaly detection records use `YYYYMMDDTHHMMSS`.
 
@@ -123,8 +123,7 @@ tanks/{tank_id}       # tank_id is the owner's Firebase Authentication UID
       # Any sensor without a valid reading in this window is omitted.
       # No per-window min/max or *_avg fields are written.
       hardwareId, source_tank_id, source_owner_uid, source_assignment_at_ms
-      captured_at_ms, recorded_at
-      recorded_at: Timestamp
+      recorded_at: Timestamp # canonical capture time; also used for ordering
 
   sensors/{temperature|ph_level|dissolved_oxygen|turbidity|water_level|feed_level}
     min_value/max_value: number        # water-quality sensors only
@@ -163,7 +162,7 @@ tanks/{tank_id}       # tank_id is the owner's Firebase Authentication UID
     last_outcome: "completed" | "blocked" | "skipped_insufficient" | "failed" | null
     last_occurrence_at: Timestamp | null
 
-The app and deployed Cloud Function write only `scheduled_time`. App, backend, and ESP readers temporarily accept legacy `time` + `ampm` and `timeValue` fields while existing schedules are upgraded; editing or toggling a legacy schedule writes the canonical field and removes those aliases. The writer is deployed; flash the updated ESP32 firmware before using the updated app to create or edit schedules. The SQL-style ERD uses `TIME` for this logical field, while Firestore stores it as an `HH:mm` string.
+The app writes schedules directly to Firestore on Spark. New document IDs equal `scheduled_time`, so concurrent saves cannot create two schedules at the same time, even on different repeat days. The app checks legacy Auto-ID schedules before saving; editing a legacy schedule migrates it to the time-keyed ID. App and ESP readers still accept legacy `time` + `ampm` and `timeValue` fields. The SQL-style ERD uses `TIME` for this logical field, while Firestore stores it as an `HH:mm` string.
 
   feeder_commands/{command_id}
     command_type: "feed_now"
@@ -213,7 +212,7 @@ The feeder log trigger sets date-scoped schedule outcomes. `isDone` is legacy co
 
 Machine Learning-Based Water Quality Anomaly Detection (WQAD) uses an unsupervised `IsolationForest` over multivariate readings, spreads, changes, rolling behavior, and trends. It requires at least six valid readings spanning 110 minutes within a continuous two-hour window; actual capture times determine readiness. Source data older than 20 minutes is marked stale/Insufficient. Safety thresholds remain separate: they are neither model features nor training labels. The current model still requires validation using calibrated field data from the actual tank.
 
-Runtime event times (`logged_at`, `occurrence_at`, `last_changed`, `lastSeen`, `last_dispensed_at`, and `source_recorded_at`) are stored as Firestore Timestamps. `created_at` is the record creation time; fields such as `sampling_date` represent when the sampling event occurred. Readers remain compatible with legacy epoch-millisecond, Unix-second, ISO-string, and `DateTime` values during rollout. Explicit millisecond protocol fields (`effective_at_ms`, `source_assignment_at_ms`, `captured_at_ms`) remain integers because scheduling and sensor-routing logic compare them at millisecond precision.
+Runtime event times (`logged_at`, `occurrence_at`, `last_changed`, `lastSeen`, `last_dispensed_at`, `source_recorded_at`, and sensor `recorded_at`) are stored as Firestore Timestamps. `created_at` is the record creation time; fields such as `sampling_date` represent when the sampling event occurred. Readers remain compatible with legacy epoch-millisecond, Unix-second, ISO-string, and `DateTime` values during rollout. Explicit millisecond protocol fields such as `effective_at_ms` and `source_assignment_at_ms` remain integers because scheduling and assignment logic compare them at millisecond precision. New sensor records use `recorded_at` as their single capture-time field; readers still accept legacy `captured_at_ms` values in older records.
 
 ## Production hierarchy
 
@@ -271,7 +270,6 @@ ESP32
        source_tank_id
        source_owner_uid
        source_assignment_at_ms
-       captured_at_ms
        recorded_at
        live sensor values
        turbidity_air
@@ -282,7 +280,6 @@ ESP32
        source_tank_id
        source_owner_uid
        source_assignment_at_ms
-       captured_at_ms
        recorded_at
        one per-sensor mean of valid readings for each 10-minute window
 
@@ -300,7 +297,7 @@ Live snapshots and normal 10-minute history now write once to their canonical ta
 
 ### Capture binding and feeder reliability fields
 
-Direct live and history documents carry `source_tank_id`, `source_owner_uid`, `source_assignment_at_ms`, and `captured_at_ms`. Rules compare the assignment timestamp at millisecond precision. Old or unbound buffered history stays staged with `routing_status: quarantined` / `routing_reason`; it is never written into the newly assigned owner's tank. Rules reject older live readings. Deploy the updated Firestore Rules before flashing the direct-write firmware; keep the legacy staging Functions during rollout.
+Direct live and history documents carry `source_tank_id`, `source_owner_uid`, `source_assignment_at_ms`, and the canonical `recorded_at` Timestamp. Rules compare `recorded_at` to the assignment and reject older live readings. The device-local offline queue keeps its deterministic history ID as local metadata; it is stripped before upload. Old or unbound buffered history stays staged with `routing_status: quarantined` / `routing_reason`; the staging Functions still accept legacy `captured_at_ms` values from older firmware, but new canonical records do not store that duplicate field. Deploy the updated Firestore Rules before flashing the direct-write firmware; keep the legacy staging Functions during rollout.
 
 `feeder_commands` includes `expires_at` (Timestamp, app request deadline) and `near_schedule_confirmed` (owner warning-window acknowledgement). Firmware also applies a 60-second limit from the server's `issued_at`; legacy commands without the extra deadline use that server limit. Queued offline app writes cannot restart their deadline on reconnect. `near_schedule_confirmed` never bypasses the strict device-side collision block around a scheduled feeding. Status includes `command_id` / `status_reason`; logs add optional `command_id` for exact request confirmation. Missing confirmation does not create an app-authored failure log.
 
