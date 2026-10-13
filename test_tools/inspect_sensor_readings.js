@@ -98,15 +98,11 @@ async function main() {
   }
 
   console.log('RECORDED AT                 GAP       TEMP     pH       DO       TURB     WATER    FEED');
-  let continuousTail = 1;
   for (let i = 0; i < readings.length; i += 1) {
     const { recordedAt, data } = readings[i];
     const gapSeconds = i === 0
       ? null
       : Math.round((recordedAt.getTime() - readings[i - 1].recordedAt.getTime()) / 1000);
-    if (i > 0 && gapSeconds >= 480 && gapSeconds <= 720) continuousTail += 1;
-    else if (i > 0) continuousTail = 1;
-
     const time = new Intl.DateTimeFormat('en-PH', {
       timeZone: 'Asia/Manila',
       year: 'numeric', month: '2-digit', day: '2-digit',
@@ -127,15 +123,33 @@ async function main() {
 
   const newest = readings[readings.length - 1].recordedAt;
   const ageMinutes = (now.getTime() - newest.getTime()) / 60000;
-  const enoughContinuous = continuousTail >= 12;
-  const fresh = ageMinutes <= 20;
+  const window = readings.filter(({ recordedAt, data }) =>
+    newest - recordedAt <= 120 * 60000 &&
+    firstNumber(data, ['temperature', 'temp_avg']) !== null &&
+    firstNumber(data, ['ph_level', 'pH_avg']) !== null &&
+    firstNumber(data, ['dissolved_oxygen', 'DO_avg']) !== null &&
+    firstNumber(data, ['turbidity', 'turbidity_avg']) !== null,
+  );
+  const gaps = window.slice(1).map((row, i) => (row.recordedAt - window[i].recordedAt) / 1000);
+  const sortedGaps = gaps.filter((gap) => gap > 0).sort((a, b) => a - b);
+  const middle = Math.floor(sortedGaps.length / 2);
+  const cadence = sortedGaps.length === 0 ? 600 :
+    (sortedGaps.length % 2 ? sortedGaps[middle] : (sortedGaps[middle - 1] + sortedGaps[middle]) / 2);
+  let suffixStart = 0;
+  for (let i = 0; i < gaps.length; i += 1) {
+    if (gaps[i] <= 0 || gaps[i] > cadence * 2.2) suffixStart = i + 1;
+  }
+  const continuous = window.slice(suffixStart);
+  const enoughContinuous = cadence >= 480 && cadence <= 1800 &&
+    continuous.length >= 6 && newest - continuous[0].recordedAt >= 110 * 60000;
+  const fresh = ageMinutes <= 20 && ageMinutes >= -1;
   console.log('\nML window check:');
-  console.log(`  Continuous 10-minute readings at the end: ${continuousTail}/12`);
+  console.log(`  Valid readings in continuous two-hour window: ${continuous.length}`);
   console.log(`  Latest reading age: ${ageMinutes.toFixed(1)} minutes`);
   console.log(`  Result: ${enoughContinuous && fresh ? 'READY' : 'INSUFFICIENT'}`);
   if (!fresh) console.log('  Reason: latest reading is more than 20 minutes old.');
   else if (!enoughContinuous) {
-    console.log('  Reason: the latest continuous run has fewer than 12 readings spaced 8–12 minutes apart.');
+    console.log('  Reason: need at least six valid readings spanning 110 minutes without a major cadence gap.');
   }
 }
 

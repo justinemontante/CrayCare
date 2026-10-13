@@ -1,11 +1,11 @@
-"""Scheduled backend for CrayCare Water Quality Anomaly Detection (WQAD)."""
+"""History-record-triggered CrayCare Water Quality Anomaly Detection (WQAD)."""
 
 import json
 import math
 import os
 from datetime import datetime, timedelta, timezone
 
-from firebase_functions import options, scheduler_fn
+from firebase_functions import firestore_fn, options
 
 _bundle = None
 _recommendations = None
@@ -118,7 +118,7 @@ def _timestamp_seconds(value):
     return None
 
 
-def _fetch_sensor_history(tank_id, hours=24, sensors=None):
+def _fetch_sensor_history(tank_id, hours=2.5, sensors=None):
     import pandas as pd
 
     db = _get_db()
@@ -132,15 +132,15 @@ def _fetch_sensor_history(tank_id, hours=24, sensors=None):
     while current_day <= last_day:
         date_key = current_day.strftime("%Y-%m-%d")
         try:
-            # Read the bounded daily subcollection and filter timestamps here.
-            # This keeps one malformed/mixed-type legacy timestamp from breaking
-            # the whole query or excluding otherwise valid records for the day.
+            # Canonical ESP history uses Firestore timestamps. Filter on the
+            # server so one event does not read every record in a whole day.
             docs = (
                 db.collection("tanks")
                 .document(tank_id)
                 .collection("sensor_readings_history")
                 .document(date_key)
                 .collection("entries")
+                .where("recorded_at", ">=", cutoff)
                 .get()
             )
             for doc in docs:
@@ -193,7 +193,7 @@ def _insufficient_result(data_status):
         "insight": (
             "The latest sensor record is over 20 minutes old."
             if stale
-            else "At least twelve recent valid readings are required; one missed 10-minute reading is tolerated."
+            else "A continuous two-hour window of valid sensor readings is needed."
         ),
         "recommendation": (
             "Check ESP32 connectivity and wait for enough fresh sensor readings."
@@ -204,7 +204,28 @@ def _insufficient_result(data_status):
     }
 
 
-def _analyze_tank(tank_id):
+def _persist_history_result(db, tank_id, now, result, source_id=None):
+    """Append one result; source-keyed creates make event retries idempotent."""
+    detection_id = source_id or now.strftime("%Y%m%dT%H%M%S")
+    history = (
+        db.collection("tanks")
+        .document(tank_id)
+        .collection("water_quality_anomaly_detection_history")
+    )
+    if source_id:
+        from google.api_core.exceptions import AlreadyExists
+
+        try:
+            history.document(detection_id).create(result)
+        except AlreadyExists:
+            print(f"[WQAD] Source {source_id} already analyzed; skipped duplicate.")
+            return None
+    else:
+        history.document(detection_id).set(result)
+    return detection_id
+
+
+def _analyze_tank(tank_id, source_id=None, source_at=None):
     db = _get_db()
     bundle, _ = _load_wqad()
     required_sensors = list(bundle.get("sensors", _WQAD_SENSORS)) if bundle else _WQAD_SENSORS
@@ -220,7 +241,10 @@ def _analyze_tank(tank_id):
     from anomaly_window import anomaly_window
 
     now = datetime.now(timezone.utc)
-    frame, data_status, _ = anomaly_window(frame, now.timestamp())
+    frame, data_status, latest_at = anomaly_window(frame, now.timestamp())
+    if source_at is not None and (latest_at is None or latest_at > source_at + 1):
+        print("[WQAD] A newer sensor record is already available; skipped old event.")
+        return
     result = (
         _run_water_quality_anomaly_detection(frame)
         if data_status == "ready"
@@ -230,37 +254,31 @@ def _analyze_tank(tank_id):
     if owner_uid:
         result["uid"] = owner_uid
     result["processed_at"] = now
+    if latest_at is not None:
+        result["source_recorded_at"] = datetime.fromtimestamp(latest_at, timezone.utc)
 
-    collection = (
-        db.collection("tanks")
-        .document(tank_id)
-        .collection("water_quality_anomaly_detections")
-    )
-    batch = db.batch()
-    batch.set(collection.document("current"), result)
-    history = (
-        db.collection("tanks")
-        .document(tank_id)
-        .collection("water_quality_anomaly_detection_history")
-    )
-    batch.set(history.document(now.strftime("%Y%m%dT%H%M%S")), result)
-    batch.commit()
+    detection_id = _persist_history_result(db, tank_id, now, result, source_id)
+    if detection_id is None:
+        return
     print(
         f"[WQAD] Tank {tank_id}: {result['status']} "
         f"(score={result['anomaly_score']}, "
         f"main_sensor={result['contributors'][0]['sensor'] if result['contributors'] else 'N/A'})"
     )
-    _prune_history(db, tank_id, now)
+    if source_id is None:
+        _prune_history(db, tank_id, now)
 
 
 def _prune_history(db, tank_id, now, retain_days=30, max_deletes=100):
-    """Cap scheduled history growth in the new and legacy paths.
+    """Prune old results during an explicit manual diagnostic run.
 
-    The `current` alias is never touched. Failures are logged only so pruning
-    can never break detection.
+    New results are written only to the dedicated history collection. Old
+    timestamped records in the former collection are pruned during transition;
+    its legacy `current` document is retained but is no longer read or updated.
+    Pruning failures are logged so they cannot break detection.
     """
     try:
-        cutoff = (now - timedelta(days=retain_days)).strftime("%Y%m%dT%H%M%S")
+        cutoff = now - timedelta(days=retain_days)
         tank = db.collection("tanks").document(tank_id)
         collections = [
             tank.collection("water_quality_anomaly_detection_history"),
@@ -270,10 +288,10 @@ def _prune_history(db, tank_id, now, retain_days=30, max_deletes=100):
         for collection in collections:
             if deleted >= max_deletes:
                 break
-            for doc in collection.list_documents():
+            for doc in collection.where("processed_at", "<", cutoff).limit(max_deletes - deleted).get():
                 if deleted >= max_deletes:
                     break
-                if doc.id != "current" and doc.id < cutoff:
+                if doc.id != "current":
                     doc.delete()
                     deleted += 1
         if deleted:
@@ -282,15 +300,39 @@ def _prune_history(db, tank_id, now, retain_days=30, max_deletes=100):
         print(f"[WQAD] History prune failed for {tank_id}: {error}")
 
 
-@scheduler_fn.on_schedule(
-    schedule="every 15 minutes",
-    timezone="Asia/Manila",
+@firestore_fn.on_document_created(
+    document="tanks/{tank_id}/sensor_readings_history/{date}/entries/{entry_id}",
     region="asia-southeast1",
     memory=options.MemoryOption.MB_512,
 )
 def run_wqad_analysis(event) -> None:
-    """Run scheduled WQAD analysis for the active hardware assignment."""
-    _process_assigned_tank()
+    """Analyze fresh history for the active tank once per captured record."""
+    if event.data is None:
+        return
+    data = event.data.to_dict() or {}
+    tank_id = event.params["tank_id"]
+    source_at = _timestamp_seconds(data.get("recorded_at"))
+    now = datetime.now(timezone.utc).timestamp()
+    if source_at is None or source_at > now + 60 or now - source_at > 20 * 60:
+        print("[WQAD] Invalid, future, or offline-backfilled history; skipped.")
+        return
+    owner = _active_assignment(tank_id)
+    if owner is None:
+        return
+    uid, assignment = owner
+    assigned_at = _timestamp_seconds(assignment.get("assigned_at"))
+    source_assignment = data.get("source_assignment_at_ms")
+    if (
+        assigned_at is None
+        or source_at < assigned_at
+        or (data.get("source_tank_id") is not None and data["source_tank_id"] != tank_id)
+        or (data.get("source_owner_uid") is not None and data["source_owner_uid"] != uid)
+        or (source_assignment is not None and source_assignment != int(assigned_at * 1000))
+    ):
+        print("[WQAD] History does not match the current hardware assignment; skipped.")
+        return
+    source_id = f"{round(source_at * 1000):013d}_{event.params['entry_id']}"
+    _analyze_tank(tank_id, source_id=source_id, source_at=source_at)
 
 
 def run_wqad_now() -> None:
@@ -298,19 +340,22 @@ def run_wqad_now() -> None:
     _process_assigned_tank()
 
 
-def _process_assigned_tank() -> None:
-    """Validate and analyze the single active hardware assignment."""
+def _active_assignment(expected_tank_id=None):
+    """Return the validated active owner and assignment for one tank."""
     db = _get_db()
     assignment = db.collection("hardware_system").document("currentOwner").get()
     data = assignment.to_dict() if assignment.exists else {}
     uid, tank_id = data.get("uid"), data.get("tank_id")
     if not uid or not tank_id:
         print("[WQAD] No hardware owner/tank assigned; skipped.")
-        return
+        return None
+    if expected_tank_id is not None and str(tank_id) != str(expected_tank_id):
+        print("[WQAD] History belongs to a non-active tank; skipped.")
+        return None
     user_snapshot = db.collection("users").document(str(uid)).get()
     if not user_snapshot.exists:
         print("[WQAD] Assigned owner profile is missing; skipped.")
-        return
+        return None
     user = user_snapshot.to_dict() or {}
     tank_snapshot = db.collection("tanks").document(str(tank_id)).get()
     tank = tank_snapshot.to_dict() if tank_snapshot.exists else {}
@@ -320,5 +365,12 @@ def _process_assigned_tank() -> None:
         or str(tank.get("owner_uid", "")) != str(uid)
     ):
         print("[WQAD] Assignment is not an active owner/tank pair; skipped.")
-        return
-    _analyze_tank(str(tank_id))
+        return None
+    return str(uid), data
+
+
+def _process_assigned_tank() -> None:
+    """Manual local analysis entry point, retained for diagnostic runs."""
+    owner = _active_assignment()
+    if owner is not None:
+        _analyze_tank(str(owner[1]["tank_id"]))

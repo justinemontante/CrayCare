@@ -591,7 +591,7 @@ int overrideConfirmTaps = 0;
 unsigned long overrideDeadlineMs = 0;
 bool feederForced = false;             // this run bypassed checks via confirm
 String feederForceReason = "";
-bool feederWaterQualityOverrideUsed = false;
+String feederWaterQualityWarning = "";
 unsigned long feederStartMs = 0;
 
 struct FeedSchedule {
@@ -611,8 +611,6 @@ unsigned long lastFeederCmdCheckMs = 0;
 unsigned long lastFeederStatusMs = 0;
 unsigned long lastFeederScheduleSyncMs = 0;
 unsigned long lastFeederScheduleCheckMs = 0;
-bool allowWaterQualityFeeding = false;
-unsigned long lastFeederPolicySyncMs = 0;
 
 // ============================================================
 //  ACTUATOR STATE — pump + 2 aerators
@@ -4124,39 +4122,6 @@ void syncFeederSchedules() {
   if (!ensureFirebaseReady()) return;
   if (currentTankId.length() == 0) return;   // no tank assigned -> nothing to sync
 
-  // One owner-level policy applies to manual Feed Now and every schedule. Do
-  // not trust an old opt-in indefinitely while offline; it expires after three
-  // normal schedule-sync intervals (30 seconds).
-  String policyPath = "tanks/" + currentTankId + "/feeder/feeder_policy";
-  bool policyLoaded = firestoreGetDoc(policyPath.c_str());
-  if (!policyLoaded && fbdo.httpCode() == 404) {
-    // Backward compatibility until the old Firestore document is retired.
-    policyPath = "tanks/" + currentTankId + "/feeder/schedule_policy";
-    policyLoaded = firestoreGetDoc(policyPath.c_str());
-  }
-  if (policyLoaded) {
-    FirebaseJson policyResponse;
-    FirebaseJsonData policyValue;
-    policyResponse.setJsonData(fbdo.payload());
-    bool enabled = policyResponse.get(
-        policyValue, "fields/allow_water_quality_override/booleanValue") &&
-        policyValue.boolValue;
-    if (enabled != allowWaterQualityFeeding) {
-      Serial.printf("[FEEDER] Shared water-quality range override %s\n",
-                    enabled ? "enabled" : "disabled");
-    }
-    allowWaterQualityFeeding = enabled;
-    // Retired policy is deliberately ignored. The shared opt-in covers all
-    // four water-quality sensor ranges for manual and scheduled feedings.
-    lastFeederPolicySyncMs = millis();
-  } else if (fbdo.httpCode() == 404) {
-    allowWaterQualityFeeding = false;
-    lastFeederPolicySyncMs = millis();
-  } else {
-    Serial.printf("[FEEDER] Shared feeder policy sync failed; retaining the last value temporarily, http=%d\n",
-                  fbdo.httpCode());
-  }
-
   String schedCol = "tanks/" + currentTankId + "/feeder_schedules";
   std::vector<FeedSchedule> synced;
   String pageToken;
@@ -4287,48 +4252,91 @@ void syncFeederSchedules() {
   Serial.printf("[FEEDER] Synced %d schedules from Firestore\n", feederScheduleCount);
 }
 
-// Override policy for the onsite physical button: after a 2-tap confirm
-// inside the warning window, these blocks may be bypassed (force path).
-// Never bypassable: missing tank/clock/storage, persist/ack failures,
-// bad grams, stale/duplicate commands, busy feeder.
+// The double-tap confirmation is reserved for the schedule-collision warning.
+// Sensor faults and critical feed level are never bypassable.
 bool feedBlockBypassable(const String& reason) {
-  if (reason.startsWith("automatic feeding is due at")) return true;
-  if (reason == "tank sensor settings have not finished syncing") return true;
-  if (reason == "required water-quality sensor unavailable") return true;
-  if (reason == "temperature outside range") return true;
-  if (reason == "dissolved oxygen too low") return true;
-  if (reason == "dissolved oxygen too high") return true;
-  if (reason == "pH outside range") return true;
-  if (reason == "turbidity below range") return true;
-  if (reason == "turbidity too high") return true;
-  if (reason == "feed-level sensor unavailable") return true;
-  return false;
+  return reason.startsWith("automatic feeding is due at");
 }
 
-bool canFeedSafely(String &reason, bool allowHighTurbidityRange = false,
-                   bool allowWaterQualityRanges = false) {
+String waterQualityWarningText() {
+  String warning;
+  auto appendWarning = [&warning](const String& item) {
+    if (warning.length() > 0) warning += "; ";
+    warning += item;
+  };
+  if (tempSensorOK && isfinite(smoothedTemp)) {
+    if (smoothedTemp < tempCriticalLow) {
+      appendWarning("Temperature low: " + String(smoothedTemp, 1) + " C (min " + String(tempCriticalLow, 1) + " C)");
+    } else if (smoothedTemp > tempCriticalHigh) {
+      appendWarning("Temperature high: " + String(smoothedTemp, 1) + " C (max " + String(tempCriticalHigh, 1) + " C)");
+    }
+  }
+  if (doSensorOK && isfinite(dissolvedOxygen)) {
+    if (dissolvedOxygen < doCriticalLow) {
+      appendWarning("Dissolved oxygen low: " + String(dissolvedOxygen, 1) + " mg/L (min " + String(doCriticalLow, 1) + " mg/L)");
+    } else if (dissolvedOxygen > doCriticalHigh) {
+      appendWarning("Dissolved oxygen high: " + String(dissolvedOxygen, 1) + " mg/L (max " + String(doCriticalHigh, 1) + " mg/L)");
+    }
+  }
+  if (phSensorOK && isfinite(phLevel)) {
+    if (phLevel < phCriticalLow) {
+      appendWarning("pH low: " + String(phLevel, 2) + " (min " + String(phCriticalLow, 2) + ")");
+    } else if (phLevel > phCriticalHigh) {
+      appendWarning("pH high: " + String(phLevel, 2) + " (max " + String(phCriticalHigh, 2) + ")");
+    }
+  }
+  if (turbiditySensorOK && isfinite(smoothedTurbidityNTU)) {
+    if (smoothedTurbidityNTU < turbNtuMin) {
+      appendWarning("Turbidity low: " + String(smoothedTurbidityNTU, 0) + " NTU (min " + String(turbNtuMin, 0) + " NTU)");
+    } else if (smoothedTurbidityNTU > turbNtuMax) {
+      appendWarning("Turbidity high: " + String(smoothedTurbidityNTU, 0) + " NTU (max " + String(turbNtuMax, 0) + " NTU)");
+    }
+  }
+  return warning;
+}
+
+String waterQualityLcdWarning() {
+  if (tempSensorOK && isfinite(smoothedTemp)) {
+    if (smoothedTemp < tempCriticalLow) return "Temp LOW";
+    if (smoothedTemp > tempCriticalHigh) return "Temp HIGH";
+  }
+  if (doSensorOK && isfinite(dissolvedOxygen)) {
+    if (dissolvedOxygen < doCriticalLow) return "DO LOW";
+    if (dissolvedOxygen > doCriticalHigh) return "DO HIGH";
+  }
+  if (phSensorOK && isfinite(phLevel)) {
+    if (phLevel < phCriticalLow) return "pH LOW";
+    if (phLevel > phCriticalHigh) return "pH HIGH";
+  }
+  if (turbiditySensorOK && isfinite(smoothedTurbidityNTU)) {
+    if (smoothedTurbidityNTU < turbNtuMin) return "Turbidity LOW";
+    if (smoothedTurbidityNTU > turbNtuMax) return "Turbidity HIGH";
+  }
+  return "";
+}
+
+bool canFeedSafely(String &reason) {
   if (!feederConfigReady) {
     reason = "tank sensor settings have not finished syncing";
     return false;
   }
-  const bool turbidityAirAllowed =
-      allowWaterQualityRanges && !turbiditySensorOK &&
-      turbidityVoltage < turbidityVAirMax;
   if (!tempSensorOK || !doSensorOK || !phSensorOK ||
-      (!turbiditySensorOK && !turbidityAirAllowed)) {
+      !turbiditySensorOK) {
     reason = "required water-quality sensor unavailable";
     return false;
   }
-  if (!allowWaterQualityRanges &&
-      (smoothedTemp < tempCriticalLow || smoothedTemp > tempCriticalHigh)) reason = "temperature outside range";
-  else if (!allowWaterQualityRanges && dissolvedOxygen < doCriticalLow) reason = "dissolved oxygen too low";
-  else if (!allowWaterQualityRanges && dissolvedOxygen > doCriticalHigh) reason = "dissolved oxygen too high";
-  else if (!allowWaterQualityRanges &&
-           (phLevel < phCriticalLow || phLevel > phCriticalHigh)) reason = "pH outside range";
-  else if (!allowWaterQualityRanges && smoothedTurbidityNTU < turbNtuMin) reason = "turbidity below range";
-  else if (!allowWaterQualityRanges && !allowHighTurbidityRange &&
-           smoothedTurbidityNTU > turbNtuMax) reason = "turbidity too high";
-  else if (!feedLevelSensorOK) reason = "feed-level sensor unavailable";
+  if (!isfinite(smoothedTemp) || smoothedTemp < 0.0f || smoothedTemp > 50.0f ||
+      !isfinite(dissolvedOxygen) || dissolvedOxygen < 0.0f || dissolvedOxygen > 30.0f ||
+      !isfinite(phLevel) || phLevel < 0.0f || phLevel > 14.0f ||
+      !isfinite(smoothedTurbidityNTU) || smoothedTurbidityNTU < 0.0f ||
+      smoothedTurbidityNTU > 1000.0f) {
+    reason = "required water-quality sensor invalid";
+    return false;
+  }
+  if (!feedLevelSensorOK) reason = "feed-level sensor unavailable";
+  else if (!isfinite(feedLevelPercent) || feedLevelPercent < 0.0f || feedLevelPercent > 100.0f) {
+    reason = "feed-level sensor unavailable";
+  }
   else if (feedLevelPercent <= feedLevelCriticalThreshold) reason = "critical feed level";
   else return true;
   return false;
@@ -4412,12 +4420,7 @@ void checkScheduledFeed() {
 
 // ─── Start Feed — kicks off non-blocking state machine ───
 void startFeed(String source, float grams, String commandId, long long issuedAtMs, long long expiresAtMs, bool forceOverride) {
-  const bool sharedPolicyFresh = lastFeederPolicySyncMs > 0 &&
-      millis() - lastFeederPolicySyncMs <= FEEDER_SCHEDULE_SYNC_MS * 3UL;
-  const bool allowWaterQualityOverride =
-      (source == "manual" || source == "scheduled") &&
-      allowWaterQualityFeeding && sharedPolicyFresh;
-  feederWaterQualityOverrideUsed = false;
+  feederWaterQualityWarning = "";
   if (!forceOverride) { feederForced = false; feederForceReason = ""; }
   if (feederRunState != FEEDER_IDLE) {
     feederStatusReason = "Feeder busy";
@@ -4519,28 +4522,13 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
   if (blockedReason.isEmpty()) {
     String sensorRangeReason;
     if (!canFeedSafely(sensorRangeReason)) {
-      const bool waterQualityRangeOverride =
-          (source == "manual" || source == "scheduled") &&
-          allowWaterQualityOverride &&
-          ((sensorRangeReason == "required water-quality sensor unavailable" &&
-            !turbiditySensorOK && turbidityVoltage < turbidityVAirMax) ||
-           sensorRangeReason == "temperature outside range" ||
-           sensorRangeReason == "dissolved oxygen too low" ||
-           sensorRangeReason == "dissolved oxygen too high" ||
-           sensorRangeReason == "pH outside range" ||
-           sensorRangeReason == "turbidity below range" ||
-           sensorRangeReason == "turbidity too high");
-      if (waterQualityRangeOverride) {
-        String remainingSafetyReason;
-        if (canFeedSafely(remainingSafetyReason, false, true)) {
-          feederWaterQualityOverrideUsed = true;
-          Serial.printf("[FEEDER] Water-quality range override accepted (source=%s); sensors and feed-level checks passed\n",
-                        source.c_str());
-        } else {
-          blockedReason = remainingSafetyReason;
-        }
-      } else {
-        blockedReason = sensorRangeReason;
+      blockedReason = sensorRangeReason;
+    } else {
+      MutexGuard sensorLock(sensorStateMutex);
+      feederWaterQualityWarning = waterQualityWarningText();
+      if (feederWaterQualityWarning.length() > 0) {
+        Serial.printf("[FEEDER] Water-quality warning (feeding remains allowed): %s\n",
+                      feederWaterQualityWarning.c_str());
       }
     }
   }
@@ -4704,15 +4692,16 @@ void processFeederTick() {
       // not a direct measurement of the exact grams dispensed.
       readFeedLevelSensorSafely();
       const float levelAfter = feedLevelSensorOK ? feedLevelPercent : -1.0f;
-      // Make the shared water-quality override visible in the audit log.
+      // Preserve any out-of-range but valid readings as an audit warning.
       String completionAction = feederFeedSource == "scheduled"
-          ? String("Dispensed feed (Scheduled)") +
-                (feederWaterQualityOverrideUsed ? " - water-quality range override" : "")
+          ? String("Dispensed feed (Scheduled)")
           : feederFeedSource == "onsite"
               ? (feederForced ? "Dispensed feed (Onsite Button, override: " + feederForceReason + ")"
                               : "Dispensed feed (Onsite Button)")
-              : String("Dispensed feed (Manual)") +
-                    (feederWaterQualityOverrideUsed ? " - water-quality range override" : "");
+              : String("Dispensed feed (Manual)");
+      if (feederWaterQualityWarning.length() > 0) {
+        completionAction += " - water-quality warning";
+      }
       // Push final status + log
       pushFeederLog(
         completionAction,
@@ -4732,7 +4721,6 @@ void processFeederTick() {
       feederLastScheduleKey = "";
       feederForced = false;
       feederForceReason = "";
-      feederWaterQualityOverrideUsed = false;
       // Keep the terminal confirmation until the next request starts.
       Serial.println("[FEEDER] Feed complete");
       break;
@@ -4778,6 +4766,11 @@ void pushFeederLog(String action, String type, String status,
            feederFeedSource == "onsite" ? "physical_button" :
            feederFeedSource == "scheduled" ? "schedule" : "manual_request");
   if (status.length() > 0) json.set("fields/status/stringValue", status);
+  if ((status == "completed" || status == "forced") &&
+      feederWaterQualityWarning.length() > 0) {
+    json.set("fields/water_quality_warning/stringValue",
+             feederWaterQualityWarning);
+  }
   if (isfinite(requestedGrams) && requestedGrams >= 0.0f) {
     json.set("fields/requested_grams/doubleValue", String(requestedGrams, 1));
     if (status == "completed" || status == "forced") {
@@ -4916,8 +4909,7 @@ void applyTankAssignment(const String& tankId, const String& ownerUid, long long
     feederSchedules.clear();
     feederScheduleCount = 0;
   }
-  allowWaterQualityFeeding = false;
-  lastFeederPolicySyncMs = 0;
+  feederWaterQualityWarning = "";
   feederLastScheduleKey = "";
   feederScheduleTime = "";
   feederDispenseCount = 0;
@@ -5159,7 +5151,7 @@ void armFeedOverride(float grams, const String& reason) {
   }
   overrideConfirmTaps = 0;
   overrideDeadlineMs = millis() + OVERRIDE_WINDOW_MS;
-  Serial.printf("[FEEDER] BLOCKED (bypassable): %s — tap 2x within 10 s to force-dispense\n",
+  Serial.printf("[FEEDER] BLOCKED (schedule collision): %s — tap 2x within 10 s to confirm\n",
                 reason.c_str());
 }
 
@@ -5194,8 +5186,8 @@ void processOnsiteButton() {
     return;
   }
   if (!onsiteButtonEnabled) return;
-  // Confirmation taps inside an override warning window: counted
-  // immediately (no settle) and never converted to grams.
+  // Confirmation taps inside the schedule-collision warning window are
+  // counted immediately and never converted to grams.
   if (overrideWarnReason.length() > 0) {
     if (feederRunState != FEEDER_IDLE) { clearFeedOverride(); return; }
     uint16_t fresh = 0;
@@ -5316,6 +5308,7 @@ void updateLCD() {
   MutexGuard lcdLock(lcdMutex);
   unsigned long now = millis();
   if (lastLcdRenderMs != 0 && now - lastLcdRenderMs < 250UL) return;
+  const String liveWaterQualityWarning = waterQualityLcdWarning();
   String l0, l1;
   if (calibrationMode) {
     l0 = "CALIBRATION MODE";
@@ -5334,10 +5327,12 @@ void updateLCD() {
          "/" + String(feederMaxCycles);
   } else if ((long)(now - feederDoneShowMs) < 0) {  // rollover-safe expiry
     l0 = "Feeding completed";
-    l1 = "Gate cycles done";
+    l1 = feederWaterQualityWarning.length() > 0
+        ? "Water quality warn"
+        : "Gate cycles done";
   } else if (overrideWarnReason.length() > 0) {
     l0 = overrideWarnReason.substring(0, 16);
-    l1 = "Tap 2x to force";
+    l1 = "Tap 2x to confirm";
   } else if (onsiteButtonTapCount > 0) {
     uint16_t taps;
     portENTER_CRITICAL(&onsiteButtonMux);
@@ -5353,7 +5348,7 @@ void updateLCD() {
       lastLcdMs = now;
     } else if (now - lastLcdMs >= LCD_ROTATE_MS) {
       lastLcdMs = now;
-      lcdScreen = (lcdScreen + 1) % 4;
+      lcdScreen = (lcdScreen + 1) % (liveWaterQualityWarning.length() > 0 ? 5 : 4);
     } else if (lastLcdMs != 0) {
       return;
     }
@@ -5366,8 +5361,11 @@ void updateLCD() {
     } else if (lcdScreen == 2) {
       l0 = String("Water:") + (waterLevelCm >= 0 ? String(waterLevelCm, 0) + "cm" : "--");
       l1 = String("Hopper:") + (feedLevelPercent >= 0 ? String(feedLevelPercent, 0) + "%" : "--");
-    } else {
+    } else if (lcdScreen == 3) {
       getNextScheduleLines(l0, l1);
+    } else {
+      l0 = "Water quality!";
+      l1 = liveWaterQualityWarning;
     }
   }
   lcdPrint16(0, l0);

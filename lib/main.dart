@@ -158,12 +158,21 @@ class _SplashScreenState extends State<SplashScreen>
 
   Future<void> _checkAuthAndNavigate() async {
     bool isOnline = false;
-    try {
-      isOnline = await ConnectivityService.instance.checkConnectivity().timeout(
-        const Duration(seconds: 3),
-      );
-    } catch (e, stack) {
-      debugPrint('[Splash] Connectivity check failed: $e\n$stack');
+    final connectivity = ConnectivityService.instance;
+    if (connectivity.hasCompletedInitialConnectivityCheck) {
+      // init() already performed a real internet probe; reuse it instead of
+      // making startup wait for the same check a second time.
+      isOnline = connectivity.isOnline;
+    } else {
+      // If initialization failed or timed out, keep the bounded fallback
+      // check. A failure stays offline-safe rather than assuming internet.
+      try {
+        isOnline = await connectivity.checkConnectivity().timeout(
+          const Duration(seconds: 3),
+        );
+      } catch (e, stack) {
+        debugPrint('[Splash] Connectivity check failed: $e\n$stack');
+      }
     }
 
     _targetProgress = 1.0;

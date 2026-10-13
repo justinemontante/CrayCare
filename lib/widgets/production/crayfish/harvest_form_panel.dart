@@ -10,7 +10,8 @@ class CrayfishHarvestFormPanel extends StatefulWidget {
   const CrayfishHarvestFormPanel({super.key, this.onSaved});
 
   @override
-  State<CrayfishHarvestFormPanel> createState() => _CrayfishHarvestFormPanelState();
+  State<CrayfishHarvestFormPanel> createState() =>
+      _CrayfishHarvestFormPanelState();
 }
 
 class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
@@ -34,7 +35,9 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
       lastDate: DateTime.now(),
       builder: (ctx, child) => Theme(
         data: Theme.of(ctx).copyWith(
-          colorScheme: Theme.of(ctx).colorScheme.copyWith(primary: AppColors.primary),
+          colorScheme: Theme.of(
+            ctx,
+          ).colorScheme.copyWith(primary: AppColors.primary),
         ),
         child: child!,
       ),
@@ -58,7 +61,11 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
       return;
     }
     if (count > service.inTankCount) {
-      showBeautifulSnackbar(context, 'Harvest count exceeds in-tank population (${service.inTankCount}).', false);
+      showBeautifulSnackbar(
+        context,
+        'Harvest count exceeds in-tank population (${service.inTankCount}).',
+        false,
+      );
       return;
     }
     // Capture the messenger BEFORE popping the bottom sheet — the panel's
@@ -66,7 +73,11 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
     setState(() => _saving = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
-      await service.addHarvestRecord(harvestedCount: count, totalWeightKg: weight, date: _selectedDate);
+      await service.addHarvestRecord(
+        harvestedCount: count,
+        totalWeightKg: weight,
+        date: _selectedDate,
+      );
     } catch (e) {
       if (mounted) setState(() => _saving = false);
       if (!mounted) return;
@@ -90,8 +101,11 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
   @override
   Widget build(BuildContext context) {
     final service = TankService.instance;
-    final abwGrams = (double.tryParse(_weightCtrl.text) ?? 0) > 0 && (int.tryParse(_countCtrl.text) ?? 0) > 0
-        ? ((double.tryParse(_weightCtrl.text)! * 1000) / int.tryParse(_countCtrl.text)!)
+    final abwGrams =
+        (double.tryParse(_weightCtrl.text) ?? 0) > 0 &&
+            (int.tryParse(_countCtrl.text) ?? 0) > 0
+        ? ((double.tryParse(_weightCtrl.text)! * 1000) /
+              int.tryParse(_countCtrl.text)!)
         : 0.0;
 
     return Padding(
@@ -103,16 +117,33 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
             children: [
               Container(
                 padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(color: AppColors.primary.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
-                child: const Icon(Icons.archive_rounded, size: 16, color: AppColors.primary),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.archive_rounded,
+                  size: 16,
+                  color: AppColors.primary,
+                ),
               ),
               const SizedBox(width: 8),
-              const Text('Record Harvest', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.dark)),
+              const Text(
+                'Record Harvest',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.dark,
+                ),
+              ),
               const Spacer(),
               GestureDetector(
                 onTap: _showHistoryModal,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: AppColors.darkWith(0.05),
                     borderRadius: BorderRadius.circular(8),
@@ -120,9 +151,20 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.history_rounded, size: 12, color: AppColors.dark.withValues(alpha: 0.6)),
+                      Icon(
+                        Icons.history_rounded,
+                        size: 12,
+                        color: AppColors.dark.withValues(alpha: 0.6),
+                      ),
                       const SizedBox(width: 4),
-                      Text('History', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.dark.withValues(alpha: 0.6))),
+                      Text(
+                        'History',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.dark.withValues(alpha: 0.6),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -136,26 +178,44 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               decoration: BoxDecoration(
-                border: Border.all(color: AppColors.dark.withValues(alpha: 0.3)),
+                border: Border.all(
+                  color: AppColors.dark.withValues(alpha: 0.3),
+                ),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Row(
                 children: [
-                  Icon(Icons.calendar_today_rounded, size: 14, color: AppColors.dark.withValues(alpha: 0.5)),
+                  Icon(
+                    Icons.calendar_today_rounded,
+                    size: 14,
+                    color: AppColors.dark.withValues(alpha: 0.5),
+                  ),
                   const SizedBox(width: 8),
                   Text(
                     'Harvest Date: ${_selectedDate.month}/${_selectedDate.day}/${_selectedDate.year}',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.dark),
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.dark,
+                    ),
                   ),
                 ],
               ),
             ),
           ),
           const SizedBox(height: 12),
-          _buildInputField('Crayfish Harvested', 'Number of crayfish', _countCtrl),
+          _buildInputField(
+            'Crayfish Harvested',
+            'Number of crayfish',
+            _countCtrl,
+          ),
           _buildHarvestWarning(),
           const SizedBox(height: 12),
-          _buildInputField('Total Harvest Weight (kg)', 'e.g. 2.5', _weightCtrl),
+          _buildInputField(
+            'Total Harvest Weight (kg)',
+            'e.g. 2.5',
+            _weightCtrl,
+          ),
           if (abwGrams > 0) ...[
             const SizedBox(height: 8),
             Container(
@@ -163,20 +223,34 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
               decoration: BoxDecoration(
                 color: AppColors.primary.withValues(alpha: 0.06),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
+                border: Border.all(
+                  color: AppColors.primary.withValues(alpha: 0.2),
+                ),
               ),
               child: Row(
                 children: [
-                  Icon(Icons.monitor_weight_outlined, size: 14, color: AppColors.primary),
+                  Icon(
+                    Icons.monitor_weight_outlined,
+                    size: 14,
+                    color: AppColors.primary,
+                  ),
                   const SizedBox(width: 8),
                   Text(
                     'ABW: ${abwGrams.toStringAsFixed(1)} g',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.primary),
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.primary,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Text(
                     'Survival: ${service.survivalRate.toStringAsFixed(1)}%',
-                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.dark.withValues(alpha: 0.5)),
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.dark.withValues(alpha: 0.5),
+                    ),
                   ),
                 ],
               ),
@@ -199,13 +273,20 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
                   : const Icon(Icons.save_rounded, size: 16),
               label: Text(
                 _saving ? 'Saving...' : 'Save Harvest',
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               style: ElevatedButton.styleFrom(
-                backgroundColor: _saving ? AppColors.dark.withValues(alpha: 0.4) : AppColors.primary,
+                backgroundColor: _saving
+                    ? AppColors.dark.withValues(alpha: 0.4)
+                    : AppColors.primary,
                 foregroundColor: Colors.white,
                 elevation: 0,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
                 padding: const EdgeInsets.symmetric(vertical: 14),
               ),
             ),
@@ -227,35 +308,66 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
           const SizedBox(width: 4),
           Text(
             'Only $inTank available in tank',
-            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.critical),
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: AppColors.critical,
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildInputField(String label, String hint, TextEditingController ctrl) {
+  Widget _buildInputField(
+    String label,
+    String hint,
+    TextEditingController ctrl,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.dark)),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: AppColors.dark,
+          ),
+        ),
         const SizedBox(height: 6),
         TextField(
           controller: ctrl,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$'))],
-          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.dark),
+          inputFormatters: [
+            FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$')),
+          ],
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: AppColors.dark,
+          ),
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle: TextStyle(color: AppColors.dark.withValues(alpha: 0.3), fontSize: 13),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            hintStyle: TextStyle(
+              color: AppColors.dark.withValues(alpha: 0.3),
+              fontSize: 13,
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 12,
+            ),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: AppColors.dark.withValues(alpha: 0.5)),
+              borderSide: BorderSide(
+                color: AppColors.dark.withValues(alpha: 0.5),
+              ),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: AppColors.dark.withValues(alpha: 0.5)),
+              borderSide: BorderSide(
+                color: AppColors.dark.withValues(alpha: 0.5),
+              ),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
@@ -270,63 +382,142 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
 
   void _showHistoryModal() {
     final service = TankService.instance;
-    final records = service.harvestRecords;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 260), reverseDuration: Duration(milliseconds: 220)),
-      builder: (sheetCtx) => Container(
-        height: MediaQuery.of(sheetCtx).size.height * 0.55,
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        child: Column(
-          children: [
-            Container(
-              margin: const EdgeInsets.only(top: 10),
-              width: 40, height: 4,
-              decoration: BoxDecoration(color: AppColors.dark.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(2)),
+      sheetAnimationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 260),
+        reverseDuration: Duration(milliseconds: 220),
+      ),
+      builder: (sheetCtx) => AnimatedBuilder(
+        animation: service,
+        builder: (context, _) {
+          final records = service.harvestRecords;
+          final latestCanBeEdited =
+              records.isNotEmpty &&
+              _isToday(records.first.date) &&
+              !service.isArchiveView;
+          return Container(
+            height: MediaQuery.of(context).size.height * 0.55,
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-              child: Row(
-                children: [
-                  const Icon(Icons.archive_outlined, size: 18, color: AppColors.primary),
-                  const SizedBox(width: 8),
-                  const Text('Harvest Records', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.dark)),
-                  const Spacer(),
-                  Text('${records.length} recorded', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.dark.withValues(alpha: 0.5))),
-                ],
-              ),
-            ),
-            const Divider(height: 1),
-            Expanded(
-              child: records.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.inbox_rounded, size: 40, color: AppColors.dark.withValues(alpha: 0.15)),
-                        const SizedBox(height: 12),
-                        Text('No harvest records yet', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.dark.withValues(alpha: 0.4))),
-                      ],
-                    ),
-                  )
-                : ListView(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    children: records.map((r) => _buildRecordCard(r)).toList(),
+            child: Column(
+              children: [
+                Container(
+                  margin: const EdgeInsets.only(top: 10),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.dark.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(2),
                   ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.archive_outlined,
+                        size: 18,
+                        color: AppColors.primary,
+                      ),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'Harvest Records',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.dark,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        '${records.length} recorded',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.dark.withValues(alpha: 0.5),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: records.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.inbox_rounded,
+                                size: 40,
+                                color: AppColors.dark.withValues(alpha: 0.15),
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                'No harvest records yet',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.dark.withValues(alpha: 0.4),
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : ListView(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 8,
+                          ),
+                          children: [
+                            for (var index = 0; index < records.length; index++)
+                              _buildRecordCard(
+                                sheetCtx,
+                                records[index],
+                                canEdit: index == 0 && latestCanBeEdited,
+                              ),
+                          ],
+                        ),
+                ),
+              ],
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
 
-  Widget _buildRecordCard(CrayfishHarvestRecord r) {
-    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  bool _isToday(DateTime date) {
+    final now = DateTime.now();
+    return date.year == now.year &&
+        date.month == now.month &&
+        date.day == now.day;
+  }
+
+  Widget _buildRecordCard(
+    BuildContext historyContext,
+    CrayfishHarvestRecord r, {
+    required bool canEdit,
+  }) {
+    final months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
     final dateStr = '${months[r.date.month - 1]} ${r.date.day}, ${r.date.year}';
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -341,25 +532,161 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
           children: [
             Container(
               padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(color: AppColors.primary.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
-              child: const Icon(Icons.archive_rounded, size: 18, color: AppColors.primary),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(
+                Icons.archive_rounded,
+                size: 18,
+                color: AppColors.primary,
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(dateStr, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.dark)),
+                  Text(
+                    dateStr,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.dark,
+                    ),
+                  ),
                   const SizedBox(height: 4),
-                  Text('${r.harvestedCount} pcs | ${r.totalWeightKg.toStringAsFixed(2)}kg | ABW: ${r.abwGrams.toStringAsFixed(1)}g',
-                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: AppColors.dark.withValues(alpha: 0.5)),
+                  Text(
+                    '${r.harvestedCount} pcs | ${r.totalWeightKg.toStringAsFixed(2)}kg | ABW: ${r.abwGrams.toStringAsFixed(1)}g',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.dark.withValues(alpha: 0.5),
+                    ),
                   ),
                 ],
               ),
             ),
+            if (canEdit)
+              TextButton.icon(
+                onPressed: () =>
+                    _showEditLatestHarvestDialog(historyContext, r),
+                icon: const Icon(Icons.edit_rounded, size: 14),
+                label: const Text('Edit'),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.primary,
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
           ],
         ),
       ),
     );
+  }
+
+  void _showEditLatestHarvestDialog(
+    BuildContext context,
+    CrayfishHarvestRecord record,
+  ) {
+    final countController = TextEditingController(
+      text: record.harvestedCount.toString(),
+    );
+    final weightController = TextEditingController(
+      text: record.totalWeightKg.toStringAsFixed(2),
+    );
+    var saving = false;
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Edit Latest Harvest'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: countController,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: const InputDecoration(
+                  labelText: 'Harvested count',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: weightController,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$')),
+                ],
+                decoration: const InputDecoration(
+                  labelText: 'Total weight (kg)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: saving ? null : () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: saving
+                  ? null
+                  : () async {
+                      final count = int.tryParse(countController.text) ?? 0;
+                      final weight =
+                          double.tryParse(weightController.text) ?? 0;
+                      if (count <= 0 || weight <= 0) {
+                        showBeautifulSnackbar(
+                          dialogContext,
+                          'Enter a valid harvest count and weight.',
+                          false,
+                        );
+                        return;
+                      }
+                      setDialogState(() => saving = true);
+                      final messenger = ScaffoldMessenger.of(context);
+                      try {
+                        await TankService.instance.updateLastHarvestRecord(
+                          harvestedCount: count,
+                          totalWeightKg: weight,
+                        );
+                      } catch (error) {
+                        if (!dialogContext.mounted) return;
+                        setDialogState(() => saving = false);
+                        showBeautifulSnackbar(
+                          dialogContext,
+                          'Failed to update: ${error.toString().replaceFirst('Exception: ', '')}',
+                          false,
+                        );
+                        return;
+                      }
+                      if (!dialogContext.mounted) return;
+                      Navigator.pop(dialogContext);
+                      showBeautifulSnackbarWithMessenger(
+                        messenger,
+                        'Harvest updated to $count pcs / ${weight.toStringAsFixed(2)} kg.',
+                        true,
+                      );
+                    },
+              child: saving
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Save Changes'),
+            ),
+          ],
+        ),
+      ),
+    ).whenComplete(() {
+      countController.dispose();
+      weightController.dispose();
+    });
   }
 }

@@ -633,7 +633,10 @@ class ControlsScreenState extends State<ControlsScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 260), reverseDuration: Duration(milliseconds: 220)),
+      sheetAnimationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 260),
+        reverseDuration: Duration(milliseconds: 220),
+      ),
       builder: (sheetCtx) {
         return StatefulBuilder(
           builder: (sheetCtx, setModalState) {
@@ -757,7 +760,7 @@ class ControlsScreenState extends State<ControlsScreen> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Water-quality override follows the shared setting for Feed Now and scheduled feeding. Sensor freshness and critical feed-level safety checks still apply.',
+                    'Out-of-range readings show a warning but do not block feeding. Missing or invalid sensor data (including a turbidity probe in air) and critical feed level still block dispensing.',
                     style: TextStyle(
                       fontSize: 11,
                       height: 1.35,
@@ -898,23 +901,6 @@ class ControlsScreenState extends State<ControlsScreen> {
     }
   }
 
-  Future<void> _setAllowWaterQualityFeeding(bool enabled) async {
-    try {
-      await FeederService.instance.setAllowWaterQualityFeeding(enabled);
-      // The checkbox updates optimistically; avoid waiting for the callable
-      // just to show a delayed success snackbar. Only failures need feedback.
-    } catch (error) {
-      if (mounted) {
-        showBeautifulSnackbar(
-          context,
-          _scheduleErrorText(error),
-          false,
-          title: 'Feeding setting not saved',
-        );
-      }
-    }
-  }
-
   Future<void> _toggleSchedule(int index, bool enabled) async {
     try {
       await FeederService.instance.toggleSchedule(index, enabled);
@@ -996,10 +982,8 @@ class ControlsScreenState extends State<ControlsScreen> {
                       onFeedNow: _showFeedNowDialog,
                       onAddSchedule: (grams, days) =>
                           _addSchedule(grams: grams, days: days),
-                      allowWaterQualityFeeding:
-                          FeederService.instance.allowWaterQualityFeeding,
-                      onSetAllowWaterQualityFeeding:
-                          _setAllowWaterQualityFeeding,
+                      waterQualityWarnings:
+                          FeederService.instance.waterQualityWarnings,
                       onDeleteSchedule: (index) =>
                           unawaited(_deleteSchedule(index)),
                       onEditSchedule: (index, item) =>
@@ -1334,7 +1318,10 @@ class ControlsScreenState extends State<ControlsScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 260), reverseDuration: Duration(milliseconds: 220)),
+      sheetAnimationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 260),
+        reverseDuration: Duration(milliseconds: 220),
+      ),
       builder: (ctx) {
         return SafeArea(
           child: Padding(

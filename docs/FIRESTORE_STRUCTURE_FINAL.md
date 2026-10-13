@@ -182,15 +182,16 @@ The app and deployed Cloud Function write only `scheduled_time`. App, backend, a
     schedule_key: string | null        # originating schedule, also used by missed audit
     schedule_time: string | null
     occurrence_at: Timestamp | null
-    status: "completed" | "blocked" | "skipped_insufficient" | "failed" | null
+    status: "completed" | "forced" | "blocked" | "skipped_insufficient" | "failed" | null
     requested_grams: number | null
     estimated_dispensed_grams: number | null # servo-cycle estimate; not directly weighed
     amount_basis: "servo_cycle_estimate" | null
     feed_level_before: number | null
     feed_level_after: number | null
     level_change_detected: boolean | null
+    water_quality_warning: string | null # valid but out-of-range readings observed at a completed feed; warning only
 
-  water_quality_anomaly_detections/current
+  water_quality_anomaly_detection_history/{YYYYMMDDTHHMMSS}
     uid: string
     tank_id: string
     status: "Normal" | "Unusual" | "Insufficient"
@@ -203,15 +204,15 @@ The app and deployed Cloud Function write only `scheduled_time`. App, backend, a
     insight, recommendation
     processed_at: Timestamp
 
-  water_quality_anomaly_detection_history/{YYYYMMDDTHHMMSS}
-    # Same anomaly-detection schema as `current`; retained as hourly history.
+    # Each fresh history record can append one result; newest processed_at is the latest.
+    # The app no longer reads or writes a separate `current` result document.
 ```
 
 `effective_at_ms` is reset when a feeding schedule is created, edited, or re-enabled. It prevents an occurrence that happened before that instant from being falsely classified as missed.
 
-The feeder log trigger sets date-scoped schedule outcomes. `isDone` is legacy compatibility only, not proof of success. Feeder history is append-only: authorized clients can create entries, but cannot update or delete an existing log. `pending_confirmation` is a non-terminal audit entry and therefore has no required `status`. Offline retries retain the original tank, occurrence timestamp and deterministic log id. Interrupted dispensing is recorded as failed and is not replayed after reboot. Schedule and Feed Now dose values remain requested whole-gram amounts from 1–200. A completed cycle, including a confirmed override, may also record `estimated_dispensed_grams` from the servo-cycle estimate, not a direct weight measurement; hopper feed level remains percentage-only. The ESP blocks feeding at or below the configured critical percentage. App and ESP read all schedule pages.
+The feeder log trigger sets date-scoped schedule outcomes. `isDone` is legacy compatibility only, not proof of success. Feeder history is append-only: authorized clients can create entries, but cannot update or delete an existing log. `pending_confirmation` is a non-terminal audit entry and therefore has no required `status`. Offline retries retain the original tank, occurrence timestamp and deterministic log id. Interrupted dispensing is recorded as failed and is not replayed after reboot. Schedule and Feed Now dose values remain requested whole-gram amounts from 1–200. A completed cycle, including a physical-button confirmation for a schedule collision, may also record `estimated_dispensed_grams` from the servo-cycle estimate, not a direct weight measurement; valid water-quality readings outside configured ranges are warning-only and may be recorded in `water_quality_warning`. Missing/stale/invalid sensors and critical feed level remain hard stops. Hopper feed level remains percentage-only. App and ESP read all schedule pages.
 
-Machine Learning-Based Water Quality Anomaly Detection (WQAD) uses an unsupervised `IsolationForest` over multivariate readings, spreads, changes, rolling behavior, and trends. It requires twelve contiguous ten-minute readings (±2-minute cadence tolerance), representing a two-hour window. Source data older than 20 minutes is marked stale/Insufficient. Safety thresholds remain separate: they are neither model features nor training labels. Model metadata clearly identifies the current artifact as a synthetic bootstrap until it is retrained and validated using calibrated field data from the actual tank.
+Machine Learning-Based Water Quality Anomaly Detection (WQAD) uses an unsupervised `IsolationForest` over multivariate readings, spreads, changes, rolling behavior, and trends. It requires at least six valid readings spanning 110 minutes within a continuous two-hour window; actual capture times determine readiness. Source data older than 20 minutes is marked stale/Insufficient. Safety thresholds remain separate: they are neither model features nor training labels. The current model still requires validation using calibrated field data from the actual tank.
 
 Runtime event times (`logged_at`, `occurrence_at`, `last_changed`, `lastSeen`, `last_dispensed_at`, and `source_recorded_at`) are stored as Firestore Timestamps. `created_at` is the record creation time; fields such as `sampling_date` represent when the sampling event occurred. Readers remain compatible with legacy epoch-millisecond, Unix-second, ISO-string, and `DateTime` values during rollout. Explicit millisecond protocol fields (`effective_at_ms`, `source_assignment_at_ms`, `captured_at_ms`) remain integers because scheduling and sensor-routing logic compare them at millisecond precision.
 

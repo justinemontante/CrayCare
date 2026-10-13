@@ -10,10 +10,9 @@ void main() {
     WidgetTester tester, {
     List<ScheduleItem> schedules = const [],
     Future<bool> Function(double?, String)? onAdd,
-    bool allowWaterQualityFeeding = false,
-    Future<void> Function(bool)? onSetFeedingPolicy,
     Future<bool> Function(int, ScheduleItem)? onEdit,
     List<LogEntry> feederLogs = const [],
+    List<String> waterQualityWarnings = const [],
   }) async {
     final errorHandler = FlutterError.onError;
     FlutterError.onError = (details) {
@@ -35,12 +34,11 @@ void main() {
             timeCtl: controller,
             onFeedNow: () {},
             onAddSchedule: onAdd ?? (_, _) async => true,
-            allowWaterQualityFeeding: allowWaterQualityFeeding,
-            onSetAllowWaterQualityFeeding: onSetFeedingPolicy ?? (_) async {},
             onDeleteSchedule: (_) {},
             onEditSchedule: onEdit ?? (_, _) async => true,
             onToggleSchedule: (_, _) {},
             feederLogs: feederLogs,
+            waterQualityWarnings: waterQualityWarnings,
           ),
         ),
       ),
@@ -91,6 +89,7 @@ void main() {
           status: 'completed',
           requestedGrams: 1,
           estimatedDispensedGrams: 1,
+          waterQualityWarning: 'Dissolved oxygen is below range: 3.0 mg/L',
         ),
       ],
     );
@@ -102,6 +101,10 @@ void main() {
     expect(find.text('Completed'), findsOneWidget);
     expect(find.textContaining('Dose 1g'), findsOneWidget);
     expect(find.textContaining('Est. dispensed ~1g'), findsOneWidget);
+    expect(
+      find.textContaining('Water-quality warning: Dissolved oxygen'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('add schedule rejects unsupported dose and waits for save', (
@@ -143,25 +146,23 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets(
-    'shared manual and scheduled feeding policy is shown outside the editor',
-    (tester) async {
-      bool? savedPolicy;
-      await pumpFeeder(
-        tester,
-        onSetFeedingPolicy: (enabled) async {
-          savedPolicy = enabled;
-        },
-      );
-      final policyCheckbox = find.byType(CheckboxListTile);
-      expect(policyCheckbox, findsOneWidget);
-      expect(tester.widget<CheckboxListTile>(policyCheckbox).value, isFalse);
-      await tester.tap(policyCheckbox);
-      await tester.pumpAndSettle();
-      expect(savedPolicy, isTrue);
-      expect(tester.takeException(), isNull);
-    },
-  );
+  testWidgets('water-quality warning is shown without an override checkbox', (
+    tester,
+  ) async {
+    await pumpFeeder(
+      tester,
+      waterQualityWarnings: const ['Dissolved oxygen is below range: 3.0 mg/L'],
+    );
+
+    expect(find.text('Water-quality warning'), findsOneWidget);
+    expect(
+      find.textContaining('Dissolved oxygen is below range'),
+      findsOneWidget,
+    );
+    expect(find.byType(CheckboxListTile), findsNothing);
+    expect(find.textContaining('Feeding is allowed'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('edit schedule preserves the sheet when save fails', (
     tester,

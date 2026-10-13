@@ -208,8 +208,9 @@ class NotificationService extends ChangeNotifier {
         : _visibleNotifications.where((n) => n.isUnread).length;
   }
 
-  int get criticalCount =>
-      _visibleNotifications.where((n) => n.notif_type == 'critical').length;
+  int get criticalCount => _visibleNotifications
+      .where((n) => n.notif_type == 'critical' && _isToday(n.created_at))
+      .length;
   List<NotificationItem> get todayNotifications =>
       _visibleNotifications.where((n) => _isToday(n.created_at)).toList();
   int get todayCount => todayNotifications.length;

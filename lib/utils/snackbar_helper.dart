@@ -5,8 +5,19 @@ void showBeautifulSnackbar(
   String message,
   bool isSuccess, {
   String? title,
+  bool isLoading = false,
+  Duration? duration,
+  AnimationStyle? animationStyle,
 }) {
-  _showSnack(ScaffoldMessenger.of(context), message, isSuccess, title: title);
+  _showSnack(
+    ScaffoldMessenger.of(context),
+    message,
+    isSuccess,
+    title: title,
+    isLoading: isLoading,
+    duration: duration,
+    animationStyle: animationStyle,
+  );
 }
 
 /// Same as [showBeautifulSnackbar] but uses an already-captured
@@ -17,8 +28,19 @@ void showBeautifulSnackbarWithMessenger(
   String message,
   bool isSuccess, {
   String? title,
+  bool isLoading = false,
+  Duration? duration,
+  AnimationStyle? animationStyle,
 }) {
-  _showSnack(messenger, message, isSuccess, title: title);
+  _showSnack(
+    messenger,
+    message,
+    isSuccess,
+    title: title,
+    isLoading: isLoading,
+    duration: duration,
+    animationStyle: animationStyle,
+  );
 }
 
 void _showSnack(
@@ -26,6 +48,9 @@ void _showSnack(
   String message,
   bool isSuccess, {
   String? title,
+  bool isLoading = false,
+  Duration? duration,
+  AnimationStyle? animationStyle,
 }) {
   // A queued snackbar can make feedback from a recent toggle appear late.
   // Discard stale messages and replace the current one immediately.
@@ -42,13 +67,21 @@ void _showSnack(
               color: Colors.white.withValues(alpha: 0.2),
               shape: BoxShape.circle,
             ),
-            child: Icon(
-              isSuccess
-                  ? Icons.check_circle_rounded
-                  : Icons.warning_amber_rounded,
-              color: Colors.white,
-              size: 20,
-            ),
+            child: isLoading
+                ? const Padding(
+                    padding: EdgeInsets.all(9),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : Icon(
+                    isSuccess
+                        ? Icons.check_circle_rounded
+                        : Icons.warning_amber_rounded,
+                    color: Colors.white,
+                    size: 20,
+                  ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -95,7 +128,9 @@ void _showSnack(
           ),
         ],
       ),
-      backgroundColor: isSuccess
+      backgroundColor: isLoading
+          ? const Color(0xFF0F766E)
+          : isSuccess
           ? const Color(0xFF059669)
           : const Color(0xFFDC2626),
       behavior: SnackBarBehavior.floating,
@@ -103,7 +138,8 @@ void _showSnack(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       elevation: 12,
-      duration: const Duration(seconds: 2),
+      duration: duration ?? const Duration(seconds: 2),
     ),
+    snackBarAnimationStyle: animationStyle,
   );
 }

@@ -78,7 +78,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           const SizedBox(width: 6),
           _buildKpiCard('Unread', '${svc.unreadCount}', AppColors.warning),
           const SizedBox(width: 6),
-          _buildKpiCard('Critical', '${svc.criticalCount}', AppColors.critical),
+          _buildKpiCard('Critical Today', '${svc.criticalCount}', AppColors.critical),
           const SizedBox(width: 6),
           _buildKpiCard('Reminders', '${svc.reminderCount}', AppColors.warningDark),
         ],
@@ -99,7 +99,15 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           children: [
             Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: color)),
             const SizedBox(height: 2),
-            Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.6), letterSpacing: 0.2)),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                label,
+                maxLines: 1,
+                softWrap: false,
+                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.6), letterSpacing: 0.2),
+              ),
+            ),
           ],
         ),
       ),

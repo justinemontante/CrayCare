@@ -193,13 +193,14 @@
           "schedule_key (string, optional)",
           "schedule_time (string, optional)",
           "occurrence_at (Firestore Timestamp, optional)",
-          "status (completed|blocked|skipped_insufficient|failed, optional)",
+          "status (completed|forced|blocked|skipped_insufficient|failed, optional)",
           "requested_grams (double, optional)",
           "estimated_dispensed_grams (double, optional; servo-cycle estimate, not directly weighed)",
           "amount_basis (servo_cycle_estimate, optional)",
           "feed_level_before (double, optional)",
           "feed_level_after (double, optional)",
-          "level_change_detected (bool, optional)"
+          "level_change_detected (bool, optional)",
+          "water_quality_warning (string, optional; valid out-of-range readings observed during a successfully dispensed ESP feed; warning only)"
         ]
       },
       "feeder_commands/{commandId}": {
@@ -210,12 +211,11 @@
           "issued_by (uid)",
           "issued_at (Timestamp)",
           "expires_at (Timestamp)",
-          "near_schedule_confirmed (bool)",
-          "allow_water_quality_override (bool, optional; one manual request only; range violations only)"
+          "near_schedule_confirmed (bool)"
         ]
       },
       "water_quality_anomaly_detections/{detectionId}": {
-        "_description": "Machine Learning-Based Water Quality Anomaly Detection (WQAD) documents. `current` is the live alias; timestamp-named documents provide history. The unsupervised model learns the tank's usual multivariate sensor patterns without threshold-derived labels. Written by the Python Cloud Function via Admin SDK.",
+        "_description": "Legacy WQAD result documents retained for read compatibility. New results are not written here; the old `current` document is ignored by the app. Timestamped legacy results may remain readable and are pruned after the retention period. The canonical result history is water_quality_anomaly_detection_history.",
         "fields": [
           "uid (owner uid)",
           "tank_id (string)",
@@ -233,8 +233,8 @@
       }
       ,
       "water_quality_anomaly_detection_history/{detectionId}": {
-        "_description": "Hourly WQAD history records using the same payload as water_quality_anomaly_detections/current. New writes go here; legacy timestamp-named documents in the current-alias collection remain readable during transition.",
-        "fields": ["same fields as tanks/{tankId}/water_quality_anomaly_detections/current"]
+        "_description": "Canonical WQAD result history. The Python Cloud Function appends one timestamp-named result every 15-minute run; the app derives the latest result from the greatest processed_at timestamp. Records are retained for 30 days.",
+        "fields": ["uid (owner uid)", "tank_id (string)", "status (Normal|Unusual|Insufficient)", "is_anomaly (bool)", "anomaly_score (0-100 percentile relative to learned reference patterns; not a safety score)", "source (WQAD model|Model unavailable|Insufficient data|Stale sensor history)", "data_status (ready|insufficient|stale)", "source_recorded_at (Timestamp|null)", "contributors (array of sensor, value, direction, contribution_score)", "insight (string)", "recommendation (string)", "processed_at (Timestamp)"]
       }
     }
   },

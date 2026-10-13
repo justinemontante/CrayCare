@@ -2,6 +2,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:craycare/models/control_types.dart';
 
 void main() {
+  const ranges = {
+    'temp': {'min': 24.0, 'max': 32.0},
+    'do': {'min': 5.0, 'max': 9.0},
+    'ph': {'min': 6.0, 'max': 8.0},
+    'turb': {'min': 3.0, 'max': 50.0},
+    'feedlevel': {'min': 20.0, 'max': 100.0, 'critical': 10.0},
+  };
+
   String check({
     bool online = true,
     bool busy = false,
@@ -14,7 +22,6 @@ void main() {
     double ph = 7,
     double turbidity = 10,
     bool turbidityAir = false,
-    bool allowWaterQualityOverride = false,
   }) => feederPreflightIssue(
     internetOnline: online,
     feederOnline: true,
@@ -29,73 +36,51 @@ void main() {
       'feedlevel': level,
     },
     freshSensors: fresh ?? {'temp', 'do', 'ph', 'turb', 'feedlevel'},
-    ranges: {
-      'temp': {'min': 24, 'max': 32},
-      'do': {'min': 5, 'max': 9},
-      'ph': {'min': 6, 'max': 8},
-      'turb': {'min': 3, 'max': 50},
-      'feedlevel': {'min': 20, 'max': 100, 'critical': 10},
-    },
+    ranges: ranges,
     grams: grams,
-    allowWaterQualityOverride: allowWaterQualityOverride,
   );
-  test('feed safety uses the configured percentage threshold only', () {
-    expect(check(), isEmpty);
-    expect(check(level: 20), isEmpty);
-    expect(check(level: 10), contains('critical'));
-    expect(check(level: 0), contains('critical'));
+
+  test('out-of-range water readings warn but do not block feeding', () {
+    expect(check(turbidity: 55), isEmpty);
+    expect(check(oxygen: 3), isEmpty);
+    expect(check(oxygen: 10), isEmpty);
+    expect(check(temperature: 33), isEmpty);
+    expect(check(ph: 9), isEmpty);
+
+    final warnings = feederWaterQualityWarnings(
+      values: {'temp': 33, 'do': 3, 'ph': 9, 'turb': 55},
+      freshSensors: {'temp', 'do', 'ph', 'turb'},
+      ranges: ranges,
+    );
+    expect(warnings, hasLength(4));
+    expect(warnings.join(' '), contains('Temperature is above range'));
+    expect(warnings.join(' '), contains('Dissolved oxygen is below range'));
+    expect(warnings.join(' '), contains('pH is above range'));
+    expect(warnings.join(' '), contains('Turbidity is above range'));
   });
-  test('water-quality range override is explicit and request-scoped', () {
-    expect(check(turbidity: 55), contains('Turbidity too high'));
-    expect(check(turbidity: 55, allowWaterQualityOverride: true), isEmpty);
-    expect(
-      check(turbidity: 55, allowWaterQualityOverride: true, oxygen: 3),
-      isEmpty,
-    );
-    expect(check(oxygen: 3, allowWaterQualityOverride: true), isEmpty);
-    expect(check(oxygen: 10), contains('Dissolved oxygen too high'));
-    expect(check(oxygen: 10, allowWaterQualityOverride: true), isEmpty);
-    expect(check(turbidity: 1), contains('Turbidity below range'));
-    expect(check(turbidity: 1, allowWaterQualityOverride: true), isEmpty);
-    expect(check(temperature: 33), contains('Temperature outside range'));
-    expect(check(temperature: 33, allowWaterQualityOverride: true), isEmpty);
-    expect(check(ph: 9), contains('pH outside range'));
-    expect(check(ph: 9, allowWaterQualityOverride: true), isEmpty);
-    expect(
-      check(level: 10, allowWaterQualityOverride: true),
-      contains('critical'),
-    );
-    expect(
-      check(fresh: {'temp', 'do', 'ph', 'feedlevel'}),
-      contains('Waiting for fresh turbidity data'),
-    );
-    expect(
-      check(
-        fresh: {'temp', 'do', 'ph', 'feedlevel'},
-        allowWaterQualityOverride: true,
-      ),
-      contains('Waiting for fresh turbidity data'),
-    );
-    expect(
-      check(turbidityAir: true, fresh: {'temp', 'do', 'ph', 'feedlevel'}),
-      contains('Waiting for fresh turbidity data'),
-    );
-    expect(
-      check(
-        turbidityAir: true,
-        fresh: {'temp', 'do', 'ph', 'feedlevel'},
-        allowWaterQualityOverride: true,
-      ),
-      isEmpty,
-    );
-    expect(
-      check(
-        fresh: {'do', 'ph', 'turb', 'feedlevel'},
-        allowWaterQualityOverride: true,
-      ),
-      contains('Waiting for fresh temperature data'),
-    );
-  });
+
+  test(
+    'critical hopper, missing/stale sensors, and probe in air still block',
+    () {
+      expect(check(level: 10), contains('critical'));
+      expect(check(level: 0), contains('critical'));
+      expect(
+        check(fresh: {'temp', 'do', 'ph', 'feedlevel'}),
+        contains('Waiting for fresh turbidity data'),
+      );
+      expect(check(turbidityAir: true), contains('Turbidity probe is in air'));
+      expect(
+        feederWaterQualityWarnings(
+          values: {'turb': 55},
+          freshSensors: {'turb'},
+          ranges: ranges,
+          turbidityAir: true,
+        ),
+        isEmpty,
+      );
+    },
+  );
+
   test(
     'dispatch preflight rejects offline, busy, stale and invalid requests',
     () {
@@ -107,7 +92,6 @@ void main() {
         contains('fresh'),
       );
       expect(check(oxygen: -1), contains('fresh'));
-      expect(check(oxygen: 3), contains('too low'));
       expect(check(grams: 21), isEmpty);
       expect(check(grams: 5), isEmpty);
       expect(check(grams: null), isEmpty);

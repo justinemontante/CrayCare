@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
 import '../../services/settings_service.dart';
 import '../../services/database_service.dart';
+import '../../utils/snackbar_helper.dart';
+import 'threshold_editor_dialog.dart';
 
 class SensorThresholdSettings extends StatefulWidget {
   const SensorThresholdSettings({super.key});
@@ -27,6 +31,10 @@ class _SensorMeta {
 class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
   static const List<String> _waterQualitySensors = ['temp', 'ph', 'do', 'turb'];
   static const List<String> _physicalSensors = ['waterlevel', 'feedlevel'];
+  static const AnimationStyle _thresholdSnackbarAnimation = AnimationStyle(
+    duration: Duration(milliseconds: 120),
+    reverseDuration: Duration(milliseconds: 100),
+  );
 
   final Map<String, _SensorMeta> sensorMeta = const {
     'temp': _SensorMeta(
@@ -67,9 +75,11 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
     ),
   };
 
-  // Prevent overlapping writes without rebuilding or shifting the page behind
-  // the open editor/success dialog.
+  // Keep one editing/saving flow active until the dialog is fully removed.
   bool _saving = false;
+  bool _editorOpen = false;
+  OverlayEntry? _validationSnackbarEntry;
+  Timer? _validationSnackbarTimer;
 
   // Safety limits — mirror firestore.rules isSafeThreshold(). The app
   // validates BEFORE saving so users get a clear message instead of a
@@ -150,6 +160,7 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
   @override
   void dispose() {
     SettingsService.instance.removeListener(_onSettingsChanged);
+    _hideValidationSnackbar();
     super.dispose();
   }
 
@@ -157,95 +168,136 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
     if (mounted) setState(() {});
   }
 
-  void _showSuccessModal(String message) {
-    showDialog(
-      context: context,
-      animationStyle: const AnimationStyle(
-        duration: Duration(milliseconds: 220),
-        reverseDuration: Duration(milliseconds: 180),
-      ),
-      builder: (ctx) => _buildSuccessDialog(ctx, message),
+  void _showSuccessMessage(String message) {
+    if (!mounted) return;
+    showBeautifulSnackbar(
+      context,
+      message,
+      true,
+      animationStyle: _thresholdSnackbarAnimation,
     );
   }
 
-  void _replaceEditorWithSuccess<T>(
-    BuildContext editorContext,
-    String message,
-    T result,
-  ) {
-    Navigator.of(editorContext).pushReplacement<void, T>(
-      DialogRoute<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (ctx) => _buildSuccessDialog(ctx, message),
-      ),
-      result: result,
+  void _showSavingMessage() {
+    if (!mounted) return;
+    showBeautifulSnackbar(
+      context,
+      'Applying your new sensor limits.',
+      true,
+      title: 'Saving thresholds…',
+      isLoading: true,
+      duration: const Duration(minutes: 1),
+      animationStyle: _thresholdSnackbarAnimation,
     );
   }
 
-  Widget _buildSuccessDialog(BuildContext dialogContext, String message) {
-    return AlertDialog(
-      backgroundColor: Colors.white,
-      surfaceTintColor: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.all(16),
+  void _showValidationSnackbar(BuildContext dialogContext, String message) {
+    if (!mounted || !dialogContext.mounted) return;
+    _hideValidationSnackbar();
+
+    final safeTop = MediaQuery.of(dialogContext).viewPadding.top;
+    final entry = OverlayEntry(
+      builder: (overlayContext) => Positioned(
+        top: safeTop + 12,
+        left: 16,
+        right: 16,
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
             decoration: BoxDecoration(
-              color: const Color(0xFF22c55e).withValues(alpha: 0.15),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.check_circle_rounded,
-              color: Color(0xFF22c55e),
-              size: 50,
-            ),
-          ),
-          const SizedBox(height: 20),
-          const Text(
-            'Updated Successfully!',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
-              color: AppColors.dark,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            message,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 12,
-              color: AppColors.dark.withValues(alpha: 0.6),
-              height: 1.4,
-            ),
-          ),
-          const SizedBox(height: 24),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.white,
-                elevation: 0,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+              color: const Color(0xFFDC2626),
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x330B3C49),
+                  blurRadius: 14,
+                  offset: Offset(0, 4),
                 ),
-              ),
-              child: const Text(
-                'Done',
-                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
-              ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.warning_amber_rounded,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 11),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'Check your threshold values',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        message,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.92),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 6),
+                IconButton(
+                  onPressed: _hideValidationSnackbar,
+                  tooltip: 'Dismiss',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints.tightFor(
+                    width: 30,
+                    height: 30,
+                  ),
+                  icon: const Icon(
+                    Icons.close_rounded,
+                    color: Colors.white,
+                    size: 18,
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
+        ),
       ),
     );
+
+    _validationSnackbarEntry = entry;
+    Overlay.of(dialogContext, rootOverlay: true).insert(entry);
+    _validationSnackbarTimer = Timer(
+      const Duration(seconds: 4),
+      _hideValidationSnackbar,
+    );
+  }
+
+  void _hideValidationSnackbar() {
+    _validationSnackbarTimer?.cancel();
+    _validationSnackbarTimer = null;
+    final entry = _validationSnackbarEntry;
+    _validationSnackbarEntry = null;
+    if (entry != null) {
+      entry.remove();
+      entry.dispose();
+    }
   }
 
   Future<bool> _saveConfigToFirebase({
@@ -256,15 +308,19 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
     // enforces the same bounds in rules).
     final validationError = _validateRanges(changedKey: changedKey);
     if (validationError != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('⚠️ $validationError'),
-          duration: const Duration(seconds: 4),
-        ),
+      showBeautifulSnackbar(
+        context,
+        validationError,
+        false,
+        title: 'Check your threshold values',
+        animationStyle: _thresholdSnackbarAnimation,
       );
       return false;
     }
+    if (_saving) return false;
     _saving = true;
+    if (mounted) setState(() {});
+    _showSavingMessage();
     try {
       await DatabaseService.instance.saveSensorThresholds(
         currentRanges: SettingsService.instance.currentRanges,
@@ -272,23 +328,25 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
       );
       if (!mounted) return true;
       if (showMessage) {
-        _showSuccessModal(
+        _showSuccessMessage(
           changedKey != null ? 'Threshold updated!' : 'Thresholds saved!',
         );
       }
       return true;
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to save to Firebase: $e'),
-            duration: const Duration(seconds: 3),
-          ),
+        showBeautifulSnackbar(
+          context,
+          'Failed to save to Firebase: $e',
+          false,
+          title: 'Thresholds not saved',
+          animationStyle: _thresholdSnackbarAnimation,
         );
       }
       return false;
     } finally {
       _saving = false;
+      if (mounted) setState(() {});
     }
   }
 
@@ -329,7 +387,23 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
     String unit,
     double currentMin,
     double currentMax,
+  ) async {
+    if (_saving || _editorOpen || !mounted) return;
+    _editorOpen = true;
+    try {
+      await _editRange(sensorKey, unit, currentMin, currentMax);
+    } finally {
+      _editorOpen = false;
+    }
+  }
+
+  Future<void> _editRange(
+    String sensorKey,
+    String unit,
+    double currentMin,
+    double currentMax,
   ) {
+    if (_saving || !mounted) return Future<void>.value();
     if (sensorKey == 'waterlevel') {
       return _showWaterLevelEditor();
     }
@@ -341,12 +415,9 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
       text: currentMax >= 999 ? '' : currentMax.toStringAsFixed(1),
     );
 
-    return showDialog<({double min, double max})>(
+    return showThresholdEditorDialog<({double min, double max})>(
       context: context,
-      animationStyle: const AnimationStyle(
-        duration: Duration(milliseconds: 220),
-        reverseDuration: Duration(milliseconds: 180),
-      ),
+      controllers: [minCtrl, maxCtrl],
       builder: (ctx) => AlertDialog(
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
@@ -384,14 +455,24 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
           ),
           ElevatedButton(
             onPressed: () {
-              final min = double.tryParse(minCtrl.text.trim()) ?? currentMin;
-              final max =
-                  double.tryParse(maxCtrl.text.trim()) ??
-                  (currentMax >= 999 ? 999.0 : currentMax);
+              final minText = minCtrl.text.trim();
+              final maxText = maxCtrl.text.trim();
+              final min = minText.isEmpty
+                  ? currentMin
+                  : double.tryParse(minText);
+              final max = maxText.isEmpty
+                  ? (currentMax >= 999 ? 999.0 : currentMax)
+                  : double.tryParse(maxText);
               final bounds = _safeBounds[sensorKey];
               final unitText = _safeUnits[sensorKey] ?? '';
               String? candidateError;
-              if (min >= max) {
+              if (min == null ||
+                  max == null ||
+                  !min.isFinite ||
+                  !max.isFinite) {
+                candidateError =
+                    'Enter valid finite numbers for both thresholds.';
+              } else if (min >= max) {
                 candidateError = 'Minimum must be lower than maximum.';
               } else if (bounds != null &&
                   (min < bounds['minLow']! || min > bounds['minHigh']!)) {
@@ -403,19 +484,12 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
                     'Maximum must be ${bounds['maxLow']}–${bounds['maxHigh']} $unitText.';
               }
               if (candidateError != null) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(candidateError),
-                    duration: const Duration(seconds: 3),
-                  ),
-                );
+                _showValidationSnackbar(ctx, candidateError);
                 return;
               }
 
-              _replaceEditorWithSuccess(ctx, 'Threshold updated!', (
-                min: min,
-                max: max,
-              ));
+              _hideValidationSnackbar();
+              Navigator.pop(ctx, (min: min, max: max));
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
@@ -434,8 +508,7 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
         ],
       ),
     ).then((result) async {
-      minCtrl.dispose();
-      maxCtrl.dispose();
+      _hideValidationSnackbar();
       if (result == null || !mounted) return;
 
       await SettingsService.instance.updateRange(
@@ -454,6 +527,8 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
           currentMin,
           currentMax,
         );
+      } else {
+        _showSuccessMessage('Threshold updated!');
       }
     });
   }
@@ -466,12 +541,9 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
       text: previousCritical.toStringAsFixed(0),
     );
     final lowCtrl = TextEditingController(text: previousLow.toStringAsFixed(0));
-    return showDialog<({double critical, double low})>(
+    return showThresholdEditorDialog<({double critical, double low})>(
       context: context,
-      animationStyle: const AnimationStyle(
-        duration: Duration(milliseconds: 220),
-        reverseDuration: Duration(milliseconds: 180),
-      ),
+      controllers: [criticalCtrl, lowCtrl],
       builder: (ctx) => AlertDialog(
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
@@ -530,16 +602,11 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
                   critical < 0 ||
                   critical >= low ||
                   low > 95) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Use Critical < Low ≤ 95 cm.')),
-                );
+                _showValidationSnackbar(ctx, 'Use Critical < Low ≤ 95 cm.');
                 return;
               }
-              _replaceEditorWithSuccess(
-                ctx,
-                'Water Level thresholds updated!',
-                (critical: critical, low: low),
-              );
+              _hideValidationSnackbar();
+              Navigator.pop(ctx, (critical: critical, low: low));
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
@@ -558,8 +625,7 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
         ],
       ),
     ).then((result) async {
-      criticalCtrl.dispose();
-      lowCtrl.dispose();
+      _hideValidationSnackbar();
       if (result == null || !mounted) return;
 
       await SettingsService.instance.updateWaterLevelConfig(
@@ -576,6 +642,8 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
           critical: previousCritical,
           low: previousLow,
         );
+      } else {
+        _showSuccessMessage('Water Level thresholds updated!');
       }
     });
   }
@@ -588,12 +656,9 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
       text: previousCritical.toStringAsFixed(0),
     );
     final lowCtrl = TextEditingController(text: previousLow.toStringAsFixed(0));
-    return showDialog<({double critical, double low})>(
+    return showThresholdEditorDialog<({double critical, double low})>(
       context: context,
-      animationStyle: const AnimationStyle(
-        duration: Duration(milliseconds: 220),
-        reverseDuration: Duration(milliseconds: 180),
-      ),
+      controllers: [criticalCtrl, lowCtrl],
       builder: (ctx) => AlertDialog(
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
@@ -651,15 +716,11 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
                   critical >= low ||
                   low < 1 ||
                   low > 50) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Use Critical < Low ≤ 50%.')),
-                );
+                _showValidationSnackbar(ctx, 'Use Critical < Low ≤ 50%.');
                 return;
               }
-              _replaceEditorWithSuccess(ctx, 'Feed Level thresholds updated!', (
-                critical: critical,
-                low: low,
-              ));
+              _hideValidationSnackbar();
+              Navigator.pop(ctx, (critical: critical, low: low));
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
@@ -678,8 +739,7 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
         ],
       ),
     ).then((result) async {
-      criticalCtrl.dispose();
-      lowCtrl.dispose();
+      _hideValidationSnackbar();
       if (result == null || !mounted) return;
 
       await SettingsService.instance.updateFeedLevelConfig(
@@ -696,6 +756,8 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
           critical: previousCritical,
           low: previousLow,
         );
+      } else {
+        _showSuccessMessage('Feed Level thresholds updated!');
       }
     });
   }

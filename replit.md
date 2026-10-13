@@ -22,9 +22,10 @@ ESP32
   → notification Cloud Functions route readings to the assigned tank
   → tanks/{tankId}/sensor_readings/latest
   → tanks/{tankId}/sensor_readings_history/{date}/entries/{id}
-  → every-30-minute Python run_wqad_analysis
+  → every-15-minute Python run_wqad_analysis
   → Machine Learning-Based Water Quality Anomaly Detection
-  → tanks/{tankId}/water_quality_anomaly_detections/current + timestamped history
+  → one timestamped result in tanks/{tankId}/water_quality_anomaly_detection_history
+  → app uses the newest processed_at history record as latest
   → WaterQualityAnomalyDetectionService
   → dashboard card, history, reports, and CrayAI insights
 ```

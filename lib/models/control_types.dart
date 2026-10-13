@@ -28,7 +28,6 @@ String feederPreflightIssue({
   required Set<String> freshSensors,
   required Map<String, Map<String, double>> ranges,
   double? grams,
-  bool allowWaterQualityOverride = false,
 }) {
   final doseError = validateFeederGrams(grams);
   if (doseError != null) return doseError;
@@ -36,6 +35,9 @@ String feederPreflightIssue({
   if (busy) return 'A feeding request is already in progress';
   if (!feederOnline) return 'Feeder is offline';
   if (!schedulesLoaded) return 'Waiting for feeding schedules';
+  if (turbidityAir) {
+    return 'Turbidity probe is in air; submerge it before feeding.';
+  }
   for (final entry in const {
     'temp': 'temperature',
     'do': 'dissolved oxygen',
@@ -43,43 +45,12 @@ String feederPreflightIssue({
     'turb': 'turbidity',
     'feedlevel': 'feed-level',
   }.entries) {
-    // The shared override may proceed without a turbidity reading specifically
-    // when the device reports the probe is in air. Other sensors remain
-    // required and must still have fresh, valid readings.
-    if (entry.key == 'turb' && turbidityAir && allowWaterQualityOverride) {
-      continue;
-    }
     final value = values[entry.key];
     if (!freshSensors.contains(entry.key) ||
         value == null ||
         !value.isFinite ||
         value < 0) {
       return 'Waiting for fresh ${entry.value} data';
-    }
-  }
-  if (!allowWaterQualityOverride) {
-    final temp = values['temp']!;
-    if (temp < (ranges['temp']?['min'] ?? 0) ||
-        temp > (ranges['temp']?['max'] ?? 50)) {
-      return 'Temperature outside range (${temp.toStringAsFixed(1)}°C)';
-    }
-    final oxygen = values['do']!;
-    if (oxygen < (ranges['do']?['min'] ?? 0)) {
-      return 'Dissolved oxygen too low (${oxygen.toStringAsFixed(1)} mg/L)';
-    }
-    if (oxygen > (ranges['do']?['max'] ?? 999)) {
-      return 'Dissolved oxygen too high (${oxygen.toStringAsFixed(1)} mg/L)';
-    }
-    final ph = values['ph']!;
-    if (ph < (ranges['ph']?['min'] ?? 0) || ph > (ranges['ph']?['max'] ?? 14)) {
-      return 'pH outside range (${ph.toStringAsFixed(2)})';
-    }
-    final turbidity = values['turb']!;
-    if (turbidity < (ranges['turb']?['min'] ?? 0)) {
-      return 'Turbidity below range (${turbidity.toStringAsFixed(0)} NTU)';
-    }
-    if (turbidity > (ranges['turb']?['max'] ?? 999)) {
-      return 'Turbidity too high (${turbidity.toStringAsFixed(0)} NTU)';
     }
   }
   if (values['feedlevel']! > 100) return 'Waiting for valid feed-level data';
@@ -89,6 +60,77 @@ String feederPreflightIssue({
     return 'Feed level is critical (${feedLevel.toStringAsFixed(0)}%). Refill the hopper before feeding.';
   }
   return '';
+}
+
+/// Reports configured water-quality range violations without blocking a feed.
+/// Missing, stale, invalid, or air-exposed sensor readings are handled by the
+/// separate feeder preflight and remain hard stops.
+List<String> feederWaterQualityWarnings({
+  required Map<String, double> values,
+  required Set<String> freshSensors,
+  required Map<String, Map<String, double>> ranges,
+  bool turbidityAir = false,
+}) {
+  final warnings = <String>[];
+
+  void checkRange({
+    required String key,
+    required String label,
+    required String unit,
+    required int decimals,
+    required double fallbackMin,
+    required double fallbackMax,
+  }) {
+    if (!freshSensors.contains(key) || (key == 'turb' && turbidityAir)) return;
+    final value = values[key];
+    if (value == null || !value.isFinite || value < 0) return;
+    final min = ranges[key]?['min'] ?? fallbackMin;
+    final max = ranges[key]?['max'] ?? fallbackMax;
+    final formattedValue = '${value.toStringAsFixed(decimals)}$unit';
+    if (value < min) {
+      warnings.add(
+        '$label is below range: $formattedValue (minimum ${min.toStringAsFixed(decimals)}$unit)',
+      );
+    } else if (value > max) {
+      warnings.add(
+        '$label is above range: $formattedValue (maximum ${max.toStringAsFixed(decimals)}$unit)',
+      );
+    }
+  }
+
+  checkRange(
+    key: 'temp',
+    label: 'Temperature',
+    unit: '°C',
+    decimals: 1,
+    fallbackMin: 0,
+    fallbackMax: 50,
+  );
+  checkRange(
+    key: 'do',
+    label: 'Dissolved oxygen',
+    unit: ' mg/L',
+    decimals: 1,
+    fallbackMin: 0,
+    fallbackMax: 999,
+  );
+  checkRange(
+    key: 'ph',
+    label: 'pH',
+    unit: '',
+    decimals: 2,
+    fallbackMin: 0,
+    fallbackMax: 14,
+  );
+  checkRange(
+    key: 'turb',
+    label: 'Turbidity',
+    unit: ' NTU',
+    decimals: 0,
+    fallbackMin: 0,
+    fallbackMax: 999,
+  );
+  return warnings;
 }
 
 /// Returns Manila calendar fields in a non-UTC [DateTime]. Schedule helpers
@@ -506,6 +548,7 @@ class LogEntry {
   final double? feedLevelBefore;
   final double? feedLevelAfter;
   final bool? levelChangeDetected;
+  final String? waterQualityWarning;
 
   LogEntry(
     this.action,
@@ -523,6 +566,7 @@ class LogEntry {
     this.feedLevelBefore,
     this.feedLevelAfter,
     this.levelChangeDetected,
+    this.waterQualityWarning,
   });
 }
 

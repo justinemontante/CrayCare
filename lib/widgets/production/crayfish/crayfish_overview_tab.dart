@@ -105,10 +105,7 @@ class OverviewTab extends StatelessWidget {
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
               foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(
-                horizontal: 24,
-                vertical: 14,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
               elevation: 0,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(14),
@@ -216,9 +213,17 @@ class OverviewTab extends StatelessWidget {
           const SizedBox(height: 10),
           Row(
             children: [
-              _buildInfoChip(Icons.calendar_month_rounded, 'Stocked', _formatDate(service.stockingDate)),
+              _buildInfoChip(
+                Icons.calendar_month_rounded,
+                'Stocked',
+                _formatDate(service.stockingDate),
+              ),
               const SizedBox(width: 12),
-              _buildInfoChip(Icons.timelapse_rounded, 'Days', '${service.daysInCulture}d'),
+              _buildInfoChip(
+                Icons.timelapse_rounded,
+                'Days',
+                '${service.daysInCulture}d',
+              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -227,34 +232,195 @@ class OverviewTab extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  Expanded(child: _buildMetricCard(Image.asset('assets/images/InitialPopulation.png', width: 20, height: 20), 'Initial Population', '${service.initialCount}', 'Total stock at start', onTap: () => _showMetricDetail(context, 'Initial Population', service.initialCount.toString(), 'Total stock at start', 'assets/images/InitialPopulation.png', 'During grow-out initialization, ${service.initialCount} crayfish were placed in the tank on ${_formatDate(service.stockingDate)}. This serves as the baseline for all monitoring and survival rate calculations.', Icons.people_alt_rounded))),
+                  Expanded(
+                    child: _buildMetricCard(
+                      Image.asset(
+                        'assets/images/InitialPopulation.png',
+                        width: 20,
+                        height: 20,
+                      ),
+                      'Initial Population',
+                      '${service.initialCount}',
+                      'Total stock at start',
+                      onTap: () => _showMetricDetail(
+                        context,
+                        'Initial Population',
+                        service.initialCount.toString(),
+                        'Total stock at start',
+                        'assets/images/InitialPopulation.png',
+                        'During grow-out initialization, ${service.initialCount} crayfish were placed in the tank on ${_formatDate(service.stockingDate)}. This serves as the baseline for all monitoring and survival rate calculations.',
+                        Icons.people_alt_rounded,
+                      ),
+                    ),
+                  ),
 
                   const SizedBox(width: 6),
-                  Expanded(child: _buildMetricCard(Image.asset('assets/images/SampleCount.png', width: 20, height: 20), 'Initial Sample Size', '${service.sampleCount}', 'Crayfish in sample', onTap: () => _showMetricDetail(context, 'Initial Sample Size', service.sampleCount.toString(), 'Crayfish in sample', 'assets/images/SampleCount.png', 'During initialization, ${service.sampleCount} crayfish were taken and measured to determine the average weight and length per crayfish. This sample represents the entire population.', Icons.analytics_rounded, onViewDetails: onViewInitialSampleDetails))),
+                  Expanded(
+                    child: _buildMetricCard(
+                      Image.asset(
+                        'assets/images/SampleCount.png',
+                        width: 20,
+                        height: 20,
+                      ),
+                      'Initial Sample Size',
+                      '${service.sampleCount}',
+                      'Crayfish in sample',
+                      onTap: () => _showMetricDetail(
+                        context,
+                        'Initial Sample Size',
+                        service.sampleCount.toString(),
+                        'Crayfish in sample',
+                        'assets/images/SampleCount.png',
+                        'During initialization, ${service.sampleCount} crayfish were taken and measured to determine the average weight and length per crayfish. This sample represents the entire population.',
+                        Icons.analytics_rounded,
+                        onViewDetails: onViewInitialSampleDetails,
+                      ),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 6),
               Row(
                 children: [
-                  Expanded(child: _buildMetricCard(Image.asset('assets/images/TotalWeight.png', width: 20, height: 20), 'Initial Sample Weight', '${service.initialTotalWeight.toStringAsFixed(0)} g', 'ABW: ${service.initialWeight.toStringAsFixed(1)} g', onTap: () => _showMetricDetail(context, 'Initial Total Sample Weight', '${service.initialTotalWeight.toStringAsFixed(0)} g', 'Average Body Weight (ABW): ${service.initialWeight.toStringAsFixed(1)} g', 'assets/images/TotalWeight.png', 'Total weight of ${service.sampleCount} samples taken during initialization. Average Body Weight (ABW): ${service.initialWeight.toStringAsFixed(1)} g. This is the baseline for growth monitoring.', Icons.monitor_weight_rounded))),
+                  Expanded(
+                    child: _buildMetricCard(
+                      Image.asset(
+                        'assets/images/TotalWeight.png',
+                        width: 20,
+                        height: 20,
+                      ),
+                      'Initial Sample Weight',
+                      '${service.initialTotalWeight.toStringAsFixed(0)} g',
+                      'ABW: ${service.initialWeight.toStringAsFixed(1)} g',
+                      onTap: () => _showMetricDetail(
+                        context,
+                        'Initial Total Sample Weight',
+                        '${service.initialTotalWeight.toStringAsFixed(0)} g',
+                        'Average Body Weight (ABW): ${service.initialWeight.toStringAsFixed(1)} g',
+                        'assets/images/TotalWeight.png',
+                        'Total weight of ${service.sampleCount} samples taken during initialization. Average Body Weight (ABW): ${service.initialWeight.toStringAsFixed(1)} g. This is the baseline for growth monitoring.',
+                        Icons.monitor_weight_rounded,
+                      ),
+                    ),
+                  ),
                   const SizedBox(width: 6),
-                  Expanded(child: _buildMetricCard(Image.asset('assets/images/TotalLength.png', width: 20, height: 20), 'Initial Sample Length', '${service.initialTotalLength.toStringAsFixed(0)} cm', 'ABL: ${service.initialLength.toStringAsFixed(1)} cm', onTap: () => _showMetricDetail(context, 'Initial Total Sample Length', '${service.initialTotalLength.toStringAsFixed(0)} cm', 'Average Body Length (ABL): ${service.initialLength.toStringAsFixed(1)} cm', 'assets/images/TotalLength.png', 'Total length of ${service.sampleCount} samples taken during initialization. Average Body Length (ABL): ${service.initialLength.toStringAsFixed(1)} cm. This is the baseline for growth monitoring.', Icons.straighten_rounded))),
+                  Expanded(
+                    child: _buildMetricCard(
+                      Image.asset(
+                        'assets/images/TotalLength.png',
+                        width: 20,
+                        height: 20,
+                      ),
+                      'Initial Sample Length',
+                      '${service.initialTotalLength.toStringAsFixed(0)} cm',
+                      'ABL: ${service.initialLength.toStringAsFixed(1)} cm',
+                      onTap: () => _showMetricDetail(
+                        context,
+                        'Initial Total Sample Length',
+                        '${service.initialTotalLength.toStringAsFixed(0)} cm',
+                        'Average Body Length (ABL): ${service.initialLength.toStringAsFixed(1)} cm',
+                        'assets/images/TotalLength.png',
+                        'Total length of ${service.sampleCount} samples taken during initialization. Average Body Length (ABL): ${service.initialLength.toStringAsFixed(1)} cm. This is the baseline for growth monitoring.',
+                        Icons.straighten_rounded,
+                      ),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 6),
               Row(
                 children: [
-                  Expanded(child: _buildMetricCard(Image.asset('assets/images/Alive.png', width: 20, height: 20), 'In Tank', '${service.inTankCount}', 'In tank now', onTap: () => _showMetricDetail(context, 'In Tank', service.inTankCount.toString(), 'In tank now', 'assets/images/Alive.png', 'Out of ${service.initialCount} crayfish initially stocked, ${service.inTankCount} are still in the tank (${service.mortality} died, ${service.totalHarvested} harvested).', Icons.favorite_rounded))),
+                  Expanded(
+                    child: _buildMetricCard(
+                      Image.asset(
+                        'assets/images/Alive.png',
+                        width: 20,
+                        height: 20,
+                      ),
+                      'In Tank',
+                      '${service.inTankCount}',
+                      'In tank now',
+                      onTap: () => _showMetricDetail(
+                        context,
+                        'In Tank',
+                        service.inTankCount.toString(),
+                        'In tank now',
+                        'assets/images/Alive.png',
+                        'Out of ${service.initialCount} crayfish initially stocked, ${service.inTankCount} are still in the tank (${service.mortality} died, ${service.totalHarvested} harvested).',
+                        Icons.favorite_rounded,
+                      ),
+                    ),
+                  ),
                   const SizedBox(width: 6),
-                  Expanded(child: _buildMetricCard(Image.asset('assets/images/Mortality.png', width: 20, height: 20), 'Mortality', '${service.mortality}', 'Total deaths', onTap: () => _showMetricDetail(context, 'Mortality', service.mortality.toString(), 'Total deaths', 'assets/images/Mortality.png', 'Out of ${service.initialCount} crayfish initially stocked, ${service.mortality} have died. Survival rate: ${service.survivalRate.toStringAsFixed(1)}%.', Icons.warning_rounded))),
+                  Expanded(
+                    child: _buildMetricCard(
+                      Image.asset(
+                        'assets/images/Mortality.png',
+                        width: 20,
+                        height: 20,
+                      ),
+                      'Mortality',
+                      '${service.mortality}',
+                      'Total deaths',
+                      onTap: () => _showMetricDetail(
+                        context,
+                        'Mortality',
+                        service.mortality.toString(),
+                        'Total deaths',
+                        'assets/images/Mortality.png',
+                        'Out of ${service.initialCount} crayfish initially stocked, ${service.mortality} have died. Survival rate: ${service.survivalRate.toStringAsFixed(1)}%.',
+                        Icons.warning_rounded,
+                      ),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 6),
               Row(
                 children: [
-                  Expanded(child: _buildMetricCard(const Icon(Icons.archive_outlined, size: 18, color: AppColors.primary), 'Harvested', '${service.totalHarvested}', 'Total harvested', onTap: () => _showMetricDetail(context, 'Harvested', service.totalHarvested.toString(), 'Total harvested', 'assets/images/Alive.png', 'Out of ${service.initialCount} crayfish initially stocked, ${service.totalHarvested} have been harvested.', Icons.archive_outlined))),
+                  Expanded(
+                    child: _buildMetricCard(
+                      const Icon(
+                        Icons.archive_outlined,
+                        size: 18,
+                        color: AppColors.primary,
+                      ),
+                      'Harvested',
+                      '${service.totalHarvested}',
+                      'Total harvested',
+                      onTap: () => _showMetricDetail(
+                        context,
+                        'Harvested',
+                        service.totalHarvested.toString(),
+                        'Total harvested',
+                        'assets/images/Alive.png',
+                        'Out of ${service.initialCount} crayfish initially stocked, ${service.totalHarvested} have been harvested.',
+                        Icons.archive_outlined,
+                      ),
+                    ),
+                  ),
                   const SizedBox(width: 6),
-                  Expanded(child: _buildMetricCard(const Icon(Icons.monitor_weight_rounded, size: 18, color: AppColors.primary), 'Harvest Wt', '${service.harvestRecords.fold(0.0, (sum, r) => sum + r.totalWeightKg).toStringAsFixed(2)} kg', 'Total weight', onTap: () => _showMetricDetail(context, 'Harvest Weight', '${service.harvestRecords.fold(0.0, (sum, r) => sum + r.totalWeightKg).toStringAsFixed(2)} kg', 'Total weight harvested', 'assets/images/TotalWeight.png', 'Total weight of all harvested crayfish: ${service.harvestRecords.fold(0.0, (sum, r) => sum + r.totalWeightKg).toStringAsFixed(2)} kg.', Icons.monitor_weight_rounded))),
+                  Expanded(
+                    child: _buildMetricCard(
+                      const Icon(
+                        Icons.monitor_weight_rounded,
+                        size: 18,
+                        color: AppColors.primary,
+                      ),
+                      'Harvest Wt',
+                      '${service.harvestRecords.fold(0.0, (sum, r) => sum + r.totalWeightKg).toStringAsFixed(2)} kg',
+                      'Total weight',
+                      onTap: () => _showMetricDetail(
+                        context,
+                        'Harvest Weight',
+                        '${service.harvestRecords.fold(0.0, (sum, r) => sum + r.totalWeightKg).toStringAsFixed(2)} kg',
+                        'Total weight harvested',
+                        'assets/images/TotalWeight.png',
+                        'Total weight of all harvested crayfish: ${service.harvestRecords.fold(0.0, (sum, r) => sum + r.totalWeightKg).toStringAsFixed(2)} kg.',
+                        Icons.monitor_weight_rounded,
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ],
@@ -284,9 +450,7 @@ class OverviewTab extends StatelessWidget {
       ),
       builder: (ctx) => Dialog(
         insetPadding: const EdgeInsets.symmetric(horizontal: 24),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         child: Padding(
           padding: const EdgeInsets.all(20),
           child: Column(
@@ -392,10 +556,7 @@ class OverviewTab extends StatelessWidget {
                   ),
                   child: const Text(
                     'Close',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                    ),
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
                   ),
                 ),
               ),
@@ -417,72 +578,72 @@ class OverviewTab extends StatelessWidget {
       onTap: onTap,
       child: Container(
         constraints: const BoxConstraints(minHeight: 76),
-      padding: const EdgeInsets.fromLTRB(8, 10, 10, 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.dark.withValues(alpha: 0.08)),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.dark.withValues(alpha: 0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 32,
-            height: 32,
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(10),
+        padding: const EdgeInsets.fromLTRB(8, 10, 10, 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppColors.dark.withValues(alpha: 0.08)),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.dark.withValues(alpha: 0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
             ),
-            child: iconWidget,
-          ),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.dark,
-                  ),
-                ),
-                const SizedBox(height: 1),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w900,
-                    color: AppColors.primary,
-                    height: 1.1,
-                  ),
-                ),
-                const SizedBox(height: 1),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    fontSize: 9,
-                    fontWeight: FontWeight.w500,
-                    color: AppColors.dark.withValues(alpha: 0.45),
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 32,
+              height: 32,
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: iconWidget,
             ),
-          ),
-        ],
+            const SizedBox(width: 6),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.dark,
+                    ),
+                  ),
+                  const SizedBox(height: 1),
+                  Text(
+                    value,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
+                      color: AppColors.primary,
+                      height: 1.1,
+                    ),
+                  ),
+                  const SizedBox(height: 1),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.dark.withValues(alpha: 0.45),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
-    ),
     );
   }
 
@@ -578,9 +739,22 @@ class OverviewTab extends StatelessWidget {
 
   Widget _buildActionButtons(BuildContext context) {
     final tank = TankService.instance;
-    final hasWeeklySampling =
-        tank.samplingHistory.any((entry) => !entry.isBaseline);
-    final canEditSetup = !hasWeeklySampling &&
+    if (tank.isArchiveView) {
+      return SizedBox(
+        width: double.infinity,
+        child: _buildActionBtn(
+          'View Logs',
+          Icons.receipt_long_rounded,
+          AppColors.warning,
+          onShowLogsModal,
+        ),
+      );
+    }
+    final hasWeeklySampling = tank.samplingHistory.any(
+      (entry) => !entry.isBaseline,
+    );
+    final canEditSetup =
+        !hasWeeklySampling &&
         tank.mortalityHistory.isEmpty &&
         tank.harvestRecords.isEmpty;
     return Column(
@@ -624,33 +798,6 @@ class OverviewTab extends StatelessWidget {
             ),
           ],
         ),
-        if (_canEditLastMortality || _canEditLastHarvest) ...[
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              if (_canEditLastMortality)
-                Expanded(
-                  child: _buildActionBtn(
-                    'Edit Last Mortality',
-                    Icons.edit_rounded,
-                    AppColors.critical,
-                    () => _showEditLastMortality(context),
-                  ),
-                ),
-              if (_canEditLastMortality && _canEditLastHarvest)
-                const SizedBox(width: 8),
-              if (_canEditLastHarvest)
-                Expanded(
-                  child: _buildActionBtn(
-                    'Edit Last Harvest',
-                    Icons.edit_rounded,
-                    AppColors.success,
-                    () => _showEditLastHarvest(context),
-                  ),
-                ),
-            ],
-          ),
-        ],
         const SizedBox(height: 8),
         SizedBox(
           width: double.infinity,
@@ -673,221 +820,38 @@ class OverviewTab extends StatelessWidget {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
-      sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 260), reverseDuration: Duration(milliseconds: 220)),
+      sheetAnimationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 260),
+        reverseDuration: Duration(milliseconds: 220),
+      ),
       builder: (ctx) {
         return Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(ctx).viewInsets.bottom,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               const SizedBox(height: 12),
               Center(
-                child: Container(width: 36, height: 4, decoration: BoxDecoration(color: AppColors.darkWith(0.15), borderRadius: BorderRadius.circular(2))),
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.darkWith(0.15),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
               ),
               const SizedBox(height: 8),
               // onSaved intentionally has NO snackbar — the panel itself
               // shows the single success/error snackbar after saving, so the
               // user never sees duplicate messages.
-              CrayfishHarvestFormPanel(
-                onSaved: () {},
-              ),
+              CrayfishHarvestFormPanel(onSaved: () {}),
               const SizedBox(height: 8),
             ],
           ),
         );
-      },
-    );
-  }
-
-  bool _isToday(DateTime date) {
-    final now = DateTime.now();
-    return date.year == now.year && date.month == now.month && date.day == now.day;
-  }
-
-  bool get _canEditLastMortality {
-    final h = TankService.instance.mortalityHistory;
-    return h.isNotEmpty && _isToday(h.last.date);
-  }
-
-  bool get _canEditLastHarvest {
-    final h = TankService.instance.harvestRecords;
-    return h.isNotEmpty && _isToday(h.last.date);
-  }
-
-  // ─── Edit Last Mortality (same-day rule) ────────────────────────────
-  void _showEditLastMortality(BuildContext context) {
-    final last = TankService.instance.mortalityHistory.last;
-    final countCtrl = TextEditingController(text: last.count.toString());
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 260), reverseDuration: Duration(milliseconds: 220)),
-      builder: (ctx) {
-        return Padding(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(ctx).viewInsets.bottom,
-                left: 24, right: 24, top: 16,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(width: 40, height: 5,
-                      decoration: BoxDecoration(color: AppColors.dark.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(4))),
-                  ),
-                  const SizedBox(height: 24),
-                  const Text('Edit Last Mortality',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AppColors.critical)),
-                  const SizedBox(height: 6),
-                  Text('Update the mortality record logged today (${last.count} currently).',
-                    style: TextStyle(fontSize: 12, color: AppColors.dark.withValues(alpha: 0.5))),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: countCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText: 'New mortality count',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () async {
-                        final val = int.tryParse(countCtrl.text) ?? 0;
-                        if (val <= 0) {
-                          showBeautifulSnackbar(ctx, 'Enter a valid count.', false);
-                          return;
-                        }
-                        final messenger = ScaffoldMessenger.of(ctx);
-                        try {
-                          await TankService.instance.updateLastMortalityEntry(val);
-                        } catch (e) {
-                          if (!ctx.mounted) return;
-                          showBeautifulSnackbar(ctx, 'Failed to update: ${e.toString().replaceFirst('Exception: ', '')}', false);
-                          return;
-                        }
-                        if (!ctx.mounted) return;
-                        Navigator.pop(ctx);
-                        showBeautifulSnackbarWithMessenger(messenger, 'Mortality updated to $val.', true);
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.critical,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                        elevation: 0,
-                      ),
-                      child: const Text('Save Changes'),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                ],
-              ),
-            );
-      },
-    );
-  }
-
-  // ─── Edit Last Harvest (same-day rule) ──────────────────────────────
-  void _showEditLastHarvest(BuildContext context) {
-    final last = TankService.instance.harvestRecords.last;
-    final countCtrl = TextEditingController(text: last.harvestedCount.toString());
-    final weightCtrl = TextEditingController(text: last.totalWeightKg.toStringAsFixed(2));
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 260), reverseDuration: Duration(milliseconds: 220)),
-      builder: (ctx) {
-        return Padding(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(ctx).viewInsets.bottom,
-                left: 24, right: 24, top: 16,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(width: 40, height: 5,
-                      decoration: BoxDecoration(color: AppColors.dark.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(4))),
-                  ),
-                  const SizedBox(height: 24),
-                  const Text('Edit Last Harvest',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AppColors.success)),
-                  const SizedBox(height: 6),
-                  Text('Update the harvest record logged today (${last.harvestedCount} pcs / ${last.totalWeightKg.toStringAsFixed(2)} kg currently).',
-                    style: TextStyle(fontSize: 12, color: AppColors.dark.withValues(alpha: 0.5))),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: countCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText: 'Harvested count',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: weightCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: InputDecoration(
-                      labelText: 'Total weight (kg)',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () async {
-                        final cnt = int.tryParse(countCtrl.text) ?? 0;
-                        final wt = double.tryParse(weightCtrl.text) ?? 0;
-                        if (cnt <= 0 || wt <= 0) {
-                          showBeautifulSnackbar(ctx, 'Enter valid count and weight.', false);
-                          return;
-                        }
-                        final messenger = ScaffoldMessenger.of(ctx);
-                        try {
-                          await TankService.instance.updateLastHarvestRecord(
-                            harvestedCount: cnt,
-                            totalWeightKg: wt,
-                          );
-                        } catch (e) {
-                          if (!ctx.mounted) return;
-                          showBeautifulSnackbar(ctx, 'Failed to update: ${e.toString().replaceFirst('Exception: ', '')}', false);
-                          return;
-                        }
-                        if (!ctx.mounted) return;
-                        Navigator.pop(ctx);
-                        showBeautifulSnackbarWithMessenger(messenger, 'Harvest updated to $cnt pcs / ${wt.toStringAsFixed(2)} kg.', true);
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.success,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                        elevation: 0,
-                      ),
-                      child: const Text('Save Changes'),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                ],
-              ),
-            );
       },
     );
   }
@@ -916,7 +880,7 @@ class OverviewTab extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(icon, size: 12, color: color),
-          const SizedBox(width: 2),
+                const SizedBox(width: 2),
                 Flexible(
                   child: Text(
                     label,
@@ -951,20 +915,45 @@ class OverviewTab extends StatelessWidget {
         children: [
           Icon(icon, size: 12, color: AppColors.primary),
           const SizedBox(width: 5),
-          Text(label, style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: AppColors.darkWith(0.5))),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 9,
+              fontWeight: FontWeight.w600,
+              color: AppColors.darkWith(0.5),
+            ),
+          ),
           const SizedBox(width: 4),
-          Text(value, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.dark)),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: AppColors.dark,
+            ),
+          ),
         ],
       ),
     );
   }
 
   String _formatDate(DateTime date) {
-    final months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    final months = [
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ];
     return '${months[date.month - 1]} ${date.day}, ${date.year}';
   }
-
-
 }
 
 class _DonutPainter extends CustomPainter {

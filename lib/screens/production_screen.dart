@@ -47,6 +47,7 @@ class ProductionScreenState extends State<ProductionScreen> {
 
   DateTime _lastEdited = DateTime.now();
   bool _setupModalOpen = false;
+  bool _mortalityModalOpen = false;
 
   void switchToTab(int index) {
     if (index > 2) return;
@@ -69,7 +70,7 @@ class ProductionScreenState extends State<ProductionScreen> {
     // Tank provisioning emits several service updates. Rebuilding the parent
     // view while its setup route is still mounted can detach inherited modal
     // dependencies out of order. Apply one refresh after the route closes.
-    if (mounted && !_setupModalOpen) {
+    if (mounted && !_setupModalOpen && !_mortalityModalOpen) {
       setState(() => _lastEdited = DateTime.now());
     }
   }
@@ -88,7 +89,8 @@ class ProductionScreenState extends State<ProductionScreen> {
   }
 
   Widget _buildCrayfishContent() {
-    final selectedBatchId = TankService.instance.selectedBatchId;
+    final tank = TankService.instance;
+    final selectedBatchId = tank.selectedBatchId;
 
     if (selectedBatchId == null) {
       return Column(
@@ -136,6 +138,13 @@ class ProductionScreenState extends State<ProductionScreen> {
           ),
         ),
         const SizedBox(height: 6),
+        if (tank.isArchiveView) ...[
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: _buildArchivedBatchNotice(),
+          ),
+          const SizedBox(height: 7),
+        ],
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14),
           child: _buildCrayfishSubTabBar(),
@@ -355,6 +364,7 @@ class ProductionScreenState extends State<ProductionScreen> {
     SharedPreferences? draftPrefs;
     String? draftKey;
     Map<String, dynamic>? draft;
+    final draftBaseBatchId = TankService.instance.currentBatchId;
     if (!isEdit) {
       final uid = FirebaseAuth.instance.currentUser?.uid;
       if (uid != null) {
@@ -364,7 +374,13 @@ class ProductionScreenState extends State<ProductionScreen> {
           final rawDraft = draftPrefs.getString(draftKey);
           if (rawDraft != null) {
             final decoded = jsonDecode(rawDraft);
-            if (decoded is Map<String, dynamic>) draft = decoded;
+            if (decoded is Map<String, dynamic> &&
+                decoded['draftVersion'] == 2 &&
+                decoded['baseBatchId'] == draftBaseBatchId) {
+              draft = decoded;
+            } else {
+              await draftPrefs.remove(draftKey);
+            }
           }
         } catch (_) {
           draft = null;
@@ -390,9 +406,11 @@ class ProductionScreenState extends State<ProductionScreen> {
           ? '${TankService.instance.sampleCount}'
           : (draft?['sampleSize'] as String? ?? ''),
     );
-    final baseline = TankService.instance.samplingHistory
-        .where((entry) => entry.isBaseline)
-        .firstOrNull;
+    final baseline = isEdit
+        ? TankService.instance.samplingHistory
+              .where((entry) => entry.isBaseline)
+              .firstOrNull
+        : null;
     final weightControllers = <TextEditingController>[];
     final lengthControllers = <TextEditingController>[];
     final draftWeights = (draft?['weights'] as List?)
@@ -438,8 +456,12 @@ class ProductionScreenState extends State<ProductionScreen> {
     var pendingDraftSave = Future<void>.value();
 
     void persistSetupDraft() {
-      if (isEdit || draftPrefs == null || draftKey == null) return;
+      final prefs = draftPrefs;
+      final key = draftKey;
+      if (isEdit || isSaving || prefs == null || key == null) return;
       final value = jsonEncode({
+        'draftVersion': 2,
+        'baseBatchId': draftBaseBatchId,
         'batchName': batchNameCtrl.text,
         'population': countCtrl.text,
         'sampleSize': sampleCountCtrl.text,
@@ -450,16 +472,21 @@ class ProductionScreenState extends State<ProductionScreen> {
             .map((controller) => controller.text)
             .toList(),
       });
-      pendingDraftSave = draftPrefs
-          .setString(draftKey, value)
+      // Queue writes so a slower older save cannot finish after a successful
+      // initialization clears the draft and resurrect stale form contents.
+      pendingDraftSave = pendingDraftSave
+          .then((_) async => prefs.setString(key, value))
           .then((_) {})
           .catchError((Object _) {});
     }
 
     Future<void> clearSetupDraft() async {
-      if (draftPrefs == null || draftKey == null) return;
+      final prefs = draftPrefs;
+      final key = draftKey;
+      if (prefs == null || key == null) return;
       try {
-        await draftPrefs.remove(draftKey);
+        await pendingDraftSave;
+        await prefs.remove(key);
       } catch (_) {
         // Initialization is already saved; a stale local draft is harmless.
       }
@@ -478,7 +505,10 @@ class ProductionScreenState extends State<ProductionScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
-      sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 260), reverseDuration: Duration(milliseconds: 220)),
+      sheetAnimationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 260),
+        reverseDuration: Duration(milliseconds: 220),
+      ),
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setLocalState) {
@@ -913,6 +943,13 @@ class ProductionScreenState extends State<ProductionScreen> {
                                     batchNameError == null) {
                                   setLocalState(() => isSaving = true);
                                   try {
+                                    if (!isEdit &&
+                                        TankService.instance.currentBatchId !=
+                                            draftBaseBatchId) {
+                                      throw StateError(
+                                        'The current batch changed while this form was open. Close and reopen setup before saving.',
+                                      );
+                                    }
                                     await TankService.instance
                                         .initializeGrowOut(
                                           count,
@@ -1237,408 +1274,746 @@ class ProductionScreenState extends State<ProductionScreen> {
     );
   }
 
-  void _showMortalityModal() {
+  Future<void> _showMortalityModal() async {
+    if (_mortalityModalOpen) return;
+    _mortalityModalOpen = true;
+
     final countCtrl = TextEditingController();
     final liveCount = TankService.instance.inTankCount;
     var savingMortality = false;
+    int? loggedMortality;
 
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 260), reverseDuration: Duration(milliseconds: 220)),
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setLocalState) {
-            final mortalityVal = int.tryParse(countCtrl.text) ?? 0;
-            final String? errorText = mortalityVal > liveCount
-                ? 'Cannot exceed current live count ($liveCount).'
-                : null;
+    try {
+      loggedMortality = await showModalBottomSheet<int>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.white,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        sheetAnimationStyle: const AnimationStyle(
+          duration: Duration(milliseconds: 260),
+          reverseDuration: Duration(milliseconds: 220),
+        ),
+        builder: (ctx) {
+          return StatefulBuilder(
+            builder: (ctx, setLocalState) {
+              final mortalityVal = int.tryParse(countCtrl.text) ?? 0;
+              final String? errorText = mortalityVal > liveCount
+                  ? 'Cannot exceed current live count ($liveCount).'
+                  : null;
 
-            void revalidate() => setLocalState(() {});
+              void revalidate() => setLocalState(() {});
 
-            return Padding(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(ctx).viewInsets.bottom,
-                left: 24,
-                right: 24,
-                top: 16,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 5,
-                      decoration: BoxDecoration(
-                        color: AppColors.dark.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  const Text(
-                    'Log Mortality',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w900,
-                      color: AppColors.critical,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Record the number of dead crayfish found in the tank.',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: AppColors.dark.withValues(alpha: 0.5),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  _buildModalInput(
-                    'Number of Dead Crayfish',
-                    'e.g. 5',
-                    countCtrl,
-                    hasError: errorText != null,
-                    onChanged: revalidate,
-                  ),
-                  if (errorText != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12, left: 4),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(4),
-                            decoration: BoxDecoration(
-                              color: AppColors.critical.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Icon(
-                              Icons.error_outline_rounded,
-                              size: 14,
-                              color: AppColors.critical,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            errorText,
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.critical.withValues(alpha: 0.85),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed:
-                          errorText == null &&
-                              mortalityVal > 0 &&
-                              !savingMortality
-                          ? () async {
-                              // Guard against double taps — one log per tap.
-                              setLocalState(() => savingMortality = true);
-                              // Capture the messenger before popping so the
-                              // snackbar still shows after the sheet closes.
-                              final messenger = ScaffoldMessenger.of(ctx);
-                              try {
-                                await TankService.instance.addMortality(
-                                  mortalityVal,
-                                );
-                              } catch (e) {
-                                if (!ctx.mounted) return;
-                                setLocalState(() => savingMortality = false);
-                                showBeautifulSnackbar(
-                                  ctx,
-                                  'Failed to log mortality: ${e.toString().replaceFirst('Exception: ', '')}',
-                                  false,
-                                );
-                                return;
-                              }
-                              if (!ctx.mounted) return;
-                              Navigator.pop(ctx);
-                              if (!mounted) return;
-                              showBeautifulSnackbarWithMessenger(
-                                messenger,
-                                'Mortality of $mortalityVal successfully logged.',
-                                true,
-                              );
-                            }
-                          : null,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: errorText != null
-                            ? AppColors.dark.withValues(alpha: 0.2)
-                            : AppColors.critical,
-                        foregroundColor: errorText != null
-                            ? Colors.white.withValues(alpha: 0.4)
-                            : Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        elevation: 0,
-                      ),
-                      child: const Text(
-                        'Confirm Logging',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    ).whenComplete(countCtrl.dispose);
-  }
-
-  void _showLogsModal() {
-    final activities = TankService.instance.activities.toList();
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 260), reverseDuration: Duration(milliseconds: 220)),
-      builder: (ctx) {
-        final halfHeight = MediaQuery.of(ctx).size.height * 0.5;
-        return SizedBox(
-          height: halfHeight,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      color: AppColors.dark.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                  ),
+              return Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(ctx).viewInsets.bottom,
                 ),
-                const SizedBox(height: 20),
-                Row(
-                  children: [
-                    const Text(
-                      'Activity Logs',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w900,
-                        color: AppColors.dark,
-                      ),
-                    ),
-                    const Spacer(),
-                    Text(
-                      '${activities.length} entries',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.dark.withValues(alpha: 0.4),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                if (activities.isEmpty)
-                  const Expanded(
-                    child: Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.receipt_long_rounded, size: 40),
-                          SizedBox(height: 12),
-                          Text(
-                            'No logs yet',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  )
-                else
-                  Expanded(
-                    child: ListView.separated(
-                      itemCount: activities.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 6),
-                      itemBuilder: (_, i) {
-                        final act = activities[i];
-                        final isMortality = act.type == 'mortality';
-                        final isHarvest = act.type == 'harvest';
-
-                        IconData icon;
-                        Color color;
-                        switch (act.type) {
-                          case 'init':
-                            icon = Icons.inventory_2_rounded;
-                            color = AppColors.primary;
-                            break;
-                          case 'mortality':
-                            icon = Icons.warning_rounded;
-                            color = AppColors.critical;
-                            break;
-                          case 'edit':
-                            icon = Icons.edit_rounded;
-                            color = AppColors.warning;
-                            break;
-                          case 'sampling':
-                            icon = Icons.biotech_rounded;
-                            color = AppColors.success;
-                            break;
-                          case 'harvest':
-                            icon = Icons.archive_rounded;
-                            color = AppColors.success;
-                            break;
-                          default:
-                            icon = Icons.circle_rounded;
-                            color = AppColors.darkWith(0.3);
-                        }
-
-                        return Container(
-                          padding: const EdgeInsets.all(12),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 5,
                           decoration: BoxDecoration(
-                            color: isHarvest
-                                ? AppColors.success.withValues(alpha: 0.06)
-                                : isMortality
-                                ? AppColors.criticalWith(0.04)
-                                : AppColors.primaryWith(0.04),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: isHarvest
-                                  ? AppColors.success.withValues(alpha: 0.2)
-                                  : isMortality
-                                  ? AppColors.criticalWith(0.15)
-                                  : AppColors.darkWith(0.06),
+                            color: AppColors.dark.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Log Mortality',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w900,
+                                color: AppColors.critical,
+                              ),
                             ),
                           ),
+                          TextButton.icon(
+                            onPressed: () => _showMortalityHistory(ctx),
+                            icon: const Icon(Icons.history_rounded, size: 16),
+                            label: const Text('History'),
+                            style: TextButton.styleFrom(
+                              foregroundColor: AppColors.dark.withValues(
+                                alpha: 0.65,
+                              ),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Record the number of dead crayfish found in the tank.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: AppColors.dark.withValues(alpha: 0.5),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      _buildModalInput(
+                        'Number of Dead Crayfish',
+                        'e.g. 5',
+                        countCtrl,
+                        hasError: errorText != null,
+                        onChanged: revalidate,
+                        integerOnly: true,
+                      ),
+                      if (errorText != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12, left: 4),
                           child: Row(
                             children: [
                               Container(
-                                width: 36,
-                                height: 36,
+                                padding: const EdgeInsets.all(4),
                                 decoration: BoxDecoration(
-                                  color: color.withValues(alpha: 0.1),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Icon(icon, size: 18, color: color),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      act.action,
-                                      style: const TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                        color: AppColors.dark,
-                                      ),
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    if (act.abw != null &&
-                                        act.avgLength != null)
-                                      Padding(
-                                        padding: const EdgeInsets.only(top: 3),
-                                        child: Text(
-                                          'ABW: ${act.abw!.toStringAsFixed(2)}g  |  ABL: ${act.avgLength!.toStringAsFixed(2)}cm',
-                                          style: TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w700,
-                                            color: AppColors.success,
-                                          ),
-                                        ),
-                                      ),
-                                    Text(
-                                      act.date.isNotEmpty
-                                          ? '${act.date} · ${act.time}'
-                                          : _formatTimestamp(act.timestamp),
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w500,
-                                        color: AppColors.dark.withValues(
-                                          alpha: 0.4,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: color.withValues(alpha: 0.1),
+                                  color: AppColors.critical.withValues(
+                                    alpha: 0.12,
+                                  ),
                                   borderRadius: BorderRadius.circular(6),
                                 ),
-                                child: Text(
-                                  act.type == 'init'
-                                      ? 'Initialization'
-                                      : act.type[0].toUpperCase() +
-                                            act.type.substring(1),
-                                  style: TextStyle(
-                                    fontSize: 8,
-                                    fontWeight: FontWeight.w700,
-                                    color: color,
+                                child: Icon(
+                                  Icons.error_outline_rounded,
+                                  size: 14,
+                                  color: AppColors.critical,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                errorText,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.critical.withValues(
+                                    alpha: 0.85,
                                   ),
                                 ),
                               ),
                             ],
                           ),
-                        );
-                      },
-                    ),
-                  ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                        ),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed:
+                              errorText == null &&
+                                  mortalityVal > 0 &&
+                                  !savingMortality
+                              ? () async {
+                                  // Guard against double taps — one log per tap.
+                                  setLocalState(() => savingMortality = true);
+                                  try {
+                                    await TankService.instance.addMortality(
+                                      mortalityVal,
+                                    );
+                                  } catch (e) {
+                                    if (!ctx.mounted) return;
+                                    setLocalState(
+                                      () => savingMortality = false,
+                                    );
+                                    showBeautifulSnackbar(
+                                      ctx,
+                                      'Failed to log mortality: ${e.toString().replaceFirst('Exception: ', '')}',
+                                      false,
+                                    );
+                                    return;
+                                  }
+                                  if (!ctx.mounted) return;
+                                  Navigator.pop(ctx, mortalityVal);
+                                }
+                              : null,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: errorText != null
+                                ? AppColors.dark.withValues(alpha: 0.2)
+                                : AppColors.critical,
+                            foregroundColor: errorText != null
+                                ? Colors.white.withValues(alpha: 0.4)
+                                : Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: const Text(
+                            'Confirm Logging',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
                       ),
-                      elevation: 0,
-                    ),
-                    child: const Text(
-                      'Close',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
+                      const SizedBox(height: 24),
+                    ],
                   ),
+                ),
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      // Keep the parent refresh suppressed until the sheet's reverse
+      // transition has finished. The route result can arrive as dismissal
+      // starts, while its inherited dependents are still mounted.
+      await Future<void>.delayed(const Duration(milliseconds: 260));
+      countCtrl.dispose();
+      _mortalityModalOpen = false;
+      if (mounted) {
+        setState(() => _lastEdited = DateTime.now());
+      }
+    }
+    if (loggedMortality != null && mounted) {
+      showBeautifulSnackbar(
+        context,
+        'Mortality of $loggedMortality successfully logged.',
+        true,
+      );
+    }
+  }
+
+  bool _isSameCalendarDay(DateTime first, DateTime second) =>
+      first.year == second.year &&
+      first.month == second.month &&
+      first.day == second.day;
+
+  void _showMortalityHistory(BuildContext context) {
+    final service = TankService.instance;
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      sheetAnimationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 260),
+        reverseDuration: Duration(milliseconds: 220),
+      ),
+      builder: (sheetContext) => AnimatedBuilder(
+        animation: service,
+        builder: (context, _) {
+          final records = service.mortalityHistory.reversed.toList();
+          final latestCanBeEdited =
+              records.isNotEmpty &&
+              _isSameCalendarDay(records.first.date, DateTime.now()) &&
+              !service.isArchiveView;
+          return Container(
+            height: MediaQuery.of(context).size.height * 0.55,
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Column(
+              children: [
+                Container(
+                  margin: const EdgeInsets.only(top: 10),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.dark.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.healing_rounded,
+                        size: 18,
+                        color: AppColors.critical,
+                      ),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'Mortality History',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.dark,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        '${records.length} recorded',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.dark.withValues(alpha: 0.5),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: records.isEmpty
+                      ? Center(
+                          child: Text(
+                            'No mortality records yet',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.dark.withValues(alpha: 0.4),
+                            ),
+                          ),
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 8,
+                          ),
+                          itemCount: records.length,
+                          separatorBuilder: (_, _) => const SizedBox(height: 6),
+                          itemBuilder: (context, index) {
+                            final record = records[index];
+                            const months = [
+                              'Jan',
+                              'Feb',
+                              'Mar',
+                              'Apr',
+                              'May',
+                              'Jun',
+                              'Jul',
+                              'Aug',
+                              'Sep',
+                              'Oct',
+                              'Nov',
+                              'Dec',
+                            ];
+                            final dateLabel =
+                                '${months[record.date.month - 1]} ${record.date.day}, ${record.date.year}';
+                            final canEdit = index == 0 && latestCanBeEdited;
+                            return Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.dark.withValues(alpha: 0.02),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: AppColors.dark.withValues(alpha: 0.08),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          dateLabel,
+                                          style: const TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w700,
+                                            color: AppColors.dark,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 3),
+                                        Text(
+                                          '${record.count} crayfish recorded',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: AppColors.dark.withValues(
+                                              alpha: 0.6,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  if (canEdit)
+                                    TextButton.icon(
+                                      onPressed: () => _showEditMortalityDialog(
+                                        sheetContext,
+                                        record.count,
+                                      ),
+                                      icon: const Icon(
+                                        Icons.edit_rounded,
+                                        size: 14,
+                                      ),
+                                      label: const Text('Edit'),
+                                      style: TextButton.styleFrom(
+                                        foregroundColor: AppColors.critical,
+                                        visualDensity: VisualDensity.compact,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
                 ),
               ],
             ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _showEditMortalityDialog(BuildContext context, int currentCount) {
+    final controller = TextEditingController(text: currentCount.toString());
+    var saving = false;
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Edit Latest Mortality'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            decoration: const InputDecoration(
+              labelText: 'Mortality count',
+              border: OutlineInputBorder(),
+            ),
           ),
+          actions: [
+            TextButton(
+              onPressed: saving ? null : () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: saving
+                  ? null
+                  : () async {
+                      final count = int.tryParse(controller.text) ?? 0;
+                      if (count <= 0) {
+                        showBeautifulSnackbar(
+                          dialogContext,
+                          'Enter a valid mortality count.',
+                          false,
+                        );
+                        return;
+                      }
+                      setDialogState(() => saving = true);
+                      final messenger = ScaffoldMessenger.of(context);
+                      try {
+                        await TankService.instance.updateLastMortalityEntry(
+                          count,
+                        );
+                      } catch (error) {
+                        if (!dialogContext.mounted) return;
+                        setDialogState(() => saving = false);
+                        showBeautifulSnackbar(
+                          dialogContext,
+                          'Failed to update: ${error.toString().replaceFirst('Exception: ', '')}',
+                          false,
+                        );
+                        return;
+                      }
+                      if (!dialogContext.mounted) return;
+                      Navigator.pop(dialogContext);
+                      showBeautifulSnackbarWithMessenger(
+                        messenger,
+                        'Mortality updated to $count.',
+                        true,
+                      );
+                    },
+              child: saving
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Save Changes'),
+            ),
+          ],
+        ),
+      ),
+    ).whenComplete(controller.dispose);
+  }
+
+  void _showLogsModal() {
+    final tankService = TankService.instance;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      sheetAnimationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 260),
+        reverseDuration: Duration(milliseconds: 220),
+      ),
+      builder: (ctx) {
+        return AnimatedBuilder(
+          animation: tankService,
+          builder: (context, _) {
+            final activities = tankService.activities;
+            final halfHeight = MediaQuery.of(context).size.height * 0.5;
+            return SizedBox(
+              height: halfHeight,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: AppColors.dark.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        const Text(
+                          'Activity Logs',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                            color: AppColors.dark,
+                          ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          '${activities.length} entries',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.dark.withValues(alpha: 0.4),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    if (activities.isEmpty)
+                      const Expanded(
+                        child: Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.receipt_long_rounded, size: 40),
+                              SizedBox(height: 12),
+                              Text(
+                                'No logs yet',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    else
+                      Expanded(
+                        child: ListView.separated(
+                          itemCount: activities.length,
+                          separatorBuilder: (_, _) => const SizedBox(height: 6),
+                          itemBuilder: (_, i) {
+                            final act = activities[i];
+                            final isMortality = act.type == 'mortality';
+                            final isHarvest = act.type == 'harvest';
+
+                            IconData icon;
+                            Color color;
+                            switch (act.type) {
+                              case 'init':
+                                icon = Icons.inventory_2_rounded;
+                                color = AppColors.primary;
+                                break;
+                              case 'mortality':
+                                icon = Icons.warning_rounded;
+                                color = AppColors.critical;
+                                break;
+                              case 'edit':
+                                icon = Icons.edit_rounded;
+                                color = AppColors.warning;
+                                break;
+                              case 'sampling':
+                                icon = Icons.biotech_rounded;
+                                color = AppColors.success;
+                                break;
+                              case 'harvest':
+                                icon = Icons.archive_rounded;
+                                color = AppColors.success;
+                                break;
+                              default:
+                                icon = Icons.circle_rounded;
+                                color = AppColors.darkWith(0.3);
+                            }
+
+                            return Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: isHarvest
+                                    ? AppColors.success.withValues(alpha: 0.06)
+                                    : isMortality
+                                    ? AppColors.criticalWith(0.04)
+                                    : AppColors.primaryWith(0.04),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: isHarvest
+                                      ? AppColors.success.withValues(alpha: 0.2)
+                                      : isMortality
+                                      ? AppColors.criticalWith(0.15)
+                                      : AppColors.darkWith(0.06),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 36,
+                                    height: 36,
+                                    decoration: BoxDecoration(
+                                      color: color.withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Icon(icon, size: 18, color: color),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          act.action,
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                            color: AppColors.dark,
+                                          ),
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        if (act.abw != null &&
+                                            act.avgLength != null)
+                                          Padding(
+                                            padding: const EdgeInsets.only(
+                                              top: 3,
+                                            ),
+                                            child: Text(
+                                              'ABW: ${act.abw!.toStringAsFixed(2)}g  |  ABL: ${act.avgLength!.toStringAsFixed(2)}cm',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w700,
+                                                color: AppColors.success,
+                                              ),
+                                            ),
+                                          ),
+                                        Text(
+                                          act.date.isNotEmpty
+                                              ? '${act.date} · ${act.time}'
+                                              : _formatTimestamp(act.timestamp),
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w500,
+                                            color: AppColors.dark.withValues(
+                                              alpha: 0.4,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: color.withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      act.type == 'init'
+                                          ? 'Initialization'
+                                          : act.type[0].toUpperCase() +
+                                                act.type.substring(1),
+                                      style: TextStyle(
+                                        fontSize: 8,
+                                        fontWeight: FontWeight.w700,
+                                        color: color,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 0,
+                        ),
+                        child: const Text(
+                          'Close',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
         );
       },
+    );
+  }
+
+  Widget _buildArchivedBatchNotice() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF8E8),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFEAD7A8)),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.lock_outline_rounded,
+            size: 16,
+            color: Color(0xFF8A6418),
+          ),
+          const SizedBox(width: 7),
+          const Expanded(
+            child: Text(
+              'Archived batch · view only',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF725516),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1649,6 +2024,7 @@ class ProductionScreenState extends State<ProductionScreen> {
     bool hasError = false,
     VoidCallback? onChanged,
     bool isText = false,
+    bool integerOnly = false,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 20),
@@ -1669,9 +2045,13 @@ class ProductionScreenState extends State<ProductionScreen> {
             onChanged: (_) => onChanged?.call(),
             keyboardType: isText
                 ? TextInputType.text
+                : integerOnly
+                ? TextInputType.number
                 : const TextInputType.numberWithOptions(decimal: true),
             inputFormatters: isText
                 ? null
+                : integerOnly
+                ? [FilteringTextInputFormatter.digitsOnly]
                 : [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$'))],
             style: TextStyle(
               fontSize: 14,

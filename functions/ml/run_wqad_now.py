@@ -1,4 +1,4 @@
-"""Run the scheduled WQAD analysis once from a local test environment."""
+"""Run WQAD analysis manually from a local test environment."""
 
 import argparse
 import json
@@ -11,8 +11,8 @@ from firebase_admin import credentials
 def main():
     parser = argparse.ArgumentParser(
         description=(
-            "Analyze the currently assigned tank now and write its WQAD current "
-            "result plus one history result to Firestore."
+            "Analyze the currently assigned tank now and append one WQAD result "
+            "to its Firestore history."
         )
     )
     parser.add_argument("--credentials", required=True, help="Service-account JSON path")
@@ -33,8 +33,8 @@ def main():
         {"projectId": args.project_id},
     )
 
-    # Reuse the same owner/tank validation, inference, and Firestore writes as
-    # the deployed function, which is scheduled every 30 minutes.
+    # Reuse the same owner/tank validation, inference, and Firestore write as
+    # the history-triggered function. This remains a manual diagnostic run.
     from main import run_wqad_now
 
     run_wqad_now()

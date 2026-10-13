@@ -117,11 +117,11 @@ class _WaterQualityAnomalyDetectionCardState
                   isAnomaly: result?.isAnomaly ?? false,
                   score: hasData ? result!.anomalyScore : null,
                   waitingMessage: result?.hasData == true && !hasData
-                      ? 'The latest ML analysis is over 45 minutes old. Check the connection and analysis service.'
+                      ? 'The latest sensor record is over 20 minutes old. Check the connection and sensor history.'
                       : result?.status == 'Insufficient' &&
                             result?.insight.isNotEmpty == true
                       ? result!.insight
-                      : 'Waiting for 12 readings, 10 minutes apart, to analyze the latest 2-hour pattern. Analysis runs every 15 minutes.',
+                      : 'Waiting for enough valid readings to cover a continuous two-hour pattern.',
                   color: color,
                   lightColor: lightColor,
                 ),

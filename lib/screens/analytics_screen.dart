@@ -417,8 +417,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
           : (time.hour == 0 ? 12 : time.hour);
       final ampm = time.hour >= 12 ? 'PM' : 'AM';
       final minute = time.minute.toString().padLeft(2, '0');
-      final second = time.second.toString().padLeft(2, '0');
-      return '${time.month}/${time.day} $hour:$minute:$second $ampm';
+      return '${time.month}/${time.day} $hour:$minute $ampm';
     });
 
     for (final key in SensorService.sensorKeys) {

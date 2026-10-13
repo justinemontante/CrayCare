@@ -18,14 +18,15 @@ ESP32 (dedicated Firebase Email/Password device service account)
   → writes sensorIngestion/current (+ 10-minute history)
       → Cloud Function routes to tanks/{tankId}/sensor_readings/latest + history
           → Flutter app reads live/analytics data
-          → hourly Python WQAD analyzes 12 complete ten-minute history windows
-              → tanks/{tankId}/water_quality_anomaly_detections/current → dashboard + AI insights
+          → Python WQAD runs on each fresh history record using a continuous two-hour window
+              → one timestamped result in tanks/{tankId}/water_quality_anomaly_detection_history
+                  → app uses the newest processed_at record as latest; dashboard + AI insights
 ```
 
 ### Machine Learning-Based Water Quality Anomaly Detection
 
 WQAD learns the usual combined behavior of pH, temperature, dissolved oxygen,
-turbidity, water level, and their recent trends. It returns `Normal`, `Unusual`,
+turbidity, and their recent trends. It returns `Normal`, `Unusual`,
 or `Insufficient`, ranks the main contributing sensors, and generates a
 verification-focused insight and recommendation. It does not classify biological
 safety and does not use sensor-threshold labels. Immediate alerts and actuator

@@ -1,16 +1,15 @@
-"""Validate source freshness and cadence before running row-based ML features."""
+"""Validate a real-time, two-hour sensor window before WQAD inference."""
 
 import math
 from numbers import Real
 
 
 def anomaly_window(frame, now_epoch):
-    """Return a fresh 12-reading window, its status, and source timestamp.
+    """Use actual capture times, not an assumed ten-minute record count.
 
-    One missed ten-minute slot is tolerated in the trailing 12 observations.
-    Larger or repeated gaps restart the usable suffix; readings are never
-    interpolated. At most twelve observations are used, matching the longest
-    feature window.
+    This matches the v3 training warm-up (six rows spanning 110 minutes) and
+    uses a two-hour rolling window. A gap over 2.2 times the observed cadence
+    restarts the window; missing observations are never interpolated.
     """
     if frame.empty or "timestamp" not in frame:
         return frame.iloc[:0], "insufficient", None
@@ -33,14 +32,15 @@ def anomaly_window(frame, now_epoch):
     last_at = float(rows["timestamp"].iloc[-1])
     if now_epoch - last_at > 20 * 60:
         return rows.iloc[:0], "stale", last_at
+    rows = rows[rows["timestamp"] >= last_at - 120 * 60].copy()
     gaps = rows["timestamp"].diff()
-    # Allow normal jitter and one missed ten-minute record (up to ~22 minutes).
-    # Anything longer starts a new suffix rather than implying continuity.
-    discontinuities = [i for i in range(1, len(rows)) if not 480 <= gaps.iloc[i] <= 1320]
+    positive_gaps = gaps[gaps > 0]
+    cadence = float(positive_gaps.median()) if not positive_gaps.empty else 600.0
+    if not 480 <= cadence <= 1800:
+        return rows, "insufficient", last_at
+    discontinuities = [i for i in range(1, len(rows)) if gaps.iloc[i] <= 0 or gaps.iloc[i] > cadence * 2.2]
     if discontinuities:
         rows = rows.iloc[discontinuities[-1]:]
-    rows = rows.tail(12).reset_index(drop=True)
-    trailing_gaps = rows["timestamp"].diff().dropna()
-    missed_slots = int((trailing_gaps > 720).sum())
-    ready = len(rows) >= 12 and missed_slots <= 1
+    rows = rows.reset_index(drop=True)
+    ready = len(rows) >= 6 and last_at - float(rows["timestamp"].iloc[0]) >= 110 * 60
     return rows, "ready" if ready else "insufficient", last_at

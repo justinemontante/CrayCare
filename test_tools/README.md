@@ -30,18 +30,18 @@ hardware marker so test data stays identifiable.
 The demo data has a gradual turbidity rise near the end and is meant to exercise
 the anomaly display, not represent real farm measurements. It writes history
 only, not `sensor_readings/latest`, so dashboard live tiles are unchanged. The
-deployed WQAD schedule runs every 30 minutes and will process the readings on
-its next run. To analyze immediately,
+Each fresh history record triggers WQAD analysis after deployment. To analyze immediately,
 run `npm run ml:run-now`; it calls the same WQAD owner/tank checks and inference
-as the scheduled function, then writes the current detection and one detection
-history record. Use `npm run ml:check` afterward to read the current result.
+as the history-triggered function, then writes one timestamped detection-history record.
+The app treats the newest `processed_at` record as the latest result. Use
+`npm run ml:check` afterward to read it.
 These actions write to the assigned live tank and may affect the app's ML card
 and anomaly history.
 
 For a continuing sensor visualization, run `npm run ml:demo` instead. It
 updates the live reading every five seconds and appends one history row every
-ten minutes; allow at least 110 minutes for twelve continuous records, then
-wait for the next 30-minute WQAD run. Stop it with Ctrl+C.
+ten minutes; allow at least 110 minutes of continuous records, then
+wait for the next history-triggered WQAD result. Stop it with Ctrl+C.
 
 This does not retrain or validate the model. For an offline prototype
 prediction using the bundled synthetic CSV, use the Python workflow documented

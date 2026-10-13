@@ -13,9 +13,12 @@ class ConnectivityService extends ChangeNotifier {
   Timer? _verificationTimer;
   bool _verificationInProgress = false;
   bool _initialized = false;
+  bool _initialConnectivityCheckComplete = false;
 
   bool _isOnline = true;
   bool get isOnline => _isOnline;
+  bool get hasCompletedInitialConnectivityCheck =>
+      _initialConnectivityCheckComplete;
 
   final List<VoidCallback> _onConnectCallbacks = [];
 
@@ -34,6 +37,7 @@ class ConnectivityService extends ChangeNotifier {
     _initialized = true;
     try {
       _isOnline = await _checkConnectivity();
+      _initialConnectivityCheckComplete = true;
       _subscription = _connectivity.onConnectivityChanged.listen((
         ConnectivityResult result,
       ) async {
@@ -51,6 +55,7 @@ class ConnectivityService extends ChangeNotifier {
       // Initialization did not complete; allow a later retry instead of
       // permanently leaving the singleton marked initialized.
       _initialized = false;
+      _initialConnectivityCheckComplete = false;
       rethrow;
     }
   }
@@ -140,6 +145,7 @@ class ConnectivityService extends ChangeNotifier {
     _verificationTimer = null;
     _verificationInProgress = false;
     _initialized = false;
+    _initialConnectivityCheckComplete = false;
     _onConnectCallbacks.clear();
     super.dispose();
   }

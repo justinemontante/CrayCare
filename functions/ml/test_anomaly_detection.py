@@ -67,6 +67,14 @@ class WaterQualityAnomalyDetectionTests(unittest.TestCase):
             & result.keys()
         )
 
+    def test_irregular_capture_times_can_run_existing_model(self):
+        frame = self.frame.iloc[480:496].copy()
+        frame["timestamp"] = frame["timestamp"].iloc[0] + np.arange(len(frame)) * 780
+        result = detect_water_quality_anomaly(
+            frame, self.bundle, self.recommendations
+        )
+        self.assertIn(result["status"], {"Normal", "Unusual"})
+
     def test_inference_uses_four_water_quality_sensors_only(self):
         result = detect_water_quality_anomaly(
             self.frame.iloc[500:512], self.bundle, self.recommendations

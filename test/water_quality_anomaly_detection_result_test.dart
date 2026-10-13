@@ -3,6 +3,22 @@ import 'package:craycare/services/water_quality_anomaly_detection_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  WaterQualityAnomalyDetectionResult resultAt(
+    DateTime timestamp,
+    String insight,
+  ) {
+    return WaterQualityAnomalyDetectionResult(
+      status: 'Normal',
+      isAnomaly: false,
+      anomalyScore: 12,
+      source: 'WQAD model',
+      insight: insight,
+      recommendation: 'Verify readings as needed.',
+      contributors: const [],
+      timestamp: timestamp,
+    );
+  }
+
   group('Water Quality Anomaly Detection result', () {
     test('normalizes only the WQAD contract statuses', () {
       expect(normalizeWaterQualityAnomalyStatus('normal'), 'Normal');
@@ -66,7 +82,7 @@ void main() {
     });
 
     test(
-      'stale current analysis cannot appear live, but remains history data',
+      'stale latest analysis cannot appear live, but remains history data',
       () {
         final now = DateTime.utc(2026, 10, 10, 12);
         final result = WaterQualityAnomalyDetectionResult.fromMap({
@@ -79,9 +95,51 @@ void main() {
         expect(result.isFreshAt(now), isFalse);
         expect(
           result.isFreshAt(now.subtract(const Duration(minutes: 30))),
-          isTrue,
+          isFalse,
         );
       },
     );
+
+    test('source capture time controls freshness even after late processing', () {
+      final now = DateTime.utc(2026, 10, 12, 12);
+      final result = WaterQualityAnomalyDetectionResult.fromMap({
+        'status': 'Normal',
+        'processed_at': Timestamp.fromDate(now),
+        'source_recorded_at': Timestamp.fromDate(
+          now.subtract(const Duration(minutes: 21)),
+        ),
+      });
+      expect(result.isFreshAt(now), isFalse);
+      expect(result.hasData, isTrue);
+      expect(result.isFreshAt(now.subtract(const Duration(minutes: 2))), isTrue);
+    });
+
+    test(
+      'latest result is derived from newest history and merged with legacy',
+      () {
+        final older = resultAt(
+          DateTime.utc(2026, 10, 11, 1),
+          'older new record',
+        );
+        final newestLegacy = resultAt(
+          DateTime.utc(2026, 10, 11, 2),
+          'newest legacy record',
+        );
+        final merged = mergeWaterQualityAnomalyHistory([older], [newestLegacy]);
+
+        expect(merged.first.insight, 'newest legacy record');
+      },
+    );
+
+    test('prefers dedicated history when legacy record has same timestamp', () {
+      final timestamp = DateTime.utc(2026, 10, 11, 2);
+      final merged = mergeWaterQualityAnomalyHistory(
+        [resultAt(timestamp, 'dedicated history')],
+        [resultAt(timestamp, 'legacy copy')],
+      );
+
+      expect(merged, hasLength(1));
+      expect(merged.single.insight, 'dedicated history');
+    });
   });
 }

@@ -12,16 +12,16 @@ def interpret_anomaly(is_anomaly, anomaly_score, contributors, recommendations):
     if not is_anomaly:
         return {
             "insight": (
-                "The recent combined water-quality pattern is consistent with the model's "
-                "learned reference pattern. No unusual multivariate behavior was detected."
+                "The recent temperature, pH, dissolved-oxygen, and turbidity pattern resembles "
+                "the model's learned reference. This is not a water-safety assessment."
             ),
             "recommendation": recommendations["overall"]["normal"],
         }
     if not contributors:
         return {
             "insight": (
-                "The recent combined water-quality pattern differs from the model's learned "
-                "reference pattern, but no single sensor is a clear dominant contributor."
+                "The recent combined pattern differs from the model's learned reference, but "
+                "the model did not identify a main sensor."
             ),
             "recommendation": recommendations["overall"]["verify"],
         }
@@ -33,8 +33,11 @@ def interpret_anomaly(is_anomaly, anomaly_score, contributors, recommendations):
         unit = {"temp": "°C", "DO": " mg/L", "turbidity": " NTU"}.get(item["sensor"], "")
         reading = f"{label} ({item['value']:g}{unit})"
         if item["direction"] == "stable":
-            return f"{reading} shows little recent net change"
-        return f"{reading} is {item['direction']} in recent readings"
+            return f"{reading} shows little net change in recent readings"
+        direction = {"increasing": "trending up", "decreasing": "trending down"}.get(
+            item["direction"], "has an unclear recent trend"
+        )
+        return f"{reading} is {direction}"
 
     primary_phrase = trend_phrase(primary)
     if secondary and secondary["contribution_score"] >= primary["contribution_score"] * 0.55:
@@ -42,22 +45,37 @@ def interpret_anomaly(is_anomaly, anomaly_score, contributors, recommendations):
     else:
         pattern = primary_phrase
     by_sensor = {item["sensor"]: item for item in contributors}
+
+    def pair_is_material(first, second):
+        first_item, second_item = by_sensor.get(first), by_sensor.get(second)
+        if first_item is None or second_item is None:
+            return False
+        strongest = max(first_item["contribution_score"], second_item["contribution_score"])
+        weakest = min(first_item["contribution_score"], second_item["contribution_score"])
+        return strongest > 0 and weakest >= strongest * 0.55
+
     if (primary["sensor"] in {"DO", "turbidity"}
+            and pair_is_material("DO", "turbidity")
             and by_sensor.get("DO", {}).get("direction") == "decreasing"
             and by_sensor.get("turbidity", {}).get("direction") == "increasing"):
         recommendation = recommendations["combined_do_turbidity"]["action"]
     elif (primary["sensor"] in {"DO", "temp"}
+            and pair_is_material("DO", "temp")
             and by_sensor.get("DO", {}).get("direction") == "decreasing"
             and by_sensor.get("temp", {}).get("direction") == "increasing"):
         recommendation = recommendations["combined_temp_do"]["action"]
+    elif (primary["sensor"] in {"pH", "DO"}
+            and pair_is_material("pH", "DO")
+            and by_sensor.get("pH", {}).get("direction")
+            == by_sensor.get("DO", {}).get("direction")
+            and by_sensor.get("pH", {}).get("direction") in {"increasing", "decreasing"}):
+        recommendation = recommendations["combined_ph_do"]["action"]
     else:
         sensor_rec = recommendations.get(primary["sensor"], recommendations["overall"])
         recommendation = sensor_rec.get(primary["direction"], sensor_rec.get("verify"))
     return {
         "insight": (
-            f"An unusual combined water-quality pattern was detected. {pattern}. "
-            "These readings contributed most to the anomaly score, but the model does not "
-            "diagnose a definite cause."
+            f"An unusual combined water-quality pattern was detected. {pattern}."
         ),
         "recommendation": recommendation,
     }

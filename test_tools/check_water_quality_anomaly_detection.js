@@ -21,15 +21,16 @@ async function check() {
   const tankId = assignment.exists ? assignment.data().tank_id : null;
   if (!tankId) throw new Error('No hardware owner/tank is currently assigned.');
 
-  const pathText = `tanks/${tankId}/water_quality_anomaly_detections/current`;
+  const collectionPath = `tanks/${tankId}/water_quality_anomaly_detection_history`;
   const snapshot = await db.collection('tanks').doc(tankId)
-    .collection('water_quality_anomaly_detections').doc('current').get();
-  if (snapshot.exists) {
-    console.log(`✅ ${pathText} EXISTS:\n`);
-    console.log(JSON.stringify(snapshot.data(), null, 2));
+    .collection('water_quality_anomaly_detection_history')
+    .orderBy('processed_at', 'desc').limit(1).get();
+  if (!snapshot.empty) {
+    console.log(`✅ Latest result from ${collectionPath}:\n`);
+    console.log(JSON.stringify(snapshot.docs[0].data(), null, 2));
   } else {
-    console.log(`❌ ${pathText} does not exist yet.`);
-    console.log('The hourly WQAD scheduler needs twelve complete 10-minute history records.');
+    console.log(`❌ No detection history exists in ${collectionPath} yet.`);
+    console.log('The WQAD scheduler needs twelve complete 10-minute sensor-history records.');
   }
 }
 

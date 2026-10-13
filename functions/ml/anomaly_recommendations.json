@@ -1,95 +1,104 @@
 {
   "overall": {
-    "normal": "Continue routine monitoring and normal tank maintenance. No corrective action is needed from the ML result alone; use the separate sensor safety alerts for any configured limit violation.",
-    "verify": "Continue monitoring the next readings and review recent changes in feeding, water replacement, aeration, filtration, or tank conditions. If the unusual pattern persists or a separate safety alert appears, inspect the relevant tank condition before taking corrective action."
+    "normal": "Continue routine monitoring and tank maintenance. A Normal result means the pattern resembles the model's reference data; it does not confirm safe water. Follow configured sensor alerts and your farm procedures.",
+    "verify": "Recheck temperature, pH, dissolved oxygen, and turbidity with calibrated or independently verified instruments; inspect the probes and review recent tank changes. Follow any configured safety alert. Do not treat or adjust water based on this ML result alone."
   },
   "DO": {
-    "decreasing": "Check aerator operation and airflow, water circulation, recent feeding, leftover feed, and waste buildup. Continue monitoring whether dissolved oxygen keeps decreasing. If a configured DO safety alert is triggered, treat the separate threshold alert as the priority.",
-    "increasing": "Review recent aeration changes and daylight or algae activity, then continue monitoring the trend. Stronger aeration or photosynthesis can increase dissolved oxygen, but the ML result alone does not identify the cause.",
-    "stable": "Review aeration, circulation, recent feeding, and the recent dissolved-oxygen history. If the pattern remains unusual or a configured DO safety alert appears, inspect the tank and probe condition.",
-    "verify": "Review aeration, circulation, recent feeding, and the recent dissolved-oxygen history. Continue monitoring the next readings and prioritize any configured DO safety alert."
+    "decreasing": "Verify the DO reading and probe, then check aerator power, airflow, and water circulation. Review recent feeding and accumulated organic waste, which can increase oxygen demand as it decomposes. Monitor DO and follow your low-oxygen response plan if its separate safety alert triggers.",
+    "increasing": "Verify the DO reading. Review recent aeration or circulation changes and the time of day; photosynthesis can raise daytime DO, while DO commonly falls overnight. A rising trend alone does not confirm safe water; keep monitoring and follow configured limits.",
+    "stable": "Verify the DO reading and probe, then check aerator operation and circulation. A stable recent trend can still be unusual relative to the model's reference; follow the separate DO safety alert if triggered.",
+    "verify": "Verify the DO reading with a reliable meter and inspect the probe, aerator, and circulation. Continue monitoring and follow the separate DO safety alert or farm response plan."
   },
   "turbidity": {
-    "increasing": "Check filtration, suspended particles, leftover feed, waste buildup, and any recent cleaning or tank disturbance. Continue monitoring whether turbidity keeps increasing. If a configured turbidity safety alert is triggered, treat the separate threshold alert as the priority.",
-    "decreasing": "Review recent filtration, settling, cleaning, or water replacement and continue routine monitoring. Lower turbidity alone does not confirm that all water-quality conditions are safe.",
-    "stable": "Inspect filtration, probe placement, and recent tank conditions, then review the recent turbidity history. If the pattern remains unusual or a configured safety alert appears, inspect the tank and probe condition.",
-    "verify": "Inspect filtration, probe placement, and recent tank conditions, then continue monitoring the next turbidity readings."
+    "increasing": "Verify the turbidity probe is clean and consistently positioned. Inspect water clarity, filtration or solids removal, recent feeding, accumulated waste, and tank disturbance. Suspended sediment, organic particles, algae, or plankton can affect turbidity, so the reading alone cannot identify the material. Follow configured limits.",
+    "decreasing": "Verify the probe and review recent filtration, settling, cleaning, or water changes. Lower turbidity alone does not establish that the water or other conditions are safe; continue routine monitoring and follow configured limits.",
+    "stable": "Check probe cleanliness and placement, filtration, and the recent water appearance. A stable trend can still be unusual relative to the model's reference; follow any separate configured alert.",
+    "verify": "Verify the turbidity reading and probe placement, then inspect filtration and recent tank changes. The sensor indicates water clarity, not the identity of suspended material; follow configured limits."
   },
   "pH": {
-    "increasing": "Review recent water changes, source water, and any substances introduced into the tank. Continue monitoring whether pH keeps rising. Avoid chemical adjustment based on the ML result alone; prioritize the separate pH safety alert if a configured limit is reached.",
-    "decreasing": "Review recent water changes, source water, and any substances introduced into the tank. Continue monitoring whether pH keeps falling. Avoid chemical adjustment based on the ML result alone; prioritize the separate pH safety alert if a configured limit is reached.",
-    "stable": "Review the recent pH history, recent water changes, source water, and probe condition. If the pattern remains unusual or a configured pH safety alert appears, inspect the tank before making any chemical adjustment.",
-    "verify": "Review recent water changes, source water, and the recent pH history. Continue monitoring the next readings and avoid chemical adjustment based on the ML result alone."
+    "increasing": "Confirm the pH with a calibrated meter. Review recent water changes, source water, added materials, and alkalinity, which affects pH buffering. Do not add chemicals based on this ML result alone; follow configured pH limits and farm guidance.",
+    "decreasing": "Confirm the pH with a calibrated meter. Review recent water changes, source water, added materials, and alkalinity, which affects pH buffering. Do not add chemicals based on this ML result alone; follow configured pH limits and farm guidance.",
+    "stable": "Confirm the pH with a calibrated meter and inspect the probe. Review recent water changes, source water, alkalinity, and the time-of-day pattern. A stable trend can still be unusual relative to the model's reference; do not chemically adjust from this result alone.",
+    "verify": "Confirm the pH with a calibrated meter, inspect the probe, and review recent water changes and alkalinity. Avoid chemical adjustment based on this ML result alone; follow configured limits and farm guidance."
   },
   "temp": {
-    "increasing": "Check sunlight or heat exposure, incoming water temperature, and water circulation. Monitor dissolved oxygen at the same time because warmer water holds less oxygen at saturation. If a configured temperature safety alert is triggered, treat the separate threshold alert as the priority.",
-    "decreasing": "Review ambient cooling, incoming water temperature, water circulation, and probe placement. Continue monitoring whether the temperature keeps decreasing and prioritize any configured temperature safety alert.",
-    "stable": "Review ambient conditions, incoming water, circulation, probe placement, and the recent temperature history. If the pattern remains unusual or a safety alert appears, inspect the tank and probe condition.",
-    "verify": "Review ambient conditions, incoming water, circulation, and the recent temperature history, then continue monitoring the next readings."
+    "increasing": "Verify the temperature with a reliable thermometer. Review sunlight or heat exposure, incoming water, and circulation; warmer water can hold less dissolved oxygen. Check DO as well and follow configured temperature or DO alerts.",
+    "decreasing": "Verify the temperature with a reliable thermometer. Review ambient conditions, incoming water, and circulation, then compare with the operating range chosen for your crayfish species and setup. Follow configured temperature alerts.",
+    "stable": "Verify the temperature reading and probe placement, then compare it with the operating range chosen for your crayfish species and setup. A stable trend can still be unusual relative to the model's reference; follow configured alerts.",
+    "verify": "Verify the temperature with a reliable thermometer and review recent ambient conditions, incoming water, and circulation. Compare with the range chosen for your crayfish species and setup; follow configured alerts."
   },
   "combined_do_turbidity": {
-    "action": "Check aeration, water circulation, filtration, leftover feed, and waste buildup while monitoring both dissolved oxygen and turbidity. Suspended organic material can be associated with higher oxygen demand, but these readings do not establish the cause. Prioritize the separate safety alert if either parameter reaches a configured limit."
+    "action": "Verify both readings and probes. Check aeration, circulation, filtration or solids removal, and recent feeding, waste, or tank disturbance. Follow either sensor's configured safety alert."
   },
   "combined_temp_do": {
-    "action": "Check heat exposure, incoming water temperature, water circulation, and aeration while monitoring both temperature and dissolved oxygen. Warmer water holds less oxygen at saturation, but these readings alone do not establish the cause. Prioritize the separate safety alert if either parameter reaches a configured limit."
+    "action": "Verify both readings. Review heat exposure or incoming-water changes, and check aerator operation and circulation. Warm water holds less oxygen at saturation, so monitor DO closely and follow the configured temperature and DO alerts."
+  },
+  "combined_ph_do": {
+    "action": "Verify both readings and note the time of day. Photosynthesis and respiration can affect daily pH and DO patterns in ponds. Continue monitoring and follow the separate pH and DO safety alerts."
   },
   "_references": {
     "redclaw_qld": {
-      "title": "Queensland Government: Redclaw crayfish aquaculture",
+      "title": "Business Queensland: Redclaw crayfish aquaculture",
       "url": "https://www.business.qld.gov.au/industries/farms-fishing-forestry/fisheries/aquaculture/species/redclaw-crayfish",
-      "scope": "Species-specific husbandry context for Cherax quadricarinatus."
+      "scope": "Species-specific context for Cherax quadricarinatus, primarily in earthen ponds; do not transfer its numeric guidance to another species or tank without local validation."
     },
     "ras_qld": {
-      "title": "Queensland Government: Recirculating aquaculture systems",
+      "title": "Business Queensland: Recirculating aquaculture systems",
       "url": "https://www.business.qld.gov.au/industries/farms-fishing-forestry/fisheries/aquaculture/production/recirculate",
-      "scope": "RAS mechanical filtration removes solids such as uneaten feed and faeces."
+      "scope": "General recirculating-aquaculture system and filtration context; inspect the installed system rather than infer failure from a sensor pattern."
     },
     "usgs_do": {
-      "title": "USGS: Dissolved Oxygen and Water",
+      "title": "U.S. Geological Survey: Dissolved Oxygen and Water",
       "url": "https://www.usgs.gov/water-science-school/science/dissolved-oxygen-and-water",
-      "scope": "Temperature changes oxygen solubility; photosynthesis affects dissolved oxygen."
+      "scope": "Temperature affects oxygen solubility; photosynthesis and decomposition can influence dissolved oxygen."
     },
     "usgs_turbidity": {
-      "title": "USGS: Turbidity and Water",
+      "title": "U.S. Geological Survey: Turbidity and Water",
       "url": "https://www.usgs.gov/water-science-school/science/turbidity-and-water",
-      "scope": "Turbidity can come from sediment, organic particles, algae, or plankton."
+      "scope": "Turbidity is affected by suspended inorganic and organic matter, algae, and plankton; it does not identify a specific cause."
     },
     "monitoring_usgs": {
       "title": "Wagner et al. (2006), Guidelines and standard procedures for continuous water-quality monitors",
       "url": "https://doi.org/10.3133/tm1D3",
-      "scope": "Sensor calibration, fouling checks, maintenance, and quality assurance."
+      "scope": "Quality assurance, calibration, fouling checks, and maintenance for continuous water-quality monitoring."
     },
-    "buffering_ufifas": {
-      "title": "UF/IFAS: Water Quality Notes: Alkalinity and Hardness",
-      "url": "https://edis.ifas.ufl.edu/publication/SS540",
-      "scope": "General buffering chemistry; it does not prescribe crayfish treatment or dosing."
+    "buffering_msu": {
+      "title": "Mississippi State University Extension: pH and Alkalinity",
+      "url": "https://www.extension.msstate.edu/natural-resources/fisheries/pond-and-lake-management/pond-and-lake-water-quality/ph-and-alkalinity",
+      "scope": "Alkalinity buffers pH; pond pH can vary with biological activity and time of day. Fish-pond advice is general context, not a crayfish-tank treatment prescription."
     },
-    "crawfish_lsu": {
-      "title": "LSU AgCenter: Digital Precision Water Technology for Crawfish Research and Extension",
-      "url": "https://www.lsuagcenter.com/articles/page1764106138989",
-      "scope": "Crawfish-pond context for heat, decomposing vegetation, and low-oxygen events; production systems may differ."
+    "ufifas_aeration": {
+      "title": "UF/IFAS Extension: The Role of Aeration in Pond Management",
+      "url": "https://ask.ifas.ufl.edu/publication/FA021/",
+      "scope": "Pond aeration and water mixing can support dissolved oxygen management; practices must suit the actual production system."
+    },
+    "ufifas_do": {
+      "title": "UF/IFAS Extension: Dissolved Oxygen for Fish Production",
+      "url": "https://ask.ifas.ufl.edu/FA002/",
+      "scope": "Aquaculture pond DO cycles and oxygen demand from excess feed and decaying organic matter; species-specific limits still apply."
     }
   },
   "_evidence": {
     "overall.normal": ["redclaw_qld", "monitoring_usgs"],
     "overall.verify": ["monitoring_usgs"],
-    "DO.decreasing": ["crawfish_lsu", "ras_qld", "monitoring_usgs"],
+    "DO.decreasing": ["ufifas_aeration", "ufifas_do", "usgs_do", "monitoring_usgs"],
     "DO.increasing": ["usgs_do", "monitoring_usgs"],
-    "DO.stable": ["monitoring_usgs"],
-    "DO.verify": ["redclaw_qld", "monitoring_usgs"],
+    "DO.stable": ["ufifas_aeration", "monitoring_usgs"],
+    "DO.verify": ["ufifas_aeration", "monitoring_usgs"],
     "turbidity.increasing": ["usgs_turbidity", "ras_qld", "monitoring_usgs"],
     "turbidity.decreasing": ["usgs_turbidity", "ras_qld", "monitoring_usgs"],
-    "turbidity.stable": ["usgs_turbidity", "monitoring_usgs"],
+    "turbidity.stable": ["usgs_turbidity", "ras_qld", "monitoring_usgs"],
     "turbidity.verify": ["usgs_turbidity", "monitoring_usgs"],
-    "pH.increasing": ["buffering_ufifas", "redclaw_qld", "monitoring_usgs"],
-    "pH.decreasing": ["buffering_ufifas", "redclaw_qld", "monitoring_usgs"],
-    "pH.stable": ["monitoring_usgs"],
-    "pH.verify": ["monitoring_usgs"],
+    "pH.increasing": ["buffering_msu", "monitoring_usgs"],
+    "pH.decreasing": ["buffering_msu", "monitoring_usgs"],
+    "pH.stable": ["buffering_msu", "monitoring_usgs"],
+    "pH.verify": ["buffering_msu", "monitoring_usgs"],
     "temp.increasing": ["usgs_do", "redclaw_qld", "monitoring_usgs"],
     "temp.decreasing": ["redclaw_qld", "monitoring_usgs"],
-    "temp.stable": ["monitoring_usgs"],
-    "temp.verify": ["monitoring_usgs"],
-    "combined_do_turbidity.action": ["usgs_turbidity", "ras_qld", "crawfish_lsu", "monitoring_usgs"],
-    "combined_temp_do.action": ["usgs_do", "monitoring_usgs"]
+    "temp.stable": ["redclaw_qld", "monitoring_usgs"],
+    "temp.verify": ["redclaw_qld", "monitoring_usgs"],
+    "combined_do_turbidity.action": ["usgs_do", "usgs_turbidity", "ufifas_do", "ras_qld"],
+    "combined_temp_do.action": ["usgs_do", "redclaw_qld"],
+    "combined_ph_do.action": ["buffering_msu", "ufifas_do"]
   }
 }

@@ -15,8 +15,6 @@ class FeederTab extends StatelessWidget {
   final TextEditingController timeCtl;
   final VoidCallback onFeedNow;
   final Future<bool> Function(double? grams, String days) onAddSchedule;
-  final bool allowWaterQualityFeeding;
-  final Future<void> Function(bool enabled) onSetAllowWaterQualityFeeding;
   final void Function(int index) onDeleteSchedule;
   final Future<bool> Function(int index, ScheduleItem item) onEditSchedule;
   final void Function(int index, bool enabled) onToggleSchedule;
@@ -30,6 +28,7 @@ class FeederTab extends StatelessWidget {
   final double? feedLevelPercent;
   final String? feedLevelZone;
   final double estimatedConsumptionToday;
+  final List<String> waterQualityWarnings;
 
   const FeederTab({
     super.key,
@@ -37,8 +36,6 @@ class FeederTab extends StatelessWidget {
     required this.timeCtl,
     required this.onFeedNow,
     required this.onAddSchedule,
-    this.allowWaterQualityFeeding = false,
-    required this.onSetAllowWaterQualityFeeding,
     required this.onDeleteSchedule,
     required this.onEditSchedule,
     required this.onToggleSchedule,
@@ -51,6 +48,7 @@ class FeederTab extends StatelessWidget {
     this.feedLevelPercent,
     this.feedLevelZone,
     this.estimatedConsumptionToday = 0,
+    this.waterQualityWarnings = const [],
   });
 
   @override
@@ -193,6 +191,10 @@ class FeederTab extends StatelessWidget {
             if (schedules.isNotEmpty) ...[_buildCountdown()],
             const SizedBox(height: 12),
             _buildFeedNowButton(ctx),
+            if (waterQualityWarnings.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              _buildWaterQualityWarning(),
+            ],
             const SizedBox(height: 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -238,52 +240,6 @@ class FeederTab extends StatelessWidget {
                   ),
                 ),
               ],
-            ),
-            const SizedBox(height: 8),
-            Container(
-              decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: 0.045),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: AppColors.primary.withValues(alpha: 0.18),
-                ),
-              ),
-              child: Material(
-                color: Colors.transparent,
-                child: CheckboxListTile(
-                  value: allowWaterQualityFeeding,
-                  onChanged: (value) {
-                    if (value != null) {
-                      onSetAllowWaterQualityFeeding(value);
-                    }
-                  },
-                  activeColor: AppColors.primary,
-                  checkColor: Colors.white,
-                  side: const BorderSide(color: AppColors.dark, width: 1.5),
-                  fillColor: WidgetStateProperty.resolveWith(
-                    (states) => states.contains(WidgetState.selected)
-                        ? AppColors.primary
-                        : Colors.transparent,
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 6),
-                  horizontalTitleGap: 2,
-                  minLeadingWidth: 26,
-                  dense: true,
-                  visualDensity: const VisualDensity(
-                    horizontal: -2,
-                    vertical: -2,
-                  ),
-                  controlAffinity: ListTileControlAffinity.leading,
-                  title: const Text(
-                    'Allow manual and scheduled feeding outside safe water-quality ranges',
-                    style: TextStyle(
-                      fontSize: 9.5,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.dark,
-                    ),
-                  ),
-                ),
-              ),
             ),
             if (schedules.isNotEmpty) ...[
               const SizedBox(height: 10),
@@ -340,6 +296,64 @@ class FeederTab extends StatelessWidget {
               ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildWaterQualityWarning() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(11),
+      decoration: BoxDecoration(
+        color: AppColors.warning.withValues(alpha: 0.09),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.warning.withValues(alpha: 0.45)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.warning_amber_rounded,
+                size: 16,
+                color: AppColors.warning,
+              ),
+              const SizedBox(width: 6),
+              const Text(
+                'Water-quality warning',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.dark,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 5),
+          ...waterQualityWarnings.map(
+            (warning) => Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                '• $warning',
+                style: TextStyle(
+                  fontSize: 9,
+                  height: 1.25,
+                  color: AppColors.darkWith(0.7),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            'Feeding is allowed. Check the tank and follow your farm procedure.',
+            style: TextStyle(
+              fontSize: 8.5,
+              height: 1.25,
+              color: AppColors.darkWith(0.55),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -773,7 +787,7 @@ class FeederTab extends StatelessWidget {
       case 'completed':
         return 'Completed';
       case 'forced':
-        return 'Completed (confirmed override)';
+        return 'Completed (schedule confirmed)';
       case 'blocked':
         return 'Blocked';
       case 'failed':
@@ -882,7 +896,10 @@ class FeederTab extends StatelessWidget {
       context: ctx,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 260), reverseDuration: Duration(milliseconds: 220)),
+      sheetAnimationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 260),
+        reverseDuration: Duration(milliseconds: 220),
+      ),
       builder: (sheetCtx) => FractionallySizedBox(
         heightFactor: 0.76,
         child: Container(
@@ -1252,7 +1269,10 @@ class FeederTab extends StatelessWidget {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 260), reverseDuration: Duration(milliseconds: 220)),
+      sheetAnimationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 260),
+        reverseDuration: Duration(milliseconds: 220),
+      ),
       builder: (sheetCtx) {
         return SafeArea(
           child: Padding(
@@ -1447,6 +1467,21 @@ class FeederTab extends StatelessWidget {
                                                       ),
                                                     ),
                                                 ],
+                                                if (l.waterQualityWarning !=
+                                                        null &&
+                                                    l.waterQualityWarning!
+                                                        .trim()
+                                                        .isNotEmpty) ...[
+                                                  const SizedBox(height: 4),
+                                                  Text(
+                                                    'Water-quality warning: ${l.waterQualityWarning}',
+                                                    style: TextStyle(
+                                                      fontSize: 8,
+                                                      height: 1.3,
+                                                      color: AppColors.warning,
+                                                    ),
+                                                  ),
+                                                ],
                                               ],
                                             ),
                                           ),
@@ -1532,7 +1567,10 @@ class FeederTab extends StatelessWidget {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 260), reverseDuration: Duration(milliseconds: 220)),
+      sheetAnimationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 260),
+        reverseDuration: Duration(milliseconds: 220),
+      ),
       builder: (sheetCtx) {
         return StatefulBuilder(
           builder: (sheetCtx, setSheetState) {

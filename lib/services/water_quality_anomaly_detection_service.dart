@@ -43,6 +43,7 @@ class WaterQualityAnomalyDetectionResult {
   final String recommendation;
   final List<Map<String, dynamic>> contributors;
   final DateTime timestamp;
+  final DateTime? sourceRecordedAt;
 
   const WaterQualityAnomalyDetectionResult({
     required this.status,
@@ -53,6 +54,7 @@ class WaterQualityAnomalyDetectionResult {
     required this.recommendation,
     required this.contributors,
     required this.timestamp,
+    this.sourceRecordedAt,
   });
 
   factory WaterQualityAnomalyDetectionResult.fromMap(
@@ -98,6 +100,7 @@ class WaterQualityAnomalyDetectionResult {
           'Verify the readings and inspect the tank.',
       contributors: List.unmodifiable(contributors),
       timestamp: parsedTimestamp,
+      sourceRecordedAt: parsePredictionTimestamp(data['source_recorded_at']),
     );
   }
 
@@ -117,13 +120,14 @@ class WaterQualityAnomalyDetectionResult {
   String get driverUnit => sensorUnitFor(driver);
 
   bool get hasData => status != 'Insufficient';
-  // The scheduled analysis runs every 15 minutes. After three missed runs,
-  // the last result must not continue to look like a live assessment.
+  // An event-triggered result cannot remain live after its source goes stale.
+  DateTime get freshnessAnchor => sourceRecordedAt ?? timestamp;
+
   bool isFreshAt(DateTime now) {
     if (!hasData) return false;
-    final age = now.toUtc().difference(timestamp.toUtc());
+    final age = now.toUtc().difference(freshnessAnchor.toUtc());
     return age >= const Duration(minutes: -5) &&
-        age < const Duration(minutes: 45);
+        age < const Duration(minutes: 20);
   }
 
   bool get isCurrent => isFreshAt(DateTime.now());
@@ -150,6 +154,25 @@ class WaterQualityAnomalyDetectionResult {
   }
 }
 
+List<WaterQualityAnomalyDetectionResult> mergeWaterQualityAnomalyHistory(
+  Iterable<WaterQualityAnomalyDetectionResult> newHistory,
+  Iterable<WaterQualityAnomalyDetectionResult> legacyHistory, {
+  int limit = 30,
+}) {
+  final byTimestamp = <int, WaterQualityAnomalyDetectionResult>{};
+  for (final item in legacyHistory) {
+    byTimestamp[item.timestamp.millisecondsSinceEpoch] = item;
+  }
+  // Prefer the dedicated history collection if a legacy copy has the same
+  // processing timestamp.
+  for (final item in newHistory) {
+    byTimestamp[item.timestamp.millisecondsSinceEpoch] = item;
+  }
+  final combined = byTimestamp.values.toList()
+    ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+  return combined.take(limit).toList(growable: false);
+}
+
 class WaterQualityAnomalyDetectionService extends ChangeNotifier {
   static final WaterQualityAnomalyDetectionService instance =
       WaterQualityAnomalyDetectionService._();
@@ -161,9 +184,7 @@ class WaterQualityAnomalyDetectionService extends ChangeNotifier {
   bool _initialized = false;
   int _listenGeneration = 0;
   StreamSubscription<User?>? _authSub;
-  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _currentSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _historySub;
-  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _legacyHistorySub;
   Timer? _freshnessTimer;
 
   WaterQualityAnomalyDetectionResult? get result => _result;
@@ -176,9 +197,9 @@ class WaterQualityAnomalyDetectionService extends ChangeNotifier {
     _freshnessTimer?.cancel();
     final result = _result;
     if (result == null || !result.isCurrent) return;
-    final delay = result.timestamp
+    final delay = result.freshnessAnchor
         .toUtc()
-        .add(const Duration(minutes: 45))
+        .add(const Duration(minutes: 20))
         .difference(DateTime.now().toUtc());
     if (delay > Duration.zero) {
       _freshnessTimer = Timer(
@@ -200,12 +221,8 @@ class WaterQualityAnomalyDetectionService extends ChangeNotifier {
   void _restartForUser(User? user) {
     final generation = ++_listenGeneration;
     _freshnessTimer?.cancel();
-    _currentSub?.cancel();
     _historySub?.cancel();
-    _legacyHistorySub?.cancel();
-    _currentSub = null;
     _historySub = null;
-    _legacyHistorySub = null;
     _result = null;
     _history = [];
     if (user == null) {
@@ -252,37 +269,13 @@ class WaterQualityAnomalyDetectionService extends ChangeNotifier {
           .collection('water_quality_anomaly_detection_history');
       if (generation != _listenGeneration) return;
 
-      _currentSub = collection
-          .doc('current')
-          .snapshots()
-          .listen(
-            (snapshot) {
-              if (generation != _listenGeneration) return;
-              _result = snapshot.exists && snapshot.data() != null
-                  ? WaterQualityAnomalyDetectionResult.fromMap(snapshot.data()!)
-                  : null;
-              _refreshWhenStale();
-              _loading = false;
-              notifyListeners();
-            },
-            onError: (Object error) {
-              if (generation != _listenGeneration) return;
-              debugPrint('[WQAD] Current stream error: $error');
-              _loading = false;
-              notifyListeners();
-            },
-          );
-
       var newHistory = <WaterQualityAnomalyDetectionResult>[];
       var legacyHistory = <WaterQualityAnomalyDetectionResult>[];
       void publishHistory() {
-        final byTimestamp = <int, WaterQualityAnomalyDetectionResult>{};
-        for (final item in [...newHistory, ...legacyHistory]) {
-          byTimestamp[item.timestamp.millisecondsSinceEpoch] = item;
-        }
-        final combined = byTimestamp.values.toList()
-          ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
-        _history = combined.take(30).toList(growable: false);
+        _history = mergeWaterQualityAnomalyHistory(newHistory, legacyHistory);
+        _result = _history.isEmpty ? null : _history.first;
+        _refreshWhenStale();
+        _loading = false;
         notifyListeners();
       }
 
@@ -302,29 +295,27 @@ class WaterQualityAnomalyDetectionService extends ChangeNotifier {
                   .toList(growable: false);
               publishHistory();
             },
-            onError: (Object error) =>
-                debugPrint('[WQAD] History stream error: $error'),
+            onError: (Object error) {
+              if (generation != _listenGeneration) return;
+              debugPrint('[WQAD] History stream error: $error');
+              _loading = false;
+              notifyListeners();
+            },
           );
-      // Keep already-written hourly records visible during the path transition.
-      _legacyHistorySub = collection
+      // Keep already-written timestamped records from the former collection
+      // visible during transition. That collection is legacy-only, so read it
+      // once rather than maintaining a second live listener. Its old `current`
+      // document is deliberately ignored.
+      final legacySnapshot = await collection
           .orderBy('processed_at', descending: true)
           .limit(31)
-          .snapshots()
-          .listen(
-            (snapshot) {
-              if (generation != _listenGeneration) return;
-              legacyHistory = snapshot.docs
-                  .where((doc) => doc.id != 'current')
-                  .map(
-                    (doc) =>
-                        WaterQualityAnomalyDetectionResult.fromMap(doc.data()),
-                  )
-                  .toList(growable: false);
-              publishHistory();
-            },
-            onError: (Object error) =>
-                debugPrint('[WQAD] Legacy history stream error: $error'),
-          );
+          .get();
+      if (generation != _listenGeneration) return;
+      legacyHistory = legacySnapshot.docs
+          .where((doc) => doc.id != 'current')
+          .map((doc) => WaterQualityAnomalyDetectionResult.fromMap(doc.data()))
+          .toList(growable: false);
+      publishHistory();
     } catch (error) {
       if (generation != _listenGeneration) return;
       debugPrint('[WQAD] Listener setup error: $error');
@@ -337,9 +328,7 @@ class WaterQualityAnomalyDetectionService extends ChangeNotifier {
   void dispose() {
     _listenGeneration++;
     _authSub?.cancel();
-    _currentSub?.cancel();
     _historySub?.cancel();
-    _legacyHistorySub?.cancel();
     _freshnessTimer?.cancel();
     ConnectivityService.instance.removeOnConnectCallback(_onReconnect);
     _initialized = false;

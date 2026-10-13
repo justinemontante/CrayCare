@@ -134,7 +134,7 @@ async function seedHistory() {
   console.log('The demo pattern includes normal sensor variation and a gradual turbidity increase in the latest samples.');
   console.log('This writes sensor history only; it does not change sensor_readings/latest or the dashboard live tiles.');
   console.log('All six sensor values are single 10-minute averages; no threshold fields were changed.');
-  console.log('Run npm run ml:run-now to analyze the fresh history immediately; automatic analysis runs every 30 minutes.');
+  console.log('Fresh history triggers WQAD automatically after deployment; use npm run ml:run-now for a manual diagnostic run.');
 }
 
 seedHistory().catch(error => { console.error(error); process.exit(1); });

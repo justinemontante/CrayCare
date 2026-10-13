@@ -137,12 +137,6 @@ Table feeder_status [note: 'Operational current-state projection; one row per ta
   feed_level decimal(6,2)
 }
 
-Table feeder_policy [note: 'Shared feeding policy persisted at tanks/{tankId}/feeder/feeder_policy; the legacy schedule_policy document is mirrored temporarily during ESP firmware migration'] {
-  tank_id varchar [pk, ref: - tanks.tank_id]
-  allow_water_quality_override boolean [not null, default: false, note: 'Allows manual Feed Now and scheduled feeding despite out-of-range temperature, pH, dissolved oxygen, or turbidity only; sensor faults, stale readings, turbidity-in-air, critical feed level, and other guards still block']
-  updated_at timestamp
-}
-
 Table feeder_schedules [note: 'SQL-style normalized schedule model. In Firestore, the selected weekdays are stored as a 7-character days mask on tanks/{tankId}/feeder_schedules/{scheduleId}; feeder_schedule_days is the relational representation.'] {
   tank_id varchar [not null, ref: > tanks.tank_id]
   schedule_id varchar [not null, note: 'Document ID; not a stored field']
@@ -200,6 +194,7 @@ Table feeder_logs [note: 'Feeding lifecycle/audit logs at tanks/{tankId}/feeder_
   feed_level_before decimal(6,2)
   feed_level_after decimal(6,2)
   level_change_detected boolean
+  water_quality_warning text [note: 'Optional warning string on completed ESP feed when valid sensor values were outside configured ranges; does not indicate a blocked feed']
   verification_note text [note: 'Optional warning when a completed cycle has no detectable feed-level decrease']
   logged_at timestamp [not null]
   Indexes {
@@ -210,7 +205,6 @@ Table feeder_logs [note: 'Feeding lifecycle/audit logs at tanks/{tankId}/feeder_
 
 TableGroup "Feeding Control" {
   feeder_status
-  feeder_policy
   feeder_schedules
   feeder_schedule_days
   feeder_commands
@@ -219,10 +213,10 @@ TableGroup "Feeding Control" {
 
 Ref: feeder_schedule_days.(tank_id, schedule_id) > feeder_schedules.(tank_id, schedule_id)
 
-Table water_quality_anomaly_detections [note: 'Water-quality anomaly-detection record. The current result and 30-minute scheduled history use the same fields in separate Firestore locations for dashboard access and historical retrieval.'] {
+Table water_quality_anomaly_detection_history [note: 'Canonical WQAD history. Each fresh sensor-history record can produce one detection; the app treats the greatest processed_at timestamp as latest. Legacy records in water_quality_anomaly_detections remain read-only during transition.'] {
   tank_id varchar [not null, ref: > tanks.tank_id]
   uid varchar [note: 'Owner UID attached by the Cloud Function']
-  detection_id varchar [not null, note: 'Result-record identifier; Firestore document ID: current for latest or YYYYMMDDTHHMMSS for history; not stored as a document field']
+  detection_id varchar [not null, note: 'Source-keyed Firestore document ID for automatic analysis; manual diagnostic runs use YYYYMMDDTHHMMSS']
   status varchar [not null, note: 'Normal | Unusual | Insufficient']
   is_anomaly boolean [not null]
   anomaly_score decimal(5,2) [not null, note: '0–100 percentile relative to reference patterns; not a safety score']

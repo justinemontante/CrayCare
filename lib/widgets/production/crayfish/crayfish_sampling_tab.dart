@@ -226,6 +226,7 @@ class SamplingTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isArchiveView = TankService.instance.isArchiveView;
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
       child: Column(
@@ -239,7 +240,9 @@ class SamplingTab extends StatelessWidget {
               child: SamplingHistoryShortcut(),
             ),
             const SizedBox(height: 6),
-            NextSamplingPanel(action: SamplingEntryLauncher()),
+            NextSamplingPanel(
+              action: isArchiveView ? null : SamplingEntryLauncher(),
+            ),
             const SizedBox(height: 12),
             GrowthOverviewPanel(),
             const SizedBox(height: 12),
@@ -1943,6 +1946,10 @@ class _SamplingFormPanelState extends State<SamplingFormPanel>
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           inputFormatters: [
             TextInputFormatter.withFunction((oldValue, newValue) {
+              // Reject whitespace even during the keyboard's composing phase;
+              // otherwise an IME can temporarily accept a space that remains
+              // in the field after composition ends.
+              if (RegExp(r'\s').hasMatch(newValue.text)) return oldValue;
               if (!newValue.composing.isCollapsed) return newValue;
               return RegExp(r'^\d*\.?\d*$').hasMatch(newValue.text)
                   ? newValue
