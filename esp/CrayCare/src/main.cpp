@@ -2978,6 +2978,9 @@ void loadCachedFeederSchedules();
 void saveCachedFeederSchedules();
 void loadFeederState();
 bool saveFeederState();
+bool reserveFeedNowCommand(const String& commandId, const String& tankId, float grams);
+bool storePendingFeedNowLog(const String& tankId, const String& logId, const String& payload);
+bool flushPendingFeedNowLog();
 void checkScheduledFeed();
 void startFeed(String source, float grams = 1.0f, String commandId = "", long long issuedAtMs = 0, long long expiresAtMs = 0, bool forceOverride = false);
 void processFeederTick();
@@ -3989,6 +3992,11 @@ void processFeederCommands() {
   // prevents a second Feed Now request from being deleted without execution.
   if (feederRunState != FEEDER_IDLE) return;
 
+  // Recover/upload any Feed Now result before looking at another command. If
+  // a previous boot stopped after acknowledging a command, this writes one
+  // failed/unconfirmed log and clears the stale command without dispensing it.
+  if (!flushPendingFeedNowLog()) return;
+
   String cmdCol = "tanks/" + currentTankId + "/feeder_commands";
   if (!Firebase.Firestore.listDocuments(&fbdo, FIREBASE_PROJECT_ID, "",
         cmdCol.c_str(), 20, "", "", "", false)) {
@@ -4174,6 +4182,109 @@ void loadFeederState() {
   if (feederDispenseCount > 0) {
     Serial.printf("[FEEDER] Restored dispense count: %d\n", feederDispenseCount);
   }
+}
+
+// Feed Now execution and its retryable result live in NVS, not LittleFS.
+// LittleFS is still used for scheduled/onsite log buffering, but a failed
+// filesystem operation must not reboot the device before a cloud command is
+// executed. The command marker enforces at-most-once execution across reboots;
+// the deterministic Firestore log ID makes result retries idempotent.
+bool reserveFeedNowCommand(const String& commandId, const String& tankId, float grams) {
+  if (commandId.isEmpty() || tankId.isEmpty() || !isfinite(grams)) return false;
+  if (!prefs.begin("feederstate", false)) return false;
+  const String existingId = prefs.getString("cmd_id", "");
+  if (!existingId.isEmpty()) {
+    prefs.end();
+    return false;
+  }
+  const bool ok = prefs.putString("cmd_tank", tankId) > 0 &&
+      prefs.putString("cmd_grams", String(grams, 1)) > 0 &&
+      prefs.putString("cmd_id", commandId) > 0;
+  prefs.end();
+  return ok;
+}
+
+bool storePendingFeedNowLog(const String& tankId, const String& logId, const String& payload) {
+  if (tankId.isEmpty() || logId.isEmpty() || payload.isEmpty()) return false;
+  if (!prefs.begin("feederstate", false)) return false;
+  const String existingId = prefs.getString("log_id", "");
+  if (!existingId.isEmpty() && existingId != logId) {
+    prefs.end();
+    return false;
+  }
+  // Write the payload last: its presence marks the complete NVS outbox item.
+  const bool ok = prefs.putString("log_tank", tankId) > 0 &&
+      prefs.putString("log_id", logId) > 0 &&
+      prefs.putString("log_json", payload) > 0;
+  prefs.end();
+  return ok;
+}
+
+bool flushPendingFeedNowLog() {
+  if (!prefs.begin("feederstate", false)) return false;
+  String commandId = prefs.getString("cmd_id", "");
+  String commandTank = prefs.getString("cmd_tank", "");
+  String commandGrams = prefs.getString("cmd_grams", "1.0");
+  String tankId = prefs.getString("log_tank", "");
+  String logId = prefs.getString("log_id", "");
+  String payload = prefs.getString("log_json", "");
+  prefs.end();
+
+  if (payload.isEmpty()) {
+    if (commandId.isEmpty()) return true;
+    // A reset after acknowledging the command but before a terminal result
+    // means the physical outcome cannot be confirmed. Record that explicitly;
+    // never replay the same command after reboot.
+    if (commandTank.isEmpty()) return false;
+    time_t now;
+    time(&now);
+    const String loggedAt = firestoreTimestampString(now);
+    if (loggedAt.isEmpty()) return false;
+    FirebaseJson interrupted;
+    interrupted.set("fields/action/stringValue", "Feed interrupted - execution could not be confirmed");
+    interrupted.set("fields/type/stringValue", "manual");
+    interrupted.set("fields/status/stringValue", "failed");
+    interrupted.set("fields/command_id/stringValue", commandId);
+    interrupted.set("fields/trigger_source/stringValue", "manual_request");
+    interrupted.set("fields/logged_at/timestampValue", loggedAt);
+    interrupted.set("fields/requested_grams/doubleValue", commandGrams);
+    tankId = commandTank;
+    logId = hardwareId + "_cmd_" + commandId;
+    payload = interrupted.raw();
+    if (!storePendingFeedNowLog(tankId, logId, payload)) return false;
+  }
+
+  if (tankId.isEmpty() || logId.isEmpty()) return false;
+  const String collection = "tanks/" + tankId + "/feeder_logs";
+  const bool uploaded = Firebase.Firestore.createDocument(&fbdo, FIREBASE_PROJECT_ID, "",
+      collection.c_str(), logId.c_str(), payload.c_str(), "");
+  const bool duplicate = !uploaded && fbdo.httpCode() == 409;
+  if (!uploaded && !duplicate) {
+    Serial.printf("[FEEDER LOG] Feed Now result upload failed: %s\n", fbdo.errorReason().c_str());
+    return false;
+  }
+
+  // A crash/ambiguous Firestore acknowledgement may leave the command queued.
+  // Delete it only after its outcome is safely present in the log collection.
+  if (!commandId.isEmpty()) {
+    const String commandPath = "tanks/" + tankId + "/feeder_commands/" + commandId;
+    const bool deleted = Firebase.Firestore.deleteDocument(&fbdo, FIREBASE_PROJECT_ID, "", commandPath.c_str());
+    if (!deleted && fbdo.httpCode() != 404) {
+      Serial.printf("[FEEDER CMD] Could not clear recovered command: %s\n", fbdo.errorReason().c_str());
+      return false;
+    }
+  }
+
+  if (!prefs.begin("feederstate", false)) return false;
+  prefs.remove("log_json");
+  prefs.remove("log_id");
+  prefs.remove("log_tank");
+  prefs.remove("cmd_id");
+  prefs.remove("cmd_tank");
+  prefs.remove("cmd_grams");
+  prefs.end();
+  Serial.printf("[FEEDER LOG] Feed Now outcome saved to Firestore (%s)\n", logId.c_str());
+  return true;
 }
 
 // ─── Sync Schedules from Firestore ───
@@ -4495,19 +4606,10 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
   }
   time_t startedAt;
   time(&startedAt);
-  if (startedAt < 1700000000 || !littlefsMounted) {
+  if (startedAt < 1700000000 || (commandId.isEmpty() && !littlefsMounted)) {
     feederStatusReason = startedAt < 1700000000 ? "Clock not synced" : "Storage unavailable";
     Serial.printf("[FEEDER] BLOCKED: %s\n", feederStatusReason.c_str());
     return;
-  }
-  // A durable command intent is a tombstone until the queued command has
-  // been acknowledged. Never restart its motor operation after a reset.
-  if (!commandId.isEmpty()) {
-    const String base = "/feedlogs/cmd_" + commandId;
-    if (LittleFS.exists(base + ".pending") || LittleFS.exists(base + ".json")) {
-      flushOneFeederLog();
-      return;
-    }
   }
   feederCommandId = commandId;
   feederStatusReason = "";
@@ -4531,15 +4633,29 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
     Serial.println("[FEEDER] Cannot reserve execution; refusing to dispense");
     return;
   }
-  feederWritingIntent = true;
-  pushFeederLog("Feed interrupted - execution could not be confirmed", source == "scheduled" ? "auto" : "manual",
-                "failed", grams, -1, -1);
-  feederWritingIntent = false;
-  if (!LittleFS.exists("/feedlogs/" + feederEventKey + ".pending")) {
-    feederStatus = "blocked";
-    feederStatusReason = "Cannot persist feed request";
-    sendFeederStatus();
-    return;
+  if (!commandId.isEmpty()) {
+    // NVS provides the durable at-most-once marker for cloud Feed Now. This
+    // avoids LittleFS open/rename operations in the command path that were
+    // panicking before the servo could start.
+    if (!reserveFeedNowCommand(commandId, currentTankId, grams)) {
+      feederStatus = "blocked";
+      feederStatusReason = "Another Feed Now result is still pending";
+      Serial.println("[FEEDER] Cannot reserve Feed Now in NVS; refusing to dispense");
+      sendFeederStatus();
+      return;
+    }
+  } else {
+    // Local intent recovery remains for scheduled and physical-button feeding.
+    feederWritingIntent = true;
+    pushFeederLog("Feed interrupted - execution could not be confirmed", source == "scheduled" ? "auto" : "manual",
+                  "failed", grams, -1, -1);
+    feederWritingIntent = false;
+    if (!LittleFS.exists("/feedlogs/" + feederEventKey + ".pending")) {
+      feederStatus = "blocked";
+      feederStatusReason = "Cannot persist feed request";
+      sendFeederStatus();
+      return;
+    }
   }
   if (source == "scheduled") {
     feederLastScheduledMinute = startedAt / 60;
@@ -4790,10 +4906,13 @@ void processFeederTick() {
 }
 
 // ─── Push Feeding Log to Firestore ───
-// Write locally first. A deterministic ID makes retries safe after reconnect.
+// Feed Now uses the NVS outbox plus a deterministic Firestore ID; schedule and
+// onsite outcomes keep the LittleFS store-and-forward path.
 void pushFeederLog(String action, String type, String status,
                    float requestedGrams, float levelBefore, float levelAfter) {
-  if (!littlefsMounted || feederEventTank.isEmpty()) return;
+  if (feederEventTank.isEmpty()) return;
+  const bool feedNowCommand = !feederCommandId.isEmpty();
+  if (!feedNowCommand && !littlefsMounted) return;
 
   time_t now;
   time(&now);
@@ -4843,6 +4962,18 @@ void pushFeederLog(String action, String type, String status,
       json.set("fields/verification_note/stringValue",
                "Possible dispense failure: no detectable feed-level change");
     }
+  }
+
+  if (feedNowCommand) {
+    // Keep the exact outcome in NVS before attempting Firestore. The fixed
+    // event ID lets retries safely treat HTTP 409 as already recorded.
+    const String logId = hardwareId + "_" + feederEventKey;
+    if (!storePendingFeedNowLog(feederEventTank, logId, json.raw())) {
+      Serial.println("[FEEDER LOG] Could not persist Feed Now result in NVS; command marker retained");
+      return;
+    }
+    flushPendingFeedNowLog();
+    return;
   }
 
   FirebaseJson envelope;
