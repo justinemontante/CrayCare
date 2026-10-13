@@ -24,6 +24,7 @@ BLOWER (GPIO16, active-LOW relay module)
     via n4on, which the feed cycle never overrides.
   - Manual: n4on / n4off (15-minute safety timeout). Future app ID
     (reserved): "blower".
+    
 
 SENSORS
 ┌────────┬───────┬──────────────────────┬──────────────────────────┐

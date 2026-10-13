@@ -233,6 +233,16 @@ SENSOR CALIBRATION
     Backward-compatible alias for phfit; recomputes the selected two-point pH
     calibration from saved NVS points.
 
+  phoffset [value]
+    Correction magnitude defaults to +1.50 pH but is OFF unless activated.
+    Type `phoffset on` to add the stored correction, `phoffset off` to stop
+    adding it, or `phoffset <value>` to save and activate a value from -3.00 to
+    +3.00 (for example, `phoffset 1.5`). A value of 0 disables it. The setting
+    is saved in NVS and affects displayed, alerted, and cloud pH readings, but
+    does not change saved calibration voltages or the two-point fit. Verify in
+    both buffer solutions before using corrected readings for tank decisions;
+    `CALSHOW` shows whether it is ON or OFF.
+
   doread
     In CALMODE with CALSTREAM DO selected, shows filtered voltage, estimated
     mg/L, current temperature, and whether the live voltage window is stable.

@@ -775,6 +775,10 @@ float doVoltageScale = 4.0;
 float doVoltageOffset = 0.0;
 float phVoltageSlope = -5.70;
 float phVoltageIntercept = 21.34;
+// Optional empirical correction after the two-point voltage-to-pH fit.
+// Stored magnitude defaults to +1.50 pH, but it is disabled until activated.
+float phReadingOffset = 1.50f;
+bool phReadingOffsetEnabled = false;
 int phFitPointCount = 2;  // NVS "phFitN"; 3 means provisional three-buffer regression
 // HC-SR04 mounting calibration (centimetres). The sensor is mounted above
 // the tank bottom; depth = sensorHeight - measured air gap.
@@ -1005,6 +1009,8 @@ bool saveSensorCalibrations() {
   saved &= prefs.putFloat("phV4Ref", 4.01f) == sizeof(float);
   saved &= prefs.putFloat("phSlope", phVoltageSlope) == sizeof(float);
   saved &= prefs.putFloat("phIntercept", phVoltageIntercept) == sizeof(float);
+  saved &= prefs.putFloat("phOffset", phReadingOffset) == sizeof(float);
+  saved &= prefs.putBool("phOffOn", phReadingOffsetEnabled);
   saved &= prefs.putInt("phFitN", phFitPointCount) == sizeof(int32_t);
   saved &= prefs.putFloat("doScale", doVoltageScale) == sizeof(float);
   saved &= prefs.putFloat("doOffset", doVoltageOffset) == sizeof(float);
@@ -1035,6 +1041,8 @@ void loadSensorCalibrations() {
   prefs.begin("sensorcal", true);
   phVoltageSlope = prefs.getFloat("phSlope", phVoltageSlope);
   phVoltageIntercept = prefs.getFloat("phIntercept", phVoltageIntercept);
+  phReadingOffset = prefs.getFloat("phOffset", phReadingOffset);
+  phReadingOffsetEnabled = prefs.getBool("phOffOn", false);
   phFitPointCount = prefs.getInt("phFitN", 2);
   if (phFitPointCount != 3) phFitPointCount = 2;
   doVoltageScale = prefs.getFloat("doScale", doVoltageScale);
@@ -2062,7 +2070,8 @@ void readPHSensor() {
     if (sensorOutputEnabled) Serial.printf("[PH] Invalid/disconnected voltage: %.3fV\n", phVoltage);
     return;
   }
-  phLevel = phVoltageSlope * voltage + phVoltageIntercept;
+  phLevel = phVoltageSlope * voltage + phVoltageIntercept +
+      (phReadingOffsetEnabled ? phReadingOffset : 0.0f);
   if (!isfinite(phLevel) || phLevel < 0.0f || phLevel > 14.0f) {
     phLevel = -1.0f;
     phSensorOK = false;
@@ -2317,6 +2326,9 @@ void printCalibrationHelp() {
   Serial.println("phpair 9.18|6.86        Select second point paired with pH 4.01");
   Serial.println("phfit                   Apply selected 2-point pH fit");
   Serial.println("phrefit                 Alias for phfit / refit selected pair");
+  Serial.println("phoffset                 Show correction status/magnitude");
+  Serial.println("phoffset on|off          Activate/deactivate stored correction (default +1.50)");
+  Serial.println("phoffset <value>         Set and activate correction (-3.00..3.00)");
   Serial.println("doread                   Show current DO voltage/value");
   Serial.println("doclear                  Calibrate DO in air-saturated water");
   Serial.println("turbclear [VOLTS]        Save stable clear-water voltage");
@@ -2389,7 +2401,8 @@ bool isPHCalibrationCommand(const String& cmd) {
       lower == "phcal7" || lower == "phcal686" ||
       lower == "phcal686 force" || lower == "phcal9" ||
       lower.startsWith("phcal9 ") || lower == "phfit" ||
-      lower == "phrefit" || lower == "phpair" || lower.startsWith("phpair ");
+      lower == "phrefit" || lower == "phpair" || lower.startsWith("phpair ") ||
+      lower == "phoffset" || lower.startsWith("phoffset ");
 }
 
 bool isSensorCalibrationCommand(const String& cmd) {
@@ -2424,9 +2437,10 @@ void printSavedSensorCalibrations() {
   prefs.end();
   const char* pairName = pair == 9 ? "4.01+9.18" :
       pair == 686 ? "4.01+6.86" : "legacy/unknown";
-  Serial.printf("[CAL NVM] pH4=%.4fV (ref %.2f), pH6.86=%.4fV, pH9.18=%.4fV (ref %.2f), selected=%s, fit=%d-point, slope=%.5f intercept=%.5f\n",
+  Serial.printf("[CAL NVM] pH4=%.4fV (ref %.2f), pH6.86=%.4fV, pH9.18=%.4fV (ref %.2f), selected=%s, fit=%d-point, slope=%.5f intercept=%.5f outputOffset=%s%+.2f\n",
                 v4, ref4, v686, v9, ref9, pairName, phFitPointCount,
-                phVoltageSlope, phVoltageIntercept);
+                phVoltageSlope, phVoltageIntercept,
+                phReadingOffsetEnabled ? "ON " : "OFF ", phReadingOffset);
   Serial.printf("[CAL NVM] DO scale=%.5f offset=%.5f | Turb clear=%.4f dirty=%.4f air=%.4f V mapping=%s\n",
                 doVoltageScale, doVoltageOffset, turbidityVClear,
                 turbidityVDirty, turbidityVAirMax,
@@ -3437,6 +3451,52 @@ void loop() {
         Serial.println("[CAL] Start raw on first, or enter CALMODE ON.");
       } else {
         applySavedPHFit();
+      }
+    }
+    if (cmd == "phoffset" || cmd.startsWith("phoffset ")) {
+      String offsetText = cmd == "phoffset" ? "" : cmd.substring(9);
+      offsetText.trim();
+      if (offsetText.length() == 0) {
+        Serial.printf("[PH] Output correction %s (%+.2f pH). Use phoffset on|off or phoffset <value>.\n",
+                      phReadingOffsetEnabled ? "ON" : "OFF", phReadingOffset);
+      } else if (offsetText == "on" || offsetText == "off") {
+        const bool enableOffset = offsetText == "on";
+        if (!prefs.begin("sensorcal", false)) {
+          Serial.println("[PH] Could not open NVS; correction activation was not changed.");
+        } else {
+          const bool saved = prefs.putBool("phOffOn", enableOffset);
+          prefs.end();
+          if (saved) {
+            phReadingOffsetEnabled = enableOffset;
+            Serial.printf("[PH] Output correction %s; stored magnitude is %+.2f pH.\n",
+                          phReadingOffsetEnabled ? "ON" : "OFF", phReadingOffset);
+          } else {
+            Serial.println("[PH] NVS write failed; previous activation state retained.");
+          }
+        }
+      } else {
+        char* end = nullptr;
+        const float requestedOffset = strtof(offsetText.c_str(), &end);
+        if (end == offsetText.c_str() || *end != '\0' ||
+            !isfinite(requestedOffset) || requestedOffset < -3.0f ||
+            requestedOffset > 3.0f) {
+          Serial.println("[PH] Invalid correction. Use a value from -3.00 to 3.00 pH.");
+        } else if (!prefs.begin("sensorcal", false)) {
+          Serial.println("[PH] Could not open NVS; correction was not changed.");
+        } else {
+          bool saved = prefs.putFloat("phOffset", requestedOffset) == sizeof(float);
+          saved &= prefs.putBool("phOffOn", requestedOffset != 0.0f);
+          prefs.end();
+          if (saved) {
+            phReadingOffset = requestedOffset;
+            phReadingOffsetEnabled = requestedOffset != 0.0f;
+            Serial.printf("[PH] Saved correction %+.2f pH; activation %s. The 2-point fit is unchanged.\n",
+                          phReadingOffset,
+                          phReadingOffsetEnabled ? "ON" : "OFF");
+          } else {
+            Serial.println("[PH] NVS write failed; previous correction retained.");
+          }
+        }
       }
     }
     if (cmd == "doread") {
