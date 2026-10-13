@@ -94,11 +94,9 @@ service cloud.firestore {
         reading.get('source_owner_uid', '') == assignment.uid &&
         reading.get('source_assignment_at_ms', -1) is int &&
         reading.source_assignment_at_ms == assignment.assigned_at.toMillis() &&
-        reading.get('captured_at_ms', -1) is int &&
-        reading.captured_at_ms >= assignment.assigned_at.toMillis() - 1000 &&
-        reading.captured_at_ms <= request.time.toMillis() + 60000 &&
         reading.get('recorded_at', timestamp.value(0)) is timestamp &&
-        reading.recorded_at.toMillis() == reading.captured_at_ms;
+        reading.recorded_at.toMillis() >= assignment.assigned_at.toMillis() - 1000 &&
+        reading.recorded_at.toMillis() <= request.time.toMillis() + 60000;
     }
     function validSensorAssignment(tankId) {
       let assignmentPath = /databases/$(database)/documents/hardware_system/currentOwner;
@@ -114,7 +112,7 @@ service cloud.firestore {
       let reading = request.resource.data;
       return reading.keys().hasOnly([
           'hardwareId', 'source_tank_id', 'source_owner_uid',
-          'source_assignment_at_ms', 'captured_at_ms', 'recorded_at',
+          'source_assignment_at_ms', 'recorded_at',
           'buffered_entries', 'temperature', 'turbidity', 'turbidity_air',
           'dissolved_oxygen', 'ph_level', 'water_level', 'feed_level'
         ]) &&
@@ -134,7 +132,7 @@ service cloud.firestore {
       let reading = request.resource.data;
       return reading.keys().hasOnly([
           'hardwareId', 'source_tank_id', 'source_owner_uid',
-          'source_assignment_at_ms', 'captured_at_ms', 'recorded_at',
+          'source_assignment_at_ms', 'recorded_at',
           'temperature', 'ph_level', 'dissolved_oxygen', 'turbidity',
           'water_level', 'feed_level'
         ]) &&
@@ -147,8 +145,7 @@ service cloud.firestore {
     }
     function newerSensorReading() {
       let previousRecordedAt = resource.data.get('recorded_at', timestamp.value(0));
-      let oldCapturedAt = resource.data.get('captured_at_ms', previousRecordedAt.toMillis());
-      return request.resource.data.captured_at_ms > oldCapturedAt;
+      return request.resource.data.recorded_at.toMillis() > previousRecordedAt.toMillis();
     }
     function ownerChangesOnlyControlMode(tankId) {
       return isTankOwner(tankId) &&
