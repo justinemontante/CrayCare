@@ -4271,11 +4271,18 @@ bool saveFeederState() {
   return minuteSaved && sequenceSaved;
 }
 
+// Preferences::getString logs NOT_FOUND even when a fallback is supplied.
+// Feed Now's NVS keys are absent during normal idle operation and after a
+// successful flush, so check for each key before reading it.
+String readOptionalFeederStateString(const char* key, const String& fallback = "") {
+  return prefs.isKey(key) ? prefs.getString(key, fallback) : fallback;
+}
+
 void loadFeederState() {
   prefs.begin("feederstate", true);
   feederEventSequence = prefs.getULong("eventSeq", 0);
   feederLastScheduledMinute = prefs.getULong("lastSchedMin", 0);
-  if (prefs.getString("tank", "") == currentTankId && !currentTankId.isEmpty()) {
+  if (!currentTankId.isEmpty() && readOptionalFeederStateString("tank") == currentTankId) {
     feederDispenseCount = prefs.getInt("dispenseCount", 0);
     feederLastCompletedEpoch = prefs.getULong("lastComplete", 0);
   }
@@ -4293,7 +4300,7 @@ void loadFeederState() {
 bool reserveFeedNowCommand(const String& commandId, const String& tankId, float grams) {
   if (commandId.isEmpty() || tankId.isEmpty() || !isfinite(grams)) return false;
   if (!prefs.begin("feederstate", false)) return false;
-  const String existingId = prefs.getString("cmd_id", "");
+  const String existingId = readOptionalFeederStateString("cmd_id");
   if (!existingId.isEmpty()) {
     prefs.end();
     return false;
@@ -4308,7 +4315,7 @@ bool reserveFeedNowCommand(const String& commandId, const String& tankId, float 
 bool storePendingFeedNowLog(const String& tankId, const String& logId, const String& payload) {
   if (tankId.isEmpty() || logId.isEmpty() || payload.isEmpty()) return false;
   if (!prefs.begin("feederstate", false)) return false;
-  const String existingId = prefs.getString("log_id", "");
+  const String existingId = readOptionalFeederStateString("log_id");
   if (!existingId.isEmpty() && existingId != logId) {
     prefs.end();
     return false;
@@ -4323,12 +4330,16 @@ bool storePendingFeedNowLog(const String& tankId, const String& logId, const Str
 
 bool flushPendingFeedNowLog() {
   if (!prefs.begin("feederstate", false)) return false;
-  String commandId = prefs.getString("cmd_id", "");
-  String commandTank = prefs.getString("cmd_tank", "");
-  String commandGrams = prefs.getString("cmd_grams", "1.0");
-  String tankId = prefs.getString("log_tank", "");
-  String logId = prefs.getString("log_id", "");
-  String payload = prefs.getString("log_json", "");
+  if (!prefs.isKey("cmd_id") && !prefs.isKey("log_json")) {
+    prefs.end();
+    return true;
+  }
+  String commandId = readOptionalFeederStateString("cmd_id");
+  String commandTank = readOptionalFeederStateString("cmd_tank");
+  String commandGrams = readOptionalFeederStateString("cmd_grams", "1.0");
+  String tankId = readOptionalFeederStateString("log_tank");
+  String logId = readOptionalFeederStateString("log_id");
+  String payload = readOptionalFeederStateString("log_json");
   prefs.end();
 
   if (payload.isEmpty()) {
@@ -4377,12 +4388,12 @@ bool flushPendingFeedNowLog() {
   }
 
   if (!prefs.begin("feederstate", false)) return false;
-  prefs.remove("log_json");
-  prefs.remove("log_id");
-  prefs.remove("log_tank");
-  prefs.remove("cmd_id");
-  prefs.remove("cmd_tank");
-  prefs.remove("cmd_grams");
+  if (prefs.isKey("log_json")) prefs.remove("log_json");
+  if (prefs.isKey("log_id")) prefs.remove("log_id");
+  if (prefs.isKey("log_tank")) prefs.remove("log_tank");
+  if (prefs.isKey("cmd_id")) prefs.remove("cmd_id");
+  if (prefs.isKey("cmd_tank")) prefs.remove("cmd_tank");
+  if (prefs.isKey("cmd_grams")) prefs.remove("cmd_grams");
   prefs.end();
   Serial.printf("[FEEDER LOG] Feed Now outcome saved to Firestore (%s)\n", logId.c_str());
   return true;
