@@ -89,7 +89,6 @@ void main() {
           status: 'completed',
           requestedGrams: 1,
           estimatedDispensedGrams: 1,
-          waterQualityWarning: 'Dissolved oxygen is below range: 3.0 mg/L',
         ),
       ],
     );
@@ -101,10 +100,7 @@ void main() {
     expect(find.text('Completed'), findsOneWidget);
     expect(find.textContaining('Dose 1g'), findsOneWidget);
     expect(find.textContaining('Est. dispensed ~1g'), findsOneWidget);
-    expect(
-      find.textContaining('Water-quality warning: Dissolved oxygen'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('Water-quality warning:'), findsNothing);
   });
 
   testWidgets('add schedule rejects unsupported dose and waits for save', (

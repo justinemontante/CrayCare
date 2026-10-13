@@ -4692,16 +4692,13 @@ void processFeederTick() {
       // not a direct measurement of the exact grams dispensed.
       readFeedLevelSensorSafely();
       const float levelAfter = feedLevelSensorOK ? feedLevelPercent : -1.0f;
-      // Preserve any out-of-range but valid readings as an audit warning.
+      // Keep the warning available for the LCD completion message only.
       String completionAction = feederFeedSource == "scheduled"
           ? String("Dispensed feed (Scheduled)")
           : feederFeedSource == "onsite"
               ? (feederForced ? "Dispensed feed (Onsite Button, override: " + feederForceReason + ")"
                               : "Dispensed feed (Onsite Button)")
               : String("Dispensed feed (Manual)");
-      if (feederWaterQualityWarning.length() > 0) {
-        completionAction += " - water-quality warning";
-      }
       // Push final status + log
       pushFeederLog(
         completionAction,
@@ -4766,11 +4763,6 @@ void pushFeederLog(String action, String type, String status,
            feederFeedSource == "onsite" ? "physical_button" :
            feederFeedSource == "scheduled" ? "schedule" : "manual_request");
   if (status.length() > 0) json.set("fields/status/stringValue", status);
-  if ((status == "completed" || status == "forced") &&
-      feederWaterQualityWarning.length() > 0) {
-    json.set("fields/water_quality_warning/stringValue",
-             feederWaterQualityWarning);
-  }
   if (isfinite(requestedGrams) && requestedGrams >= 0.0f) {
     json.set("fields/requested_grams/doubleValue", String(requestedGrams, 1));
     if (status == "completed" || status == "forced") {

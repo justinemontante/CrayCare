@@ -548,7 +548,6 @@ class LogEntry {
   final double? feedLevelBefore;
   final double? feedLevelAfter;
   final bool? levelChangeDetected;
-  final String? waterQualityWarning;
 
   LogEntry(
     this.action,
@@ -566,7 +565,6 @@ class LogEntry {
     this.feedLevelBefore,
     this.feedLevelAfter,
     this.levelChangeDetected,
-    this.waterQualityWarning,
   });
 }
 
