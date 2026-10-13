@@ -1467,21 +1467,6 @@ class FeederTab extends StatelessWidget {
                                                       ),
                                                     ),
                                                 ],
-                                                if (l.waterQualityWarning !=
-                                                        null &&
-                                                    l.waterQualityWarning!
-                                                        .trim()
-                                                        .isNotEmpty) ...[
-                                                  const SizedBox(height: 4),
-                                                  Text(
-                                                    'Water-quality warning: ${l.waterQualityWarning}',
-                                                    style: TextStyle(
-                                                      fontSize: 8,
-                                                      height: 1.3,
-                                                      color: AppColors.warning,
-                                                    ),
-                                                  ),
-                                                ],
                                               ],
                                             ),
                                           ),

@@ -590,8 +590,6 @@ class FeederService extends ChangeNotifier {
                             ?.toDouble(),
                         levelChangeDetected:
                             data['level_change_detected'] as bool?,
-                        waterQualityWarning:
-                            data['water_quality_warning'] as String?,
                       ),
                     );
                   } catch (e) {
