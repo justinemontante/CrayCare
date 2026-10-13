@@ -244,6 +244,7 @@ unsigned long lastFlushTime = 0;
 // line only after Firestore confirms the write (or finds a duplicate doc).
 #define BUFFER_PATH "/buf/history.jsonl"
 bool littlefsMounted = false;
+bool feederLogsReady = true;
 
 size_t countBufferedEntries();  // forward decl (used by initOfflineBuffer)
 
@@ -255,6 +256,7 @@ size_t countBufferedEntries();  // forward decl (used by initOfflineBuffer)
 #define SD_SPI_CS_PIN 15  // GPIO15 (MTDO) needs HIGH at boot — CS idles HIGH via pull-up, so safe.
 void initSDCard();
 void migrateLittleFSToSD();
+void migrateFeederLogsToSD();
 
 bool sdMounted = false;
 #define SD_BUFFER_PATH "/craycare/history.jsonl"
@@ -264,6 +266,16 @@ bool sdMounted = false;
 static inline fs::FS& bufFS() { return sdMounted ? (fs::FS&)SD : (fs::FS&)LittleFS; }
 static inline const char* bufPath() { return sdMounted ? SD_BUFFER_PATH : BUFFER_PATH; }
 static inline const char* bufTmpPath() { return sdMounted ? SD_BUFFER_TMP : "/buf/history.tmp"; }
+static inline fs::FS& feederLogFS() { return sdMounted ? (fs::FS&)SD : (fs::FS&)LittleFS; }
+static inline String feederLogRoot() { return sdMounted ? "/craycare/feedlogs" : "/feedlogs"; }
+static inline String feederLogPath(const String& name) {
+  return feederLogRoot() + "/" + name;
+}
+static bool ensureFeederLogDirectory() {
+  fs::FS& fs = feederLogFS();
+  const String root = feederLogRoot();
+  return fs.exists(root) || fs.mkdir(root);
+}
 
 void initOfflineBuffer() {
   if (!LittleFS.begin(true)) {           // formatOnFail on the spiffs partition
@@ -308,8 +320,70 @@ void initSDCard() {
   }
   SD.mkdir("/craycare");
   sdMounted = true;
-  Serial.println("[BUF] SD card mounted — migrating LittleFS backlog");
+  Serial.println("[BUF] SD card mounted — migrating LittleFS backlog and feeder intents");
+  migrateFeederLogsToSD();
   migrateLittleFSToSD();
+}
+
+// Keep feed command tombstones/logs on the SD card when present. This avoids
+// stressing LittleFS during the feed event and preserves any old pending
+// intent before switching the active log backend.
+void migrateFeederLogsToSD() {
+  if (!sdMounted || !littlefsMounted || !LittleFS.exists("/feedlogs")) return;
+  if (!SD.exists("/craycare/feedlogs") && !SD.mkdir("/craycare/feedlogs")) {
+    Serial.println("[FEEDER LOG] Could not create SD log directory; retaining LittleFS logs");
+    feederLogsReady = false;
+    return;
+  }
+
+  File dir = LittleFS.open("/feedlogs");
+  if (!dir || !dir.isDirectory()) {
+    if (dir) dir.close();
+    feederLogsReady = false;
+    Serial.println("[FEEDER LOG] Could not inspect legacy LittleFS logs; feed requests blocked for safety");
+    return;
+  }
+  std::vector<String> copiedPaths;
+  for (File src = dir.openNextFile(); src; src = dir.openNextFile()) {
+    const String oldPath = src.path();
+    const int slash = oldPath.lastIndexOf('/');
+    const String name = slash >= 0 ? oldPath.substring(slash + 1) : oldPath;
+    if (!name.endsWith(".pending") && !name.endsWith(".json")) {
+      src.close();
+      continue;
+    }
+    const String newPath = feederLogPath(name);
+    File dst = SD.open(newPath, "w");
+    if (!dst) {
+      Serial.printf("[FEEDER LOG] Could not migrate %s to SD; retaining source\n",
+                    oldPath.c_str());
+      feederLogsReady = false;
+      src.close();
+      continue;
+    }
+    const size_t expected = src.size();
+    size_t copied = 0;
+    while (src.available()) {
+      const int byteValue = src.read();
+      if (byteValue < 0 || dst.write((uint8_t)byteValue) != 1) break;
+      ++copied;
+    }
+    dst.flush();
+    dst.close();
+    src.close();
+    if (copied == expected) copiedPaths.push_back(oldPath);
+    else {
+      feederLogsReady = false;
+      Serial.printf("[FEEDER LOG] Incomplete migration of %s; retaining source\n",
+                    oldPath.c_str());
+    }
+  }
+  dir.close();
+  for (const String& oldPath : copiedPaths) LittleFS.remove(oldPath);
+  if (!copiedPaths.empty()) {
+    Serial.printf("[FEEDER LOG] Migrated %u pending/completed file(s) to SD\n",
+                  (unsigned)copiedPaths.size());
+  }
 }
 
 // Move LittleFS backlog lines onto SD (bounded rounds so boot never hangs).
@@ -4495,7 +4569,7 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
   }
   time_t startedAt;
   time(&startedAt);
-  if (startedAt < 1700000000 || !littlefsMounted) {
+  if (startedAt < 1700000000 || (!sdMounted && !littlefsMounted) || !feederLogsReady) {
     feederStatusReason = startedAt < 1700000000 ? "Clock not synced" : "Storage unavailable";
     Serial.printf("[FEEDER] BLOCKED: %s\n", feederStatusReason.c_str());
     return;
@@ -4503,8 +4577,9 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
   // A durable command intent is a tombstone until the queued command has
   // been acknowledged. Never restart its motor operation after a reset.
   if (!commandId.isEmpty()) {
-    const String base = "/feedlogs/cmd_" + commandId;
-    if (LittleFS.exists(base + ".pending") || LittleFS.exists(base + ".json")) {
+    const String base = feederLogPath("cmd_" + commandId);
+    fs::FS& logFs = feederLogFS();
+    if (logFs.exists(base + ".pending") || logFs.exists(base + ".json")) {
       flushOneFeederLog();
       return;
     }
@@ -4535,7 +4610,7 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
   pushFeederLog("Feed interrupted - execution could not be confirmed", source == "scheduled" ? "auto" : "manual",
                 "failed", grams, -1, -1);
   feederWritingIntent = false;
-  if (!LittleFS.exists("/feedlogs/" + feederEventKey + ".pending")) {
+  if (!feederLogFS().exists(feederLogPath(feederEventKey + ".pending"))) {
     feederStatus = "blocked";
     feederStatusReason = "Cannot persist feed request";
     sendFeederStatus();
@@ -4793,7 +4868,7 @@ void processFeederTick() {
 // Write locally first. A deterministic ID makes retries safe after reconnect.
 void pushFeederLog(String action, String type, String status,
                    float requestedGrams, float levelBefore, float levelAfter) {
-  if (!littlefsMounted || feederEventTank.isEmpty()) return;
+  if ((!sdMounted && !littlefsMounted) || feederEventTank.isEmpty()) return;
 
   time_t now;
   time(&now);
@@ -4851,27 +4926,32 @@ void pushFeederLog(String action, String type, String status,
   envelope.set("command_id", feederCommandId);
   envelope.set("scheduled_minute", type == "auto" ? feederOccurrenceEpoch / 60 : 0);
   envelope.set("payload", String(json.raw()));
-  LittleFS.mkdir("/feedlogs");
-  const String base = "/feedlogs/" + feederEventKey;
+  fs::FS& logFs = feederLogFS();
+  if (!ensureFeederLogDirectory()) {
+    Serial.println("[FEEDER LOG] Cannot create local feed-log directory");
+    return;
+  }
+  const String base = feederLogPath(feederEventKey);
   const String temp = base + ".tmp";
   const String target = base + (feederWritingIntent ? ".pending" : ".json");
-  File file = LittleFS.open(temp, "w");
+  File file = logFs.open(temp, "w");
   if (!file) return;
   const String serialized = envelope.raw();
   const size_t written = file.print(serialized);
   file.flush();
   file.close();
-  if (written != serialized.length() || !LittleFS.rename(temp, target)) {
+  if (written != serialized.length() || !logFs.rename(temp, target)) {
     Serial.println("[FEEDER LOG] Local write failed; pending intent retained");
     return;
   }
-  if (!feederWritingIntent) LittleFS.remove(base + ".pending");
+  if (!feederWritingIntent) logFs.remove(base + ".pending");
 }
 
 void recoverFeederLogs() {
-  if (!littlefsMounted) return;
-  LittleFS.mkdir("/feedlogs");
-  File dir = LittleFS.open("/feedlogs");
+  if (!sdMounted && !littlefsMounted) return;
+  if (!ensureFeederLogDirectory()) return;
+  fs::FS& logFs = feederLogFS();
+  File dir = logFs.open(feederLogRoot());
   std::vector<String> pending;
   for (File file = dir.openNextFile(); file; file = dir.openNextFile()) {
     String path = file.path();
@@ -4880,7 +4960,7 @@ void recoverFeederLogs() {
   }
   dir.close();
   for (const String& path : pending) {
-    File intent = LittleFS.open(path, "r");
+    File intent = logFs.open(path, "r");
     if (!intent) continue;
     FirebaseJson envelope;
     envelope.setJsonData(intent.readString());
@@ -4895,15 +4975,16 @@ void recoverFeederLogs() {
     }
     const String target = path.substring(0, path.length() - 8) + ".json";
     // Completion may already be durable if reset happened just before cleanup.
-    if (LittleFS.exists(target)) LittleFS.remove(path);
-    else LittleFS.rename(path, target);
+    if (logFs.exists(target)) logFs.remove(path);
+    else logFs.rename(path, target);
   }
 }
 
 bool flushOneFeederLog() {
-  if (!littlefsMounted || currentTankId.isEmpty()) return false;
+  if ((!sdMounted && !littlefsMounted) || currentTankId.isEmpty()) return false;
   recoverFeederLogs(); // Idle only: finalize any intent whose completion write failed.
-  File dir = LittleFS.open("/feedlogs");
+  fs::FS& logFs = feederLogFS();
+  File dir = logFs.open(feederLogRoot());
   if (!dir) return false;
   for (File file = dir.openNextFile(); file; file = dir.openNextFile()) {
     const String path = file.path();
@@ -4927,7 +5008,7 @@ bool flushOneFeederLog() {
         collection.c_str(), id.c_str(), payload.c_str(), "");
     const bool duplicate = fbdo.httpCode() == 409;
     dir.close();
-    if (uploaded || duplicate) return LittleFS.remove(path);
+    if (uploaded || duplicate) return logFs.remove(path);
     return false;
   }
   dir.close();
