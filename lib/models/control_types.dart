@@ -19,14 +19,14 @@ String? validateFeederGrams(double? grams) {
   return null;
 }
 
-/// App preflight shared by the Feed Now button and command dispatcher. The ESP
-/// still checks its current physical sensors immediately before dispensing.
+/// App preflight shared by the Feed Now button and command dispatcher. Water
+/// quality is advisory; feed-level validity/critical-low remain the only
+/// sensor-based feed interlock. The ESP rechecks its physical hopper sensor.
 String feederPreflightIssue({
   required bool internetOnline,
   required bool feederOnline,
   required bool busy,
   required bool schedulesLoaded,
-  required bool turbidityAir,
   required Map<String, double> values,
   required Set<String> freshSensors,
   required Map<String, Map<String, double>> ranges,
@@ -41,26 +41,14 @@ String feederPreflightIssue({
   if (busy) return 'A feeding request is already in progress';
   if (!feederOnline) return 'Feeder is offline';
   if (!schedulesLoaded) return 'Waiting for feeding schedules';
-  if (turbidityAir) {
-    return 'Turbidity probe is in air; submerge it before feeding.';
+  final feedLevel = values['feedlevel'];
+  if (!freshSensors.contains('feedlevel') ||
+      feedLevel == null ||
+      !feedLevel.isFinite ||
+      feedLevel < 0 ||
+      feedLevel > 100) {
+    return 'Waiting for valid feed-level data';
   }
-  for (final entry in const {
-    'temp': 'temperature',
-    'do': 'dissolved oxygen',
-    'ph': 'pH',
-    'turb': 'turbidity',
-    'feedlevel': 'feed-level',
-  }.entries) {
-    final value = values[entry.key];
-    if (!freshSensors.contains(entry.key) ||
-        value == null ||
-        !value.isFinite ||
-        value < 0) {
-      return 'Waiting for fresh ${entry.value} data';
-    }
-  }
-  if (values['feedlevel']! > 100) return 'Waiting for valid feed-level data';
-  final feedLevel = values['feedlevel']!;
   final criticalFeedLevel = ranges['feedlevel']?['critical'] ?? 10.0;
   if (feedLevel <= criticalFeedLevel) {
     return 'Feed level is critical (${feedLevel.toStringAsFixed(0)}%). Refill the hopper before feeding.';
@@ -68,9 +56,8 @@ String feederPreflightIssue({
   return '';
 }
 
-/// Reports configured water-quality range violations without blocking a feed.
-/// Missing, stale, invalid, or air-exposed sensor readings are handled by the
-/// separate feeder preflight and remain hard stops.
+/// Reports water-quality range violations and sensor availability as warnings.
+/// These warnings never block a feed; feed-level is checked separately.
 List<String> feederWaterQualityWarnings({
   required Map<String, double> values,
   required Set<String> freshSensors,
@@ -87,9 +74,19 @@ List<String> feederWaterQualityWarnings({
     required double fallbackMin,
     required double fallbackMax,
   }) {
-    if (!freshSensors.contains(key) || (key == 'turb' && turbidityAir)) return;
+    if (key == 'turb' && turbidityAir) {
+      warnings.add('Turbidity probe is in air; reading unavailable');
+      return;
+    }
+    if (!freshSensors.contains(key)) {
+      warnings.add('$label reading is stale or unavailable');
+      return;
+    }
     final value = values[key];
-    if (value == null || !value.isFinite || value < 0) return;
+    if (value == null || !value.isFinite || value < 0) {
+      warnings.add('$label reading is invalid');
+      return;
+    }
     final min = ranges[key]?['min'] ?? fallbackMin;
     final max = ranges[key]?['max'] ?? fallbackMax;
     final formattedValue = '${value.toStringAsFixed(decimals)}$unit';

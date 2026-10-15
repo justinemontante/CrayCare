@@ -21,13 +21,11 @@ void main() {
     double oxygen = 6,
     double ph = 7,
     double turbidity = 10,
-    bool turbidityAir = false,
   }) => feederPreflightIssue(
     internetOnline: online,
     feederOnline: true,
     busy: busy,
     schedulesLoaded: loaded,
-    turbidityAir: turbidityAir,
     values: {
       'temp': temperature,
       'do': oxygen,
@@ -59,48 +57,42 @@ void main() {
     expect(warnings.join(' '), contains('Turbidity is above range'));
   });
 
-  test(
-    'critical hopper, missing/stale sensors, and probe in air still block',
-    () {
-      expect(check(level: 10), contains('critical'));
-      expect(check(level: 0), contains('critical'));
-      expect(
-        check(fresh: {'temp', 'do', 'ph', 'feedlevel'}),
-        contains('Waiting for fresh turbidity data'),
-      );
-      expect(check(turbidityAir: true), contains('Turbidity probe is in air'));
-      expect(
-        feederWaterQualityWarnings(
-          values: {'turb': 55},
-          freshSensors: {'turb'},
-          ranges: ranges,
-          turbidityAir: true,
-        ),
-        isEmpty,
-      );
-    },
-  );
+  test('only invalid or critical feed-level data blocks on sensor status', () {
+    expect(check(level: 10), contains('critical'));
+    expect(check(level: 0), contains('critical'));
+    expect(check(level: 101), contains('valid feed-level'));
+    expect(check(fresh: {'temp', 'do', 'ph', 'turb'}), contains('feed-level'));
+    expect(check(fresh: {'temp', 'do', 'ph', 'turb', 'feedlevel'}), isEmpty);
+  });
 
-  test(
-    'dispatch preflight rejects offline, busy, stale and invalid requests',
-    () {
-      expect(check(online: false), contains('internet'));
-      expect(check(busy: true), contains('progress'));
-      expect(check(loaded: false), contains('schedules'));
-      expect(
-        check(fresh: {'temp', 'ph', 'turb', 'feedlevel'}),
-        contains('fresh'),
-      );
-      expect(check(oxygen: -1), contains('fresh'));
-      expect(check(grams: 21), isEmpty);
-      expect(check(grams: 5), isEmpty);
-      // General readiness can be checked before the owner opens the dose form.
-      expect(check(grams: null), isEmpty);
-      expect(check(grams: 0), isNotEmpty);
-      expect(check(grams: 2.5), isNotEmpty);
-      expect(check(grams: 201), isNotEmpty);
-    },
-  );
+  test('stale water sensors and turbidity in air warn but do not block', () {
+    expect(check(fresh: {'feedlevel'}), isEmpty);
+
+    final warnings = feederWaterQualityWarnings(
+      values: {'turb': 55},
+      freshSensors: {'turb'},
+      ranges: ranges,
+      turbidityAir: true,
+    );
+    expect(warnings, hasLength(4));
+    expect(warnings.join(' '), contains('reading is stale or unavailable'));
+    expect(warnings.join(' '), contains('Turbidity probe is in air'));
+  });
+
+  test('dispatch preflight rejects operationally invalid requests', () {
+    expect(check(online: false), contains('internet'));
+    expect(check(busy: true), contains('progress'));
+    expect(check(loaded: false), contains('schedules'));
+    expect(check(fresh: {'feedlevel'}), isEmpty);
+    expect(check(oxygen: -1), isEmpty);
+    expect(check(grams: 21), isEmpty);
+    expect(check(grams: 5), isEmpty);
+    // General readiness can be checked before the owner opens the dose form.
+    expect(check(grams: null), isEmpty);
+    expect(check(grams: 0), isNotEmpty);
+    expect(check(grams: 2.5), isNotEmpty);
+    expect(check(grams: 201), isNotEmpty);
+  });
 
   test('a missing dose is invalid when validating a feeding input', () {
     expect(validateFeederGrams(null), 'Grams is required.');

@@ -247,13 +247,14 @@ if no ACK at 0x27 — if your backpack is 0x3F, change LCD_ADDR in main.cpp.
   GPIO12 = ONSITE FEED. Each tap = +1 g (ISR counted, 50 ms debounce);
   taps batch in a 1.5 s settle window, then one feed runs (3 taps = 3 g,
   single 5 s blower pre-run). Taps ignored while a feed runs. Cap 200 g.
-  Full safety path: sensor/block checks + blower + gate swings. Live
-  count + blocked reasons on LCD.
-  OVERRIDE: a bypassable block (unsafe water, low hopper, schedule
-  conflict) opens a 10 s warning instead of aborting — LCD shows the
+  Shared feed-level interlock + blower + gate swings. Water parameters
+  (temperature, DO, pH, turbidity) are warnings only; out-of-range or
+  unavailable readings do not block feeding. Invalid or critically low
+  hopper/feed level still blocks. Live count + warning/block reasons on LCD.
+  OVERRIDE: a schedule conflict opens a 10 s warning instead of aborting — LCD shows the
   reason + "Tap 2x to force". Two taps inside the window force-dispense
   the locked grams (logged as forced with reason); no taps = cancelled.
-  Hard blocks (tank/clock/storage/grams) never offer override.
+  Hard blocks (tank/clock/storage/grams/critical feed level) never offer override.
 
   GPIO2 = BLOWER toggle (manual ON/OFF). Ignored while a feed auto-holds
   the blower. 15-minute manual safety timeout. Neither pin is a boot

@@ -96,9 +96,11 @@ FEEDER (SG90 gate on GPIO5 — the only servo, 1 g-only model)
   FEED
     Requests one manual feed, 1-200 whole grams (default 1 g). Grams =
     actuations, so 5 g = exactly 5 gate swings. The blower always warms
-    up 5 s first and stays ON through dispensing. Feeding is blocked when
-    required water-quality sensors are unavailable/outside safe ranges, or
-    when the feed-level estimate is empty or below the requested grams.
+    up 5 s first and stays ON through dispensing. Temperature, DO, pH, and
+    turbidity readings are warnings only; they do not block a feed. The
+    sensor-based block is an unavailable/invalid or critically low feed-level
+    estimate. Other operational safeguards still apply (valid dose,
+    tank/clock, feeder state, and schedule collision).
 
   GATE_TEST  (alias: gate test)
     One gate actuation 0 -> open angle -> 0. Refused while a feed runs.
@@ -124,13 +126,19 @@ BLOWER (GPIO16 relay, active-LOW)
 
 PHYSICAL BUTTONS (to GND, INPUT_PULLUP)
   GPIO12 onsite feed: each tap = +1 g (ISR, 50 ms debounce); taps batch in
-    a 1.5 s settle window, then one feed runs with the full safety path +
-    blower pre-run. Ignored while a feed runs. Cap 200 g. Live count,
-    progress, and blocked reasons on LCD.
-    OVERRIDE: a bypassable block (unsafe water, sensor unavailable, schedule)
-    opens a 10 s warning (reason + "Tap 2x to force"). Two taps force
+    a 1.5 s settle window, then one feed runs with the shared feed-level
+    interlock + blower pre-run. Temperature, DO, pH, and turbidity are
+    warnings only; out-of-range or unavailable readings do not block feeding.
+    Critical/invalid feed level still blocks. Ignored while a feed runs.
+    Cap 200 g. Live count, progress, and blocked reasons on LCD.
+    Feed logs write directly to Firestore when Firebase is ready; when
+    Firebase is unavailable, they queue on SD (LittleFS fallback) and sync
+    after reconnect. A small NVS marker protects in-progress feed recovery.
+    OVERRIDE: a schedule-collision block opens a 10 s warning
+    (reason + "Tap 2x to force"). Two taps force
     the locked grams (logged forced + reason); silence cancels. Hard
-    blocks (tank/clock/storage/invalid dose/critical feed level) abort with no override.
+    blocks (tank/clock/recovery-marker failure/invalid dose/critical feed level)
+    abort with no override.
   GPIO2 blower: manual ON/OFF toggle; ignored while a feed auto-holds the
     blower. 15-minute manual safety timeout.
 

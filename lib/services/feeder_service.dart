@@ -304,7 +304,6 @@ class FeederService extends ChangeNotifier {
       feederOnline: isOnline,
       busy: _isRunning || manualRequestPending,
       schedulesLoaded: _schedulesLoaded,
-      turbidityAir: sensors.turbidityAir,
       values: {for (final key in keys) key: sensors.getLatestValue(key)},
       freshSensors: {
         for (final key in keys)

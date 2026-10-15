@@ -325,9 +325,8 @@ void initSDCard() {
   migrateLittleFSToSD();
 }
 
-// Keep feed command tombstones/logs on the SD card when present. This avoids
-// stressing LittleFS during the feed event and preserves any old pending
-// intent before switching the active log backend.
+// Migrate legacy offline feeder journals and pending intents to SD when
+// available, preserving them before switching the active queue backend.
 void migrateFeederLogsToSD() {
   if (!sdMounted || !littlefsMounted || !LittleFS.exists("/feedlogs")) return;
   if (!SD.exists("/craycare/feedlogs") && !SD.mkdir("/craycare/feedlogs")) {
@@ -3081,6 +3080,12 @@ bool saveFeederState();
 bool reserveFeedNowCommand(const String& commandId, const String& tankId, float grams);
 bool storePendingFeedNowLog(const String& tankId, const String& logId, const String& payload);
 bool flushPendingFeedNowLog();
+bool storePendingLocalFeedLog(const String& tankId, const String& eventKey, const String& envelope);
+bool clearPendingLocalFeedLog(const String& eventKey);
+bool hasPendingLocalFeedLog(const String& eventKey);
+bool flushPendingLocalFeedLog();
+bool queuePendingLocalFeedLogOffline();
+bool queueFeederLogEnvelope(const String& eventKey, const String& envelope, bool pending);
 void checkScheduledFeed();
 void startFeed(String source, float grams = 1.0f, String commandId = "", long long issuedAtMs = 0, long long expiresAtMs = 0, bool forceOverride = false);
 void processFeederTick();
@@ -3836,6 +3841,13 @@ void loop() {
     WiFi.reconnect();
   }
 
+  // If a local feed was interrupted before its terminal event could be
+  // recorded, move its NVS recovery marker to the offline queue while the
+  // feeder is idle. Never touch an in-progress feed's marker.
+  if (feederRunState == FEEDER_IDLE && (!networkAvailable || !firebaseReady || cloudOutage)) {
+    queuePendingLocalFeedLogOffline();
+  }
+
   // Time maintenance: boot sync happens in setup; re-sync daily while online
   // (clock drift + post-outage/offline-boot recovery). Deferred while feeding;
   // the bounded ~10 s initTime() block is WDT-safe at 60 s. The stamp updates
@@ -4023,7 +4035,10 @@ void loop() {
   // Runs whenever Firebase is reachable; 1 entry/sec max so the live
   // 5-sec + 10-min writes are never starved. Oldest entry goes first.
   if (now - lastFlushTime >= FLUSH_INTERVAL_MS) {
-    if (networkAvailable && littlefsMounted && ensureFirebaseReady()) flushOneFeederLog();
+    if (networkAvailable && (sdMounted || littlefsMounted) && ensureFirebaseReady()) {
+      flushPendingLocalFeedLog();
+      flushOneFeederLog();
+    }
     if (networkAvailable && littlefsMounted && countBufferedEntries() > 0) {
       if (ensureFirebaseReady()) {
         if (flushOneBufferedEntry()) {
@@ -4096,7 +4111,7 @@ void processFeederCommands() {
   // Recover/upload any Feed Now result before looking at another command. If
   // a previous boot stopped after acknowledging a command, this writes one
   // failed/unconfirmed log and clears the stale command without dispensing it.
-  if (!flushPendingFeedNowLog()) return;
+  if (!flushPendingFeedNowLog() || !flushPendingLocalFeedLog()) return;
 
   String cmdCol = "tanks/" + currentTankId + "/feeder_commands";
   if (!Firebase.Firestore.listDocuments(&fbdo, FIREBASE_PROJECT_ID, "",
@@ -4328,6 +4343,129 @@ bool storePendingFeedNowLog(const String& tankId, const String& logId, const Str
   return ok;
 }
 
+bool storePendingLocalFeedLog(const String& tankId, const String& eventKey,
+                              const String& envelope) {
+  if (tankId.isEmpty() || eventKey.isEmpty() || envelope.isEmpty()) return false;
+  if (!prefs.begin("feederstate", false)) return false;
+  const String existingEvent = prefs.getString("local_event", "");
+  if (!existingEvent.isEmpty() && existingEvent != eventKey) {
+    prefs.end();
+    return false;
+  }
+  // Store the envelope last so its presence marks a complete recovery record.
+  const bool ok = prefs.putString("local_tank", tankId) > 0 &&
+      prefs.putString("local_event", eventKey) > 0 &&
+      prefs.putString("local_json", envelope) > 0;
+  prefs.end();
+  return ok;
+}
+
+bool hasPendingLocalFeedLog(const String& eventKey) {
+  if (!prefs.begin("feederstate", true)) return false;
+  const bool found = prefs.getString("local_event", "") == eventKey &&
+      !prefs.getString("local_json", "").isEmpty();
+  prefs.end();
+  return found;
+}
+
+bool clearPendingLocalFeedLog(const String& eventKey) {
+  if (!prefs.begin("feederstate", false)) return false;
+  const String existingEvent = prefs.getString("local_event", "");
+  if (existingEvent != eventKey) {
+    prefs.end();
+    return existingEvent.isEmpty();
+  }
+  prefs.remove("local_json");
+  prefs.remove("local_event");
+  prefs.remove("local_tank");
+  prefs.end();
+  return true;
+}
+
+bool queueFeederLogEnvelope(const String& eventKey, const String& envelope,
+                            bool pending) {
+  if (eventKey.isEmpty() || envelope.isEmpty() ||
+      (!sdMounted && !littlefsMounted) || !ensureFeederLogDirectory()) return false;
+  fs::FS& logFs = feederLogFS();
+  const String base = feederLogPath(eventKey);
+  const String temp = base + ".tmp";
+  const String target = base + (pending ? ".pending" : ".json");
+  File file = logFs.open(temp, "w");
+  if (!file) return false;
+  const size_t written = file.print(envelope);
+  file.flush();
+  file.close();
+  // The NVS record remains the recovery copy until this replacement succeeds,
+  // so an older same-event target can be removed safely before atomic rename.
+  if (written != envelope.length() ||
+      (logFs.exists(target) && !logFs.remove(target)) ||
+      !logFs.rename(temp, target)) {
+    Serial.println("[FEEDER LOG] Offline queue write/rename failed; NVS recovery record retained");
+    return false;
+  }
+  if (!pending) logFs.remove(base + ".pending");
+  return true;
+}
+
+bool queuePendingLocalFeedLogOffline() {
+  if (!prefs.begin("feederstate", true)) return false;
+  const String eventKey = prefs.getString("local_event", "");
+  const String envelope = prefs.getString("local_json", "");
+  prefs.end();
+  if (envelope.isEmpty()) return true;
+  if (feederRunState != FEEDER_IDLE) return false;
+  if (!queueFeederLogEnvelope(eventKey, envelope, false)) return false;
+  const bool cleared = clearPendingLocalFeedLog(eventKey);
+  if (cleared) {
+    Serial.printf("[FEEDER LOG] Offline event %s queued locally for Firebase retry\n",
+                  eventKey.c_str());
+  }
+  return cleared;
+}
+
+bool flushPendingLocalFeedLog() {
+  if (!prefs.begin("feederstate", true)) return false;
+  const String tankId = prefs.getString("local_tank", "");
+  const String eventKey = prefs.getString("local_event", "");
+  const String serialized = prefs.getString("local_json", "");
+  prefs.end();
+  if (serialized.isEmpty()) return true;
+  // The NVS envelope is a recovery marker until the active feed reaches a
+  // terminal result; do not publish its provisional "unconfirmed" payload.
+  if (feederRunState != FEEDER_IDLE) return true;
+  if (tankId.isEmpty() || eventKey.isEmpty() || !ensureFirebaseReady()) return false;
+
+  FirebaseJson envelope;
+  envelope.setJsonData(serialized);
+  FirebaseJsonData field;
+  if (!envelope.get(field, "tank") || field.stringValue != tankId) return false;
+  if (!envelope.get(field, "id")) return false;
+  const String logId = field.stringValue;
+  if (!envelope.get(field, "payload")) return false;
+  const String payload = field.stringValue;
+  const String collection = "tanks/" + tankId + "/feeder_logs";
+  const bool uploaded = Firebase.Firestore.createDocument(&fbdo, FIREBASE_PROJECT_ID, "",
+      collection.c_str(), logId.c_str(), payload.c_str(), "");
+  const bool duplicate = !uploaded && fbdo.httpCode() == 409;
+  if (!uploaded && !duplicate) {
+    Serial.printf("[FEEDER LOG] Direct Firestore save failed; queueing for retry: %s\n",
+                  fbdo.errorReason().c_str());
+    if (!queueFeederLogEnvelope(eventKey, serialized, false)) return false;
+    return clearPendingLocalFeedLog(eventKey);
+  }
+
+  if (!clearPendingLocalFeedLog(eventKey)) return false;
+  if (sdMounted || littlefsMounted) {
+    fs::FS& logFs = feederLogFS();
+    const String base = feederLogPath(eventKey);
+    logFs.remove(base + ".pending");
+    logFs.remove(base + ".json");
+    logFs.remove(base + ".tmp");
+  }
+  Serial.printf("[FEEDER LOG] Direct Firestore save confirmed (%s)\n", logId.c_str());
+  return true;
+}
+
 bool flushPendingFeedNowLog() {
   if (!prefs.begin("feederstate", false)) return false;
   if (!prefs.isKey("cmd_id") && !prefs.isKey("log_json")) {
@@ -4547,28 +4685,45 @@ String waterQualityWarningText() {
     if (warning.length() > 0) warning += "; ";
     warning += item;
   };
-  if (tempSensorOK && isfinite(smoothedTemp)) {
+  if (!tempSensorOK) {
+    appendWarning("Temperature sensor unavailable");
+  } else if (!isfinite(smoothedTemp) || smoothedTemp < 0.0f || smoothedTemp > 50.0f) {
+    appendWarning("Temperature reading invalid");
+  } else {
     if (smoothedTemp < tempCriticalLow) {
       appendWarning("Temperature low: " + String(smoothedTemp, 1) + " C (min " + String(tempCriticalLow, 1) + " C)");
     } else if (smoothedTemp > tempCriticalHigh) {
       appendWarning("Temperature high: " + String(smoothedTemp, 1) + " C (max " + String(tempCriticalHigh, 1) + " C)");
     }
   }
-  if (doSensorOK && isfinite(dissolvedOxygen)) {
+  if (!doSensorOK) {
+    appendWarning("Dissolved oxygen sensor unavailable");
+  } else if (!isfinite(dissolvedOxygen) || dissolvedOxygen < 0.0f || dissolvedOxygen > 30.0f) {
+    appendWarning("Dissolved oxygen reading invalid");
+  } else {
     if (dissolvedOxygen < doCriticalLow) {
       appendWarning("Dissolved oxygen low: " + String(dissolvedOxygen, 1) + " mg/L (min " + String(doCriticalLow, 1) + " mg/L)");
     } else if (dissolvedOxygen > doCriticalHigh) {
       appendWarning("Dissolved oxygen high: " + String(dissolvedOxygen, 1) + " mg/L (max " + String(doCriticalHigh, 1) + " mg/L)");
     }
   }
-  if (phSensorOK && isfinite(phLevel)) {
+  if (!phSensorOK) {
+    appendWarning("pH sensor unavailable");
+  } else if (!isfinite(phLevel) || phLevel < 0.0f || phLevel > 14.0f) {
+    appendWarning("pH reading invalid");
+  } else {
     if (phLevel < phCriticalLow) {
       appendWarning("pH low: " + String(phLevel, 2) + " (min " + String(phCriticalLow, 2) + ")");
     } else if (phLevel > phCriticalHigh) {
       appendWarning("pH high: " + String(phLevel, 2) + " (max " + String(phCriticalHigh, 2) + ")");
     }
   }
-  if (turbiditySensorOK && isfinite(smoothedTurbidityNTU)) {
+  if (!turbiditySensorOK) {
+    appendWarning("Turbidity sensor unavailable");
+  } else if (!isfinite(smoothedTurbidityNTU) || smoothedTurbidityNTU < 0.0f ||
+             smoothedTurbidityNTU > 1000.0f) {
+    appendWarning("Turbidity reading invalid");
+  } else {
     if (smoothedTurbidityNTU < turbNtuMin) {
       appendWarning("Turbidity low: " + String(smoothedTurbidityNTU, 0) + " NTU (min " + String(turbNtuMin, 0) + " NTU)");
     } else if (smoothedTurbidityNTU > turbNtuMax) {
@@ -4579,18 +4734,23 @@ String waterQualityWarningText() {
 }
 
 String waterQualityLcdWarning() {
+  if (!tempSensorOK || !isfinite(smoothedTemp) || smoothedTemp < 0.0f || smoothedTemp > 50.0f) return "Temp SENSOR?";
   if (tempSensorOK && isfinite(smoothedTemp)) {
     if (smoothedTemp < tempCriticalLow) return "Temp LOW";
     if (smoothedTemp > tempCriticalHigh) return "Temp HIGH";
   }
+  if (!doSensorOK || !isfinite(dissolvedOxygen) || dissolvedOxygen < 0.0f || dissolvedOxygen > 30.0f) return "DO SENSOR?";
   if (doSensorOK && isfinite(dissolvedOxygen)) {
     if (dissolvedOxygen < doCriticalLow) return "DO LOW";
     if (dissolvedOxygen > doCriticalHigh) return "DO HIGH";
   }
+  if (!phSensorOK || !isfinite(phLevel) || phLevel < 0.0f || phLevel > 14.0f) return "pH SENSOR?";
   if (phSensorOK && isfinite(phLevel)) {
     if (phLevel < phCriticalLow) return "pH LOW";
     if (phLevel > phCriticalHigh) return "pH HIGH";
   }
+  if (!turbiditySensorOK || !isfinite(smoothedTurbidityNTU) || smoothedTurbidityNTU < 0.0f ||
+      smoothedTurbidityNTU > 1000.0f) return "Turb SENSOR?";
   if (turbiditySensorOK && isfinite(smoothedTurbidityNTU)) {
     if (smoothedTurbidityNTU < turbNtuMin) return "Turbidity LOW";
     if (smoothedTurbidityNTU > turbNtuMax) return "Turbidity HIGH";
@@ -4603,19 +4763,10 @@ bool canFeedSafely(String &reason) {
     reason = "tank sensor settings have not finished syncing";
     return false;
   }
-  if (!tempSensorOK || !doSensorOK || !phSensorOK ||
-      !turbiditySensorOK) {
-    reason = "required water-quality sensor unavailable";
-    return false;
-  }
-  if (!isfinite(smoothedTemp) || smoothedTemp < 0.0f || smoothedTemp > 50.0f ||
-      !isfinite(dissolvedOxygen) || dissolvedOxygen < 0.0f || dissolvedOxygen > 30.0f ||
-      !isfinite(phLevel) || phLevel < 0.0f || phLevel > 14.0f ||
-      !isfinite(smoothedTurbidityNTU) || smoothedTurbidityNTU < 0.0f ||
-      smoothedTurbidityNTU > 1000.0f) {
-    reason = "required water-quality sensor invalid";
-    return false;
-  }
+  // Water-quality values (temperature, DO, pH, turbidity) are advisory only.
+  // Missing, invalid, or out-of-range readings are reported as warnings but
+  // do not inhibit feeding. Hopper/feed-level validity and critical-low
+  // protection remain the sensor-based dispense interlock.
   if (!feedLevelSensorOK) reason = "feed-level sensor unavailable";
   else if (!isfinite(feedLevelPercent) || feedLevelPercent < 0.0f || feedLevelPercent > 100.0f) {
     reason = "feed-level sensor unavailable";
@@ -4718,9 +4869,8 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
   }
   time_t startedAt;
   time(&startedAt);
-  if (startedAt < 1700000000 ||
-      (commandId.isEmpty() && ((!sdMounted && !littlefsMounted) || !feederLogsReady))) {
-    feederStatusReason = startedAt < 1700000000 ? "Clock not synced" : "Storage unavailable";
+  if (startedAt < 1700000000) {
+    feederStatusReason = "Clock not synced";
     Serial.printf("[FEEDER] BLOCKED: %s\n", feederStatusReason.c_str());
     return;
   }
@@ -4763,9 +4913,9 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
     pushFeederLog("Feed interrupted - execution could not be confirmed", source == "scheduled" ? "auto" : "manual",
                   "failed", grams, -1, -1);
     feederWritingIntent = false;
-    if (!feederLogFS().exists(feederLogPath(feederEventKey + ".pending"))) {
+    if (!hasPendingLocalFeedLog(feederEventKey)) {
       feederStatus = "blocked";
-      feederStatusReason = "Cannot persist feed request";
+      feederStatusReason = "Cannot persist feed recovery marker";
       sendFeederStatus();
       return;
     }
@@ -5019,13 +5169,12 @@ void processFeederTick() {
 }
 
 // ─── Push Feeding Log to Firestore ───
-// Feed Now uses the NVS outbox plus a deterministic Firestore ID; schedule and
-// onsite outcomes keep the LittleFS store-and-forward path.
+// Feed Now uses an NVS outbox; other feed outcomes are Firestore-first online
+// and use SD/LittleFS store-and-forward only when Firebase is unavailable.
 void pushFeederLog(String action, String type, String status,
                    float requestedGrams, float levelBefore, float levelAfter) {
   if (feederEventTank.isEmpty()) return;
   const bool feedNowCommand = !feederCommandId.isEmpty();
-  if (!feedNowCommand && ((!sdMounted && !littlefsMounted) || !feederLogsReady)) return;
 
   time_t now;
   time(&now);
@@ -5095,25 +5244,67 @@ void pushFeederLog(String action, String type, String status,
   envelope.set("command_id", feederCommandId);
   envelope.set("scheduled_minute", type == "auto" ? feederOccurrenceEpoch / 60 : 0);
   envelope.set("payload", String(json.raw()));
-  fs::FS& logFs = feederLogFS();
-  if (!ensureFeederLogDirectory()) {
-    Serial.println("[FEEDER LOG] Cannot create local feed-log directory");
-    return;
-  }
-  const String base = feederLogPath(feederEventKey);
-  const String temp = base + ".tmp";
-  const String target = base + (feederWritingIntent ? ".pending" : ".json");
-  File file = logFs.open(temp, "w");
-  if (!file) return;
   const String serialized = envelope.raw();
-  const size_t written = file.print(serialized);
-  file.flush();
-  file.close();
-  if (written != serialized.length() || !logFs.rename(temp, target)) {
-    Serial.println("[FEEDER LOG] Local write failed; pending intent retained");
+
+  // Keep only a compact NVS recovery marker while an online/local feed is in
+  // progress. This avoids writing an online event to the SD card before its
+  // terminal outcome is known.
+  if (feederWritingIntent) {
+    if (!storePendingLocalFeedLog(feederEventTank, feederEventKey, serialized)) {
+      Serial.println("[FEEDER LOG] Could not save NVS recovery marker");
+      return;
+    }
+    const bool firebaseOnline = WiFi.status() == WL_CONNECTED &&
+        firebaseReady && !cloudOutage;
+    if (!firebaseOnline && (sdMounted || littlefsMounted)) {
+      if (queueFeederLogEnvelope(feederEventKey, serialized, true)) {
+        Serial.printf("[FEEDER LOG] Offline intent %s also journaled locally\n",
+                      feederEventKey.c_str());
+      }
+    }
     return;
   }
-  if (!feederWritingIntent) logFs.remove(base + ".pending");
+
+  // Online is Firestore-first. A deterministic document ID makes an
+  // ambiguous retry safe: HTTP 409 means this exact event is already saved.
+  if (WiFi.status() == WL_CONNECTED && ensureFirebaseReady()) {
+    const String collection = "tanks/" + feederEventTank + "/feeder_logs";
+    const String logId = hardwareId + "_" + feederEventKey;
+    const bool uploaded = Firebase.Firestore.createDocument(&fbdo,
+        FIREBASE_PROJECT_ID, "", collection.c_str(), logId.c_str(),
+        json.raw(), "");
+    const bool duplicate = !uploaded && fbdo.httpCode() == 409;
+    if (uploaded || duplicate) {
+      clearPendingLocalFeedLog(feederEventKey);
+      if (sdMounted || littlefsMounted) {
+        fs::FS& logFs = feederLogFS();
+        const String base = feederLogPath(feederEventKey);
+        logFs.remove(base + ".pending");
+        logFs.remove(base + ".json");
+        logFs.remove(base + ".tmp");
+      }
+      Serial.printf("[FEEDER LOG] Saved directly to Firebase (%s)\n", logId.c_str());
+      return;
+    }
+    Serial.printf("[FEEDER LOG] Firebase write failed; queuing for retry: %s\n",
+                  fbdo.errorReason().c_str());
+  }
+
+  // Offline (or Firebase write failure): durable store-and-forward queue.
+  if (queueFeederLogEnvelope(feederEventKey, serialized, false)) {
+    clearPendingLocalFeedLog(feederEventKey);
+    Serial.printf("[FEEDER LOG] Offline event %s queued on %s\n",
+                  feederEventKey.c_str(), sdMounted ? "SD" : "LittleFS");
+    return;
+  }
+
+  // If storage is unavailable, keep the exact final event in NVS until it can
+  // be sent or queued; never discard the only copy.
+  if (storePendingLocalFeedLog(feederEventTank, feederEventKey, serialized)) {
+    Serial.println("[FEEDER LOG] Queue unavailable; final event retained in NVS");
+  } else {
+    Serial.println("[FEEDER LOG] CRITICAL: unable to persist final event in NVS or offline queue");
+  }
 }
 
 void recoverFeederLogs() {
@@ -5177,7 +5368,13 @@ bool flushOneFeederLog() {
         collection.c_str(), id.c_str(), payload.c_str(), "");
     const bool duplicate = fbdo.httpCode() == 409;
     dir.close();
-    if (uploaded || duplicate) return logFs.remove(path);
+    if (uploaded || duplicate) {
+      const bool removed = logFs.remove(path);
+      if (removed) {
+        Serial.printf("[FEEDER LOG] Offline event uploaded to Firebase (%s)\n", id.c_str());
+      }
+      return removed;
+    }
     return false;
   }
   dir.close();
