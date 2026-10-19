@@ -4,6 +4,17 @@ import math
 from numbers import Real
 
 
+# Single source of truth for the live analysis window. The trainer imports
+# these values so the model bundle and the runtime can never disagree.
+ANALYSIS_WINDOW_SECONDS = 120 * 60
+MIN_LIVE_ROWS = 6
+MIN_SPAN_SECONDS = 110 * 60
+CADENCE_MIN_SECONDS = 480
+CADENCE_MAX_SECONDS = 1800
+CADENCE_GAP_FACTOR = 2.2
+STALE_AFTER_SECONDS = 20 * 60
+
+
 def anomaly_window(frame, now_epoch):
     """Use actual capture times, not an assumed ten-minute record count.
 
@@ -30,17 +41,19 @@ def anomaly_window(frame, now_epoch):
     # apart yet floor into the same bucket. Deduplicate timestamps, not buckets.
     rows = rows.drop_duplicates("timestamp", keep="last")
     last_at = float(rows["timestamp"].iloc[-1])
-    if now_epoch - last_at > 20 * 60:
+    if now_epoch - last_at > STALE_AFTER_SECONDS:
         return rows.iloc[:0], "stale", last_at
-    rows = rows[rows["timestamp"] >= last_at - 120 * 60].copy()
+    rows = rows[rows["timestamp"] >= last_at - ANALYSIS_WINDOW_SECONDS].copy()
     gaps = rows["timestamp"].diff()
     positive_gaps = gaps[gaps > 0]
     cadence = float(positive_gaps.median()) if not positive_gaps.empty else 600.0
-    if not 480 <= cadence <= 1800:
+    if not CADENCE_MIN_SECONDS <= cadence <= CADENCE_MAX_SECONDS:
         return rows, "insufficient", last_at
-    discontinuities = [i for i in range(1, len(rows)) if gaps.iloc[i] <= 0 or gaps.iloc[i] > cadence * 2.2]
+    discontinuities = [i for i in range(1, len(rows))
+                       if gaps.iloc[i] <= 0 or gaps.iloc[i] > cadence * CADENCE_GAP_FACTOR]
     if discontinuities:
         rows = rows.iloc[discontinuities[-1]:]
     rows = rows.reset_index(drop=True)
-    ready = len(rows) >= 6 and last_at - float(rows["timestamp"].iloc[0]) >= 110 * 60
+    ready = (len(rows) >= MIN_LIVE_ROWS
+             and last_at - float(rows["timestamp"].iloc[0]) >= MIN_SPAN_SECONDS)
     return rows, "ready" if ready else "insufficient", last_at

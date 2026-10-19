@@ -16,6 +16,7 @@ import sklearn
 from sklearn.ensemble import IsolationForest
 
 from anomaly_features import SENSORS
+from anomaly_window import ANALYSIS_WINDOW_SECONDS, MIN_LIVE_ROWS
 from dataset_preparation import prepare_dataset
 from training_data import prepare_history
 
@@ -79,7 +80,8 @@ def train(dataset, train_days=None, reference_fraction=.80,
         'robust_centers': medians.to_dict(), 'robust_scales': scales.to_dict(),
         'trend_deadbands': {s: float(fit[s + '_trend30m'].abs().quantile(.25)) for s in SENSORS},
         'contributor_method': 'positive_sensor_block_median_replacement_score_reduction',
-        'analysis_window_minutes': 120, 'minimum_live_history_rows': 6,
+        'analysis_window_minutes': ANALYSIS_WINDOW_SECONDS // 60,
+        'minimum_live_history_rows': MIN_LIVE_ROWS,
         'training_series_count': int(rows['series_id'].nunique()) if 'series_id' in rows else 1,
         'source_reference_fraction': reference_fraction if train_days is None else None,
         'validation_strategy': 'chronological_fit_then_calibration_then_purged_holdout',

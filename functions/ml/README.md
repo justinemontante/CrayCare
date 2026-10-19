@@ -75,6 +75,16 @@ deployed by this training workflow. Any existing cloud deployment remains on
 its previously deployed bundle until the Firebase function is explicitly
 redeployed.
 
+The live analysis window is defined in one place only, `anomaly_window.py`:
+a two-hour rolling window, at least six valid readings, at least 110 minutes
+of span, an observed cadence between 480 and 1800 seconds, a window rebuild
+after a gap over 2.2 times that cadence, and a stale result after 20 minutes.
+`train_model.py` imports those constants instead of repeating the numbers, so
+the trainer and the runtime cannot drift apart. `test_model_artifact.py`
+fails if they ever do. The `minimum_live_history_rows` value stored in the
+bundle is a training-time record only; inference never reads it, and the
+runtime always applies the `anomaly_window` constant.
+
 Before final field claims:
 
 1. Calibrate the four water-quality sensors and collect continuous ten-minute history from the real pond.
