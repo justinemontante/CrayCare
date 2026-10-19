@@ -179,7 +179,7 @@ Fallback staging for offline-buffered, unassigned, or older-firmware history. Ne
 | `sensorReadingsHistory/{uid}` | Replaced by nested tank history |
 | `feederSchedules`, `feederLogs`, `feederCommands`, `feederStatus`, `feederDispatched` | Legacy flat versions |
 | `deviceModes`, `deviceLogs` | Replaced by nested actuator data |
-| `healthRisk/{tankId}`, `tanks/{id}/health_risk/current`, root `mlPredictions`, `tanks/{id}/ml_predictions` | Replaced by `tanks/{id}/water_quality_anomaly_detections` |
+| `healthRisk/{tankId}`, `tanks/{id}/health_risk/current`, root `mlPredictions`, `tanks/{id}/ml_predictions` | Replaced by `tanks/{id}/water_quality_anomaly_detection_history` |
 | flat production collections | Replaced by nested batch structure |
 
 ---

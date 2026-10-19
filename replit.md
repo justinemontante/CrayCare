@@ -2,7 +2,7 @@
 
 Flutter + Firebase smart-aquaculture app for crayfish farming. The system
 monitors water conditions from ESP32 sensors, controls actuators and feeding,
-and produces scheduled Machine Learning-Based Water Quality Anomaly Detection.
+and produces event-triggered Machine Learning-Based Water Quality Anomaly Detection.
 
 ## Stack
 
@@ -22,7 +22,7 @@ ESP32
   → notification Cloud Functions route readings to the assigned tank
   → tanks/{tankId}/sensor_readings/latest
   → tanks/{tankId}/sensor_readings_history/{date}/entries/{id}
-  → every-15-minute Python run_wqad_analysis
+  → Python run_wqad_analysis runs on each fresh history record
   → Machine Learning-Based Water Quality Anomaly Detection
   → one timestamped result in tanks/{tankId}/water_quality_anomaly_detection_history
   → app uses the newest processed_at history record as latest
@@ -51,11 +51,13 @@ Important files:
 | `functions/ml/Dataset.csv` | Four-sensor source dataset used for model training |
 | `functions/ml/anomaly_features.py` | Builds 36 multivariate and temporal features and runs anomaly inference |
 | `functions/ml/anomaly_interpreter.py` | Produces insights and verification-focused recommendations |
-| `functions/ml/main.py` | Exports the scheduled `run_wqad_analysis` Cloud Function |
+| `functions/ml/main.py` | Exports the history-triggered `run_wqad_analysis` Cloud Function |
 | `functions/ml/test_anomaly_detection.py` | Unsupervised-contract and detection tests |
 | `functions/ml/test_anomaly_window.py` | Freshness and continuous-history tests |
 
-Twelve complete 10-minute records are required. Missing sensor values are
+At least six valid readings spanning 110 minutes inside a continuous two-hour window
+are required, based on actual capture times. The window is rebuilt after a gap
+larger than 2.2 times the observed cadence. Missing sensor values are
 rejected rather than converted to physically meaningful zeroes.
 
 ## Flutter integration
@@ -66,9 +68,11 @@ rejected rather than converted to physically meaningful zeroes.
   `lib/widgets/dashboard/water_quality_anomaly_detection_history_sheet.dart`
 - AI insight sheet: `lib/widgets/analytics/movable_ai_logo.dart`
 
-WQAD reads only the `Normal`, `Unusual`, and `Insufficient` result contract from
-`water_quality_anomaly_detections`. Retired classification documents are not
-treated as current anomaly-detection results.
+WQAD reads only the `Normal`, `Unusual`, and `Insufficient` result contract, and
+the newest processed_at record in `water_quality_anomaly_detection_history` is
+the current result. The legacy `water_quality_anomaly_detections` collection is
+still readable during transition but is no longer updated. Retired
+classification documents are not treated as current anomaly-detection results.
 
 ## Naming rule
 
@@ -77,9 +81,8 @@ earlier module names.
 
 ## Current limitations
 
-- The WQAD model is bootstrap-tested on synthetic operating patterns and
-  holdout events; event labels are evaluation-only. It is not yet field-validated
-  using actual calibrated Cherax RAS history.
+- The WQAD model is trained on an external freshwater fishpond proxy dataset.
+  It is not yet field-validated using actual calibrated Cherax RAS history.
 - Sensor calibration and physical hardware verification remain required before
   unsupervised production operation.
 - Node.js 20 notification functions must be migrated before runtime

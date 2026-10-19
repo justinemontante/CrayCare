@@ -95,20 +95,22 @@ However:
 
 **Required fix:** Use `recorded_at` as the canonical field and add a shared parser supporting Firestore `Timestamp`, integer epoch seconds, integer epoch milliseconds, and ISO strings. Use it for filtering, sorting, and labels.
 
-### C4. Duplicate scheduled feeding paths can physically feed twice
+### C4. Resolved — one feeding dispatcher remains
 
-There are two independent dispatchers:
+The duplicate dispatch path was removed. The ESP32 is now the only source of truth
+for scheduled feeding, and the app sends reminders and observes
+ESP-confirmed logs only.
 
-1. ESP-local scheduler reads `feeder_schedules` and directly calls `startFeed("scheduled")` at the configured minute (`esp/CrayCare/src/main.cpp:1497-1520`).
-2. Android WorkManager runs every 15 minutes (`lib/services/background_service.dart:9-20`) and `BackgroundHelper.checkAndDispatchFeeding()` creates a `feed_now` pending command for schedules up to 15 minutes old (`background_helper.dart:77-142`).
-
-The ESP consumes that command and calls `startFeed("manual")` (`main.cpp:1366-1374`). If the background command arrives more than one minute after the local schedule, the ESP's one-minute guard does not prevent another cycle.
-
-Additionally, `BackgroundHelper` writes an “Auto feed dispensed” log immediately after creating the command (`background_helper.dart:154-165`), before the ESP confirms physical completion. The ESP later writes another completion log (`main.cpp:1605-1612`).
-
-**Impact:** Overfeeding, duplicate logs, and false successful-dispense records.
-
-**Required fix:** Choose one source of truth. Recommended: let the ESP execute stored schedules locally for offline resilience, and remove background command dispatch. The app/backend should only send reminders and observe ESP-confirmed logs. Alternatively, use a server dispatcher with an atomic idempotency record and disable ESP-local schedule execution.
+- The ESP-local scheduler reads `feeder_schedules` and calls
+  `startFeed("scheduled")` at the configured minute
+  (`esp/CrayCare/src/main.cpp`).
+- The Android WorkManager path no longer creates feed commands.
+  `lib/services/background_service.dart` only cancels the retired periodic task
+  `com.craycare.feeding` so upgraded installations stop producing duplicate
+  reminders, and its callback ignores any retired task.
+- Reminder delivery is server-owned through Cloud Functions and FCM.
+- Feeder logs are written by the device after the physical cycle, so a
+  successful dispense is no longer claimed before the ESP confirms it.
 
 ---
 
@@ -157,43 +159,50 @@ Flutter writes `grams` into pending commands and schedules (`lib/services/feeder
 
 **Impact:** The UI suggests variable feeding quantity, but physical dispensing remains fixed. Logs/status can claim a quantity that was not actually measured or applied.
 
-### H5. ML runtime path/schema contradicts current documentation
+### H5. Resolved — ML runtime path and schema now match the documentation
 
-**Actual runtime:**
+The runtime, the Firestore rules, and the documentation now describe the same
+system. The current WQAD runtime is:
 
-- Scheduled hourly function: `functions/ml/main.py:188-202`
-- Output: `tanks/{tankId}/ml_predictions/current` (`main.py:183-184`)
-- Flutter reads that same path (`health_risk_service.dart:158-162`, `ml_service.dart:79-82`)
+- History-triggered function on new ten-minute history entries:
+  `functions/ml/main.py` (`on_document_created` on
+  `tanks/{tank_id}/sensor_readings_history/{date}/entries/{entry_id}`)
+- Output: one timestamped document per analysis in
+  `tanks/{tankId}/water_quality_anomaly_detection_history/{YYYYMMDDTHHMMSS}`
+- The app reads the newest `processed_at` record in that collection
+  (`lib/services/water_quality_anomaly_detection_service.dart`)
+- Firestore rules cover `water_quality_anomaly_detection_history`
+  (`firestore.rules:370`)
 
-**Documentation/memory says:**
+The retired `ml_predictions` and `health_risk` paths no longer exist in the
+runtime, the app, or the rules. The old `current` document is no longer
+written; the newest history record is the current result.
 
-- Event-driven trigger on latest sensor writes
-- Output at `tanks/{tankId}/health_risk/current`
-- See `README.md:16-22`, `docs/FIRESTORE_STRUCTURE_ACTUAL.md:122-124`, and `.agents/memory/ml-pipeline.md:6-41`
-
-Firestore rules contain `ml_predictions` but no `health_risk` rule (`firestore.rules:151-156`).
-
-**Impact:** Deployment/debugging instructions are misleading. Anyone implementing from the documentation will target a nonexistent runtime path and trigger model.
+`README.md`, `docs/FIRESTORE_STRUCTURE_ACTUAL.md`, `replit.md`, and
+`.agents/memory/ml-pipeline.md` were updated to the same trigger, window, and
+output contract.
 
 ### H6. Resolved — retired risk-score contract removed
 
 The current WQAD pipeline exposes `anomaly_score`, a statistical percentile relative to learned reference patterns. It does not expose the retired hazard/risk score or present the anomaly percentile as a biological safety score.
 
-### H7. ML missing-value fallback can turn an absent sensor into a severe hazard
+### H7. Resolved — ML missing-value fallback removed
 
-The current WQAD ingestion validates complete min/average/max triplets for all five water sensors. Missing, non-finite, negative-sentinel, or internally inconsistent rows are rejected. Fewer than twelve continuous records produces `Insufficient`; missing values are never converted into physically meaningful zeroes.
+The current WQAD ingestion validates the four water-quality sensors
+(temperature, pH, dissolved oxygen, turbidity) on every history row. Missing,
+non-finite, negative-sentinel, or internally inconsistent rows are rejected
+before inference. Fewer than six valid readings spanning 110 minutes inside a
+continuous two-hour window produces `Insufficient`; missing values are never
+converted into physically meaningful zeroes. A newest record older than 20
+minutes is reported as stale rather than analysed.
 
-### H8. Node production dependencies contain known vulnerabilities
+### H8. Resolved — Node production dependencies upgraded
 
-`npm audit --omit=dev` reported:
-
-- 1 high-severity vulnerability
-- 9 moderate-severity vulnerabilities
-- 10 total
-
-The high issue is in `fast-xml-parser`; several moderate issues flow through `firebase-admin`, Google Cloud packages, and `uuid`. Installed lock versions include `firebase-admin 12.7.0` and `firebase-functions 5.1.1`.
-
-**Required fix:** Upgrade Firebase Admin/Functions and regenerate/test the lock file. Review breaking changes before deployment.
+The vulnerable lock versions were replaced. The installed lock file now carries
+`firebase-admin 13.10.0`, `firebase-functions 7.3.2`, and `fast-xml-parser
+5.10.1`, which is the release line that carried the reported high-severity
+issue. The lock file was regenerated and the notification function test suite
+passes against it.
 
 ---
 
@@ -265,9 +274,13 @@ At `main.cpp:79-80`, comments say all paths route directly to tanks and that no 
 
 `main.cpp:726` prints water thresholds with `%`, while the app, model, and sensor defaults use centimeters.
 
-### L4. Two Flutter services listen to the same ML document
+### L4. Resolved — one Flutter service reads the ML history
 
-`MlService` and `HealthRiskService` both resolve the tank and subscribe to `ml_predictions/current`. This is not functionally wrong, but duplicates reads/state and increases maintenance risk.
+The duplicate ML listeners were removed. `MlService` and `HealthRiskService`
+no longer exist. The app reads WQAD results through
+`lib/services/water_quality_anomaly_detection_service.dart`, which subscribes
+to `water_quality_anomaly_detection_history` and uses the newest
+`processed_at` record as the current result.
 
 ### L5. No meaningful automated application/firmware test suite
 
@@ -300,10 +313,10 @@ Example local model output was **Moderate, 100% confidence, pH driver** on the f
 3. **Fix historical timestamp parsing** (`recorded_at`) so analytics and evidence collection are reliable.
 4. **Choose exactly one scheduled-feed dispatcher** and make feed execution idempotent and hardware-confirmed.
 5. **Implement production calibration and sensor-fault detection** for DO, pH, and water level.
-6. **Decide the canonical ML contract:** hourly vs event-driven, `ml_predictions` vs `health_risk`, and whether `risk_score` exists.
-7. **Reject incomplete ML samples** instead of filling absent sensors with zero.
+6. Done. The canonical ML contract is history-triggered, it writes one timestamped record to `water_quality_anomaly_detection_history`, and the retired hazard score is removed.
+7. Done. Incomplete ML samples are rejected before inference instead of being filled with zero.
 8. **Make grams functional or remove the quantity control/claims** from the app.
-9. **Upgrade vulnerable Node dependencies** and pin/test Python/XGBoost versions.
+9. Done. Vulnerable Node dependencies were upgraded and the Python runtime is pinned to `pandas 3.0.3`, `numpy 2.5.1`, `scikit-learn 1.9.0`, and `joblib 1.5.3` for the Isolation Forest artifact.
 10. **Update all documentation from the corrected runtime schema**, then add CI tests for routing, rules, analytics parsing, feeder idempotency, and ML missing data.
 
 ## Overall assessment
