@@ -90,3 +90,6 @@ functions/ml/wqad_candidate.joblib
 functions/ml/wqad_fishpond_candidate.joblib
 functions/ml/*_candidate.joblib
 functions/ml/*_evaluation.json
+
+# User manual mockup images (working files, not versioned)
+docs/USER_MANUAL/img/
