@@ -1304,11 +1304,14 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
   int _decimalFor(String key) => key == 'feedlevel' ? 0 : 2;
 
+  bool _usesLowCriticalThreshold(String key) =>
+      key == 'waterlevel' || key == 'feedlevel';
+
   Map<String, double> _thresholdsFor(String key) {
     final range = SettingsService.instance.currentRanges[key];
-    if (key == 'waterlevel') {
+    if (_usesLowCriticalThreshold(key)) {
       return {
-        'low': range?['low'] ?? 15.0,
+        'low': range?['low'] ?? (key == 'feedlevel' ? 20.0 : 15.0),
         'critical': range?['critical'] ?? 10.0,
       };
     }
@@ -1331,8 +1334,9 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     required Map<String, double> thresholds,
   }) {
     final items = <_CriticalItem>[];
-    if (chartKey == 'waterlevel') {
-      final lowThreshold = thresholds['low'] ?? 15.0;
+    if (_usesLowCriticalThreshold(chartKey)) {
+      final lowThreshold =
+          thresholds['low'] ?? (chartKey == 'feedlevel' ? 20.0 : 15.0);
       final criticalThreshold = thresholds['critical'] ?? 10.0;
       final length = max(minData.length, maxData.length);
       for (int i = 0; i < length; i++) {
@@ -1477,7 +1481,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                 Flexible(
                   child: Text(
                     criticalCount > 0
-                        ? chartKey == 'waterlevel'
+                        ? _usesLowCriticalThreshold(chartKey)
                               ? '$criticalCount low/critical reading${criticalCount > 1 ? 's' : ''}'
                               : '$criticalCount critical point${criticalCount > 1 ? 's' : ''}'
                         : 'No critical points',
@@ -1663,7 +1667,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                               ),
                             Text(
                               modalShowCritical
-                                  ? chartKey == 'waterlevel'
+                                  ? _usesLowCriticalThreshold(chartKey)
                                         ? 'Low/Critical Readings'
                                         : 'Critical Points'
                                   : '$title ($unit)',
@@ -1811,7 +1815,9 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                                           const SizedBox(width: 4),
                                           Text(
                                             criticalCount > 0
-                                                ? chartKey == 'waterlevel'
+                                                ? _usesLowCriticalThreshold(
+                                                        chartKey,
+                                                      )
                                                       ? '$criticalCount low/critical reading${criticalCount > 1 ? 's' : ''}  ›'
                                                       : '$criticalCount critical point${criticalCount > 1 ? 's' : ''}  ›'
                                                 : 'No critical points',
@@ -1938,7 +1944,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
               ),
               const SizedBox(width: 4),
               Text(
-                chartKey == 'waterlevel'
+                _usesLowCriticalThreshold(chartKey)
                     ? 'Low/Critical Readings (${items.length})'
                     : 'Critical Points (${items.length})',
                 style: const TextStyle(

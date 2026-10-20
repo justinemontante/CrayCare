@@ -222,7 +222,7 @@ class SensorService extends ChangeNotifier {
 
     if (key == 'feedlevel') {
       final critical = range['critical'] ?? 10.0;
-      final low = range['min'] ?? 20.0;
+      final low = range['low'] ?? range['min'] ?? 20.0;
       if (value <= 0) return 'EMPTY';
       if (value <= critical) return 'CRITICAL';
       if (value <= low) return 'WARNING';

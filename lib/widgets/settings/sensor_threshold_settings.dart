@@ -975,7 +975,7 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
           Padding(
             padding: const EdgeInsets.only(left: 38),
             child: Text(
-              'Ideal sensor ranges for your tank',
+              'Configured thresholds used for sensor alerts',
               style: TextStyle(fontSize: 10, color: AppColors.darkWith(0.45)),
             ),
           ),

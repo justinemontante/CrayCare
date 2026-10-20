@@ -10,7 +10,7 @@ const {feedingReminderOccurrence, feedingReminderBody} = require("./feeding_remi
 
 const LABELS = {
   temp: "Temperature",
-  ph: "pH Level",
+  ph: "pH",
   do: "Dissolved Oxygen",
   turb: "Turbidity",
   waterlevel: "Water Level",
@@ -188,9 +188,11 @@ function normalizeSensorReading(raw) {
     feed_level: raw.feed_level ?? raw.feedLevel ?? null,
     turbidity_air: raw.turbidity_air ?? raw.turbidityAir ?? null,
     recorded_at: (() => {
-      const capMs = Number(raw.captured_at_ms);
-      return Number.isFinite(capMs) && capMs > TRUSTED_EPOCH_MS
-        ? new Date(capMs)
+      const recordedAtMs = parseTimestampMillis(
+        raw.recorded_at ?? raw.captured_at_ms,
+      );
+      return Number.isFinite(recordedAtMs) && recordedAtMs > TRUSTED_EPOCH_MS
+        ? new Date(recordedAtMs)
         : admin.firestore.FieldValue.serverTimestamp();
     })(),
   };
@@ -231,10 +233,11 @@ function sensorMessage(change) {
   if (change.state === "resolved") {
     return `${label} is back to normal (${change.val.toFixed(1)}${suffix})`;
   }
-  const description = change.state === "warning"
-    ? (change.dir === "low" ? "is approaching minimum" : "is approaching maximum")
-    : (change.dir === "low" ? "is below minimum" : "is above maximum");
-  return `${label} (${change.val.toFixed(1)}${suffix}) ${description} of ${change.threshold}`;
+  const limit = change.dir === "low" ? "minimum" : "maximum";
+  const comparison = change.state === "warning"
+    ? `is nearing your set ${limit}`
+    : `is ${change.dir === "low" ? "below" : "above"} your set ${limit}`;
+  return `${label} ${comparison} (current: ${change.val.toFixed(1)}${suffix}; ${limit}: ${change.threshold.toFixed(1)}${suffix}).`;
 }
 
 async function notifySensorChanges(ownerUid, stateChanges, eventId) {
@@ -352,7 +355,7 @@ async function recordSensorOnlineIfFresh(tankId, reading) {
   // that provenance out of the latest sensor payload.
   if (!assignment) return;
   const capturedAtMs = parseTimestampMillis(
-    reading.captured_at_ms ?? reading.recorded_at,
+    reading.recorded_at ?? reading.captured_at_ms,
   );
   const ageMs = Date.now() - capturedAtMs;
   if (!Number.isFinite(capturedAtMs) || ageMs < -60_000 ||
@@ -676,7 +679,7 @@ exports.checkSensorConnectivity = functions.region("asia-southeast1").pubsub
       const reading = latestSnap.data() || {};
 
       const capturedAtMs = parseTimestampMillis(
-        reading.captured_at_ms ?? reading.recorded_at,
+        reading.recorded_at ?? reading.captured_at_ms,
       );
       if (!Number.isFinite(capturedAtMs)) return null;
       const ageMs = Date.now() - capturedAtMs;
@@ -714,6 +717,23 @@ async function getSamplingDue(tankId, ownerUid) {
         .collection("batches").doc(currentBatchId);
       const batchSnap = await batchRef.get();
       if (batchSnap.exists) {
+        const batchData = batchSnap.data() || {};
+        if (batchData.batch_status && batchData.batch_status !== "active") {
+          return null;
+        }
+        const initialCount = Number(batchData.initial_count);
+        const hasPopulationTotals = Number.isFinite(initialCount) &&
+          Number.isFinite(Number(batchData.total_mortality)) &&
+          Number.isFinite(Number(batchData.harvest_count));
+        const currentCount = hasPopulationTotals
+          ? Math.max(
+            0,
+            initialCount - Number(batchData.total_mortality) -
+              Number(batchData.harvest_count),
+          )
+          : Number(batchData.current_count);
+        if (Number.isFinite(currentCount) && currentCount <= 0) return null;
+
         // Only inspect the newest Timestamp and newest legacy numeric epoch.
         // Firestore sorts numbers and Timestamps in separate type groups, so
         // taking just one unfiltered limit(1) result could pick the wrong

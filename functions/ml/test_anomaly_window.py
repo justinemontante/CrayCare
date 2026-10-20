@@ -167,7 +167,7 @@ class HistoryWindowTests(unittest.TestCase):
             patch.object(main, "_active_assignment", return_value=("owner-1", assignment)),
             patch.object(main, "_analyze_tank") as analyze,
         ):
-            main.run_wqad_analysis.__wrapped__(event)
+            main.run_wqad_analysis_on_sensor_record.__wrapped__(event)
         analyze.assert_called_once_with(
             "tank-123", source_id=f"{round(now.timestamp() * 1000):013d}_r_123", source_at=now.timestamp()
         )
@@ -181,7 +181,7 @@ class HistoryWindowTests(unittest.TestCase):
             "recorded_at": datetime.now(timezone.utc).replace(year=2025),
         }
         with patch.object(main, "_active_assignment") as assignment:
-            main.run_wqad_analysis.__wrapped__(event)
+            main.run_wqad_analysis_on_sensor_record.__wrapped__(event)
         assignment.assert_not_called()
 
     def test_staged_history_without_source_fields_uses_assignment_time(self):
@@ -199,7 +199,7 @@ class HistoryWindowTests(unittest.TestCase):
             patch.object(main, "_active_assignment", return_value=("owner-1", assignment)),
             patch.object(main, "_analyze_tank") as analyze,
         ):
-            main.run_wqad_analysis.__wrapped__(event)
+            main.run_wqad_analysis_on_sensor_record.__wrapped__(event)
         analyze.assert_called_once()
 
     def test_older_event_does_not_replace_newer_history(self):

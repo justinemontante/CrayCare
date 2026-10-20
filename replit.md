@@ -2,7 +2,7 @@
 
 Flutter + Firebase smart-aquaculture app for crayfish farming. The system
 monitors water conditions from ESP32 sensors, controls actuators and feeding,
-and produces scheduled Machine Learning-Based Water Quality Anomaly Detection.
+and produces event-triggered Machine Learning-Based Water Quality Anomaly Detection.
 
 ## Stack
 
@@ -22,7 +22,7 @@ ESP32
   → notification Cloud Functions route readings to the assigned tank
   → tanks/{tankId}/sensor_readings/latest
   → tanks/{tankId}/sensor_readings_history/{date}/entries/{id}
-  → every-15-minute Python run_wqad_analysis
+  → each eligible new sensor-history entry triggers Python run_wqad_analysis_on_sensor_record
   → Machine Learning-Based Water Quality Anomaly Detection
   → one timestamped result in tanks/{tankId}/water_quality_anomaly_detection_history
   → app uses the newest processed_at history record as latest
@@ -39,9 +39,21 @@ insight, and a verification-focused recommendation. The statistical anomaly
 boundary is not a biological safety threshold. Immediate alerts and actuator
 decisions remain in the separate sensor-threshold layer.
 
-The model artifact is `functions/ml/trained_wqad_model.joblib`. Its provenance
-is stored with every result. The current model is an external fishpond proxy
-and has not been validated as a crayfish model.
+The local model artifact is `functions/ml/trained_wqad_model.joblib`. Its bundle
+metadata records that it was trained from an external freshwater fishpond proxy
+dataset, which has not been validated for crayfish. The training workflow does
+not deploy this local candidate. New model-backed results include compact
+`model_metadata` (algorithm, feature version, training-data origin and time,
+whether labels were used, and the decision percentile) so the artifact used for
+an inference can be identified. Older results and results without model inference
+do not contain this field.
+
+The Firebase project was checked on 2026-10-19: it still has an active scheduled
+function named `run_wqad_analysis`, while this source exports the Firestore
+trigger as `run_wqad_analysis_on_sensor_record`. Firebase does not change a
+function's trigger type in place; the new function must be deployed first, then
+the old scheduled function removed. Confirm the model artifact included in that
+deployment before replacing the live function.
 
 Important files:
 
@@ -51,11 +63,13 @@ Important files:
 | `functions/ml/Dataset.csv` | Four-sensor source dataset used for model training |
 | `functions/ml/anomaly_features.py` | Builds 36 multivariate and temporal features and runs anomaly inference |
 | `functions/ml/anomaly_interpreter.py` | Produces insights and verification-focused recommendations |
-| `functions/ml/main.py` | Exports the scheduled `run_wqad_analysis` Cloud Function |
+| `functions/ml/main.py` | Exports the Firestore-triggered `run_wqad_analysis_on_sensor_record` Cloud Function |
 | `functions/ml/test_anomaly_detection.py` | Unsupervised-contract and detection tests |
 | `functions/ml/test_anomaly_window.py` | Freshness and continuous-history tests |
 
-Twelve complete 10-minute records are required. Missing sensor values are
+WQAD checks a rolling two-hour window. It requires at least six valid readings
+spanning 110 minutes; at the usual 10-minute cadence this is normally about 12
+readings, and one missed interval can be tolerated. Missing sensor values are
 rejected rather than converted to physically meaningful zeroes.
 
 ## Flutter integration
@@ -66,9 +80,11 @@ rejected rather than converted to physically meaningful zeroes.
   `lib/widgets/dashboard/water_quality_anomaly_detection_history_sheet.dart`
 - AI insight sheet: `lib/widgets/analytics/movable_ai_logo.dart`
 
-WQAD reads only the `Normal`, `Unusual`, and `Insufficient` result contract from
-`water_quality_anomaly_detections`. Retired classification documents are not
-treated as current anomaly-detection results.
+WQAD listens to the canonical `water_quality_anomaly_detection_history`
+collection. For compatibility, it also reads timestamped documents once from
+the legacy `water_quality_anomaly_detections` collection; it ignores that
+collection's old `current` document. Current results use the `Normal`,
+`Unusual`, and `Insufficient` status contract.
 
 ## Naming rule
 
@@ -77,9 +93,10 @@ earlier module names.
 
 ## Current limitations
 
-- The WQAD model is bootstrap-tested on synthetic operating patterns and
-  holdout events; event labels are evaluation-only. It is not yet field-validated
-  using actual calibrated Cherax RAS history.
+- The external training data has no anomaly outcome labels. Its holdout alert
+  rate is not an accuracy measure. Synthetic checks exercise software behavior
+  only; they do not establish detection accuracy. WQAD is not yet field-validated
+  using calibrated sensor history from the target crayfish tank.
 - Sensor calibration and physical hardware verification remain required before
   unsupervised production operation.
 - Node.js 20 notification functions must be migrated before runtime

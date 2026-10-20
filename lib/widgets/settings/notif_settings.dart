@@ -13,6 +13,8 @@ class NotifSettings extends StatefulWidget {
   final bool notificationPermissionAllowed;
   final bool notificationPermissionBusy;
   final VoidCallback onNotificationPermissionAction;
+  final String notificationPrefsSaveState;
+  final VoidCallback onRetryNotificationPrefsSave;
   final ValueChanged<bool?> onNotifSoundChanged;
   final ValueChanged<bool?> onNotifVibrationChanged;
   final ValueChanged<bool?> onNotifCriticalChanged;
@@ -34,6 +36,8 @@ class NotifSettings extends StatefulWidget {
     required this.notificationPermissionAllowed,
     required this.notificationPermissionBusy,
     required this.onNotificationPermissionAction,
+    required this.notificationPrefsSaveState,
+    required this.onRetryNotificationPrefsSave,
     required this.onNotifSoundChanged,
     required this.onNotifVibrationChanged,
     required this.onNotifCriticalChanged,
@@ -120,11 +124,23 @@ class _NotifSettingsState extends State<NotifSettings> {
               Icons.notifications_active_outlined,
               'ALERTS & REMINDERS',
             ),
+            const SizedBox(height: 6),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: Text(
+                'These switches control push alerts. Notifications already in your inbox stay there.',
+                style: TextStyle(
+                  fontSize: 10,
+                  height: 1.35,
+                  color: AppColors.darkWith(0.58),
+                ),
+              ),
+            ),
             const SizedBox(height: 7),
             _buildToggleGroup([
               _NotifItem(
                 label: 'Critical Alerts',
-                subtitle: 'Urgent changes in water parameters',
+                subtitle: 'Urgent water, feed, or sensor alerts',
                 icon: Icons.error_outline_rounded,
                 color: AppColors.critical,
                 value: _notifCritical,
@@ -135,7 +151,7 @@ class _NotifSettingsState extends State<NotifSettings> {
               ),
               _NotifItem(
                 label: 'Warning Alerts',
-                subtitle: 'Parameters approaching unsafe levels',
+                subtitle: 'Readings nearing your set limits',
                 icon: Icons.warning_amber_rounded,
                 color: AppColors.warning,
                 value: _notifWarning,
@@ -146,7 +162,7 @@ class _NotifSettingsState extends State<NotifSettings> {
               ),
               _NotifItem(
                 label: 'Feeding Reminders',
-                subtitle: 'Daily feeding confirmations and reminders',
+                subtitle: 'Scheduled feeding reminders and updates',
                 icon: Icons.set_meal_rounded,
                 color: AppColors.primary,
                 value: _notifFeeding,
@@ -210,62 +226,115 @@ class _NotifSettingsState extends State<NotifSettings> {
           ),
         ],
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(
-              Icons.notifications_none_rounded,
-              color: AppColors.primary,
-              size: 22,
-            ),
-          ),
-          const SizedBox(width: 11),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Stay informed',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.dark,
-                  ),
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  '$enabledCount of 7 notification options enabled',
-                  style: const TextStyle(
-                    fontSize: 9.5,
-                    color: AppColors.subtitleText,
-                  ),
+                child: const Icon(
+                  Icons.notifications_none_rounded,
+                  color: AppColors.primary,
+                  size: 22,
                 ),
-              ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-            decoration: BoxDecoration(
-              color: AppColors.success.withValues(alpha: 0.09),
-              borderRadius: BorderRadius.circular(9),
-            ),
-            child: Text(
-              '$enabledCount/7 ON',
-              style: const TextStyle(
-              fontSize: 8.5,
-                fontWeight: FontWeight.w800,
-                color: AppColors.success,
               ),
-            ),
+              const SizedBox(width: 11),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Stay informed',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.dark,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$enabledCount of 7 notification options enabled',
+                      style: const TextStyle(
+                        fontSize: 9.5,
+                        color: AppColors.subtitleText,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                decoration: BoxDecoration(
+                  color: AppColors.success.withValues(alpha: 0.09),
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Text(
+                  '$enabledCount/7 ON',
+                  style: const TextStyle(
+                    fontSize: 8.5,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.success,
+                  ),
+                ),
+              ),
+            ],
           ),
+          const SizedBox(height: 8),
+          _buildSaveStatus(),
         ],
       ),
+    );
+  }
+
+  Widget _buildSaveStatus() {
+    final (label, icon, color) = switch (widget.notificationPrefsSaveState) {
+      'saving' => (
+        'Saving preferences…',
+        Icons.sync_rounded,
+        AppColors.primary,
+      ),
+      'saved' => (
+        'Preferences saved',
+        Icons.check_circle_outline_rounded,
+        AppColors.success,
+      ),
+      'failed' => (
+        'Could not save preferences',
+        Icons.error_outline_rounded,
+        AppColors.critical,
+      ),
+      _ => (
+        'Changes save automatically',
+        Icons.cloud_done_outlined,
+        AppColors.subtitleText,
+      ),
+    };
+
+    return Row(
+      children: [
+        Icon(icon, size: 14, color: color),
+        const SizedBox(width: 5),
+        Expanded(
+          child: Text(label, style: TextStyle(fontSize: 10, color: color)),
+        ),
+        if (widget.notificationPrefsSaveState == 'failed')
+          TextButton(
+            onPressed: widget.onRetryNotificationPrefsSave,
+            style: TextButton.styleFrom(
+              minimumSize: const Size(44, 28),
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              foregroundColor: AppColors.critical,
+            ),
+            child: const Text('Retry', style: TextStyle(fontSize: 10)),
+          ),
+      ],
     );
   }
 

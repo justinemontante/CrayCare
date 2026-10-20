@@ -98,6 +98,10 @@ test('a rejected mutation writes nothing, so replaying after an auth failure is 
   // Unknown operation is rejected before the transaction even opens.
   assert.equal(await codeOf(() => call(h, {operation: 'who-knows'})), 'invalid-argument');
   assert.equal(h.snapshot(), before);
+  assert.equal(await codeOf(() => call(h, {
+    operation: 'add', time: '7:30', ampm: 'AM', days: '1111111',
+  })), 'invalid-argument', 'a schedule without grams must be rejected');
+  assert.equal(h.snapshot(), before, 'a missing dose must not create a schedule or audit row');
   // A conflicting slot is rejected inside the transaction, after the guard read.
   const err = await call(h, valid({grams: 20})).then(() => null, (e) => e);
   assert.equal(err.code, 'already-exists');
@@ -177,15 +181,16 @@ test('role and status are normalized like the app treats them', async () => {
 });
 
 test('scheduleFields enforces the time shape and 1-200 g whole-gram doses', () => {
-  assert.equal(scheduleFields({time: '12:00', ampm: 'AM', days: '1111111'}).scheduled_time, '00:00');
-  assert.equal(scheduleFields({time: '12:30', ampm: 'PM', days: '1111111'}).scheduled_time, '12:30');
-  assert.equal(scheduleFields({time: '6:00', ampm: 'PM', timeValue: null, days: '1111111'}).scheduled_time, '18:00');
-  assert.equal(scheduleFields({scheduled_time: '07:30', days: '1111111'}).scheduled_time, '07:30');
-  assert.equal(scheduleFields({time: '7:30', ampm: 'AM', days: '1111111'}).grams, 20);
+  assert.equal(scheduleFields({time: '12:00', ampm: 'AM', days: '1111111', grams: 20}).scheduled_time, '00:00');
+  assert.equal(scheduleFields({time: '12:30', ampm: 'PM', days: '1111111', grams: 20}).scheduled_time, '12:30');
+  assert.equal(scheduleFields({time: '6:00', ampm: 'PM', timeValue: null, days: '1111111', grams: 20}).scheduled_time, '18:00');
+  assert.equal(scheduleFields({scheduled_time: '07:30', days: '1111111', grams: 20}).scheduled_time, '07:30');
   assert.equal(scheduleFields({time: '7:30', ampm: 'AM', days: '1111111', grams: 5}).grams, 5);
   assert.equal(scheduleFields({time: '7:30', ampm: 'AM', days: '1111111', grams: 30}).grams, 30);
-  assert.equal('allow_high_turbidity' in scheduleFields({time: '7:30', ampm: 'AM', days: '1111111'}), false);
+  assert.equal('allow_high_turbidity' in scheduleFields({time: '7:30', ampm: 'AM', days: '1111111', grams: 20}), false);
   const bad = [
+    {time: '7:30', ampm: 'AM', days: '1111111'},
+    {time: '7:30', ampm: 'AM', days: '1111111', grams: null},
     {time: '0:30', ampm: 'AM', days: '1111111'},
     {time: '13:30', ampm: 'PM', days: '1111111'},
     {time: '7.30', ampm: 'AM', days: '1111111'},
@@ -215,26 +220,17 @@ test('retired high-turbidity-only operation is rejected', async () => {
   assert.equal(Object.keys(h.store).some((key) => key.endsWith('/feeder/feeder_policy')), false);
 });
 
-test('shared water-quality policy uses feeder_policy and mirrors legacy path without retired field', async () => {
+test('retired water-quality override operation is rejected without writes', async () => {
   const legacyPath = `${tankPrefix}/feeder/schedule_policy`;
-  const canonicalPath = `${tankPrefix}/feeder/feeder_policy`;
   const h = makeHarness({
     [legacyPath]: {allow_high_turbidity: false, allow_water_quality_override: false},
   });
-  await call(h, {operation: 'set_schedule_water_quality_policy', allowWaterQualityOverride: true});
-  assert.equal(h.store[canonicalPath].allow_water_quality_override, true);
-  assert.equal(h.store[legacyPath].allow_water_quality_override, true);
-  assert.equal('allow_high_turbidity' in h.store[canonicalPath], false);
-  assert.equal('allow_high_turbidity' in h.store[legacyPath], false);
-  assert.equal(listLogs(h)[0].action, 'Manual and scheduled water-quality range override enabled');
   const before = h.snapshot();
-  const result = await call(h, {operation: 'set_schedule_water_quality_policy', allowWaterQualityOverride: true});
-  assert.deepEqual(result, {updated: false});
-  assert.equal(h.snapshot(), before, 'setting the existing value should not add a duplicate audit entry');
-  await call(h, {operation: 'set_schedule_water_quality_policy', allowWaterQualityOverride: false});
-  assert.equal(h.store[canonicalPath].allow_water_quality_override, false);
-  assert.equal(h.store[legacyPath].allow_water_quality_override, false);
-  assert.equal(listLogs(h).length, 2);
+  assert.equal(await codeOf(() => call(h, {
+    operation: 'set_schedule_water_quality_policy',
+    allowWaterQualityOverride: true,
+  })), 'invalid-argument');
+  assert.equal(h.snapshot(), before, 'the retired operation must not write policy or audit data');
 });
 
 test('same minute on an overlapping day is a conflict even when grams differ', async () => {

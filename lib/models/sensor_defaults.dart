@@ -1,5 +1,5 @@
 const Map<String, Map<String, double>> defaultRanges = {
-  'temp': {'min': 24.0, 'max': 30.0},
+  'temp': {'min': 26.0, 'max': 29.0},
   'ph': {'min': 7.0, 'max': 8.5},
   'do': {'min': 5.0, 'max': 9.0},
   'turb': {'min': 0.0, 'max': 25.0},

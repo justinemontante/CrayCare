@@ -207,19 +207,18 @@ class CrayfishBatchList extends StatelessWidget {
   ) {
     final service = TankService.instance;
     final isSelected = service.selectedBatchId == batch.batchId;
-    // For active batches totalMortality on the batch record is 0 until archived;
-    // use the live mortality from the service instead.
-    final survivalPct = isActive
-        ? (service.initialCount > 0
-              ? ((service.initialCount - service.mortality) /
-                    service.initialCount *
-                    100)
-              : 0.0)
-        : (batch.initialCount > 0
-              ? ((batch.initialCount - batch.totalMortality) /
-                    batch.initialCount *
-                    100)
-              : 0.0);
+    // Use the selected-batch listener only when it is tracking this active
+    // batch. Otherwise use this batch's own persisted aggregate.
+    final mortality =
+        isActive &&
+            !service.isArchiveView &&
+            service.selectedBatchId == batch.batchId
+        ? service.mortality
+        : batch.totalMortality;
+    final survivalPct = crayfishSurvivalRatePercent(
+      batch.initialCount,
+      mortality,
+    );
     final duration = batch.daysInCulture;
     final iconColor = isActive ? AppColors.success : AppColors.darkWith(0.35);
     Color statusColor = isActive ? AppColors.success : AppColors.darkWith(0.6);

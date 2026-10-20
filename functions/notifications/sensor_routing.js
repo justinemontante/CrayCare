@@ -2,7 +2,14 @@
 
 function sensorRouteDecision(raw, owner, nowMs = Date.now()) {
   if (!owner) return {reason: 'unassigned'};
-  const captured = Number(raw.captured_at_ms);
+  const captureValue = raw.recorded_at ?? raw.captured_at_ms;
+  const captured = captureValue && typeof captureValue.toMillis === 'function'
+    ? captureValue.toMillis()
+    : captureValue instanceof Date
+      ? captureValue.getTime()
+      : typeof captureValue === 'string' && !Number.isFinite(Number(captureValue))
+        ? Date.parse(captureValue)
+        : Number(captureValue);
   const assignment = Number(raw.source_assignment_at_ms);
   if (!raw.source_tank_id || !raw.source_owner_uid || !Number.isSafeInteger(assignment) || assignment < 1577836800000) {
     return {reason: 'missing_capture_assignment'};

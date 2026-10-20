@@ -165,16 +165,33 @@ class _WaterQualityAnomalyDetectionHistorySheet extends StatelessWidget {
                                         WrapCrossAlignment.center,
                                     children: [
                                       _StatusBadge(
-                                        status: item.status,
+                                        status: item.status == 'Insufficient'
+                                            ? 'Need more readings'
+                                            : item.status,
                                         color: color,
                                       ),
                                       if (item.hasData)
-                                        Text(
-                                          'Reference rarity ${item.anomalyScore.toStringAsFixed(1)}%',
-                                          style: TextStyle(
-                                            fontSize: 10.5,
-                                            fontWeight: FontWeight.w700,
-                                            color: color,
+                                        Tooltip(
+                    message:
+                        'Higher scores mean this pattern is less common in the model data.',
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Text(
+                                                'How unusual: ${item.anomalyScore.toStringAsFixed(1)}%',
+                                                style: TextStyle(
+                                                  fontSize: 10.5,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: color,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 2),
+                                              Icon(
+                                                Icons.info_outline_rounded,
+                                                size: 12,
+                                                color: color,
+                                              ),
+                                            ],
                                           ),
                                         ),
                                     ],
@@ -281,14 +298,34 @@ class _WaterQualityAnomalyDetectionHistorySheet extends StatelessWidget {
                 runSpacing: 8,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  _StatusBadge(status: item.status, color: item.color),
+                  _StatusBadge(
+                    status: item.status == 'Insufficient'
+                        ? 'Need more readings'
+                        : item.status,
+                    color: item.color,
+                  ),
                   if (item.hasData)
-                    Text(
-                      'Reference rarity: ${item.anomalyScore.toStringAsFixed(1)}%',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: item.color,
+                    Tooltip(
+                      message:
+                          'Higher scores mean this pattern is less common in the model data.',
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'How unusual: ${item.anomalyScore.toStringAsFixed(1)}%',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: item.color,
+                            ),
+                          ),
+                          const SizedBox(width: 3),
+                          Icon(
+                            Icons.info_outline_rounded,
+                            size: 13,
+                            color: item.color,
+                          ),
+                        ],
                       ),
                     ),
                 ],
@@ -297,7 +334,7 @@ class _WaterQualityAnomalyDetectionHistorySheet extends StatelessWidget {
                 const SizedBox(height: 18),
                 _DetailSection(
                   icon: Icons.insights_rounded,
-                  label: 'Main pattern contributor',
+                  label: 'Reading that influenced this result',
                   text:
                       '${item.driverLabel}${item.driverValue == null ? '' : ' · ${item.driverValue!.toStringAsFixed(1)}${item.driverUnit.isEmpty ? '' : ' ${item.driverUnit}'}'}',
                 ),
@@ -306,7 +343,7 @@ class _WaterQualityAnomalyDetectionHistorySheet extends StatelessWidget {
                 const SizedBox(height: 16),
                 _DetailSection(
                   icon: Icons.multiline_chart_rounded,
-                  label: 'Sensor directions',
+                  label: 'Readings that changed',
                   text: item.contributors
                       .map((entry) {
                         final sensor =
@@ -316,7 +353,12 @@ class _WaterQualityAnomalyDetectionHistorySheet extends StatelessWidget {
                         final direction = entry['direction']?.toString();
                         return direction == null || direction.isEmpty
                             ? sensor
-                            : '$sensor: $direction';
+                            : '$sensor: ${switch (direction) {
+                                'increasing' => 'Rising',
+                                'decreasing' => 'Falling',
+                                'stable' => 'Changed little',
+                                _ => direction,
+                              }}';
                       })
                       .join('\n'),
                 ),
@@ -330,7 +372,7 @@ class _WaterQualityAnomalyDetectionHistorySheet extends StatelessWidget {
               const SizedBox(height: 16),
               _DetailSection(
                 icon: Icons.fact_check_outlined,
-                label: 'Suggested Checks',
+                label: 'What to do',
                 text: item.recommendation,
               ),
             ],

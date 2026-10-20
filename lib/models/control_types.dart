@@ -57,7 +57,8 @@ String feederPreflightIssue({
 }
 
 /// Reports water-quality range violations and sensor availability as warnings.
-/// These warnings never block a feed; feed-level is checked separately.
+/// A turbidity probe in air is shown as unavailable in the sensor display and
+/// is omitted from this warning list. These warnings never block a feed.
 List<String> feederWaterQualityWarnings({
   required Map<String, double> values,
   required Set<String> freshSensors,
@@ -75,7 +76,6 @@ List<String> feederWaterQualityWarnings({
     required double fallbackMax,
   }) {
     if (key == 'turb' && turbidityAir) {
-      warnings.add('Turbidity probe is in air; reading unavailable');
       return;
     }
     if (!freshSensors.contains(key)) {
