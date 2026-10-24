@@ -635,6 +635,66 @@ class SensorService extends ChangeNotifier {
     _dayCachedAt[dateStr] = DateTime.now();
   }
 
+  void mergeHistoryDayEntries(
+    String dateStr,
+    Iterable<Map<String, dynamic>> additions,
+  ) {
+    final merged = <String, Map<String, dynamic>>{};
+    for (final record in _dayCache[dateStr] ?? const []) {
+      final id = record['id']?.toString();
+      if (id != null && id.isNotEmpty) {
+        merged[id] = Map<String, dynamic>.from(record);
+      }
+    }
+    for (final record in additions) {
+      final id = record['id']?.toString();
+      if (id != null && id.isNotEmpty) {
+        merged[id] = Map<String, dynamic>.from(record);
+      }
+    }
+    final records = merged.values.toList()
+      ..sort((a, b) {
+        final aTime = _extractTimestamp(a) ?? DateTime(2000);
+        final bTime = _extractTimestamp(b) ?? DateTime(2000);
+        return aTime.compareTo(bTime);
+      });
+    cacheDay(dateStr, records);
+  }
+
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+  listenForNewHistoryEntries({
+    required String dateKey,
+    required DateTime after,
+    required void Function(List<Map<String, dynamic>> records) onRecords,
+    void Function(Object error, StackTrace stackTrace)? onError,
+  }) {
+    final tankId = _tankId;
+    if (tankId == null || tankId.isEmpty) return null;
+
+    return FirebaseFirestore.instance
+        .collection('tanks')
+        .doc(tankId)
+        .collection('sensor_readings_history')
+        .doc(dateKey)
+        .collection('entries')
+        .where('recorded_at', isGreaterThan: Timestamp.fromDate(after))
+        .orderBy('recorded_at')
+        .snapshots()
+        .listen((snapshot) {
+          final changed = <Map<String, dynamic>>[];
+          for (final change in snapshot.docChanges) {
+            if (change.type == DocumentChangeType.removed) continue;
+            final data = change.doc.data();
+            if (data == null) continue;
+            data['id'] = change.doc.id;
+            changed.add(data);
+          }
+          if (changed.isEmpty) return;
+          mergeHistoryDayEntries(dateKey, changed);
+          onRecords(changed);
+        }, onError: onError);
+  }
+
   void clearHistoryCache() {
     _dayCache.clear();
     _dayCachedAt.clear();

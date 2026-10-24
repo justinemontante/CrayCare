@@ -34,12 +34,146 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   bool _isLoading = false;
   final Set<String> _fetchingRanges = <String>{};
   int _filterRequestId = 0;
-  bool get _isFetching => _fetchingRanges.isNotEmpty;
   Timer? _liveTimer;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _historyTailSub;
+  Timer? _historyTailRolloverTimer;
+  Timer? _historyReloadTimer;
+  String? _historyTailDateKey;
+  int _historyTailGeneration = 0;
   final ValueNotifier<int> _liveRefresh = ValueNotifier<int>(0);
   bool _isTabActive = false;
 
   bool get _showCritical => _activeFilter != 'live' && _activeFilter == '24h';
+
+  bool get _activeRangeIncludesToday {
+    if (_activeFilter == '24h' ||
+        _activeFilter == '7d' ||
+        _activeFilter == '30d') {
+      return true;
+    }
+    if (_activeFilter != 'custom') return false;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    return !_customEndDate.isBefore(today);
+  }
+
+  void _stopHistoryTailListener() {
+    _historyTailGeneration++;
+    _historyTailSub?.cancel();
+    _historyTailSub = null;
+    _historyTailDateKey = null;
+    _historyTailRolloverTimer?.cancel();
+    _historyReloadTimer?.cancel();
+  }
+
+  void _startHistoryTailListener({
+    required String range,
+    required DateTime historyStart,
+    required List<Map<String, dynamic>> records,
+  }) {
+    if (!mounted ||
+        !_isTabActive ||
+        range != _activeFilter ||
+        !_activeRangeIncludesToday) {
+      _stopHistoryTailListener();
+      return;
+    }
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final dateKey =
+        '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+    if (_historyTailSub != null && _historyTailDateKey == dateKey) return;
+
+    _historyTailSub?.cancel();
+    _historyTailRolloverTimer?.cancel();
+    final rangeStartToday = historyStart.isAfter(today) ? historyStart : today;
+    var after = rangeStartToday.subtract(const Duration(microseconds: 1));
+    for (final record in records) {
+      final recordTime = _recordTime(record);
+      if (!recordTime.isBefore(today) && recordTime.isAfter(after)) {
+        after = recordTime;
+      }
+    }
+
+    final generation = ++_historyTailGeneration;
+    _historyTailDateKey = dateKey;
+    _historyTailSub = SensorService.instance.listenForNewHistoryEntries(
+      dateKey: dateKey,
+      after: after,
+      onRecords: (_) {
+        if (!mounted ||
+            !_isTabActive ||
+            _activeFilter != range ||
+            generation != _historyTailGeneration) {
+          return;
+        }
+        _historyReloadTimer?.cancel();
+        _historyReloadTimer = Timer(const Duration(milliseconds: 250), () {
+          unawaited(_refreshHistoryFromCache(range, generation));
+        });
+      },
+      onError: (error, stackTrace) {
+        debugPrint('[Analytics] History listener failed: $error');
+      },
+    );
+
+    if (_historyTailSub == null) {
+      _historyTailDateKey = null;
+      return;
+    }
+    _scheduleHistoryTailRollover(range);
+  }
+
+  Future<void> _refreshHistoryFromCache(String range, int generation) async {
+    if (!mounted ||
+        !_isTabActive ||
+        _activeFilter != range ||
+        generation != _historyTailGeneration) {
+      return;
+    }
+    if (_fetchingRanges.contains(range)) {
+      _historyReloadTimer = Timer(const Duration(milliseconds: 500), () {
+        unawaited(_refreshHistoryFromCache(range, generation));
+      });
+      return;
+    }
+    await _generateData(range);
+    if (mounted &&
+        _isTabActive &&
+        _activeFilter == range &&
+        generation == _historyTailGeneration) {
+      setState(() {});
+    }
+  }
+
+  void _scheduleHistoryTailRollover(String range) {
+    _historyTailRolloverTimer?.cancel();
+    final now = DateTime.now();
+    final nextDay = DateTime(now.year, now.month, now.day + 1);
+    final delay = nextDay.difference(now) + const Duration(milliseconds: 100);
+    _historyTailRolloverTimer = Timer(delay, () {
+      if (!mounted || !_isTabActive || range != _activeFilter) return;
+      if (!_activeRangeIncludesToday) {
+        _stopHistoryTailListener();
+        return;
+      }
+      final today = DateTime.now();
+      _historyTailSub?.cancel();
+      _historyTailSub = null;
+      _historyTailDateKey = null;
+      _startHistoryTailListener(
+        range: range,
+        historyStart: today,
+        records: const [],
+      );
+    });
+  }
+
+  Future<void> _reloadActiveHistory(String range) async {
+    await _generateData(range);
+    if (mounted && _activeFilter == range) setState(() {});
+  }
 
   void _startLiveTimer() {
     _liveTimer?.cancel();
@@ -126,6 +260,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
   @override
   void dispose() {
+    _stopHistoryTailListener();
     _liveTimer?.cancel();
     _liveRefresh.dispose();
     _scrollController.dispose();
@@ -150,29 +285,15 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     _isTabActive = active;
     if (!active) {
       _liveTimer?.cancel();
+      _stopHistoryTailListener();
       return;
     }
     if (_activeFilter == 'live') {
       _generateLive();
       _startLiveTimer();
     } else if (mounted) {
-      setState(() {});
+      unawaited(_reloadActiveHistory(_activeFilter));
     }
-  }
-
-  Future<void> _retryActiveRange() async {
-    final range = _activeFilter;
-    if (range == 'live' || _isFetching) return;
-    final requestId = ++_filterRequestId;
-    setState(() {
-      _isLoading = true;
-      _historyLoadFailed.remove(range);
-    });
-    await _generateData(range, forceHistoryRefresh: true);
-    if (!mounted || requestId != _filterRequestId || _activeFilter != range) {
-      return;
-    }
-    setState(() => _isLoading = false);
   }
 
   static const Map<String, Map<String, String>> _historyFieldMap = {
@@ -184,10 +305,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     'feedlevel': {'avg': 'feed_level'},
   };
 
-  Future<void> _generateData(
-    String range, {
-    bool forceHistoryRefresh = false,
-  }) async {
+  Future<void> _generateData(String range) async {
     if (range == 'live') {
       _generateLive();
       return;
@@ -252,11 +370,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
     List<Map<String, dynamic>> records;
     try {
-      // Reuse cached days when switching filters. A manual refresh clears the
-      // cache first so newly backfilled history can be fetched from Firestore.
-      if (forceHistoryRefresh) {
-        SensorService.instance.clearHistoryCache();
-      }
+      // Reuse cached daily records. The live history listener appends newly
+      // created entries to today's cache without refetching the full range.
       final fetch = SensorService.instance.fetchHistoryRange(
         start: historyStart,
         end: historyEnd,
@@ -283,6 +398,11 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
     if (records.isEmpty || pts == 0) {
       _clearRange(range);
+      _startHistoryTailListener(
+        range: range,
+        historyStart: historyStart,
+        records: const [],
+      );
       return;
     }
 
@@ -295,6 +415,11 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
     if (records.isEmpty) {
       _clearRange(range);
+      _startHistoryTailListener(
+        range: range,
+        historyStart: historyStart,
+        records: const [],
+      );
       return;
     }
 
@@ -327,6 +452,11 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
         _minData['$key-$range'] = List<double>.from(values);
         _maxData['$key-$range'] = List<double>.from(values);
       }
+      _startHistoryTailListener(
+        range: range,
+        historyStart: historyStart,
+        records: records,
+      );
       return;
     }
 
@@ -453,7 +583,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
             continue;
           }
 
-          final avgRaw = records[j][fields['avg']!] ??
+          final avgRaw =
+              records[j][fields['avg']!] ??
               (fields['legacyAvg'] == null
                   ? null
                   : records[j][fields['legacyAvg']!]);
@@ -475,6 +606,11 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       _minData['$key-$range'] = List<double>.from(averages);
       _maxData['$key-$range'] = List<double>.from(averages);
     }
+    _startHistoryTailListener(
+      range: range,
+      historyStart: historyStart,
+      records: records,
+    );
   }
 
   void _clearRange(String range) {
@@ -563,6 +699,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                           showCustom: _showCustom,
                           onFilterChanged: (val) async {
                             final requestId = ++_filterRequestId;
+                            _stopHistoryTailListener();
                             setState(() {
                               _activeFilter = val;
                               _showCustom = false;
@@ -587,22 +724,6 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                           },
                         ),
                       ),
-                      if (_activeFilter != 'live' && !_showCustom) ...[
-                        const SizedBox(width: 4),
-                        SizedBox(
-                          width: 36,
-                          height: 42,
-                          child: IconButton(
-                            tooltip: 'Refresh history',
-                            onPressed: _isLoading || _isFetching
-                                ? null
-                                : _retryActiveRange,
-                            icon: const Icon(Icons.refresh_rounded, size: 18),
-                            color: AppColors.primary,
-                            padding: EdgeInsets.zero,
-                          ),
-                        ),
-                      ],
                     ],
                   ),
                 ),
@@ -674,29 +795,11 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                         children: [
                           const Expanded(
                             child: Text(
-                              'Could not refresh history. Check your connection and try again.',
+                              'Could not load history. Check your connection, then reopen this filter.',
                               style: TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.w600,
                                 color: AppColors.dark,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          TextButton(
-                            onPressed: _retryActiveRange,
-                            style: TextButton.styleFrom(
-                              foregroundColor: AppColors.primary,
-                              minimumSize: const Size(0, 34),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                              ),
-                            ),
-                            child: const Text(
-                              'Try Again',
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w800,
                               ),
                             ),
                           ),
@@ -1008,6 +1111,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
               onTapCancel: () => setState(() => _isApplyPressed = false),
               onTap: () async {
                 final requestId = ++_filterRequestId;
+                _stopHistoryTailListener();
                 setState(() {
                   _activeFilter = 'custom';
                   _showCustom = false;
