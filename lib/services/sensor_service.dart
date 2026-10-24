@@ -854,6 +854,7 @@ class SensorService extends ChangeNotifier {
   Future<List<Map<String, dynamic>>> fetchHistoryRange({
     required DateTime start,
     required DateTime end,
+    bool useDailySummaries = true,
   }) async {
     var tankId = _tankId;
     if (tankId == null) {
@@ -880,7 +881,7 @@ class SensorService extends ChangeNotifier {
 
     // 30-day and long custom ranges can use one parent-document summary query
     // instead of dozens/hundreds of 10-minute entry subcollection reads.
-    if (dayCount >= 14) {
+    if (useDailySummaries && dayCount >= 14) {
       final summaryBacked = await _fetchDailySummaryBackedRange(
         tankId: tankId,
         start: start,

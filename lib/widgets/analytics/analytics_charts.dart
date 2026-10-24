@@ -501,8 +501,7 @@ class _LineChartPainter extends CustomPainter {
 
     final dotPaint = Paint()..color = color;
     final dotBorder = Paint()..color = Colors.white;
-    final dotStep = max(1, data.length ~/ 120);
-    for (int i = 0; i < data.length; i += dotStep) {
+    for (int i = 0; i < data.length; i++) {
       if (data[i].isNaN) continue;
       final x = padL + i * stepX - scrollOffset;
       if (x < visibleLeft - 5 || x > visibleRight + 5) continue;

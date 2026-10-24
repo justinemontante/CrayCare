@@ -35,32 +35,11 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   final Set<String> _fetchingRanges = <String>{};
   int _filterRequestId = 0;
   bool get _isFetching => _fetchingRanges.isNotEmpty;
-  final Map<String, DateTime> _lastFetchedAt = {}; // range → when last fetched
-  static const _historyRefreshInterval = Duration(minutes: 10);
-  Timer? _autoRefreshTimer;
   Timer? _liveTimer;
   final ValueNotifier<int> _liveRefresh = ValueNotifier<int>(0);
   bool _isTabActive = false;
 
   bool get _showCritical => _activeFilter != 'live' && _activeFilter == '24h';
-
-  // Historical ranges (24h/7d/30d always, custom only if its end date is
-  // today or later) include today's still-being-written subcollection.
-  // Only those ranges benefit from auto-refreshing.
-  bool get _activeRangeIncludesToday {
-    if (_activeFilter == 'live') return false;
-    final now = DateTime.now();
-    switch (_activeFilter) {
-      case '24h':
-      case '7d':
-      case '30d':
-        return true;
-      case 'custom':
-        return !_customEndDate.isBefore(DateTime(now.year, now.month, now.day));
-      default:
-        return false;
-    }
-  }
 
   void _startLiveTimer() {
     _liveTimer?.cancel();
@@ -123,21 +102,6 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     if (mounted) setState(() {});
   }
 
-  Future<void> _maybeAutoRefreshHistory() async {
-    if (!mounted) return;
-    if (!_isTabActive) return;
-    if (!_activeRangeIncludesToday) return;
-    if (_isFetching) return; // another fetch is already in flight
-    // Skip if we fetched this range recently (ESP writes every 10 min)
-    final lastFetch = _lastFetchedAt[_activeFilter];
-    if (lastFetch != null &&
-        DateTime.now().difference(lastFetch) < _historyRefreshInterval) {
-      return;
-    }
-    await _generateData(_activeFilter);
-    if (mounted) setState(() {});
-  }
-
   void _onChartSelectionChanged(String chartKey, int? index) {
     setState(() => _selectedIndices[chartKey] = index);
   }
@@ -158,17 +122,10 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     _startLiveTimer();
     SettingsService.instance.addListener(_onSettingsChanged);
     SensorService.instance.addListener(_onSensorChanged);
-    // Auto-refresh every 10 min — matches the ESP32 history write cadence.
-    // Refreshing more often just reads docs that haven't changed yet.
-    _autoRefreshTimer = Timer.periodic(
-      _historyRefreshInterval,
-      (_) => _maybeAutoRefreshHistory(),
-    );
   }
 
   @override
   void dispose() {
-    _autoRefreshTimer?.cancel();
     _liveTimer?.cancel();
     _liveRefresh.dispose();
     _scrollController.dispose();
@@ -211,7 +168,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       _isLoading = true;
       _historyLoadFailed.remove(range);
     });
-    await _generateData(range);
+    await _generateData(range, forceHistoryRefresh: true);
     if (!mounted || requestId != _filterRequestId || _activeFilter != range) {
       return;
     }
@@ -227,7 +184,10 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     'feedlevel': {'avg': 'feed_level'},
   };
 
-  Future<void> _generateData(String range) async {
+  Future<void> _generateData(
+    String range, {
+    bool forceHistoryRefresh = false,
+  }) async {
     if (range == 'live') {
       _generateLive();
       return;
@@ -292,13 +252,15 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
     List<Map<String, dynamic>> records;
     try {
-      // History can be backfilled after the ESP reconnects. Refresh the cache
-      // before an explicit Analytics read so an older cached day cannot hide
-      // newly uploaded entries for up to 12 hours.
-      SensorService.instance.clearHistoryCache();
+      // Reuse cached days when switching filters. A manual refresh clears the
+      // cache first so newly backfilled history can be fetched from Firestore.
+      if (forceHistoryRefresh) {
+        SensorService.instance.clearHistoryCache();
+      }
       final fetch = SensorService.instance.fetchHistoryRange(
         start: historyStart,
         end: historyEnd,
+        useDailySummaries: range != '7d' && range != '30d' && range != 'custom',
       );
       if (range == 'custom') {
         // Large custom ranges can legitimately span hundreds of daily
@@ -311,7 +273,6 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
             : const Duration(seconds: 30);
         records = await fetch.timeout(timeout);
       }
-      _lastFetchedAt[range] = DateTime.now();
     } catch (e) {
       _historyLoadFailed.add(range);
       debugPrint('[Analytics] Failed to load $range history: $e');
@@ -334,6 +295,38 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
     if (records.isEmpty) {
       _clearRange(range);
+      return;
+    }
+
+    // The 7-day, 30-day, and custom views plot every saved history entry
+    // directly instead of combining readings into hourly/daily averages.
+    // The chart can be horizontally scrolled to inspect each record.
+    if (range == '7d' || range == '30d' || range == 'custom') {
+      _labels[range] = records.map((record) {
+        final time = _recordTime(record);
+        final hour = time.hour > 12
+            ? time.hour - 12
+            : (time.hour == 0 ? 12 : time.hour);
+        final ampm = time.hour >= 12 ? 'PM' : 'AM';
+        final minute = time.minute.toString().padLeft(2, '0');
+        return '${time.month}/${time.day} $hour:$minute $ampm';
+      }).toList();
+
+      for (final key in SensorService.sensorKeys) {
+        final fields = _historyFieldMap[key];
+        if (fields == null) continue;
+        final values = records.map((record) {
+          final raw =
+              record[fields['avg']!] ??
+              (fields['legacyAvg'] == null
+                  ? null
+                  : record[fields['legacyAvg']!]);
+          return _historyValue(key, raw) ?? double.nan;
+        }).toList();
+        _data['$key-$range'] = values;
+        _minData['$key-$range'] = List<double>.from(values);
+        _maxData['$key-$range'] = List<double>.from(values);
+      }
       return;
     }
 
@@ -562,33 +555,55 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                 _buildHeader(),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 12, 12, 5),
-                  child: FilterSelector(
-                    activeFilter: _activeFilter,
-                    showCustom: _showCustom,
-                    onFilterChanged: (val) async {
-                      final requestId = ++_filterRequestId;
-                      setState(() {
-                        _activeFilter = val;
-                        _showCustom = false;
-                        _selectedIndices.clear();
-                        _isLoading = val != 'live';
-                      });
-                      if (val == 'live') {
-                        _startLiveTimer();
-                        _generateLive();
-                      } else {
-                        _liveTimer?.cancel();
-                        await _generateData(val);
-                      }
-                      if (mounted &&
-                          requestId == _filterRequestId &&
-                          _activeFilter == val) {
-                        setState(() => _isLoading = false);
-                      }
-                    },
-                    onToggleCustom: () {
-                      setState(() => _showCustom = !_showCustom);
-                    },
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: FilterSelector(
+                          activeFilter: _activeFilter,
+                          showCustom: _showCustom,
+                          onFilterChanged: (val) async {
+                            final requestId = ++_filterRequestId;
+                            setState(() {
+                              _activeFilter = val;
+                              _showCustom = false;
+                              _selectedIndices.clear();
+                              _isLoading = val != 'live';
+                            });
+                            if (val == 'live') {
+                              _startLiveTimer();
+                              _generateLive();
+                            } else {
+                              _liveTimer?.cancel();
+                              await _generateData(val);
+                            }
+                            if (mounted &&
+                                requestId == _filterRequestId &&
+                                _activeFilter == val) {
+                              setState(() => _isLoading = false);
+                            }
+                          },
+                          onToggleCustom: () {
+                            setState(() => _showCustom = !_showCustom);
+                          },
+                        ),
+                      ),
+                      if (_activeFilter != 'live' && !_showCustom) ...[
+                        const SizedBox(width: 4),
+                        SizedBox(
+                          width: 36,
+                          height: 42,
+                          child: IconButton(
+                            tooltip: 'Refresh history',
+                            onPressed: _isLoading || _isFetching
+                                ? null
+                                : _retryActiveRange,
+                            icon: const Icon(Icons.refresh_rounded, size: 18),
+                            color: AppColors.primary,
+                            padding: EdgeInsets.zero,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
                 AnimatedSize(
@@ -995,6 +1010,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                 final requestId = ++_filterRequestId;
                 setState(() {
                   _activeFilter = 'custom';
+                  _showCustom = false;
                   _selectedIndices.clear();
                   _isLoading = true;
                 });
