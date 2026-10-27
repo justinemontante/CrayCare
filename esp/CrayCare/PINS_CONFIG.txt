@@ -1,7 +1,7 @@
 
 ============================================
   CRAYCARE ESP32 ALL-IN-ONE — PINOUT
-  Last Updated: 2026-10-04
+  Last Updated: 2026-10-17
 ============================================
 
 RELAYS (Active LOW = LOW turns ON)
@@ -47,16 +47,16 @@ OTHER PERIPHERALS
 ├────────┼───────┼──────────────────────┼──────────────────────────┤
 │   21   │ SDA   │ LCD I2C              │ 16x2 LCD, addr 0x27      │
 │   22   │ SCL   │ LCD I2C              │ VCC 5V + contrast trim  │
-│   12   │       │ Onsite feed button   │ To GND, INPUT_PULLUP     │
+│   13   │       │ Onsite feed button   │ To GND, INPUT_PULLUP     │
 │    2   │       │ Blower button        │ To GND, INPUT_PULLUP     │
-│   13   │       │ Gate servo SG92R     │ PWM, current wiring      │
+│    5   │       │ Gate servo SG92R     │ PWM, firmware pin        │
 │   18   │       │ SD card SCK (VSPI)   │ Keep SPI wires < 20 cm   │
 │   19   │       │ SD card MOSO (VSPI)  │ Keep SPI wires < 20 cm   │
 │   23   │       │ SD card MOSI (VSPI)  │ Keep SPI wires < 20 cm   │
 │   15   │       │ SD card CS (future)  │ Idles HIGH (pull-up)     │
 └────────┴───────┴──────────────────────┴──────────────────────────┘
 
-FEEDER GATE — SG92R SERVO (latest reported signal GPIO13)
+FEEDER GATE — SG92R SERVO (firmware signal GPIO5)
   - 1 g-only model: 1 open/close actuation = 1 g, always. Feed grams from
     the app decide the count: 5 g = exactly 5 actuations.
   - Motion per actuation: 0 -> GATE_OPEN_ANGLE (default 90) -> hold
@@ -67,8 +67,9 @@ FEEDER GATE — SG92R SERVO (latest reported signal GPIO13)
     Adjust GATE_ANGLE / GATE_MS until 10 actuations land near 10 g.
     Test a single swing with GATE_TEST.
   - Parks at 0 on boot and after FEEDER_DONE. Never actuates at boot.
-  - Wiring/code mismatch to resolve: firmware still sets GATE_SERVO_PIN to
-    GPIO5; latest reported physical wiring uses GPIO13.
+  - Firmware and documented wiring use GPIO5. GPIO13 is reserved for the
+    onsite feed button. GPIO12 is avoided because it is a boot-strapping pin
+    and previously produced false button events during pump switching.
   - Power from separate 5V supply with common GND + ~470 uF cap on
     the servo rail. Never power servos from the ESP 5V pin.
 
@@ -244,9 +245,11 @@ if no ACK at 0x27 — if your backpack is 0x3F, change LCD_ADDR in main.cpp.
   PHYSICAL BUTTONS (to GND, INPUT_PULLUP)
 ============================================
 
-  GPIO12 = ONSITE FEED. Each tap = +1 g (ISR counted, 50 ms debounce);
+  GPIO13 = ONSITE FEED. Each tap = +1 g (ISR counted, 50 ms debounce);
   taps batch in a 1.5 s settle window, then one feed runs (3 taps = 3 g,
-  single 5 s blower pre-run). Taps ignored while a feed runs. Cap 200 g.
+  single 5 s blower pre-run). Input is ignored for 15 s after startup and
+  3 s after each actual water-pump state change; ignored taps create no feed
+  attempt/log. Taps are also ignored while a feed runs. Cap 200 g.
   Shared feed-level interlock + blower + gate swings. Water parameters
   (temperature, DO, pH, turbidity) are warnings only; out-of-range or
   unavailable readings do not block feeding. Invalid or critically low
@@ -279,7 +282,7 @@ RELAYS
   n4on / n4off         Blower ON/OFF           (GPIO 16)
   relay status         Show relay states
 
-FEEDER (SG92R gate, latest reported signal GPIO13, 1 g per actuation)
+FEEDER (SG92R gate, signal GPIO5, 1 g per actuation)
   FEED                  Request one manual feed (1-200 whole g, default 1 g)
   GATE_TEST             One gate actuation 0 -> angle -> 0
   GATECAL               10 actuations for weighing (expect ~10 g)

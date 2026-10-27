@@ -103,7 +103,7 @@ FEEDER (SG90 gate on GPIO5 — the only servo, 1 g-only model)
     tank/clock, feeder state, and schedule collision).
 
   GATE_TEST  (alias: gate test)
-    One gate actuation 0 -> open angle -> 0. Refused while a feed runs.
+    One gate actuation close angle -> open angle -> close angle. Refused while a feed runs.
 
   GATECAL  (alias: gatecal)
     Runs 10 actuations for weighing — expect ~10 g total. If off, adjust
@@ -111,6 +111,13 @@ FEEDER (SG90 gate on GPIO5 — the only servo, 1 g-only model)
 
   GATE_ANGLE <10-180>  (alias: gate_angle)
     Gate open angle in degrees, saved to NVS (default 90).
+
+  GATE_CLOSE_ANGLE <0-180>  (alias: gate_close_angle)
+    Set and save the closed/rest angle, then move the servo there immediately.
+    Must differ from the open angle by at least 10 degrees. No close angle is
+    assumed safe until you set/save it (the initial numeric target is 0).
+    Required before GATE_TEST, GATECAL, scheduled, onsite, or app feeding is enabled.
+    This prevents a guessed/default angle from opening the gate at boot or feed-close.
 
   GATE_MS <100-5000>  (alias: gate_ms)
     Gate hold time in ms, saved to NVS (default 800).
@@ -125,8 +132,10 @@ BLOWER (GPIO16 relay, active-LOW)
     DONE — unless it was manually started.
 
 PHYSICAL BUTTONS (to GND, INPUT_PULLUP)
-  GPIO12 onsite feed: each tap = +1 g (ISR, 50 ms debounce); taps batch in
-    a 1.5 s settle window, then one feed runs with the shared feed-level
+  GPIO13 onsite feed: each tap = +1 g (ISR, 50 ms debounce); 15 s startup
+    lockout and 3 s lockout after each pump state change; ignored taps create
+    no feed attempt/log. Other taps batch in a 1.5 s settle window, then one
+    feed runs with the shared feed-level
     interlock + blower pre-run. Temperature, DO, pH, and turbidity are
     warnings only; out-of-range or unavailable readings do not block feeding.
     Critical/invalid feed level still blocks. Ignored while a feed runs.
@@ -204,7 +213,8 @@ SENSOR CALIBRATION
   phcal9 [VALUE]
     Use either the CALMODE stable=YES or normal raw-mode pHcal=STABLE window.
     Place the probe in pH 9.18 buffer, then type `phcal9 9.18`. Saves the
-    stable-window average of `FIT_V` and selects pH 4.01 / 9.18.
+    stable-window average of `FIT_V`. It auto-fits using the currently selected
+    pair; by default, saving this point selects 4.01 / 9.18.
 
     Optional override: `phcal9 9.18 force` (or `phcal9 force` for 9.18) saves
     the latest averaged voltage without the stability check.
@@ -212,7 +222,8 @@ SENSOR CALIBRATION
   phcal686
     Use either the CALMODE stable=YES or normal raw-mode pHcal=STABLE window.
     Place the probe in pH 6.86 buffer, then type this command. Saves a
-    separate stable-window average of `FIT_V` and selects pH 4.01 / 6.86.
+    separate stable-window average of `FIT_V`. It auto-fits using the currently
+    selected pair; by default, saving this point selects 4.01 / 6.86.
 
     Optional override: `phcal686 force` saves the latest averaged voltage
     without the stability check.
@@ -226,20 +237,28 @@ SENSOR CALIBRATION
     taken in buffer solution may be sent to the app/cloud. Use CALMODE ON to
     pause cloud traffic during calibration.
 
-  phpair 9.18 | phpair 6.86
-    Select which saved second point is paired with pH 4.01. Switching selects
-    only; it does not overwrite either saved point. It attempts to apply the
-    fit and reports if a required point is missing.
+  phpair 9.18 | phpair 6.86 | phpair 6.86-9.18
+    Select one of the saved two-point pairs: 4.01+9.18, 4.01+6.86, or
+    6.86+9.18. This activates 2-point mode and applies it; saved point
+    voltages are not overwritten.
+
+  phmode 2 | phmode 3
+    Activate and save either a two-point or three-point pH fit in NVS.
+    Mode 2 uses the currently selected `phpair`. Mode 3 uses all three saved
+    points (4.01, 6.86, and 9.18) with a straight-line least-squares fit; all
+    points must be valid, ordered, and monotonic, with a voltage span greater
+    than 50mV. If validation fails, the previous active fit is retained.
+    The selected mode is restored at boot. Use `CALSHOW` to see mode and fit.
 
   phfit
-    Fit only pH 4.01 and the selected pH 9.18 or 6.86 point, then store
-    slope/intercept in NVS. It accepts distinct endpoints separated by
-    at least 1 mV; below 50 mV it still saves but prints a noise-sensitivity
-    warning. Verify both buffers before relying on tank readings.
+    Reapply the currently selected fit mode from saved points. Mode 2 fits the
+    selected pair and accepts points separated by at least 1mV (below 50mV it
+    warns about noise sensitivity). Mode 3 uses all three saved points and
+    requires a monotonic voltage span greater than 50mV.
 
   phrefit
-    Backward-compatible alias for phfit; recomputes the selected two-point pH
-    calibration from saved NVS points.
+    Backward-compatible alias for phfit; recomputes the currently selected
+    two-point or three-point pH calibration from saved NVS points.
 
   phoffset [value]
     Correction magnitude defaults to +1.50 pH but is OFF unless activated.

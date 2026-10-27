@@ -271,10 +271,16 @@ static inline String feederLogRoot() { return sdMounted ? "/craycare/feedlogs" :
 static inline String feederLogPath(const String& name) {
   return feederLogRoot() + "/" + name;
 }
+static inline bool removeFeederLogIfPresent(fs::FS& fileSystem,
+                                            const String& path) {
+  return !fileSystem.exists(path) || fileSystem.remove(path);
+}
 static bool ensureFeederLogDirectory() {
   fs::FS& fs = feederLogFS();
   const String root = feederLogRoot();
-  return fs.exists(root) || fs.mkdir(root);
+  if (sdMounted && !fs.exists("/craycare") && !fs.mkdir("/craycare")) return false;
+  if (!fs.exists(root) && !fs.mkdir(root)) return false;
+  return fs.exists(root);
 }
 
 void initOfflineBuffer() {
@@ -320,6 +326,12 @@ void initSDCard() {
   }
   SD.mkdir("/craycare");
   sdMounted = true;
+  if (!ensureFeederLogDirectory()) {
+    feederLogsReady = false;
+    Serial.println("[FEEDER LOG] Could not create /craycare/feedlogs on SD; local log retry paused");
+  } else {
+    feederLogsReady = true;
+  }
   Serial.println("[BUF] SD card mounted — migrating LittleFS backlog and feeder intents");
   migrateFeederLogsToSD();
   migrateLittleFSToSD();
@@ -607,6 +619,7 @@ unsigned long lastPhPollTime = 0;
 unsigned long lastWifiReconnectTime = 0;
 bool ntpEverSynced = false;            // set once time() passes the epoch gate
 unsigned long lastNtpSyncMs = 0;
+time_t feederBootEpoch = 0;            // wall-clock time first established this boot
 #define NTP_RESYNC_INTERVAL_MS 86400000UL  // daily refresh + post-outage recovery
 
 // Feeder state
@@ -768,17 +781,21 @@ unsigned long lastActuatorSyncMs = 0;
 // feed grams from the app decide the actuation count (5 g = 5 actuations).
 // (GPIO5 has an internal pull-up through reset, and a servo signal line
 // never pulls it low, so boot strapping is safe. GPIO25 door servo and
-// GPIO13 scatter output are both retired.)
+// the old GPIO13 scatter output are retired.)
 #define GATE_SERVO_PIN 5
 #define GATE_MAX_ANGLE 180
 #define GATE_PULSE_MIN_US 500
 #define GATE_PULSE_MAX_US 2500
 #define GATE_OPEN_ANGLE_DFLT 90    // starting point — tune on bench, store via GATE_ANGLE
+#define GATE_CLOSE_ANGLE_DFLT 0    // starting point — tune on bench, store via GATE_CLOSE_ANGLE
 #define GATE_HOLD_MS_DFLT 800      // starting point — tune on bench, store via GATE_MS
 #define GATE_CLOSE_DWELL_MS 300    // let the servo shut between grams (mirrors GATECAL)
 int gateOpenAngle = GATE_OPEN_ANGLE_DFLT;  // NVS "gateAngle"
+int gateCloseAngle = GATE_CLOSE_ANGLE_DFLT; // NVS "gateClose"
+bool gateCloseAngleConfigured = false;     // require explicit calibration before actuating
 int gateHoldMs = GATE_HOLD_MS_DFLT;        // NVS "gateHold"
 int gateAngleNow = 0;
+bool gateServoAttached = false;
 
 int _servoPulseToDuty(int pulseUs) {
   pulseUs = constrain(pulseUs, 500, 2600);
@@ -787,6 +804,10 @@ int _servoPulseToDuty(int pulseUs) {
 
 void setGateAngle(int angle) {
   angle = constrain(angle, 0, GATE_MAX_ANGLE);
+  if (!gateServoAttached) {
+    ledcAttachPin(GATE_SERVO_PIN, SERVO_LEDC_CHANNEL);
+    gateServoAttached = true;
+  }
   int pulseUs = map(angle, 0, GATE_MAX_ANGLE,
                     GATE_PULSE_MIN_US, GATE_PULSE_MAX_US);
   ledcWrite(SERVO_LEDC_CHANNEL, _servoPulseToDuty(pulseUs));
@@ -800,15 +821,44 @@ void setGateAngle(int angle) {
 // mount helper can use them.)
 
 // Onsite manual dispense button (to GND, INPUT_PULLUP, ISR taps).
-// GPIO16 went back to the blower relay; GPIO12 is boot-safe for buttons.
-#define ONSITE_BUTTON_PIN 12
+// Use GPIO13 for the onsite feed button; GPIO12 is an ESP32 strapping pin.
+// Pump transitions can create false edges, so the ISR also has timed lockouts.
+#define ONSITE_BUTTON_PIN 13
 #define ONSITE_BUTTON_DEBOUNCE_US 50000UL
 #define ONSITE_BUTTON_BATCH_MS 1500UL
 #define ONSITE_BUTTON_MAX_TAPS 200
+#define ONSITE_BOOT_LOCKOUT_US 15000000UL
+#define ONSITE_PUMP_LOCKOUT_US 3000000UL
 volatile uint16_t onsiteButtonTapCount = 0;
 volatile uint32_t onsiteButtonLastTapUs = 0;
+volatile uint32_t onsiteButtonLockoutStartedUs = 0;
+volatile uint32_t onsiteButtonLockoutDurationUs = 0;
+volatile bool onsiteButtonLockoutActive = false;
 volatile bool onsiteButtonEnabled = false;
 portMUX_TYPE onsiteButtonMux = portMUX_INITIALIZER_UNLOCKED;
+
+bool isOnsiteButtonLockedOut() {
+  const uint32_t nowUs = micros();
+  portENTER_CRITICAL(&onsiteButtonMux);
+  if (onsiteButtonLockoutActive &&
+      (uint32_t)(nowUs - onsiteButtonLockoutStartedUs) >=
+          onsiteButtonLockoutDurationUs) {
+    onsiteButtonLockoutActive = false;
+  }
+  const bool lockedOut = onsiteButtonLockoutActive;
+  portEXIT_CRITICAL(&onsiteButtonMux);
+  return lockedOut;
+}
+
+void beginOnsiteButtonLockout(uint32_t durationUs) {
+  portENTER_CRITICAL(&onsiteButtonMux);
+  onsiteButtonTapCount = 0;
+  onsiteButtonLastTapUs = micros();
+  onsiteButtonLockoutStartedUs = onsiteButtonLastTapUs;
+  onsiteButtonLockoutDurationUs = durationUs;
+  onsiteButtonLockoutActive = true;
+  portEXIT_CRITICAL(&onsiteButtonMux);
+}
 String lcdTransientLine0;
 String lcdTransientLine1;
 unsigned long lcdTransientUntilMs = 0;
@@ -877,7 +927,8 @@ float phVoltageIntercept = 21.34;
 // Stored magnitude defaults to +1.50 pH, but it is disabled until activated.
 float phReadingOffset = 1.50f;
 bool phReadingOffsetEnabled = false;
-int phFitPointCount = 2;  // NVS "phFitN"; 3 means provisional three-buffer regression
+int phFitPointCount = 2;  // NVS "phFitN"; number of points in the active fit
+int phFitMode = 2;        // NVS "phFitMode"; selected algorithm: 2-point or 3-point
 // HC-SR04 mounting calibration (centimetres). The sensor is mounted above
 // the tank bottom; depth = sensorHeight - measured air gap.
 float waterSensorHeightCm = 65.0;
@@ -1110,6 +1161,7 @@ bool saveSensorCalibrations() {
   saved &= prefs.putFloat("phOffset", phReadingOffset) == sizeof(float);
   saved &= prefs.putBool("phOffOn", phReadingOffsetEnabled);
   saved &= prefs.putInt("phFitN", phFitPointCount) == sizeof(int32_t);
+  saved &= prefs.putInt("phFitMode", phFitMode) == sizeof(int32_t);
   saved &= prefs.putFloat("doScale", doVoltageScale) == sizeof(float);
   saved &= prefs.putFloat("doOffset", doVoltageOffset) == sizeof(float);
   saved &= prefs.putFloat("tankHeight", waterSensorHeightCm) == sizeof(float);
@@ -1123,6 +1175,8 @@ bool saveSensorCalibrations() {
   saved &= prefs.putFloat("hopFull", hopperFullCm) == sizeof(float);
   saved &= prefs.putInt("feedMode", feedLevelMode) == sizeof(int32_t);
   saved &= prefs.putInt("gateAngle", gateOpenAngle) == sizeof(int32_t);
+  if (gateCloseAngleConfigured)
+    saved &= prefs.putInt("gateClose", gateCloseAngle) == sizeof(int32_t);
   saved &= prefs.putInt("gateHold", gateHoldMs) == sizeof(int32_t);
   prefs.end();
   return saved;
@@ -1143,6 +1197,8 @@ void loadSensorCalibrations() {
   phReadingOffsetEnabled = prefs.getBool("phOffOn", false);
   phFitPointCount = prefs.getInt("phFitN", 2);
   if (phFitPointCount != 3) phFitPointCount = 2;
+  phFitMode = prefs.getInt("phFitMode", 2);
+  if (phFitMode != 3) phFitMode = 2;
   doVoltageScale = prefs.getFloat("doScale", doVoltageScale);
   doVoltageOffset = prefs.getFloat("doOffset", doVoltageOffset);
   waterSensorHeightCm = prefs.getFloat("tankHeight", waterSensorHeightCm);
@@ -1157,6 +1213,12 @@ void loadSensorCalibrations() {
   feedLevelMode = prefs.getInt("feedMode", feedLevelMode);
   if (feedLevelMode != 0) feedLevelMode = 1;
   gateOpenAngle = constrain(prefs.getInt("gateAngle", gateOpenAngle), 10, GATE_MAX_ANGLE);
+  gateCloseAngleConfigured = prefs.isKey("gateClose");
+  gateCloseAngle = constrain(prefs.getInt("gateClose", gateCloseAngle), 0, GATE_MAX_ANGLE);
+  if (abs(gateOpenAngle - gateCloseAngle) < 10) {
+    gateCloseAngle = GATE_CLOSE_ANGLE_DFLT;
+    gateCloseAngleConfigured = false;
+  }
   gateHoldMs = constrain(prefs.getInt("gateHold", gateHoldMs), 100, 5000);
   prefs.end();
 }
@@ -2422,9 +2484,10 @@ void printCalibrationHelp() {
   Serial.println("phcal4 [force]          Save pH 4.01; force skips stability check");
   Serial.println("phcal9 9.18 [force]     Save pH 9.18; force skips stability check");
   Serial.println("phcal686 [force]        Save pH 6.86; force skips stability check");
-  Serial.println("phpair 9.18|6.86        Select second point paired with pH 4.01");
-  Serial.println("phfit                   Apply selected 2-point pH fit");
-  Serial.println("phrefit                 Alias for phfit / refit selected pair");
+  Serial.println("phmode 2|3              Select and apply 2-point or 3-point pH fit");
+  Serial.println("phpair 9.18|6.86|6.86-9.18  Select a pair (also selects 2-point mode)");
+  Serial.println("phfit                   Apply the selected pH fit mode");
+  Serial.println("phrefit                 Alias for phfit / refit selected mode");
   Serial.println("phoffset                 Show correction status/magnitude");
   Serial.println("phoffset on|off          Activate/deactivate stored correction (default +1.50)");
   Serial.println("phoffset <value>         Set and activate correction (-3.00..3.00)");
@@ -2501,6 +2564,7 @@ bool isPHCalibrationCommand(const String& cmd) {
       lower == "phcal686 force" || lower == "phcal9" ||
       lower.startsWith("phcal9 ") || lower == "phfit" ||
       lower == "phrefit" || lower == "phpair" || lower.startsWith("phpair ") ||
+      lower == "phmode" || lower.startsWith("phmode ") ||
       lower == "phoffset" || lower.startsWith("phoffset ");
 }
 
@@ -2535,9 +2599,10 @@ void printSavedSensorCalibrations() {
   const int pair = prefs.getInt("phPair", 9);
   prefs.end();
   const char* pairName = pair == 9 ? "4.01+9.18" :
-      pair == 686 ? "4.01+6.86" : "legacy/unknown";
-  Serial.printf("[CAL NVM] pH4=%.4fV (ref %.2f), pH6.86=%.4fV, pH9.18=%.4fV (ref %.2f), selected=%s, fit=%d-point, slope=%.5f intercept=%.5f outputOffset=%s%+.2f\n",
-                v4, ref4, v686, v9, ref9, pairName, phFitPointCount,
+      pair == 686 ? "4.01+6.86" :
+      pair == 6869 ? "6.86+9.18" : "legacy/unknown";
+  Serial.printf("[CAL NVM] pH4=%.4fV (ref %.2f), pH6.86=%.4fV, pH9.18=%.4fV (ref %.2f), selectedPair=%s, mode=%d-point, activeFit=%d-point, slope=%.5f intercept=%.5f outputOffset=%s%+.2f\n",
+                v4, ref4, v686, v9, ref9, pairName, phFitMode, phFitPointCount,
                 phVoltageSlope, phVoltageIntercept,
                 phReadingOffsetEnabled ? "ON " : "OFF ", phReadingOffset);
   Serial.printf("[CAL NVM] DO scale=%.5f offset=%.5f | Turb clear=%.4f dirty=%.4f air=%.4f V mapping=%s\n",
@@ -2546,7 +2611,7 @@ void printSavedSensorCalibrations() {
                 turbidityCalibrationValid() ? "VALID" : "INVALID/INCOMPLETE");
 }
 
-bool applySavedPHFit() {
+bool applySavedPHFit(int requestedFitMode = -1) {
   if (!prefs.begin("sensorcal", true)) {
     Serial.println("[CAL NVM] Cannot read saved pH points.");
     return false;
@@ -2563,108 +2628,117 @@ bool applySavedPHFit() {
   const float v9 = prefs.getFloat("phV9", -1.0f);
   const float ref9 = prefs.getFloat("phV9Ref", 9.18f);
   const int pair = prefs.getInt("phPair", 9);
+  const int savedFitMode = prefs.getInt("phFitMode", 2);
   prefs.end();
+
+  const int fitMode = requestedFitMode == 2 || requestedFitMode == 3 ?
+      requestedFitMode : (savedFitMode == 3 ? 3 : 2);
 
   float nextSlope = 0.0f;
   float nextIntercept = 0.0f;
-  int nextFitPointCount = 2;
+  int nextFitPointCount = fitMode;
   float appliedSpan = 0.0f;
   bool endpointTwoPointFit = false;
-  const bool have3 = v4 > 0.05f && v4 <= 3.25f &&
-      v7 > 0.05f && v7 <= 3.25f && v9 > 0.05f && v9 <= 3.25f &&
-      isfinite(ref4) && isfinite(ref7) && isfinite(ref9);
-  const bool haveEndpoints = v4 > 0.05f && v4 <= 3.25f &&
-      isfinite(ref4);
-  const float totalSpan = max(v4, max(v7, v9)) - min(v4, min(v7, v9));
+  float fitV1 = 0.0f, fitPH1 = 0.0f, fitV2 = 0.0f, fitPH2 = 0.0f;
+  const bool haveThreePoints = v4 > 0.05f && v4 <= 3.25f &&
+      v686 > 0.05f && v686 <= 3.25f && v9 > 0.05f && v9 <= 3.25f &&
+      isfinite(ref4) && isfinite(ref686) && isfinite(ref9) &&
+      ref4 < ref686 && ref686 < ref9;
+  const float totalSpan = max(v4, max(v686, v9)) - min(v4, min(v686, v9));
 
-  // Apply exactly one user-selected second point with the pH 4.01 endpoint.
-  if (pair == 9 || pair == 686) {
-    const float vSecond = pair == 9 ? v9 : v686;
-    const float refSecond = pair == 9 ? ref9 : ref686;
-    if (!haveEndpoints || vSecond <= 0.05f || vSecond > 3.25f ||
-        !isfinite(refSecond)) {
-      Serial.printf("[CAL] Selected pH pair 4.01+%.2f is incomplete; save both buffer points first.\n",
-                    refSecond);
+  if (fitMode == 3) {
+    if (!haveThreePoints) {
+      Serial.println("[CAL] 3-point fit needs saved valid pH 4.01, 6.86, and 9.18 values; previous fit retained.");
       return false;
     }
-    const float voltageDelta = vSecond - v4;
+    const bool voltageMonotonic =
+        (v4 < v686 && v686 < v9) || (v4 > v686 && v686 > v9);
+    if (!voltageMonotonic || totalSpan <= 0.05f) {
+      Serial.printf("[CAL] 3-point fit rejected: voltage points must be monotonic and span >50mV (current span %.1fmV). Previous fit retained.\n",
+                    totalSpan * 1000.0f);
+      return false;
+    }
+    const float meanV = (v4 + v686 + v9) / 3.0f;
+    const float meanPH = (ref4 + ref686 + ref9) / 3.0f;
+    const float numerator = (v4 - meanV) * (ref4 - meanPH) +
+        (v686 - meanV) * (ref686 - meanPH) +
+        (v9 - meanV) * (ref9 - meanPH);
+    const float denominator = (v4 - meanV) * (v4 - meanV) +
+        (v686 - meanV) * (v686 - meanV) +
+        (v9 - meanV) * (v9 - meanV);
+    if (denominator <= 0.0f) {
+      Serial.println("[CAL] 3-point fit rejected: voltage points have no usable spread.");
+      return false;
+    }
+    nextSlope = numerator / denominator;
+    nextIntercept = meanPH - nextSlope * meanV;
+    appliedSpan = totalSpan;
+  } else if (pair == 9 || pair == 686 || pair == 6869) {
+    // Apply exactly the two selected, saved buffer points.
+    if (pair == 9) {
+      fitV1 = v4; fitPH1 = ref4; fitV2 = v9; fitPH2 = ref9;
+    } else if (pair == 686) {
+      fitV1 = v4; fitPH1 = ref4; fitV2 = v686; fitPH2 = ref686;
+    } else {
+      fitV1 = v686; fitPH1 = ref686; fitV2 = v9; fitPH2 = ref9;
+    }
+    if (fitV1 <= 0.05f || fitV1 > 3.25f ||
+        fitV2 <= 0.05f || fitV2 > 3.25f ||
+        !isfinite(fitPH1) || !isfinite(fitPH2)) {
+      Serial.printf("[CAL] Selected pH pair %s is incomplete; save both buffer points first.\n",
+                    pair == 9 ? "4.01+9.18" : pair == 686 ? "4.01+6.86" : "6.86+9.18");
+      return false;
+    }
+    const float voltageDelta = fitV2 - fitV1;
     appliedSpan = fabsf(voltageDelta);
     if (appliedSpan < 0.001f) {
       Serial.printf("[CAL] Selected pH points differ by only %.2fmV; cannot calculate a fit.\n",
                     appliedSpan * 1000.0f);
       return false;
     }
-    nextSlope = (refSecond - ref4) / voltageDelta;
-    nextIntercept = ref4 - nextSlope * v4;
+    nextSlope = (fitPH2 - fitPH1) / voltageDelta;
+    nextIntercept = fitPH1 - nextSlope * fitV1;
     endpointTwoPointFit = true;
-  } else if (pair == 4 && have3 && totalSpan > 0.05f &&
-             ((v4 < v7 && v7 < v9) || (v4 > v7 && v7 > v9))) {
-    const float meanV = (v4 + v7 + v9) / 3.0f;
-    const float meanPH = (ref4 + ref7 + ref9) / 3.0f;
-    const float numerator = (v4 - meanV) * (ref4 - meanPH) +
-        (v7 - meanV) * (ref7 - meanPH) +
-        (v9 - meanV) * (ref9 - meanPH);
-    const float denominator = (v4 - meanV) * (v4 - meanV) +
-        (v7 - meanV) * (v7 - meanV) +
-        (v9 - meanV) * (v9 - meanV);
-    if (denominator <= 0.0f) return false;
-    nextSlope = numerator / denominator;
-    nextIntercept = meanPH - nextSlope * meanV;
-    nextFitPointCount = 3;
-    appliedSpan = totalSpan;
-  } else if (pair == 4) {
-    const float otherV = v4;
-    const float otherPH = ref4;
-    if (v7 <= 0.05f || v7 > 3.25f || otherV <= 0.05f || otherV > 3.25f ||
-        fabsf(v7 - otherV) <= 0.05f) {
-      Serial.printf("[CAL] No fit applied: selected points differ by %.1fmV; need >50mV. Three-point fallback needs ordered points spanning >50mV.\n",
-                    fabsf(v7 - otherV) * 1000.0f);
-      return false;
-    }
-    nextSlope = (ref7 - otherPH) / (v7 - otherV);
-    nextIntercept = ref7 - nextSlope * v7;
-    appliedSpan = fabsf(v7 - otherV);
   } else {
-    Serial.println("[CAL] No fit applied: pH 4.01/9.18 endpoint points are incomplete or invalid; previous fit retained.");
+    Serial.println("[CAL] No fit applied: selected two-point pair is invalid; previous fit retained.");
     return false;
   }
 
   const float oldSlope = phVoltageSlope;
   const float oldIntercept = phVoltageIntercept;
   const int oldFitPointCount = phFitPointCount;
+  const int oldFitMode = phFitMode;
   phVoltageSlope = nextSlope;
   phVoltageIntercept = nextIntercept;
   phFitPointCount = nextFitPointCount;
+  phFitMode = fitMode;
   if (!saveSensorCalibrations()) {
     phVoltageSlope = oldSlope;
     phVoltageIntercept = oldIntercept;
     phFitPointCount = oldFitPointCount;
+    phFitMode = oldFitMode;
     Serial.println("[CAL NVM] Could not save the new pH fit; previous active fit retained.");
     return false;
   }
   if (endpointTwoPointFit) {
-    const float vSecond = pair == 9 ? v9 : v686;
-    const float refSecond = pair == 9 ? ref9 : ref686;
-    Serial.printf("[CAL NVM] Applied 2-point pH 4.01/%.2f fit: slope=%.5f intercept=%.5f; predictions=%.2f / %.2f; span=%.1fmV.\n",
-                  refSecond,
+    const char* pairName = pair == 9 ? "4.01+9.18" :
+        pair == 686 ? "4.01+6.86" : "6.86+9.18";
+    Serial.printf("[CAL NVM] Applied 2-point pH %s fit: slope=%.5f intercept=%.5f; predictions=%.2f / %.2f; span=%.1fmV.\n",
+                  pairName,
                   phVoltageSlope, phVoltageIntercept,
-                  phVoltageSlope * v4 + phVoltageIntercept,
-                  phVoltageSlope * vSecond + phVoltageIntercept,
+                  phVoltageSlope * fitV1 + phVoltageIntercept,
+                  phVoltageSlope * fitV2 + phVoltageIntercept,
                   appliedSpan * 1000.0f);
   } else {
-    Serial.printf("[CAL NVM] Applied %d-point pH fit: slope=%.5f intercept=%.5f; predicted pH at saved V4/V7/V9 = %.2f / %.2f / %.2f.\n",
-                  phFitPointCount, phVoltageSlope, phVoltageIntercept,
+    Serial.printf("[CAL NVM] Applied 3-point pH fit (least-squares): slope=%.5f intercept=%.5f; predicted pH at saved V4/V6.86/V9.18 = %.2f / %.2f / %.2f.\n",
+                  phVoltageSlope, phVoltageIntercept,
                   phVoltageSlope * v4 + phVoltageIntercept,
-                  phVoltageSlope * v7 + phVoltageIntercept,
+                  phVoltageSlope * v686 + phVoltageIntercept,
                   phVoltageSlope * v9 + phVoltageIntercept);
   }
   if (endpointTwoPointFit && appliedSpan < 0.05f) {
     Serial.printf("[CAL WARNING] Selected pH pair span is only %.1fmV; 10mV noise can shift pH by about %.2f. Fit saved, but verify carefully.\n",
                   appliedSpan * 1000.0f, fabsf(phVoltageSlope) * 0.010f);
-  }
-  if (phFitPointCount == 3 && totalSpan < 0.10f) {
-    Serial.printf("[CAL WARNING] Three-point span is only %.1fmV; voltage noise can cause large pH changes. Treat as temporary; verify against buffers before using tank readings.\n",
-                  totalSpan * 1000.0f);
   }
   return true;
 }
@@ -3029,8 +3103,9 @@ void printSerialHelp() {
   Serial.println("GATE_TEST                One gate actuation (GPIO5 SG90)");
   Serial.println("GATECAL                  10 actuations for weighing (~10 g)");
   Serial.println("GATE_ANGLE <10-180>      Gate open angle (NVS)");
+  Serial.println("GATE_CLOSE_ANGLE <0-180> Calibrate/save close angle; required before feeding");
   Serial.println("GATE_MS <100-5000>       Gate hold ms (NVS)");
-  Serial.println("GPIO12 button            Onsite feed: taps = grams (1-200)");
+  Serial.println("GPIO13 button            Onsite feed: taps = grams (1-200)");
   Serial.println("GPIO2 button             Blower manual ON/OFF toggle");
   Serial.println("n1on / n1off             Water pump (offline fallback forces ON)");
   Serial.println("n2on / n2off             Aerator 1 (offline fallback forces ON)");
@@ -3161,12 +3236,12 @@ void setup() {
 
   sensors.begin();
   loadSensorCalibrations();
-  // Main firmware rebuilds the explicitly selected two-point fit at boot,
-  // preventing stale unselected buffer points from becoming active.
+  // Rebuild the NVS-selected pH fit at boot so the chosen two/three-point
+  // mode and its saved calibration points become active after reset.
   if (prefs.begin("sensorcal", true)) {
-    const int savedPHCalibrationPair = prefs.getInt("phPair", 9);
+    const int savedPHFitMode = prefs.getInt("phFitMode", 2);
     prefs.end();
-    if (savedPHCalibrationPair == 9 || savedPHCalibrationPair == 686) {
+    if (savedPHFitMode == 2 || savedPHFitMode == 3) {
       applySavedPHFit();
     }
   }
@@ -3188,7 +3263,11 @@ void setup() {
   fbdo.setBSSLBufferSize(4096, 2048);
   if (WiFi.status() == WL_CONNECTED) {
     initTime();
-    { time_t st; time(&st); if (st > 1700000000) { ntpEverSynced = true; lastNtpSyncMs = millis(); } }
+    { time_t st; time(&st); if (st > 1700000000) {
+        ntpEverSynced = true;
+        feederBootEpoch = st;
+        lastNtpSyncMs = millis();
+      } }
     showLCDBootProgress("Starting cloud", 0);
     connectFirebase();
     lcdCloudBootPending = true;
@@ -3206,7 +3285,12 @@ void setup() {
   Serial.println("  Turbidity: NTU (calibrated)");
   Serial.println("  Sensor display: OFF (type HELP for commands)");
   Serial.println("============================================");
+  // Suppress boot-time transients before accepting physical feed-button taps.
+  beginOnsiteButtonLockout(ONSITE_BOOT_LOCKOUT_US);
+  portENTER_CRITICAL(&onsiteButtonMux);
   onsiteButtonEnabled = true;
+  portEXIT_CRITICAL(&onsiteButtonMux);
+  Serial.println("[BUTTON] Onsite feed locked out for 15 s after startup");
   if (!lcdCloudBootPending) {
     showLCDBoot("CrayCare ready", "Local mode", 1200);
   }
@@ -3368,6 +3452,7 @@ void loop() {
       time(&nt2);
       if (nt2 > 1700000000) {
         ntpEverSynced = true;
+        if (feederBootEpoch == 0) feederBootEpoch = nt2;
         lastNtpSyncMs = millis();
         Serial.println("[TIME] Manual NTP sync OK");
       } else {
@@ -3381,11 +3466,14 @@ void loop() {
     if (cmd == "GATE_TEST" || cmd == "gate test") {
       if (feederRunState != FEEDER_IDLE) {
         Serial.println("[GATE] Feeder busy — try after the feed finishes");
+      } else if (!gateCloseAngleConfigured) {
+        Serial.println("[GATE] Set the real closed position first: GATE_CLOSE_ANGLE <degrees>");
       } else {
-        Serial.printf("[GATE] Test: one actuation 0 -> %d -> 0\n", gateOpenAngle);
+        Serial.printf("[GATE] Test: one actuation %d -> %d -> %d\n", gateCloseAngle,
+                      gateOpenAngle, gateCloseAngle);
         setGateAngle(gateOpenAngle);
         delay(gateHoldMs);
-        setGateAngle(0);
+        setGateAngle(gateCloseAngle);
         delay(300);
         Serial.println("[GATE] Test complete");
       }
@@ -3393,6 +3481,8 @@ void loop() {
     if (cmd == "GATECAL" || cmd == "gatecal") {
       if (feederRunState != FEEDER_IDLE) {
         Serial.println("[GATE] Feeder busy — try after the feed finishes");
+      } else if (!gateCloseAngleConfigured) {
+        Serial.println("[GATE] Set the real closed position first: GATE_CLOSE_ANGLE <degrees>");
       } else {
         Serial.println("[GATE] Calibration: 10 actuations — catch and weigh the output.");
         Serial.println("[GATE] Target ~10 g total (1 g each). If off, adjust with");
@@ -3400,7 +3490,7 @@ void loop() {
         for (int i = 0; i < 10; i++) {
           setGateAngle(gateOpenAngle);
           delay(gateHoldMs);
-          setGateAngle(0);
+          setGateAngle(gateCloseAngle);
           delay(300);
           esp_task_wdt_reset();  // 10 cycles x (hold + dwell) exceeds short timeouts
           Serial.printf("[GATE] Actuation %d/10\n", i + 1);
@@ -3410,12 +3500,35 @@ void loop() {
     }
     if (cmd.startsWith("GATE_ANGLE ") || cmd.startsWith("gate_angle ")) {
       int v = cmd.substring(cmd.lastIndexOf(' ') + 1).toInt();
-      if (v < 10 || v > GATE_MAX_ANGLE) {
+      if (v < 10 || v > GATE_MAX_ANGLE || abs(v - gateCloseAngle) < 10) {
         Serial.println("Usage: GATE_ANGLE <10-180>");
+        if (abs(v - gateCloseAngle) < 10)
+          Serial.println("[GATE] Open and close angles must differ by at least 10 degrees.");
       } else {
         gateOpenAngle = v;
         saveSensorCalibrations();
         Serial.printf("[GATE] Open angle %d saved\n", gateOpenAngle);
+      }
+    }
+    if (cmd.startsWith("GATE_CLOSE_ANGLE ") || cmd.startsWith("gate_close_angle ")) {
+      int v = cmd.substring(cmd.lastIndexOf(' ') + 1).toInt();
+      if (v < 0 || v > GATE_MAX_ANGLE || abs(v - gateOpenAngle) < 10) {
+        Serial.println("Usage: GATE_CLOSE_ANGLE <0-180>; must differ from open angle by at least 10 degrees.");
+      } else if (feederRunState != FEEDER_IDLE) {
+        Serial.println("[GATE] Feeder busy — set close angle after feed finishes.");
+      } else {
+        const int previousAngle = gateCloseAngle;
+        const bool wasConfigured = gateCloseAngleConfigured;
+        gateCloseAngle = v;
+        gateCloseAngleConfigured = true;
+        if (saveSensorCalibrations()) {
+          setGateAngle(gateCloseAngle);
+          Serial.printf("[GATE] Close angle %d saved and commanded.\n", gateCloseAngle);
+        } else {
+          gateCloseAngle = previousAngle;
+          gateCloseAngleConfigured = wasConfigured;
+          Serial.println("[GATE] Save failed; close angle may not persist after reboot.");
+        }
       }
     }
     if (cmd.startsWith("GATE_MS ") || cmd.startsWith("gate_ms ")) {
@@ -3513,9 +3626,9 @@ void loop() {
       if (isPH686) prefs.putFloat("phV686Ref", 6.86f);
       if (isNine) {
         prefs.putFloat("phV9Ref", nineReference);
-        prefs.putInt("phPair", 9);
+        if (prefs.getInt("phPair", 9) != 6869) prefs.putInt("phPair", 9);
       } else if (isPH686) {
-        prefs.putInt("phPair", 686);
+        if (prefs.getInt("phPair", 9) != 6869) prefs.putInt("phPair", 686);
       }
       pointSaved &= prefs.getFloat(pointKey, -1.0f) == v;
       prefs.end();
@@ -3528,6 +3641,28 @@ void loop() {
                     phCalibrationCommand.c_str());
       applySavedPHFit();
     }
+    if (cmd == "phmode" || cmd.startsWith("phmode ")) {
+      if (!calibrationMode && !rawStreamEnabled) {
+        Serial.println("[CAL] Start raw on first, or enter CALMODE ON.");
+      } else {
+        String requestedMode = cmd == "phmode" ? "" : cmd.substring(7);
+        requestedMode.trim();
+        if (requestedMode.length() == 0) {
+          Serial.printf("[CAL] Selected pH fit mode: %d-point; active fit: %d-point. Use phmode 2 or phmode 3.\n",
+                        phFitMode, phFitPointCount);
+        } else if (requestedMode == "2" || requestedMode == "3") {
+          const int mode = requestedMode.toInt();
+          Serial.printf("[CAL] Activating %d-point pH fit from saved calibration points.\n", mode);
+          if (applySavedPHFit(mode)) {
+            Serial.printf("[CAL] pH %d-point mode is active and saved in NVS.\n", mode);
+          } else {
+            Serial.printf("[CAL] pH %d-point mode was not activated; previous fit remains active.\n", mode);
+          }
+        } else {
+          Serial.println("Usage: phmode 2 | phmode 3");
+        }
+      }
+    }
     if (cmd == "phpair" || cmd.startsWith("phpair ")) {
       if (!calibrationMode && !rawStreamEnabled) {
         Serial.println("[CAL] Start raw on first, or enter CALMODE ON.");
@@ -3537,8 +3672,10 @@ void loop() {
         int pair = 0;
         if (requestedPair == "9.18" || requestedPair == "9") pair = 9;
         else if (requestedPair == "6.86") pair = 686;
+        else if (requestedPair == "6.86-9.18" || requestedPair == "6.86 9.18" ||
+                 requestedPair == "686-918") pair = 6869;
         if (pair == 0) {
-          Serial.println("Usage: phpair 9.18 | phpair 6.86");
+          Serial.println("Usage: phpair 9.18 | phpair 6.86 | phpair 6.86-9.18");
         } else if (!prefs.begin("sensorcal", false)) {
           Serial.println("[CAL NVM] Could not save selected pH calibration pair.");
         } else {
@@ -3547,9 +3684,11 @@ void loop() {
           if (!saved) {
             Serial.println("[CAL NVM] Selected pH pair was not saved.");
           } else {
-            Serial.printf("[CAL NVM] Selected 2-point pair: pH 4.01 + %.2f. Running fit from saved points.\n",
-                          pair == 9 ? 9.18f : 6.86f);
-            applySavedPHFit();
+            const char* pairName = pair == 9 ? "4.01 + 9.18" :
+                pair == 686 ? "4.01 + 6.86" : "6.86 + 9.18";
+            Serial.printf("[CAL NVM] Selected 2-point pair: pH %s. Running fit from saved points.\n",
+                          pairName);
+            applySavedPHFit(2);
           }
         }
       }
@@ -3857,7 +3996,10 @@ void loop() {
     initTime();
     time_t nt;
     time(&nt);
-    if (nt > 1700000000) ntpEverSynced = true;
+    if (nt > 1700000000) {
+      ntpEverSynced = true;
+      if (feederBootEpoch == 0) feederBootEpoch = nt;
+    }
     lastNtpSyncMs = millis();
     now = lastNtpSyncMs;
   }
@@ -4082,19 +4224,19 @@ void initFeeder() {
   // reset to 0 after an ESP reboot.
   loadFeederState();
   ledcSetup(SERVO_LEDC_CHANNEL, SERVO_LEDC_FREQ, SERVO_LEDC_RESOLUTION);
-  ledcAttachPin(GATE_SERVO_PIN, SERVO_LEDC_CHANNEL);
-  setGateAngle(0);
+  // Do not attach PWM or command the servo at boot: a stored/misidentified
+  // close angle can physically open the gate and dispense feed on reset.
+  // setGateAngle() attaches PWM lazily on an explicit command/feed instead.
+  Serial.printf("[GATE] Boot-safe: no servo movement/PWM at startup on GPIO %d; close angle %sconfigured.\n",
+                GATE_SERVO_PIN, gateCloseAngleConfigured ? "" : "NOT ");
   feederIsRunning = false;
   feederRunState = FEEDER_IDLE;
   feederCurrentCycle = 0;
   feederInitialized = true;
   recoverFeederLogs();
 
-  // Park the gate closed. Do NOT actuate at boot: every swing drops feed,
-  // and resets also happen on Wi-Fi drops / power flickers. Use GATE_TEST
-  // for a physical hardware self-test instead.
-  Serial.printf("[GATE] SG90 gate parked closed at 0 degrees on GPIO %d (1 g-only model)\n",
-                GATE_SERVO_PIN);
+  // Do not park or self-test at boot; the first servo pulse is issued only
+  // by an explicit close-angle command, test, or permitted feed cycle.
 }
 
 // ─── Process Commands from Firestore ───
@@ -4102,6 +4244,7 @@ void initFeeder() {
 // starts its non-blocking feed cycle.
 // Reads all docs into local arrays first to avoid fbdo buffer conflicts.
 void processFeederCommands() {
+  if (!gateCloseAngleConfigured) return;
   if (!ensureFirebaseReady()) return;
   if (currentTankId.length() == 0) return;   // no tank assigned -> nothing to do
   // Leave queued commands untouched while a feed is already running. This
@@ -4347,7 +4490,7 @@ bool storePendingLocalFeedLog(const String& tankId, const String& eventKey,
                               const String& envelope) {
   if (tankId.isEmpty() || eventKey.isEmpty() || envelope.isEmpty()) return false;
   if (!prefs.begin("feederstate", false)) return false;
-  const String existingEvent = prefs.getString("local_event", "");
+  const String existingEvent = readOptionalFeederStateString("local_event");
   if (!existingEvent.isEmpty() && existingEvent != eventKey) {
     prefs.end();
     return false;
@@ -4362,22 +4505,22 @@ bool storePendingLocalFeedLog(const String& tankId, const String& eventKey,
 
 bool hasPendingLocalFeedLog(const String& eventKey) {
   if (!prefs.begin("feederstate", true)) return false;
-  const bool found = prefs.getString("local_event", "") == eventKey &&
-      !prefs.getString("local_json", "").isEmpty();
+  const bool found = readOptionalFeederStateString("local_event") == eventKey &&
+      !readOptionalFeederStateString("local_json").isEmpty();
   prefs.end();
   return found;
 }
 
 bool clearPendingLocalFeedLog(const String& eventKey) {
   if (!prefs.begin("feederstate", false)) return false;
-  const String existingEvent = prefs.getString("local_event", "");
+  const String existingEvent = readOptionalFeederStateString("local_event");
   if (existingEvent != eventKey) {
     prefs.end();
     return existingEvent.isEmpty();
   }
-  prefs.remove("local_json");
-  prefs.remove("local_event");
-  prefs.remove("local_tank");
+  if (prefs.isKey("local_json")) prefs.remove("local_json");
+  if (prefs.isKey("local_event")) prefs.remove("local_event");
+  if (prefs.isKey("local_tank")) prefs.remove("local_tank");
   prefs.end();
   return true;
 }
@@ -4403,14 +4546,14 @@ bool queueFeederLogEnvelope(const String& eventKey, const String& envelope,
     Serial.println("[FEEDER LOG] Offline queue write/rename failed; NVS recovery record retained");
     return false;
   }
-  if (!pending) logFs.remove(base + ".pending");
+  if (!pending) removeFeederLogIfPresent(logFs, base + ".pending");
   return true;
 }
 
 bool queuePendingLocalFeedLogOffline() {
   if (!prefs.begin("feederstate", true)) return false;
-  const String eventKey = prefs.getString("local_event", "");
-  const String envelope = prefs.getString("local_json", "");
+  const String eventKey = readOptionalFeederStateString("local_event");
+  const String envelope = readOptionalFeederStateString("local_json");
   prefs.end();
   if (envelope.isEmpty()) return true;
   if (feederRunState != FEEDER_IDLE) return false;
@@ -4425,9 +4568,9 @@ bool queuePendingLocalFeedLogOffline() {
 
 bool flushPendingLocalFeedLog() {
   if (!prefs.begin("feederstate", true)) return false;
-  const String tankId = prefs.getString("local_tank", "");
-  const String eventKey = prefs.getString("local_event", "");
-  const String serialized = prefs.getString("local_json", "");
+  const String tankId = readOptionalFeederStateString("local_tank");
+  const String eventKey = readOptionalFeederStateString("local_event");
+  const String serialized = readOptionalFeederStateString("local_json");
   prefs.end();
   if (serialized.isEmpty()) return true;
   // The NVS envelope is a recovery marker until the active feed reaches a
@@ -4458,9 +4601,9 @@ bool flushPendingLocalFeedLog() {
   if (sdMounted || littlefsMounted) {
     fs::FS& logFs = feederLogFS();
     const String base = feederLogPath(eventKey);
-    logFs.remove(base + ".pending");
-    logFs.remove(base + ".json");
-    logFs.remove(base + ".tmp");
+    removeFeederLogIfPresent(logFs, base + ".pending");
+    removeFeederLogIfPresent(logFs, base + ".json");
+    removeFeederLogIfPresent(logFs, base + ".tmp");
   }
   Serial.printf("[FEEDER LOG] Direct Firestore save confirmed (%s)\n", logId.c_str());
   return true;
@@ -4816,7 +4959,8 @@ bool manualFeedConflictsWithSchedule(time_t now, String &scheduleLabel) {
 
 // ─── Check if it's time for a scheduled feed ───
 void checkScheduledFeed() {
-  if (currentTankId.isEmpty() || !feederAutoMode || feederScheduleCount == 0 || feederRunState != FEEDER_IDLE) return;
+  if (!gateCloseAngleConfigured || currentTankId.isEmpty() || !feederAutoMode ||
+      feederScheduleCount == 0 || feederRunState != FEEDER_IDLE) return;
 
   time_t now;
   time(&now);
@@ -4838,7 +4982,13 @@ void checkScheduledFeed() {
     if (schedMin == currentMin) {
       // Check we haven't already fired this minute
       unsigned long nowEpoch = (unsigned long)now;
-      if (nowEpoch / 60 > feederLastScheduledMinute && s.effectiveEpoch <= nowEpoch - nowEpoch % 60) {
+      const unsigned long scheduledMinuteEpoch = nowEpoch - nowEpoch % 60;
+      // Do not catch up a scheduled occurrence whose minute had already
+      // started before this boot. The next future schedule remains enabled.
+      const bool occurrenceStartedThisBoot = feederBootEpoch > 0 &&
+          scheduledMinuteEpoch > (unsigned long)feederBootEpoch;
+      if (occurrenceStartedThisBoot && nowEpoch / 60 > feederLastScheduledMinute &&
+          s.effectiveEpoch <= scheduledMinuteEpoch) {
         Serial.printf("[FEEDER] Scheduled feed at %02d:%02d (%.1fg)\n",
                       s.hour24, s.minute, s.grams);
         // Preserve occurrence identity in the durable device outcome log.
@@ -4854,11 +5004,24 @@ void checkScheduledFeed() {
 
 // ─── Start Feed — kicks off non-blocking state machine ───
 void startFeed(String source, float grams, String commandId, long long issuedAtMs, long long expiresAtMs, bool forceOverride) {
+  // Defense in depth: never start or log an onsite feed during a boot/pump
+  // transition lockout, even if another caller reaches this function.
+  if (source == "onsite" && isOnsiteButtonLockedOut()) {
+    feederStatus = "blocked";
+    feederStatusReason = "Onsite feed startup/pump cooldown";
+    return;
+  }
   feederWaterQualityWarning = "";
   if (!forceOverride) { feederForced = false; feederForceReason = ""; }
   if (feederRunState != FEEDER_IDLE) {
     feederStatusReason = "Feeder busy";
     Serial.println("[FEEDER] Already running, skipping");
+    return;
+  }
+  if (!gateCloseAngleConfigured) {
+    feederStatus = "blocked";
+    feederStatusReason = "Gate close angle not calibrated";
+    Serial.println("[FEEDER] BLOCKED: configure GATE_CLOSE_ANGLE before feeding");
     return;
   }
   feederStatusReason = "";
@@ -4944,6 +5107,10 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
   if (!commandId.isEmpty() && feederLastCompletedEpoch > 0 &&
       issuedAtMs <= (long long)feederLastCompletedEpoch * 1000 + 999) {
     blockedReason = "Another feeding completed after this request was issued; submit a new request";
+  }
+  if (!commandId.isEmpty() && feederBootEpoch > 0 &&
+      issuedAtMs > 0 && issuedAtMs <= (long long)feederBootEpoch * 1000) {
+    blockedReason = "Feed Now request predates ESP boot; submit a new request";
   }
   if (!commandId.isEmpty() && (issuedAtMs <= 0 || issuedAtMs > (long long)checkedAt * 1000 + 5000 ||
                               (long long)checkedAt * 1000 - issuedAtMs > 60000 ||
@@ -5057,6 +5224,9 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
   // No blocking cloud call between the expiry check and the motor tick.
   Serial.printf("[FEEDER] Start feed (source=%s, %.1fg = %d actuations)\n",
                 source.c_str(), feederRequestedGrams, feederMaxCycles);
+  Serial.printf("[FEEDER] Gate setup: GPIO%d, angle=%d, hold=%dms; blower lead=%us\n",
+                GATE_SERVO_PIN, gateOpenAngle, gateHoldMs,
+                (unsigned)BLOWER_PRE_SEC);
 }
 
 // ─── Non-blocking feeder tick — call every loop() ───
@@ -5070,6 +5240,8 @@ void processFeederTick() {
     case FEEDER_PRE_BLOW:
       // Blower was switched auto-ON at startFeed; wait out the warm-up lead.
       if (now - feederStepMs >= (unsigned long)BLOWER_PRE_SEC * 1000UL) {
+        Serial.printf("[FEEDER] Blower lead complete; opening gate at %d degrees\n",
+                      gateOpenAngle);
         feederRunState = FEEDER_FORWARD;
         feederStepMs = now;
       }
@@ -5085,7 +5257,7 @@ void processFeederTick() {
 
     case FEEDER_PAUSE_F:
       if (now - feederStepMs >= (unsigned long)gateHoldMs) {
-        setGateAngle(0);
+        setGateAngle(gateCloseAngle);
         feederStepMs = now;
         feederCurrentCycle++;
         feederRunState = FEEDER_CLOSE_DWELL;
@@ -5113,7 +5285,7 @@ void processFeederTick() {
       // Keep isRunning=true for at least 1s so Flutter reliably catches the transition
       if (now - feederStartMs < 1000) break;
 
-      setGateAngle(0);
+      setGateAngle(gateCloseAngle);
       // Update feed count and persist it so a reboot doesn't reset the total
       // the app displays as "feeds completed".
       feederDispenseCount++;
@@ -5279,9 +5451,9 @@ void pushFeederLog(String action, String type, String status,
       if (sdMounted || littlefsMounted) {
         fs::FS& logFs = feederLogFS();
         const String base = feederLogPath(feederEventKey);
-        logFs.remove(base + ".pending");
-        logFs.remove(base + ".json");
-        logFs.remove(base + ".tmp");
+        removeFeederLogIfPresent(logFs, base + ".pending");
+        removeFeederLogIfPresent(logFs, base + ".json");
+        removeFeederLogIfPresent(logFs, base + ".tmp");
       }
       Serial.printf("[FEEDER LOG] Saved directly to Firebase (%s)\n", logId.c_str());
       return;
@@ -5335,17 +5507,22 @@ void recoverFeederLogs() {
     }
     const String target = path.substring(0, path.length() - 8) + ".json";
     // Completion may already be durable if reset happened just before cleanup.
-    if (logFs.exists(target)) logFs.remove(path);
+    if (logFs.exists(target)) removeFeederLogIfPresent(logFs, path);
     else logFs.rename(path, target);
   }
 }
 
 bool flushOneFeederLog() {
-  if ((!sdMounted && !littlefsMounted) || currentTankId.isEmpty()) return false;
+  if ((!sdMounted && !littlefsMounted) || currentTankId.isEmpty() ||
+      !ensureFeederLogDirectory()) return false;
   recoverFeederLogs(); // Idle only: finalize any intent whose completion write failed.
   fs::FS& logFs = feederLogFS();
   File dir = logFs.open(feederLogRoot());
-  if (!dir) return false;
+  if (!dir || !dir.isDirectory()) {
+    if (dir) dir.close();
+    Serial.println("[FEEDER LOG] Log directory unavailable; retrying later.");
+    return false;
+  }
   for (File file = dir.openNextFile(); file; file = dir.openNextFile()) {
     const String path = file.path();
     if (!path.endsWith(".json")) { file.close(); continue; }
@@ -5369,7 +5546,7 @@ bool flushOneFeederLog() {
     const bool duplicate = fbdo.httpCode() == 409;
     dir.close();
     if (uploaded || duplicate) {
-      const bool removed = logFs.remove(path);
+      const bool removed = removeFeederLogIfPresent(logFs, path);
       if (removed) {
         Serial.printf("[FEEDER LOG] Offline event uploaded to Firebase (%s)\n", id.c_str());
       }
@@ -5451,6 +5628,11 @@ void setActuatorRelay(int idx, bool on) {
   if (idx < 0 || idx > 2) return;
   ActuatorDevice& a = actuators[idx];
   if (a.relayOn == on) return;
+  if (idx == 0) {
+    // Clear pending button taps and ignore input around pump relay switching.
+    // Arm this before toggling the relay, which is when interference occurs.
+    beginOnsiteButtonLockout(ONSITE_PUMP_LOCKOUT_US);
+  }
   a.relayOn = on;
   digitalWrite(a.pin, on ? LOW : HIGH);     // LOW = relay ON
   a.lastChangeMs = millis();
@@ -5626,6 +5808,13 @@ void IRAM_ATTR onsiteButtonISR() {
   if (!onsiteButtonEnabled) return;
   const uint32_t nowUs = micros();
   portENTER_CRITICAL_ISR(&onsiteButtonMux);
+  if (onsiteButtonLockoutActive &&
+      (uint32_t)(nowUs - onsiteButtonLockoutStartedUs) <
+          onsiteButtonLockoutDurationUs) {
+    portEXIT_CRITICAL_ISR(&onsiteButtonMux);
+    return;
+  }
+  onsiteButtonLockoutActive = false;
   if (onsiteButtonTapCount < ONSITE_BUTTON_MAX_TAPS &&
       (uint32_t)(nowUs - onsiteButtonLastTapUs) >= ONSITE_BUTTON_DEBOUNCE_US) {
     ++onsiteButtonTapCount;
@@ -5685,6 +5874,14 @@ void processOnsiteButton() {
     return;
   }
   if (!onsiteButtonEnabled) return;
+  // Discard any stale count in the lockout window; it must not reach the
+  // dispense or feed-log path after the cooldown expires.
+  if (isOnsiteButtonLockedOut()) {
+    portENTER_CRITICAL(&onsiteButtonMux);
+    onsiteButtonTapCount = 0;
+    portEXIT_CRITICAL(&onsiteButtonMux);
+    return;
+  }
   // Confirmation taps inside the schedule-collision warning window are
   // counted immediately and never converted to grams.
   if (overrideWarnReason.length() > 0) {
