@@ -1,40 +1,40 @@
 {
   "overall": {
-    "normal": "Continue routine monitoring and tank maintenance. A Normal result means the pattern resembles the model's reference data; it does not confirm safe water. Follow configured sensor alerts and your farm procedures.",
-    "verify": "Recheck temperature, pH, dissolved oxygen, and turbidity with calibrated or independently verified instruments; inspect the probes and review recent tank changes. Follow any configured safety alert. Do not treat or adjust water based on this ML result alone."
+    "normal": "Keep checking the tank. Follow any sensor warning shown in the app.",
+    "verify": "Check the readings and sensors. If available, compare the readings with another meter. Follow any sensor warning shown in the app. Do not treat or change the water based only on this result."
   },
   "DO": {
-    "decreasing": "Verify the DO reading and probe, then check aerator power, airflow, and water circulation. Review recent feeding and accumulated organic waste, which can increase oxygen demand as it decomposes. Monitor DO and follow your low-oxygen response plan if its separate safety alert triggers.",
-    "increasing": "Verify the DO reading. Review recent aeration or circulation changes and the time of day; photosynthesis can raise daytime DO, while DO commonly falls overnight. A rising trend alone does not confirm safe water; keep monitoring and follow configured limits.",
-    "stable": "Verify the DO reading and probe, then check aerator operation and circulation. A stable recent trend can still be unusual relative to the model's reference; follow the separate DO safety alert if triggered.",
-    "verify": "Verify the DO reading with a reliable meter and inspect the probe, aerator, and circulation. Continue monitoring and follow the separate DO safety alert or farm response plan."
+    "decreasing": "Check the dissolved oxygen (DO) reading and sensor. Make sure the aerator is running and water is moving. Follow any low-oxygen warning shown in the app.",
+    "increasing": "Check the dissolved oxygen (DO) reading and keep monitoring it. Follow any oxygen warning shown in the app.",
+    "stable": "Check the dissolved oxygen (DO) reading and sensor. Make sure the aerator is running and water is moving. Follow any oxygen warning shown in the app.",
+    "verify": "Check the dissolved oxygen (DO) reading and sensor, and make sure the aerator is running. Follow any oxygen warning shown in the app."
   },
   "turbidity": {
-    "increasing": "Verify the turbidity probe is clean and consistently positioned. Inspect water clarity, filtration or solids removal, recent feeding, accumulated waste, and tank disturbance. Suspended sediment, organic particles, algae, or plankton can affect turbidity, so the reading alone cannot identify the material. Follow configured limits.",
-    "decreasing": "Verify the probe and review recent filtration, settling, cleaning, or water changes. Lower turbidity alone does not establish that the water or other conditions are safe; continue routine monitoring and follow configured limits.",
-    "stable": "Check probe cleanliness and placement, filtration, and the recent water appearance. A stable trend can still be unusual relative to the model's reference; follow any separate configured alert.",
-    "verify": "Verify the turbidity reading and probe placement, then inspect filtration and recent tank changes. The sensor indicates water clarity, not the identity of suspended material; follow configured limits."
+    "increasing": "Check the water-clarity (turbidity) reading and sensor. Make sure the sensor is clean and in place. Look at the water and check the filter. Follow any water-clarity warning shown in the app.",
+    "decreasing": "Check the water-clarity (turbidity) reading and sensor. Review recent cleaning, filtering, or water changes. Follow any water-clarity warning shown in the app.",
+    "stable": "Check the water-clarity (turbidity) reading and sensor. Make sure the sensor is clean and in place. Look at the water and check the filter.",
+    "verify": "Check the water-clarity reading, sensor, and filter. Follow any water-clarity warning shown in the app."
   },
   "pH": {
-    "increasing": "Confirm the pH with a calibrated meter. Review recent water changes, source water, added materials, and alkalinity, which affects pH buffering. Do not add chemicals based on this ML result alone; follow configured pH limits and farm guidance.",
-    "decreasing": "Confirm the pH with a calibrated meter. Review recent water changes, source water, added materials, and alkalinity, which affects pH buffering. Do not add chemicals based on this ML result alone; follow configured pH limits and farm guidance.",
-    "stable": "Confirm the pH with a calibrated meter and inspect the probe. Review recent water changes, source water, alkalinity, and the time-of-day pattern. A stable trend can still be unusual relative to the model's reference; do not chemically adjust from this result alone.",
-    "verify": "Confirm the pH with a calibrated meter, inspect the probe, and review recent water changes and alkalinity. Avoid chemical adjustment based on this ML result alone; follow configured limits and farm guidance."
+    "increasing": "Check the pH with a calibrated meter and inspect the sensor. Follow any pH warning shown in the app. Do not add chemicals based only on this result.",
+    "decreasing": "Check the pH with a calibrated meter and inspect the sensor. Follow any pH warning shown in the app. Do not add chemicals based only on this result.",
+    "stable": "Check the pH with a calibrated meter and inspect the sensor. Follow any pH warning shown in the app. Do not add chemicals based only on this result.",
+    "verify": "Check the pH with a calibrated meter and inspect the sensor. Follow any pH warning shown in the app. Do not add chemicals based only on this result."
   },
   "temp": {
-    "increasing": "Verify the temperature with a reliable thermometer. Review sunlight or heat exposure, incoming water, and circulation; warmer water can hold less dissolved oxygen. Check DO as well and follow configured temperature or DO alerts.",
-    "decreasing": "Verify the temperature with a reliable thermometer. Review ambient conditions, incoming water, and circulation, then compare with the operating range chosen for your crayfish species and setup. Follow configured temperature alerts.",
-    "stable": "Verify the temperature reading and probe placement, then compare it with the operating range chosen for your crayfish species and setup. A stable trend can still be unusual relative to the model's reference; follow configured alerts.",
-    "verify": "Verify the temperature with a reliable thermometer and review recent ambient conditions, incoming water, and circulation. Compare with the range chosen for your crayfish species and setup; follow configured alerts."
+    "increasing": "Check the temperature with a thermometer. Look for recent heat or water changes, and check the DO reading too. Follow any temperature or DO warning shown in the app.",
+    "decreasing": "Check the temperature with a thermometer. Review recent weather and water changes. Follow any temperature warning shown in the app.",
+    "stable": "Check the temperature with a thermometer. Follow any temperature warning shown in the app.",
+    "verify": "Check the temperature with a thermometer and review recent weather or water changes. Follow any temperature warning shown in the app."
   },
   "combined_do_turbidity": {
-    "action": "Verify both readings and probes. Check aeration, circulation, filtration or solids removal, and recent feeding, waste, or tank disturbance. Follow either sensor's configured safety alert."
+    "action": "Check the dissolved oxygen and water-clarity readings and sensors. Make sure the aerator and filter are working and water is moving. Follow any oxygen or water-clarity warning shown in the app."
   },
   "combined_temp_do": {
-    "action": "Verify both readings. Review heat exposure or incoming-water changes, and check aerator operation and circulation. Warm water holds less oxygen at saturation, so monitor DO closely and follow the configured temperature and DO alerts."
+    "action": "Check the temperature and dissolved oxygen readings. Look for heat or water changes, and make sure the aerator is running. Follow any temperature or oxygen warning shown in the app."
   },
   "combined_ph_do": {
-    "action": "Verify both readings and note the time of day. Photosynthesis and respiration can affect daily pH and DO patterns in ponds. Continue monitoring and follow the separate pH and DO safety alerts."
+    "action": "Check the pH and dissolved oxygen readings and keep monitoring them. Follow any pH or oxygen warning shown in the app. Do not add chemicals based only on this result."
   },
   "_references": {
     "redclaw_qld": {

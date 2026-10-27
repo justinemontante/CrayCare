@@ -117,11 +117,11 @@ class _WaterQualityAnomalyDetectionCardState
                   isAnomaly: result?.isAnomaly ?? false,
                   score: hasData ? result!.anomalyScore : null,
                   waitingMessage: result?.hasData == true && !hasData
-                      ? 'The latest sensor record is over 20 minutes old. Check the connection and sensor history.'
+                      ? 'The latest reading is over 20 minutes old. Check the sensor connection.'
                       : result?.status == 'Insufficient' &&
                             result?.insight.isNotEmpty == true
                       ? result!.insight
-                      : 'Waiting for enough valid readings to cover a continuous two-hour pattern.',
+                      : 'Waiting for enough recent readings to check the water pattern.',
                   color: color,
                   lightColor: lightColor,
                 ),
@@ -257,8 +257,8 @@ class _ResultOverview extends StatelessWidget {
               Expanded(
                 child: Text(
                   isAnomaly
-                      ? 'Unusual pattern detected'
-                      : 'Pattern matches reference',
+                      ? 'Unusual change found'
+                      : 'No unusual change found',
                   style: TextStyle(
                     color: color,
                     fontSize: 12,
@@ -267,12 +267,23 @@ class _ResultOverview extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 6),
-              Text(
-                'Rarity ${safeScore.toStringAsFixed(1)}%',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                  color: color,
+              Tooltip(
+                message:
+                    'Higher scores mean this pattern is less common in the model data.',
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'How unusual: ${safeScore.toStringAsFixed(1)}%',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        color: color,
+                      ),
+                    ),
+                    const SizedBox(width: 2),
+                    Icon(Icons.info_outline_rounded, size: 12, color: color),
+                  ],
                 ),
               ),
             ],
@@ -350,7 +361,7 @@ class _ResultDetails extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Main pattern contributor',
+                      'Reading that influenced this result',
                       style: TextStyle(
                         fontSize: 9,
                         color: AppColors.subtitleText,
@@ -383,7 +394,7 @@ class _ResultDetails extends StatelessWidget {
           const SizedBox(height: 11),
           _DetailRow(
             icon: Icons.fact_check_outlined,
-            label: 'Suggested Checks',
+            label: 'What to do',
             text: recommendation,
             color: AppColors.primary,
           ),
@@ -410,7 +421,7 @@ class _DirectionSummary extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          'Key sensor directions',
+          'Readings that changed',
           style: TextStyle(
             fontSize: 10,
             fontWeight: FontWeight.w700,
@@ -435,8 +446,11 @@ class _DirectionSummary extends StatelessWidget {
                     : isDecreasing
                     ? Icons.arrow_downward_rounded
                     : Icons.remove_rounded;
-                final directionLabel =
-                    direction[0].toUpperCase() + direction.substring(1);
+                final directionLabel = switch (direction) {
+                  'increasing' => 'Rising',
+                  'decreasing' => 'Falling',
+                  _ => 'Changed little',
+                };
                 return Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 8,

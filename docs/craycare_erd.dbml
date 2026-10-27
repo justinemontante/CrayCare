@@ -15,8 +15,15 @@ Table users {
   role varchar [not null, note: 'owner | admin']
   status varchar [not null, note: 'active | disabled']
   photo_url text
-  fcmTokens text [note: 'Firestore array<string>: one FCM registration token per logged-in device']
   created_at timestamp [not null]
+}
+
+Table user_fcm_tokens [note: 'Normalized SQL representation of the Firestore users/{uid}.fcmTokens array; each row represents one device registration token'] {
+  uid varchar [not null, ref: > users.uid]
+  token text [not null]
+  Indexes {
+    (uid, token) [pk]
+  }
 }
 
 Table notification_settings [note: 'Persisted at users/{uid}/notification_settings/preferences; uid is the parent document ID, not a stored child field'] {
@@ -41,7 +48,7 @@ Table tanks [note: 'Persisted at tanks/{tankId}; tankId is the owner Firebase Au
 
 Table hardware_assignments [note: 'Firestore keeps a singleton hardware_system/currentOwner document (fields: uid, tank_id, assigned_by, assigned_at); uid and tank_id are null when unassigned'] {
   assignment_id varchar [pk, note: 'Conceptual key only; actual fixed Firestore document ID is hardware_system/currentOwner']
-  uid varchar [note: 'Stored on hardware_system/currentOwner; null when unassigned']
+  uid varchar [ref: > users.uid, note: 'Stored on hardware_system/currentOwner; null when unassigned']
   tank_id varchar [unique, ref: - tanks.tank_id, note: 'Stored on hardware_system/currentOwner; null when unassigned']
   assigned_by varchar [not null, ref: > users.uid]
   assigned_at timestamp [not null]
@@ -89,16 +96,14 @@ Table sensor_readings_history [note: '10-minute sensor-history records. The pare
   }
 }
 
-Table sensor_readings [note: 'Operational latest-reading projection; outside the strict transactional 3NF core. Persisted at tanks/{tankId}/sensor_readings/latest'] {
+Table sensor_readings [note: 'Operational latest-reading projection; outside the strict transactional 3NF core. Persisted at tanks/{tankId}/sensor_readings/latest. The runtime-only turbidity_air probe-status flag and buffered_entries offline-sync counter are intentionally omitted from this ERD.'] {
   tank_id varchar [pk, ref: - tanks.tank_id]
   temperature decimal(6,2)
   ph_level decimal(5,2)
   dissolved_oxygen decimal(5,2)
   turbidity decimal(8,2)
-  turbidity_air boolean
   water_level decimal(6,2)
   feed_level decimal(6,2)
-  buffered_entries int
   recorded_at timestamp [not null]
 }
 
@@ -214,7 +219,7 @@ Ref: feeder_schedule_days.(tank_id, schedule_id) > feeder_schedules.(tank_id, sc
 
 Table water_quality_anomaly_detection_history [note: 'Canonical WQAD history. Each fresh sensor-history record can produce one detection; the app treats the greatest processed_at timestamp as latest. Legacy records in water_quality_anomaly_detections remain read-only during transition.'] {
   tank_id varchar [not null, ref: > tanks.tank_id]
-  uid varchar [note: 'Owner UID attached by the Cloud Function']
+  uid varchar [ref: > users.uid, note: 'Owner UID attached by the Cloud Function; nullable when unavailable']
   detection_id varchar [not null, note: 'Source-keyed Firestore document ID for automatic analysis; manual diagnostic runs use YYYYMMDDTHHMMSS']
   status varchar [not null, note: 'Normal | Unusual | Insufficient']
   is_anomaly boolean [not null]
@@ -223,12 +228,25 @@ Table water_quality_anomaly_detection_history [note: 'Canonical WQAD history. Ea
   insight text [not null]
   recommendation text [not null]
   processed_at timestamp [not null, note: 'Firestore Timestamp; app orders history by it']
-  contributors json [not null, note: 'Firestore array of {sensor, value, direction, contribution_score}; labels and units are mapped in the app; empty array when none']
+  source_recorded_at timestamp [note: 'Capture time of the newest sensor-history record used for this detection; may be absent when no source timestamp is available']
   Indexes {
     (tank_id, detection_id) [pk]
     (tank_id, processed_at)
   }
   Note: 'Unsupervised Isolation Forest output; safety thresholds remain separate and are not training labels.'
+}
+
+Table water_quality_anomaly_contributors [note: 'Normalized SQL representation of items in the Firestore contributors array; an empty array produces no child rows'] {
+  tank_id varchar [not null]
+  detection_id varchar [not null]
+  contributor_order smallint [not null, note: 'One-based rank in the Firestore contributors array']
+  sensor varchar [not null]
+  value decimal(10,3) [not null]
+  direction varchar [not null]
+  contribution_score decimal(10,6) [not null]
+  Indexes {
+    (tank_id, detection_id, contributor_order) [pk]
+  }
 }
 
 Table batches [note: 'Persisted at tanks/{tankId}/batches/{batchId}; growth averages are derived by the app from the baseline sampling record measurements, not stored on the batch document'] {
@@ -266,7 +284,7 @@ Table sampling_records [note: 'Persisted at tanks/{tankId}/batches/{batchId}/sam
   Note: 'Sample size, total weight and length, ABW, ABL, and biomass are derived from the associated individual measurement rows. Historical records may still contain legacy aggregate fields and remain readable.'
 }
 
-Table sampling_measurements [note: 'One row for each crayfish measured in a sampling session'] {
+Table sampling_measurements [note: 'Normalized child table with one row for each crayfish measured in a sampling session.'] {
   tank_id varchar [not null]
   batch_id varchar [not null]
   sampling_id varchar [not null]
@@ -306,6 +324,7 @@ Table harvest_records [note: 'Persisted at tanks/{tankId}/batches/{batchId}/harv
 
 Ref: sampling_records.(tank_id, batch_id) > batches.(tank_id, batch_id)
 Ref: sampling_measurements.(tank_id, batch_id, sampling_id) > sampling_records.(tank_id, batch_id, sampling_id)
+Ref: water_quality_anomaly_contributors.(tank_id, detection_id) > water_quality_anomaly_detection_history.(tank_id, detection_id)
 Ref: mortality_records.(tank_id, batch_id) > batches.(tank_id, batch_id)
 Ref: harvest_records.(tank_id, batch_id) > batches.(tank_id, batch_id)
 

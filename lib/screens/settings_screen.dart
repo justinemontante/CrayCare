@@ -61,6 +61,9 @@ class _SettingsScreenState extends State<SettingsScreen>
       AuthorizationStatus.notDetermined;
   bool _notificationPermissionBusy = false;
   Timer? _notifSaveDebounce;
+  int _notifPrefsRevision = 0;
+  bool _notifPrefsSaving = false;
+  String _notifPrefsSaveState = 'idle';
 
   @override
   void initState() {
@@ -212,22 +215,67 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   Future<void> _saveNotifPrefs() async {
     if (!_roleResolved || _isAdmin) return;
+    if (_notifPrefsSaving) return;
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-    await DatabaseService.instance.saveNotificationPrefs(
-      uid: user.uid,
-      sound: _notifSound,
-      vibration: _notifVibration,
-      critical: _notifCritical,
-      feeding: _notifFeeding,
-      sampling: _notifSampling,
-      operational: _notifOperational,
-      warning: _notifWarning,
-    );
+    if (user == null) {
+      _setNotifPrefsSaveState('failed');
+      return;
+    }
+
+    _notifPrefsSaving = true;
+    _notifSaveDebounce?.cancel();
+    _notifSaveDebounce = null;
+    _setNotifPrefsSaveState('saving');
+    var revisionToSave = _notifPrefsRevision;
+
+    try {
+      while (true) {
+        try {
+          await DatabaseService.instance.saveNotificationPrefs(
+            uid: user.uid,
+            sound: _notifSound,
+            vibration: _notifVibration,
+            critical: _notifCritical,
+            feeding: _notifFeeding,
+            sampling: _notifSampling,
+            operational: _notifOperational,
+            warning: _notifWarning,
+          );
+        } catch (error) {
+          debugPrint('[Settings] Notification preferences save error: $error');
+          if (revisionToSave != _notifPrefsRevision) {
+            _notifSaveDebounce?.cancel();
+            _notifSaveDebounce = null;
+            revisionToSave = _notifPrefsRevision;
+            continue;
+          }
+          _setNotifPrefsSaveState('failed');
+          return;
+        }
+
+        if (revisionToSave != _notifPrefsRevision) {
+          _notifSaveDebounce?.cancel();
+          _notifSaveDebounce = null;
+          revisionToSave = _notifPrefsRevision;
+          continue;
+        }
+        _setNotifPrefsSaveState('saved');
+        return;
+      }
+    } finally {
+      _notifPrefsSaving = false;
+    }
+  }
+
+  void _setNotifPrefsSaveState(String state) {
+    if (!mounted || _notifPrefsSaveState == state) return;
+    setState(() => _notifPrefsSaveState = state);
   }
 
   void _scheduleNotifPrefsSave() {
     if (!_roleResolved || _isAdmin) return;
+    _notifPrefsRevision++;
+    _setNotifPrefsSaveState('saving');
     _notifSaveDebounce?.cancel();
     _notifSaveDebounce = Timer(
       const Duration(milliseconds: 450),
@@ -568,6 +616,9 @@ class _SettingsScreenState extends State<SettingsScreen>
                   notificationPermissionBusy: _notificationPermissionBusy,
                   onNotificationPermissionAction:
                       _handleNotificationPermissionAction,
+                  notificationPrefsSaveState: _notifPrefsSaveState,
+                  onRetryNotificationPrefsSave: () =>
+                      unawaited(_saveNotifPrefs()),
                   onNotifSoundChanged: (v) {
                     _notifSound = v ?? true;
                     _scheduleNotifPrefsSave();

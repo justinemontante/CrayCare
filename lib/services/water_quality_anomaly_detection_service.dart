@@ -22,8 +22,8 @@ String normalizeWaterQualityAnomalyStatus(Object? value) {
 class WaterQualityAnomalyDetectionResult {
   static const Map<String, String> _sensorLabels = {
     'temp': 'Temperature',
-    'pH': 'pH Level',
-    'DO': 'Dissolved Oxygen',
+    'pH': 'pH',
+    'DO': 'Dissolved oxygen',
     'turbidity': 'Turbidity',
     'waterLevel': 'Water Level',
   };
@@ -115,7 +115,7 @@ class WaterQualityAnomalyDetectionResult {
 
   String get driver => primaryContributor?['sensor']?.toString() ?? 'overall';
   String get driverLabel =>
-      driver == 'overall' ? 'Combined water pattern' : sensorLabelFor(driver);
+      driver == 'overall' ? 'Overall water pattern' : sensorLabelFor(driver);
   double? get driverValue => (primaryContributor?['value'] as num?)?.toDouble();
   String get driverUnit => sensorUnitFor(driver);
 

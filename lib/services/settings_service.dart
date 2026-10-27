@@ -67,7 +67,7 @@ class SettingsService extends ChangeNotifier {
     final max = (data['max_value'] as num?)?.toDouble();
     if (min == null || max == null) return null;
     final critical = (data['critical_value'] as num?)?.toDouble();
-    return {'min': min, 'max': max, if (critical != null) 'critical': critical};
+    return {'min': min, 'max': max, 'critical':? critical};
   }
 
   Future<void> _loadTankCache(String tankId) async {

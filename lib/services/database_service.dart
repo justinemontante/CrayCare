@@ -202,7 +202,7 @@ class DatabaseService {
 
     // Seed default sensor thresholds.
     const defaults = {
-      'temperature': {'min': 24.0, 'max': 30.0},
+      'temperature': {'min': 26.0, 'max': 29.0},
       'ph_level': {'min': 7.0, 'max': 8.5},
       'dissolved_oxygen': {'min': 5.0, 'max': 9.0},
       'turbidity': {'min': 0.0, 'max': 25.0},

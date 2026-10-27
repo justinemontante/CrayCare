@@ -2,8 +2,8 @@
 
 SENSOR_LABELS = {
     "temp": "Temperature",
-    "pH": "pH Level",
-    "DO": "Dissolved Oxygen",
+    "pH": "pH",
+    "DO": "Dissolved oxygen",
     "turbidity": "Turbidity",
 }
 
@@ -12,16 +12,15 @@ def interpret_anomaly(is_anomaly, anomaly_score, contributors, recommendations):
     if not is_anomaly:
         return {
             "insight": (
-                "The recent temperature, pH, dissolved-oxygen, and turbidity pattern resembles "
-                "the model's learned reference. This is not a water-safety assessment."
+                "No unusual change was found in the latest water readings."
             ),
             "recommendation": recommendations["overall"]["normal"],
         }
     if not contributors:
         return {
             "insight": (
-                "The recent combined pattern differs from the model's learned reference, but "
-                "the model did not identify a main sensor."
+                "The latest readings look unusual, but the app could not tell "
+                "which reading stands out."
             ),
             "recommendation": recommendations["overall"]["verify"],
         }
@@ -33,9 +32,9 @@ def interpret_anomaly(is_anomaly, anomaly_score, contributors, recommendations):
         unit = {"temp": "°C", "DO": " mg/L", "turbidity": " NTU"}.get(item["sensor"], "")
         reading = f"{label} ({item['value']:g}{unit})"
         if item["direction"] == "stable":
-            return f"{reading} shows little net change in recent readings"
-        direction = {"increasing": "trending up", "decreasing": "trending down"}.get(
-            item["direction"], "has an unclear recent trend"
+            return f"{reading} has changed little"
+        direction = {"increasing": "is rising", "decreasing": "is falling"}.get(
+            item["direction"], "has changed"
         )
         return f"{reading} is {direction}"
 
@@ -75,7 +74,7 @@ def interpret_anomaly(is_anomaly, anomaly_score, contributors, recommendations):
         recommendation = sensor_rec.get(primary["direction"], sensor_rec.get("verify"))
     return {
         "insight": (
-            f"An unusual combined water-quality pattern was detected. {pattern}."
+            f"Recent readings show an unusual change: {pattern}."
         ),
         "recommendation": recommendation,
     }

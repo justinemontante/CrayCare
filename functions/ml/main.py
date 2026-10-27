@@ -65,6 +65,21 @@ def _run_water_quality_anomaly_detection(frame):
     return detect_water_quality_anomaly(frame, bundle, recommendations)
 
 
+def _model_metadata(bundle):
+    """Return compact provenance for the artifact used by this inference."""
+    if not bundle:
+        return None
+    values = {
+        "algorithm": bundle.get("algorithm"),
+        "feature_version": bundle.get("feature_version"),
+        "training_data_origin": bundle.get("training_data_origin"),
+        "trained_at_utc": bundle.get("trained_at_utc"),
+        "training_labels_used": bundle.get("training_labels_used"),
+        "decision_percentile": bundle.get("decision_percentile"),
+    }
+    return {key: value for key, value in values.items() if value is not None}
+
+
 def _valid_history_row(row, sensors=None):
     sensors = list(sensors or _WQAD_SENSORS)
     for sensor in sensors:
@@ -191,14 +206,14 @@ def _insufficient_result(data_status):
         "anomaly_score": 0.0,
         "contributors": [],
         "insight": (
-            "The latest sensor record is over 20 minutes old."
+            "The latest reading is over 20 minutes old."
             if stale
-            else "A continuous two-hour window of valid sensor readings is needed."
+            else "There are not enough recent readings to check the water pattern."
         ),
         "recommendation": (
-            "Check ESP32 connectivity and wait for enough fresh sensor readings."
+            "Check the sensor connection and wait for new readings."
             if stale
-            else "Continue collecting calibrated sensor data."
+            else "Wait for more recent readings before checking the water pattern."
         ),
         "source": "Stale sensor history" if stale else "Insufficient data",
     }
@@ -250,6 +265,8 @@ def _analyze_tank(tank_id, source_id=None, source_at=None):
         if data_status == "ready"
         else _insufficient_result(data_status)
     )
+    if data_status == "ready" and bundle and result.get("source") == "WQAD model":
+        result["model_metadata"] = _model_metadata(bundle)
     result["tank_id"] = tank_id
     if owner_uid:
         result["uid"] = owner_uid
@@ -305,7 +322,7 @@ def _prune_history(db, tank_id, now, retain_days=30, max_deletes=100):
     region="asia-southeast1",
     memory=options.MemoryOption.MB_512,
 )
-def run_wqad_analysis(event) -> None:
+def run_wqad_analysis_on_sensor_record(event) -> None:
     """Analyze fresh history for the active tank once per captured record."""
     if event.data is None:
         return

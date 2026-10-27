@@ -34,32 +34,145 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   bool _isLoading = false;
   final Set<String> _fetchingRanges = <String>{};
   int _filterRequestId = 0;
-  bool get _isFetching => _fetchingRanges.isNotEmpty;
-  final Map<String, DateTime> _lastFetchedAt = {}; // range → when last fetched
-  static const _historyRefreshInterval = Duration(minutes: 10);
-  Timer? _autoRefreshTimer;
   Timer? _liveTimer;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _historyTailSub;
+  Timer? _historyTailRolloverTimer;
+  Timer? _historyReloadTimer;
+  String? _historyTailDateKey;
+  int _historyTailGeneration = 0;
   final ValueNotifier<int> _liveRefresh = ValueNotifier<int>(0);
   bool _isTabActive = false;
 
   bool get _showCritical => _activeFilter != 'live' && _activeFilter == '24h';
 
-  // Historical ranges (24h/7d/30d always, custom only if its end date is
-  // today or later) include today's still-being-written subcollection.
-  // Only those ranges benefit from auto-refreshing.
   bool get _activeRangeIncludesToday {
-    if (_activeFilter == 'live') return false;
-    final now = DateTime.now();
-    switch (_activeFilter) {
-      case '24h':
-      case '7d':
-      case '30d':
-        return true;
-      case 'custom':
-        return !_customEndDate.isBefore(DateTime(now.year, now.month, now.day));
-      default:
-        return false;
+    if (_activeFilter == '24h' ||
+        _activeFilter == '7d' ||
+        _activeFilter == '30d') {
+      return true;
     }
+    if (_activeFilter != 'custom') return false;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    return !_customEndDate.isBefore(today);
+  }
+
+  void _stopHistoryTailListener() {
+    _historyTailGeneration++;
+    _historyTailSub?.cancel();
+    _historyTailSub = null;
+    _historyTailDateKey = null;
+    _historyTailRolloverTimer?.cancel();
+    _historyReloadTimer?.cancel();
+  }
+
+  void _startHistoryTailListener({
+    required String range,
+    required DateTime historyStart,
+    required List<Map<String, dynamic>> records,
+  }) {
+    if (!mounted ||
+        !_isTabActive ||
+        range != _activeFilter ||
+        !_activeRangeIncludesToday) {
+      _stopHistoryTailListener();
+      return;
+    }
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final dateKey =
+        '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+    if (_historyTailSub != null && _historyTailDateKey == dateKey) return;
+
+    _historyTailSub?.cancel();
+    _historyTailRolloverTimer?.cancel();
+    final rangeStartToday = historyStart.isAfter(today) ? historyStart : today;
+    var after = rangeStartToday.subtract(const Duration(microseconds: 1));
+    for (final record in records) {
+      final recordTime = _recordTime(record);
+      if (!recordTime.isBefore(today) && recordTime.isAfter(after)) {
+        after = recordTime;
+      }
+    }
+
+    final generation = ++_historyTailGeneration;
+    _historyTailDateKey = dateKey;
+    _historyTailSub = SensorService.instance.listenForNewHistoryEntries(
+      dateKey: dateKey,
+      after: after,
+      onRecords: (_) {
+        if (!mounted ||
+            !_isTabActive ||
+            _activeFilter != range ||
+            generation != _historyTailGeneration) {
+          return;
+        }
+        _historyReloadTimer?.cancel();
+        _historyReloadTimer = Timer(const Duration(milliseconds: 250), () {
+          unawaited(_refreshHistoryFromCache(range, generation));
+        });
+      },
+      onError: (error, stackTrace) {
+        debugPrint('[Analytics] History listener failed: $error');
+      },
+    );
+
+    if (_historyTailSub == null) {
+      _historyTailDateKey = null;
+      return;
+    }
+    _scheduleHistoryTailRollover(range);
+  }
+
+  Future<void> _refreshHistoryFromCache(String range, int generation) async {
+    if (!mounted ||
+        !_isTabActive ||
+        _activeFilter != range ||
+        generation != _historyTailGeneration) {
+      return;
+    }
+    if (_fetchingRanges.contains(range)) {
+      _historyReloadTimer = Timer(const Duration(milliseconds: 500), () {
+        unawaited(_refreshHistoryFromCache(range, generation));
+      });
+      return;
+    }
+    await _generateData(range);
+    if (mounted &&
+        _isTabActive &&
+        _activeFilter == range &&
+        generation == _historyTailGeneration) {
+      setState(() {});
+    }
+  }
+
+  void _scheduleHistoryTailRollover(String range) {
+    _historyTailRolloverTimer?.cancel();
+    final now = DateTime.now();
+    final nextDay = DateTime(now.year, now.month, now.day + 1);
+    final delay = nextDay.difference(now) + const Duration(milliseconds: 100);
+    _historyTailRolloverTimer = Timer(delay, () {
+      if (!mounted || !_isTabActive || range != _activeFilter) return;
+      if (!_activeRangeIncludesToday) {
+        _stopHistoryTailListener();
+        return;
+      }
+      final today = DateTime.now();
+      _historyTailSub?.cancel();
+      _historyTailSub = null;
+      _historyTailDateKey = null;
+      _startHistoryTailListener(
+        range: range,
+        historyStart: today,
+        records: const [],
+      );
+    });
+  }
+
+  Future<void> _reloadActiveHistory(String range) async {
+    await _generateData(range);
+    if (mounted && _activeFilter == range) setState(() {});
   }
 
   void _startLiveTimer() {
@@ -123,21 +236,6 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     if (mounted) setState(() {});
   }
 
-  Future<void> _maybeAutoRefreshHistory() async {
-    if (!mounted) return;
-    if (!_isTabActive) return;
-    if (!_activeRangeIncludesToday) return;
-    if (_isFetching) return; // another fetch is already in flight
-    // Skip if we fetched this range recently (ESP writes every 10 min)
-    final lastFetch = _lastFetchedAt[_activeFilter];
-    if (lastFetch != null &&
-        DateTime.now().difference(lastFetch) < _historyRefreshInterval) {
-      return;
-    }
-    await _generateData(_activeFilter);
-    if (mounted) setState(() {});
-  }
-
   void _onChartSelectionChanged(String chartKey, int? index) {
     setState(() => _selectedIndices[chartKey] = index);
   }
@@ -158,17 +256,11 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     _startLiveTimer();
     SettingsService.instance.addListener(_onSettingsChanged);
     SensorService.instance.addListener(_onSensorChanged);
-    // Auto-refresh every 10 min — matches the ESP32 history write cadence.
-    // Refreshing more often just reads docs that haven't changed yet.
-    _autoRefreshTimer = Timer.periodic(
-      _historyRefreshInterval,
-      (_) => _maybeAutoRefreshHistory(),
-    );
   }
 
   @override
   void dispose() {
-    _autoRefreshTimer?.cancel();
+    _stopHistoryTailListener();
     _liveTimer?.cancel();
     _liveRefresh.dispose();
     _scrollController.dispose();
@@ -193,29 +285,15 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     _isTabActive = active;
     if (!active) {
       _liveTimer?.cancel();
+      _stopHistoryTailListener();
       return;
     }
     if (_activeFilter == 'live') {
       _generateLive();
       _startLiveTimer();
     } else if (mounted) {
-      setState(() {});
+      unawaited(_reloadActiveHistory(_activeFilter));
     }
-  }
-
-  Future<void> _retryActiveRange() async {
-    final range = _activeFilter;
-    if (range == 'live' || _isFetching) return;
-    final requestId = ++_filterRequestId;
-    setState(() {
-      _isLoading = true;
-      _historyLoadFailed.remove(range);
-    });
-    await _generateData(range);
-    if (!mounted || requestId != _filterRequestId || _activeFilter != range) {
-      return;
-    }
-    setState(() => _isLoading = false);
   }
 
   static const Map<String, Map<String, String>> _historyFieldMap = {
@@ -292,13 +370,12 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
     List<Map<String, dynamic>> records;
     try {
-      // History can be backfilled after the ESP reconnects. Refresh the cache
-      // before an explicit Analytics read so an older cached day cannot hide
-      // newly uploaded entries for up to 12 hours.
-      SensorService.instance.clearHistoryCache();
+      // Reuse cached daily records. The live history listener appends newly
+      // created entries to today's cache without refetching the full range.
       final fetch = SensorService.instance.fetchHistoryRange(
         start: historyStart,
         end: historyEnd,
+        useDailySummaries: range != '7d' && range != '30d' && range != 'custom',
       );
       if (range == 'custom') {
         // Large custom ranges can legitimately span hundreds of daily
@@ -311,7 +388,6 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
             : const Duration(seconds: 30);
         records = await fetch.timeout(timeout);
       }
-      _lastFetchedAt[range] = DateTime.now();
     } catch (e) {
       _historyLoadFailed.add(range);
       debugPrint('[Analytics] Failed to load $range history: $e');
@@ -322,6 +398,11 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
     if (records.isEmpty || pts == 0) {
       _clearRange(range);
+      _startHistoryTailListener(
+        range: range,
+        historyStart: historyStart,
+        records: const [],
+      );
       return;
     }
 
@@ -334,6 +415,48 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
     if (records.isEmpty) {
       _clearRange(range);
+      _startHistoryTailListener(
+        range: range,
+        historyStart: historyStart,
+        records: const [],
+      );
+      return;
+    }
+
+    // The 7-day, 30-day, and custom views plot every saved history entry
+    // directly instead of combining readings into hourly/daily averages.
+    // The chart can be horizontally scrolled to inspect each record.
+    if (range == '7d' || range == '30d' || range == 'custom') {
+      _labels[range] = records.map((record) {
+        final time = _recordTime(record);
+        final hour = time.hour > 12
+            ? time.hour - 12
+            : (time.hour == 0 ? 12 : time.hour);
+        final ampm = time.hour >= 12 ? 'PM' : 'AM';
+        final minute = time.minute.toString().padLeft(2, '0');
+        return '${time.month}/${time.day} $hour:$minute $ampm';
+      }).toList();
+
+      for (final key in SensorService.sensorKeys) {
+        final fields = _historyFieldMap[key];
+        if (fields == null) continue;
+        final values = records.map((record) {
+          final raw =
+              record[fields['avg']!] ??
+              (fields['legacyAvg'] == null
+                  ? null
+                  : record[fields['legacyAvg']!]);
+          return _historyValue(key, raw) ?? double.nan;
+        }).toList();
+        _data['$key-$range'] = values;
+        _minData['$key-$range'] = List<double>.from(values);
+        _maxData['$key-$range'] = List<double>.from(values);
+      }
+      _startHistoryTailListener(
+        range: range,
+        historyStart: historyStart,
+        records: records,
+      );
       return;
     }
 
@@ -460,7 +583,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
             continue;
           }
 
-          final avgRaw = records[j][fields['avg']!] ??
+          final avgRaw =
+              records[j][fields['avg']!] ??
               (fields['legacyAvg'] == null
                   ? null
                   : records[j][fields['legacyAvg']!]);
@@ -482,6 +606,11 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       _minData['$key-$range'] = List<double>.from(averages);
       _maxData['$key-$range'] = List<double>.from(averages);
     }
+    _startHistoryTailListener(
+      range: range,
+      historyStart: historyStart,
+      records: records,
+    );
   }
 
   void _clearRange(String range) {
@@ -562,33 +691,40 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                 _buildHeader(),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 12, 12, 5),
-                  child: FilterSelector(
-                    activeFilter: _activeFilter,
-                    showCustom: _showCustom,
-                    onFilterChanged: (val) async {
-                      final requestId = ++_filterRequestId;
-                      setState(() {
-                        _activeFilter = val;
-                        _showCustom = false;
-                        _selectedIndices.clear();
-                        _isLoading = val != 'live';
-                      });
-                      if (val == 'live') {
-                        _startLiveTimer();
-                        _generateLive();
-                      } else {
-                        _liveTimer?.cancel();
-                        await _generateData(val);
-                      }
-                      if (mounted &&
-                          requestId == _filterRequestId &&
-                          _activeFilter == val) {
-                        setState(() => _isLoading = false);
-                      }
-                    },
-                    onToggleCustom: () {
-                      setState(() => _showCustom = !_showCustom);
-                    },
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: FilterSelector(
+                          activeFilter: _activeFilter,
+                          showCustom: _showCustom,
+                          onFilterChanged: (val) async {
+                            final requestId = ++_filterRequestId;
+                            _stopHistoryTailListener();
+                            setState(() {
+                              _activeFilter = val;
+                              _showCustom = false;
+                              _selectedIndices.clear();
+                              _isLoading = val != 'live';
+                            });
+                            if (val == 'live') {
+                              _startLiveTimer();
+                              _generateLive();
+                            } else {
+                              _liveTimer?.cancel();
+                              await _generateData(val);
+                            }
+                            if (mounted &&
+                                requestId == _filterRequestId &&
+                                _activeFilter == val) {
+                              setState(() => _isLoading = false);
+                            }
+                          },
+                          onToggleCustom: () {
+                            setState(() => _showCustom = !_showCustom);
+                          },
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 AnimatedSize(
@@ -659,29 +795,11 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                         children: [
                           const Expanded(
                             child: Text(
-                              'Could not refresh history. Check your connection and try again.',
+                              'Could not load history. Check your connection, then reopen this filter.',
                               style: TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.w600,
                                 color: AppColors.dark,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          TextButton(
-                            onPressed: _retryActiveRange,
-                            style: TextButton.styleFrom(
-                              foregroundColor: AppColors.primary,
-                              minimumSize: const Size(0, 34),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                              ),
-                            ),
-                            child: const Text(
-                              'Try Again',
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w800,
                               ),
                             ),
                           ),
@@ -993,8 +1111,10 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
               onTapCancel: () => setState(() => _isApplyPressed = false),
               onTap: () async {
                 final requestId = ++_filterRequestId;
+                _stopHistoryTailListener();
                 setState(() {
                   _activeFilter = 'custom';
+                  _showCustom = false;
                   _selectedIndices.clear();
                   _isLoading = true;
                 });
@@ -1304,11 +1424,14 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
   int _decimalFor(String key) => key == 'feedlevel' ? 0 : 2;
 
+  bool _usesLowCriticalThreshold(String key) =>
+      key == 'waterlevel' || key == 'feedlevel';
+
   Map<String, double> _thresholdsFor(String key) {
     final range = SettingsService.instance.currentRanges[key];
-    if (key == 'waterlevel') {
+    if (_usesLowCriticalThreshold(key)) {
       return {
-        'low': range?['low'] ?? 15.0,
+        'low': range?['low'] ?? (key == 'feedlevel' ? 20.0 : 15.0),
         'critical': range?['critical'] ?? 10.0,
       };
     }
@@ -1331,8 +1454,9 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     required Map<String, double> thresholds,
   }) {
     final items = <_CriticalItem>[];
-    if (chartKey == 'waterlevel') {
-      final lowThreshold = thresholds['low'] ?? 15.0;
+    if (_usesLowCriticalThreshold(chartKey)) {
+      final lowThreshold =
+          thresholds['low'] ?? (chartKey == 'feedlevel' ? 20.0 : 15.0);
       final criticalThreshold = thresholds['critical'] ?? 10.0;
       final length = max(minData.length, maxData.length);
       for (int i = 0; i < length; i++) {
@@ -1477,7 +1601,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                 Flexible(
                   child: Text(
                     criticalCount > 0
-                        ? chartKey == 'waterlevel'
+                        ? _usesLowCriticalThreshold(chartKey)
                               ? '$criticalCount low/critical reading${criticalCount > 1 ? 's' : ''}'
                               : '$criticalCount critical point${criticalCount > 1 ? 's' : ''}'
                         : 'No critical points',
@@ -1663,7 +1787,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                               ),
                             Text(
                               modalShowCritical
-                                  ? chartKey == 'waterlevel'
+                                  ? _usesLowCriticalThreshold(chartKey)
                                         ? 'Low/Critical Readings'
                                         : 'Critical Points'
                                   : '$title ($unit)',
@@ -1811,7 +1935,9 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                                           const SizedBox(width: 4),
                                           Text(
                                             criticalCount > 0
-                                                ? chartKey == 'waterlevel'
+                                                ? _usesLowCriticalThreshold(
+                                                        chartKey,
+                                                      )
                                                       ? '$criticalCount low/critical reading${criticalCount > 1 ? 's' : ''}  ›'
                                                       : '$criticalCount critical point${criticalCount > 1 ? 's' : ''}  ›'
                                                 : 'No critical points',
@@ -1938,7 +2064,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
               ),
               const SizedBox(width: 4),
               Text(
-                chartKey == 'waterlevel'
+                _usesLowCriticalThreshold(chartKey)
                     ? 'Low/Critical Readings (${items.length})'
                     : 'Critical Points (${items.length})',
                 style: const TextStyle(

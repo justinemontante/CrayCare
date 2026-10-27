@@ -17,60 +17,59 @@ class AnomalyInterpreterTests(unittest.TestCase):
 
     def test_normal_means_pattern_match_not_safe_water_claim(self):
         result = interpret_anomaly(False, 20, [], self.recommendations)
-        self.assertIn("learned reference", result["insight"])
-        self.assertIn("not a water-safety assessment", result["insight"])
+        self.assertIn("No unusual change was found", result["insight"])
         self.assertNotIn("water is safe", result["insight"].lower())
-        self.assertIn("routine monitoring", result["recommendation"])
+        self.assertIn("Keep checking the tank", result["recommendation"])
 
     def test_unusual_insight_does_not_claim_a_cause(self):
         result = interpret_anomaly(True, 99, [{
             "sensor": "DO", "value": 4.8, "direction": "decreasing",
             "contribution_score": 0.7,
         }], self.recommendations)
-        self.assertIn("unusual combined water-quality pattern", result["insight"])
-        self.assertIn("Dissolved Oxygen (4.8 mg/L) is trending down", result["insight"])
+        self.assertIn("Recent readings show an unusual change", result["insight"])
+        self.assertIn("Dissolved oxygen (4.8 mg/L) is falling", result["insight"])
         self.assertNotIn("confirmed causes", result["insight"])
         self.assertNotIn("safety-limit checks", result["insight"])
         self.assertIn("aerator", result["recommendation"].lower())
-        self.assertIn("verify", result["recommendation"].lower())
+        self.assertIn("check the dissolved oxygen", result["recommendation"].lower())
 
     def test_no_contributors_uses_general_verification_advice(self):
         result = interpret_anomaly(True, 99, [], self.recommendations)
-        self.assertIn("did not identify a main sensor", result["insight"])
-        self.assertIn("calibrated", result["recommendation"].lower())
-        self.assertIn("configured safety alert", result["recommendation"].lower())
+        self.assertIn("could not tell which reading stands out", result["insight"])
+        self.assertIn("check the readings", result["recommendation"].lower())
+        self.assertIn("sensor warning", result["recommendation"].lower())
 
     def test_temperature_and_falling_do_select_combined_guidance(self):
         result = interpret_anomaly(True, 99, [
             {"sensor": "DO", "value": 4.8, "direction": "decreasing", "contribution_score": 0.7},
             {"sensor": "temp", "value": 29.2, "direction": "increasing", "contribution_score": 0.6},
         ], self.recommendations)
-        self.assertIn("Warm water holds less oxygen", result["recommendation"])
-        self.assertIn("configured temperature and DO alerts", result["recommendation"])
+        self.assertIn("make sure the aerator is running", result["recommendation"])
+        self.assertIn("temperature or oxygen warning", result["recommendation"])
 
     def test_matching_ph_and_do_trends_select_daily_cycle_guidance(self):
         result = interpret_anomaly(True, 99, [
             {"sensor": "pH", "value": 7.9, "direction": "increasing", "contribution_score": 0.7},
             {"sensor": "DO", "value": 7.1, "direction": "increasing", "contribution_score": 0.6},
         ], self.recommendations)
-        self.assertIn("time of day", result["recommendation"])
-        self.assertIn("affect daily pH and DO patterns", result["recommendation"])
+        self.assertIn("check the pH and dissolved oxygen readings", result["recommendation"])
+        self.assertIn("pH or oxygen warning", result["recommendation"])
 
     def test_weak_secondary_sensor_does_not_trigger_combined_advice(self):
         result = interpret_anomaly(True, 99, [
             {"sensor": "pH", "value": 7.9, "direction": "increasing", "contribution_score": 0.7},
             {"sensor": "DO", "value": 7.1, "direction": "increasing", "contribution_score": 0.2},
         ], self.recommendations)
-        self.assertIn("Confirm the pH", result["recommendation"])
-        self.assertNotIn("time of day", result["recommendation"])
+        self.assertIn("Check the pH", result["recommendation"])
+        self.assertNotIn("pH or oxygen warning", result["recommendation"])
 
     def test_decreasing_do_and_increasing_turbidity_select_combined_guidance(self):
         result = interpret_anomaly(True, 99, [
             {"sensor": "DO", "value": 4.8, "direction": "decreasing", "contribution_score": 0.7},
             {"sensor": "turbidity", "value": 28.0, "direction": "increasing", "contribution_score": 0.6},
         ], self.recommendations)
-        self.assertIn("Verify both readings", result["recommendation"])
-        self.assertIn("Follow either sensor's configured safety alert", result["recommendation"])
+        self.assertIn("Check the dissolved oxygen and water-clarity readings", result["recommendation"])
+        self.assertIn("oxygen or water-clarity warning", result["recommendation"])
 
     def test_sensor_directions_have_cautious_recommendations(self):
         for sensor in ("temp", "pH", "DO", "turbidity"):

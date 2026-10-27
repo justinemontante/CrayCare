@@ -65,18 +65,16 @@ void main() {
     expect(check(fresh: {'temp', 'do', 'ph', 'turb', 'feedlevel'}), isEmpty);
   });
 
-  test('stale water sensors and turbidity in air warn but do not block', () {
+  test('turbidity in air is omitted from water-quality warnings', () {
     expect(check(fresh: {'feedlevel'}), isEmpty);
 
     final warnings = feederWaterQualityWarnings(
-      values: {'turb': 55},
-      freshSensors: {'turb'},
+      values: {'temp': 27, 'do': 6, 'ph': 7.5, 'turb': 55},
+      freshSensors: {'temp', 'do', 'ph', 'turb'},
       ranges: ranges,
       turbidityAir: true,
     );
-    expect(warnings, hasLength(4));
-    expect(warnings.join(' '), contains('reading is stale or unavailable'));
-    expect(warnings.join(' '), contains('Turbidity probe is in air'));
+    expect(warnings, isEmpty);
   });
 
   test('dispatch preflight rejects operationally invalid requests', () {

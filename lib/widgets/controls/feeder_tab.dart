@@ -301,6 +301,43 @@ class FeederTab extends StatelessWidget {
   }
 
   Widget _buildWaterQualityWarning() {
+    const staleSuffix = ' reading is stale or unavailable';
+    final staleSensors = <String>[];
+    final otherWarnings = <String>[];
+    for (final warning in waterQualityWarnings) {
+      if (warning.endsWith(staleSuffix)) {
+        staleSensors.add(warning.substring(0, warning.length - staleSuffix.length));
+      } else {
+        otherWarnings.add(warning);
+      }
+    }
+
+    final sensorNames = staleSensors.map((sensor) {
+      switch (sensor) {
+        case 'Temperature':
+          return 'temperature';
+        case 'Dissolved oxygen':
+          return 'dissolved oxygen';
+        case 'pH':
+          return 'pH';
+        case 'Turbidity':
+          return 'turbidity';
+        default:
+          return sensor;
+      }
+    }).toList();
+    String joinNames(List<String> names) {
+      if (names.length < 2) return names.first;
+      if (names.length == 2) return '${names[0]} and ${names[1]}';
+      return '${names.sublist(0, names.length - 1).join(', ')}, and ${names.last}';
+    }
+
+    final displayWarnings = [
+      if (sensorNames.isNotEmpty)
+        'No recent readings are available for ${joinNames(sensorNames)}.',
+      ...otherWarnings,
+    ];
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(11),
@@ -331,7 +368,7 @@ class FeederTab extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 5),
-          ...waterQualityWarnings.map(
+          ...displayWarnings.map(
             (warning) => Padding(
               padding: const EdgeInsets.only(top: 2),
               child: Text(
@@ -342,15 +379,6 @@ class FeederTab extends StatelessWidget {
                   color: AppColors.darkWith(0.7),
                 ),
               ),
-            ),
-          ),
-          const SizedBox(height: 5),
-          Text(
-            'Feeding is allowed. Check the tank and follow your farm procedure.',
-            style: TextStyle(
-              fontSize: 8.5,
-              height: 1.25,
-              color: AppColors.darkWith(0.55),
             ),
           ),
         ],

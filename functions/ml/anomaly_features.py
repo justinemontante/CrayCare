@@ -160,8 +160,8 @@ def detect_water_quality_anomaly(df, bundle, recommendations):
             "status": "Insufficient",
             "is_anomaly": False,
             "anomaly_score": 0.0,
-            "insight": "The anomaly-detection model is not available.",
-            "recommendation": "Deploy a trained WQAD model before interpreting sensor patterns.",
+            "insight": "The water-pattern check is unavailable right now.",
+            "recommendation": "Try again later or contact your app administrator.",
             "contributors": [],
             "source": "Model unavailable",
         }
@@ -187,8 +187,8 @@ def detect_water_quality_anomaly(df, bundle, recommendations):
         if status != 'ready':
             return {'status': 'Insufficient', 'is_anomaly': False, 'anomaly_score': 0.0,
                     'contributors': [], 'source': 'Insufficient data',
-                    'insight': 'A complete recent window of valid sensor readings is required.',
-                    'recommendation': 'Check sensor connectivity and calibration, then collect more readings.'}
+                    'insight': 'There are not enough recent readings to check the water pattern.',
+                    'recommendation': 'Check the sensor connection and wait for more readings.'}
     features = build_anomaly_features(df, sensors=sensors, version=version)
     expected = bundle["features"]
     latest = features.iloc[[-1]].copy()

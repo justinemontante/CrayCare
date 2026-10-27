@@ -33,7 +33,7 @@ duplicated as fields inside that document. The only intentional duplicate is
 - `sampling_records/{recordId}` uses `baseline` for the initial record and a Firestore Auto-ID for later samples.
 - `mortality_records`, `harvest_records`, and `feeder_commands` use Firestore Auto-IDs. New `feeder_schedules` documents use their `HH:mm` time as the ID; older schedules may still have Auto-IDs.
 - `actuator_logs` use Firestore Auto-IDs. `feeder_logs` use a Firestore Auto-ID for app audit entries or a durable firmware event ID for ESP32 outcome entries.
-- Fixed document IDs include `sensor_readings/latest`, `feeder/status`, `hardware_system/currentOwner`, and anomaly detection `current`. Historical anomaly detection records use `YYYYMMDDTHHMMSS`.
+- Fixed document IDs include `sensor_readings/latest`, `feeder/status`, and `hardware_system/currentOwner`. The old anomaly-detection `current` document is legacy; sensor-triggered history IDs combine the source timestamp in milliseconds with the source sensor-history entry ID, while manual diagnostic runs use `YYYYMMDDTHHMMSS`.
 
 ## Users
 
@@ -189,20 +189,20 @@ The app writes schedules directly to Firestore on Spark. New document IDs equal 
     feed_level_after: number | null
     level_change_detected: boolean | null
 
-  water_quality_anomaly_detection_history/{YYYYMMDDTHHMMSS}
-    uid: string
+  water_quality_anomaly_detection_history/{detectionId}
+    uid: string # included when tank ownership is available
     tank_id: string
     status: "Normal" | "Unusual" | "Insufficient"
     is_anomaly: boolean
     anomaly_score: number # reference-pattern percentile, not a safety score
     source: string
-    data_status: "ready" | "insufficient" | "stale"
-    source_recorded_at: Timestamp | null
+    source_recorded_at: Timestamp # omitted when no valid sensor timestamp is available
+    model_metadata: map # model-backed results only: algorithm, feature version, training origin/time, label use, decision percentile
     contributors: array # {sensor, value, direction, contribution_score}; app maps labels and units
     insight, recommendation
     processed_at: Timestamp
 
-    # Each fresh history record can append one result; newest processed_at is the latest.
+    # Each eligible fresh sensor-history record can append one result; newest processed_at is the latest.
     # The app no longer reads or writes a separate `current` result document.
 ```
 
@@ -210,7 +210,7 @@ The app writes schedules directly to Firestore on Spark. New document IDs equal 
 
 The feeder log trigger sets date-scoped schedule outcomes. `isDone` is legacy compatibility only, not proof of success. Feeder history is append-only: authorized clients can create entries, but cannot update or delete an existing log. `pending_confirmation` is a non-terminal audit entry and therefore has no required `status`. Offline retries retain the original tank, occurrence timestamp and deterministic log id. Interrupted dispensing is recorded as failed and is not replayed after reboot. Schedule and Feed Now dose values remain requested whole-gram amounts from 1–200. A completed cycle, including a physical-button confirmation for a schedule collision, may also record `estimated_dispensed_grams` from the servo-cycle estimate, not a direct weight measurement. Valid water-quality readings outside configured ranges produce warning-only feedback in the app and on the ESP LCD; warning text is not stored in feeder logs. Missing/stale/invalid sensors and critical feed level remain hard stops. Hopper feed level remains percentage-only. App and ESP read all schedule pages.
 
-Machine Learning-Based Water Quality Anomaly Detection (WQAD) uses an unsupervised `IsolationForest` over multivariate readings, spreads, changes, rolling behavior, and trends. It requires at least six valid readings spanning 110 minutes within a continuous two-hour window; actual capture times determine readiness. Source data older than 20 minutes is marked stale/Insufficient. Safety thresholds remain separate: they are neither model features nor training labels. The current model still requires validation using calibrated field data from the actual tank.
+Machine Learning-Based Water Quality Anomaly Detection (WQAD) uses an unsupervised `IsolationForest` over multivariate readings, spreads, changes, rolling behavior, and trends. It requires at least six valid readings spanning 110 minutes within a continuous two-hour window; actual capture times determine readiness. Source data older than 20 minutes is marked stale/Insufficient. Safety thresholds remain separate: they are neither model features nor training labels. The local model candidate still requires validation using calibrated field data from the actual tank; the repository does not establish which artifact is currently deployed.
 
 Runtime event times (`logged_at`, `occurrence_at`, `last_changed`, `lastSeen`, `last_dispensed_at`, `source_recorded_at`, and sensor `recorded_at`) are stored as Firestore Timestamps. `created_at` is the record creation time; fields such as `sampling_date` represent when the sampling event occurred. Readers remain compatible with legacy epoch-millisecond, Unix-second, ISO-string, and `DateTime` values during rollout. Explicit millisecond protocol fields such as `effective_at_ms` and `source_assignment_at_ms` remain integers because scheduling and assignment logic compare them at millisecond precision. New sensor records use `recorded_at` as their single capture-time field; readers still accept legacy `captured_at_ms` values in older records.
 

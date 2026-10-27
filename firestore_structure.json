@@ -5,7 +5,7 @@
     "sampling_records": "baseline for the initial record; Firestore Auto-ID for later records.",
     "auto_id_collections": "mortality_records, harvest_records, feeder_commands, and actuator_logs. Legacy feeder_schedules may have Auto-IDs; new schedules use HH:mm as the document ID.",
     "feeder_logs": "Firestore Auto-ID for app audit entries or durable firmware event ID for ESP32 outcome entries.",
-    "fixed_or_time_keyed": "currentOwner, latest, status, current; WQAD history uses YYYYMMDDTHHMMSS."
+    "fixed_or_time_keyed": "currentOwner, latest, status, legacy current; sensor-triggered WQAD history IDs combine the source timestamp in milliseconds with the sensor-history entry ID, while manual diagnostic IDs use YYYYMMDDTHHMMSS."
   },
   "users": {
     "_id": "Firestore document ID: Firebase Authentication UID (not a stored field)",
@@ -230,8 +230,8 @@
       }
       ,
       "water_quality_anomaly_detection_history/{detectionId}": {
-        "_description": "Canonical WQAD result history. The Python Cloud Function appends one timestamp-named result every 15-minute run; the app derives the latest result from the greatest processed_at timestamp. Records are retained for 30 days.",
-        "fields": ["uid (owner uid)", "tank_id (string)", "status (Normal|Unusual|Insufficient)", "is_anomaly (bool)", "anomaly_score (0-100 percentile relative to learned reference patterns; not a safety score)", "source (WQAD model|Model unavailable|Insufficient data|Stale sensor history)", "data_status (ready|insufficient|stale)", "source_recorded_at (Timestamp|null)", "contributors (array of sensor, value, direction, contribution_score)", "insight (string)", "recommendation (string)", "processed_at (Timestamp)"]
+        "_description": "Canonical WQAD result history. A newly created sensor-history entry triggers the Python Cloud Function, which checks freshness and tank assignment before analyzing the rolling two-hour sensor window and appending an idempotent result. The app derives the latest result from the greatest processed_at timestamp. Records are retained for 30 days.",
+        "fields": ["uid (owner uid, when available)", "tank_id (string)", "status (Normal|Unusual|Insufficient)", "is_anomaly (bool)", "anomaly_score (0-100 percentile relative to learned reference patterns; not a safety score)", "source (WQAD model|Model unavailable|Insufficient data|Stale sensor history)", "source_recorded_at (Timestamp, when available)", "model_metadata (optional map: algorithm, feature_version, training_data_origin, trained_at_utc, training_labels_used, decision_percentile; present when the model produced the result)", "contributors (array of sensor, value, direction, contribution_score)", "insight (string)", "recommendation (string)", "processed_at (Timestamp)"]
       }
     }
   },

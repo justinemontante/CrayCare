@@ -286,17 +286,24 @@ class ReportExportService {
     return buf.toString();
   }
 
-  static int _snapshotMortality(BatchRecordSnapshot snapshot) =>
-      snapshot.mortality.fold(0, (total, entry) => total + entry.count);
+  static int _snapshotMortality(BatchRecordSnapshot snapshot) {
+    final recordTotal = snapshot.mortality.fold(
+      0,
+      (total, entry) => total + entry.count,
+    );
+    return recordTotal > snapshot.batch.totalMortality
+        ? recordTotal
+        : snapshot.batch.totalMortality;
+  }
 
   static int _snapshotHarvested(BatchRecordSnapshot snapshot) {
     final recordsTotal = snapshot.harvests.fold(
       0,
       (total, record) => total + record.harvestedCount,
     );
-    return snapshot.harvests.isEmpty
-        ? snapshot.batch.harvestCount
-        : recordsTotal;
+    return recordsTotal > snapshot.batch.harvestCount
+        ? recordsTotal
+        : snapshot.batch.harvestCount;
   }
 
   static DateTime _snapshotPeriodEnd(BatchRecordSnapshot snapshot) {
@@ -306,12 +313,10 @@ class ReportExportService {
   }
 
   static double _snapshotSurvivalRate(BatchRecordSnapshot snapshot) {
-    final initial = snapshot.batch.initialCount;
-    if (initial <= 0) return 0;
-    final survivors = (initial - _snapshotMortality(snapshot))
-        .clamp(0, initial)
-        .toInt();
-    return survivors / initial * 100;
+    return crayfishSurvivalRatePercent(
+      snapshot.batch.initialCount,
+      _snapshotMortality(snapshot),
+    );
   }
 
   static SamplingEntry? _latestSampling(BatchRecordSnapshot snapshot) {

@@ -579,12 +579,13 @@ class DashboardScreenState extends State<DashboardScreen>
       final low = range['low'] ?? 15.0;
       return 'Low ≤ ${low.toStringAsFixed(0)} • Critical ≤ ${critical.toStringAsFixed(0)} cm';
     }
+    if (key == 'feedlevel') {
+      final low = range['low'] ?? range['min'] ?? 20.0;
+      return 'Ideal: > ${low.toStringAsFixed(0)}%';
+    }
     final min = range['min'] ?? 0.0;
     final max = range['max'] ?? 999.0;
     final unit = _getUnit(key);
-    if (key == 'feedlevel') {
-      return 'Ideal: > ${min.toStringAsFixed(0)}%';
-    }
     if (max >= 999) return 'Ideal: > ${min.toStringAsFixed(1)}$unit';
     return 'Ideal: ${min.toStringAsFixed(1)} \u2013 ${_formatMax(max)}$unit';
   }
@@ -1772,7 +1773,11 @@ class DashboardScreenState extends State<DashboardScreen>
   }) {
     final ranges = SettingsService.instance.currentRanges;
     final range = ranges[sensorKey] ?? {'min': 0.0, 'max': 0.0};
-    final rMin = (range['min'] ?? 0.0).toDouble();
+    final rMin =
+        (sensorKey == 'feedlevel'
+                ? range['low'] ?? range['min'] ?? 20.0
+                : range['min'] ?? 0.0)
+            .toDouble();
     final rMax = (range['max'] ?? 999.0).toDouble();
     final rUnit = _getUnit(sensorKey);
 

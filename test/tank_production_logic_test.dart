@@ -8,6 +8,27 @@ void main() {
       expect(baselineSamplingSize(0), 0);
     });
 
+    test('in-tank count subtracts both mortality and harvest', () {
+      expect(crayfishInTankCount(100, 10, 20), 70);
+      expect(crayfishInTankCount(100, 90, 20), 0);
+    });
+
+    test('survival rate counts harvested crayfish as survivors', () {
+      expect(crayfishSurvivalRatePercent(100, 10), 90);
+      expect(crayfishSurvivalRatePercent(100, 150), 0);
+      expect(crayfishSurvivalRatePercent(0, 0), 0);
+    });
+
+    test('harvest inputs reject non-finite or non-positive values', () {
+      expect(() => validateHarvestInput(10, 1.25), returnsNormally);
+      expect(() => validateHarvestInput(0, 1.25), throwsArgumentError);
+      expect(() => validateHarvestInput(10, 0), throwsArgumentError);
+      expect(
+        () => validateHarvestInput(10, double.infinity),
+        throwsArgumentError,
+      );
+    });
+
     test('sampling averages derive from raw totals and sample size', () {
       expect(deriveSamplingAverage(total: 40, sampleSize: 10), 4);
       expect(deriveSamplingAverage(total: 30, sampleSize: 10), 3);
@@ -37,6 +58,5 @@ void main() {
         expect(entry.biomass, 400);
       },
     );
-
   });
 }
