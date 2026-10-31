@@ -305,7 +305,7 @@ WIFI (up to 5 profiles saved in NVS)
 CALIBRATION
   turbclear <V>        Turbidity 0 NTU voltage
   turbdirty <V>        Turbidity ~500 NTU voltage
-  turbair <V>          Turbidity air threshold
+  turbair              Deprecated; clear/dirty two-point map does not use it
   phcal7               Calibrate pH 7.0
   phcal4               Calibrate pH 4.0
   doclear              Calibrate DO in air

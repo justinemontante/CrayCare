@@ -32,7 +32,7 @@
  *   Reset: send "RESET_WIFI" over Serial.
  *
  * Firestore ingestion paths (written by ESP32):
- *  tanks/{tankId}/sensor_readings/latest    -> latest payload every 5 seconds
+ *  tanks/{tankId}/sensor_readings/latest    -> latest averaged payload every 10 seconds
  *  tanks/{tankId}/sensor_readings_history/... -> current-assignment history directly
  *  sensorIngestion/current/history/{docId}  -> buffered/unassigned history fallback
  *
@@ -81,6 +81,13 @@ String ssid;
 String pass;
 #define WIFI_MAX_PROFILES 5
 
+enum SystemModeOverride : uint8_t {
+  SYSTEM_MODE_AUTO = 0,
+  SYSTEM_MODE_FORCE_OFFLINE = 1,
+  SYSTEM_MODE_FORCE_ONLINE = 2
+};
+SystemModeOverride systemModeOverride = SYSTEM_MODE_AUTO;
+
 // ============================================================
 //  FIREBASE SETTINGS
 // ============================================================
@@ -95,6 +102,13 @@ String hardwareId = "";
 String currentTankId = "";
 String currentOwnerUid;
 long long currentAssignmentAtMs = 0;
+bool systemCloudModeInitialized = false;
+bool systemCloudModeActive = false;
+
+bool hasCurrentTankAssignment() {
+  return !currentTankId.isEmpty() && !currentOwnerUid.isEmpty() &&
+      currentAssignmentAtMs >= 1577836800000LL;
+}
 
 // Firestore timestamps are UTC RFC3339; do not parse them with the Manila TZ.
 long long firestoreTimestampMillis(const String& value) {
@@ -124,7 +138,8 @@ long long firestoreTimestampMillis(const String& value) {
 #define CONFIG_SYNC_INTERVAL_MS 60000   // thresholds re-sync; switch forces immediate
 #define FLUSH_INTERVAL_MS 1000           // flush backlog at 1 entry/sec (max)
 #define NON_PH_SENSOR_POLL_MS 2000
-#define PH_SENSOR_POLL_MS 5000
+#define PH_SENSOR_POLL_MS 1000
+#define LIVE_SENSOR_AVERAGE_WINDOW_MS 5000UL
 #define ASSIGNMENT_RECHECK_MS 60000      // refresh hardware assignment once per minute
 #define ASSIGNMENT_SEARCH_MS 10000      // aggressive search while missing
 
@@ -193,6 +208,7 @@ bool firestoreGetDoc(const char* docPath) {
 }
 
 void fetchTankId() {
+  if (WiFi.status() != WL_CONNECTED) return;
   if (!ensureFirebaseReady()) return;
   // Read hardware_system/currentOwner to get tank_id for subcollection paths.
   // A missing doc is a legitimate unassignment; any other failure (e.g. a
@@ -789,13 +805,56 @@ unsigned long lastActuatorSyncMs = 0;
 #define GATE_OPEN_ANGLE_DFLT 90    // starting point — tune on bench, store via GATE_ANGLE
 #define GATE_CLOSE_ANGLE_DFLT 0    // starting point — tune on bench, store via GATE_CLOSE_ANGLE
 #define GATE_HOLD_MS_DFLT 800      // starting point — tune on bench, store via GATE_MS
-#define GATE_CLOSE_DWELL_MS 300    // let the servo shut between grams (mirrors GATECAL)
+#define GATE_CLOSE_DWELL_MS_DEFAULT 1000UL
+#define GATE_CLOSE_DWELL_MS_MAX 60000UL
+unsigned long gateCloseDwellMs = GATE_CLOSE_DWELL_MS_DEFAULT; // persisted runtime setting
 int gateOpenAngle = GATE_OPEN_ANGLE_DFLT;  // NVS "gateAngle"
 int gateCloseAngle = GATE_CLOSE_ANGLE_DFLT; // NVS "gateClose"
 bool gateCloseAngleConfigured = false;     // require explicit calibration before actuating
 int gateHoldMs = GATE_HOLD_MS_DFLT;        // NVS "gateHold"
 int gateAngleNow = 0;
 bool gateServoAttached = false;
+
+bool loadRuntimeSettings() {
+  if (!prefs.begin("runtime", true)) return false;
+  const int savedMode = prefs.isKey("mode")
+      ? prefs.getInt("mode", SYSTEM_MODE_AUTO) : SYSTEM_MODE_AUTO;
+  systemModeOverride = savedMode >= SYSTEM_MODE_AUTO && savedMode <= SYSTEM_MODE_FORCE_ONLINE
+      ? (SystemModeOverride)savedMode : SYSTEM_MODE_AUTO;
+  const uint32_t savedDwell = prefs.isKey("gateDwell")
+      ? prefs.getUInt("gateDwell", GATE_CLOSE_DWELL_MS_DEFAULT)
+      : GATE_CLOSE_DWELL_MS_DEFAULT;
+  gateCloseDwellMs = savedDwell <= GATE_CLOSE_DWELL_MS_MAX
+      ? savedDwell : GATE_CLOSE_DWELL_MS_DEFAULT;
+  prefs.end();
+  return true;
+}
+
+bool saveRuntimeSetting(const char* key, uint32_t value) {
+  if (!prefs.begin("runtime", false)) return false;
+  const bool saved = prefs.putUInt(key, value) == sizeof(uint32_t);
+  prefs.end();
+  return saved;
+}
+
+bool saveSystemMode(SystemModeOverride mode) {
+  if (!prefs.begin("runtime", false)) return false;
+  const bool saved = prefs.putInt("mode", (int)mode) == sizeof(int32_t);
+  prefs.end();
+  return saved;
+}
+
+const char* systemModeName() {
+  switch (systemModeOverride) {
+    case SYSTEM_MODE_FORCE_OFFLINE: return "OFFLINE";
+    case SYSTEM_MODE_FORCE_ONLINE: return "ONLINE";
+    default: return "AUTO";
+  }
+}
+
+bool cloudModeForcedOffline() {
+  return systemModeOverride == SYSTEM_MODE_FORCE_OFFLINE;
+}
 
 int _servoPulseToDuty(int pulseUs) {
   pulseUs = constrain(pulseUs, 500, 2600);
@@ -891,12 +950,11 @@ unsigned long blowerPostRunStartedMs = 0;
 
 // ============================================================
 //  CALIBRATED TURBIDITY THRESHOLDS
-//  Recalibrated: clear water ~1.52V, dirty ~1.40V, air <1.30V
-//  ESP32 sends turbidityAir flag so Flutter shows "--" when no water.
+//  Two-point field calibration: clear water voltage must exceed dirty voltage.
+//  No independent air/no-water classification is used in this mode.
 // ============================================================
 float turbidityVClear = 1.50;          // Voltage for clear water (0 NTU)
 float turbidityVDirty = 1.40;          // Voltage for very dirty water (500 NTU)
-float turbidityVAirMax = 1.30;         // Below this voltage = air/no water
 
 float tempCriticalLow = 24.0;
 float tempCriticalHigh = 30.0;
@@ -914,7 +972,8 @@ float waterLevelLowThreshold = 15.0;
 float waterLevelCriticalThreshold = 10.0;
 
 float feedLevelLowThreshold = 20.0f;
-float feedLevelCriticalThreshold = 10.0f;
+constexpr float FEED_LEVEL_CRITICAL_DEFAULT = 10.0f;
+float feedLevelCriticalThreshold = FEED_LEVEL_CRITICAL_DEFAULT;
 float feedLevelEmptyVoltage = 0.50f;
 float feedLevelFullVoltage = 2.80f;
 
@@ -945,6 +1004,8 @@ float waterLevelCmMax = 23.0;
 #define CAL_STREAM_MIN_MS 20
 #define CAL_STREAM_MAX_MS 2000
 #define CAL_PH_STABLE_MS 60000UL
+#define CAL_PH_RAW_MAX_BLOCKS 80
+#define CAL_PH_MIN_STABLE_BLOCKS 30
 #define CAL_DO_STABLE_MS 30000UL
 #define CAL_TURB_STABLE_MS 10000UL
 #define CAL_PH_STABLE_SPREAD_V 0.010f
@@ -1006,14 +1067,16 @@ uint8_t tempSkipCount = 0;
 volatile bool sensorOutputEnabled = false;
 bool rawStreamEnabled = false;      // `raw on` 1 s voltage stream for calibration
 unsigned long lastRawStreamMs = 0;
-// Non-CALMODE pH calibration is allowed only after a 60 s stable raw window.
+// Non-CALMODE pH calibration needs a stable 60 s window of live FIT_V blocks.
 bool rawPHCalibrationStable = false;
-unsigned long rawPHCalibrationStartMs = 0;
 float rawPHCalibrationMinV = 0.0f;
 float rawPHCalibrationMaxV = 0.0f;
 float rawPHCalibrationSumV = 0.0f;
 uint16_t rawPHCalibrationSamples = 0;
 float rawPHCalibrationAverageV = 0.0f;
+float rawPHCalibrationBlocks[CAL_PH_RAW_MAX_BLOCKS] = {};
+unsigned long rawPHCalibrationBlockMs[CAL_PH_RAW_MAX_BLOCKS] = {};
+uint8_t rawPHCalibrationHead = 0;
 volatile bool calibrationMode = false;
 enum CalibrationSensor : uint8_t { CAL_SENSOR_NONE, CAL_SENSOR_PH, CAL_SENSOR_DO, CAL_SENSOR_TURB };
 volatile uint8_t calibrationStreamSensor = CAL_SENSOR_NONE;
@@ -1058,8 +1121,8 @@ float turbidityVoltage = 0.0;
 
 // ─── 10-min window means ───────────────────────────────────────────────
 // Accumulated from ACCEPTED readings between history saves, so brief
-// each ten-minute history entry stores one average per valid sensor. The ESP
-// polls every 5 s, so each window can collect up to ~120 samples per sensor.
+// each ten-minute history entry stores one average per valid sensor. Non-pH
+// sensors poll every 2 s and pH every 1 s, so counts vary by sensor.
 // Reset after every history write (or buffer append).
 float winTempSum = 0.0f; uint16_t winTempN = 0;
 float winTurbSum = 0.0f; uint16_t winTurbN = 0;
@@ -1110,6 +1173,105 @@ int feedLevelMode = 1;            // 0 = analog GPIO39, 1 = ultrasonic (NVS "fee
 bool hopperSensorOK = false;
 const char* feedLevelSource = "none";  // "ultrasonic" | "analog" | "none"
 
+struct LiveAverageBucket {
+  float sum;
+  uint16_t count;
+};
+
+struct LiveSensorSnapshot {
+  bool ready;
+  bool tempValid;
+  bool turbidityValid;
+  bool doValid;
+  bool phValid;
+  bool waterValid;
+  bool feedValid;
+  float temperature;
+  float turbidityNTU;
+  float dissolvedOxygen;
+  float ph;
+  float waterLevelCm;
+  float feedLevelPercent;
+  uint16_t tempSamples;
+  uint16_t turbiditySamples;
+  uint16_t doSamples;
+  uint16_t phSamples;
+  uint16_t waterSamples;
+  uint16_t feedSamples;
+};
+
+LiveAverageBucket liveTempWindow = {};
+LiveAverageBucket liveTurbidityWindow = {};
+LiveAverageBucket liveDOWindow = {};
+LiveAverageBucket livePHWindow = {};
+LiveAverageBucket liveWaterWindow = {};
+LiveAverageBucket liveFeedWindow = {};
+LiveSensorSnapshot liveSensorSnapshot = {};
+unsigned long liveAverageWindowStartedMs = 0;
+
+void accumulateLiveReading(LiveAverageBucket& bucket, float value) {
+  if (!isfinite(value) || bucket.count == UINT16_MAX) return;
+  bucket.sum += value;
+  ++bucket.count;
+}
+
+void clearLiveAverageBucketsUnlocked() {
+  liveTempWindow = {};
+  liveTurbidityWindow = {};
+  liveDOWindow = {};
+  livePHWindow = {};
+  liveWaterWindow = {};
+  liveFeedWindow = {};
+}
+
+void resetLiveAverageWindowUnlocked(bool clearSnapshot) {
+  clearLiveAverageBucketsUnlocked();
+  liveAverageWindowStartedMs = millis();
+  if (clearSnapshot) liveSensorSnapshot = {};
+}
+
+bool publishLiveAverageWindowUnlocked(unsigned long now) {
+  if (liveAverageWindowStartedMs == 0) {
+    liveAverageWindowStartedMs = now;
+    return false;
+  }
+  if (now - liveAverageWindowStartedMs < LIVE_SENSOR_AVERAGE_WINDOW_MS) return false;
+
+  liveSensorSnapshot.tempSamples = liveTempWindow.count;
+  liveSensorSnapshot.turbiditySamples = liveTurbidityWindow.count;
+  liveSensorSnapshot.doSamples = liveDOWindow.count;
+  liveSensorSnapshot.phSamples = livePHWindow.count;
+  liveSensorSnapshot.waterSamples = liveWaterWindow.count;
+  liveSensorSnapshot.feedSamples = liveFeedWindow.count;
+  liveSensorSnapshot.tempValid = liveTempWindow.count > 0;
+  liveSensorSnapshot.turbidityValid = liveTurbidityWindow.count > 0;
+  liveSensorSnapshot.doValid = liveDOWindow.count > 0;
+  liveSensorSnapshot.phValid = livePHWindow.count > 0;
+  liveSensorSnapshot.waterValid = liveWaterWindow.count > 0;
+  liveSensorSnapshot.feedValid = liveFeedWindow.count > 0;
+  liveSensorSnapshot.temperature = liveSensorSnapshot.tempValid
+      ? liveTempWindow.sum / liveTempWindow.count : -1.0f;
+  liveSensorSnapshot.turbidityNTU = liveSensorSnapshot.turbidityValid
+      ? liveTurbidityWindow.sum / liveTurbidityWindow.count : -1.0f;
+  liveSensorSnapshot.dissolvedOxygen = liveSensorSnapshot.doValid
+      ? liveDOWindow.sum / liveDOWindow.count : -1.0f;
+  liveSensorSnapshot.ph = liveSensorSnapshot.phValid
+      ? livePHWindow.sum / livePHWindow.count : -1.0f;
+  liveSensorSnapshot.waterLevelCm = liveSensorSnapshot.waterValid
+      ? liveWaterWindow.sum / liveWaterWindow.count : -1.0f;
+  liveSensorSnapshot.feedLevelPercent = liveSensorSnapshot.feedValid
+      ? liveFeedWindow.sum / liveFeedWindow.count : -1.0f;
+  liveSensorSnapshot.ready = true;
+
+  clearLiveAverageBucketsUnlocked();
+  liveAverageWindowStartedMs = now;
+  return true;
+}
+
+bool publishLiveAverageWindow() {
+  MutexGuard sensorLock(sensorStateMutex);
+  return publishLiveAverageWindowUnlocked(millis());
+}
 
 struct TurbidityResult {
   float ntu;
@@ -1168,7 +1330,6 @@ bool saveSensorCalibrations() {
   saved &= prefs.putFloat("tankDepth", waterLevelCmMax) == sizeof(float);
   saved &= prefs.putFloat("turbClear", turbidityVClear) == sizeof(float);
   saved &= prefs.putFloat("turbDirty", turbidityVDirty) == sizeof(float);
-  saved &= prefs.putFloat("turbAir", turbidityVAirMax) == sizeof(float);
   saved &= prefs.putFloat("feedEmpty", feedLevelEmptyVoltage) == sizeof(float);
   saved &= prefs.putFloat("feedFull", feedLevelFullVoltage) == sizeof(float);
   saved &= prefs.putFloat("hopEmpty", hopperEmptyCm) == sizeof(float);
@@ -1205,7 +1366,6 @@ void loadSensorCalibrations() {
   waterLevelCmMax = prefs.getFloat("tankDepth", waterLevelCmMax);
   turbidityVClear = prefs.getFloat("turbClear", turbidityVClear);
   turbidityVDirty = prefs.getFloat("turbDirty", turbidityVDirty);
-  turbidityVAirMax = prefs.getFloat("turbAir", turbidityVAirMax);
   feedLevelEmptyVoltage = prefs.getFloat("feedEmpty", feedLevelEmptyVoltage);
   feedLevelFullVoltage = prefs.getFloat("feedFull", feedLevelFullVoltage);
   hopperEmptyCm = prefs.getFloat("hopEmpty", hopperEmptyCm);
@@ -1282,9 +1442,8 @@ float updatePHFitVoltage(float batchVoltage) {
 
 bool turbidityCalibrationValid() {
   return isfinite(turbidityVClear) && isfinite(turbidityVDirty) &&
-      isfinite(turbidityVAirMax) && turbidityVClear <= 3.25f &&
-      turbidityVDirty > turbidityVAirMax &&
-      turbidityVClear > turbidityVDirty && turbidityVAirMax >= 0.0f;
+      turbidityVClear <= 3.25f && turbidityVDirty > 0.0f &&
+      turbidityVClear > turbidityVDirty;
 }
 
 unsigned long calibrationStableWindowMs(uint8_t sensor) {
@@ -1315,7 +1474,7 @@ float calibrationStableSpreadV(uint8_t sensor) {
 TurbidityResult classifyTurbidity(float v) {
   TurbidityResult r;
 
-  if (!turbidityCalibrationValid() || !isfinite(v) || v < turbidityVAirMax) {
+  if (!turbidityCalibrationValid() || !isfinite(v) || v < 0.0f || v > 3.3f) {
     r.ntu = 0.0;
     r.valid = false;
     return r;
@@ -1778,11 +1937,11 @@ bool syncWaterLevelConfig() {
 // Thresholds are owned by the currently assigned tank. The tank ID is a
 // cached credential refreshed by the assignment block in loop(), never here.
 void syncConfigFromFirebase() {
-  if (!ensureFirebaseReady()) return;
-  if (currentTankId.length() == 0) {
+  if (!hasCurrentTankAssignment()) {
     if (sensorOutputEnabled) Serial.println("[CONFIG] No tank assigned; retaining firmware defaults.");
     return;
   }
+  if (!ensureFirebaseReady()) return;
 
   bool changed = true;
   changed &= syncTankRange("temperature",       tempCriticalLow,       tempCriticalHigh,       0.0,   50.0);
@@ -1831,7 +1990,7 @@ bool ensureFirebaseReady() {
   // nothing ever goes out, so the flag never flips.
   // Outage mode: fail fast. Every cloud call site funnels through here, so
   // one gate suspends them all; only the loop probe bypasses (direct call).
-  if (cloudOutage) return false;
+  if (cloudModeForcedOffline() || cloudOutage) return false;
   if (Firebase.ready()) {
     firebaseReady = true;
     return true;
@@ -1883,30 +2042,39 @@ void buildFirestorePayload(FirebaseJson &json, bool includeTimestamp, time_t cap
   }
 
   if (!includeTimestamp) {
-    // ── 5-sec LIVE payload: current smoothed values (dashboard display). ──
-    json.set("fields/temperature/doubleValue", tempSensorOK ? smoothedTemp : -1.0f);
+    // Real sensors use the most recently completed 5-second average window.
+    // The Firestore send timer remains independent at 10 seconds.
+    json.set("fields/temperature/doubleValue",
+             liveSensorSnapshot.ready && liveSensorSnapshot.tempValid
+                 ? liveSensorSnapshot.temperature : -1.0f);
 
-    if (turbiditySensorOK) {
+    if (liveSensorSnapshot.ready && liveSensorSnapshot.turbidityValid) {
       json.set("fields/turbidity_air/booleanValue", false);
-      json.set("fields/turbidity/doubleValue", smoothedTurbidityNTU);
+      json.set("fields/turbidity/doubleValue", liveSensorSnapshot.turbidityNTU);
     } else {
       json.set("fields/turbidity_air/booleanValue", true);
       json.set("fields/turbidity/doubleValue", 0.0);
     }
 
     if (ENABLE_DO_SENSOR) {
-      json.set("fields/dissolved_oxygen/doubleValue", dissolvedOxygen);
+      json.set("fields/dissolved_oxygen/doubleValue",
+               liveSensorSnapshot.ready && liveSensorSnapshot.doValid
+                   ? liveSensorSnapshot.dissolvedOxygen : -1.0f);
     }
 
     if (ENABLE_PH_SENSOR) {
-      json.set("fields/ph_level/doubleValue", phLevel);
+      json.set("fields/ph_level/doubleValue",
+               (liveSensorSnapshot.ready && liveSensorSnapshot.phValid ? liveSensorSnapshot.ph : -1.0f));
     }
 
     if (ENABLE_WATER_LEVEL_SENSOR) {
-      json.set("fields/water_level/doubleValue", waterLevelCm);
+      json.set("fields/water_level/doubleValue",
+               liveSensorSnapshot.ready && liveSensorSnapshot.waterValid
+                   ? liveSensorSnapshot.waterLevelCm : -1.0f);
     }
-    if (ENABLE_FEED_LEVEL_SENSOR && feedLevelSensorOK) {
-      json.set("fields/feed_level/doubleValue", feedLevelPercent);
+    if (ENABLE_FEED_LEVEL_SENSOR && liveSensorSnapshot.ready &&
+        liveSensorSnapshot.feedValid) {
+      json.set("fields/feed_level/doubleValue", liveSensorSnapshot.feedLevelPercent);
     }
     return;
   }
@@ -1946,12 +2114,8 @@ void buildFirestorePayload(FirebaseJson &json, bool includeTimestamp, time_t cap
 // Firestore Rules compare the payload's assignment identity against the
 // current hardware_system/currentOwner document before allowing the write.
 bool sendLatestToFirestore() {
+  if (!hasCurrentTankAssignment()) return false;
   if (!ensureFirebaseReady()) return false;
-  if (currentTankId.length() == 0 || currentOwnerUid.length() == 0 ||
-      currentAssignmentAtMs < 1577836800000LL) {
-    Serial.println("[FIRESTORE] Latest skipped: no current hardware assignment");
-    return false;
-  }
 
   FirebaseJson content;
   time_t capturedAt;
@@ -2013,6 +2177,18 @@ void sendHistoryToFirestore() {
   }
   const long long capturedMs = atoll(epochMillisString(capturedAt).c_str());
 
+  // No valid tank assignment means local/offline mode. Keep history in the
+  // on-device buffer; do not stage unassigned readings in Firestore.
+  if (!hasCurrentTankAssignment()) {
+    if (bufferAppend(content.raw(), capturedMs)) {
+      Serial.printf("[BUF] No tank assignment — history retained locally (#%u)\n",
+                    (unsigned)countBufferedEntries());
+    } else {
+      Serial.println("[BUF] No tank assignment and local history buffer unavailable; history window was not saved");
+    }
+    return;
+  }
+
   // WiFi/Firebase down: buffer the reading for later flush. (Previously we
   // returned early here and the reading was LOST — the whole point of the
   // store-and-forward buffer is to survive exactly this case.)
@@ -2027,23 +2203,6 @@ void sendHistoryToFirestore() {
   if (capturedAt < 1577836800 || firestoreTimestampString(capturedAt).length() == 0) {
     if (bufferAppend(content.raw(), capturedMs)) {
       Serial.printf("[BUF] Clock unsynchronized; buffered entry #%u\n",
-                    (unsigned)countBufferedEntries());
-    }
-    return;
-  }
-
-  // Without an assignment, keep the previous staging behavior so the Cloud
-  // Function can retain/quarantine this record safely.
-  if (currentTankId.length() == 0 || currentOwnerUid.length() == 0 ||
-      currentAssignmentAtMs < 1577836800000LL) {
-    char fallbackId[32];
-    snprintf(fallbackId, sizeof(fallbackId), "r_%llu",
-             static_cast<unsigned long long>(capturedMs));
-    if (Firebase.Firestore.createDocument(&fbdo, FIREBASE_PROJECT_ID, "(default)",
-          "sensorIngestion/current/history", fallbackId, content.raw(), "")) {
-      Serial.println("[FIRESTORE] Unassigned history staged for safe routing");
-    } else if (bufferAppend(content.raw(), capturedMs)) {
-      Serial.printf("[BUF] Unassigned history buffered #%u\n",
                     (unsigned)countBufferedEntries());
     }
     return;
@@ -2153,6 +2312,7 @@ void readTemperatureSensor() {
     lastValidTemp = rawTemp;
     tempSensorOK = true;
     smoothedTemp = computeAverage(tempBuffer, tempCount);
+    accumulateLiveReading(liveTempWindow, rawTemp);
     ACCUM_WINDOW(winTempSum, winTempN, rawTemp);
   } else {
     tempSkipCount++;
@@ -2179,11 +2339,12 @@ void readTurbiditySensor() {
   if (!tr.valid) {
     turbiditySensorOK = false;
     smoothedTurbidityNTU = 0.0;
-    if (sensorOutputEnabled) Serial.printf("[TURB] Invalid/air or calibration incomplete (V=%.3f)\n", voltage);
+    if (sensorOutputEnabled) Serial.printf("[TURB] Invalid voltage or calibration incomplete (V=%.3f)\n", voltage);
     return;
   }
   turbiditySensorOK = true;
   smoothedTurbidityNTU = tr.ntu;
+  accumulateLiveReading(liveTurbidityWindow, smoothedTurbidityNTU);
   ACCUM_WINDOW(winTurbSum, winTurbN, tr.ntu);
 }
 
@@ -2214,6 +2375,7 @@ void readDissolvedOxygenSensor() {
     return;
   }
   doSensorOK = true;
+  accumulateLiveReading(liveDOWindow, dissolvedOxygen);
   ACCUM_WINDOW(winDOSum, winDON, dissolvedOxygen);
 }
 
@@ -2239,6 +2401,7 @@ void readPHSensor() {
     return;
   }
   phSensorOK = true;
+  accumulateLiveReading(livePHWindow, phLevel);
   ACCUM_WINDOW(winPHSum, winPHN, phLevel);
 }
 
@@ -2281,6 +2444,7 @@ void readWaterLevelSensor() {
 
   waterLevelCm = constrain(depth, waterLevelCmMin, waterLevelCmMax);
   waterLevelSensorOK = true;
+  accumulateLiveReading(liveWaterWindow, waterLevelCm);
   ACCUM_WINDOW(winWaterLevelSum, winWaterLevelN, waterLevelCm);
 }
 
@@ -2339,6 +2503,7 @@ void readFeedLevelSensor() {
         100.0f);
       feedLevelSensorOK = true;
       feedLevelSource = "ultrasonic";
+      accumulateLiveReading(liveFeedWindow, feedLevelPercent);
       ACCUM_WINDOW(winFeedLevelSum, winFeedLevelN, feedLevelPercent);
       return;
     }
@@ -2364,6 +2529,7 @@ void readFeedLevelSensor() {
     100.0f);
   feedLevelSensorOK = true;
   feedLevelSource = "analog";
+  accumulateLiveReading(liveFeedWindow, feedLevelPercent);
   ACCUM_WINDOW(winFeedLevelSum, winFeedLevelN, feedLevelPercent);
 }
 
@@ -2396,15 +2562,42 @@ void readAllSensors() {
   readFeedLevelSensor();
 }
 
-void printSensorReading() {
+void printSensorReading(bool useLiveAverage = true) {
   MutexGuard sensorLock(sensorStateMutex);
-  Serial.printf("[SENSOR] Temp: %.1f C | Turb: %.0f NTU (%.3fV,%s) | DO: %.1f mg/L (%.3fV,%s) | pH: %.2f (%.3fV,%s) | Level: %.1f cm | Feed: %.1f%%\n",
-                smoothedTemp, smoothedTurbidityNTU, turbidityVoltage,
+  const bool useSnapshot = useLiveAverage && liveSensorSnapshot.ready;
+  const float shownTemp = useSnapshot
+      ? (liveSensorSnapshot.tempValid ? liveSensorSnapshot.temperature : -127.0f)
+      : smoothedTemp;
+  const float shownTurbidity = useSnapshot
+      ? (liveSensorSnapshot.turbidityValid ? liveSensorSnapshot.turbidityNTU : -1.0f)
+      : smoothedTurbidityNTU;
+  const float shownDO = useSnapshot
+      ? (liveSensorSnapshot.doValid ? liveSensorSnapshot.dissolvedOxygen : -1.0f)
+      : dissolvedOxygen;
+  const float shownPH = useSnapshot
+      ? (liveSensorSnapshot.phValid ? liveSensorSnapshot.ph : -1.0f)
+      : phLevel;
+  const float shownWater = useSnapshot
+      ? (liveSensorSnapshot.waterValid ? liveSensorSnapshot.waterLevelCm : -1.0f)
+      : waterLevelCm;
+  const float shownFeed = useSnapshot
+      ? (liveSensorSnapshot.feedValid ? liveSensorSnapshot.feedLevelPercent : -1.0f)
+      : feedLevelPercent;
+  Serial.printf("%s n(T=%u,Turb=%u,DO=%u,pH=%u,W=%u,F=%u) Temp: %.2f C | Turb: %.0f NTU (lastV=%.3f,%s) | DO: %.2f mg/L (lastV=%.3f,%s) | pH: %.2f (lastV=%.3f,%s) | Level: %.1f cm | Feed: %.1f%%\n",
+                useSnapshot ? "[SENSOR AVG5s]" : "[SENSOR READ]",
+                useSnapshot ? (unsigned)liveSensorSnapshot.tempSamples : 0U,
+                useSnapshot ? (unsigned)liveSensorSnapshot.turbiditySamples : 0U,
+                useSnapshot ? (unsigned)liveSensorSnapshot.doSamples : 0U,
+                useSnapshot ? (unsigned)liveSensorSnapshot.phSamples : 0U,
+                useSnapshot ? (unsigned)liveSensorSnapshot.waterSamples : 0U,
+                useSnapshot ? (unsigned)liveSensorSnapshot.feedSamples : 0U,
+                shownTemp, shownTurbidity, turbidityFilteredVoltage,
                 turbidityReadingStable ? "STABLE" : "SETTLING",
-                dissolvedOxygen, dissolvedOxygenVoltage,
+                shownDO, doFilteredVoltage,
                 doReadingStable ? "STABLE" : "SETTLING",
-                phLevel, phVoltage, phReadingStable ? "STABLE" : "SETTLING",
-                waterLevelCm, feedLevelPercent);
+                shownPH, phFilteredVoltage,
+                (phReadingStable ? "STABLE" : "SETTLING"),
+                shownWater, shownFeed);
 }
 
 // One raw-voltage snapshot for calibration stability checks. Reuses the
@@ -2418,66 +2611,100 @@ void printRawReading() {
                 feedLevelPercent,
                 hopperDistanceCm, feedLevelSource);
   if (rawStreamEnabled) {
-    Serial.printf(" | pHcal=%s avg=%.4fV span=%.1fmV",
-                  rawPHCalibrationStable ? "STABLE" : "WAIT",
+    const unsigned long now = millis();
+    const unsigned long pHWindowSeconds = rawPHCalibrationSamples > 1
+        ? min((now - rawPHCalibrationBlockMs[rawPHCalibrationHead]) / 1000UL,
+              60UL)
+        : 0UL;
+    Serial.printf(" | pHcal=%s avg=%.4fV span=%.1fmV window=%lu/60s blocks=%u",
+                  (rawPHCalibrationStable ? "STABLE" : "WAIT"),
                   rawPHCalibrationAverageV,
-                  (rawPHCalibrationMaxV - rawPHCalibrationMinV) * 1000.0f);
+                  (rawPHCalibrationMaxV - rawPHCalibrationMinV) * 1000.0f,
+                  pHWindowSeconds, (unsigned)rawPHCalibrationSamples);
   }
   Serial.println();
 }
 
 void resetRawPHCalibrationWindow() {
   rawPHCalibrationStable = false;
-  rawPHCalibrationStartMs = 0;
   rawPHCalibrationMinV = 0.0f;
   rawPHCalibrationMaxV = 0.0f;
   rawPHCalibrationSumV = 0.0f;
   rawPHCalibrationSamples = 0;
   rawPHCalibrationAverageV = 0.0f;
+  rawPHCalibrationHead = 0;
 }
 
 void updateRawPHCalibrationWindow() {
   float voltage = 0.0f;
-  bool readingStable = false;
+  bool filterReady = false;
   {
     MutexGuard sensorLock(sensorStateMutex);
     voltage = phFilteredVoltage;
-    readingStable = phReadingStable;
+    filterReady = phVoltageSampleCount == SENSOR_FILTER_WINDOW;
   }
-  if (!rawStreamEnabled || !readingStable ||
+  if (!rawStreamEnabled || !filterReady ||
       !isfinite(voltage) || voltage <= 0.05f || voltage > 3.25f) {
     resetRawPHCalibrationWindow();
     return;
   }
 
   const unsigned long now = millis();
-  if (rawPHCalibrationSamples == 0 ||
-      max(rawPHCalibrationMaxV, voltage) - min(rawPHCalibrationMinV, voltage) >
-          CAL_PH_STABLE_SPREAD_V) {
-    rawPHCalibrationStartMs = now;
+
+  // Keep the latest 60 s of live FIT_V blocks. A voltage excursion outside
+  // the permitted span restarts the window at the newest block.
+  if (rawPHCalibrationSamples == CAL_PH_RAW_MAX_BLOCKS) {
+    rawPHCalibrationHead = (rawPHCalibrationHead + 1) % CAL_PH_RAW_MAX_BLOCKS;
+    rawPHCalibrationSamples--;
+  }
+  const uint8_t tail = (rawPHCalibrationHead + rawPHCalibrationSamples) %
+      CAL_PH_RAW_MAX_BLOCKS;
+  rawPHCalibrationBlocks[tail] = voltage;
+  rawPHCalibrationBlockMs[tail] = now;
+  rawPHCalibrationSamples++;
+
+  // Preserve a block at least 60 s old so stability is based on a full window.
+  while (rawPHCalibrationSamples > 1) {
+    const uint8_t nextHead = (rawPHCalibrationHead + 1) % CAL_PH_RAW_MAX_BLOCKS;
+    if (now - rawPHCalibrationBlockMs[nextHead] < CAL_PH_STABLE_MS) break;
+    rawPHCalibrationHead = nextHead;
+    rawPHCalibrationSamples--;
+  }
+
+  rawPHCalibrationMinV = rawPHCalibrationBlocks[rawPHCalibrationHead];
+  rawPHCalibrationMaxV = rawPHCalibrationBlocks[rawPHCalibrationHead];
+  rawPHCalibrationSumV = 0.0f;
+  for (uint16_t i = 0; i < rawPHCalibrationSamples; ++i) {
+    const uint8_t index = (rawPHCalibrationHead + i) % CAL_PH_RAW_MAX_BLOCKS;
+    const float block = rawPHCalibrationBlocks[index];
+    rawPHCalibrationMinV = min(rawPHCalibrationMinV, block);
+    rawPHCalibrationMaxV = max(rawPHCalibrationMaxV, block);
+    rawPHCalibrationSumV += block;
+  }
+
+  if (rawPHCalibrationMaxV - rawPHCalibrationMinV > CAL_PH_STABLE_SPREAD_V) {
+    resetRawPHCalibrationWindow();
+    rawPHCalibrationBlocks[0] = voltage;
+    rawPHCalibrationBlockMs[0] = now;
+    rawPHCalibrationSamples = 1;
     rawPHCalibrationMinV = voltage;
     rawPHCalibrationMaxV = voltage;
     rawPHCalibrationSumV = voltage;
-    rawPHCalibrationSamples = 1;
     rawPHCalibrationAverageV = voltage;
-    rawPHCalibrationStable = false;
     return;
   }
 
-  rawPHCalibrationMinV = min(rawPHCalibrationMinV, voltage);
-  rawPHCalibrationMaxV = max(rawPHCalibrationMaxV, voltage);
-  rawPHCalibrationSumV += voltage;
-  if (rawPHCalibrationSamples < UINT16_MAX) rawPHCalibrationSamples++;
   rawPHCalibrationAverageV = rawPHCalibrationSumV / rawPHCalibrationSamples;
-  rawPHCalibrationStable = rawPHCalibrationSamples >= 30 &&
-      now - rawPHCalibrationStartMs >= CAL_PH_STABLE_MS &&
+  const bool fullWindow = rawPHCalibrationSamples >= CAL_PH_MIN_STABLE_BLOCKS &&
+      now - rawPHCalibrationBlockMs[rawPHCalibrationHead] >= CAL_PH_STABLE_MS;
+  rawPHCalibrationStable = fullWindow &&
       rawPHCalibrationMaxV - rawPHCalibrationMinV <= CAL_PH_STABLE_SPREAD_V;
 }
 
 void printCalibrationHelp() {
   Serial.println("\n=== CALIBRATION COMMANDS ===");
   Serial.println("CALMODE ON/OFF          Pause Wi-Fi/Firebase for calibration");
-  Serial.println("CALSTREAM PH|DO|TURB [ms] PH FIT V uses live filter/rate (PH min 5000 ms)");
+  Serial.println("CALSTREAM PH|DO|TURB [ms] PH FIT V uses live filter/rate (PH min 1000 ms)");
   Serial.println("raw on                  Optional online pH calibration stream (Firebase stays active)");
   Serial.println("CALSTOP / CALSTATUS     Stop stream / show calibration state");
   Serial.println("CALSHOW                 Show saved calibration values from NVM");
@@ -2495,7 +2722,7 @@ void printCalibrationHelp() {
   Serial.println("doclear                  Calibrate DO in air-saturated water");
   Serial.println("turbclear [VOLTS]        Save stable clear-water voltage");
   Serial.println("turbdirty [VOLTS]        Save stable dirty-water voltage");
-  Serial.println("turbair [VOLTS]          Save stable out-of-water threshold");
+  Serial.println("turbair                  Deprecated; two-point mode does not use air calibration");
   Serial.println("feedempty                Save voltage with an empty hopper");
   Serial.println("feedfull                 Save voltage with a full hopper");
   Serial.println("hopperempty              Teach ultrasonic empty-hopper echo");
@@ -2571,8 +2798,7 @@ bool isPHCalibrationCommand(const String& cmd) {
 bool isSensorCalibrationCommand(const String& cmd) {
   return isPHCalibrationCommand(cmd) || cmd == "doread" || cmd == "doclear" ||
       cmd == "turbclear" || cmd.startsWith("turbclear ") ||
-      cmd == "turbdirty" || cmd.startsWith("turbdirty ") ||
-      cmd == "turbair" || cmd.startsWith("turbair ");
+      cmd == "turbdirty" || cmd.startsWith("turbdirty ");
 }
 
 bool isAllowedDuringCalibration(const String& cmd) {
@@ -2605,9 +2831,9 @@ void printSavedSensorCalibrations() {
                 v4, ref4, v686, v9, ref9, pairName, phFitMode, phFitPointCount,
                 phVoltageSlope, phVoltageIntercept,
                 phReadingOffsetEnabled ? "ON " : "OFF ", phReadingOffset);
-  Serial.printf("[CAL NVM] DO scale=%.5f offset=%.5f | Turb clear=%.4f dirty=%.4f air=%.4f V mapping=%s\n",
+  Serial.printf("[CAL NVM] DO scale=%.5f offset=%.5f | Turb clear=%.4f dirty=%.4f V mapping=%s (2-point)\n",
                 doVoltageScale, doVoltageOffset, turbidityVClear,
-                turbidityVDirty, turbidityVAirMax,
+                turbidityVDirty,
                 turbidityCalibrationValid() ? "VALID" : "INVALID/INCOMPLETE");
 }
 
@@ -2761,7 +2987,10 @@ bool handleCalibrationControlCommand(String& cmd) {
       calibrationMode = true;
       // Wait for any in-progress background scan to finish before starting a
       // selected-pin stream; subsequent polling cycles see calibrationMode.
-      { MutexGuard sensorLock(sensorStateMutex); }
+      {
+        MutexGuard sensorLock(sensorStateMutex);
+        resetLiveAverageWindowUnlocked(true);
+      }
       // Drop Wi-Fi as well as pausing the main loop, so Firebase/auth traffic
       // cannot continue in the background during calibration.
       Firebase.reconnectWiFi(false);
@@ -2780,6 +3009,10 @@ bool handleCalibrationControlCommand(String& cmd) {
       calibrationStable = false;
       resetWindowAggregates();  // Do not mix calibration time with history means.
       resetCalibrationStream();
+      {
+        MutexGuard sensorLock(sensorStateMutex);
+        resetLiveAverageWindowUnlocked(true);
+      }
       calibrationMode = false;
       lastHistorySendTime = millis();
       lastFirebaseSendTime = millis();
@@ -2924,7 +3157,7 @@ bool calibrationCaptureReady(uint8_t sensor, bool force = false) {
   }
   if (sensor == CAL_SENSOR_PH && !calibrationMode && rawStreamEnabled) {
     if (!rawPHCalibrationStable) {
-      Serial.println("[CAL] Raw-mode pH window is not stable yet; keep raw on and wait for pHcal=STABLE (60 s within 10 mV).");
+      Serial.println("[CAL] Raw-mode pH window is not stable yet; keep raw on and wait for pHcal=STABLE (a full 60 s window within 10 mV).");
       return false;
     }
     calibrationStableVoltage = rawPHCalibrationAverageV;
@@ -3017,23 +3250,45 @@ void runCalibrationStream() {
   const float rawMaxV = sensor == CAL_SENSOR_PH ? phVoltage :
       calibrationAdcMax * (3.3f / 4095.0f);
 
-  // Judge stability from successive interval averages, not individual ADC
-  // extrema. A rolling 5-second range tolerates isolated raw spikes while
-  // still detecting sustained drift in the averaged signal.
+  // Judge calibration stability from block averages, never raw ADC extrema.
+  // pH requires a full 60 s of filtered FIT_V blocks within 10 mV; DO and
+  // turbidity retain their existing time-based windows.
   if (calibrationBlockCount == CAL_STABLE_MAX_BLOCKS) {
     calibrationBlockHead = (calibrationBlockHead + 1) % CAL_STABLE_MAX_BLOCKS;
     calibrationBlockCount--;
   }
   const uint16_t tail = (calibrationBlockHead + calibrationBlockCount) % CAL_STABLE_MAX_BLOCKS;
-  calibrationBlockAvgVoltage[tail] = avgV;
-  calibrationBlockMs[tail] = now;
-  calibrationBlockCount++;
+  const bool phFilterReady = sensor != CAL_SENSOR_PH ||
+      phVoltageSampleCount == SENSOR_FILTER_WINDOW;
+  if (phFilterReady) {
+    calibrationBlockAvgVoltage[tail] = avgV;
+    calibrationBlockMs[tail] = now;
+    calibrationBlockCount++;
+  } else {
+    // Ignore the median's warm-up values; they are not full live-equivalent
+    // pH blocks and must not count toward a saved calibration point.
+    calibrationBlockHead = 0;
+    calibrationBlockCount = 0;
+  }
 
-  // Keep at least one sample that is >=5 s old. If we evict as soon as the
-  // oldest block crosses 5 s, normal print-interval jitter can leave only 50
-  // blocks spanning ~4.9 s forever, so stable=YES is never reached. Drop the
-  // oldest only once the next-oldest block also preserves the full window.
   const unsigned long stableWindowMs = calibrationStableWindowMs(sensor);
+  if (sensor == CAL_SENSOR_PH && calibrationBlockCount > 1) {
+    float candidateMin = avgV;
+    float candidateMax = avgV;
+    for (uint16_t i = 0; i < calibrationBlockCount; ++i) {
+      const uint16_t index = (calibrationBlockHead + i) % CAL_STABLE_MAX_BLOCKS;
+      candidateMin = min(candidateMin, calibrationBlockAvgVoltage[index]);
+      candidateMax = max(candidateMax, calibrationBlockAvgVoltage[index]);
+    }
+    if (candidateMax - candidateMin > calibrationStableSpreadV(sensor)) {
+      // A block outside the allowed span breaks consecutiveness. Start again
+      // from this newest filtered block.
+      calibrationBlockHead = tail;
+      calibrationBlockCount = 1;
+    }
+  }
+  // Keep at least one sample >= the complete stability window old. Drop it
+  // only when the next-oldest sample also preserves that full window.
   while (calibrationBlockCount > 1) {
     const uint16_t nextHead = (calibrationBlockHead + 1) % CAL_STABLE_MAX_BLOCKS;
     if (now - calibrationBlockMs[nextHead] < stableWindowMs) break;
@@ -3050,10 +3305,12 @@ void runCalibrationStream() {
     calibrationStableMaxVoltage = max(calibrationStableMaxVoltage,
                                       calibrationBlockAvgVoltage[index]);
   }
-  const bool fullStabilityWindow = calibrationBlockCount > 1 &&
+  const bool enoughPHBlocks = sensor != CAL_SENSOR_PH ||
+      calibrationBlockCount >= CAL_PH_MIN_STABLE_BLOCKS;
+  const bool fullStabilityWindow = enoughPHBlocks && calibrationBlockCount > 1 &&
       now - calibrationBlockMs[calibrationBlockHead] >= stableWindowMs;
   float blockSum = 0.0f;
-  calibrationStable = fullStabilityWindow &&
+  calibrationStable = phFilterReady && fullStabilityWindow &&
       calibrationStableMaxVoltage - calibrationStableMinVoltage <=
           calibrationStableSpreadV(sensor);
   for (uint16_t i = 0; i < calibrationBlockCount; ++i) {
@@ -3098,6 +3355,8 @@ void printSerialHelp() {
   Serial.println("CALSTREAM PH|DO|TURB [ms] Stream selected ADC (20-2000 ms)");
   Serial.println("raw on / raw off         Stream readings; raw mode permits online pH calibration");
   Serial.println("WIFI_HELP                Show Wi-Fi commands");
+  Serial.println("SYSTEM_MODE AUTO|ONLINE|OFFLINE  Select cloud/local operating mode (NVS)");
+  Serial.println("GATE_PAUSE <0-60>        Closed pause after each swing, seconds (NVS)");
   Serial.println("FIREBASE_STATUS          Show cloud authentication status");
   Serial.println("FEED                     Start a 1 g manual feed");
   Serial.println("GATE_TEST                One gate actuation (GPIO5 SG90)");
@@ -3141,6 +3400,7 @@ void sensorPollingTask(void*);
 void lcdDisplayTask(void*);
 void showLCDBoot(const String& line0, const String& line1, unsigned long holdMs);
 void showLCDTransient(const String& line0, const String& line1, unsigned long holdMs = 1800);
+void updateSystemCloudMode();
 void initOnsiteButton();
 void processOnsiteButton();
 void armFeedOverride(float grams, const String& reason);
@@ -3158,6 +3418,7 @@ bool flushPendingFeedNowLog();
 bool storePendingLocalFeedLog(const String& tankId, const String& eventKey, const String& envelope);
 bool clearPendingLocalFeedLog(const String& eventKey);
 bool hasPendingLocalFeedLog(const String& eventKey);
+bool hasPendingFeederRecovery(const String& eventKey);
 bool flushPendingLocalFeedLog();
 bool queuePendingLocalFeedLogOffline();
 bool queueFeederLogEnvelope(const String& eventKey, const String& envelope, bool pending);
@@ -3201,6 +3462,11 @@ void setup() {
     default: break;
   }
   Serial.printf("[BOOT] Reset reason: %s\n", resetReasonText);
+  if (!loadRuntimeSettings()) {
+    Serial.println("[SYSTEM] Runtime settings unavailable; using AUTO mode and 1 s gate pause.");
+  }
+  Serial.printf("[SYSTEM] Requested mode=%s | gate closed pause=%lu s\n",
+                systemModeName(), gateCloseDwellMs / 1000UL);
 
   // Task watchdog: the Arduino core pre-inits it at 5 s, and a bare
   // esp_task_wdt_init() is a no-op once initialized — so deinit first.
@@ -3261,7 +3527,7 @@ void setup() {
   // Larger read side for Firestore payloads: fewer -6 payload timeouts.
   fbdo.setResponseSize(8192);
   fbdo.setBSSLBufferSize(4096, 2048);
-  if (WiFi.status() == WL_CONNECTED) {
+  if (WiFi.status() == WL_CONNECTED && !cloudModeForcedOffline()) {
     initTime();
     { time_t st; time(&st); if (st > 1700000000) {
         ntpEverSynced = true;
@@ -3272,6 +3538,9 @@ void setup() {
     connectFirebase();
     lcdCloudBootPending = true;
     lcdCloudBootStartedMs = millis();
+  } else if (cloudModeForcedOffline()) {
+    showLCDBoot("System offline", "Cloud paused", 1300);
+    Serial.println("[CLOUD] Forced OFFLINE mode — Wi-Fi may stay connected, but Firebase/assignment operations are paused.");
   } else {
     showLCDBoot("WiFi offline", "Local mode", 1300);
     Serial.println("[CLOUD] Offline startup skipped; serial commands are ready now.");
@@ -3295,11 +3564,16 @@ void setup() {
     showLCDBoot("CrayCare ready", "Local mode", 1200);
   }
 
+  {
+    MutexGuard sensorLock(sensorStateMutex);
+    resetLiveAverageWindowUnlocked(true);
+  }
+
   if (sensorStateMutex && sensorIoMutex &&
       xTaskCreatePinnedToCore(sensorPollingTask, "sensor_poll", 8192, nullptr,
                               2, nullptr, 1) == pdPASS) {
     sensorTaskRunning = true;
-    Serial.println("[SENSOR] Background polling started (non-pH=2 s, pH=5 s)");
+    Serial.println("[SENSOR] Background polling started (non-pH=2 s, pH=1 s; live average window=5 s)");
   } else {
     Serial.println("[SENSOR] Background task unavailable; polling in main loop");
   }
@@ -3308,7 +3582,7 @@ void setup() {
       xTaskCreatePinnedToCore(lcdDisplayTask, "lcd_display", 6144, nullptr,
                               1, nullptr, 1) == pdPASS) {
     lcdTaskRunning = true;
-    Serial.println("[LCD] Background display task started (3 s page rotation)");
+    Serial.println("[LCD] Background display task started (5 s page rotation; averaged sensor values)");
   } else {
     Serial.println("[LCD] Background task unavailable; display in main loop");
   }
@@ -3348,6 +3622,62 @@ void loop() {
     if (cmd == "HELP" || cmd == "help" || cmd == "?") {
       printSerialHelp();
     }
+    {
+      String modeCmd = cmd;
+      modeCmd.trim();
+      modeCmd.toUpperCase();
+      if (modeCmd == "SYSTEM_MODE" || modeCmd == "MODE") {
+        Serial.printf("[SYSTEM] Requested mode=%s | cloud active=%s | tank=%s\n",
+                      systemModeName(), systemCloudModeActive ? "YES" : "NO",
+                      currentTankId.isEmpty() ? "(none)" : currentTankId.c_str());
+      } else if (modeCmd.startsWith("SYSTEM_MODE ") || modeCmd.startsWith("MODE ")) {
+        const int split = modeCmd.indexOf(' ');
+        String requested = modeCmd.substring(split + 1);
+        requested.trim();
+        SystemModeOverride nextMode;
+        if (requested == "AUTO") nextMode = SYSTEM_MODE_AUTO;
+        else if (requested == "ONLINE") nextMode = SYSTEM_MODE_FORCE_ONLINE;
+        else if (requested == "OFFLINE") nextMode = SYSTEM_MODE_FORCE_OFFLINE;
+        else {
+          Serial.println("Usage: SYSTEM_MODE AUTO|ONLINE|OFFLINE");
+          nextMode = systemModeOverride;
+        }
+        if (requested == "AUTO" || requested == "ONLINE" || requested == "OFFLINE") {
+          const SystemModeOverride previousMode = systemModeOverride;
+          systemModeOverride = nextMode;
+          if (saveSystemMode(systemModeOverride)) {
+            systemCloudModeInitialized = false;
+            if (cloudModeForcedOffline()) firebaseReady = false;
+            updateSystemCloudMode();
+            Serial.printf("[SYSTEM] Mode saved: %s. %s\n", systemModeName(),
+                cloudModeForcedOffline()
+                    ? "Firebase operations paused; local sensing/feed and buffers continue."
+                    : "Cloud operations enabled when Wi-Fi, Firebase, and a valid tank assignment are available.");
+          } else {
+            systemModeOverride = previousMode;
+            Serial.println("[SYSTEM] Could not save mode in NVS; previous mode kept.");
+          }
+        }
+      }
+    }
+    if (cmd.startsWith("GATE_PAUSE ") || cmd.startsWith("gate_pause ")) {
+      const String valueText = cmd.substring(cmd.lastIndexOf(' ') + 1);
+      char* end = nullptr;
+      const long seconds = strtol(valueText.c_str(), &end, 10);
+      if (end == valueText.c_str() || *end != '\0' || seconds < 0 || seconds > 60) {
+        Serial.println("Usage: GATE_PAUSE <0-60> (whole seconds; saved in NVS)");
+      } else {
+        const unsigned long previousDwell = gateCloseDwellMs;
+        gateCloseDwellMs = (unsigned long)seconds * 1000UL;
+        if (saveRuntimeSetting("gateDwell", gateCloseDwellMs)) {
+          Serial.printf("[GATE] Closed pause saved: %lu second(s); used after every swing, including GATECAL.\n",
+                        seconds);
+        } else {
+          gateCloseDwellMs = previousDwell;
+          Serial.println("[GATE] Could not save pause in NVS; previous value kept.");
+        }
+      }
+    }
     if (cmd == "SENSOR_ON" || cmd == "sensor on") {
       sensorOutputEnabled = true;
       Serial.println("[SENSOR] Periodic display ON");
@@ -3358,7 +3688,7 @@ void loop() {
     }
     if (cmd == "SENSOR_READ" || cmd == "sensor read") {
       readAllSensors();
-      printSensorReading();
+      printSensorReading(false);
     }
     if (cmd == "CAL_HELP" || cmd == "cal help") printCalibrationHelp();
     if (cmd == "WIFI_HELP" || cmd == "wifi help") printWifiHelp();
@@ -3474,8 +3804,8 @@ void loop() {
         setGateAngle(gateOpenAngle);
         delay(gateHoldMs);
         setGateAngle(gateCloseAngle);
-        delay(300);
-        Serial.println("[GATE] Test complete");
+        delay(gateCloseDwellMs);
+        Serial.printf("[GATE] Test complete (closed pause: %lu s)\n", gateCloseDwellMs / 1000UL);
       }
     }
     if (cmd == "GATECAL" || cmd == "gatecal") {
@@ -3484,14 +3814,15 @@ void loop() {
       } else if (!gateCloseAngleConfigured) {
         Serial.println("[GATE] Set the real closed position first: GATE_CLOSE_ANGLE <degrees>");
       } else {
-        Serial.println("[GATE] Calibration: 10 actuations — catch and weigh the output.");
+        Serial.printf("[GATE] Calibration: 10 actuations; gate stays closed for %lu ms after each swing. Catch and weigh the output.\n",
+                      gateCloseDwellMs);
         Serial.println("[GATE] Target ~10 g total (1 g each). If off, adjust with");
         Serial.println("[GATE] GATE_ANGLE / GATE_MS and repeat until 10 actuations = ~10 g.");
         for (int i = 0; i < 10; i++) {
           setGateAngle(gateOpenAngle);
           delay(gateHoldMs);
           setGateAngle(gateCloseAngle);
-          delay(300);
+          delay(gateCloseDwellMs);
           esp_task_wdt_reset();  // 10 cycles x (hold + dwell) exceeds short timeouts
           Serial.printf("[GATE] Actuation %d/10\n", i + 1);
         }
@@ -3807,8 +4138,8 @@ void loop() {
       const float previous = turbidityVClear;
       turbidityVClear = v;
       if (!saveSensorCalibrations()) { turbidityVClear = previous; Serial.println("[CAL NVM] Turbidity point not saved."); return; }
-      Serial.printf("[CAL NVM] Clear-water point saved: %.4fV. Mapping %s.\n", v,
-                    turbidityCalibrationValid() ? "VALID" : "incomplete; save dirty and air points");
+      Serial.printf("[CAL NVM] Clear-water point saved: %.4fV. Two-point mapping %s.\n", v,
+                    turbidityCalibrationValid() ? "VALID" : "incomplete; save a distinct dirty-water point");
     }
     if (cmd == "turbdirty" || cmd.startsWith("turbdirty ")) {
       const bool hasArgument = cmd.length() > 9;
@@ -3822,23 +4153,12 @@ void loop() {
       const float previous = turbidityVDirty;
       turbidityVDirty = v;
       if (!saveSensorCalibrations()) { turbidityVDirty = previous; Serial.println("[CAL NVM] Turbidity point not saved."); return; }
-      Serial.printf("[CAL NVM] Dirty-water point saved: %.4fV. Mapping %s.\n", v,
-                    turbidityCalibrationValid() ? "VALID" : "incomplete; save clear and air points");
+      Serial.printf("[CAL NVM] Dirty-water point saved: %.4fV. Two-point mapping %s.\n", v,
+                    turbidityCalibrationValid() ? "VALID" : "incomplete; save a distinct clear-water point");
     }
     if (cmd == "turbair" || cmd.startsWith("turbair ")) {
-      const bool hasArgument = cmd.length() > 7;
-      if (!calibrationCaptureReady(CAL_SENSOR_TURB)) return;
-      const float v = hasArgument ? cmd.substring(8).toFloat() : calibrationStableVoltage;
-      if (hasArgument && !calibrationVoltageMatchesStable(v)) return;
-      if (!isfinite(v) || v < 0.0f || v > 3.3f) {
-        Serial.printf("[CAL] turbair rejected: stable/entered threshold must be 0 <= V <= 3.25, got %.4fV\n", v);
-        return;
-      }
-      const float previous = turbidityVAirMax;
-      turbidityVAirMax = v;
-      if (!saveSensorCalibrations()) { turbidityVAirMax = previous; Serial.println("[CAL NVM] Turbidity threshold not saved."); return; }
-      Serial.printf("[CAL NVM] Air/no-water threshold saved: %.4fV. Mapping %s.\n", v,
-                    turbidityCalibrationValid() ? "VALID" : "incomplete; save all points in Vclear > Vdirty > Vair order");
+      Serial.println("[CAL] turbair is not used in two-point mode. Save turbclear and turbdirty only.");
+      Serial.println("[CAL] Two-point mapping cannot independently identify a dry probe if its voltage overlaps the water range.");
     }
     if (cmd == "feedempty") {
       feedLevelEmptyVoltage = readAnalogVoltage(FEED_LEVEL_PIN);
@@ -3913,7 +4233,7 @@ void loop() {
       rawStreamEnabled = true;
       resetRawPHCalibrationWindow();
       lastRawStreamMs = 0;  // stream prints on the next loop pass
-      Serial.println("[RAW] Stream ON (1 s, 'raw off' to stop); pH calibration is available after a 60 s stable window. Wi-Fi/Firebase remain active.");
+      Serial.println("[RAW] Stream ON (1 s, 'raw off' to stop); pH calibration needs a full 60 s FIT_V window within 10 mV. Wi-Fi/Firebase remain active.");
       printRawReading();
     }
     if (cmd == "raw off" || cmd == "raw stop") {
@@ -3971,8 +4291,9 @@ void loop() {
 
   // Never stop sensing/local automation just because Wi-Fi is down. The old
   // early return prevented history buffering and scheduled feeding offline.
-  const bool networkAvailable = WiFi.status() == WL_CONNECTED;
-  if (!networkAvailable && now - lastWifiReconnectTime >= 10000UL) {
+  const bool wifiConnected = WiFi.status() == WL_CONNECTED;
+  const bool networkAvailable = wifiConnected && !cloudModeForcedOffline();
+  if (!wifiConnected && now - lastWifiReconnectTime >= 10000UL) {
     lastWifiReconnectTime = now;
     if (sensorOutputEnabled) {
       Serial.println("[WIFI] Offline — local sensing/automation continues; reconnecting...");
@@ -4016,11 +4337,12 @@ void loop() {
       ensureFirebaseReady()) {
     firebaseReady = true;
     fetchTankId();
-    syncConfigFromFirebase();
-    syncFeederSchedules();
+    if (hasCurrentTankAssignment()) {
+      syncConfigFromFirebase();
+      syncFeederSchedules();
+    }
     cloudBootstrapComplete = true;
-    Serial.println("[FIREBASE] Connected; cloud control is active.");
-    showLCDTransient("Firebase ready", "Cloud controls on", 2500);
+    updateSystemCloudMode();
     now = millis();
   }
   if (lcdCloudBootPending) {
@@ -4045,23 +4367,30 @@ void loop() {
   // resolved. Transport failures keep the old cache (fetch only overwrites
   // on success, 404, or a definitive read).
   {
-    const bool haveAssignment = currentTankId.length() > 0;
+    const bool haveAssignment = hasCurrentTankAssignment();
     const unsigned long assignInterval =
         haveAssignment ? ASSIGNMENT_RECHECK_MS : ASSIGNMENT_SEARCH_MS;
-    if (now - lastAssignmentCheckMs >= assignInterval) {
+    if (networkAvailable && now - lastAssignmentCheckMs >= assignInterval) {
       String prevTank = currentTankId;
+      String prevOwner = currentOwnerUid;
+      const long long prevAssignedAt = currentAssignmentAtMs;
       fetchTankId();
       lastAssignmentCheckMs = millis();
       now = lastAssignmentCheckMs;
-      // A fresh switch/unassign forces an immediate config re-sync.
-      if (currentTankId != prevTank) lastConfigSyncTime = 0;
+      // Any assignment identity transition invalidates cached tank settings
+      // and schedules; re-sync them immediately when a valid assignment returns.
+      if (currentTankId != prevTank || currentOwnerUid != prevOwner ||
+          currentAssignmentAtMs != prevAssignedAt) {
+        lastConfigSyncTime = now - CONFIG_SYNC_INTERVAL_MS;
+        lastFeederScheduleSyncMs = now - FEEDER_SCHEDULE_SYNC_MS;
+      }
     }
   }
+  updateSystemCloudMode();
 
   // ─── Sensors + live Latest (first: the realtime path never queues) ───
 
-  if (!sensorTaskRunning) {
-    bool sampled = false;
+  if (!sensorTaskRunning && !calibrationMode) {
     if (now - lastNonPhPollTime >= NON_PH_SENSOR_POLL_MS) {
       const unsigned long scanStartedMs = now;
       lastNonPhPollTime = scanStartedMs;
@@ -4070,7 +4399,6 @@ void loop() {
       if (now - scanStartedMs >= NON_PH_SENSOR_POLL_MS) {
         lastNonPhPollTime = now;  // Long scan: wait a full interval, no catch-up.
       }
-      sampled = true;
     }
     if (now - lastPhPollTime >= PH_SENSOR_POLL_MS) {
       const unsigned long scanStartedMs = now;
@@ -4080,9 +4408,8 @@ void loop() {
       if (now - scanStartedMs >= PH_SENSOR_POLL_MS) {
         lastPhPollTime = now;
       }
-      sampled = true;
     }
-    if (sampled && sensorOutputEnabled) printSensorReading();
+    if (publishLiveAverageWindow() && sensorOutputEnabled) printSensorReading();
   }
 
   // Continuous raw-voltage stream for calibration stability checks
@@ -4093,8 +4420,9 @@ void loop() {
     printRawReading();
   }
 
-  if (now - lastFirebaseSendTime >= FIREBASE_SEND_INTERVAL_MS) {
-    // Firestore is synchronous, so maintain at least a 5-second interval
+  if (networkAvailable && hasCurrentTankAssignment() &&
+      now - lastFirebaseSendTime >= FIREBASE_SEND_INTERVAL_MS) {
+    // Firestore is synchronous, so maintain at least a 10-second interval
     // between attempts. A slow request coalesces missed intervals; never
     // queue catch-up writes. Sensor and LCD tasks continue during the request.
     // ESP supplies the capture-time recorded_at Timestamp; Functions normalize
@@ -4109,7 +4437,7 @@ void loop() {
   // Outage probe: the ONLY network call allowed in outage mode. A single
   // attempt (no retry); success clears the outage via reportCloudResult and
   // normal ops resume. Everything else stays fail-fast until then.
-  if (cloudOutage && now - lastOutageProbeMs >= OUTAGE_PROBE_MS) {
+  if (networkAvailable && cloudOutage && now - lastOutageProbeMs >= OUTAGE_PROBE_MS) {
     lastOutageProbeMs = now;
     bool probeOk = Firebase.Firestore.getDocument(&fbdo, FIREBASE_PROJECT_ID, "",
                                                   "hardware_system/currentOwner");
@@ -4119,27 +4447,31 @@ void loop() {
 
   // ─── Feeder ───
   // Observe assignment changes before consuming commands or running a plan.
-  if (now - lastConfigSyncTime >= CONFIG_SYNC_INTERVAL_MS) {
+  if (networkAvailable && hasCurrentTankAssignment() &&
+      now - lastConfigSyncTime >= CONFIG_SYNC_INTERVAL_MS) {
     syncConfigFromFirebase();
     lastConfigSyncTime = millis();
     now = lastConfigSyncTime;
   }
   // Cloud commands/status/schedule refresh need network. Already-synced
   // schedules continue to execute locally below while offline.
-  if (networkAvailable && now - lastFeederCmdCheckMs >= FEEDER_CMD_INTERVAL_MS) {
+  if (networkAvailable && hasCurrentTankAssignment() &&
+      now - lastFeederCmdCheckMs >= FEEDER_CMD_INTERVAL_MS) {
     processFeederCommands();
     lastFeederCmdCheckMs = millis();
     now = lastFeederCmdCheckMs;
     if (feederRunState != FEEDER_IDLE) return;
   }
 
-  if (networkAvailable && now - lastFeederStatusMs >= FEEDER_STATUS_INTERVAL_MS) {
+  if (networkAvailable && hasCurrentTankAssignment() &&
+      now - lastFeederStatusMs >= FEEDER_STATUS_INTERVAL_MS) {
     sendFeederStatus();
     lastFeederStatusMs = millis();
     now = lastFeederStatusMs;
   }
 
-  if (networkAvailable && now - lastFeederScheduleSyncMs >= FEEDER_SCHEDULE_SYNC_MS) {
+  if (networkAvailable && hasCurrentTankAssignment() &&
+      now - lastFeederScheduleSyncMs >= FEEDER_SCHEDULE_SYNC_MS) {
     syncFeederSchedules();
     lastFeederScheduleSyncMs = millis();
     now = lastFeederScheduleSyncMs;
@@ -4177,11 +4509,12 @@ void loop() {
   // Runs whenever Firebase is reachable; 1 entry/sec max so the live
   // 5-sec + 10-min writes are never starved. Oldest entry goes first.
   if (now - lastFlushTime >= FLUSH_INTERVAL_MS) {
-    if (networkAvailable && (sdMounted || littlefsMounted) && ensureFirebaseReady()) {
+    if (networkAvailable && hasCurrentTankAssignment() && ensureFirebaseReady()) {
       flushPendingLocalFeedLog();
-      flushOneFeederLog();
+      if (sdMounted || littlefsMounted) flushOneFeederLog();
     }
-    if (networkAvailable && littlefsMounted && countBufferedEntries() > 0) {
+    if (networkAvailable && hasCurrentTankAssignment() && littlefsMounted &&
+        countBufferedEntries() > 0) {
       if (ensureFirebaseReady()) {
         if (flushOneBufferedEntry()) {
           Serial.printf("[BUF] Flushed — %u remaining\n",
@@ -4245,8 +4578,8 @@ void initFeeder() {
 // Reads all docs into local arrays first to avoid fbdo buffer conflicts.
 void processFeederCommands() {
   if (!gateCloseAngleConfigured) return;
+  if (!hasCurrentTankAssignment()) return;
   if (!ensureFirebaseReady()) return;
-  if (currentTankId.length() == 0) return;   // no tank assigned -> nothing to do
   // Leave queued commands untouched while a feed is already running. This
   // prevents a second Feed Now request from being deleted without execution.
   if (feederRunState != FEEDER_IDLE) return;
@@ -4316,8 +4649,10 @@ void processFeederCommands() {
 // ─── Send Feeder Status to Firestore ───
 // Path: tanks/{tankId}/feeder/status  (single document, patched in-place)
 void sendFeederStatus() {
+  // Do not start an authentication/network attempt from a local-only feed.
+  if (!hasCurrentTankAssignment() || WiFi.status() != WL_CONNECTED ||
+      !firebaseReady || cloudOutage) return;
   if (!ensureFirebaseReady()) return;
-  if (currentTankId.length() == 0) return;   // no tank assigned -> nothing to report
 
   time_t now;
   time(&now);
@@ -4488,7 +4823,9 @@ bool storePendingFeedNowLog(const String& tankId, const String& logId, const Str
 
 bool storePendingLocalFeedLog(const String& tankId, const String& eventKey,
                               const String& envelope) {
-  if (tankId.isEmpty() || eventKey.isEmpty() || envelope.isEmpty()) return false;
+  // Unassigned onsite feeds remain local until the first later tank assignment
+  // is known; the outbox then binds the record before attempting upload.
+  if (eventKey.isEmpty() || envelope.isEmpty()) return false;
   if (!prefs.begin("feederstate", false)) return false;
   const String existingEvent = readOptionalFeederStateString("local_event");
   if (!existingEvent.isEmpty() && existingEvent != eventKey) {
@@ -4496,7 +4833,7 @@ bool storePendingLocalFeedLog(const String& tankId, const String& eventKey,
     return false;
   }
   // Store the envelope last so its presence marks a complete recovery record.
-  const bool ok = prefs.putString("local_tank", tankId) > 0 &&
+  const bool ok = prefs.putString("local_tank", tankId) == tankId.length() &&
       prefs.putString("local_event", eventKey) > 0 &&
       prefs.putString("local_json", envelope) > 0;
   prefs.end();
@@ -4550,6 +4887,54 @@ bool queueFeederLogEnvelope(const String& eventKey, const String& envelope,
   return true;
 }
 
+bool hasPendingFeederRecovery(const String& eventKey) {
+  if (hasPendingLocalFeedLog(eventKey)) return true;
+  if (eventKey.isEmpty() || (!sdMounted && !littlefsMounted)) return false;
+  if (!ensureFeederLogDirectory()) return false;
+  File marker = feederLogFS().open(feederLogPath(eventKey) + ".pending", "r");
+  if (!marker) return false;
+  marker.close();
+  return true;
+}
+
+// Bind only onsite events deliberately marked unassigned at capture time.
+// They are routed to the first valid tank assignment seen when syncing later.
+bool bindUnassignedOnsiteFeedEnvelope(FirebaseJson& envelope,
+                                      const String& assignedTankId) {
+  if (assignedTankId.isEmpty()) return false;
+  FirebaseJsonData field;
+  if (!envelope.get(field, "tank") || !field.stringValue.isEmpty()) return false;
+  const bool markedPending = envelope.get(field, "assignment_pending") &&
+      field.stringValue == "true";
+  if (!envelope.get(field, "payload")) return false;
+
+  FirebaseJson payload;
+  if (!payload.setJsonData(field.stringValue)) return false;
+  if (!payload.get(field, "fields/trigger_source/stringValue") ||
+      field.stringValue != "physical_button") return false;
+  const bool legacyPending = payload.get(field, "fields/assignment_status/stringValue") &&
+      field.stringValue == "unassigned_local_only";
+  if (!markedPending && !legacyPending) return false;
+
+  // The destination is represented by the Firestore collection path. Remove
+  // local-only routing metadata so the uploaded document keeps the app schema.
+  payload.remove("fields/assignment_status");
+  payload.remove("fields/assignment_tank_id");
+  if (!payload.get(field, "fields/logged_at/timestampValue")) {
+    time_t uploadTime;
+    time(&uploadTime);
+    const String linkedAt = firestoreTimestampString(uploadTime);
+    if (linkedAt.isEmpty()) return false;  // wait for NTP before creating a cloud log
+    payload.set("fields/logged_at/timestampValue", linkedAt);
+    payload.remove("fields/device_uptime_ms");
+    payload.remove("fields/time_source");
+  }
+  envelope.set("tank", assignedTankId);
+  envelope.set("payload", payload.raw());
+  envelope.remove("assignment_pending");
+  return true;
+}
+
 bool queuePendingLocalFeedLogOffline() {
   if (!prefs.begin("feederstate", true)) return false;
   const String eventKey = readOptionalFeederStateString("local_event");
@@ -4568,15 +4953,43 @@ bool queuePendingLocalFeedLogOffline() {
 
 bool flushPendingLocalFeedLog() {
   if (!prefs.begin("feederstate", true)) return false;
-  const String tankId = readOptionalFeederStateString("local_tank");
+  String tankId = readOptionalFeederStateString("local_tank");
   const String eventKey = readOptionalFeederStateString("local_event");
-  const String serialized = readOptionalFeederStateString("local_json");
+  String serialized = readOptionalFeederStateString("local_json");
   prefs.end();
   if (serialized.isEmpty()) return true;
   // The NVS envelope is a recovery marker until the active feed reaches a
   // terminal result; do not publish its provisional "unconfirmed" payload.
   if (feederRunState != FEEDER_IDLE) return true;
-  if (tankId.isEmpty() || eventKey.isEmpty() || !ensureFirebaseReady()) return false;
+  if (eventKey.isEmpty()) return false;
+  if (tankId.isEmpty()) {
+    if (!hasCurrentTankAssignment()) {
+      // Keep the event local until a tank exists; never guess a destination.
+      if (!queueFeederLogEnvelope(eventKey, serialized, false)) return false;
+      const bool cleared = clearPendingLocalFeedLog(eventKey);
+      if (cleared) {
+        Serial.printf("[FEEDER LOG] Unassigned onsite event %s retained locally; waiting for tank assignment\n",
+                      eventKey.c_str());
+      }
+      return cleared;
+    }
+
+    FirebaseJson unassignedEnvelope;
+    unassignedEnvelope.setJsonData(serialized);
+    if (!bindUnassignedOnsiteFeedEnvelope(unassignedEnvelope, currentTankId)) {
+      Serial.printf("[FEEDER LOG] Refusing to route unassigned event %s: not an onsite feed record\n",
+                    eventKey.c_str());
+      return false;
+    }
+    tankId = currentTankId;
+    serialized = unassignedEnvelope.raw();
+    // Persist the selected destination before a network attempt, so retries
+    // cannot silently move the same event to a different tank.
+    if (!storePendingLocalFeedLog(tankId, eventKey, serialized)) return false;
+    Serial.printf("[FEEDER LOG] Linking previously unassigned onsite event %s to tank %s\n",
+                  eventKey.c_str(), tankId.c_str());
+  }
+  if (!ensureFirebaseReady()) return false;
 
   FirebaseJson envelope;
   envelope.setJsonData(serialized);
@@ -4683,8 +5096,8 @@ bool flushPendingFeedNowLog() {
 // ─── Sync Schedules from Firestore ───
 // Fetch every page, then replace the cache. No silent 20-item cutoff.
 void syncFeederSchedules() {
+  if (!hasCurrentTankAssignment()) return;
   if (!ensureFirebaseReady()) return;
-  if (currentTankId.length() == 0) return;   // no tank assigned -> nothing to sync
 
   String schedCol = "tanks/" + currentTankId + "/feeder_schedules";
   std::vector<FeedSchedule> synced;
@@ -4877,32 +5290,38 @@ String waterQualityWarningText() {
 }
 
 String waterQualityLcdWarning() {
-  if (!tempSensorOK || !isfinite(smoothedTemp) || smoothedTemp < 0.0f || smoothedTemp > 50.0f) return "Temp SENSOR?";
-  if (tempSensorOK && isfinite(smoothedTemp)) {
-    if (smoothedTemp < tempCriticalLow) return "Temp LOW";
-    if (smoothedTemp > tempCriticalHigh) return "Temp HIGH";
-  }
-  if (!doSensorOK || !isfinite(dissolvedOxygen) || dissolvedOxygen < 0.0f || dissolvedOxygen > 30.0f) return "DO SENSOR?";
-  if (doSensorOK && isfinite(dissolvedOxygen)) {
-    if (dissolvedOxygen < doCriticalLow) return "DO LOW";
-    if (dissolvedOxygen > doCriticalHigh) return "DO HIGH";
-  }
-  if (!phSensorOK || !isfinite(phLevel) || phLevel < 0.0f || phLevel > 14.0f) return "pH SENSOR?";
-  if (phSensorOK && isfinite(phLevel)) {
-    if (phLevel < phCriticalLow) return "pH LOW";
-    if (phLevel > phCriticalHigh) return "pH HIGH";
-  }
-  if (!turbiditySensorOK || !isfinite(smoothedTurbidityNTU) || smoothedTurbidityNTU < 0.0f ||
-      smoothedTurbidityNTU > 1000.0f) return "Turb SENSOR?";
-  if (turbiditySensorOK && isfinite(smoothedTurbidityNTU)) {
-    if (smoothedTurbidityNTU < turbNtuMin) return "Turbidity LOW";
-    if (smoothedTurbidityNTU > turbNtuMax) return "Turbidity HIGH";
-  }
+  const bool useWindow = liveSensorSnapshot.ready;
+  const bool tempValid = useWindow ? liveSensorSnapshot.tempValid : tempSensorOK;
+  const float tempValue = useWindow ? liveSensorSnapshot.temperature : smoothedTemp;
+  const bool doValid = useWindow ? liveSensorSnapshot.doValid : doSensorOK;
+  const float doValue = useWindow ? liveSensorSnapshot.dissolvedOxygen : dissolvedOxygen;
+  const bool phValid = useWindow ? liveSensorSnapshot.phValid : phSensorOK;
+  const float phValue = useWindow ? liveSensorSnapshot.ph : phLevel;
+  const bool turbidityValid = useWindow ? liveSensorSnapshot.turbidityValid : turbiditySensorOK;
+  const float turbidityValue = useWindow
+      ? liveSensorSnapshot.turbidityNTU : smoothedTurbidityNTU;
+
+  if (!tempValid || !isfinite(tempValue) || tempValue < 0.0f || tempValue > 50.0f) return "Temp SENSOR?";
+  if (tempValue < tempCriticalLow) return "Temp LOW";
+  if (tempValue > tempCriticalHigh) return "Temp HIGH";
+
+  if (!doValid || !isfinite(doValue) || doValue < 0.0f || doValue > 30.0f) return "DO SENSOR?";
+  if (doValue < doCriticalLow) return "DO LOW";
+  if (doValue > doCriticalHigh) return "DO HIGH";
+
+  if (!phValid || !isfinite(phValue) || phValue < 0.0f || phValue > 14.0f) return "pH SENSOR?";
+  if (phValue < phCriticalLow) return "pH LOW";
+  if (phValue > phCriticalHigh) return "pH HIGH";
+
+  if (!turbidityValid || !isfinite(turbidityValue) || turbidityValue < 0.0f ||
+      turbidityValue > 1000.0f) return "Turb SENSOR?";
+  if (turbidityValue < turbNtuMin) return "Turbidity LOW";
+  if (turbidityValue > turbNtuMax) return "Turbidity HIGH";
   return "";
 }
 
-bool canFeedSafely(String &reason) {
-  if (!feederConfigReady) {
+bool canFeedSafely(String &reason, bool allowLocalConfigFallback = false) {
+  if (!feederConfigReady && !allowLocalConfigFallback) {
     reason = "tank sensor settings have not finished syncing";
     return false;
   }
@@ -4910,11 +5329,13 @@ bool canFeedSafely(String &reason) {
   // Missing, invalid, or out-of-range readings are reported as warnings but
   // do not inhibit feeding. Hopper/feed-level validity and critical-low
   // protection remain the sensor-based dispense interlock.
+  const float criticalThreshold = feederConfigReady
+      ? feedLevelCriticalThreshold : FEED_LEVEL_CRITICAL_DEFAULT;
   if (!feedLevelSensorOK) reason = "feed-level sensor unavailable";
   else if (!isfinite(feedLevelPercent) || feedLevelPercent < 0.0f || feedLevelPercent > 100.0f) {
     reason = "feed-level sensor unavailable";
   }
-  else if (feedLevelPercent <= feedLevelCriticalThreshold) reason = "critical feed level";
+  else if (feedLevelPercent <= criticalThreshold) reason = "critical feed level";
   else return true;
   return false;
 }
@@ -5004,6 +5425,7 @@ void checkScheduledFeed() {
 
 // ─── Start Feed — kicks off non-blocking state machine ───
 void startFeed(String source, float grams, String commandId, long long issuedAtMs, long long expiresAtMs, bool forceOverride) {
+  const bool localOnsite = source == "onsite";
   // Defense in depth: never start or log an onsite feed during a boot/pump
   // transition lockout, even if another caller reaches this function.
   if (source == "onsite" && isOnsiteButtonLockedOut()) {
@@ -5025,14 +5447,14 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
     return;
   }
   feederStatusReason = "";
-  if (currentTankId.isEmpty()) {
+  if (currentTankId.isEmpty() && !localOnsite) {
     feederStatusReason = "Tank not assigned";
     Serial.println("[FEEDER] BLOCKED: tank assignment is not available");
     return;
   }
   time_t startedAt;
   time(&startedAt);
-  if (startedAt < 1700000000) {
+  if (startedAt < 1700000000 && !localOnsite) {
     feederStatusReason = "Clock not synced";
     Serial.printf("[FEEDER] BLOCKED: %s\n", feederStatusReason.c_str());
     return;
@@ -5044,8 +5466,11 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
     MutexGuard lcdLock(lcdMutex);
     feederFeedSource = source;
   }
-  feederEventTank = currentTankId;
-  feederOccurrenceEpoch = source == "scheduled" ? startedAt - startedAt % 60 : startedAt;
+  feederEventTank = localOnsite && !hasCurrentTankAssignment()
+      ? String("") : currentTankId;
+  feederOccurrenceEpoch = source == "scheduled"
+      ? startedAt - startedAt % 60
+      : startedAt >= 1700000000 ? startedAt : 0;
   if (source != "scheduled") {
     feederLastScheduleKey = "";
     feederScheduleTime = "";
@@ -5076,9 +5501,10 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
     pushFeederLog("Feed interrupted - execution could not be confirmed", source == "scheduled" ? "auto" : "manual",
                   "failed", grams, -1, -1);
     feederWritingIntent = false;
-    if (!hasPendingLocalFeedLog(feederEventKey)) {
+    if (!hasPendingFeederRecovery(feederEventKey)) {
       feederStatus = "blocked";
       feederStatusReason = "Cannot persist feed recovery marker";
+      Serial.println("[FEEDER] BLOCKED: recovery marker could not be saved to NVS, SD, or LittleFS");
       sendFeederStatus();
       return;
     }
@@ -5127,9 +5553,13 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
   }
   if (blockedReason.isEmpty()) {
     String sensorRangeReason;
-    if (!canFeedSafely(sensorRangeReason)) {
+    if (!canFeedSafely(sensorRangeReason, localOnsite)) {
       blockedReason = sensorRangeReason;
     } else {
+      if (localOnsite && !feederConfigReady) {
+        Serial.printf("[FEEDER] No synced tank config; onsite feed uses firmware feed-level critical threshold %.0f%%\n",
+                      FEED_LEVEL_CRITICAL_DEFAULT);
+      }
       MutexGuard sensorLock(sensorStateMutex);
       feederWaterQualityWarning = waterQualityWarningText();
       if (feederWaterQualityWarning.length() > 0) {
@@ -5224,8 +5654,9 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
   // No blocking cloud call between the expiry check and the motor tick.
   Serial.printf("[FEEDER] Start feed (source=%s, %.1fg = %d actuations)\n",
                 source.c_str(), feederRequestedGrams, feederMaxCycles);
-  Serial.printf("[FEEDER] Gate setup: GPIO%d, angle=%d, hold=%dms; blower lead=%us\n",
+  Serial.printf("[FEEDER] Gate setup: GPIO%d, open=%d, hold=%dms, closed dwell=%ums; blower lead=%us\n",
                 GATE_SERVO_PIN, gateOpenAngle, gateHoldMs,
+                gateCloseDwellMs,
                 (unsigned)BLOWER_PRE_SEC);
 }
 
@@ -5265,10 +5696,9 @@ void processFeederTick() {
       break;
 
     case FEEDER_CLOSE_DWELL:
-      // Without this dwell the next FORWARD fires within one fast loop pass
-      // and the servo (~150 ms transit) never shuts: N grams merge into a
-      // single long open. GATECAL has the same 300 ms gap per actuation.
-      if (now - feederStepMs >= GATE_CLOSE_DWELL_MS) {
+      // Without this dwell the next FORWARD fires before the servo is fully
+      // shut. Normal feeding and GATECAL both wait one full second closed.
+      if (now - feederStepMs >= gateCloseDwellMs) {
         if (feederCurrentCycle >= feederMaxCycles) {
           // Begin the blower tail as soon as the final gate has closed, not
           // later when the completion log/status work finishes.
@@ -5345,13 +5775,14 @@ void processFeederTick() {
 // and use SD/LittleFS store-and-forward only when Firebase is unavailable.
 void pushFeederLog(String action, String type, String status,
                    float requestedGrams, float levelBefore, float levelAfter) {
-  if (feederEventTank.isEmpty()) return;
+  const bool unassignedOnsite = feederEventTank.isEmpty() && feederFeedSource == "onsite";
+  if (feederEventTank.isEmpty() && !unassignedOnsite) return;
   const bool feedNowCommand = !feederCommandId.isEmpty();
 
   time_t now;
   time(&now);
   const String loggedAt = firestoreTimestampString(now);
-  if (loggedAt.isEmpty()) {
+  if (loggedAt.isEmpty() && !unassignedOnsite && feederFeedSource != "onsite") {
     Serial.println("[FEEDER LOG] Skipped Firestore write: system clock is not synchronized");
     return;
   }
@@ -5360,7 +5791,15 @@ void pushFeederLog(String action, String type, String status,
   json.set("fields/action/stringValue",    action);
   json.set("fields/type/stringValue",      type);
   if (!feederCommandId.isEmpty()) json.set("fields/command_id/stringValue", feederCommandId);
-  json.set("fields/logged_at/timestampValue", loggedAt);
+  if (!loggedAt.isEmpty()) {
+    json.set("fields/logged_at/timestampValue", loggedAt);
+  } else {
+    json.set("fields/device_uptime_ms/integerValue", String(millis()));
+    json.set("fields/time_source/stringValue", "device_uptime_no_network_time");
+  }
+  if (unassignedOnsite) {
+    json.set("fields/assignment_status/stringValue", "unassigned_local_only");
+  }
   if (feederOccurrenceEpoch > 0) {
     const String occurrenceAt =
         firestoreTimestampString((time_t)feederOccurrenceEpoch);
@@ -5416,14 +5855,21 @@ void pushFeederLog(String action, String type, String status,
   envelope.set("command_id", feederCommandId);
   envelope.set("scheduled_minute", type == "auto" ? feederOccurrenceEpoch / 60 : 0);
   envelope.set("payload", String(json.raw()));
+  if (unassignedOnsite) envelope.set("assignment_pending", "true");
   const String serialized = envelope.raw();
 
-  // Keep only a compact NVS recovery marker while an online/local feed is in
-  // progress. This avoids writing an online event to the SD card before its
-  // terminal outcome is known.
+  // Keep a compact recovery marker while an online/local feed is in progress.
+  // Prefer NVS; if its single-slot outbox is unavailable/full, use the mounted
+  // SD/LittleFS queue instead. Never start a physical cycle without a durable
+  // recovery record, but do not require NVS when filesystem storage is ready.
   if (feederWritingIntent) {
     if (!storePendingLocalFeedLog(feederEventTank, feederEventKey, serialized)) {
-      Serial.println("[FEEDER LOG] Could not save NVS recovery marker");
+      if (!queueFeederLogEnvelope(feederEventKey, serialized, true)) {
+        Serial.println("[FEEDER LOG] Could not save recovery marker to NVS, SD, or LittleFS");
+        return;
+      }
+      Serial.printf("[FEEDER LOG] NVS marker unavailable; recovery intent saved to %s\n",
+                    sdMounted ? "SD" : "LittleFS");
       return;
     }
     const bool firebaseOnline = WiFi.status() == WL_CONNECTED &&
@@ -5433,6 +5879,21 @@ void pushFeederLog(String action, String type, String status,
         Serial.printf("[FEEDER LOG] Offline intent %s also journaled locally\n",
                       feederEventKey.c_str());
       }
+    }
+    return;
+  }
+
+  // An onsite action without an assignment cannot yet be routed into a
+  // tank-scoped Firestore collection. Keep it locally for later assignment.
+  if (unassignedOnsite) {
+    if (queueFeederLogEnvelope(feederEventKey, serialized, false)) {
+      clearPendingLocalFeedLog(feederEventKey);
+      Serial.printf("[FEEDER LOG] Unassigned onsite event %s saved locally; waiting for a tank assignment\n",
+                    feederEventKey.c_str());
+    } else if (storePendingLocalFeedLog(feederEventTank, feederEventKey, serialized)) {
+      Serial.println("[FEEDER LOG] Unassigned onsite event retained in NVS; local filesystem unavailable");
+    } else {
+      Serial.println("[FEEDER LOG] CRITICAL: unable to persist unassigned onsite event");
     }
     return;
   }
@@ -5513,7 +5974,7 @@ void recoverFeederLogs() {
 }
 
 bool flushOneFeederLog() {
-  if ((!sdMounted && !littlefsMounted) || currentTankId.isEmpty() ||
+  if ((!sdMounted && !littlefsMounted) || !hasCurrentTankAssignment() ||
       !ensureFeederLogDirectory()) return false;
   recoverFeederLogs(); // Idle only: finalize any intent whose completion write failed.
   fs::FS& logFs = feederLogFS();
@@ -5530,7 +5991,22 @@ bool flushOneFeederLog() {
     envelope.setJsonData(file.readString());
     file.close();
     FirebaseJsonData field;
-    if (!envelope.get(field, "tank") || field.stringValue != currentTankId) continue;
+    if (!envelope.get(field, "tank")) continue;
+    if (field.stringValue.isEmpty()) {
+      String eventKey = path.substring(path.lastIndexOf('/') + 1);
+      if (eventKey.endsWith(".json")) {
+        eventKey = eventKey.substring(0, eventKey.length() - 5);
+      }
+      if (!bindUnassignedOnsiteFeedEnvelope(envelope, currentTankId)) continue;
+      // Move the event into the durable NVS outbox with its first assigned
+      // tank before attempting upload; retries keep this same destination.
+      const bool reserved = storePendingLocalFeedLog(
+          currentTankId, eventKey, envelope.raw());
+      dir.close();
+      if (!reserved) return false;
+      return flushPendingLocalFeedLog();
+    }
+    if (field.stringValue != currentTankId) continue;
     if (!envelope.get(field, "id")) continue;
     const String id = field.stringValue;
     if (envelope.get(field, "command_id") && !field.stringValue.isEmpty()) {
@@ -5564,7 +6040,7 @@ void applyTankAssignment(const String& tankId, const String& ownerUid, long long
   const bool hasAssignment = tankId.length() > 0 && ownerUid.length() > 0;
   if (hadAssignment || hasAssignment) {
     if (!hasAssignment) {
-      Serial.println("[ASSIGNMENT] Hardware is now unassigned; sensor data will remain staged until an owner is assigned.");
+      Serial.println("[ASSIGNMENT] Hardware is now unassigned; cloud writes are paused and local buffers are retained until assignment returns.");
     } else if (hadAssignment && (tankId != currentTankId || ownerUid != currentOwnerUid)) {
       Serial.printf("[ASSIGNMENT] Hardware owner changed (%s -> %s); refreshing tank configuration and clearing old cached schedules.\n",
                     currentOwnerUid.c_str(), ownerUid.c_str());
@@ -5735,7 +6211,7 @@ void pollBlowerButton() {
 #define LCD_ADDR 0x27
 #define LCD_COLS 16
 #define LCD_ROWS 2
-#define LCD_ROTATE_MS 3000
+#define LCD_ROTATE_MS 5000
 LiquidCrystal_I2C lcd(LCD_ADDR, LCD_COLS, LCD_ROWS);
 bool lcdReady = false;
 unsigned long lastLcdMs = 0;
@@ -5802,6 +6278,32 @@ void showLCDTransient(const String& line0, const String& line1, unsigned long ho
   lcdTransientUntilMs = millis() + holdMs;
   lcdPrint16(0, line0);
   lcdPrint16(1, line1);
+}
+
+void updateSystemCloudMode() {
+  const bool cloudActive = !cloudModeForcedOffline() && hasCurrentTankAssignment() &&
+      WiFi.status() == WL_CONNECTED && firebaseReady && !cloudOutage;
+  if (systemCloudModeInitialized && cloudActive == systemCloudModeActive) return;
+
+  systemCloudModeInitialized = true;
+  systemCloudModeActive = cloudActive;
+  if (cloudActive) {
+    Serial.printf("[SYSTEM] Cloud mode active for assigned tank %s.\n",
+                  currentTankId.c_str());
+    showLCDTransient("Cloud online", "Tank assigned", 2500);
+  } else if (cloudModeForcedOffline()) {
+    Serial.println("[SYSTEM] Forced OFFLINE mode — cloud operations paused; local sensing/feed and buffers continue.");
+    showLCDTransient("Forced offline", "Cloud paused", 2500);
+  } else if (!hasCurrentTankAssignment()) {
+    Serial.println("[SYSTEM] Local/offline mode — no valid tank assignment; only assignment discovery remains enabled.");
+    showLCDTransient("No tank assigned", "Local mode", 2500);
+  } else if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[SYSTEM] Local/offline mode — Wi-Fi unavailable; local sensing/feed continue.");
+    showLCDTransient("Wi-Fi offline", "Local mode", 2500);
+  } else {
+    Serial.println("[SYSTEM] Local/offline mode — Firebase unavailable; local sensing/feed continue.");
+    showLCDTransient("Cloud offline", "Local mode", 2500);
+  }
 }
 
 void IRAM_ATTR onsiteButtonISR() {
@@ -6005,6 +6507,23 @@ void updateLCD() {
   unsigned long now = millis();
   if (lastLcdRenderMs != 0 && now - lastLcdRenderMs < 250UL) return;
   const String liveWaterQualityWarning = waterQualityLcdWarning();
+  const float lcdTemp = liveSensorSnapshot.ready
+      ? (liveSensorSnapshot.tempValid ? liveSensorSnapshot.temperature : -127.0f)
+      : smoothedTemp;
+  const float lcdPH = liveSensorSnapshot.ready
+      ? (liveSensorSnapshot.phValid ? liveSensorSnapshot.ph : -1.0f) : phLevel;
+  const float lcdDO = liveSensorSnapshot.ready
+      ? (liveSensorSnapshot.doValid ? liveSensorSnapshot.dissolvedOxygen : -1.0f)
+      : dissolvedOxygen;
+  const float lcdTurbidity = liveSensorSnapshot.ready
+      ? (liveSensorSnapshot.turbidityValid ? liveSensorSnapshot.turbidityNTU : -1.0f)
+      : smoothedTurbidityNTU;
+  const float lcdWater = liveSensorSnapshot.ready
+      ? (liveSensorSnapshot.waterValid ? liveSensorSnapshot.waterLevelCm : -1.0f)
+      : waterLevelCm;
+  const float lcdFeed = liveSensorSnapshot.ready
+      ? (liveSensorSnapshot.feedValid ? liveSensorSnapshot.feedLevelPercent : -1.0f)
+      : feedLevelPercent;
   String l0, l1;
   if (calibrationMode) {
     l0 = "CALIBRATION MODE";
@@ -6049,14 +6568,14 @@ void updateLCD() {
       return;
     }
     if (lcdScreen == 0) {
-      l0 = String("Temp: ") + (smoothedTemp > -100 ? String(smoothedTemp, 2) + " C" : "--");
-      l1 = String("pH: ") + (phLevel >= 0 ? String(phLevel, 2) : "--");
+      l0 = String("Temp: ") + (lcdTemp > -100 ? String(lcdTemp, 2) + " C" : "--");
+      l1 = String("pH: ") + (lcdPH >= 0 ? String(lcdPH, 2) : "--");
     } else if (lcdScreen == 1) {
-      l0 = String("DO:") + (dissolvedOxygen >= 0 ? String(dissolvedOxygen, 2) : "--") + "mg/L";
-      l1 = String("Turb:") + (smoothedTurbidityNTU >= 0 ? String(smoothedTurbidityNTU, 0) : "--") + " NTU";
+      l0 = String("DO:") + (lcdDO >= 0 ? String(lcdDO, 2) : "--") + "mg/L";
+      l1 = String("Turb:") + (lcdTurbidity >= 0 ? String(lcdTurbidity, 0) : "--") + " NTU";
     } else if (lcdScreen == 2) {
-      l0 = String("Water:") + (waterLevelCm >= 0 ? String(waterLevelCm, 0) + "cm" : "--");
-      l1 = String("Hopper:") + (feedLevelPercent >= 0 ? String(feedLevelPercent, 0) + "%" : "--");
+      l0 = String("Water:") + (lcdWater >= 0 ? String(lcdWater, 0) + "cm" : "--");
+      l1 = String("Hopper:") + (lcdFeed >= 0 ? String(lcdFeed, 0) + "%" : "--");
     } else if (lcdScreen == 3) {
       getNextScheduleLines(l0, l1);
     } else {
@@ -6077,7 +6596,6 @@ void sensorPollingTask(void*) {
   for (;;) {
     if (!calibrationMode) {
       unsigned long now = millis();
-      bool sampled = false;
       if (now - lastNonPhPollTime >= NON_PH_SENSOR_POLL_MS) {
         const unsigned long scanStartedMs = now;
         lastNonPhPollTime = scanStartedMs;
@@ -6086,7 +6604,6 @@ void sensorPollingTask(void*) {
         if (now - scanStartedMs >= NON_PH_SENSOR_POLL_MS) {
           lastNonPhPollTime = now;  // Long scan: wait a full interval, no catch-up.
         }
-        sampled = true;
       }
       now = millis();
       if (now - lastPhPollTime >= PH_SENSOR_POLL_MS) {
@@ -6097,9 +6614,8 @@ void sensorPollingTask(void*) {
         if (now - scanStartedMs >= PH_SENSOR_POLL_MS) {
           lastPhPollTime = now;
         }
-        sampled = true;
       }
-      if (sampled && sensorOutputEnabled) printSensorReading();
+      if (publishLiveAverageWindow() && sensorOutputEnabled) printSensorReading();
     }
     // Check frequently, but schedule each group from its own last completion
     // time so a slow scan never causes catch-up bursts.
@@ -6150,8 +6666,8 @@ bool actuatorAutoTarget(int idx) {
 // ─── Read control_mode for one device from Firestore ───
 // Path: tanks/{tankId}/actuators/{deviceId}  -> fields/control_mode/stringValue
 bool readActuatorMode(int idx, String& modeOut) {
+  if (!hasCurrentTankAssignment()) return false;
   if (!ensureFirebaseReady()) return false;
-  if (currentTankId.length() == 0) return false;
 
   String path = String("tanks/") + currentTankId + "/actuators/" + actuators[idx].deviceId;
   if (!firestoreGetDoc(path.c_str())) {
@@ -6169,8 +6685,8 @@ bool readActuatorMode(int idx, String& modeOut) {
 // Firestore rules allow the dedicated esp32@craycare.com account to update ONLY:
 //   current_state + last_changed   (never control_mode)
 void reportActuatorState(int idx, bool forced) {
+  if (!hasCurrentTankAssignment()) return;
   if (!ensureFirebaseReady()) return;
-  if (currentTankId.length() == 0) return;
 
   ActuatorDevice& a = actuators[idx];
   const String state = a.relayOn ? "on" : "off";
@@ -6205,8 +6721,8 @@ void reportActuatorState(int idx, bool forced) {
 //   actuator_type, action, type, logged_at (Firestore Timestamp)
 // Put "(AUTO)" in `action` so the app surfaces it as an auto-control event.
 void pushActuatorLog(int idx, String action, String type) {
+  if (!hasCurrentTankAssignment()) return;
   if (!ensureFirebaseReady()) return;
-  if (currentTankId.length() == 0) return;
 
   time_t now;
   time(&now);
@@ -6272,8 +6788,8 @@ void applyActuatorDevice(int idx) {
 void syncActuatorsFromFirestore() {
   // Offline/unassigned operation must keep water circulation and aeration on;
   // stale cached cloud modes must not switch these life-support outputs off.
-  if (WiFi.status() != WL_CONNECTED || cloudOutage || !ensureFirebaseReady() ||
-      currentTankId.length() == 0) {
+  if (!hasCurrentTankAssignment() || WiFi.status() != WL_CONNECTED ||
+      cloudOutage || !ensureFirebaseReady()) {
     applyOfflineActuatorDefaults();
     return;
   }

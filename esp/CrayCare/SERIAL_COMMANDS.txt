@@ -13,12 +13,13 @@ COMMAND MENU / SENSOR DISPLAY
     Shows the main command menu.
 
   SENSOR_ON  (alias: sensor on)
-    Prints readings as sensors are sampled: temperature, turbidity, DO, and
-    ultrasonic levels every 2 seconds; pH every 5 seconds.
-    Sensor values are sent to Firebase on its separate 10-second send interval.
-    pH/DO/turbidity use five-sample filters; after startup, allow about 25 s
-    for pH and about 10-15 s for DO/turbidity filters to fill, depending on
-    the time needed to complete each sensor scan.
+    Prints the completed 5-second averaged sensor window. Temperature,
+    turbidity, DO, and ultrasonic readings are sampled about every 2 seconds;
+    pH is sampled every 1 second. Each analog voltage sample is already an
+    average of 50 ADC conversions, and pH/DO/turbidity also use their existing
+    five-reading stability filters. The displayed/app values use the mean of
+    accepted readings collected in the latest 5-second window.
+    Firebase sends that same latest completed 5-second average every 10 seconds.
 
   SENSOR_OFF  (alias: sensor off)
     Stops periodic sensor printing so commands are easy to type. This is the
@@ -44,15 +45,15 @@ COMMAND MENU / SENSOR DISPLAY
     count, block count, and stable flag. For PH, output is labeled fields:
     `rawV` is the newest 50-sample calibrated-voltage average, `FIT_V` is the
     same five-sample median used by the live pH formula, and `fitWindowAvgV` is
-    the rolling stable-window average saved by phcal commands. The PH stream
-    uses at least a 5000 ms interval to match the live sensor polling cadence
-    and finish its 50-sample batch; DO/TURB allow 20-2000 ms. PH stability
-    requires 60 s within 10 mV; DO/TURB use their sensor-specific windows. For
-    all channels, stability is judged from successive filtered/block averages,
-    not raw min/max alone.
+    the rolling 60-second average of consecutive filtered blocks used by phcal
+    commands. The PH stream uses at least a 1000 ms interval to match the live
+    pH polling cadence and finish its 50-sample batch; DO/TURB allow 20-2000 ms.
+    PH stability requires a full 60-second window within 10 mV; DO/TURB use their
+    sensor-specific windows. For all channels, stability is judged from
+    successive filtered/block averages, not raw min/max alone.
     A 1 ms text stream is not supported at 115200 baud; use 20 ms for a short
     fast check or 100 ms for readable DO/TURB calibration. For PH, the stream
-    automatically raises shorter intervals to the live 5-second cadence.
+    automatically raises shorter intervals to the live 1-second cadence.
     Turbidity
     volts are the ESP32 ADC-pin volts after its divider.
 
@@ -92,6 +93,19 @@ WIFI (up to 5 networks stored in NVS "wifiprof", survives reboot)
   RESET_WIFI
     Erases ALL stored Wi-Fi networks (legacy + multi) and restarts.
 
+SYSTEM MODE
+  SYSTEM_MODE [AUTO|ONLINE|OFFLINE]  (alias: MODE)
+    Without an argument, shows the selected mode and current cloud status.
+    AUTO is the default behavior: cloud features run when Wi-Fi, Firebase, and
+    a valid tank assignment are available; otherwise local operation continues.
+    OFFLINE pauses Firebase requests, tank-assignment discovery, cloud control,
+    and uploads. Sensing, onsite feeding, and local log buffers continue. Logs
+    sync after switching back to ONLINE or AUTO. Wi-Fi may remain connected
+    while Firebase operations are paused. ONLINE enables cloud features when
+    Wi-Fi, Firebase, and a valid tank assignment are available; it does not
+    bypass a missing assignment. The selected mode is saved in NVS across
+    reboot. Examples: MODE OFFLINE, SYSTEM_MODE ONLINE, MODE AUTO.
+
 FEEDER (SG90 gate on GPIO5 — the only servo, 1 g-only model)
   FEED
     Requests one manual feed, 1-200 whole grams (default 1 g). Grams =
@@ -99,15 +113,25 @@ FEEDER (SG90 gate on GPIO5 — the only servo, 1 g-only model)
     up 5 s first and stays ON through dispensing. Temperature, DO, pH, and
     turbidity readings are warnings only; they do not block a feed. The
     sensor-based block is an unavailable/invalid or critically low feed-level
-    estimate. Other operational safeguards still apply (valid dose,
-    tank/clock, feeder state, and schedule collision).
+    estimate. Other operational safeguards still apply (valid dose, feeder
+    state, and schedule collision). App/serial Feed Now still requires its
+    assigned tank and synchronized clock.
 
   GATE_TEST  (alias: gate test)
-    One gate actuation close angle -> open angle -> close angle. Refused while a feed runs.
+    One gate actuation close angle -> open angle -> close angle, then wait
+    the configured GATE_PAUSE with the gate closed. Default is 1 s. Refused
+    while a feed runs.
 
   GATECAL  (alias: gatecal)
-    Runs 10 actuations for weighing — expect ~10 g total. If off, adjust
-    with GATE_ANGLE / GATE_MS and repeat until 10 actuations = ~10 g.
+    Runs 10 actuations for weighing — expect ~10 g total. After every swing,
+    including the last, the gate stays closed for the configured GATE_PAUSE
+    (default 1 s). If off, adjust with GATE_ANGLE / GATE_MS and repeat until
+    10 actuations = ~10 g.
+
+  GATE_PAUSE <0-60>  (alias: gate_pause)
+    Set the whole-second closed pause after every servo swing. Applies to
+    normal feeding, GATE_TEST, and every GATECAL actuation, including the last.
+    Default: 1 second. 0 disables the pause. Saved in NVS across reboot.
 
   GATE_ANGLE <10-180>  (alias: gate_angle)
     Gate open angle in degrees, saved to NVS (default 90).
@@ -139,15 +163,26 @@ PHYSICAL BUTTONS (to GND, INPUT_PULLUP)
     interlock + blower pre-run. Temperature, DO, pH, and turbidity are
     warnings only; out-of-range or unavailable readings do not block feeding.
     Critical/invalid feed level still blocks. Ignored while a feed runs.
+    Onsite feeding does not require Firebase, a tank assignment, or network
+    time. If tank sensor settings have not synced, it uses the firmware's
+    feed-level critical threshold; the local feed-level sensor must still be
+    calibrated and valid, and the gate close angle must be configured.
     Cap 200 g. Live count, progress, and blocked reasons on LCD.
     Feed logs write directly to Firestore when Firebase is ready; when
     Firebase is unavailable, they queue on SD (LittleFS fallback) and sync
-    after reconnect. A small NVS marker protects in-progress feed recovery.
+    after reconnect. If no tank was assigned at feed time, the event stays
+    local until a tank is assigned; it is then linked to that first assignment
+    and uploaded to that tank's feeder_logs. Before a feed starts, the ESP
+    writes a small recovery marker to NVS; if that single NVS slot is busy or
+    unavailable, it falls back to a durable .pending marker on SD (LittleFS if
+    no SD card is mounted). Completed logs remain local until cloud upload is
+    possible.
     OVERRIDE: a schedule-collision block opens a 10 s warning
     (reason + "Tap 2x to force"). Two taps force
     the locked grams (logged forced + reason); silence cancels. Hard
-    blocks (tank/clock/recovery-marker failure/invalid dose/critical feed level)
-    abort with no override.
+    blocks (for onsite: gate not calibrated, recovery-marker failure, invalid
+    dose, or critical/invalid feed level) abort with no override. App/serial
+    Feed Now additionally requires a tank assignment and synced clock.
   GPIO2 blower: manual ON/OFF toggle; ignored while a feed auto-holds the
     blower. 15-minute manual safety timeout.
 
@@ -201,29 +236,31 @@ SENSOR CALIBRATION
 
   phcal4
     Offline path: CALMODE ON, CALSTREAM PH, wait for stable=YES. Online path:
-    keep CALMODE OFF, run raw on, and wait for pHcal=STABLE (60 s within
-    10 mV). Place the probe in pH 4.01 buffer and run this command. Saves the
-    stable-window average of `FIT_V` to NVS as the acidic endpoint. `FIT_V`
-    is the same filtered voltage used by the live pH conversion.
+    keep CALMODE OFF, run raw on, and wait for pHcal=STABLE (full 60 s window
+    within 10 mV). Place the probe in pH 4.01 buffer and run this command.
+    Saves the 60-second stable average of `FIT_V` blocks to NVS as the acidic
+    endpoint. `FIT_V` is the same filtered voltage used by the live pH conversion.
 
     Optional override: `phcal4 force` saves the latest averaged pH voltage
     without waiting for stable=YES. Use only when you accept that noise/drift
     can make the saved point and resulting fit inaccurate.
 
   phcal9 [VALUE]
-    Use either the CALMODE stable=YES or normal raw-mode pHcal=STABLE window.
+    Use either the CALMODE stable=YES or normal raw-mode pHcal=STABLE window
+    (full 60-second window within 10 mV).
     Place the probe in pH 9.18 buffer, then type `phcal9 9.18`. Saves the
-    stable-window average of `FIT_V`. It auto-fits using the currently selected
-    pair; by default, saving this point selects 4.01 / 9.18.
+    60-second stable average of `FIT_V` blocks. It auto-fits using the
+    currently selected pair; by default, saving this point selects 4.01 / 9.18.
 
     Optional override: `phcal9 9.18 force` (or `phcal9 force` for 9.18) saves
     the latest averaged voltage without the stability check.
 
   phcal686
-    Use either the CALMODE stable=YES or normal raw-mode pHcal=STABLE window.
+    Use either the CALMODE stable=YES or normal raw-mode pHcal=STABLE window
+    (full 60-second window within 10 mV).
     Place the probe in pH 6.86 buffer, then type this command. Saves a
-    separate stable-window average of `FIT_V`. It auto-fits using the currently
-    selected pair; by default, saving this point selects 4.01 / 6.86.
+    separate 60-second stable average of `FIT_V` blocks. It auto-fits using
+    the currently selected pair; by default, saving this point selects 4.01 / 6.86.
 
     Optional override: `phcal686 force` saves the latest averaged voltage
     without the stability check.
@@ -287,13 +324,14 @@ SENSOR CALIBRATION
 
   turbdirty [volts]
     Save the stable-window voltage as the dirty-water (500 NTU field reference).
-    Optional voltage must be within 10 mV of the stable-window average.
+    Optional voltage must be within 10 mV of the stable-window average. Turbidity
+    mapping uses only these two saved points and is valid when clear voltage is
+    greater than dirty voltage.
 
-  turbair [volts]
-    Save the stable-window voltage as the air/no-water threshold. Optional
-    voltage must be within 10 mV of the stable-window average. Mapping is
-    valid only when clear voltage > dirty voltage > air threshold; CALSHOW
-    reports whether the mapping is complete and valid.
+  turbair
+    Deprecated and ignored. Two-point calibration does not detect a dry probe
+    separately. If the air voltage falls inside the clear-to-dirty voltage
+    range, the ESP cannot distinguish air from water using these two points.
 
 HC-SR04 WATER LEVEL
   tankheight <cm>
@@ -318,9 +356,11 @@ DEBUG
 
   raw on / raw off
     Normal-mode stream of cached readings every 1 s. `FIT V` is the current
-    filtered voltage used by the live pH formula; `pHcal avg` is the stable
-    window of that same signal used by online pH calibration. For offline
-    calibration use CALMODE + CALSTREAM PH, which now uses the same filter.
+    filtered voltage used by the live pH formula; `pHcal avg` is the rolling
+    60-second average of that same signal used by online pH calibration. It
+    reports the current `window` and block count; it becomes STABLE after a full
+    60 seconds within 10 mV. For offline calibration use CALMODE + CALSTREAM PH, which
+    uses the same filter.
 
 RELAYS — LOCAL TEST
   n1on / n1off       Water pump, GPIO26
@@ -333,6 +373,14 @@ RELAYS — LOCAL TEST
     forced ON when Wi-Fi/Firebase is unavailable. Cloud modes take over again
     after Firebase is reachable; local OFF commands do not override offline
     life-support fallback.
+  No tank assignment: the ESP enters local/offline mode. It stops tank-scoped
+    sensor writes, actuator/feeder cloud control, and cloud log flushing; local
+    sensing and onsite feeding continue. History and unassigned onsite-feed
+    logs are buffered locally. Feed logs are attached to the first future tank
+    assignment when syncing resumes. The ESP checks hardware_system/currentOwner
+    every 10 s while unassigned so it can
+    detect a new assignment and resume cloud mode automatically. This lookup
+    is the only Firebase operation retained in no-assignment mode.
 
 NOTES
 - Local relay test state can be replaced by the next Firestore control sync.
@@ -344,6 +392,9 @@ NOTES
 - Scheduled feeding is executed by the ESP32. Cloud Functions send reminders;
   the mobile app does not enqueue duplicate scheduled feed commands.
 - The latest complete cloud-synced schedules are cached in NVS and continue
-  during a Wi-Fi outage. Ten-minute sensor history is buffered in LittleFS and
-  uploaded after reconnect. A cold boot without network still needs an external
-  RTC for correct wall-clock schedule time.
+  during a Wi-Fi outage. Ten-minute sensor history is buffered on SD (LittleFS
+  fallback) and uploaded after reconnect when a valid tank assignment exists.
+  If there was no assignment when an onsite feed occurred, that event stays
+  local until a valid tank assignment appears, then links to that first assignment. A cold boot
+  without network still needs an external RTC for correct wall-clock schedule
+  time.
