@@ -52,6 +52,7 @@
 #include <time.h>
 #include <stdlib.h>    // atoll()
 #include <string.h>   // strlen(), memmove()
+#include <stddef.h>   // offsetof()
 #include <LittleFS.h>  // offline store-and-forward buffer (data partition)
 #include <SPI.h>
 #include <SD.h>  // optional SD card: primary offline buffer when present
@@ -77,6 +78,7 @@
 //  List: "wifilist"  Switch: "wifi use <n>"  Reset: "RESET_WIFI"
 // ============================================================
 Preferences prefs;
+Preferences historyPrefs;
 String ssid;
 String pass;
 #define WIFI_MAX_PROFILES 5
@@ -134,7 +136,7 @@ long long firestoreTimestampMillis(const String& value) {
 }
 
 #define FIREBASE_SEND_INTERVAL_MS 10000
-#define HISTORY_SEND_INTERVAL_MS 600000  // 10 minutes; matches the documented schema
+#define HISTORY_SLOT_SECONDS 600        // fixed 10-minute history windows
 #define CONFIG_SYNC_INTERVAL_MS 60000   // thresholds re-sync; switch forces immediate
 #define FLUSH_INTERVAL_MS 1000           // flush backlog at 1 entry/sec (max)
 #define NON_PH_SENSOR_POLL_MS 2000
@@ -250,7 +252,7 @@ constexpr unsigned long FIREBASE_AUTH_RETRY_INTERVAL_MS = 15UL * 60UL * 1000UL;
 bool cloudBootstrapComplete = false;
 unsigned long lastFirebaseAuthReportMs = 0;
 unsigned long lastFirebaseSendTime = 0;
-unsigned long lastHistorySendTime = 0;
+time_t nextHistorySlotEndEpoch = 0;
 unsigned long lastFlushTime = 0;
 
 // ─── Offline buffer (LittleFS store-and-forward) ─────────────────────
@@ -500,9 +502,13 @@ bool bufferAppend(const String& jsonLine, long long capturedAtMs = 0) {
              static_cast<unsigned long long>(capturedAtMs));
     queuedLine = String(prefix) + jsonLine;
   }
-  f.println(queuedLine);
+  const size_t previousSize = f.size();
+  const size_t written = f.println(queuedLine);
+  f.flush();
+  const bool writeOk = written >= queuedLine.length() + 1 &&
+      f.size() >= previousSize + queuedLine.length() + 1;
   f.close();
-  return true;
+  return writeOk;
 }
 
 // Drop exactly the first valid line while preserving the entire backlog.
@@ -1130,6 +1136,138 @@ float winDOSum = 0.0f; uint16_t winDON = 0;
 float winPHSum = 0.0f; uint16_t winPHN = 0;
 float winWaterLevelSum = 0.0f; uint16_t winWaterLevelN = 0;
 float winFeedLevelSum = 0.0f; uint16_t winFeedLevelN = 0;
+
+// A small NVS checkpoint preserves the in-progress window across resets.
+// The pending JSON is stored in the same blob so snapshot/reset is atomic.
+constexpr uint32_t HISTORY_STATE_MAGIC = 0x43524857; // "CRHW"
+constexpr uint16_t HISTORY_STATE_VERSION = 1;
+constexpr size_t HISTORY_PENDING_JSON_CAP = 1200;
+struct PersistedHistoryState {
+  uint32_t magic;
+  uint16_t version;
+  uint16_t reserved;
+  int64_t nextSlotEndEpoch;
+  int64_t assignmentAtMs;
+  char tankId[80];
+  char ownerUid[128];
+  float tempSum;
+  uint16_t tempN;
+  float turbSum;
+  uint16_t turbN;
+  float doSum;
+  uint16_t doN;
+  float phSum;
+  uint16_t phN;
+  float waterLevelSum;
+  uint16_t waterLevelN;
+  float feedLevelSum;
+  uint16_t feedLevelN;
+  int64_t pendingCapturedAtMs;
+  char pendingJson[HISTORY_PENDING_JSON_CAP];
+  uint32_t checksum;
+};
+PersistedHistoryState persistedHistoryState{};
+bool historyWindowRecovered = false;
+unsigned long lastHistoryCheckpointMs = 0;
+
+uint32_t historyStateChecksum(const PersistedHistoryState& state) {
+  const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&state);
+  uint32_t hash = 2166136261UL;
+  for (size_t i = 0; i < offsetof(PersistedHistoryState, checksum); ++i) {
+    hash = (hash ^ bytes[i]) * 16777619UL;
+  }
+  return hash;
+}
+
+bool writeHistoryState(PersistedHistoryState& state) {
+  state.magic = HISTORY_STATE_MAGIC;
+  state.version = HISTORY_STATE_VERSION;
+  state.checksum = historyStateChecksum(state);
+  if (!historyPrefs.begin("histwin", false)) return false;
+  const size_t written = historyPrefs.putBytes("state", &state, sizeof(state));
+  historyPrefs.end();
+  return written == sizeof(state);
+}
+
+bool saveHistoryWindowCheckpoint() {
+  PersistedHistoryState next = persistedHistoryState;
+  {
+    MutexGuard sensorLock(sensorStateMutex);
+    next.nextSlotEndEpoch = nextHistorySlotEndEpoch;
+    next.tempSum = winTempSum; next.tempN = winTempN;
+    next.turbSum = winTurbSum; next.turbN = winTurbN;
+    next.doSum = winDOSum; next.doN = winDON;
+    next.phSum = winPHSum; next.phN = winPHN;
+    next.waterLevelSum = winWaterLevelSum; next.waterLevelN = winWaterLevelN;
+    next.feedLevelSum = winFeedLevelSum; next.feedLevelN = winFeedLevelN;
+    // Keep the recovered identity while booted offline; the next successful
+    // assignment read will either confirm it or clear the old window.
+    if (!historyWindowRecovered || hasCurrentTankAssignment()) {
+      strlcpy(next.tankId, currentTankId.c_str(), sizeof(next.tankId));
+      strlcpy(next.ownerUid, currentOwnerUid.c_str(), sizeof(next.ownerUid));
+      next.assignmentAtMs = currentAssignmentAtMs;
+    }
+  }
+  if (!writeHistoryState(next)) return false;
+  persistedHistoryState = next;
+  if (hasCurrentTankAssignment()) historyWindowRecovered = false;
+  return true;
+}
+
+bool loadHistoryWindowCheckpoint() {
+  PersistedHistoryState loaded{};
+  if (!historyPrefs.begin("histwin", true)) return false;
+  const size_t length = historyPrefs.getBytesLength("state");
+  const size_t read = length == sizeof(loaded)
+      ? historyPrefs.getBytes("state", &loaded, sizeof(loaded)) : 0;
+  historyPrefs.end();
+  if (read != sizeof(loaded) || loaded.magic != HISTORY_STATE_MAGIC ||
+      loaded.version != HISTORY_STATE_VERSION ||
+      loaded.checksum != historyStateChecksum(loaded)) {
+    return false;
+  }
+  persistedHistoryState = loaded;
+  nextHistorySlotEndEpoch = static_cast<time_t>(loaded.nextSlotEndEpoch);
+  const bool assignmentKnown = hasCurrentTankAssignment();
+  const bool sameAssignment = assignmentKnown &&
+      currentTankId == loaded.tankId && currentOwnerUid == loaded.ownerUid &&
+      currentAssignmentAtMs == loaded.assignmentAtMs;
+  if (!assignmentKnown || sameAssignment) {
+    MutexGuard sensorLock(sensorStateMutex);
+    winTempSum = loaded.tempSum; winTempN = loaded.tempN;
+    winTurbSum = loaded.turbSum; winTurbN = loaded.turbN;
+    winDOSum = loaded.doSum; winDON = loaded.doN;
+    winPHSum = loaded.phSum; winPHN = loaded.phN;
+    winWaterLevelSum = loaded.waterLevelSum; winWaterLevelN = loaded.waterLevelN;
+    winFeedLevelSum = loaded.feedLevelSum; winFeedLevelN = loaded.feedLevelN;
+    historyWindowRecovered = true;
+    Serial.println("[HISTORY] Restored in-progress 10-minute window from NVS");
+  } else {
+    Serial.println("[HISTORY] Discarded checkpoint from a previous tank assignment");
+    resetWindowAggregates();
+    saveHistoryWindowCheckpoint();
+  }
+  return true;
+}
+
+bool clearPendingHistoryCheckpoint() {
+  PersistedHistoryState previous = persistedHistoryState;
+  persistedHistoryState.pendingCapturedAtMs = 0;
+  persistedHistoryState.pendingJson[0] = '\0';
+  if (saveHistoryWindowCheckpoint()) return true;
+  persistedHistoryState = previous;
+  return false;
+}
+
+bool queuePendingHistoryIfPossible() {
+  if (persistedHistoryState.pendingCapturedAtMs <= 0 ||
+      persistedHistoryState.pendingJson[0] == '\0') return true;
+  if (!bufferAppend(String(persistedHistoryState.pendingJson),
+                    persistedHistoryState.pendingCapturedAtMs)) return false;
+  if (!clearPendingHistoryCheckpoint()) return false;
+  Serial.println("[HISTORY] Recovered pending entry into the offline queue");
+  return true;
+}
 
 void resetWindowAggregatesUnlocked() {
   winTempSum = 0.0f; winTempN = 0;
@@ -2163,19 +2301,43 @@ bool sendLatestToFirestore() {
 // direct validation fails (for example, assignment changed while the device
 // was offline), buffer it; the existing staging route will quarantine it
 // rather than assigning old readings to a new owner.
-void sendHistoryToFirestore() {
-  // Build the payload FIRST (captures the 10-min window aggregates).
+void sendHistoryToFirestore(time_t scheduledSlotEnd) {
+  if (persistedHistoryState.pendingCapturedAtMs > 0) {
+    Serial.println("[HISTORY] Previous entry still pending; retaining current window");
+    return;
+  }
+
+  // Persist the completed entry and the cleared next window in one NVS blob
+  // before making a network request. A reset during TLS/Firebase work can then
+  // recover both the pending entry and new readings collected afterward.
   FirebaseJson content;
-  time_t capturedAt;
-  time(&capturedAt);
+  // recorded_at is the end of the fixed 10-minute collection window, even
+  // when loop scheduling or a slow network makes this write run a little late.
+  const time_t capturedAt = scheduledSlotEnd;
+  const long long capturedMs = atoll(epochMillisString(capturedAt).c_str());
   {
-    // Snapshot and clear atomically. The sensor task keeps accumulating into
-    // the next history window while the synchronous Firestore request runs.
     MutexGuard sensorLock(sensorStateMutex);
     buildFirestorePayload(content, true, capturedAt);
+    const String payload = content.raw();
+    if (payload.length() == 0 || payload.length() >= HISTORY_PENDING_JSON_CAP) {
+      Serial.println("[HISTORY] Could not persist entry: payload exceeds local checkpoint capacity");
+      return;
+    }
+    PersistedHistoryState next = persistedHistoryState;
+    next.pendingCapturedAtMs = capturedMs;
+    strlcpy(next.pendingJson, payload.c_str(), sizeof(next.pendingJson));
+    next.nextSlotEndEpoch = nextHistorySlotEndEpoch;
+    next.tempSum = next.turbSum = next.doSum = next.phSum = 0.0f;
+    next.waterLevelSum = next.feedLevelSum = 0.0f;
+    next.tempN = next.turbN = next.doN = next.phN = 0;
+    next.waterLevelN = next.feedLevelN = 0;
+    if (!writeHistoryState(next)) {
+      Serial.println("[HISTORY] NVS checkpoint failed; keeping this window in RAM and skipping upload");
+      return;
+    }
+    persistedHistoryState = next;
     resetWindowAggregatesUnlocked();
   }
-  const long long capturedMs = atoll(epochMillisString(capturedAt).c_str());
 
   // No valid tank assignment means local/offline mode. Keep history in the
   // on-device buffer; do not stage unassigned readings in Firestore.
@@ -2183,8 +2345,9 @@ void sendHistoryToFirestore() {
     if (bufferAppend(content.raw(), capturedMs)) {
       Serial.printf("[BUF] No tank assignment — history retained locally (#%u)\n",
                     (unsigned)countBufferedEntries());
+      clearPendingHistoryCheckpoint();
     } else {
-      Serial.println("[BUF] No tank assignment and local history buffer unavailable; history window was not saved");
+      Serial.println("[BUF] No tank assignment; durable NVS history retry remains pending");
     }
     return;
   }
@@ -2196,6 +2359,9 @@ void sendHistoryToFirestore() {
     if (bufferAppend(content.raw(), capturedMs)) {
       Serial.printf("[BUF] Offline — buffered entry #%u\n",
                     (unsigned)countBufferedEntries());
+      clearPendingHistoryCheckpoint();
+    } else {
+      Serial.println("[BUF] Offline queue unavailable; durable NVS history retry remains pending");
     }
     return;
   }
@@ -2204,6 +2370,7 @@ void sendHistoryToFirestore() {
     if (bufferAppend(content.raw(), capturedMs)) {
       Serial.printf("[BUF] Clock unsynchronized; buffered entry #%u\n",
                     (unsigned)countBufferedEntries());
+      clearPendingHistoryCheckpoint();
     }
     return;
   }
@@ -2217,6 +2384,7 @@ void sendHistoryToFirestore() {
     if (bufferAppend(content.raw(), capturedMs)) {
       Serial.printf("[BUF] Could not resolve history date; buffered #%u\n",
                     (unsigned)countBufferedEntries());
+      clearPendingHistoryCheckpoint();
     }
     return;
   }
@@ -2239,8 +2407,10 @@ void sendHistoryToFirestore() {
     if (bufferAppend(content.raw(), capturedMs)) {
       Serial.printf("[BUF] Buffered entry #%u for validated history routing\n",
                     (unsigned)countBufferedEntries());
+      clearPendingHistoryCheckpoint();
     }
   }
+  if (saved) clearPendingHistoryCheckpoint();
 }
 
 // ============================================================
@@ -3014,7 +3184,10 @@ bool handleCalibrationControlCommand(String& cmd) {
         resetLiveAverageWindowUnlocked(true);
       }
       calibrationMode = false;
-      lastHistorySendTime = millis();
+      // Calibration time is excluded from sensor history; resume at the next
+      // fixed wall-clock boundary after normal collection restarts.
+      nextHistorySlotEndEpoch = 0;
+      saveHistoryWindowCheckpoint();
       lastFirebaseSendTime = millis();
       lastWifiReconnectTime = millis();
       Firebase.reconnectWiFi(true);
@@ -3522,6 +3695,8 @@ void setup() {
   initOfflineBuffer();  // LittleFS store-and-forward (mounted before loop)
   getHardwareId();  // resolve MAC-based ID after WiFi is up
   initFeeder();
+  loadHistoryWindowCheckpoint();
+  queuePendingHistoryIfPossible();
   initBlower();
   initBlowerButton();
   // Larger read side for Firestore payloads: fewer -6 payload timeouts.
@@ -3598,6 +3773,11 @@ void loop() {
   pollFeedOverride();
   // Motor timing must never wait behind a blocking cloud/sensor operation.
   if (feederRunState != FEEDER_IDLE) {
+    const unsigned long checkpointNow = millis();
+    if (checkpointNow - lastHistoryCheckpointMs >= 60000UL) {
+      lastHistoryCheckpointMs = checkpointNow;
+      saveHistoryWindowCheckpoint();
+    }
     processFeederTick();
     if (!lcdTaskRunning) updateLCD();
     delay(1);
@@ -4499,16 +4679,47 @@ void loop() {
     now = lastActuatorSyncMs;
   }
 
-  if (now - lastHistorySendTime >= HISTORY_SEND_INTERVAL_MS) {
-    sendHistoryToFirestore();
-    lastHistorySendTime = millis();
-    now = lastHistorySendTime;
+  // History windows follow fixed wall-clock boundaries (00, 10, 20, ...).
+  // Epoch boundaries align with Manila time because UTC+8 is a whole number
+  // of 10-minute intervals. If processing is a few minutes late, keep the
+  // original slot end in recorded_at. If a whole slot was missed, coalesce
+  // the accumulated readings into the latest completed slot instead of
+  // fabricating catch-up entries for windows with no separate samples.
+  time_t historyNow = 0;
+  time(&historyNow);
+  if (historyNow > 1700000000) {
+    if (nextHistorySlotEndEpoch == 0) {
+      nextHistorySlotEndEpoch =
+          (historyNow / HISTORY_SLOT_SECONDS + 1) * HISTORY_SLOT_SECONDS;
+    } else if (historyNow >= nextHistorySlotEndEpoch) {
+      time_t slotEnd = nextHistorySlotEndEpoch;
+      if (historyNow - slotEnd >= HISTORY_SLOT_SECONDS) {
+        slotEnd = (historyNow / HISTORY_SLOT_SECONDS) * HISTORY_SLOT_SECONDS;
+      }
+      nextHistorySlotEndEpoch =
+          (historyNow / HISTORY_SLOT_SECONDS + 1) * HISTORY_SLOT_SECONDS;
+      sendHistoryToFirestore(slotEnd);
+
+      // A synchronous Firebase request may itself cross one or more slot
+      // boundaries. Start the next collection window at the next future slot;
+      // don't emit empty catch-up records after the request returns.
+      time(&historyNow);
+      if (historyNow > 1700000000) {
+        nextHistorySlotEndEpoch =
+            (historyNow / HISTORY_SLOT_SECONDS + 1) * HISTORY_SLOT_SECONDS;
+      } else {
+        nextHistorySlotEndEpoch = slotEnd + HISTORY_SLOT_SECONDS;
+      }
+      saveHistoryWindowCheckpoint();
+      now = millis();
+    }
   }
 
   // ─── Offline buffer flush (store-and-forward) ───
   // Runs whenever Firebase is reachable; 1 entry/sec max so the live
   // 5-sec + 10-min writes are never starved. Oldest entry goes first.
   if (now - lastFlushTime >= FLUSH_INTERVAL_MS) {
+    queuePendingHistoryIfPossible();
     if (networkAvailable && hasCurrentTankAssignment() && ensureFirebaseReady()) {
       flushPendingLocalFeedLog();
       if (sdMounted || littlefsMounted) flushOneFeederLog();
@@ -4525,6 +4736,13 @@ void loop() {
     }
     lastFlushTime = millis();
     now = lastFlushTime;
+  }
+
+  if (now - lastHistoryCheckpointMs >= 60000UL) {
+    lastHistoryCheckpointMs = now;
+    if (!saveHistoryWindowCheckpoint()) {
+      Serial.println("[HISTORY] Could not checkpoint in-progress window to NVS");
+    }
   }
 
   // Drop a TLS session wedged by repeated transport failures (BearSSL
@@ -6036,6 +6254,10 @@ bool flushOneFeederLog() {
 
 void applyTankAssignment(const String& tankId, const String& ownerUid, long long assignedAtMs) {
   if (tankId == currentTankId && ownerUid == currentOwnerUid && assignedAtMs == currentAssignmentAtMs) return;
+  const bool preserveRecoveredWindow = historyWindowRecovered &&
+      tankId == persistedHistoryState.tankId &&
+      ownerUid == persistedHistoryState.ownerUid &&
+      assignedAtMs == persistedHistoryState.assignmentAtMs;
   const bool hadAssignment = currentTankId.length() > 0 && currentOwnerUid.length() > 0;
   const bool hasAssignment = tankId.length() > 0 && ownerUid.length() > 0;
   if (hadAssignment || hasAssignment) {
@@ -6051,7 +6273,11 @@ void applyTankAssignment(const String& tankId, const String& ownerUid, long long
   currentTankId = tankId;
   currentOwnerUid = ownerUid;
   currentAssignmentAtMs = assignedAtMs;
-  resetWindowAggregates(); // A 10-minute window must never span two assignments.
+  if (!preserveRecoveredWindow) {
+    resetWindowAggregates(); // A 10-minute window must never span two assignments.
+  }
+  historyWindowRecovered = false;
+  saveHistoryWindowCheckpoint();
   feederConfigReady = false;
   if (!feederInitialized) return;
   // Loop defers cloud work until the servo is parked. Revoke the cached plan;
